@@ -14,14 +14,14 @@ import { examplesFor, withGeneratedCopy, type VerticalExamples } from "@/lib/ver
  * trade-neutral set, which reads as an instruction rather than as a different business —
  * so the placeholder never flickers from one trade's example to another's.
  *
- * `vertical` is for a screen that already holds the account's business type from its own
- * read (the business profile editor); it wins over `/v1/me`'s.
+ * The business profile's own fields do not read this: they have their own wording, written
+ * for the business (`BusinessProfile.wording`).
  */
-export function useVerticalExamples(vertical?: string | null): VerticalExamples {
+export function useVerticalExamples(): VerticalExamples {
   const session = useClientSession();
   const me = useMe(session);
   const copy = useBusinessCopy(session);
-  const base = examplesFor(vertical === undefined ? me.data?.organization?.vertical_template : vertical);
+  const base = examplesFor(me.data?.organization?.vertical_template);
   return withGeneratedCopy(base, copy.data?.placeholders);
 }
 

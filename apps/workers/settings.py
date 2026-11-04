@@ -310,6 +310,7 @@ from apps.workers.pipeline import (
     reconcile_outstanding_calls,
     run_post_call_pipeline,
 )
+from apps.workers.profile_wording import write_profile_wording
 from apps.workers.qa_sampling import draw_qa_samples
 from apps.workers.rate_card_notice import (
     fan_out_rate_card_notice,
@@ -422,6 +423,7 @@ FUNCTIONS: list[Any] = [
         draft_lead_fields,
         name_core_details,
         write_starter_steps,
+        write_profile_wording,
         draft_agent_fields,
         # An account brought to its business type: lead details, scripts, and the AI's
         # suggestion where nobody chose a type (D-722), from the outbox

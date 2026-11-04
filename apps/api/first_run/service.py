@@ -336,12 +336,15 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
         {"id": row.id, "brief": cleaned or None},
     )
     # The owner's own words describe the business as well as a list of what it sells does:
-    # each is enough to name its details and write its job steps (`starter_plans`).
+    # each is enough to name its details, write its job steps (`starter_plans`) and word its
+    # business profile (`profile_wording`).
     from apps.api.agents.lead_fields import maybe_name_core_details
     from apps.api.agents.starter_plans import maybe_write_starter_steps
+    from apps.api.tenancy.profile_wording import maybe_write_profile_wording
 
     await maybe_name_core_details(session, tenant_id=tenant_id)
     await maybe_write_starter_steps(session, tenant_id=tenant_id)
+    await maybe_write_profile_wording(session, tenant_id=tenant_id)
     current = (
         await session.execute(
             text("SELECT questions_brief_hash FROM first_runs WHERE id = :id"), {"id": row.id}

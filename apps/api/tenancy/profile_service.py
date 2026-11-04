@@ -312,10 +312,12 @@ async def save_profile(
         # saved (the screen, Pip, onboarding) queues it.
         from apps.api.agents.lead_fields import maybe_name_core_details
         from apps.api.agents.starter_plans import maybe_write_starter_steps
+        from apps.api.tenancy.profile_wording import maybe_write_profile_wording
 
         await maybe_name_core_details(session, tenant_id=tenant_id)
         # And each ready-made job's steps, rewritten whenever what it sells changes.
         await maybe_write_starter_steps(session, tenant_id=tenant_id)
+        await maybe_write_profile_wording(session, tenant_id=tenant_id)
     # The save that completes the profile is what finishes an onboarding whose owner has
     # already joined (D-695).
     await complete_onboarding_if_finished(session, tenant_id=tenant_id)

@@ -20,18 +20,6 @@ import { NO_BUSINESS_COPY, renderClientPage } from "./harness";
  */
 
 const PLACEHOLDERS: GeneratedPlaceholders = {
-  branch_label: "Kukatpally shop",
-  service_name: "Cold-pressed groundnut oil (1 litre)",
-  service_price: "320",
-  service_note: "Fresh batch every Monday",
-  ask_on_arrival: "depends on the day's stock",
-  faq_question: "Do you deliver to Miyapur?",
-  staff_name: "Ramesh Rao",
-  staff_spoken: "RAA-mesh RAO",
-  staff_role: "Owner",
-  staff_why_it_matters: "regular customers ask for the owner by name",
-  booking_rules: "Orders before 6 pm are packed the same day.",
-  contact_name: "Shop counter",
   knowledge_title: "This week's oil prices",
   knowledge_answer: "Free home delivery above 500 rupees.",
   extraction_reason: "so we can pack the order before the customer arrives",
@@ -61,7 +49,7 @@ describe("the generated copy is laid over the per-trade table", () => {
 
   it("replaces every generated key and keeps the two shown before an account exists", () => {
     const merged = withGeneratedCopy(examplesFor("clinic"), PLACEHOLDERS);
-    expect(merged.serviceName).toBe("Cold-pressed groundnut oil (1 litre)");
+    expect(merged.knowledgeTitle).toBe("This week's oil prices");
     expect(merged.bookingJobTitle).toBe("Take orders");
     expect(merged.endCallRules).toBe("Never promise stock.\nAlways offer a call back.");
     expect(merged.orgName).toBe(examplesFor("clinic").orgName);
@@ -85,7 +73,7 @@ function Probe() {
   useClientSession();
   return (
     <p>
-      <span data-testid="service">{eg.serviceName}</span>
+      <span data-testid="service">{eg.knowledgeTitle}</span>
       <span data-testid="question">{ideas.exampleQuestions[0] ?? "none"}</span>
     </p>
   );
@@ -96,13 +84,13 @@ describe("useVerticalExamples reads the stored copy", () => {
     await renderClientPage(<Probe />, {
       "/v1/me": { ...OWNER_ME, organization: { ...OWNER_ME.organization, vertical_template: "retail" } },
     });
-    expect((await screen.findByTestId("service")).textContent).toBe(examplesFor("retail").serviceName);
+    expect((await screen.findByTestId("service")).textContent).toBe(examplesFor("retail").knowledgeTitle);
     expect(screen.getByTestId("question").textContent).toBe("none");
   });
 
   it("shows the account's own examples once they land", async () => {
     await renderClientPage(<Probe />, { "/v1/me": OWNER_ME, "/v1/business-copy": LANDED });
-    expect((await screen.findByText("Cold-pressed groundnut oil (1 litre)")).textContent).toBeTruthy();
+    expect((await screen.findByText("This week's oil prices")).textContent).toBeTruthy();
     expect(screen.getByTestId("question").textContent).toBe("Is the oil cold-pressed?");
   });
 });

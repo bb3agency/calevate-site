@@ -12,6 +12,7 @@ import {
   type BusinessProfile,
 } from "@/lib/api/businessProfile";
 
+import { NEUTRAL_WORDING } from "./businessProfileFixture";
 import { renderClientPage } from "./harness";
 
 /**
@@ -38,7 +39,7 @@ function profile(over: Partial<BusinessProfile> = {}): BusinessProfile {
   return {
     business_name: "Sunrise Dental",
     legal_name: null,
-    vertical_template: "clinic",
+    wording: NEUTRAL_WORDING,
     hours: [
       { day: "mon", opens: "09:30", closes: "18:00", closed: false },
       { day: "sun", opens: null, closes: null, closed: true },
@@ -189,13 +190,13 @@ describe("the business profile screen", () => {
       "/v1/me": OWNER,
       "/v1/business-profile": profile({
         blockers: [
-          { code: "service_missing", step: "services", message: "Add at least one service." },
+          { code: "service_missing", step: "services", message: "Add at least one thing you offer." },
         ],
       }),
     });
     await screen.findByText("Finish your business profile");
     const blockers = screen.getByRole("region", { name: "Finish your business profile" });
-    const row = within(blockers).getByText("Services and prices").closest("li") as HTMLElement;
+    const row = within(blockers).getByText("What you offer").closest("li") as HTMLElement;
     const link = within(row).getByRole("link", { name: /Open/ });
     expect(link.getAttribute("href")).toContain("/c/acme/settings/business?mode=steps&step=services");
     expect(container.textContent).toContain("Sunrise Dental");

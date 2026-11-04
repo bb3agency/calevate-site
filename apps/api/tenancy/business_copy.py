@@ -104,19 +104,6 @@ class Placeholders(_Strict):
     `orgName` and `orgSlug` are not here: they are shown only while an operator creates an
     account, before there is a business to write them for."""
 
-    branch_label: Short
-    service_name: Short
-    #: A price as the profile form takes it: whole rupees, digits only.
-    service_price: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,8}$")]
-    service_note: Short
-    ask_on_arrival: Short
-    faq_question: Line
-    staff_name: Short
-    staff_spoken: Short
-    staff_role: Short
-    staff_why_it_matters: Line
-    booking_rules: Prose
-    contact_name: Short
     knowledge_title: Short
     knowledge_answer: Prose
     extraction_reason: Line
@@ -150,10 +137,46 @@ class Placeholders(_Strict):
     message_body: Line | None = None
     outcome_label: Chip | None = None
     outcome_meaning: Line | None = None
+    # The business profile's own examples, asked for up to prompt version 2. They are now
+    # written with that form's labels from the business's own description
+    # (`tenancy/profile_wording`), so they are no longer asked for or shown; they stay
+    # readable so a copy written under version 2 still parses.
+    branch_label: Short | None = None
+    service_name: Short | None = None
+    service_price: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]{0,8}$")] | None = None
+    service_note: Short | None = None
+    ask_on_arrival: Short | None = None
+    faq_question: Line | None = None
+    staff_name: Short | None = None
+    staff_spoken: Short | None = None
+    staff_role: Short | None = None
+    staff_why_it_matters: Line | None = None
+    booking_rules: Prose | None = None
+    contact_name: Short | None = None
 
+
+#: The keys no longer asked for (see the end of `Placeholders`).
+RETIRED_PLACEHOLDERS: Final = frozenset(
+    {
+        "branch_label",
+        "service_name",
+        "service_price",
+        "service_note",
+        "ask_on_arrival",
+        "faq_question",
+        "staff_name",
+        "staff_spoken",
+        "staff_role",
+        "staff_why_it_matters",
+        "booking_rules",
+        "contact_name",
+    }
+)
 
 #: The keys, in the table's order, for the prompt and the strict schema.
-PLACEHOLDER_KEYS: Final[tuple[str, ...]] = tuple(Placeholders.model_fields)
+PLACEHOLDER_KEYS: Final[tuple[str, ...]] = tuple(
+    key for key in Placeholders.model_fields if key not in RETIRED_PLACEHOLDERS
+)
 
 #: The one blank a generated message body holds, as the message form numbers it.
 MESSAGE_BLANK: Final = "{{1}}"
@@ -404,6 +427,7 @@ __all__ = [
     "MESSAGE_BLANK",
     "PLACEHOLDER_KEYS",
     "REFRESH_EVERY",
+    "RETIRED_PLACEHOLDERS",
     "STOP_MESSAGES",
     "VENDOR_WORDS",
     "CopyState",

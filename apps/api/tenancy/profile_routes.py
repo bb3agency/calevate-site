@@ -40,6 +40,7 @@ from apps.api.db.session import tenant_session
 from apps.api.tenancy import business_profile as bp
 from apps.api.tenancy.models import PROFILE_STEPS
 from apps.api.tenancy.profile_service import ProfilePatch, SetupAction, record_setup, save_profile
+from apps.api.tenancy.profile_wording import ProfileWording, read_wording
 from apps.api.tenancy.setup_nudges import on_dashboard, setup_nudges
 
 router = APIRouter(prefix="/v1/business-profile", tags=["business-profile"])
@@ -91,8 +92,9 @@ class BusinessProfileOut(_Out):
     business_name: str
     #: The name on the business's verification, when one is on file. Read-only here.
     legal_name: str | None
-    #: The business type, for examples that fit this trade.
-    vertical_template: str | None
+    #: The form's labels, hints and examples for this business (`tenancy/profile_wording`);
+    #: neutral, with `drafted` false, until its draft is written.
+    wording: ProfileWording
     #: The answered days only, Monday first. A day absent here is not answered yet; a
     #: day with `closed` true is closed.
     hours: list[bp.DayHours]
@@ -147,7 +149,7 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
     profile = await bp.load_profile(session, tenant_id=tenant_id)
     org = (
         await session.execute(
-            text("SELECT name, vertical_template, created_at FROM organizations WHERE id = :tid"),
+            text("SELECT name, created_at FROM organizations WHERE id = :tid"),
             {"tid": tenant_id},
         )
     ).first()
@@ -166,7 +168,7 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
     )
     return {
         "business_name": str(org[0]),
-        "vertical_template": org[1],
+        "wording": await read_wording(session, tenant_id=tenant_id),
         "legal_name": kyc.legal_business_name,
         "hours": _hours_out(profile.hours),
         "branches": profile.branches,
@@ -189,7 +191,7 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
             complete=complete,
             on_dashboard=on_dashboard(
                 finished=complete and not blockers,
-                created_at=org[2],
+                created_at=org[1],
                 dismissed=profile.setup_dismissed_at is not None,
                 nudges=nudges,
             ),

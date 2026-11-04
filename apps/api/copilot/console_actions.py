@@ -2792,7 +2792,8 @@ BUSINESS_PROFILE_SET: Final = ActionTool(
     schema=action_schema(
         "business_profile_set",
         "Propose replacing sections of the business profile every agent answers from: "
-        "branches and addresses, services and prices, FAQs, staff, booking rules, "
+        "branches and addresses, what the business offers (with prices only where it has "
+        "them), FAQs, staff, how callers go ahead (booking_rules), "
         "languages. Send the WHOLE section, including what should stay — read it from the "
         "Business profile screen state first. Hours have their own tool; contacts are "
         "edited on the screen." + PROPOSES_ONLY,
@@ -2809,7 +2810,8 @@ BUSINESS_PROFILE_SET: Final = ActionTool(
                         "notes": _NULLABLE_TEXT,
                     }
                 ),
-                "Every service, with its price in rupees where there is one.",
+                "Everything the business offers, with a price in rupees only where it has one; "
+                "never invent a price.",
             ),
             "faqs": _nullable_list(
                 _strict_object({"question": {"type": "string"}, "answer": {"type": "string"}}),

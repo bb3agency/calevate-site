@@ -56,7 +56,7 @@ describe("every vertical gets its own examples", () => {
   it("gives each trade DIFFERENT examples rather than one set with a label", () => {
     // The cheap wrong fix is a table whose rows are all the clinic's. Compare the field
     // an operator reads first — what the business sells.
-    const services = VERTICALS.map((v) => examplesFor(v).serviceName);
+    const services = VERTICALS.map((v) => examplesFor(v).scriptBrief);
     expect(new Set(services).size).toBe(VERTICALS.length);
   });
 });
@@ -68,7 +68,7 @@ describe("an unknown vertical", () => {
     // fallback looks like a fallback instead of looking like a business.
     for (const value of [null, undefined, "", "chiropractor", "toString"]) {
       expect(examplesFor(value)).toEqual(examplesFor("custom"));
-      expect(CLINICAL.test(examplesFor(value).serviceName)).toBe(false);
+      expect(CLINICAL.test(examplesFor(value).knowledgeTitle)).toBe(false);
     }
   });
 
@@ -76,7 +76,7 @@ describe("an unknown vertical", () => {
     // `key in table` walks the prototype chain, so `constructor` would report as present
     // and the read would yield the `Object` function. The vertical comes off the wire.
     const eg = examplesFor("constructor");
-    expect(typeof eg.serviceName).toBe("string");
+    expect(typeof eg.knowledgeTitle).toBe("string");
     expect(eg).toEqual(examplesFor("custom"));
   });
 });
