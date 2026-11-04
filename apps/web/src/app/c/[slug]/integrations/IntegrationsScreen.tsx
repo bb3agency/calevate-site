@@ -105,8 +105,8 @@ export function IntegrationsScreen() {
       <ConnectedAccounts session={session} canWrite={write.allowed} />
 
       <Section
-        title="Send to your own system"
-        description="Send leads and call results to your own system."
+        title="Send results to"
+        description="Leads and call results, to a sheet or your CRM."
         info={<p>Each destination gets them as they happen, signed so your system knows they came from us.</p>}
         action={
           <button

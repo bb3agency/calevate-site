@@ -60,8 +60,8 @@ export const JOBS: readonly Job[] = [
   {
     id: "crm",
     kind: "crm",
-    title: "Save callers to your CRM",
-    line: "Saves each caller as a lead or contact.",
+    title: "Save callers to Zoho or HubSpot",
+    line: "Saves the caller as a lead while on the call.",
   },
   {
     id: "sheets",
@@ -529,3 +529,23 @@ export function toolTitle(tool: Pick<ActionTool, "kind" | "name">): string {
 
 /** Jobs that stay in the catalogue once set up: each instance is a different system. */
 export const REPEATABLE_JOBS: readonly JobId[] = ["custom_api"];
+
+/**
+ * Jobs no longer offered for a new action. Writing calls into a sheet is an Integrations
+ * destination ("Send results to"); the server refuses a new one here
+ * (`action_sheet_moved`). Kept in `JOBS` so a sheet action set up before still has its
+ * name, icon and form.
+ */
+export const RETIRED_JOBS: readonly JobId[] = ["sheets"];
+
+/**
+ * Where an action that runs after the call now belongs, for its move-out notice: a sheet
+ * row or a post to the client's own system is an Integrations destination, a CRM record
+ * (Zoho, HubSpot: no Integrations destination) is saved during the call instead, and
+ * anything else, a thank-you WhatsApp first, is a Follow-up step.
+ */
+export function afterCallHome(tool: Pick<ActionTool, "kind">): "integrations" | "during_call" | "follow_ups" {
+  if (tool.kind === "sheets" || tool.kind === "custom_api") return "integrations";
+  if (tool.kind === "crm") return "during_call";
+  return "follow_ups";
+}

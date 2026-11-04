@@ -5,7 +5,7 @@
  *
  * What a client needs is up front: which service (when a job offers more than one), the
  * job's own settings (`KindFields.tsx`) and the account it uses. The machine half — the
- * action's `name`, what the agent is told, the values it collects, when it runs and what
+ * action's `name`, what the agent is told, the values it collects and what
  * it says while it works — is derived (`jobs.ts`) and sits under Advanced, closed, with
  * the fact in its subtitle. A custom API opens Advanced, because there the values ARE the
  * job (REDESIGN-2). The wire body is unchanged.
@@ -61,9 +61,6 @@ const PROVIDER_CHOICES: Partial<Record<Kind, { value: Provider; label: string }[
   ],
 };
 
-/** Kinds that only make sense while the caller is on the line. */
-const DURING_CALL_ONLY: readonly Kind[] = ["caller_lookup", "payment_link"];
-
 const NAME_PATTERN = "[a-zA-Z][a-zA-Z0-9_]{2,39}";
 
 export function ActionForm({
@@ -102,9 +99,9 @@ export function ActionForm({
   const [description, setDescription] = useState(
     existing?.description ?? (kind === "calendar" ? "" : DEFAULT_INSTRUCTIONS[kind]),
   );
-  const [trigger, setTrigger] = useState<"during_call" | "after_call">(
-    existing?.trigger === "after_call" ? "after_call" : "during_call",
-  );
+  // Not a choice: a new action runs during the call (after-call work is a Follow-up), and
+  // an older after-call one keeps its trigger until its owner moves it.
+  const trigger = existing?.trigger === "after_call" ? "after_call" : "during_call";
   const [preCall, setPreCall] = useState(existing?.pre_call_message ?? "");
   const [credentialId, setCredentialId] = useState(existing?.credential_id ?? "");
   const [params, setParams] = useState<DraftParam[]>(() =>
@@ -132,7 +129,7 @@ export function ActionForm({
       provider: needsProvider ? provider : null,
       name,
       description,
-      trigger: DURING_CALL_ONLY.includes(kind) ? "during_call" : trigger,
+      trigger,
       pre_call_message: preCall || null,
       // A sheet's Google account is chosen with the spreadsheet itself.
       credential_id: (credentialKind === "google_sheets" ? draft.sheet_credential : credentialId) || null,
@@ -233,19 +230,6 @@ export function ActionForm({
               <ParamEditor params={params} onChange={setParams} fields={capturedFields} />
             ) : null}
             <div className="flex flex-wrap gap-3">
-              {DURING_CALL_ONLY.includes(kind) ? null : (
-                <label className="block flex-1 sm:min-w-[12rem]">
-                  <span className={FIELD_LABEL}>When it runs</span>
-                  <select
-                    className={FIELD}
-                    value={trigger}
-                    onChange={(e) => setTrigger(e.target.value as "during_call" | "after_call")}
-                  >
-                    <option value="during_call">During the call, when your agent decides</option>
-                    <option value="after_call">After the call ends, every time</option>
-                  </select>
-                </label>
-              )}
               <label className="block flex-1 sm:min-w-[12rem]">
                 <span className={FIELD_LABEL}>What your agent says while it works</span>
                 <input

@@ -121,7 +121,7 @@ async function choose(destination: "webhook" | "sheet"): Promise<HTMLElement> {
   const dialog = screen.queryByRole("dialog") ?? (await openDrawer());
   fireEvent.click(
     within(dialog).getByRole("radio", {
-      name: destination === "sheet" ? /Google Sheet/ : /your own system/,
+      name: destination === "sheet" ? /Google Sheet/ : /Your own system/,
     }),
   );
   return dialog;

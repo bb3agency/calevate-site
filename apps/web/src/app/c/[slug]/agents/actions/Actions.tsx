@@ -15,6 +15,7 @@
  * the vocabulary is in `jobs.ts`. Accounts are connected for the whole business (D-700).
  */
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   CalendarCheck,
@@ -32,7 +33,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { IconTile } from "@/components/console/iconTile";
 import { Section, TEXT_ACTION } from "@/components/console/section";
-import { ProblemNotice, RestrictionNote, Skeleton, ToggleSwitch } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON_SM, Skeleton, ToggleSwitch } from "@/components/ui";
 import {
   useAgentActions,
   useCredentials,
@@ -42,6 +43,7 @@ import {
 } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useClientRealm } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -68,6 +70,7 @@ import {
   toolSummary,
   toolTitle,
   REPEATABLE_JOBS,
+  RETIRED_JOBS,
   type Job,
   type JobId,
 } from "./jobs";
@@ -105,6 +108,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const [requested, setView] = useState<View>({ at: "list" });
   const eg = useVerticalExamples();
+  const { href } = useClientRealm();
   // Reading actions and credentials is `org:read`; every write here — the master switch,
   // a tool, a credential, a test run — is `org:manage`, which staff do not hold.
   const write = useWriteAccess(session, "org:manage", "change what this agent can do mid-call");
@@ -249,8 +253,10 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
     .join(" · ");
 
   const setUpKinds = new Set(others.map((t) => t.kind));
-  const catalogue = JOBS.filter((j) =>
-    j.id === "booking" ? !hasBooking : REPEATABLE_JOBS.includes(j.id) || !setUpKinds.has(j.kind),
+  const catalogue = JOBS.filter(
+    (j) =>
+      !RETIRED_JOBS.includes(j.id) &&
+      (j.id === "booking" ? !hasBooking : REPEATABLE_JOBS.includes(j.id) || !setUpKinds.has(j.kind)),
   );
 
   return (
@@ -346,6 +352,18 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
           </Section>
         ) : null}
       </fieldset>
+
+      {/* After-call work has one home each, account-wide; these only point there. */}
+      <Section headingLevel={3} title="After the call">
+        <div className="flex flex-wrap gap-3">
+          <Link className={SECONDARY_BUTTON_SM} href={href(`/c/${session.orgSlug}/integrations`)}>
+            Send results to a sheet or CRM
+          </Link>
+          <Link className={SECONDARY_BUTTON_SM} href={href(`/c/${session.orgSlug}/follow-ups`)}>
+            Follow up after a call
+          </Link>
+        </div>
+      </Section>
     </div>
   );
 }

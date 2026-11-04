@@ -24,6 +24,7 @@ import {
 import type { Session } from "@/lib/api/client";
 
 import { ActionForm } from "./ActionForm";
+import { AfterCallMove } from "./AfterCallMove";
 import { toolLogo, toolProblem, toolSummary } from "./jobs";
 import { KINDS } from "./params";
 import { RunsPanel, TestPanel } from "./ToolRow";
@@ -88,6 +89,8 @@ export function ToolDetail({
         {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
       </div>
 
+      {tool.trigger === "after_call" ? <AfterCallMove tool={tool} agentId={agentId} session={session} /> : null}
+
       <div>
         <SettingRows className="border-y border-line">
           <SettingRow label="Set up" value={toolSummary(tool) || "Nothing yet"} action={change} />
@@ -107,11 +110,6 @@ export function ToolDetail({
               action={change}
             />
           ) : null}
-          <SettingRow
-            label="When"
-            value={tool.trigger === "after_call" ? "After the call ends" : "During the call"}
-            action={change}
-          />
           <SettingRow label="What your agent is told" value={tool.description} action={change} />
         </SettingRows>
         {problem ? (

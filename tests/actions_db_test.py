@@ -178,21 +178,9 @@ async def test_declare_respects_master_switch_and_trigger() -> None:
                 "query": [{"key": "id", "param": "order_id"}],
             },
         )
-        # An after-call tool must NOT be declared as an engine function.
-        await service.create_tool(
-            s,
-            tenant_id=tenant,
-            agent_id=agent,
-            kind="custom_api",
-            provider=None,
-            name="log_it",
-            description="after the call",
-            trigger="after_call",
-            pre_call_message=None,
-            credential_id=None,
-            params=[],
-            config={"method": "POST", "url": "https://api.example.com/log"},
-        )
+        # An after-call tool (stored before after-call work moved to Follow-ups) must NOT
+        # be declared as an engine function.
+        await _legacy_after_call_tool(s, tenant, agent)
 
         # Master switch OFF (default): nothing declared.
         assert await service.declare(s, agent_id=agent, direction="inbound") == ()
@@ -205,6 +193,82 @@ async def test_declare_respects_master_switch_and_trigger() -> None:
         assert spec.name == "get_status"
         names = {p.name for p in spec.params}
         assert "order_id" in names and "caller" not in names
+
+
+async def _legacy_after_call_tool(s: AsyncSession, tenant: UUID, agent: UUID) -> UUID:
+    """An after-call action as rows stored before new ones were refused still hold it:
+    created during the call, then moved by SQL, as no route now can."""
+    tool = await service.create_tool(
+        s,
+        tenant_id=tenant,
+        agent_id=agent,
+        kind="custom_api",
+        provider=None,
+        name="log_it",
+        description="after the call",
+        trigger="during_call",
+        pre_call_message=None,
+        credential_id=None,
+        params=[],
+        config={"method": "POST", "url": "https://api.example.com/log"},
+    )
+    await s.execute(
+        text("UPDATE action_tools SET trigger = 'after_call' WHERE id = :id"), {"id": tool.id}
+    )
+    return tool.id
+
+
+@pytest.mark.asyncio
+async def test_after_call_work_is_refused_on_new_actions_and_kept_on_old_ones() -> None:
+    tenant = await _tenant("after")
+    async with tenant_session(tenant) as s:
+        agent = await agent_lifecycle.create_agent(
+            s, tenant_id=tenant, name="R", direction="inbound", language_primary="te-IN"
+        )
+        common = {
+            "kind": "custom_api",
+            "provider": None,
+            "description": "after the call",
+            "pre_call_message": None,
+            "credential_id": None,
+            "params": [],
+            "config": {"method": "POST", "url": "https://api.example.com/log"},
+        }
+        with pytest.raises(ProblemError) as new:
+            await service.create_tool(
+                s, tenant_id=tenant, agent_id=agent, name="log_new", trigger="after_call", **common
+            )
+        assert new.value.code == "action_after_call_moved"
+
+        sheet = {
+            "kind": "sheets",
+            "provider": None,
+            "description": "save the caller's answers",
+            "pre_call_message": None,
+            "credential_id": None,
+            "params": [],
+            "config": {"operation": "record", "spreadsheet_id": "a" * 44, "columns": []},
+        }
+        with pytest.raises(ProblemError) as row:
+            await service.create_tool(
+                s, tenant_id=tenant, agent_id=agent, name="save_row", trigger="during_call", **sheet
+            )
+        assert row.value.code == "action_sheet_moved"
+
+        legacy = await _legacy_after_call_tool(s, tenant, agent)
+        edited = await service.update_tool(
+            s, tool_id=legacy, name="log_it", trigger="after_call", **common
+        )
+        assert edited.trigger == "after_call"
+        moved = await service.update_tool(
+            s, tool_id=legacy, name="log_it", trigger="during_call", **common
+        )
+        assert moved.trigger == "during_call"
+        with pytest.raises(ProblemError) as back:
+            await service.update_tool(
+                s, tool_id=legacy, name="log_it", trigger="after_call", **common
+            )
+        assert back.value.code == "action_after_call_moved"
 
 
 @pytest.mark.asyncio

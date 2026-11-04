@@ -18,13 +18,15 @@ import { SheetsForm, SheetsUnavailable } from "./SheetsForm";
 import { WebhookForm } from "./WebhookForm";
 
 const KINDS = [
-  { value: "webhook", label: "Send events to your own system", hint: "Your CRM or any web address." },
-  { value: "sheet", label: "Send events to a Google Sheet", hint: "A row per event." },
-  { value: "leadsquared", label: "Send leads to LeadSquared", hint: "New leads and call results." },
+  { value: "webhook", label: "Your own system", hint: "Your CRM or any web address." },
+  { value: "sheet", label: "A Google Sheet", hint: "A row per call or lead." },
+  { value: "leadsquared", label: "LeadSquared", hint: "New leads and call results." },
 ] as const;
 
 /**
- * ADD A DESTINATION: your own system (a signed webhook) or a Google Sheet.
+ * SEND RESULTS TO: your own system (a signed webhook), a Google Sheet or LeadSquared. This
+ * is the one place call results leave for a client's own tools; an agent action no longer
+ * writes them after the call.
  *
  * Both forms are built from ONE read (`options`), rendered by the screen only once it has
  * answered, so neither can offer a subscription the server no longer accepts. "Sheets is
@@ -57,7 +59,7 @@ export function AddDestinationDrawer({
     <Drawer
       open={open}
       onClose={close}
-      title={secret ? "Your signing secret" : "Add a destination"}
+      title={secret ? "Your signing secret" : "Send results to"}
       width="lg"
       footer={
         secret ? (
@@ -84,7 +86,7 @@ export function AddDestinationDrawer({
       ) : (
         <div className="space-y-5">
           <ChoiceCards
-            legend="Where to send events"
+            legend="Send results to"
             legendClassName="sr-only"
             name={name}
             value={kind}

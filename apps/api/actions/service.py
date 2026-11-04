@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
@@ -188,6 +189,38 @@ def _parse_config(kind: str, config: dict[str, Any]) -> ActionConfig:
         ) from exc
 
 
+def _is_sheet_record(kind: str, config: Mapping[str, Any]) -> bool:
+    return kind == "sheets" and config.get("operation") == "record"
+
+
+def _assert_not_after_call_work(
+    *, kind: str, trigger: str, config: Mapping[str, Any], previous: LoadedTool | None
+) -> None:
+    """What happens after a call has one home each: a Follow-up started by "call ended"
+    does the work, and an Integrations destination receives the results (a sheet row, the
+    client's own system, their CRM). An agent action is something the agent does ON the
+    call, so a new after-call action, or a new sheet-writing one, is refused.
+
+    A tool already stored that way keeps it: those rows still run in the post-call
+    pipeline until their owner turns them off, so an edit that leaves the trigger or the
+    sheet write as it was is allowed. Refusing those edits would only stop an owner fixing
+    a broken account on a live row."""
+    if trigger == "after_call" and (previous is None or previous.trigger != "after_call"):
+        raise ProblemError.business_rule(
+            "action_after_call_moved",
+            "Actions run during the call. What happens after a call is a Follow-up.",
+            remediation="Make a Follow-up that starts when a call ends.",
+        )
+    if _is_sheet_record(kind, config) and (
+        previous is None or not _is_sheet_record(previous.kind, previous.config)
+    ):
+        raise ProblemError.business_rule(
+            "action_sheet_moved",
+            "Call results reach a Google Sheet from Integrations.",
+            remediation="Add the sheet on Integrations, under Send results to.",
+        )
+
+
 def _validate(
     *,
     kind: str,
@@ -197,8 +230,10 @@ def _validate(
     trigger: str,
     params_raw: list[dict[str, Any]],
     config_raw: dict[str, Any],
+    previous: LoadedTool | None,
 ) -> tuple[list[ParamSpec], ActionConfig]:
-    """Every rule a tool must satisfy before it can be stored, as actionable refusals."""
+    """Every rule a tool must satisfy before it can be stored, as actionable refusals.
+    `previous` is the stored tool an edit replaces, None for a new one."""
     if kind not in ACTION_KINDS:
         raise ProblemError.business_rule(
             "action_kind_unknown",
@@ -217,6 +252,7 @@ def _validate(
             "This action only works while the caller is on the line.",
             remediation="Set it to run during the call.",
         )
+    _assert_not_after_call_work(kind=kind, trigger=trigger, config=config_raw, previous=previous)
     if not _NAME_RE.match(name):
         raise ProblemError(
             kind="validation",
@@ -311,9 +347,10 @@ def check_definition(
     trigger: str,
     params: list[dict[str, Any]],
     config: dict[str, Any],
+    previous: LoadedTool | None,
 ) -> None:
     """The stored-tool rules, asked before anything is written — so a card describing an
-    action that `create_tool` would refuse is never shown."""
+    action that `create_tool` or `update_tool` would refuse is never shown."""
     _validate(
         kind=kind,
         provider=provider,
@@ -322,6 +359,7 @@ def check_definition(
         trigger=trigger,
         params_raw=params,
         config_raw=config,
+        previous=previous,
     )
 
 
@@ -598,6 +636,7 @@ async def create_tool(
         trigger=trigger,
         params_raw=params,
         config_raw=config,
+        previous=None,
     )
     await _assert_lead_fields(session, agent_id=agent_id, params=parsed_params)
     # A per-agent ceiling so the tool list a tenant can mint (and that every Actions-tab read
@@ -680,6 +719,7 @@ async def update_tool(
         trigger=trigger,
         params_raw=params,
         config_raw=config,
+        previous=existing,
     )
     await _assert_lead_fields(session, agent_id=existing.agent_id, params=parsed_params)
     await _assert_credential_fits(
