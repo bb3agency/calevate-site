@@ -315,7 +315,7 @@ async def test_pip_reads_a_count_a_few_examples_and_the_lens_handle(
         ),
         context=context,
     )
-    assert answer.startswith("2 lead(s) match these filters")
+    assert answer.startswith("2 person(s) match these filters")
     assert 'pass lens {"created_from":"2026-10-19","created_to":"2026-10-20"} to' in answer
     calls = await copilot_tools.run_read_tool(
         "calls_recent",

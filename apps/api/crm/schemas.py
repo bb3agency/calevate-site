@@ -1261,6 +1261,7 @@ class DashboardDayOut(Strict):
 class DashboardOut(Strict):
     calls_today: int
     calls_7d: int
+    #: People who became a lead in the window (`crm/lead_definition`), not everyone called.
     leads_new_7d: int
     hot_leads_open: int
     # The same two counts over the 7 days BEFORE the window above (days 8 to 14 back), so

@@ -64,15 +64,38 @@ describe("what each result cost (D-944)", () => {
   it("prints the server's rupees per result and says none rather than ₹0 with nothing to divide by", async () => {
     const { container } = await renderBillingHub(routes({ [HUB_SPEND_SERIES_ROUTE]: SERIES }));
     expect(await screen.findByText("What each result cost")).toBeTruthy();
-    // 30 days is the default: 40 answered calls at ₹10, no leads and no bookings.
-    expect(await screen.findByText("No new leads in this period")).toBeTruthy();
+    // 30 days is the default: 40 answered calls at ₹10, no leads and no goal reached.
+    expect(await screen.findByText("No leads in this period")).toBeTruthy();
     expect(container.textContent).toContain("Calls billed in 30-second steps.");
     expect(screen.getAllByText("None yet").length).toBe(2);
+    // The goal tile is named by the owner's own outcome, never by a word the screen chose.
+    expect(screen.getByText("Per Visit booked")).toBeTruthy();
+    expect(container.textContent).not.toContain("booking");
     fireEvent.click(
       within(screen.getByRole("radiogroup", { name: "Period" })).getByRole("radio", { name: "7 days" }),
     );
     expect(await screen.findByText("₹30")).toBeTruthy();
     expect(screen.getByText("₹60")).toBeTruthy();
+  });
+
+  it("names a neutral goal when the owner's agents have several", async () => {
+    await renderBillingHub(
+      routes({
+        [HUB_SPEND_SERIES_ROUTE]: SERIES,
+        [COST_PER_RESULT_ROUTE]: { ...COST_PER_RESULT, goal_labels: ["Visit booked", "App installed"] },
+      }),
+    );
+    expect(await screen.findByText("Per goal reached")).toBeTruthy();
+  });
+
+  it("says no goal is set and links to where the owner chooses one", async () => {
+    await renderBillingHub(
+      routes({ [HUB_SPEND_SERIES_ROUTE]: SERIES, [COST_PER_RESULT_ROUTE]: { ...COST_PER_RESULT, goal_labels: [] } }),
+    );
+    expect(await screen.findByText("No goal set")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Choose your goal" }).getAttribute("href")).toBe(
+      "/c/acme/settings/lead-details",
+    );
   });
 });
 

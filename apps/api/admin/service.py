@@ -39,6 +39,7 @@ from apps.api.billing.wallet import tier_minutes
 from apps.api.compliance.service import SELF_SERVE_TIERS, spend_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern
 from apps.api.db.session import admin_session, tenant_session
@@ -1173,7 +1174,8 @@ async def tenant_overview(
                         "     AND deleted_at IS NULL), "
                         "  (SELECT count(*) FROM calls "
                         "     WHERE started_at > now() - interval '7 days'), "
-                        "  (SELECT count(*) FROM leads WHERE deleted_at IS NULL), "
+                        # Leads, not everyone called (`crm/lead_definition`).
+                        f"  (SELECT count(*) FROM {BECAME_LEADS_SQL} AS bl), "
                         "  (SELECT max(started_at) FROM calls)"
                     )
                 )

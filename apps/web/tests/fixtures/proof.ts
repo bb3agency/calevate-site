@@ -44,6 +44,7 @@ export const COST_PER_RESULT_ROUTE = "/v1/analytics/cost-per-result";
 
 export const COST_PER_RESULT: CostPerResult = {
   billing_step_seconds: 30,
+  goal_labels: ["Visit booked"],
   windows: [
     {
       days: 7,
@@ -51,11 +52,11 @@ export const COST_PER_RESULT: CostPerResult = {
       to_date: "2026-10-30",
       spent_inr: "120.00",
       answered_calls: 12,
-      leads_captured: 4,
-      booked_results: 2,
+      leads: 4,
+      goals_reached: 2,
       per_answered_call_inr: "10.00",
       per_lead_inr: "30.00",
-      per_booked_result_inr: "60.00",
+      per_goal_inr: "60.00",
     },
     {
       days: 30,
@@ -63,11 +64,11 @@ export const COST_PER_RESULT: CostPerResult = {
       to_date: "2026-10-30",
       spent_inr: "400.00",
       answered_calls: 40,
-      leads_captured: 0,
-      booked_results: 0,
+      leads: 0,
+      goals_reached: 0,
       per_answered_call_inr: "10.00",
       per_lead_inr: null,
-      per_booked_result_inr: null,
+      per_goal_inr: null,
     },
   ],
 };

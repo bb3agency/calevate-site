@@ -81,6 +81,7 @@ class TimelineDayOut(Strict):
     calls: int
     #: Calls that reached a conversation (`crm/performance.CONNECTED_SQL`).
     answered: int
+    #: People who became a lead this day (`crm/lead_definition`), not everyone called.
     leads: int
 
 

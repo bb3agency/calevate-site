@@ -169,13 +169,13 @@ async def test_leads_search_reports_a_total_and_a_full_status_breakdown() -> Non
         )
 
     every = await _run("leads_search", tenant_id)
-    assert "This account has 4 lead(s) in total" in every
+    assert "This account has 4 person(s) on record" in every
     assert "won 1" in every and "lost 1" in every
 
     # The total survives a status filter — the whole point of `status_counts`, which is
     # never narrowed by the status asked for.
     hot = await _run("leads_search", tenant_id, status="hot", limit=None)
-    assert "This account has 4 lead(s) in total" in hot
+    assert "This account has 4 person(s) on record" in hot
     assert "hot 1" in hot
 
 
@@ -443,14 +443,14 @@ async def test_the_snapshot_says_which_rate_is_undefined_when_nothing_connected(
 
 async def test_the_snapshot_reads_calls_without_leads_as_a_state_of_the_business() -> None:
     """PARTIAL DATA: the phone is working and nothing has progressed. "0 leads qualified
-    (0% of connected)" is arithmetic; "the pipeline is filling and nothing has progressed"
-    is the same fact as something an owner can act on."""
+    (0% of connected)" is arithmetic; "nobody they reached has become a lead yet" is the
+    same fact as something an owner can act on."""
     tenant_id, agent_id = await _tenant()
     await _call(tenant_id, agent_id, status="completed", duration_s=120)
 
     result = await _run("business_snapshot", tenant_id, days=30)
 
-    assert "no lead has moved past 'new'" in result
+    assert "nobody they reached has become a lead" in result
     assert "Average completed call: 120s" in result
 
 
@@ -472,7 +472,7 @@ async def test_a_status_filter_that_matches_nothing_never_says_the_account_has_n
     assert "No leads with status won" in result
     assert "The account does have other leads" in result
     # The count line survives, so the model still has the real answer to "how many".
-    assert "This account has 1 lead(s) in total" in result
+    assert "This account has 1 person(s) on record" in result
 
 
 async def test_a_call_filter_that_matches_nothing_is_told_apart_from_an_empty_account() -> None:
@@ -791,8 +791,8 @@ async def test_the_lead_total_counts_only_this_tenants_leads() -> None:
     for index in range(3):
         await _lead(b_id, b_agent, name=f"LeadOfB {index}", phone=f"+91987652{index:04d}")
 
-    assert "This account has 1 lead(s) in total" in await _run("leads_search", a_id)
-    assert "This account has 3 lead(s) in total" in await _run("leads_search", b_id)
+    assert "This account has 1 person(s) on record" in await _run("leads_search", a_id)
+    assert "This account has 3 person(s) on record" in await _run("leads_search", b_id)
 
 
 # --- the permission check ---------------------------------------------------------------

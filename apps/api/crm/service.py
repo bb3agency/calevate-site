@@ -43,6 +43,7 @@ from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
 from apps.api.crm.captured import captured_fields
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.lens import (
     CALL_AT,
     CallFilters,
@@ -2880,13 +2881,16 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
             {"since": since_7d},
         )
     ).all()
+    # New leads are people who BECAME a lead in the window (`crm/lead_definition`), not
+    # contact rows created in it: every person called gets a row.
     leads = (
         await session.execute(
             text(
-                "SELECT count(*) FILTER (WHERE created_at >= :since) AS new_leads, "
-                "count(*) FILTER (WHERE status = 'hot') AS hot_open, "
-                "count(*) FILTER (WHERE created_at >= :prev AND created_at < :since) AS prev "
-                "FROM leads WHERE deleted_at IS NULL"
+                "SELECT count(*) FILTER (WHERE bl.became_lead_at >= :since) AS new_leads, "
+                "count(*) FILTER (WHERE bl.status = 'hot') AS hot_open, "
+                "count(*) FILTER (WHERE bl.became_lead_at >= :prev "
+                "AND bl.became_lead_at < :since) AS prev "
+                f"FROM {BECAME_LEADS_SQL} AS bl"
             ),
             {"since": since_7d, "prev": since_14d},
         )

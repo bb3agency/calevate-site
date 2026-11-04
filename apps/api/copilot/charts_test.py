@@ -63,8 +63,8 @@ async def test_each_kind_is_built_from_the_accounts_own_rows() -> None:
     assert dict(zip(outcomes.x.labels, outcomes.series[0].values, strict=True))["needs_you"] == "2"
 
     leads = await _build(tenant_id, "leads_by_day")
-    # `_make_tenant` files one lead of its own.
-    assert leads.kind == "line" and leads.total == "3"
+    # Three people on record (`_make_tenant` files one of its own); Ravi alone is a lead.
+    assert leads.kind == "line" and leads.total == "1"
 
     status = await _build(tenant_id, "leads_by_status")
     assert status.kind == "bar" and status.x is not None
@@ -94,10 +94,12 @@ async def test_the_proof_charts_read_the_screens_figures() -> None:
     cost = await _build(tenant_id, "cost_per_result")
     assert cost.kind == "table" and cost.unit == "inr" and cost.total == "12.50"
     rows = {row[0]: row[1:] for row in cost.rows}
-    # Two answered calls, three leads (the fixture's own included), no booking.
+    # Two answered calls; three people on record, one of them a lead (Ravi, hot). No agent
+    # has a goal outcome, so there is no goal row, and the note says where to choose one.
     assert rows["Answered call"] == ["2", "6.25"]
-    assert rows["Captured lead"] == ["3", "4.17"]
-    assert rows["Booked result"] == ["0", "-"]
+    assert rows["Lead"] == ["1", "12.50"]
+    assert len(rows) == 2
+    assert "Lead details" in cost.counted
     speed = await _build(tenant_id, "reply_speed", days=14)
     assert speed.kind == "table" and len(speed.rows) == 2
     assert speed.rows[0][1] == "3"  # this week's calls, newest first

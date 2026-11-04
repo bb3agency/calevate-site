@@ -13,8 +13,9 @@ The definitions matter more than the SQL and are stated here once:
   demo inflates its connect rate. The status exclusion is the load-bearing half: an
   answering machine gives a `voicemail` a perfectly real duration, so "duration > 0"
   alone readmits exactly the calls the definition rules out.
-- **Qualified** = a lead with a connected call in the window that now stands past `new`
-  (contacted/interested/hot/won). Lead-level, not call-level: three calls that qualify
+- **Qualified** = a person with a connected call in the window who became a lead
+  (`crm/lead_definition`: reached interested, hot or won). `contacted` is not: it means
+  only that someone spoke to them. Lead-level, not call-level: three calls that qualify
   one lead are one qualified outcome, and the funnel exists to show conversion, not
   activity. Drawn from the connected calls, so it can never exceed them.
 - **Busiest hours are IST.** The histogram exists so the owner can staff the counter
@@ -31,7 +32,7 @@ from calevate_shared.events import CallStatus
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.crm.schemas import LeadStatus
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 
 # Statuses that are a dial and never a conversation, whatever the clock says.
 #
@@ -44,7 +45,6 @@ CONNECTED_SQL = (
     "(status = 'completed' OR (duration_s IS NOT NULL AND duration_s > 0 "
     f"AND status NOT IN {DIAL_ONLY_STATUSES!r}))"
 )
-QUALIFIED_STATUSES: tuple[LeadStatus, ...] = ("contacted", "interested", "hot", "won")
 
 # `started_at` is `timestamptz`; EXTRACT renders one in the SESSION's TimeZone, so
 # shifting by a fixed interval only yields IST on a database that happens to be set to
@@ -112,11 +112,10 @@ async def performance(
     qualified = (
         await session.execute(
             text(
-                "SELECT count(*) FROM leads l WHERE l.deleted_at IS NULL "
-                f"AND l.status IN {QUALIFIED_STATUSES!r} "
+                f"SELECT count(*) FROM {BECAME_LEADS_SQL} AS l "
                 # `IN`, not a correlated EXISTS: `calls` has no `lead_id` index, so the
                 # window's calls are read once through `ix_calls_tenant_created`.
-                "AND l.id IN (SELECT lead_id FROM calls "
+                "WHERE l.id IN (SELECT lead_id FROM calls "
                 f"  WHERE {CONNECTED_SQL} AND {_CALLS_IN_WINDOW})"
             ),
             params,
@@ -178,6 +177,5 @@ __all__ = [
     "IST_STARTED_AT_SQL",
     "IST_TODAY_SQL",
     "IST_ZONE",
-    "QUALIFIED_STATUSES",
     "performance",
 ]

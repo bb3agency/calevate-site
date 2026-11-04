@@ -247,7 +247,9 @@ async def test_a_good_week_is_noted_once_and_a_flat_week_is_not() -> None:
     assert (await _run(tenant_id))["opened"] == 0, "fewer calls than last week is not good"
     for _ in range(12):
         await _call(tenant_id, at=now - timedelta(hours=2))
-    await _hot_lead(tenant_id, hours_ago=1)  # a second new lead this week
+    # Two people became a lead this week and none the week before.
+    await _hot_lead(tenant_id, hours_ago=1)
+    await _hot_lead(tenant_id, hours_ago=1)
     first = await _run(tenant_id)
     second = await _run(tenant_id)
     assert first["opened"] == 1 and second["opened"] == 0

@@ -154,6 +154,8 @@ async def test_timeline_is_zero_filled_oldest_first_and_counts_answered_and_lead
             status="no_answer",
             duration_s=None,
         )
+        # `_make_tenant`'s one person on record becomes a lead today.
+        await session.execute(text("UPDATE leads SET status = 'interested'"))
         out = await service.timeline(
             session,
             window=service.resolve_window(days=5, to=None),
@@ -166,7 +168,6 @@ async def test_timeline_is_zero_filled_oldest_first_and_counts_answered_and_lead
     assert by_day[today - timedelta(days=2)].calls == 2
     assert by_day[today - timedelta(days=2)].answered == 1
     assert by_day[today - timedelta(days=3)].calls == 0
-    # `_make_tenant` inserted one lead, created now.
     assert by_day[today].leads == 1
     assert (out.calls, out.answered, out.leads) == (2, 1, 1)
 
@@ -199,7 +200,7 @@ async def test_campaign_timeline_counts_dials_connected_and_the_leads_it_created
             text(
                 "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
                 "first_call_id, created_at, updated_at) VALUES (:id, :tid, :aid, :phone, "
-                "'campaign', 'new', :fc, :at, now())"
+                "'campaign', :status, :fc, :at, now())"
             ),
             {
                 "id": uuid7(),
@@ -208,6 +209,23 @@ async def test_campaign_timeline_counts_dials_connected_and_the_leads_it_created
                 "phone": f"+9197{uuid.uuid4().int % 100000000:08d}",
                 "fc": first,
                 "at": _ist(day, 10, 5),
+                "status": "interested",
+            },
+        )
+        # Rung by the campaign too, but never interested: a person, not a lead.
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                "first_call_id, created_at, updated_at) VALUES (:id, :tid, :aid, :phone, "
+                "'campaign', 'contacted', :fc, :at, now())"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "aid": agent_id,
+                "phone": f"+9197{uuid.uuid4().int % 100000000:08d}",
+                "fc": first,
+                "at": _ist(day, 10, 6),
             },
         )
         out = await service.campaign_timelines(
@@ -244,6 +262,8 @@ async def test_stats_compare_with_the_same_length_of_time_before() -> None:
     assert metrics["calls"].change_pct == Decimal("100.0")
     assert metrics["answer_rate_pct"].value == Decimal("100.0")
     assert metrics["talk_minutes"].value == Decimal("4.0")
+    # `_make_tenant`'s one person on record never showed interest: not a lead.
+    assert metrics["leads"].value == Decimal(0)
 
 
 def test_change_pct_has_no_percentage_from_nothing() -> None:

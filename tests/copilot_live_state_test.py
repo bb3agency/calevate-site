@@ -120,11 +120,12 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
     # `won` and `lost` are not waiting on anybody; `contacted` is not a waiting status.
     assert state.counts.leads_waiting == {"hot": 2, "interested": 1, "new": 1}
     assert state.counts.campaigns == {"running": 1, "paused": 0, "scheduled": 0, "draft": 1}
-    # THE TOTAL IS EVERY STATUS, NOT THE WAITING THREE (D-497). Six leads went in; four of
-    # them are in a waiting status and `won` and `lost` are the two that used to be
-    # invisible. A block that reported 4 here would be the bug this field exists to fix.
-    assert state.counts.leads_total == 6
-    assert state.counts.leads_last_7_days == 6
+    # Six people on record; the leads among them are the four that reached interested, hot
+    # or won (`crm/lead_definition`). `new` and `lost` are people, not leads, and `won` is
+    # a lead though it is not waiting (D-497: the total is not the waiting subset).
+    assert (state.counts.people_total, state.counts.people_last_7_days) == (6, 6)
+    assert state.counts.leads_total == 4
+    assert state.counts.leads_last_7_days == 4
     # `create_organization` seeds exactly one agent, and it starts as a draft.
     assert state.counts.agents == {"live": 0, "paused": 0, "draft": 1}
     # THE BLOCKERS ARE THE GATES' OWN ANSWER, NOT A SECOND DERIVATION. Asserted against
@@ -154,7 +155,8 @@ async def test_the_block_reports_what_the_tenant_actually_has() -> None:
 
     rendered = context.render_live(state)
     assert '<calls today="2" last_7_days="3"/>' in rendered
-    assert '<leads total="6" last_7_days="6"/>' in rendered
+    assert '<people total="6" last_7_days="6"/>' in rendered
+    assert '<leads total="4" last_7_days="4"/>' in rendered
     assert '<leads_waiting hot="2" interested="1" new="1"/>' in rendered
     assert '<agents live="0" paused="0" draft="1"/>' in rendered
     assert "Kondapur" not in rendered, "a campaign NAME is tenant-authored text and costs tokens"

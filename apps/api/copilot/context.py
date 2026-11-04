@@ -86,6 +86,7 @@ from apps.api.copilot.screens import match_route, screens_closed_to, where_is
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import ROLE_PERMISSIONS
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.performance import IST_DAY_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import LeadStatus
 from apps.api.db.session import tenant_session
@@ -107,11 +108,11 @@ LIVE_CLOSE: Final = "--- END LIVE BUSINESS STATE ---"
 
 #: Lead statuses that mean a human still has to do something, most urgent first.
 #:
-#: NOT `crm.performance.QUALIFIED_STATUSES`, and the difference is the point: that tuple
-#: answers "did this lead move past `new`" for a conversion funnel, so it contains
-#: `contacted` (somebody has already called them) and `won` (finished). Neither is
-#: waiting. `hot` is named first because it is the one the copilot is asked about — a lead
-#: the agent marked as ready to buy, sitting unworked, is the most expensive row here.
+#: NOT `crm.lead_definition.LEAD_BAND`, and the difference is the point: that tuple
+#: answers "is this person a lead", so it contains `won` (finished), which is not waiting,
+#: and leaves out `new`, which is. `hot` is named first because it is the one the copilot
+#: is asked about — a lead the agent marked as ready to buy, sitting unworked, is the most
+#: expensive row here.
 WAITING_STATUSES: Final[tuple[LeadStatus, ...]] = ("hot", "interested", "new")
 
 #: Campaign statuses worth a token. `completed` and `cancelled` are history: a copilot
@@ -141,8 +142,8 @@ LIVE_AGENT_STATUSES: Final[tuple[str, ...]] = ("live", "paused", "draft")
 #:
 #: `'total'` AND `'week'` ARE NOT LEAD STATUSES, so they cannot collide with the grouped
 #: rows below them: `crm/schemas.LeadStatus` is new/contacted/interested/hot/won/lost.
-#: The lead TOTAL is every non-deleted lead in every status — `WAITING_STATUSES` is a
-#: subset by design, and "how many leads do I have?" is not answerable from a subset.
+#: `people` counts every person on record; `leads` the ones who became a lead
+#: (`crm/lead_definition`), dated by when they did.
 #:
 #: `calls today` USES THE REPO'S ONE DEFINITION OF AN IST DAY (`IST_DAY_SQL`,
 #: `IST_TODAY_SQL`), imported rather than re-spelled — an Indian business day is 18:30 to
@@ -159,10 +160,15 @@ _COUNTS_SQL: Final = (
     "SELECT 'calls', 'week', count(*) FROM calls "
     "  WHERE created_at >= now() - interval '7 days' "
     "UNION ALL "
-    "SELECT 'leads', 'total', count(*) FROM leads WHERE deleted_at IS NULL "
+    "SELECT 'people', 'total', count(*) FROM leads WHERE deleted_at IS NULL "
     "UNION ALL "
-    "SELECT 'leads', 'week', count(*) FROM leads "
+    "SELECT 'people', 'week', count(*) FROM leads "
     "  WHERE deleted_at IS NULL AND created_at >= now() - interval '7 days' "
+    "UNION ALL "
+    f"SELECT 'leads', 'total', count(*) FROM {BECAME_LEADS_SQL} AS bl "
+    "UNION ALL "
+    f"SELECT 'leads', 'week', count(*) FROM {BECAME_LEADS_SQL} AS bl "
+    "  WHERE bl.became_lead_at >= now() - interval '7 days' "
     "UNION ALL "
     "SELECT 'leads', status, count(*) FROM leads "
     "  WHERE deleted_at IS NULL AND status = ANY(:waiting) GROUP BY status "
@@ -187,17 +193,16 @@ class LiveCounts:
     leads_waiting: dict[str, int]
     #: `status -> count` over `LIVE_CAMPAIGN_STATUSES`, zeros included, same reason.
     campaigns: dict[str, int]
-    #: EVERY lead this account has that is not deleted, in any status.
-    #:
-    #: **THE FIELD THIS BLOCK SHIPPED WITHOUT, AND THE ONE THE FOUNDER ASKED FOR (D-497).**
-    #: "how many leads do I currently have?" was answered "I cannot see the total number of
-    #: leads. I can only see that you have 0 new, interested, or hot leads" — which is a
-    #: verbatim reading of `leads_waiting` and of nothing else, because nothing else was
-    #: here. A three-status subset is not a total and a model that adds it up is inventing
-    #: one.
+    #: Every person on record (each one called or calling gets a lead row), in any status.
+    people_total: int
+    #: People first recorded in the rolling 7 days.
+    people_last_7_days: int
+    #: Every person who became a lead (`crm/lead_definition`). "How many leads do I have?"
+    #: (D-497) is answered from this, not from `leads_waiting`, a three-status subset a
+    #: model would otherwise add up into an invented total.
     leads_total: int
-    #: Leads CREATED in the rolling 7 days — `calls_last_7_days`' instrument, on the other
-    #: noun, because "how many leads did we get this week?" is the same question about it.
+    #: People who became a lead in the rolling 7 days, `calls_last_7_days`' instrument:
+    #: "how many leads did we get this week?".
     leads_last_7_days: int
     #: `status -> count` over `LIVE_AGENT_STATUSES`, zeros included, same reason. The
     #: archive is excluded exactly as `roster.list_agents` excludes it.
@@ -330,6 +335,8 @@ async def _read_counts(session: AsyncSession) -> LiveCounts:
         campaigns={
             status: tallies.get(("campaigns", status), 0) for status in LIVE_CAMPAIGN_STATUSES
         },
+        people_total=tallies.get(("people", "total"), 0),
+        people_last_7_days=tallies.get(("people", "week"), 0),
         leads_total=tallies.get(("leads", "total"), 0),
         leads_last_7_days=tallies.get(("leads", "week"), 0),
         agents={status: tallies.get(("agents", status), 0) for status in LIVE_AGENT_STATUSES},
@@ -454,6 +461,12 @@ def render_live(state: LiveState) -> str:
             f"<calls today={xml_attr(counts.calls_today)} "
             f"last_7_days={xml_attr(counts.calls_last_7_days)}/>"
         )
+        # Everyone on record, then the leads among them: a person becomes a lead by reaching
+        # interested, hot or won (`crm/lead_definition`), so "leads" never means everyone.
+        parts.append(
+            f"<people total={xml_attr(counts.people_total)} "
+            f"last_7_days={xml_attr(counts.people_last_7_days)}/>"
+        )
         parts.append(
             f"<leads total={xml_attr(counts.leads_total)} "
             f"last_7_days={xml_attr(counts.leads_last_7_days)}/>"
@@ -461,11 +474,9 @@ def render_live(state: LiveState) -> str:
         waiting = " ".join(
             f"{status}={xml_attr(count)}" for status, count in counts.leads_waiting.items()
         )
-        # TWO ELEMENTS RATHER THAN ONE WIDE `<leads>`: `total` and `last_7_days` are over
-        # every status, the waiting three are a subset, and one element carrying both
-        # invites the model to read `hot` as a share of `total` in the same breath as
-        # `new` — which it is not, since a lead is in exactly one of six statuses and only
-        # three of them are here.
+        # A SEPARATE ELEMENT RATHER THAN ATTRIBUTES ON `<leads>`: the waiting three are
+        # statuses of everyone on record (`new` is not yet a lead), and one element carrying
+        # both invites the model to read `hot` and `new` as shares of the lead total.
         parts.append(f"<leads_waiting {waiting}/>")
         campaigns = " ".join(
             f"{status}={xml_attr(count)}" for status, count in counts.campaigns.items()

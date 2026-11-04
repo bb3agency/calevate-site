@@ -285,7 +285,8 @@ async def _leads_by_day(session: AsyncSession, ctx: ToolContext, args: ChartArgs
             ChartSeries(key="leads", label="New leads", values=[_n(d.leads) for d in line.days])
         ],
         total=_n(line.leads),
-        counted=f"Leads created {_span(window)}, by IST day.",
+        counted=f"People who became a lead (interested, hot or won) {_span(window)}, by the "
+        "IST day they did; each person once.",
         window_from=window.start,
         window_to=window.end,
         open=ChartOpen(screen="Leads", path="/leads"),
@@ -302,16 +303,17 @@ async def _leads_by_status(session: AsyncSession, ctx: ToolContext, args: ChartA
         chart="leads_by_status",
         args=args,
         kind="bar",
-        title="Leads by status",
-        unit="leads",
+        title="People by status",
+        unit="count",
         x=ChartAxis(label="Status", bucket="category", labels=[n.replace("_", " ") for n in names]),
         series=[
             ChartSeries(
-                key="leads", label="Leads", values=[_n(page.status_counts[n]) for n in names]
+                key="leads", label="People", values=[_n(page.status_counts[n]) for n in names]
             )
         ],
         total=_n(sum(page.status_counts.values())),
-        counted=f"Leads created {_span(window)}, by their status now.",
+        counted=f"Everyone called or calling first recorded {_span(window)}, by their status "
+        "now. Interested, hot and won are leads.",
         window_from=window.start,
         window_to=window.end,
         open=ChartOpen(screen="Leads", path="/leads"),
@@ -330,16 +332,16 @@ async def _leads_grouped(
         chart=f"leads_by_{by}",
         args=args,
         kind="bar",
-        title=f"Leads by {by}",
-        unit="leads",
+        title=f"People by {by}",
+        unit="count",
         x=ChartAxis(
             label=by.title(),
             bucket="category",
             labels=[(label or fallback).replace("_", " ") for _, label, _ in shown],
         ),
-        series=[ChartSeries(key="leads", label="Leads", values=[_n(n) for _, _, n in shown])],
+        series=[ChartSeries(key="leads", label="People", values=[_n(n) for _, _, n in shown])],
         total=_n(found.total),
-        counted=f"Leads created {_span(window)}, counted per {by}.",
+        counted=f"Everyone called or calling first recorded {_span(window)}, counted per {by}.",
         window_from=window.start,
         window_to=window.end,
         open=ChartOpen(screen="Leads", path="/leads"),
@@ -505,11 +507,23 @@ async def _cost_per_result(session: AsyncSession, ctx: ToolContext, args: ChartA
     cost = await proof.cost_window(
         session, tenant_id=ctx.tenant_id, days=window.days, today=window.end
     )
+    labels = await proof.account_goal_labels(session)
     rows = [
         ["Answered call", _n(cost.answered_calls), _or_dash(cost.per_answered_call_inr)],
-        ["Captured lead", _n(cost.leads_captured), _or_dash(cost.per_lead_inr)],
-        ["Booked result", _n(cost.booked_results), _or_dash(cost.per_booked_result_inr)],
+        ["Lead", _n(cost.leads), _or_dash(cost.per_lead_inr)],
     ]
+    if labels:
+        goal = labels[0] if len(labels) == 1 else "Goal reached"
+        rows.append([goal, _n(cost.goals_reached), _or_dash(cost.per_goal_inr)])
+        goal_note = (
+            f" A goal is a call that ended '{labels[0]}'."
+            if len(labels) == 1
+            else " A goal is a call that ended " + " or ".join(f"'{x}'" for x in labels) + "."
+        )
+    else:
+        goal_note = (
+            " No call result counts as the goal yet: choose one under Lead details, How calls end."
+        )
     return ChartSpec(
         chart="cost_per_result",
         args=args,
@@ -523,8 +537,9 @@ async def _cost_per_result(session: AsyncSession, ctx: ToolContext, args: ChartA
         ],
         rows=rows,
         total=_n(cost.spent_inr),
-        counted=f"What left your credit {_span(window)}, divided by each count. A booked "
-        "result is a call whose outcome is a booking or sale. '-' means none to divide by.",
+        counted=f"What left your credit {_span(window)}, divided by each count. A lead is a "
+        "person who became interested, hot or won, counted once." + goal_note + " '-' means "
+        "none to divide by.",
         window_from=window.start,
         window_to=window.end,
         open=ChartOpen(screen="Credits & billing", path="/billing", query={"tab": "usage"}),

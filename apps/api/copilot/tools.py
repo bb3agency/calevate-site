@@ -620,12 +620,12 @@ async def _business_snapshot(
         )
     elif funnel["qualified"] == 0:
         lines.append(
-            f"{funnel['connected']} call(s) connected but no lead has moved past 'new' "
-            "yet — the pipeline is filling and nothing has progressed."
+            f"{funnel['connected']} call(s) connected but nobody they reached has become a "
+            "lead (interested, hot or won) yet."
         )
     else:
         lines.append(
-            f"{funnel['qualified']} leads qualified "
+            f"{funnel['qualified']} people became a lead (interested, hot or won) "
             f"({result['qualify_rate_pct']}% of connected calls)."
         )
     lines.append(f"Direction: {result['inbound']} inbound, {result['outbound']} outbound.")
@@ -720,7 +720,7 @@ async def _leads_search(
         if held == 0:
             return "No leads match these filters."
         return _clean(
-            f"{held} lead(s) match these filters ({breakdown}).\n"
+            f"{held} person(s) match these filters ({breakdown}).\n"
             + _listing(lines, total=page.total, shown_of=label, nothing="None in that stage.")
             + _handle_line(lens, page.total)
         )
@@ -751,7 +751,12 @@ async def _leads_search(
             )
         )
     breakdown = ", ".join(f"{name} {count}" for name, count in page.status_counts.items())
-    header = f"This account has {held} lead(s) in total ({breakdown})."
+    # Every person called or calling has a row here, so the total is people, not leads
+    # (`crm/lead_definition`); the statuses say which of them are leads.
+    header = (
+        f"This account has {held} person(s) on record ({breakdown}); those interested, hot "
+        "or won are its leads."
+    )
     return _clean(
         f"{header}\n"
         + _listing(

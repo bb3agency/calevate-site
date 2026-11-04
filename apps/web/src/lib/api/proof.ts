@@ -2,7 +2,7 @@
 
 /**
  * Proof a client can check (D-944): how fast their agent answered each IST week
- * (`/v1/analytics/reply-speed`), what each answered call, lead and booking cost
+ * (`/v1/analytics/reply-speed`), what each answered call, lead and goal reached cost
  * (`/v1/analytics/cost-per-result`), and the owner's daily summary switch
  * (`/v1/notifications/daily-summary`). Money is a decimal STRING, formatted and never parsed.
  */

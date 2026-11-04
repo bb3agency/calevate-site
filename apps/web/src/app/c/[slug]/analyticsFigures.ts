@@ -19,6 +19,7 @@ const LABELS: Record<MetricKey, string> = {
 /** Hints that say what a figure counts, where the label alone could be misread. */
 const HINTS: Partial<Record<MetricKey, string>> = {
   answer_rate_pct: "Calls that reached a real conversation",
+  leads: "People who became interested, hot or won",
   avg_duration_s: "Completed calls",
   talk_minutes: "Minutes spent talking on answered calls",
 };

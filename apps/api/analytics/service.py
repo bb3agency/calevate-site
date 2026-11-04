@@ -56,6 +56,7 @@ from apps.api.analytics.schemas import (
 from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.performance import CONNECTED_SQL, IST_ZONE
 
 #: A year and a leap day: the longest window a brush chart offers, and the ceiling that
@@ -74,7 +75,7 @@ MAX_DURATION_GROUPS: Final = 12
 
 MAX_CAMPAIGN_SERIES: Final = 10
 
-#: Leads that are a win in waiting or a win: the "hot leads" figure of the stats band.
+#: Of the range's leads, those now a win in waiting or a win: the stats band's "hot leads".
 HOT_STATUSES: Final = ("hot", "won")
 
 _ONE_DP = Decimal("0.1")
@@ -86,9 +87,12 @@ _CALLS_IN_RANGE = (
     "AND (CAST(:aid AS uuid) IS NULL OR agent_id = CAST(:aid AS uuid)) "
     "AND (CAST(:test AS boolean) OR NOT (trial_call OR paid_test_call))"
 )
+#: The people who became a lead in a range (`crm/lead_definition`), dated by when they did,
+#: not by when their contact row was made: every person called gets a row.
+_LEADS_FROM = f"{BECAME_LEADS_SQL} AS bl"
 _LEADS_IN_RANGE = (
-    "deleted_at IS NULL AND created_at >= :start AND created_at < :end "
-    "AND (CAST(:aid AS uuid) IS NULL OR agent_id = CAST(:aid AS uuid))"
+    "bl.became_lead_at >= :start AND bl.became_lead_at < :end "
+    "AND (CAST(:aid AS uuid) IS NULL OR bl.agent_id = CAST(:aid AS uuid))"
 )
 
 
@@ -187,7 +191,7 @@ def _weekday_hour_sql(table: str, column: str, where: str) -> str:
 
 
 _CALLS_HEATMAP_SQL: Final = _weekday_hour_sql("calls", "started_at", _CALLS_IN_RANGE)
-_LEADS_HEATMAP_SQL: Final = _weekday_hour_sql("leads", "created_at", _LEADS_IN_RANGE)
+_LEADS_HEATMAP_SQL: Final = _weekday_hour_sql(_LEADS_FROM, "bl.became_lead_at", _LEADS_IN_RANGE)
 
 
 async def heatmap(
@@ -316,8 +320,8 @@ _TIMELINE_SQL: Final = (
     "c AS (SELECT " + _IST_OF.format(column="started_at") + "::date AS day, count(*) AS calls, "
     f"  count(*) FILTER (WHERE {CONNECTED_SQL}) AS answered "
     f"  FROM calls WHERE {_CALLS_IN_RANGE} GROUP BY 1), "
-    "l AS (SELECT " + _IST_OF.format(column="created_at") + "::date AS day, count(*) AS leads "
-    f"  FROM leads WHERE {_LEADS_IN_RANGE} GROUP BY 1) "
+    "l AS (SELECT " + _IST_OF.format(column="bl.became_lead_at") + "::date AS day, "
+    f"  count(*) AS leads FROM {_LEADS_FROM} WHERE {_LEADS_IN_RANGE} GROUP BY 1) "
     "SELECT d.day, COALESCE(c.calls, 0) AS calls, COALESCE(c.answered, 0) AS answered, "
     "COALESCE(l.leads, 0) AS leads FROM d LEFT JOIN c ON c.day = d.day "
     "LEFT JOIN l ON l.day = d.day ORDER BY d.day"
@@ -371,13 +375,13 @@ _CAMPAIGN_DIALS_SQL: Final = (
     "AS connected "
     f"FROM calls c WHERE c.campaign_id = ANY(CAST(:ids AS uuid[])) AND {_DIALS_RANGE} GROUP BY 1, 2"
 )
-#: A campaign's lead is one whose FIRST call was one of the campaign's dials — the lead the
-#: campaign created, not every lead it happened to ring.
+#: A campaign's lead is a person whose FIRST call was one of the campaign's dials and who
+#: became a lead (`crm/lead_definition`), on the day they did — not every person it rang.
 _CAMPAIGN_LEADS_SQL: Final = (
-    "SELECT c.campaign_id, " + _IST_OF.format(column="l.created_at") + "::date AS day, "
-    "count(*) AS leads FROM leads l JOIN calls c ON c.id = l.first_call_id "
-    "WHERE c.campaign_id = ANY(CAST(:ids AS uuid[])) AND l.deleted_at IS NULL "
-    "AND l.created_at >= :start AND l.created_at < :end GROUP BY 1, 2"
+    "SELECT c.campaign_id, " + _IST_OF.format(column="bl.became_lead_at") + "::date AS day, "
+    f"count(*) AS leads FROM {_LEADS_FROM} JOIN calls c ON c.id = bl.first_call_id "
+    "WHERE c.campaign_id = ANY(CAST(:ids AS uuid[])) "
+    "AND bl.became_lead_at >= :start AND bl.became_lead_at < :end GROUP BY 1, 2"
 )
 
 
@@ -435,8 +439,8 @@ _FIGURES_SQL: Final = (
     f"FROM calls WHERE {_CALLS_IN_RANGE}"
 )
 _LEAD_FIGURES_SQL: Final = (
-    "SELECT count(*) AS leads, count(*) FILTER (WHERE status = ANY(:hot)) AS hot "
-    f"FROM leads WHERE {_LEADS_IN_RANGE}"
+    "SELECT count(*) AS leads, count(*) FILTER (WHERE bl.status = ANY(:hot)) AS hot "
+    f"FROM {_LEADS_FROM} WHERE {_LEADS_IN_RANGE}"
 )
 
 
