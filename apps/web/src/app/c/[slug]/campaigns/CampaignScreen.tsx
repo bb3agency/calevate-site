@@ -3,10 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
+import { problemToast, useActionFeedback } from "@/components/arc/feedback";
+import { InlineEdit } from "@/components/arc/inline-edit";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
+import { Tabs } from "@/components/interior/tabs";
 import { Disclosure, ProblemNotice, RestrictionNote, Skeleton, formatCount, formatPhone } from "@/components/ui";
 import {
   useCampaignProgress,
@@ -17,6 +19,7 @@ import {
   useScheduleCampaign,
   useSetRecurrence,
   useUnscheduleCampaign,
+  useUpdateCampaign,
 } from "@/lib/api/campaigns";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -26,7 +29,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
-import { CampaignResults } from "./CampaignResults";
+import { CampaignResults, ResultFigures } from "./CampaignResults";
 import { CampaignRun } from "./CampaignRun";
 import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
@@ -44,12 +47,15 @@ import { CampaignStatusPill } from "./campaignStatus";
  *
  * - a draft or a scheduled campaign: **get it ready and launch it** — the launch checklist,
  *   then who will be called, then starting later;
- * - a launched one: **how far it has got** — the live progress (`CampaignRun`), then what
- *   it achieved, then every person with what happened to them.
+ * - a launched one: **what it is doing and how far it has got** — the live panel
+ *   (`CampaignRun`: who is on a call, calls at once against the limit, the next try), the
+ *   headline results, then three tabs: People first, because each person and their call
+ *   is what an owner comes back for; the result breakdowns; and the settings it dials
+ *   under, which are read when checking, not every visit.
  *
  * Why it is not calling, when it is not, sits above both: a pause or a refusal is the
- * first thing the owner must act on. The settings it dials under are rows at the end,
- * not a run-on line under the name: they are read when checking, not every visit.
+ * first thing the owner must act on. The name is renamed in place in any status: it is a
+ * label for the owner's own list and changes nothing about who is called.
  *
  * Every figure is the server's or is not shown: while progress loads there is a skeleton,
  * and a failed read is a notice, never a zero.
@@ -79,6 +85,9 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     successDescription: "It will not start on its own any more.",
   });
   const repeatFeedback = useActionFeedback(repeat, { errorDisplay: "inline", successToast: "Repeat set" });
+  const rename = useUpdateCampaign(session, campaignId);
+  // Inline: the field stays open with the refusal under it (`InlineEdit`).
+  const renameFeedback = useActionFeedback(rename, { errorDisplay: "inline" });
   const scheduleForm = useScheduleForm();
   // The launch checklist's "Add people" opens the panel in "Who will be called" and goes to it.
   const [addingPeople, setAddingPeople] = useState(false);
@@ -152,12 +161,36 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     !check.data.ready &&
     (data.schedule_blocked_rules?.length ?? 0) === 0;
 
+  const people = (
+    <ContactResults
+      slug={slug}
+      campaignId={campaignId}
+      maxAttempts={data.retry_policy.max_attempts}
+      live={live}
+      editable={false}
+      canWrite={write.allowed}
+      refusal={refusal}
+    />
+  );
+
   return (
-    <div className="max-w-5xl space-y-10 pb-12">
+    <div className="max-w-5xl space-y-8 pb-12">
       <div className="space-y-5">
         <PageHeader
           back={back}
-          title={data.name}
+          title={
+            <InlineEdit
+              value={data.name}
+              label="Campaign name"
+              textClassName="text-xl font-semibold tracking-tight"
+              maxLength={120}
+              validate={(next) => (next.length < 2 ? "Use at least 2 characters." : null)}
+              status={renameFeedback.status}
+              errorMessage={problemToast(rename.error, "That name did not save").description}
+              disabled={!write.allowed}
+              onSave={(name) => renameFeedback.run({ name })}
+            />
+          }
           status={
             <CampaignStatusPill
               status={data.status}
@@ -171,6 +204,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               {data.number_e164 ? formatPhone(data.number_e164) : "the agent's own number"}
             </>
           }
+          meta={data.goal ? <span className="text-ink-muted">Goal: {data.goal}</span> : undefined}
           actions={
             <CampaignHeaderActions
               slug={slug}
@@ -204,7 +238,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
         )}
       </div>
 
-      {launched && <CampaignRun progress={data} />}
+      {launched && <CampaignRun progress={data} campaignId={campaignId} />}
 
       <ScheduleCards
         status={status}
@@ -245,51 +279,59 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
         </>
       )}
 
-      {launched && (
-        <Section
-          title="Results"
-          action={
-            <AskAssistant
-              label={`Ask ${ASSISTANT_NAME} about this campaign`}
-              prompt={`Tell me about the campaign "${data.name}": why calls did not connect, what callers asked about, and who I should follow up.`}
-            />
-          }
-        >
-          <CampaignResults slug={slug} campaignId={campaignId} results={results} />
-        </Section>
-      )}
-
-      {launched && (
-        <Section title="Day by day">
-          <CampaignTimeline campaignId={campaignId} launchedAt={data.launched_at} />
-        </Section>
-      )}
-
       {launched ? (
-        <Section title="People">
-          <ContactResults
+        <>
+          <Section
+            title="Results"
+            action={
+              <AskAssistant
+                label={`Ask ${ASSISTANT_NAME} about this campaign`}
+                prompt={`Tell me about the campaign "${data.name}": why calls did not connect, what callers asked about, and who I should follow up.`}
+              />
+            }
+          >
+            <ResultFigures results={results} />
+          </Section>
+
+          <Tabs
+            label="About this campaign"
+            defaultValue="people"
+            items={[
+              { value: "people", label: "People" },
+              { value: "results", label: "What happened" },
+              { value: "settings", label: "How it calls" },
+            ]}
+            panelClassName="pt-5"
+            renderPanel={(tab) =>
+              tab === "results" ? (
+                <div className="space-y-10">
+                  <CampaignResults slug={slug} campaignId={campaignId} results={results} />
+                  <Section title="Day by day" headingLevel={3}>
+                    <CampaignTimeline campaignId={campaignId} launchedAt={data.launched_at} />
+                  </Section>
+                </div>
+              ) : tab === "settings" ? (
+                <CampaignSettings slug={slug} campaignId={campaignId} progress={data} bare />
+              ) : (
+                people
+              )
+            }
+          />
+        </>
+      ) : (
+        <>
+          <DraftPeople
             slug={slug}
             campaignId={campaignId}
             maxAttempts={data.retry_policy.max_attempts}
-            live={live}
-            editable={false}
             canWrite={write.allowed}
             refusal={refusal}
+            adding={addingPeople}
+            onAddingChange={setAddingPeople}
           />
-        </Section>
-      ) : (
-        <DraftPeople
-          slug={slug}
-          campaignId={campaignId}
-          maxAttempts={data.retry_policy.max_attempts}
-          canWrite={write.allowed}
-          refusal={refusal}
-          adding={addingPeople}
-          onAddingChange={setAddingPeople}
-        />
+          <CampaignSettings slug={slug} campaignId={campaignId} progress={data} />
+        </>
       )}
-
-      <CampaignSettings slug={slug} campaignId={campaignId} progress={data} />
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { formatDuration } from "@/components/ui";
 import { LiveDot } from "./liveCalls";
 
 /** Whole seconds since `startedAt`, ticking once a second while mounted. */
-function useElapsedSeconds(startedAt: string | null | undefined): number | null {
+export function useElapsedSeconds(startedAt: string | null | undefined): number | null {
   const started = startedAt ? Date.parse(startedAt) : Number.NaN;
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {

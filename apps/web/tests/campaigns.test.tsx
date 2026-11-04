@@ -19,6 +19,7 @@ import {
   leadPickerRoutes,
   listPage,
   newCampaignPage,
+  openTab,
   pageFixture,
   pickDate,
   progressFixture,
@@ -699,8 +700,10 @@ describe("one campaign's page", () => {
     );
     await screen.findByText("Priya");
     expect(container.textContent).toContain("Next try");
-    expect(container.textContent).toContain("1 of 3");
-    expect(screen.getByRole("link", { name: "Open call" }).getAttribute("href")).toBe("/c/acme/calls/call-9");
+    expect(container.textContent).toContain("Try 1 of 3");
+    expect(screen.getByRole("link", { name: "Open the call with Priya" }).getAttribute("href")).toBe(
+      "/c/acme/calls/call-9",
+    );
     expect(container.textContent).toContain("₹12.5");
   });
 
@@ -729,6 +732,7 @@ describe("one campaign's page", () => {
         }),
       }),
     );
+    await openTab("What happened");
     await screen.findByText("What people said");
     // How the counts are made sits behind the heading's info button, not on the page.
     expect(screen.getByRole("button", { name: "About What people said" })).toBeTruthy();

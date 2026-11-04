@@ -24,14 +24,42 @@ export function CampaignSettings({
   slug,
   campaignId,
   progress,
+  bare = false,
 }: {
   slug: string;
   campaignId: string;
   progress: CampaignProgress;
+  /** Inside a tab that already names it: the rows alone, without the section heading. */
+  bare?: boolean;
 }) {
   const { href } = useClientRealm();
   const hours = progress.calling_hours;
   const limited = progress.effective_concurrency < progress.concurrency;
+  const rows = (
+    <SettingRows className="border-y border-line">
+      <SettingRow label="Why it calls" value={progress.purpose ?? "Not said"} />
+      <SettingRow label="Goal" value={progress.goal ?? "Not said"} />
+      <SettingRow label="Kind of call" value={lookup(KIND, progress.classification) ?? progress.classification} />
+      <SettingRow label="Agent" value={progress.agent_name} />
+      <SettingRow
+        label="Calling from"
+        value={progress.number_e164 ? formatPhone(progress.number_e164) : "The agent's own number"}
+      />
+      <SettingRow label="Calling hours" value={hours ? `${hours.start}–${hours.end} IST` : "9am–9pm IST"} />
+      <SettingRow
+        label="Calls at the same time"
+        hint={
+          limited
+            ? `You set ${progress.concurrency}. Your plan allows ${progress.effective_concurrency}.`
+            : undefined
+        }
+        value={`Up to ${progress.effective_concurrency}`}
+      />
+      <SettingRow label="No answer, busy or voicemail" value={describeRetry(progress.retry_policy)} />
+      <SettingRow label="Do-not-call list" value="Numbers on it are always skipped" />
+    </SettingRows>
+  );
+  if (bare) return <div className="max-w-2xl">{rows}</div>;
   return (
     <Section
       className="max-w-2xl"
@@ -44,28 +72,7 @@ export function CampaignSettings({
         ) : undefined
       }
     >
-      <SettingRows className="border-y border-line">
-        <SettingRow label="Why it calls" value={progress.purpose ?? "Not said"} />
-        <SettingRow label="Goal" value={progress.goal ?? "Not said"} />
-        <SettingRow label="Kind of call" value={lookup(KIND, progress.classification) ?? progress.classification} />
-        <SettingRow label="Agent" value={progress.agent_name} />
-        <SettingRow
-          label="Calling from"
-          value={progress.number_e164 ? formatPhone(progress.number_e164) : "The agent's own number"}
-        />
-        <SettingRow label="Calling hours" value={hours ? `${hours.start}–${hours.end} IST` : "9am–9pm IST"} />
-        <SettingRow
-          label="Calls at the same time"
-          hint={
-            limited
-              ? `You set ${progress.concurrency}. Your plan allows ${progress.effective_concurrency}.`
-              : undefined
-          }
-          value={`Up to ${progress.effective_concurrency}`}
-        />
-        <SettingRow label="No answer, busy or voicemail" value={describeRetry(progress.retry_policy)} />
-        <SettingRow label="Do-not-call list" value="Numbers on it are always skipped" />
-      </SettingRows>
+      {rows}
     </Section>
   );
 }

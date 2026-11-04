@@ -59589,7 +59589,7 @@
       },
       "UpdateCampaignIn": {
         "additionalProperties": false,
-        "description": "A draft's settings, each optional. An absent field is left alone; `number_id` and\n`calling_hours` may be sent as null to clear them. Consent provenance has its own route,\nbecause it is a declaration with its own audit row.",
+        "description": "A draft's settings, each optional. An absent field is left alone; `number_id` and\n`calling_hours` may be sent as null to clear them. Consent provenance has its own route,\nbecause it is a declaration with its own audit row.\n\n`name` sent ALONE is a rename and is taken in any status (`controls.rename_campaign`);\nwith any other field the whole edit needs a draft.",
         "properties": {
           "agent_id": {
             "anyOf": [
@@ -83458,7 +83458,7 @@
         "x-calevate-permission": "leads:read"
       },
       "patch": {
-        "description": "Drafts only (`controls.update_draft`). Audited with the names of the fields changed,\nnot their values: who changed which setting is the question an audit answers.",
+        "description": "Drafts only (`controls.update_draft`), except a name sent alone. Audited with the\nnames of the fields changed, not their values: who changed which setting is the question\nan audit answers.",
         "operationId": "update_campaign_v1_campaigns__campaign_id__patch",
         "parameters": [
           {
@@ -83493,7 +83493,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Change a draft's settings: name, purpose, goal, agent, number, hours, calls at once, retries",
+        "summary": "Rename a campaign in any status, or change a draft's settings: purpose, goal, agent, number, hours, calls at once, retries",
         "tags": [
           "campaigns"
         ],

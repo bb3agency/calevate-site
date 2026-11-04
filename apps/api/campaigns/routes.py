@@ -154,12 +154,22 @@ class CreateCampaignOut(Strict):
     status: str
 
 
+#: A campaign name as sent on an edit: surrounding spaces go before the length rule, so
+#: "  A  " cannot pass as two characters.
+CampaignNameIn = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=2, max_length=120)
+]
+
+
 class UpdateCampaignIn(Strict):
     """A draft's settings, each optional. An absent field is left alone; `number_id` and
     `calling_hours` may be sent as null to clear them. Consent provenance has its own route,
-    because it is a declaration with its own audit row."""
+    because it is a declaration with its own audit row.
 
-    name: str | None = Field(default=None, min_length=2, max_length=120)
+    `name` sent ALONE is a rename and is taken in any status (`controls.rename_campaign`);
+    with any other field the whole edit needs a draft."""
+
+    name: CampaignNameIn | None = None
     agent_id: UUID | None = None
     number_id: UUID | None = None
     classification: ClientClassification | None = None
@@ -1323,8 +1333,8 @@ async def resume(
     status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
     summary=(
-        "Change a draft's settings: name, purpose, goal, agent, number, hours, calls at once, "
-        "retries"
+        "Rename a campaign in any status, or change a draft's settings: purpose, goal, agent, "
+        "number, hours, calls at once, retries"
     ),
 )
 async def update_campaign(
@@ -1334,8 +1344,9 @@ async def update_campaign(
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> None:
-    """Drafts only (`controls.update_draft`). Audited with the names of the fields changed,
-    not their values: who changed which setting is the question an audit answers."""
+    """Drafts only (`controls.update_draft`), except a name sent alone. Audited with the
+    names of the fields changed, not their values: who changed which setting is the question
+    an audit answers."""
     assert principal.tenant_id is not None
     sent = payload.model_fields_set
     cleared = [

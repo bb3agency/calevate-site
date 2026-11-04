@@ -8,6 +8,7 @@ import {
   FIXTURE_CAMPAIGN_ID as CAMPAIGN_ID,
   campaignPage,
   detailRoutes,
+  openTab,
   progressFixture,
   timelinePath,
 } from "./campaignFixtures";
@@ -76,6 +77,7 @@ describe("a launched campaign's day-by-day chart", () => {
         ],
       }),
     );
+    await openTab("What happened");
     await screen.findByRole("heading", { name: "Day by day" });
     expect(await screen.findByText(/In the days shown/)).toBeTruthy();
     expect(container.textContent).toContain("30 calls made, 12 answered, 3 new leads.");
@@ -91,11 +93,13 @@ describe("a launched campaign's day-by-day chart", () => {
         campaigns: [],
       }),
     );
+    await openTab("What happened");
     expect(await screen.findByText(/No calls have gone out yet/)).toBeTruthy();
   });
 
   it("says the read failed in words, never as zeros", async () => {
     await renderClientPage(campaignPage(), routes(problem(503, { title: "Unavailable" })));
+    await openTab("What happened");
     expect(await screen.findByText(/Couldn't load the daily figures/)).toBeTruthy();
   });
 });

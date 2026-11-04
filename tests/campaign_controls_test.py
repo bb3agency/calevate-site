@@ -238,10 +238,52 @@ async def test_a_running_campaign_cannot_be_edited() -> None:
     campaign_id = await _campaign(account, status="running")
     async with _client() as client:
         response = await client.patch(
-            f"/v1/campaigns/{campaign_id}", headers=account.headers, json={"name": "Later"}
+            f"/v1/campaigns/{campaign_id}",
+            headers=account.headers,
+            json={"name": "Later", "concurrency": 1},
         )
     assert response.status_code == 422 or response.status_code == 409
     assert response.json()["type"].endswith("/campaign_not_draft")
+    row = await _one(account.tenant_id, "SELECT name FROM campaigns WHERE id = :c", c=campaign_id)
+    assert row[0] != "Later"
+
+
+@pytest.mark.parametrize("status", ["scheduled", "running", "paused", "completed", "cancelled"])
+async def test_a_launched_campaign_is_renamed_and_the_rename_audited(status: str) -> None:
+    account = await _account()
+    campaign_id = await _campaign(account, status=status)
+    before = await _one(
+        account.tenant_id, "SELECT updated_at FROM campaigns WHERE id = :c", c=campaign_id
+    )
+    async with _client() as client:
+        response = await client.patch(
+            f"/v1/campaigns/{campaign_id}",
+            headers=account.headers,
+            json={"name": "  Diwali recall  "},
+        )
+    assert response.status_code == 204, response.text
+    row = await _one(
+        account.tenant_id,
+        "SELECT name, status, updated_at FROM campaigns WHERE id = :c",
+        c=campaign_id,
+    )
+    assert row[0] == "Diwali recall"
+    assert row[1] == status
+    # The stalled-campaign queue and the completion event read updated_at as a state change.
+    assert row[2] == before[0]
+    assert await _audits(account.tenant_id, campaign_id) == ["campaign.updated"]
+
+
+@pytest.mark.parametrize("name", ["", " ", " x "])
+async def test_a_rename_too_short_once_trimmed_is_refused(name: str) -> None:
+    account = await _account()
+    campaign_id = await _campaign(account, status="running")
+    async with _client() as client:
+        response = await client.patch(
+            f"/v1/campaigns/{campaign_id}", headers=account.headers, json={"name": name}
+        )
+    assert response.status_code == 422, response.text
+    assert await _audits(account.tenant_id, campaign_id) == []
 
 
 async def test_contacts_never_tried_are_removed_and_tried_ones_kept() -> None:

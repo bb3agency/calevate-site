@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { Metric, MetricRow } from "@/components/console/metric";
+import { Metric } from "@/components/console/metric";
 import { Section, TEXT_ACTION } from "@/components/console/section";
 import { ProblemNotice, Skeleton, StatusBadge, formatCount, formatDuration, formatINR } from "@/components/ui";
 import type { CampaignResults as Results, ContactOutcome } from "@/lib/api/campaigns";
@@ -51,14 +51,75 @@ function goalHint(goal: NonNullable<Results["goal"]>, answered: number): string 
   return unsure > 0 ? `People who answered. ${formatCount(unsure)} unclear` : "People who answered";
 }
 
+type ResultsRead = { data: Results | undefined; isLoading: boolean; error: unknown; refetch: () => void };
+
 /**
- * WHAT THE CAMPAIGN ACHIEVED (FLOWS §5): reach, how the conversations went, leads, spend.
+ * THE CAMPAIGN'S HEADLINE FIGURES, read at a glance under the live panel: pick-ups, the
+ * goal when it has one, leads, the average call and the credit spent. The breakdowns
+ * behind them are the Results tab (`CampaignResults`), so the figures are said once.
  *
- * Every figure is the server's (`GET /v1/campaigns/{id}/results`). The outcome list is a
- * labelled count with a hairline bar for its share of the list, the one encoding that
- * helps here (which way the misses went); there is no chart for a figure a number says.
- * Credit spent is the server's NUMERIC string, formatted, never parsed (hard rule 7), and
- * is absent for a role that may not see billing.
+ * Every figure is the server's (`GET /v1/campaigns/{id}/results`). Credit spent is the
+ * server's NUMERIC string, formatted, never parsed (hard rule 7), and is absent for a role
+ * that may not see billing.
+ */
+export function ResultFigures({ results }: { results: ResultsRead }) {
+  if (results.isLoading) return <Skeleton rows={2} />;
+  if (!results.data) {
+    return (
+      <ProblemNotice
+        error={results.error ?? new Error("This campaign's results did not load.")}
+        onRetry={() => results.refetch()}
+      />
+    );
+  }
+  const r = results.data;
+  return (
+    <section
+      aria-label="Campaign results"
+      className={`grid grid-cols-2 gap-x-6 gap-y-6 ${r.goal ? "md:grid-cols-5" : "md:grid-cols-4"}`}
+    >
+      <Metric
+        label="Picked up"
+        value={r.pickup_rate === null ? "—" : percent(r.pickup_rate)}
+        hint={
+          r.tried
+            ? `${formatCount(r.outcomes.connected ?? 0)} of ${formatCount(r.tried)} people called`
+            : "Nobody has been called yet"
+        }
+      />
+      {r.goal && (
+        <Metric
+          label="Goal reached"
+          value={`${formatCount(r.goal.reached)} of ${formatCount(r.people_answered)}`}
+          hint={goalHint(r.goal, r.people_answered)}
+        />
+      )}
+      <Metric
+        label="Leads"
+        value={formatCount(r.leads)}
+        hint={r.hot_leads ? `${formatCount(r.hot_leads)} hot` : "None marked hot yet"}
+      />
+      <Metric
+        label="Average call"
+        value={formatDuration(r.average_call_s)}
+        hint={`${formatCount(Math.round(r.talk_seconds / 60))} minutes talked in all`}
+      />
+      <Metric
+        label="Credit spent"
+        value={r.credits_spent_inr === null ? "—" : formatINR(r.credits_spent_inr)}
+        hint={r.credits_spent_inr === null ? "Hidden for your role" : "Includes call-backs"}
+      />
+    </section>
+  );
+}
+
+/**
+ * WHAT THE CAMPAIGN ACHIEVED, broken down (FLOWS §5): how the calls ended, what they led
+ * to, what people said, and the leads it made.
+ *
+ * The outcome list is a labelled count with a hairline bar for its share of the people
+ * reached, the one encoding that helps here (which way the misses went); there is no
+ * chart for a figure a number says.
  */
 export function CampaignResults({
   slug,
@@ -67,7 +128,7 @@ export function CampaignResults({
 }: {
   slug: string;
   campaignId: string;
-  results: { data: Results | undefined; isLoading: boolean; error: unknown; refetch: () => void };
+  results: ResultsRead;
 }) {
   const { href } = useClientRealm();
   if (results.isLoading) return <Skeleton rows={3} />;
@@ -84,43 +145,6 @@ export function CampaignResults({
   const sentiment = Object.entries(r.sentiment).filter(([, n]) => n > 0);
   return (
     <div className="space-y-8">
-      {/* The campaign's own measure of success, so it leads rather than sharing the row. */}
-      {r.goal && (
-        <div className="border-b border-line pb-6">
-          <Metric
-            label="Goal reached"
-            value={`${formatCount(r.goal.reached)} of ${formatCount(r.people_answered)}`}
-            hint={goalHint(r.goal, r.people_answered)}
-          />
-        </div>
-      )}
-      <MetricRow label="Campaign results">
-        <Metric
-          label="Picked up"
-          value={r.pickup_rate === null ? "—" : percent(r.pickup_rate)}
-          hint={
-            r.tried
-              ? `${formatCount(r.outcomes.connected ?? 0)} of ${formatCount(r.tried)} people called`
-              : "Nobody has been called yet"
-          }
-        />
-        <Metric
-          label="Average call"
-          value={formatDuration(r.average_call_s)}
-          hint={`${formatCount(Math.round(r.talk_seconds / 60))} minutes talked in all`}
-        />
-        <Metric
-          label="Leads"
-          value={formatCount(r.leads)}
-          hint={r.hot_leads ? `${formatCount(r.hot_leads)} hot` : "None marked hot yet"}
-        />
-        <Metric
-          label="Credit spent"
-          value={r.credits_spent_inr === null ? "—" : formatINR(r.credits_spent_inr)}
-          hint={r.credits_spent_inr === null ? "Hidden for your role" : "Includes call-backs"}
-        />
-      </MetricRow>
-
       <div className="grid grid-cols-1 gap-10 md:grid-cols-2">
         <Section title="How calls went" headingLevel={3}>
           <OutcomeBreakdown outcomes={r.outcomes} />

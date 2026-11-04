@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { PhoneCall } from "lucide-react";
 
 import { ChipGroup } from "@/components/arc/chip-group";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { FilterToolbar } from "@/components/arc/filter-toolbar";
 import { SearchField } from "@/components/arc/search-field";
-import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
-import { TEXT_ACTION_SM } from "@/components/console/section";
 import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import { Pagination } from "@/components/interior/pagination";
 import {
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatIST,
@@ -50,11 +50,16 @@ const OUTCOME_TONE: Record<ContactOutcome, NoticeTone> = {
 };
 
 /**
- * EVERY PERSON ON THE CAMPAIGN, with what happened (D-773): outcome, tries used, the next
- * try, and the call itself. One page of the server's list at a time, filtered by outcome
- * and searched by name or the last digits of the number, so a list of five thousand stays
- * a page. Before launch the same table lists who will be called, and a person not yet
- * tried can be taken off.
+ * EVERY PERSON ON THE CAMPAIGN, with what happened (D-773): the heart of a launched
+ * campaign's page. One row per person: who, what happened with the tries and the next
+ * one, and the call itself as a button, because opening a call is what an owner does
+ * here most. One page of the server's list at a time, filtered by outcome and searched by
+ * name or the last digits of the number, so a list of five thousand stays a page.
+ *
+ * A row rather than a table: on a phone the three things a person row says have to stay
+ * together, and a table hides its columns there; the row stacks them instead. Before
+ * launch the same list names who will be called, and a person not yet tried can be taken
+ * off.
  */
 export function ContactResults({
   slug,
@@ -91,87 +96,11 @@ export function ContactResults({
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
   const all = data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : 0;
 
-  const allColumns: DataColumn<ContactResult>[] = [
-    {
-      id: "person",
-      header: "Person",
-      cell: (row) => (
-        <div className="min-w-0">
-          <p className="truncate text-body font-medium text-ink">{row.name?.trim() || formatPhone(row.phone_e164)}</p>
-          {row.name?.trim() ? <p className="text-meta text-ink-muted">{formatPhone(row.phone_e164)}</p> : null}
-        </div>
-      ),
-    },
-    {
-      id: "outcome",
-      header: "Outcome",
-      cell: (row) => (
-        <div className="space-y-0.5">
-          <StatusPill tone={OUTCOME_TONE[row.outcome]} dot={row.outcome === "not_called" ? STATE_DOT.draft : undefined}>
-            {OUTCOME_WORDS[row.outcome]}
-          </StatusPill>
-          {row.goal_reached ? <p className="text-meta text-ink-muted">{GOAL_WORDS[row.goal_reached]}</p> : null}
-          {row.will_retry && row.next_attempt_at ? (
-            <p className="text-meta text-ink-muted">Next try {formatIST(row.next_attempt_at)}</p>
-          ) : null}
-        </div>
-      ),
-      flash: (row) => row.outcome,
-    },
-    {
-      id: "tries",
-      header: "Tries",
-      cell: (row) => (
-        <span className="tabular-nums text-body text-ink-muted">
-          {row.attempts} of {maxAttempts}
-        </span>
-      ),
-      hideBelow: "sm",
-    },
-    {
-      id: "last",
-      header: "Last try",
-      cell: (row) => (
-        <span className="whitespace-nowrap text-meta text-ink-muted">
-          {row.last_attempt_at ? formatIST(row.last_attempt_at) : "—"}
-        </span>
-      ),
-      hideBelow: "md",
-    },
-    {
-      id: "action",
-      header: editable ? "Remove" : "Call",
-      align: "right",
-      cell: (row) =>
-        row.call_id ? (
-          <Link href={href(`/c/${slug}/calls/${row.call_id}`)} className={`${TEXT_ACTION_SM} -mr-2 whitespace-nowrap`}>
-            Open call
-          </Link>
-        ) : editable && row.outcome === "not_called" ? (
-          <ActionButton
-            variant="secondary-sm"
-            title={refusal}
-            disabled={!canWrite}
-            status={remove.variables?.[0] === row.id ? removeFeedback.status : "idle"}
-            pendingLabel="Removing"
-            successLabel="Removed"
-            onClick={() => removeFeedback.run([row.id])}
-            aria-label={`Take ${row.name?.trim() || formatPhone(row.phone_e164)} off this campaign`}
-          >
-            Remove
-          </ActionButton>
-        ) : null,
-    },
-  ];
-  // Before launch every row would read "Not called yet · 0 of 3 · —": the person and the
-  // way to take them off are all a draft's list has to say.
-  const columns = editable ? allColumns.filter((c) => c.id === "person" || c.id === "action") : allColumns;
   const shown = OUTCOME_ORDER.filter((o) => (data?.counts[o] ?? 0) > 0);
   const choose = (next: ContactOutcome | undefined) => {
     setOutcome(next);
     setPage(1);
   };
-
   const runSearch = (query: string) => {
     setSearch(query);
     setPage(1);
@@ -183,11 +112,44 @@ export function ContactResults({
   };
   const active = [
     ...(outcome ? [{ id: "outcome", label: `Outcome: ${OUTCOME_WORDS[outcome]}`, onRemove: () => choose(undefined) }] : []),
-    ...(search ? [{ id: "search", label: `Search: ${search}`, onRemove: () => {
-      setTyped("");
-      runSearch("");
-    } }] : []),
+    ...(search
+      ? [
+          {
+            id: "search",
+            label: `Search: ${search}`,
+            onRemove: () => {
+              setTyped("");
+              runSearch("");
+            },
+          },
+        ]
+      : []),
   ];
+
+  const action = (row: ContactResult, who: string) =>
+    row.call_id ? (
+      <Link
+        href={href(`/c/${slug}/calls/${row.call_id}`)}
+        className={SECONDARY_BUTTON_SM}
+        aria-label={`Open the call with ${who}`}
+      >
+        <PhoneCall aria-hidden className="h-3.5 w-3.5" />
+        Open call
+      </Link>
+    ) : editable && row.outcome === "not_called" ? (
+      <ActionButton
+        variant="secondary-sm"
+        title={refusal}
+        disabled={!canWrite}
+        status={remove.variables?.[0] === row.id ? removeFeedback.status : "idle"}
+        pendingLabel="Removing"
+        successLabel="Removed"
+        onClick={() => removeFeedback.run([row.id])}
+        aria-label={`Take ${who} off this campaign`}
+      >
+        Remove
+      </ActionButton>
+    ) : null;
 
   return (
     <div className="space-y-4">
@@ -236,16 +198,56 @@ export function ContactResults({
         )
       ) : (
         <>
-          <DataTable
-            label="People on this campaign"
-            rows={data.items}
-            columns={columns}
-            getRowId={(row) => row.id}
-            maxRows={5}
-          />
+          <ul aria-label="People on this campaign" className="divide-y divide-line border-y border-line">
+            {data.items.map((row) => {
+              const who = row.name?.trim() || formatPhone(row.phone_e164);
+              return (
+                <li
+                  key={row.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_6.5rem] sm:gap-x-6"
+                >
+                  <div className="col-start-1 row-start-1 min-w-0">
+                    <p className="truncate text-body font-medium text-ink">{who}</p>
+                    {row.name?.trim() ? (
+                      <p className="text-meta tabular-nums text-ink-muted">{formatPhone(row.phone_e164)}</p>
+                    ) : null}
+                  </div>
+                  {editable ? null : (
+                    <div className="col-start-1 row-start-2 min-w-0 sm:col-start-2 sm:row-start-1">
+                      <PersonOutcome row={row} maxAttempts={maxAttempts} />
+                    </div>
+                  )}
+                  <div className="col-start-2 row-span-2 row-start-1 self-center justify-self-end sm:col-start-3 sm:row-span-1">
+                    {action(row, who)}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
           {pages > 1 && <Pagination count={pages} page={page} onPageChange={setPage} label="People pages" />}
         </>
       )}
+    </div>
+  );
+}
+
+/** What happened to one person: the outcome, the tries used, and what comes next. */
+function PersonOutcome({ row, maxAttempts }: { row: ContactResult; maxAttempts: number }) {
+  const details = [
+    row.goal_reached ? GOAL_WORDS[row.goal_reached] : null,
+    row.attempts > 0 ? `Try ${formatCount(row.attempts)} of ${formatCount(maxAttempts)}` : null,
+    row.will_retry && row.next_attempt_at
+      ? `Next try ${formatIST(row.next_attempt_at)}`
+      : row.last_attempt_at && row.outcome !== "calling"
+        ? `Last ${formatIST(row.last_attempt_at)}`
+        : null,
+  ].filter((part): part is string => part !== null);
+  return (
+    <div className="min-w-0 space-y-0.5">
+      <StatusPill tone={OUTCOME_TONE[row.outcome]} dot={row.outcome === "not_called" ? STATE_DOT.draft : undefined}>
+        {OUTCOME_WORDS[row.outcome]}
+      </StatusPill>
+      {details.length > 0 ? <p className="text-meta text-ink-muted">{details.join(" · ")}</p> : null}
     </div>
   );
 }
