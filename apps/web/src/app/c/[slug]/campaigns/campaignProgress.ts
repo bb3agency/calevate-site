@@ -130,12 +130,41 @@ export function runSentence(progress: CampaignProgress, run: CampaignRun): strin
     default:
       if (progress.not_calling.length > 0) return "Not calling anyone right now.";
       if (progress.waiting_for_calling_hours) {
-        const hours = progress.calling_hours;
-        return `Waiting for calling hours (${hours ? `${hours.start}–${hours.end}` : "9am–9pm"} IST).`;
+        return `Waiting for calling hours (${callingHoursText(progress)}).`;
       }
       if (run.onCallNow > 0) {
         return `Calling now: ${formatCount(run.onCallNow)} ${run.onCallNow === 1 ? "call" : "calls"} in progress.`;
       }
       return "Calling. More calls go out shortly.";
   }
+}
+
+/** "9am–9pm IST", or the campaign's own narrower window. */
+export function callingHoursText(progress: Pick<CampaignProgress, "calling_hours">): string {
+  const hours = progress.calling_hours;
+  return hours ? `${hours.start}–${hours.end} IST` : "9am–9pm IST";
+}
+
+/**
+ * Why fewer calls run at once than the campaign was set to, in one line, or undefined when
+ * the campaign gets what it asked for.
+ *
+ * `effective_concurrency` is the least of the campaign's own setting, the plan's ceiling,
+ * the lines kept free for people calling in, and the account's call lines
+ * (`campaigns/service.effective_concurrency`), and the progress read does not say which
+ * won. The account's lines are a read of their own (`GET /v1/call-lines`), so they are
+ * named only when that read shows they are the limit; otherwise the line gives the number
+ * without a cause rather than guess one.
+ */
+export function atOnceNote(
+  progress: Pick<CampaignProgress, "concurrency" | "effective_concurrency">,
+  accountLines: number | undefined,
+): string | undefined {
+  const allowed = progress.effective_concurrency;
+  if (allowed >= progress.concurrency) return undefined;
+  const set = `You set ${formatCount(progress.concurrency)}.`;
+  if (accountLines === allowed) {
+    return `${set} Your account runs up to ${formatCount(allowed)} ${allowed === 1 ? "call" : "calls"} at once.`;
+  }
+  return `${set} Up to ${formatCount(allowed)} can run at once right now.`;
 }

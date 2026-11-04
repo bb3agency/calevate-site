@@ -73,13 +73,15 @@ describe("the live panel of a running campaign", () => {
     expect(container.textContent).toContain("2 of 3");
   });
 
-  it("says when the plan allows fewer calls at once than the campaign asked for", async () => {
+  it("says the account's call lines hold it to fewer calls at once than it asked for", async () => {
     await renderClientPage(
       campaignPage(),
-      routes(progressFixture({ ...LAUNCHED, contacts: { pending: 4 }, total: 4, concurrency: 5, effective_concurrency: 2 })),
+      routes(progressFixture({ ...LAUNCHED, contacts: { pending: 4 }, total: 4, concurrency: 5, effective_concurrency: 2 }), {
+        "/v1/call-lines": { call_lines: 2, in_progress: 1, on_trial: false },
+      }),
     );
     fireEvent.click(await screen.findByRole("button", { name: "About Calls at once" }));
-    expect((await screen.findByText(/You chose 5/)).textContent).toContain("allow 2");
+    expect(await screen.findByText("You set 5. Your account runs up to 2 calls at once.")).toBeTruthy();
   });
 
   it("asks for nobody on a call while nobody is, and names the next try", async () => {
@@ -112,8 +114,9 @@ describe("the live panel of a running campaign", () => {
         }),
       }),
     );
-    const people = await screen.findByRole("list", { name: "People on this campaign" });
+    const people = await screen.findByRole("table", { name: "People on this campaign" });
     expect(within(people).getByText("Lakshmi")).toBeTruthy();
+    expect(within(people).getByRole("columnheader", { name: "What happened" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "People" }).getAttribute("aria-selected")).toBe("true");
     await openTab("How it calls");
     expect(await screen.findByText("Calling hours")).toBeTruthy();

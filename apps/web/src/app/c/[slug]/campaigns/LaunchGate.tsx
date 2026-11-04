@@ -2,21 +2,33 @@
 
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
+import type { ReactNode } from "react";
 
 import type { ActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
-import { Section } from "@/components/console/section";
-import { NoticeBox, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import {
+  NoticeBox,
+  PRIMARY_BUTTON_LG,
+  ProblemNotice,
+  SECONDARY_BUTTON_SM,
+  Skeleton,
+  formatCount,
+  formatPhone,
+  formatCountOf,
+} from "@/components/ui";
 import { shortDay, useCallingNumbers, type CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
-import { type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";
-import { useCampaignPurpose } from "@/lib/api/compliancePack";
+import { type CampaignProgress, type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";
+import { useCampaignPurpose, type CampaignPurpose } from "@/lib/api/compliancePack";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { AtOnceHint } from "./CampaignSettings";
 import { ConsentProvenanceAnswer, listSourceId } from "./ConsentProvenance";
 import { LaunchConfirm } from "./LaunchConfirm";
+import { callingHoursText } from "./campaignProgress";
+import { CONSENT_SOURCES } from "./choices";
 import { Why } from "@/components/why";
 import {
   BLOCKER_COPY,
@@ -125,71 +137,127 @@ export function LaunchGate({
   const todo = items.filter((item) => item.state === "todo").length;
 
   return (
-    <Section title={status === "scheduled" ? "Before it starts" : "Before you launch"}>
-      <DeclarationDue declaration={declaration.data} href={`${at("/verify-business")}#calling-numbers`} />
-      {purpose.data && purpose.data.purpose.purpose !== "unclear" && (
-        <p className="mb-3 text-meta text-ink-muted">
-          Call type: {purpose.data.purpose.label}
-          {purpose.data.purpose.window ? ` (permission lasts ${purpose.data.purpose.window})` : ""}
-        </p>
-      )}
-      {check.isLoading ? (
-        <Skeleton rows={3} />
-      ) : check.error || !check.data ? (
-        <ProblemNotice
-          error={check.error ?? new Error("The launch check did not load.")}
-          onRetry={() => check.refetch()}
-        />
-      ) : check.data?.ready ? (
-        <div className="space-y-3">
-          <p className="flex items-center gap-2 text-body font-medium text-ink">
-            <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
-            Everything checks out.
-          </p>
-          {/* Launching dials real numbers and cannot be recalled: review, restatement,
-              type-the-count (`LaunchConfirm`). */}
-          <LaunchConfirm
-            contacts={progress.data?.total}
-            concurrency={progress.data?.effective_concurrency}
-            callingHours={progress.data?.calling_hours}
-            numberE164={progress.data?.number_e164}
-            canWrite={canWrite}
-            writeReason={refusal}
-            status={launch.status}
-            onLaunch={() => launch.run()}
-            waiting={check.isRefetching && launch.status !== "pending" ? "Checking your campaign again" : null}
-          />
-          {!canWrite && writeReason && <p className="text-meta text-ink-muted">{writeReason}</p>}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {items.length === 0 ? (
-            // Not ready with nothing itemised: say the true thing, that their side is done.
-            <p className="text-body text-ink-muted">Everything on your side is ready.</p>
-          ) : (
-            <Checklist label="Still to do" items={items} emphasizeNext />
-          )}
-          {/* The one blocker with a control: answered here, against this draft, so a
-              client never has to rebuild a list to record a date. */}
-          {provenanceRule && (
-            <ConsentProvenanceAnswer
-              campaignId={campaignId}
-              correcting={provenanceRule === "consent_source_refused"}
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-10">
+      <section aria-labelledby={`launch-${campaignId}`} className="min-w-0">
+        <h2 id={`launch-${campaignId}`} className="text-heading text-ink">
+          {status === "scheduled" ? "Before it starts" : "Before you launch"}
+        </h2>
+        <DeclarationDue declaration={declaration.data} href={`${at("/verify-business")}#calling-numbers`} />
+        <div className="mt-3">
+          {check.isLoading ? (
+            <Skeleton rows={3} />
+          ) : check.error || !check.data ? (
+            <ProblemNotice
+              error={check.error ?? new Error("The launch check did not load.")}
+              onRetry={() => check.refetch()}
             />
-          )}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
-            <button type="button" disabled className={`${PRIMARY_BUTTON} w-full sm:w-auto`}>
-              Launch campaign
-            </button>
-            {todo > 0 && (
-              <p className="text-meta text-ink-muted">
-                {todo === 1 ? "Fix 1 item first" : `Fix ${todo} items first`}
+          ) : check.data.ready ? (
+            <div className="space-y-5">
+              <p className="flex items-center gap-2 text-body font-medium text-ink">
+                <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
+                Everything checks out.
               </p>
-            )}
-          </div>
+              <LaunchConfirm
+                contacts={progress.data?.total}
+                canWrite={canWrite}
+                writeReason={refusal}
+                status={launch.status}
+                onLaunch={() => launch.run()}
+                waiting={check.isRefetching && launch.status !== "pending" ? "Checking your campaign again" : null}
+              />
+              {!canWrite && writeReason && <p className="text-meta text-ink-muted">{writeReason}</p>}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {items.length === 0 ? (
+                // Not ready with nothing itemised: say the true thing, that their side is done.
+                <p className="text-body text-ink-muted">Everything on your side is ready.</p>
+              ) : (
+                <Checklist label="Still to do" items={items} emphasizeNext />
+              )}
+              {/* The one blocker with a control: answered here, against this draft, so a
+                  client never has to rebuild a list to record a date. */}
+              {provenanceRule && (
+                <ConsentProvenanceAnswer
+                  campaignId={campaignId}
+                  correcting={provenanceRule === "consent_source_refused"}
+                />
+              )}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
+                <button type="button" disabled className={`${PRIMARY_BUTTON_LG} w-full justify-center sm:w-auto`}>
+                  Launch campaign
+                </button>
+                {todo > 0 && (
+                  <p className="text-meta text-ink-muted">
+                    {todo === 1 ? "Fix 1 item first" : `Fix ${todo} items first`}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
+      </section>
+      {progress.data && <LaunchSummary progress={progress.data} purpose={purpose.data?.purpose} />}
+    </div>
+  );
+}
+
+/**
+ * WHAT PRESSING CALL WILL DO, beside the button: how many people, how many at once, the
+ * hours, the number, and the kind of call the campaign's own choices make it. A review
+ * step restates the send before it happens; here it sits beside the button rather than
+ * behind a second confirmation (founder, 4 Nov 2026: one press, pause is the way back).
+ */
+function LaunchSummary({
+  progress,
+  purpose,
+}: {
+  progress: CampaignProgress;
+  purpose: CampaignPurpose["purpose"] | undefined;
+}) {
+  const source = CONSENT_SOURCES.find((choice) => choice.value === progress.consent_source)?.label;
+  return (
+    <dl
+      role="group"
+      aria-label="What launching does"
+      className="grid h-fit grid-cols-2 gap-x-4 gap-y-4 rounded-card bg-surface-muted p-4 sm:grid-cols-4 lg:grid-cols-1 lg:p-5"
+    >
+      <SummaryFact label="People">{formatCountOf(progress.total, "person", "people")}</SummaryFact>
+      <SummaryFact label="Calls at once">
+        Up to {formatCount(progress.effective_concurrency)}
+        <AtOnceHint progress={progress} />
+      </SummaryFact>
+      <SummaryFact label="Calling hours">{callingHoursText(progress)}</SummaryFact>
+      <SummaryFact label="Calling from">
+        {progress.number_e164 ? formatPhone(progress.number_e164) : "Your agent's number"}
+      </SummaryFact>
+      {purpose && purpose.purpose !== "unclear" && (
+        <SummaryFact label="Kind of call" wide>
+          {purpose.label}
+          {/* The window is the regulation's, stated rather than enforced: a list carries
+              one declared date, so the gate cannot check each person's (D-943). */}
+          {purpose.window ? (
+            <span className="block text-meta text-ink-muted">Permission lasts {purpose.window}.</span>
+          ) : null}
+          <span className="block text-meta text-ink-muted">
+            <Why inline>
+              {purpose.explanation}
+              {source ? ` Your list: ${source}.` : ""}
+              {purpose.window ? " We don't check each person's date for you." : ""}
+            </Why>
+          </span>
+        </SummaryFact>
       )}
-    </Section>
+    </dl>
+  );
+}
+
+function SummaryFact({ label, wide = false, children }: { label: string; wide?: boolean; children: ReactNode }) {
+  return (
+    <div className={`min-w-0 ${wide ? "col-span-2 sm:col-span-4 lg:col-span-1" : ""}`}>
+      <dt className="text-meta text-ink-muted">{label}</dt>
+      <dd className="mt-0.5 text-body font-medium text-ink [overflow-wrap:anywhere]">{children}</dd>
+    </div>
   );
 }
 
