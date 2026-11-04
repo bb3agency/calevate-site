@@ -32,6 +32,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 
 import { KeyRound, LogOut, Mail, ShieldCheck } from "lucide-react";
 
@@ -61,6 +62,9 @@ import {
   subscribeToStepUpPrompt,
 } from "@/lib/authn/stepUpPrompt";
 import { useFocusTrap } from "@/lib/focusTrap";
+
+/** The modal scrim on the `z-reauth` layer (above `z-modal`). */
+const REAUTH_SCRIM = MODAL_SCRIM.replace("z-modal", "z-reauth");
 
 /**
  * How long a proved factor lasts, in minutes — `authn/stepup.REAUTH_MAX_AGE`.
@@ -233,10 +237,13 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
   // matches `adminIdleTimeoutModal`, whose trap takes the same no-op.
   useFocusTrap(panel, prompt !== null, () => {}, "first-tabbable");
 
-  if (prompt === null) return null;
+  if (prompt === null || typeof document === "undefined") return null;
 
-  return (
-    <div className={MODAL_SCRIM}>
+  // Portalled, on its own layer above every dialog: it opens FROM a dialog (a confirmation
+  // whose request asked for the check), and on the dialog layer it sat behind that
+  // dialog, which then spun on "…" with no way to reach the code.
+  return createPortal(
+    <div className={REAUTH_SCRIM}>
       <div
         ref={panel}
         role="alertdialog"
@@ -337,6 +344,7 @@ export function StepUpPrompt({ realm = "admin" }: { realm?: "admin" | "client" }
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

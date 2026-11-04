@@ -32,7 +32,7 @@ function files(): string[] {
 
 /** `z-10`, `-z-10`, `z-[70]`, `sm:z-20`, `z-(--x)`: anything but a named layer or `z-auto`. */
 const RAW_CLASS = /(?<![\w-])-?z-(?:\d+|\[[^\]]*\]|\([^)]*\))(?![\w-])/g;
-const LAYERS = ["below", "base", "raised", "sticky", "header", "dropdown", "drawer", "assistant", "modal", "popover", "toast"];
+const LAYERS = ["below", "base", "raised", "sticky", "header", "dropdown", "drawer", "assistant", "modal", "reauth", "popover", "toast"];
 
 describe("the layer scale", () => {
   it("has no raw z-index class anywhere in src", () => {
@@ -80,6 +80,7 @@ describe("the layer scale", () => {
       "src/components/interior/command-palette.tsx",
       "src/components/copilot/CopilotDock.tsx",
       "src/components/arc/toast.tsx",
+      "src/components/authn/stepUpPrompt.tsx",
     ];
     for (const path of portalled) {
       expect(readFileSync(join(process.cwd(), path), "utf8"), path).toMatch(/createPortal\([\s\S]*document\.body/);

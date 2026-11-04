@@ -314,6 +314,7 @@
   --z-drawer: 40; /* side drawers and sheets */
   --z-assistant: 50; /* the assistant panel and its launcher */
   --z-modal: 60; /* dialogs and their scrim: above the assistant, which can open one */
+  --z-reauth: 62; /* "Confirm it is still you": it interrupts whatever dialog asked for it */
   --z-popover: 65; /* portalled popovers, menus and tooltips: above a dialog or drawer they open from */
   --z-toast: 70;
 }
@@ -343,6 +344,9 @@
 }
 @utility z-modal {
   z-index: var(--z-modal);
+}
+@utility z-reauth {
+  z-index: var(--z-reauth);
 }
 @utility z-popover {
   z-index: var(--z-popover);
