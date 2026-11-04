@@ -1,10 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { PageHeader } from "@/components/console/pageHeader";
-import { Section, TEXT_ACTION } from "@/components/console/section";
+import { TEXT_ACTION } from "@/components/console/section";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
@@ -17,13 +17,14 @@ import {
   useUpdateCampaign,
   type Classification,
 } from "@/lib/api/campaigns";
+import { useMyCallLines } from "@/lib/api/callLines";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import { briefProblem, briefValue } from "./BriefFields";
 import { windowRefusal } from "./NewCampaignFlow";
-import { BasicsStep, PaceRows, campaignNumbers } from "./NewCampaignSteps";
-import { useCampaignForm } from "./campaignForm";
+import { BasicsStep, PaceFields, campaignNumbers } from "./NewCampaignSteps";
+import { clampConcurrency, concurrencyCap, useCampaignForm } from "./campaignForm";
 
 /**
  * `/c/{slug}/campaigns/{id}/edit`: change a DRAFT's settings (D-773, `PATCH`).
@@ -40,6 +41,8 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
   const agents = useAgents(session);
   const numbers = useCampaignNumbers(session);
   const templates = useDltTemplates(session);
+  const callLines = useMyCallLines(session);
+  const cap = concurrencyCap(callLines.data?.call_lines);
   const update = useUpdateCampaign(session, campaignId);
   // Success moves back to the campaign, so the save is said in a toast that survives it.
   const updateFeedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Changes saved" });
@@ -143,7 +146,9 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
         agent_id: selectedAgentId,
         classification: form.classification,
         number_id: usable ? form.numberId : null,
-        concurrency: form.concurrency,
+        // A draft saved before the account's lines were checked may ask for more than can
+        // dial; saving holds it to them, as the field shows.
+        concurrency: clampConcurrency(form.concurrency, cap),
         calling_hours: form.restrictHours ? { start: form.windowStart, end: form.windowEnd } : null,
         retry_policy: form.retry,
       },
@@ -153,18 +158,18 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
 
   return (
     <div className="max-w-4xl space-y-5 pb-12">
-      <PageHeader back={back} title="Edit campaign" />
+      <PageHeader back={back} title="Edit campaign" description="Changes apply to this draft. Who to call is changed on its page." />
       <RestrictionNote reason={write.reason} />
       <form
         noValidate
         aria-label="Edit campaign"
-        className="max-w-2xl space-y-10"
+        className="max-w-3xl space-y-6"
         onSubmit={(event) => {
           event.preventDefault();
           if (write.allowed) save();
         }}
       >
-        <Section title="The basics">
+        <EditPanel title="The basics">
           <BasicsStep
             form={form}
             agents={agents}
@@ -176,11 +181,12 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
             templates={templates}
             showTemplate={false}
           />
-        </Section>
-        <Section title="How it calls">
-          <PaceRows form={form} />
-        </Section>
-        <div className="space-y-3 border-t border-line pt-6">
+        </EditPanel>
+        <EditPanel title="How it calls">
+          <PaceFields form={form} cap={cap} capUnknown={Boolean(callLines.error)} />
+        </EditPanel>
+        {/* Save stays in reach on a long form: the bar sticks to the bottom of the view. */}
+        <div className="sticky -bottom-4 z-sticky -mx-4 space-y-3 border-t border-line bg-surface px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] sm:mx-0 sm:px-0 lg:-bottom-8">
           {problem && (
             <p role="alert" className="text-meta text-danger">
               {problem}
@@ -205,5 +211,15 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
         </div>
       </form>
     </div>
+  );
+}
+
+/** One part of the draft in its own panel, matching the create flow's step panels. */
+function EditPanel({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6">
+      <h3 className="text-title text-ink">{title}</h3>
+      {children}
+    </section>
   );
 }

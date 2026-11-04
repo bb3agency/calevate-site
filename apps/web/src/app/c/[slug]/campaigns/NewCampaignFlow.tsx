@@ -1,47 +1,39 @@
 "use client";
 
 /**
- * NEW CAMPAIGN, AS FOUR SHORT STEPS: the basics, who to call, when to call, then a review
- * of the whole campaign with Change beside every part and one "Create campaign".
+ * NEW CAMPAIGN, AS FOUR SHORT STEPS beside a summary of the campaign as it stands: the
+ * basics, who to call, when to call, then a review with Change beside every group and one
+ * "Create campaign".
  *
- * It was one 2,000-pixel form: three sets of choice cards, a file drop, a consent
- * question and four settings rows in one column, read on a phone. Steps let an owner
- * finish one question at a time, and each step is checked before Next, so a missing
- * answer is named on the step that asks it rather than at the bottom of the page. The
- * review keeps what the one-page form was for: the whole campaign is seen before it is
- * created, and nothing hides behind a Next that has not been shown again.
+ * Steps let an owner finish one question at a time, and each step is checked before Next,
+ * so a missing answer is named on the step that asks it rather than at the bottom of the
+ * page. The summary beside them answers "what have I set so far?" without stepping back;
+ * the review shows the same summary full width, so the whole campaign is seen before it
+ * is created. Both read `campaignSummary.summarize`, so they cannot disagree.
  *
- * Calling hours and calls at once are pre-set and shown as rows with Change; retries are
- * the client's choice (D-773); do-not-call skipping is the platform's and is stated. The
- * compliance check before LAUNCH is unchanged: creating makes a draft, and the draft's
- * own checklist (`LaunchGate`) still decides whether it can dial.
+ * Calls at once are offered only up to the account's call lines (D-773 pace, the lines
+ * `GET /v1/call-lines` reports); retries are the client's choice; do-not-call skipping is
+ * the platform's and is stated. The compliance check before LAUNCH is unchanged: creating
+ * makes a draft, and the draft's own checklist (`LaunchGate`) still decides whether it can
+ * dial.
  */
 
-import { useRef, useState, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 
-import { Section, TEXT_ACTION } from "@/components/console/section";
-import { SettingRow, SettingRows } from "@/components/console/settingRow";
+import { TEXT_ACTION } from "@/components/console/section";
 import { WizardSteps } from "@/components/interior/wizard-steps";
-import { ProblemNotice, formatCount, formatPhone } from "@/components/ui";
+import { ProblemNotice } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
-import { lookup } from "@/lib/lookup";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
-import { briefProblem, briefValue } from "./BriefFields";
+import { briefProblem } from "./BriefFields";
 import { ConsentProvenanceFields } from "./ConsentProvenance";
 import { LeadPicker } from "./LeadPicker";
 import { ContactEditor } from "./ContactEditor";
 import type { CampaignFormState, ScheduleFormState } from "./campaignForm";
-import { CLASSIFICATIONS, CONSENT_SOURCES } from "./choices";
-import {
-  BasicsStep,
-  PaceRows,
-  StartChoice,
-  campaignNumbers,
-  describeRetry,
-  type ListQuery,
-} from "./NewCampaignSteps";
-import { describeRepeat } from "./scheduleCopy";
+import { BasicsStep, PaceFields, StartChoice, type ListQuery } from "./NewCampaignSteps";
+import { SummaryList, headline, summarize, type SummaryInput } from "./campaignSummary";
 
 /**
  * The window every dial is held to (the dispatcher's 9am–9pm IST bound). A requested
@@ -57,7 +49,25 @@ export function windowRefusal(start: string, end: string): string | null {
   return null;
 }
 
-const STEP_NAMES = ["The basics", "Who to call", "When to call", "Review"] as const;
+const STEPS = [
+  { id: "basics", label: "The basics", heading: "The basics", lede: "Name it, pick the agent, and say what the calls are for." },
+  { id: "people", label: "Who to call", heading: "Who should we call?", lede: "Add a list, pick from your leads, or both." },
+  { id: "when", label: "When to call", heading: "When should we call?", lede: "Choose when it starts. The calling rules are already set." },
+  { id: "review", label: "Review", heading: "Check it, then create it", lede: "Saved as a draft. Nothing is called yet." },
+] as const;
+
+const REVIEW = STEPS.length - 1;
+
+/** The step's own top: its question, and one line on what it decides. */
+function StepHeader({ index }: { index: number }) {
+  const step = STEPS[index]!;
+  return (
+    <div className="space-y-1">
+      <h3 className="text-title text-ink">{step.heading}</h3>
+      <p className="text-body text-ink-muted">{step.lede}</p>
+    </div>
+  );
+}
 
 export function NewCampaignFlow({
   form,
@@ -69,6 +79,10 @@ export function NewCampaignFlow({
   hasNoAgents,
   numbers,
   templates,
+  concurrency,
+  concurrencyCap,
+  capUnknown,
+  assistant,
   creating,
   createError,
   canWrite,
@@ -85,6 +99,14 @@ export function NewCampaignFlow({
   hasNoAgents: boolean;
   numbers: ListQuery<CampaignNumber>;
   templates: ListQuery<DltTemplate>;
+  /** The pace that will be sent: the request held to the account's lines. */
+  concurrency: number;
+  /** The most calls at once the account can place; undefined while unknown. */
+  concurrencyCap: number | undefined;
+  /** The account's lines could not be read. */
+  capUnknown: boolean;
+  /** The way to have the assistant fill the steps in, shown at the top of the summary. */
+  assistant: ReactNode;
   /** The draft is being created, or what it carries is being sent. */
   creating: boolean;
   /** Why creating the draft was refused, shown on the review step. */
@@ -97,6 +119,7 @@ export function NewCampaignFlow({
 }) {
   const { counts, refusal } = form.checked;
   const [step, setStep] = useState(0);
+  const [furthest, setFurthest] = useState(0);
   // Which steps the person has tried to leave. A step's problem shows only after that,
   // and is worked out on every render, so it goes away the moment it is fixed.
   const [tried, setTried] = useState<ReadonlySet<number>>(() => new Set());
@@ -125,7 +148,6 @@ export function NewCampaignFlow({
       return null;
     }
     if (index === 2) {
-      if (form.concurrency < 1 || form.concurrency > 10) return "Choose 1 to 10 calls at once.";
       if (form.restrictHours && (!form.windowStart || !form.windowEnd)) return "Choose both a start and an end time.";
       if (form.restrictHours) {
         const window = windowRefusal(form.windowStart, form.windowEnd);
@@ -142,17 +164,18 @@ export function NewCampaignFlow({
   /** A new step starts at its top: on a phone Next sits a long way below it. */
   const goTo = (index: number) => {
     setStep(index);
+    setFurthest((far) => Math.max(far, index));
     const top = formRef.current?.getBoundingClientRect().top;
     if (top !== undefined && top < 0) formRef.current?.scrollIntoView({ block: "start" });
   };
 
   /** Next checks this step; Create checks every step and opens the first one short. */
   const canAdvance = (index: number) => {
-    if (index < STEP_NAMES.length - 1) {
+    if (index < REVIEW) {
       markTried(index);
       return problemAt(index) === null;
     }
-    for (let i = 0; i < STEP_NAMES.length - 1; i += 1) {
+    for (let i = 0; i < REVIEW; i += 1) {
       if (problemAt(i)) {
         markTried(i);
         goTo(i);
@@ -163,186 +186,140 @@ export function NewCampaignFlow({
   };
 
   const problem = tried.has(step) ? problemAt(step) : null;
-  const usableNumber = campaignNumbers(numbers.data).find((n) => n.id === form.numberId);
+  const summaryInput: SummaryInput = {
+    form,
+    schedule,
+    agent: selectedAgent,
+    numbers: numbers.data,
+    leadsMatching,
+    concurrency,
+  };
+  const groups = summarize(summaryInput);
+  const sentence = headline(summaryInput);
 
-  const steps = [
-    {
-      id: "basics",
-      label: STEP_NAMES[0],
-      content: (
-        <Section title="The basics">
-          <BasicsStep
-            form={form}
-            agents={agents}
-            agentOptions={agentOptions}
-            selectedAgentId={selectedAgentId}
-            selectedAgent={selectedAgent}
-            hasNoAgents={hasNoAgents}
-            numbers={numbers}
-            templates={templates}
-          />
-        </Section>
-      ),
-    },
-    {
-      id: "people",
-      label: STEP_NAMES[1],
-      content: (
-        <Section
-          title="Who should we call?"
-        >
-          <div className="space-y-6">
-            <ContactEditor
-              entries={form.contacts}
-              onChange={form.setContacts}
-              agentLanguage={selectedAgent?.language_primary}
-            />
-            <LeadsChoice form={form} />
-            <ConsentProvenanceFields
-              idPrefix="new"
-              source={form.consentSource}
-              collectedAt={form.consentDate}
-              onSource={form.setConsentSource}
-              onCollectedAt={form.setConsentDate}
-            />
+  const content: ReactNode[] = [
+    <BasicsStep
+      key="basics"
+      form={form}
+      agents={agents}
+      agentOptions={agentOptions}
+      selectedAgentId={selectedAgentId}
+      selectedAgent={selectedAgent}
+      hasNoAgents={hasNoAgents}
+      numbers={numbers}
+      templates={templates}
+    />,
+    <div key="people" className="space-y-8">
+      <ContactEditor
+        entries={form.contacts}
+        onChange={form.setContacts}
+        agentLanguage={selectedAgent?.language_primary}
+      />
+      <LeadsChoice form={form} />
+      <ConsentPanel form={form} />
+    </div>,
+    <div key="when" className="space-y-8">
+      <StartChoice schedule={schedule} />
+      <PaceFields form={form} cap={concurrencyCap} capUnknown={capUnknown} />
+    </div>,
+    <div key="review" className="space-y-6">
+      <p className="rounded-card bg-brand-soft px-4 py-3.5 text-heading text-ink dark:bg-brand-strong/20">{sentence}</p>
+      <div className="space-y-6">
+        {groups.map((group) => (
+          <div key={group.step} className="border-t border-line pt-5">
+            <SummaryList group={group} onEdit={() => goTo(group.step)} />
           </div>
-        </Section>
-      ),
-    },
-    {
-      id: "when",
-      label: STEP_NAMES[2],
-      content: (
-        <Section title="When should we call?">
-          <div className="space-y-6">
-            <StartChoice schedule={schedule} />
-            <PaceRows form={form} />
-          </div>
-        </Section>
-      ),
-    },
-    {
-      id: "review",
-      label: STEP_NAMES[3],
-      content: (
-        <Section
-          title="Check it, then create it"
-          description="Saved as a draft. Nothing is called yet."
-        >
-          <SettingRows className="border-y border-line">
-            <ReviewRow label="Name" value={form.name.trim() || "Not named yet"} onChange={() => goTo(0)} />
-            <ReviewRow label="Agent" value={selectedAgent?.name ?? "Not chosen"} onChange={() => goTo(0)} />
-            <ReviewRow label="Why you are calling" value={briefValue(form.purpose) ?? "Not said"} onChange={() => goTo(0)} />
-            <ReviewRow label="Goal" value={briefValue(form.goal) ?? "Not said"} onChange={() => goTo(0)} />
-            <ReviewRow
-              label="Kind of call"
-              value={CLASSIFICATIONS.find((c) => c.value === form.classification)?.label ?? form.classification}
-              onChange={() => goTo(0)}
-            />
-            <ReviewRow
-              label="Calling from"
-              value={usableNumber ? formatPhone(usableNumber.e164) : "The agent's own number"}
-              onChange={() => goTo(0)}
-            />
-            <ReviewRow
-              label="People"
-              value={
-                <>
-                  {formatCount(counts.ready)} {counts.ready === 1 ? "number" : "numbers"} ready
-                  {form.fromLeads && leadsMatching !== undefined
-                    ? `, plus ${formatCount(leadsMatching)} ${leadsMatching === 1 ? "lead" : "leads"}`
-                    : ""}
-                </>
-              }
-              onChange={() => goTo(1)}
-            />
-            <ReviewRow
-              label="Where the list came from"
-              value={lookup(Object.fromEntries(CONSENT_SOURCES.map((c) => [c.value, c.label])), form.consentSource) ?? "Not answered"}
-              onChange={() => goTo(1)}
-            />
-            <ReviewRow label="Starts" value={startWords(schedule)} onChange={() => goTo(2)} />
-            <ReviewRow
-              label="Calling hours"
-              value={form.restrictHours ? `${form.windowStart || "…"} – ${form.windowEnd || "…"} IST` : "9am – 9pm IST"}
-              onChange={() => goTo(2)}
-            />
-            <ReviewRow label="Calls at the same time" value={String(form.concurrency)} onChange={() => goTo(2)} />
-            <ReviewRow label="If nobody answers" value={describeRetry(form.retry)} onChange={() => goTo(2)} />
-          </SettingRows>
-        </Section>
-      ),
-    },
+        ))}
+      </div>
+    </div>,
   ];
 
+  const nextLabel = step < REVIEW ? `Next: ${STEPS[step + 1]!.label.toLowerCase()}` : "Next";
+
   return (
-    // A `div role="form"` rather than a `<form>`: the leads picker carries the Leads
-    // screen's own small forms (a detail filter, naming a saved view), and a form may not
-    // sit inside another. Nothing here submits; WizardSteps' buttons drive every step.
-    <div ref={formRef} role="form" aria-label="New campaign" className="max-w-2xl">
-      <WizardSteps
-        steps={steps.map((s, index) =>
-          index === step
-            ? {
-                ...s,
-                content: (
-                  <div className="space-y-6">
-                    {s.content}
-                    {problem ? (
-                      <p role="alert" className="text-meta text-danger">
-                        {problem}
-                      </p>
-                    ) : null}
-                    {index === STEP_NAMES.length - 1 && createError != null ? <ProblemNotice error={createError} /> : null}
-                  </div>
-                ),
-              }
-            : s,
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-10">
+      {/* A `div role="form"` rather than a `<form>`: the leads picker carries the Leads
+          screen's own small forms (a detail filter, naming a saved view), and a form may
+          not sit inside another. Nothing here submits; WizardSteps' buttons drive every
+          step. */}
+      <div ref={formRef} role="form" aria-label="New campaign" className="min-w-0 scroll-mt-6">
+        <WizardSteps
+          steps={STEPS.map((s, index) => ({
+            id: s.id,
+            label: s.label,
+            content:
+              index === step ? (
+                <div className="space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6">
+                  <StepHeader index={index} />
+                  {content[index]}
+                  {problem ? (
+                    <p role="alert" className="text-meta text-danger">
+                      {problem}
+                    </p>
+                  ) : null}
+                  {index === REVIEW && createError != null ? <ProblemNotice error={createError} /> : null}
+                </div>
+              ) : null,
+          }))}
+          index={step}
+          onIndexChange={goTo}
+          canAdvance={canAdvance}
+          onComplete={() => {
+            if (canWrite) onSubmit();
+          }}
+          height="auto"
+          framed={false}
+          showCurrentLabel={false}
+          label="New campaign steps"
+          nextLabel={nextLabel}
+          finishLabel="Create campaign"
+          finishing={creating}
+          finishingLabel="Creating…"
+          advanceDisabled={step === REVIEW && !canWrite}
+          extraActions={
+            <button type="button" className={TEXT_ACTION} onClick={onCancel}>
+              Cancel
+            </button>
+          }
+        />
+      </div>
+
+      <aside aria-label="Campaign summary" className="min-w-0 space-y-4 lg:sticky lg:top-6">
+        {/* The review step IS the summary, full width; beside it the card would repeat it. */}
+        {step < REVIEW && (
+          <section className="hidden overflow-hidden rounded-card border border-line bg-surface shadow-card lg:block">
+            <div className="border-b border-line bg-surface-muted px-4 py-4">
+              <h3 className={`break-words text-heading ${form.name.trim() ? "text-ink" : "text-ink-faint"}`}>
+                {form.name.trim() || "Untitled campaign"}
+              </h3>
+              <p aria-live="polite" className="mt-1 text-meta text-ink-muted">
+                {sentence}
+              </p>
+            </div>
+            <div className="space-y-5 px-4 py-4">
+              {groups.map((group) => (
+                <SummaryList
+                  key={group.step}
+                  compact
+                  group={group}
+                  onEdit={group.step <= furthest && group.step !== step ? () => goTo(group.step) : undefined}
+                />
+              ))}
+            </div>
+            <p className="border-t border-line px-4 py-3 text-meta text-ink-muted">
+              Saved as a draft. Nothing is called until you launch.
+            </p>
+          </section>
         )}
-        index={step}
-        onIndexChange={goTo}
-        canAdvance={canAdvance}
-        onComplete={() => {
-          if (canWrite) onSubmit();
-        }}
-        height="auto"
-        framed={false}
-        showCurrentLabel={false}
-        label="New campaign steps"
-        nextLabel="Next"
-        finishLabel="Create campaign"
-        finishing={creating}
-        finishingLabel="Creating…"
-        advanceDisabled={step === STEP_NAMES.length - 1 && !canWrite}
-        extraActions={
-          <button type="button" className={TEXT_ACTION} onClick={onCancel}>
-            Cancel
-          </button>
-        }
-      />
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-dashed border-line px-4 py-3 lg:block lg:space-y-3">
+          <p className="min-w-0 text-meta text-ink-muted">
+            <span className="block">Rather say it in a sentence?</span>
+            <span className="block">{ASSISTANT_NAME} fills in the steps. You check them.</span>
+          </p>
+          {assistant}
+        </div>
+      </aside>
     </div>
-  );
-}
-
-function startWords(schedule: ScheduleFormState): string {
-  if (schedule.startMode === "later") {
-    return schedule.startDate ? `Once, ${schedule.startDate} at ${schedule.startTime} IST` : "Once, at a time not chosen yet";
-  }
-  if (schedule.startMode === "weekly") return describeRepeat({ days: schedule.repeatDays, at: schedule.repeatTime });
-  return "When you launch it";
-}
-
-function ReviewRow({ label, value, onChange }: { label: string; value: ReactNode; onChange: () => void }) {
-  return (
-    <SettingRow
-      label={label}
-      value={value}
-      action={
-        <button type="button" className={TEXT_ACTION} onClick={onChange} aria-label={`Change ${label.toLowerCase()}`}>
-          Change
-        </button>
-      }
-    />
   );
 }
 
@@ -352,18 +329,53 @@ function ReviewRow({ label, value, onChange }: { label: string; value: ReactNode
  * list.
  */
 function LeadsChoice({ form }: { form: CampaignFormState }) {
+  const hintId = useId();
   return (
-    <div className="space-y-3 border-t border-line pt-4">
-      <label className="flex items-center gap-2 touch:min-h-11">
+    <div
+      className={`rounded-card border transition-colors duration-(--duration-fast) ${
+        form.fromLeads ? "border-brand bg-brand/[0.03]" : "border-line"
+      }`}
+    >
+      <label className="flex cursor-pointer items-start gap-3 px-4 py-3.5 touch:min-h-11">
         <input
           type="checkbox"
           checked={form.fromLeads}
           onChange={(e) => form.setFromLeads(e.target.checked)}
-          className="h-4 w-4 rounded border-line accent-brand"
+          aria-describedby={hintId}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-line accent-brand"
         />
-        <span className="text-body text-ink">Also call people from your leads</span>
+        <span className="min-w-0">
+          <span className="block text-body font-medium text-ink">Also call people from your leads</span>
+          {/* Hidden from the name, read as the description: the checkbox keeps its short
+              name and still says how the leads are chosen. */}
+          <span id={hintId} aria-hidden className="block text-meta text-ink-muted">
+            Filter them the way you do on your Leads page.
+          </span>
+        </span>
       </label>
-      {form.fromLeads && <LeadPicker f={form.leads} />}
+      {form.fromLeads && (
+        <div className="settings-enter border-t border-line px-4 pb-4 pt-4">
+          <LeadPicker f={form.leads} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Where the list came from: an audited statement, so it sits in its own panel after the
+ * people it describes, apart from the list tools, and is never pre-answered.
+ */
+function ConsentPanel({ form }: { form: CampaignFormState }) {
+  return (
+    <div className="rounded-card bg-surface-muted p-4 sm:p-5">
+      <ConsentProvenanceFields
+        idPrefix="new"
+        source={form.consentSource}
+        collectedAt={form.consentDate}
+        onSource={form.setConsentSource}
+        onCollectedAt={form.setConsentDate}
+      />
     </div>
   );
 }

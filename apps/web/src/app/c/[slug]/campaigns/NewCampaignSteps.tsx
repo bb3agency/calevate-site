@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { CalendarClock, CalendarDays, Hand, ShieldCheck } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { NumberField } from "@/components/arc/number-field";
-import { TEXT_ACTION } from "@/components/console/section";
+import { ChoiceCards } from "@/components/console/choiceCards";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { FIELD, FIELD_HINT, FIELD_LABEL, SECONDARY_BUTTON_SM, formatPhone } from "@/components/ui";
+import { FIELD, FIELD_HINT, FIELD_LABEL, SECONDARY_BUTTON_SM, Skeleton, formatPhone } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { useClientRealm } from "@/lib/api/session";
@@ -22,7 +22,13 @@ import {
 import { Term } from "@/lib/glossary";
 
 import { BriefFields } from "./BriefFields";
-import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
+import {
+  CONCURRENCY_MAX,
+  clampConcurrency,
+  type CampaignFormState,
+  type ScheduleFormState,
+  type StartMode,
+} from "./campaignForm";
 import { offeredClassifications } from "./choices";
 import { RepeatFields, StartAtFields } from "./ScheduleFields";
 import { describeRepeat } from "./scheduleCopy";
@@ -55,10 +61,32 @@ export function describeRetry(retry: { max_attempts: number; gaps_minutes?: numb
   return `${retry.max_attempts} tries, ${(retry.gaps_minutes ?? []).map(gapWords).join(" then ")} apart`;
 }
 
+/** Calling hours in one line, the platform window when none is set. */
+export function describeHours(form: Pick<CampaignFormState, "restrictHours" | "windowStart" | "windowEnd">): string {
+  return form.restrictHours ? `${form.windowStart || "…"} – ${form.windowEnd || "…"} IST` : "9am – 9pm IST";
+}
+
+/**
+ * A group of related fields inside a step, titled by what it decides. Proximity does the
+ * grouping; the rule between groups is the only container, so a step reads as one form
+ * rather than a stack of cards.
+ */
+export function FieldGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-4 border-t border-line pt-6 first:border-t-0 first:pt-0">
+      <h4 className="text-body font-semibold text-ink">{title}</h4>
+      {children}
+    </div>
+  );
+}
+
+const TRIES = ["1", "2", "3", "4", "5"] as const;
+
 /**
  * HOW OFTEN TO TRY ONE PERSON (D-773): 1–5 tries, and a gap before each retry from the
  * server's fixed menu (`RETRY_GAP_CHOICES`). Changing the count keeps the gaps already
- * chosen and fills new ones with the last.
+ * chosen and fills new ones with the last. Five values, so a segmented control: every
+ * answer is visible and one tap away, where a stepper hid four of them.
  */
 export function RetryChoice({
   value,
@@ -75,17 +103,21 @@ export function RetryChoice({
   };
   return (
     <div className="space-y-3">
-      <NumberField
-        className="max-w-xs"
-        label="Tries per person"
-        hint="1 means no retries. Answered calls are never retried."
-        value={value.max_attempts}
-        onChange={(next) => setAttempts(next ?? 1)}
-        min={1}
-        max={5}
-      />
+      <div>
+        <p className={FIELD_LABEL} aria-hidden>
+          Tries per person
+        </p>
+        <SegmentedControl
+          label="Tries per person"
+          className="mt-1.5"
+          value={String(value.max_attempts)}
+          options={TRIES.map((n) => ({ value: n, label: n }))}
+          onValueChange={(next) => setAttempts(Number(next))}
+        />
+        <p className={FIELD_HINT}>1 means no retries. Answered calls are never retried.</p>
+      </div>
       {gapList.length > 0 && (
-        <div className="grid grid-cols-1 max-w-md gap-3 sm:grid-cols-2">
+        <div className="settings-enter grid max-w-md grid-cols-1 gap-3 sm:grid-cols-2">
           {gapList.map((gap, index) => (
             <label key={index} className="block">
               <span className={FIELD_LABEL}>Wait before try {index + 2}</span>
@@ -147,10 +179,11 @@ function ShortChoice<T extends string>({
 }
 
 /**
- * STEP 1, THE BASICS: what the campaign is called, who makes the calls, why it calls and
- * what a good call ends with, what kind of call, and what it dials from. The number sits here, beside the call type. A DLT template is
- * optional since D-692 (outbound needs verified KYC and the no-cold-calls pledge); it is
- * still offered for a client who registered one.
+ * STEP 1, THE BASICS, in three groups: who is calling (name and agent), what the calls are
+ * for (why, and what a good call ends with), and how they are sent (kind of call, the
+ * number, an optional DLT template). A template is optional since D-692 (outbound needs
+ * verified KYC and the no-cold-calls pledge); it is still offered for a client who
+ * registered one.
  */
 export function BasicsStep({
   form,
@@ -183,105 +216,139 @@ export function BasicsStep({
     form.classification,
   );
   return (
-    <div className="space-y-5">
-      <label className="block max-w-sm">
-        <span className={FIELD_LABEL}>Name</span>
-        <input
-          value={form.name}
-          onChange={(e) => form.setName(e.target.value)}
-          placeholder={`e.g. ${eg.campaignName}`}
-          className={FIELD}
-        />
-      </label>
+    <div className="space-y-6">
+      <FieldGroup title="Who is calling">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="block min-w-0">
+            <span className={FIELD_LABEL}>Name</span>
+            <input
+              value={form.name}
+              onChange={(e) => form.setName(e.target.value)}
+              placeholder={`e.g. ${eg.campaignName}`}
+              className={FIELD}
+            />
+          </label>
 
-      {hasNoAgents && (
-        <div className="space-y-2">
-          <p className="text-sm text-ink">No agent is set up yet.</p>
-          <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
-            Create an agent
-          </Link>
+          {hasNoAgents && (
+            <div className="space-y-2">
+              <p className="text-sm text-ink">No agent is set up yet.</p>
+              <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
+                Create an agent
+              </Link>
+            </div>
+          )}
+          {/* Only from a list the server sent: an empty picker over a read in flight or
+              failed would read as "you have no agent". */}
+          {Boolean(agents.data) && agentOptions.length > 0 && (
+            <label className="block min-w-0">
+              <span className={FIELD_LABEL}>Which agent makes these calls</span>
+              <select value={selectedAgentId} onChange={(e) => form.setAgentId(e.target.value)} className={FIELD}>
+                {agentOptions.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                    {canDialOut(agent) ? "" : " — not able to call out yet"}
+                  </option>
+                ))}
+              </select>
+              {selectedAgent && !canDialOut(selectedAgent) ? (
+                <span className={FIELD_HINT}>It can&rsquo;t call out yet. You can still build this.</span>
+              ) : null}
+            </label>
+          )}
+          {!agents.data && !hasNoAgents && <Skeleton rows={1} label="Loading your agents" />}
         </div>
-      )}
-      {/* Only from a list the server sent: an empty picker over a read in flight or failed
-          would read as "you have no agent". */}
-      {Boolean(agents.data) && agentOptions.length > 0 && (
-        <label className="block max-w-sm">
-          <span className={FIELD_LABEL}>Which agent makes these calls</span>
-          <select value={selectedAgentId} onChange={(e) => form.setAgentId(e.target.value)} className={FIELD}>
-            {agentOptions.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-                {canDialOut(agent) ? "" : " — not able to call out yet"}
-              </option>
-            ))}
-          </select>
-          {selectedAgent && !canDialOut(selectedAgent) ? (
-            <span className={FIELD_HINT}>It can&rsquo;t call out yet. You can still build this.</span>
-          ) : null}
-        </label>
-      )}
+      </FieldGroup>
 
-      <BriefFields form={form} agentId={selectedAgentId} />
+      <FieldGroup title="What the calls are for">
+        <BriefFields form={form} agentId={selectedAgentId} />
+      </FieldGroup>
 
-      {/* The category decides which number series may dial (DATA-MODEL §6). */}
-      <ShortChoice
-        label="What kind of calls are these?"
-        value={form.classification}
-        options={classifications}
-        onChange={form.setClassification}
-      />
+      <FieldGroup title="How they are placed">
+        {/* The category decides which number series may dial (DATA-MODEL §6). */}
+        <ShortChoice
+          label="What kind of calls are these?"
+          value={form.classification}
+          options={classifications}
+          onChange={form.setClassification}
+        />
 
-      <div className="grid max-w-sm gap-5">
-        <label className="block min-w-0">
-          <span className={FIELD_LABEL}>Calling from</span>
-          <select value={form.numberId} onChange={(e) => form.setNumberId(e.target.value)} className={FIELD}>
-            <option value="">The agent&rsquo;s own number</option>
-            {usable.map((option) => (
-              <option key={option.id} value={option.id}>
-                {formatPhone(option.e164)} ({option.series} series)
-              </option>
-            ))}
-          </select>
-          {/* Only from a list the server sent; a failed read is refused at the top. */}
-          {numbers.data && (
-            <span className={FIELD_HINT}>
-              {usable.length === 0
-                ? "No number can make calls yet. The agent's own line is used."
-                : "Any of your numbers. Every agent can call from them."}
-            </span>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="block min-w-0">
+            <span className={FIELD_LABEL}>Calling from</span>
+            <select value={form.numberId} onChange={(e) => form.setNumberId(e.target.value)} className={FIELD}>
+              <option value="">The agent&rsquo;s own number</option>
+              {usable.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {formatPhone(option.e164)} ({option.series} series)
+                </option>
+              ))}
+            </select>
+            {/* Only from a list the server sent; a failed read is refused at the top. */}
+            {numbers.data && (
+              <span className={FIELD_HINT}>
+                {usable.length === 0
+                  ? "No number can make calls yet. The agent's own line is used."
+                  : "Any of your numbers. Every agent can call from them."}
+              </span>
+            )}
+          </label>
+          {showTemplate && (
+            <label className="block min-w-0">
+              <span className={FIELD_LABEL}>
+                <Term id="dlt" /> template (optional)
+              </span>
+              <select value={form.templateId} onChange={(e) => form.setTemplateId(e.target.value)} className={FIELD}>
+                <option value="">No template</option>
+                {(templates.data ?? []).map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.classification} — {option.status}
+                  </option>
+                ))}
+              </select>
+              {templates.data?.length === 0 && (
+                <span className={FIELD_HINT}>None registered. Not needed to call.</span>
+              )}
+            </label>
           )}
-        </label>
-        {showTemplate && (
-        <label className="block min-w-0">
-          <span className={FIELD_LABEL}>
-            <Term id="dlt" /> template (optional)
-          </span>
-          <select value={form.templateId} onChange={(e) => form.setTemplateId(e.target.value)} className={FIELD}>
-            <option value="">No template</option>
-            {(templates.data ?? []).map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.classification} — {option.status}
-              </option>
-            ))}
-          </select>
-          {templates.data?.length === 0 && (
-            <span className={FIELD_HINT}>None registered. Not needed to call.</span>
-          )}
-        </label>
-        )}
-      </div>
+        </div>
+      </FieldGroup>
     </div>
   );
 }
 
-const START_MODES: { value: StartMode; label: string; hint: string }[] = [
-  { value: "review", label: "I'll launch it", hint: "From its checklist, once everything is ready." },
-  { value: "later", label: "At a set time", hint: "Starts once, at the date and time you pick." },
-  { value: "weekly", label: "Every week", hint: "Runs on the days and at the time you pick." },
+const ICON = "h-4 w-4 text-brand-strong";
+
+const START_MODES: { value: StartMode; label: string; hint: string; icon: ReactNode }[] = [
+  {
+    value: "review",
+    label: "I'll launch it",
+    hint: "From its checklist, once everything is ready.",
+    icon: <Hand aria-hidden className={ICON} />,
+  },
+  {
+    value: "later",
+    label: "At a set time",
+    hint: "Starts once, at the date and time you pick.",
+    icon: <CalendarClock aria-hidden className={ICON} />,
+  },
+  {
+    value: "weekly",
+    label: "Every week",
+    hint: "Runs on the days and at the time you pick.",
+    icon: <CalendarDays aria-hidden className={ICON} />,
+  },
 ];
 
+/** "I'll launch it", "At a set time", "Every week": the start as a person names it. */
+export const START_MODE_LABEL: Record<StartMode, string> = {
+  review: START_MODES[0].label,
+  later: START_MODES[1].label,
+  weekly: START_MODES[2].label,
+};
+
 /**
- * WHEN IT STARTS: launched by hand, once at a set time, or every week.
+ * WHEN IT STARTS: launched by hand, once at a set time, or every week — three cards, since
+ * each answer changes what the step asks next and deserves its sentence on show.
  *
  * Every option is one the API takes: the start on `POST …/schedule` and the weekly repeat
  * on `POST …/recurrence`, both sent after the draft exists. Neither runs the launch gate
@@ -290,11 +357,14 @@ const START_MODES: { value: StartMode; label: string; hint: string }[] = [
 export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
   return (
     <div className="space-y-4">
-      <ShortChoice
-        label="How should it start?"
+      <ChoiceCards
+        legend="How should it start?"
+        legendClassName="sr-only"
+        name="campaign-start-mode"
         value={schedule.startMode}
         options={START_MODES}
         onChange={schedule.setStartMode}
+        columns="sm:grid-cols-3"
       />
       {schedule.startMode === "later" && (
         <div className="settings-enter">
@@ -304,7 +374,7 @@ export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
       {schedule.startMode === "weekly" && (
         <div className="settings-enter space-y-3">
           <RepeatFields schedule={schedule} />
-          <p className={FIELD_HINT}>{describeRepeat({ days: schedule.repeatDays, at: schedule.repeatTime })}</p>
+          <p className="text-body text-ink">Runs {describeRepeat({ days: schedule.repeatDays, at: schedule.repeatTime })}.</p>
         </div>
       )}
       {schedule.startMode !== "review" && (
@@ -314,83 +384,126 @@ export function StartChoice({ schedule }: { schedule: ScheduleFormState }) {
   );
 }
 
+const HOURS = [
+  { value: "any", label: "9am to 9pm" },
+  { value: "set", label: "Set hours" },
+] as const;
+
 /**
- * THE PRE-SET RULES, as rows with Change (founder, REDESIGN-2):
- * the hours it may call in, how many calls run at once and how often an unanswered person
- * is tried again are this campaign's own (`calling_hours`, `concurrency`, `retry_policy`);
- * skipping the do-not-call list is the platform's and is stated, not offered.
+ * HOW MANY AT ONCE: the account's call lines are the ceiling (`GET /v1/call-lines`), the
+ * same lines the campaign page reports, so the step never offers a pace the account cannot
+ * dial. A small ceiling is a row of buttons; a larger one a stepper.
  */
-export function PaceRows({ form }: { form: CampaignFormState }) {
-  const [editing, setEditing] = useState<"hours" | "pace" | "retry" | null>(null);
-  const change = (what: "hours" | "pace" | "retry") => (
-    <button type="button" className={TEXT_ACTION} onClick={() => setEditing(editing === what ? null : what)} aria-expanded={editing === what}>
-      {editing === what ? "Done" : "Change"}
-    </button>
-  );
+function PaceChoice({
+  form,
+  cap,
+  capUnknown,
+}: {
+  form: CampaignFormState;
+  /** The most the account can place at once; undefined while unknown. */
+  cap: number | undefined;
+  /** The lines could not be read: offer the campaign's own bound and say so. */
+  capUnknown: boolean;
+}) {
+  const label = "Calls at the same time";
+  const value = clampConcurrency(form.concurrency, cap);
+  if (cap === undefined && !capUnknown) return <Skeleton rows={1} label="Checking how many calls your account can make at once" />;
+  const limit = cap ?? CONCURRENCY_MAX;
+  const hint =
+    cap === undefined
+      ? "We couldn't check your account's limit. It still applies."
+      : `Up to ${cap} at once on your account. Need more? Ask us.`;
+  if (limit <= 6) {
+    return (
+      <div>
+        <p className={FIELD_LABEL} aria-hidden>
+          {label}
+        </p>
+        <SegmentedControl
+          label={label}
+          className="mt-1.5"
+          value={String(value)}
+          options={Array.from({ length: limit }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))}
+          onValueChange={(next) => form.setConcurrency(Number(next))}
+        />
+        <p className={FIELD_HINT}>{hint}</p>
+      </div>
+    );
+  }
   return (
-    <SettingRows className="border-y border-line">
-      <SettingRow
-        label="Calling hours"
-        hint="Never before 9am or after 9pm. You can narrow it."
-        value={form.restrictHours ? `${form.windowStart || "…"} – ${form.windowEnd || "…"} IST` : "9am – 9pm IST"}
-        action={change("hours")}
-      />
-      {editing === "hours" && (
-        <div className="settings-enter space-y-3 pb-4">
-          <label className="flex items-center gap-2 touch:min-h-11">
-            <input
-              type="checkbox"
-              checked={form.restrictHours}
-              onChange={(e) => form.setRestrictHours(e.target.checked)}
-              className="h-4 w-4 rounded border-line accent-brand"
-            />
-            <span className="text-body text-ink">Only call during specific hours</span>
-          </label>
-          {form.restrictHours && (
-            <div className="grid max-w-xs grid-cols-2 gap-3">
-              <label className="block">
-                <span className={FIELD_LABEL}>From</span>
-                <input type="time" value={form.windowStart} onChange={(e) => form.setWindowStart(e.target.value)} className={FIELD} />
-              </label>
-              <label className="block">
-                <span className={FIELD_LABEL}>Until</span>
-                <input type="time" value={form.windowEnd} onChange={(e) => form.setWindowEnd(e.target.value)} className={FIELD} />
-              </label>
-            </div>
-          )}
-        </div>
-      )}
-      <SettingRow
-        label="Calls at the same time"
-        hint="Lines are always kept free for people calling you."
-        value={String(form.concurrency)}
-        action={change("pace")}
-      />
-      {editing === "pace" && (
-        <div className="settings-enter max-w-xs pb-4">
-          <NumberField
-            label="Calls at the same time"
-            hint="1 to 10. Your plan may allow fewer."
-            value={form.concurrency}
-            onChange={(next) => form.setConcurrency(next ?? 1)}
-            min={1}
-            max={10}
-            unit="calls"
+    <NumberField
+      className="max-w-xs"
+      label={label}
+      hint={hint}
+      value={value}
+      onChange={(next) => form.setConcurrency(next ?? 1)}
+      min={1}
+      max={limit}
+      unit="calls"
+    />
+  );
+}
+
+/**
+ * THE CALLING RULES, all on show: the hours it may call in, how many calls run at once and
+ * how often an unanswered person is tried again are this campaign's own (`calling_hours`,
+ * `concurrency`, `retry_policy`); skipping the do-not-call list is the platform's and is
+ * stated, not offered. Each was a row behind "Change"; a choice that is two or five taps
+ * wide is quicker to make than to open.
+ */
+export function PaceFields({
+  form,
+  cap,
+  capUnknown,
+}: {
+  form: CampaignFormState;
+  cap: number | undefined;
+  capUnknown: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <FieldGroup title="Calling hours">
+        <div>
+          <p className={FIELD_LABEL} aria-hidden>
+            When it may call
+          </p>
+          <SegmentedControl
+            label="When it may call"
+            className="mt-1.5"
+            value={form.restrictHours ? "set" : "any"}
+            options={HOURS.map((h) => ({ ...h }))}
+            onValueChange={(next) => form.setRestrictHours(next === "set")}
           />
+          <p className={FIELD_HINT}>Never before 9am or after 9pm IST. You can narrow it.</p>
         </div>
-      )}
-      <SettingRow
-        label="If nobody answers"
-        hint="Tries per person, and the wait between."
-        value={describeRetry(form.retry)}
-        action={change("retry")}
-      />
-      {editing === "retry" && (
-        <div className="settings-enter pb-4">
-          <RetryChoice value={form.retry} onChange={form.setRetry} />
-        </div>
-      )}
-      <SettingRow label="Do-not-call list" value="Numbers on it are always skipped" />
-    </SettingRows>
+        {form.restrictHours && (
+          <div className="settings-enter grid max-w-xs grid-cols-2 gap-3">
+            <label className="block">
+              <span className={FIELD_LABEL}>From</span>
+              <input type="time" value={form.windowStart} onChange={(e) => form.setWindowStart(e.target.value)} className={FIELD} />
+            </label>
+            <label className="block">
+              <span className={FIELD_LABEL}>Until</span>
+              <input type="time" value={form.windowEnd} onChange={(e) => form.setWindowEnd(e.target.value)} className={FIELD} />
+            </label>
+          </div>
+        )}
+      </FieldGroup>
+
+      <FieldGroup title="Pace">
+        <PaceChoice form={form} cap={cap} capUnknown={capUnknown} />
+        <p className="text-meta text-ink-muted">Lines are always kept free for people calling you.</p>
+      </FieldGroup>
+
+      <FieldGroup title="If nobody answers">
+        <RetryChoice value={form.retry} onChange={form.setRetry} />
+        <p className="text-body text-ink">{describeRetry(form.retry)}.</p>
+      </FieldGroup>
+
+      <p className="flex items-start gap-2 rounded-card bg-surface-muted px-3 py-2.5 text-meta text-ink">
+        <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+        <span>Numbers on your do-not-call list are always skipped.</span>
+      </p>
+    </div>
   );
 }
