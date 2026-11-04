@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useId, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -8,6 +9,7 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -105,11 +107,32 @@ function DeclarationBody({
       </div>
     );
   }
+  if (candidateNumbers(data).length === 0) return <NoNumberYet session={session} />;
   return (
     <div className="space-y-4">
       <DeclarationStatus data={data} />
       <DeclarationForm session={session} data={data} access={access} pageFacts={pageFacts} />
     </div>
+  );
+}
+
+/** Nothing to confirm before the account has a number: one button to get one. The statement
+ * and Confirm only appear once there is a number to tick, so nothing waits on a press that
+ * cannot succeed. Incoming calls are never gated. */
+function NoNumberYet({ session }: { session: Session }) {
+  const { href } = useClientRealm();
+  return (
+    <NoticeBox
+      tone="neutral"
+      title="No calling number yet"
+      action={
+        <Link href={href(`/c/${session.orgSlug}/phone-number`)} className={PRIMARY_BUTTON_SM}>
+          Get a number
+        </Link>
+      }
+    >
+      <p>Confirm it here once you have one.</p>
+    </NoticeBox>
   );
 }
 

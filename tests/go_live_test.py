@@ -761,18 +761,33 @@ async def test_paid_test_calls_stop_at_the_daily_cap(
 
 
 async def test_the_dashboard_panel_shows_paid_test_calls_without_trial_copy(
-    hosted_rows: CatalogueRows, paid_calls: None
+    hosted_rows: CatalogueRows, paid_calls: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(get_settings(), "trial_caller_number", "+918000000001")
     tenant_id, _agent_id, _voice = await _paid_client(hosted_rows)
     async with tenant_session(tenant_id) as session:
         panel = await read_trial_panel(session, tenant_id=tenant_id)
     assert panel.on_trial is False and panel.paid_test_calls is True
     assert panel.can_call is True and panel.blocked_reason is None
+    assert panel.shared_line is True and panel.needs_number is False
     assert (panel.days_remaining, panel.free_minutes, panel.answering_locked_reason) == (
         None,
         None,
         None,
     )
+
+
+async def test_a_paid_account_with_no_number_and_no_shared_line_is_asked_to_get_one(
+    hosted_rows: CatalogueRows, paid_calls: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Founder, 4 Nov 2026: once the shared number was given to a client, the box still
+    offered "3 minutes shared" to an account with no number of its own."""
+    monkeypatch.setattr(get_settings(), "trial_caller_number", None)
+    tenant_id, _agent_id, _voice = await _paid_client(hosted_rows)
+    async with tenant_session(tenant_id) as session:
+        panel = await read_trial_panel(session, tenant_id=tenant_id)
+    assert (panel.shared_line, panel.needs_number, panel.can_call) == (False, True, False)
+    assert panel.blocked_reason == trial_panel_module.NEEDS_NUMBER_REASON
 
 
 # --- money taken back ---------------------------------------------------------------------

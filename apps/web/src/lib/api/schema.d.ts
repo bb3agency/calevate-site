@@ -35064,6 +35064,11 @@ export interface components {
              * @default 0
              */
             minutes_used: number;
+            /**
+             * Needs Number
+             * @default false
+             */
+            needs_number: boolean;
             /** On Trial */
             on_trial: boolean;
             /** Own Number Max Call Seconds */
@@ -35078,6 +35083,11 @@ export interface components {
              * @default false
              */
             pledge_accepted: boolean;
+            /**
+             * Shared Line
+             * @default false
+             */
+            shared_line: boolean;
             /** Status */
             status?: string | null;
         };

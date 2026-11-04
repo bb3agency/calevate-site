@@ -191,6 +191,8 @@ describe("the dashboard's test-call card after payment", () => {
     daily_cap: 10,
     max_call_seconds: 180,
     pledge_accepted: true,
+    shared_line: false,
+    needs_number: false,
     can_call: false,
     blocked_reason: "Test calls now ring from your own number. Get your number and switch this agent on, then call it here.",
   };
@@ -201,14 +203,15 @@ describe("the dashboard's test-call card after payment", () => {
         trial={paid}
         creditsHref="/c/acme/billing"
         verifyHref="/c/acme/verify-business"
+        phoneHref="/c/acme/phone-number"
         agentsHref="/c/acme/agents"
         newAgentHref="/c/acme/agents/first"
       />,
       routes(),
     );
-    expect(await screen.findByText("Test calls")).toBeTruthy();
+    expect(await screen.findByText("Call your agent yourself")).toBeTruthy();
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/free trial|Days left|Free minutes|Add credit/i);
-    expect(text).toMatch(/billed like any call/);
+    expect(text).toMatch(/billed like any call/i);
   });
 });

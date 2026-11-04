@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { PRIMARY_BUTTON, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents, type Agent } from "@/lib/api/agents";
+import { LifecycleError } from "../agents/AgentLifecycle";
 import {
   useDismissGoLive,
   useFinishGoLive,
@@ -466,7 +467,7 @@ function SwitchRow({ agent, agentHref }: { agent: Agent; agentHref: string }) {
           </ActionButton>
         )}
       </div>
-      {lifecycle.error ? <ProblemNotice error={lifecycle.error} /> : null}
+      <LifecycleError error={lifecycle.error} />
     </li>
   );
 }

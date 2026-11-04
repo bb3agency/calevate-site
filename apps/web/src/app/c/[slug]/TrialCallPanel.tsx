@@ -31,6 +31,7 @@ import {
   type TrialPanel,
 } from "@/lib/api/trialCalls";
 
+import { LifecycleError } from "./agents/AgentLifecycle";
 import { EarlierTestCalls, TestCallFollow } from "./TestCallStatus";
 import { HOME, TRIAL } from "./_ui/copy";
 import { Why } from "@/components/why";
@@ -62,6 +63,7 @@ export function TrialCallPanel({ slug, trial }: { slug: string; trial: TrialPane
       trial={trial}
       creditsHref={href(`/c/${slug}/billing?tab=credits`)}
       verifyHref={href(`/c/${slug}/verify-business`)}
+      phoneHref={href(`/c/${slug}/phone-number`)}
       agentsHref={href(`/c/${slug}/agents`)}
       newAgentHref={href(`/c/${slug}/agents/first`)}
     />
@@ -152,12 +154,14 @@ export function TrialCallCard({
   trial,
   creditsHref,
   verifyHref,
+  phoneHref,
   agentsHref,
   newAgentHref,
 }: {
   trial: TrialPanel;
   creditsHref: string;
   verifyHref: string;
+  phoneHref: string;
   agentsHref: string;
   newAgentHref: string;
 }) {
@@ -213,6 +217,7 @@ export function TrialCallCard({
             </Chip>
           )}
           <Chip>{TRIAL.callsToday(trial.calls_today, trial.daily_cap)}</Chip>
+          {paid ? <Chip>{TRIAL.billedLikeAnyCall}</Chip> : null}
         </ul>
         {paid ? null : <TrialMinutes trial={trial} />}
 
@@ -220,13 +225,17 @@ export function TrialCallCard({
         <div>
           <p className="text-meta text-ink-muted">
             {paid && trial.own_number_max_call_seconds
-              ? TRIAL.ownRules(minutesText(trial.own_number_max_call_seconds), minutesText(trial.max_call_seconds))
+              ? trial.shared_line
+                ? TRIAL.ownRules(minutesText(trial.own_number_max_call_seconds), minutesText(trial.max_call_seconds))
+                : TRIAL.ownOnlyRules(minutesText(trial.own_number_max_call_seconds))
               : TRIAL.rules(minutesText(trial.max_call_seconds))}
           </p>
           <Why label={TRIAL.howItWorks}>
             <p>
               {paid
-                ? "Rings from your agent's number, or a shared one until then. It's billed like any call."
+                ? trial.shared_line
+                  ? "Rings from your number, or a shared one until you have one. Billed like any call."
+                  : "Rings from your number. Billed like any call."
                 : "Pick an agent, type an Indian number. It rings from a shared number with its usual greeting."}
             </p>
             {trial.ends_at && !paid ? <p>Your trial ends {formatIST(trial.ends_at)} IST.</p> : null}
@@ -248,11 +257,21 @@ export function TrialCallCard({
           />
         )}
 
-        {trial.blocked_reason && trial.pledge_accepted && (
+        {trial.needs_number ? (
+          <NoticeBox
+            tone="neutral"
+            title={trial.blocked_reason ?? ""}
+            action={
+              <Link href={phoneHref} className={PRIMARY_BUTTON_SM}>
+                {TRIAL.needsNumberAction}
+              </Link>
+            }
+          />
+        ) : trial.blocked_reason && trial.pledge_accepted ? (
           <p role="status" className="text-sm text-warn">
             {trial.blocked_reason}
           </p>
-        )}
+        ) : null}
 
         <form
           className="flex flex-wrap items-end gap-3"
@@ -350,7 +369,7 @@ export function TrialCallCard({
             {place.data.blocked_reason ?? TRIAL.blocked}
           </p>
         )}
-        {prepare.error && <ProblemNotice error={prepare.error} />}
+        <LifecycleError error={prepare.error} />
         {place.error && <ProblemNotice error={place.error} />}
 
         {followedId !== null ? (

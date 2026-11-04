@@ -52,6 +52,7 @@ export const HOME = {
   quietNoAgent: "No agent yet",
   readinessScore: (score: number) => `Ready for calls: ${score} of 100`,
   readinessFix: "Fix",
+  readinessRunTests: "Run tests",
   readinessFailed: "Couldn't check how ready your agents are",
   setupTitle: "Set up your business",
   setupNeeded: "Your agents need this to take calls",
@@ -70,7 +71,10 @@ export const HOME = {
 
 export const TRIAL = {
   title: "Your free trial",
-  paidTitle: "Test calls",
+  paidTitle: "Call your agent yourself",
+  billedLikeAnyCall: "Billed like any call",
+  ownOnlyRules: (own: string) => `Up to ${own} each, from your number`,
+  needsNumberAction: "Get a number",
   daysLeft: (n: number | null | undefined) =>
     n === null || n === undefined ? "Trial ended" : `${n} ${plural(n, "day", "days")} left`,
   callsToday: (used: number, cap: number) => `${used} of ${cap} test calls today`,
@@ -95,8 +99,9 @@ export const TRIAL = {
 
 export const ATTENTION = {
   description: "Most urgent first.",
-  empty: "All clear. Nothing needs you.",
-  emptyHint: "Problems will show up here.",
+  empty: "No problems right now.",
+  emptyHint: "Anything we stop on purpose shows up here.",
+  nextSteps: "See your next steps",
   more: (shown: string, total: string) => `Showing newest ${shown} of ${total}`,
   refused: "You need access to leads. Ask your owner.",
 } as const;

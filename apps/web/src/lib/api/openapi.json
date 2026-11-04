@@ -57696,6 +57696,11 @@
             "title": "Minutes Used",
             "type": "integer"
           },
+          "needs_number": {
+            "default": false,
+            "title": "Needs Number",
+            "type": "boolean"
+          },
           "on_trial": {
             "title": "On Trial",
             "type": "boolean"
@@ -57719,6 +57724,11 @@
           "pledge_accepted": {
             "default": false,
             "title": "Pledge Accepted",
+            "type": "boolean"
+          },
+          "shared_line": {
+            "default": false,
+            "title": "Shared Line",
             "type": "boolean"
           },
           "status": {

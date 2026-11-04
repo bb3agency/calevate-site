@@ -349,7 +349,7 @@ export function NextSteps({
         text: fix.action,
         detail: scored.agents.length > 1 && agentName ? agentName : undefined,
         to: fix.href,
-        label: HOME.readinessFix,
+        label: fix.component === "tests" ? HOME.readinessRunTests : HOME.readinessFix,
       });
     }
   }
@@ -367,9 +367,13 @@ export function NextSteps({
       title={HOME.nextTitle}
       description={score !== null ? HOME.readinessScore(score) : undefined}
       action={
-        <Link href={href("/attention")} className={TEXT_ACTION}>
-          {HOME.seeAll}
-        </Link>
+        // Only when the attention queue holds something: it is the full list of problems,
+        // not of these steps, so offering it with an empty queue would contradict this list.
+        attention.data && attention.data.total > 0 ? (
+          <Link href={href("/attention")} className={TEXT_ACTION}>
+            {HOME.seeAll}
+          </Link>
+        ) : undefined
       }
     >
       {ranked.length > 0 ? (

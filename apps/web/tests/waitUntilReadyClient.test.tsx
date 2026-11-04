@@ -118,6 +118,7 @@ describe("a test call waits for the one still ringing", () => {
   const HREFS = {
     creditsHref: "/c/acme/billing?tab=credits",
     verifyHref: "/c/acme/verify-business",
+    phoneHref: "/c/acme/phone-number",
     agentsHref: "/c/acme/agents",
     newAgentHref: "/c/acme/agents/first",
   };
@@ -134,6 +135,8 @@ describe("a test call waits for the one still ringing", () => {
     daily_cap: 10,
     max_call_seconds: 180,
     pledge_accepted: true,
+    shared_line: false,
+    needs_number: false,
     can_call: true,
     blocked_reason: null,
   };

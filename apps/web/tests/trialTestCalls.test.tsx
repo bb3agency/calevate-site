@@ -29,6 +29,7 @@ const CREDITS = "/c/acme/billing?tab=credits";
 const HREFS = {
   creditsHref: CREDITS,
   verifyHref: "/c/acme/verify-business",
+  phoneHref: "/c/acme/phone-number",
   agentsHref: "/c/acme/agents",
   newAgentHref: "/c/acme/agents/first",
 };
@@ -48,6 +49,8 @@ function panel(over: Partial<TrialPanel> = {}): TrialPanel {
     daily_cap: 10,
     max_call_seconds: 180,
     pledge_accepted: true,
+    shared_line: false,
+    needs_number: false,
     can_call: true,
     blocked_reason: null,
     ...over,

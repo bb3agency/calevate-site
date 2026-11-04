@@ -10,9 +10,11 @@ Dates, counts and sentences only; no cost, no number of ours, no vendor name.
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Final
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.paid_test_calls import OWN_NUMBER_TEST_MAX_SECONDS, read_paid_test_access
@@ -50,6 +52,12 @@ class TrialPanelOut(BaseModel):
     #: A paying account only: the most a test call from its own number may run, in seconds. Each
     #: agent's own longest-call setting applies up to this (D-904). Null otherwise.
     own_number_max_call_seconds: int | None = None
+    #: A paying account only: whether a shared Calevate number is set for test calls. When it
+    #: is not, test calls ring only from the account's own numbers.
+    shared_line: bool = False
+    #: A paying account only: no shared number and no number of its own, so a test call needs a
+    #: number first (the screen offers getting one).
+    needs_number: bool = False
     #: Whether the no-cold-calls pledge is accepted; a test call needs it.
     pledge_accepted: bool = False
     #: Whether a test call can be placed now, and the sentence that says why not.
@@ -94,6 +102,15 @@ async def read_trial_panel(session: AsyncSession, *, tenant_id: UUID) -> TrialPa
     )
 
 
+#: Does this account hold a number it can call out from? Read under the tenant's RLS.
+_CALLS_OUT_FROM_SQL: Final = (
+    "SELECT EXISTS (SELECT 1 FROM phone_numbers WHERE released_at IS NULL "
+    "AND engine_number_ref IS NOT NULL AND direction IN ('outbound', 'both'))"
+)
+
+NEEDS_NUMBER_REASON: Final = "Get a phone number first. Test calls ring from your number."
+
+
 async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -> TrialPanelOut:
     """A paid account's test calls (D-859), or the empty panel for an account that has
     neither paid nor a trial."""
@@ -101,9 +118,14 @@ async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -
     if paid is None or get_settings().engine not in TRIAL_CALL_ENGINES:
         return TrialPanelOut(on_trial=False)
     unpledged = await pledge_blocker(session, tenant_id=tenant_id)
+    shared = bool(get_settings().trial_caller_number)
+    has_number = bool((await session.execute(text(_CALLS_OUT_FROM_SQL))).scalar())
+    needs_number = not shared and not has_number
     reason: str | None = None
     if paid.blocker is not None:
         reason = paid.blocker[1]
+    elif needs_number:
+        reason = NEEDS_NUMBER_REASON
     elif unpledged is not None:
         reason = unpledged[1]
     return TrialPanelOut(
@@ -113,6 +135,8 @@ async def _paid_panel(session: AsyncSession, *, tenant_id: UUID, at: datetime) -
         daily_cap=paid.daily_cap,
         max_call_seconds=paid.max_call_seconds,
         own_number_max_call_seconds=OWN_NUMBER_TEST_MAX_SECONDS,
+        shared_line=shared,
+        needs_number=needs_number,
         pledge_accepted=unpledged is None,
         can_call=reason is None,
         blocked_reason=reason,

@@ -58,12 +58,13 @@ PLACED_TODAY_SQL: Final = (
     "SELECT count(*) FROM calls WHERE tenant_id = :tid AND paid_test_call "
     "AND created_at >= :since AND not_placed_reason IS NULL"
 )
-#: The agent's status, direction, vendor agent, the vendor handles of its numbers, and its own
+#: The agent's status, direction, vendor agent, the vendor handles of every number its client
+#: can call out from (a client's number serves all its agents, lent per call), and its own
 #: longest-call setting.
 _AGENT_LINE_SQL: Final = (
     "SELECT a.status, a.direction, a.engine_agent_ref, ARRAY(SELECT p.engine_number_ref "
-    "FROM phone_numbers p WHERE p.agent_id = a.id AND p.released_at IS NULL "
-    "AND p.engine_number_ref IS NOT NULL), a.max_call_duration_s FROM agents a "
+    "FROM phone_numbers p WHERE p.released_at IS NULL AND p.engine_number_ref IS NOT NULL "
+    "AND p.direction IN ('outbound', 'both')), a.max_call_duration_s FROM agents a "
     "WHERE a.tenant_id = :tid AND a.id = :aid AND a.deleted_at IS NULL"
 )
 

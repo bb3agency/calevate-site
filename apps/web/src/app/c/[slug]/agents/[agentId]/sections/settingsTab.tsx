@@ -20,7 +20,7 @@ import Link from "next/link";
 
 import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION } from "@/components/console/section";
-import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { NoticeBox, SECONDARY_BUTTON_SM } from "@/components/ui";
 import { movesFor } from "@/lib/agentState";
 import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -28,7 +28,7 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { CopilotSurfaceScope } from "@/lib/copilot/registry";
 
 import { AgentIdentity } from "../../AgentIdentity";
-import { AgentLifecycle } from "../../AgentLifecycle";
+import { AgentLifecycle, LifecycleError } from "../../AgentLifecycle";
 import { AgentModel } from "../../AgentModel";
 import { TeamAlertsPanel } from "../../panels/teamAlerts";
 import { CallHandlingSection } from "./deliverySections";
@@ -124,7 +124,7 @@ function SwitchOffFirst({
   const canSwitchOff = movesFor(agent.status).includes("deactivate");
   return (
     <div className="space-y-3">
-      {move.error != null && <ProblemNotice error={move.error} />}
+      <LifecycleError error={move.error} />
       <NoticeBox
         tone="neutral"
         action={

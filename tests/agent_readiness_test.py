@@ -116,7 +116,7 @@ def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
         ("opening", 15),
         ("knowledge", 12),
     ]
-    assert out.fixes[0].href == f"/agents/{AGENT}?section=training"
+    assert out.fixes[0].href == f"/agents/{AGENT}?section=training&focus=tests"
     assert out.fixes[2].href == "/knowledge"
     assert _points(out)["live"] == 15
 

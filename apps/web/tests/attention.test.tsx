@@ -113,7 +113,7 @@ describe("the needs-attention queue", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     // THE assertion. "All clear. Nothing needs you" is a claim about the business; a
     // failed request is a fact about us, and the two must never render the same.
-    expect(container.textContent).not.toContain("All clear. Nothing needs you");
+    expect(container.textContent).not.toContain("No problems right now");
     // The empty panel says it too. A Card with nothing in it, under a notice, reads as a
     // queue with nothing in it.
     expect(
@@ -128,7 +128,7 @@ describe("the needs-attention queue", () => {
       routes({ "/v1/attention": queue({ total: 0, counts: {}, items: [] }) }),
     );
 
-    await screen.findByText("All clear. Nothing needs you.");
+    await screen.findByText("No problems right now.");
     // No chips either: an all-zeros summary row is noise, not information.
     expect(container.textContent).not.toContain("Call blocked");
     expect(screen.queryByRole("alert")).toBeNull();
@@ -261,6 +261,6 @@ describe("the needs-attention queue", () => {
       screen.queryByRole("alert"),
       "a permission is not a fault",
     ).toBeNull();
-    expect(container.textContent).not.toContain("All clear. Nothing needs you");
+    expect(container.textContent).not.toContain("No problems right now");
   });
 });

@@ -231,7 +231,7 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
             "No practice test has finished yet.",
             (
                 "Run the practice tests to see how it handles real questions.",
-                f"{base}?section=training",
+                f"{base}?section=training&focus=tests",
             ),
         )
     else:
@@ -239,7 +239,10 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
             "tests",
             _scaled_half_up(i.tests_passed, MAX_POINTS["tests"], i.tests_counted),
             f"{i.tests_passed} of {i.tests_counted} practice tests passed.",
-            ("Fix the practice tests that failed, then test again.", f"{base}?section=training"),
+            (
+                "Fix the practice tests that failed, then test again.",
+                f"{base}?section=training&focus=tests",
+            ),
         )
 
     # knowledge

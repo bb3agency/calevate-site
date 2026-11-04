@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { use, useState } from "react";
 
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { ProblemNotice, RestrictionNote, ScrollRegion, Skeleton, formatCount } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ScrollRegion, Skeleton, formatCount } from "@/components/ui";
 import { useAttention, type AttentionKind } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
@@ -106,6 +107,11 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
             illustration={<EmptySketch kind="attention" />}
             message={ATTENTION.empty}
             hint={ATTENTION.emptyHint}
+            action={
+              <Link href={href(`/c/${slug}`)} className={SECONDARY_BUTTON}>
+                {ATTENTION.nextSteps}
+              </Link>
+            }
           />
         </div>
       ) : (
