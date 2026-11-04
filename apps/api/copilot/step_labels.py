@@ -131,7 +131,7 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "business_copy_refresh": _l("Preparing to refresh your examples", "Asked for fresh examples"),
     "call_summarise_again": _l("Preparing a second summary", "Prepared a second summary"),
     "call_test_prepare": _l("Filling in the test form", "Filled in the test form"),
-    "knowledge_facts_pin": _l("Preparing the answers to pin", "Prepared the answers to pin"),
+    "business_faqs_add": _l("Preparing the answers to add", "Prepared the answers to add"),
     # D-893: the agent page's remaining buttons.
     "agent_restore": _l("Restoring the agent", "Restored the agent"),
     "agent_prepare": _l("Preparing to get the agent ready", "Prepared to get it ready"),

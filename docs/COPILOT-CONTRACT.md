@@ -609,9 +609,10 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
   the same checks and Undo (D-920; refused for an agent of one direction). The brief step
   also takes up to three files, each an ordinary knowledge upload recorded on the run
   (`POST`/`DELETE /v1/first-run/documents`), whose redacted, fenced words the question and
-  script writers read (D-918). `knowledge_facts_pin`
-  (`fact_actions.py`, confirm, `kb:write`) pins up to three question and answer pairs on one
-  card through `teach/pinned.add_pinned`.
+  script writers read (D-918). `business_faqs_add`
+  (`fact_actions.py`, confirm, `org:manage`) adds up to three question and answer pairs on one
+  card to the business profile's common questions through `profile_service.save_profile`,
+  the one home a question and its answer has (D-968).
 * **Screens learn of an immediate action as it lands.** `useCopilotConversation` refreshes
   the queries in `lib/api/copilot.INVALIDATES` when an `action` frame arrives, as a confirm
   already did, so a card built from those reads ticks without a reload.
@@ -699,7 +700,7 @@ with its id) and `billing_settings`.
 
 * **Why confirm.** An answer or a changed fact is said to callers by every live agent on its
   next call, and a sentence said to a caller cannot be taken back (the reason
-  `knowledge_facts_pin` is confirm). A test run spends the AI allowance.
+  `business_faqs_add` is confirm). A test run spends the AI allowance.
 * **Questions are keyed by topic** (`pricing`, `timings`, a phrase-derived `q_...`), the
   same word in every account, so answering closes every agent's open gap on that topic.
 * **`knowledge_sources` lists facts** by their `fact:<id>` reference, which `knowledge_fact_change` takes as `fact_id` (a bare id works too).

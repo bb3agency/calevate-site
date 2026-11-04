@@ -1,5 +1,5 @@
 """The first-agent chat's abilities (D-854): a ready-made job on `agent_create`, the opening
-line on `agent_edit`, the pinned answers card, and the guide only that screen carries."""
+line on `agent_edit`, the common questions card, and the guide only that screen carries."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from apps.api.copilot.screen_guides import FIRST_AGENT_GUIDE, screen_guide
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.db.session import tenant_session
 from apps.api.main import app
+from apps.api.tenancy.business_profile import load_profile
 
 
 def _client() -> AsyncClient:
@@ -209,11 +210,11 @@ async def test_an_edit_without_an_opening_line_leaves_the_script_alone() -> None
     assert receipt.applied is True
 
 
-# --- knowledge_facts_pin ----------------------------------------------------------------------
+# --- business_faqs_add ------------------------------------------------------------------------
 
 
 def _facts(*pairs: tuple[str, str]) -> dict[str, Any]:
-    return {"facts": [{"question": q, "answer": a} for q, a in pairs]}
+    return {"faqs": [{"question": q, "answer": a} for q, a in pairs]}
 
 
 _THREE = (
@@ -223,19 +224,26 @@ _THREE = (
 )
 
 
-async def test_one_card_pins_all_three_answers_with_one_confirm() -> None:
+async def test_one_card_adds_all_three_answers_to_the_business_profile() -> None:
     tenant_id, _slug, token = await _make_tenant()
-    proposal = await _propose(tenant_id, token, "knowledge_facts_pin", _facts(*_THREE))
-    assert proposal.tool == "knowledge_facts_pin"
+    async with tenant_session(tenant_id) as session:
+        before = len((await load_profile(session, tenant_id=tenant_id)).faqs)
+    proposal = await _propose(tenant_id, token, "business_faqs_add", _facts(*_THREE))
+    assert proposal.tool == "business_faqs_add"
     for question, answer in _THREE:
         assert question in proposal.proposed and answer in proposal.proposed
     done = await _confirm(tenant_id, _user_of(token), proposal.token)
     assert done.applied is True
-    rows = await _all(
-        tenant_id, "SELECT question FROM kb_facts WHERE pinned AND removed_at IS NULL"
+    async with tenant_session(tenant_id) as session:
+        faqs = (await load_profile(session, tenant_id=tenant_id)).faqs
+    assert len(faqs) == before + 3
+    assert [(f.question, f.answer) for f in faqs[-3:]] == list(_THREE)
+    # One home: nothing is written as a fact beside the profile.
+    assert (
+        await _all(tenant_id, "SELECT id FROM kb_facts WHERE question = 'Is there parking?'") == []
     )
-    assert {r[0] for r in rows} >= {q for q, _ in _THREE}
-    assert ("kb_fact.add", "kb_fact") in {(a, o) for a, o, _ in await _audit(tenant_id)}
+    audit = {(a, o) for a, o, _ in await _audit(tenant_id)}
+    assert ("business_profile.updated", "organization") in audit
 
 
 async def _all(tenant_id: UUID, sql: str) -> list[Any]:
@@ -243,12 +251,12 @@ async def _all(tenant_id: UUID, sql: str) -> list[Any]:
         return list((await session.execute(text(sql))).all())
 
 
-async def test_a_question_already_pinned_is_refused_by_name() -> None:
+async def test_a_question_the_profile_already_answers_is_refused_by_name() -> None:
     tenant_id, _slug, token = await _make_tenant()
-    proposal = await _propose(tenant_id, token, "knowledge_facts_pin", _facts(_THREE[0]))
+    proposal = await _propose(tenant_id, token, "business_faqs_add", _facts(_THREE[0]))
     await _confirm(tenant_id, _user_of(token), proposal.token)
     with pytest.raises(write_tools.WriteRefusedError) as refused:
-        await _propose(tenant_id, token, "knowledge_facts_pin", _facts(_THREE[0], _THREE[1]))
+        await _propose(tenant_id, token, "business_faqs_add", _facts(_THREE[0], _THREE[1]))
     assert "already" in refused.value.reason
 
 
@@ -258,22 +266,22 @@ async def test_a_question_already_pinned_is_refused_by_name() -> None:
         _facts(("What is your number?", "Call us on +91 98765 43210.")),
         _facts(("Open on Sundays?", "No."), ("open on sundays?", "Never.")),
         _facts(("", "Something")),
-        {"facts": []},
+        {"faqs": []},
         _facts(*_THREE, ("A fourth?", "Too many.")),
     ],
 )
 async def test_unsafe_or_malformed_answers_are_refused_before_a_card(facts: dict[str, Any]) -> None:
     tenant_id, _slug, token = await _make_tenant()
     with pytest.raises(write_tools.WriteRefusedError):
-        await _propose(tenant_id, token, "knowledge_facts_pin", facts)
+        await _propose(tenant_id, token, "business_faqs_add", facts)
 
 
-async def test_staff_cannot_pin_answers() -> None:
+async def test_staff_cannot_add_answers() -> None:
     tenant_id, _slug, token = await _make_tenant()
     actor = write_tools.actor_for(_principal(tenant_id, _user_of(token), role="staff"))
     with pytest.raises(write_tools.WriteRefusedError) as refused:
         await write_tools.plan_write(
-            "knowledge_facts_pin", json.dumps(_facts(_THREE[0])), actor=actor
+            "business_faqs_add", json.dumps(_facts(_THREE[0])), actor=actor
         )
     assert "role may not" in refused.value.reason
 

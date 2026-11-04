@@ -239,7 +239,7 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | knowledge | Edit a note / correcting note | knowledge_do:knowledge_note_save | confirm | COVERED |
 | knowledge | Remove / restore | knowledge_do:knowledge_remove | confirm | COVERED |
 | knowledge | Edit, pin, unpin, move a fact | knowledge_do:knowledge_fact_change | confirm | COVERED |
-| knowledge | Pin three questions | knowledge_do:knowledge_facts_pin | confirm | COVERED |
+| knowledge | Add three common questions | knowledge_do:business_faqs_add | confirm | COVERED |
 | knowledge | Answer or dismiss a question | knowledge_do:knowledge_question_settle | confirm | COVERED |
 | knowledge | Approve a waiting upload / read a PDF or link again | knowledge_do:knowledge_refresh | confirm | BUILT (D-938) |
 | knowledge | Let staff curate knowledge | settings_do:account_switch_set | confirm | BUILT (D-938) |

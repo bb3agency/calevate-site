@@ -3700,6 +3700,9 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
       "/v1/teach/questions": { items: [], open_count: 0 },
       "/v1/kb/teach/open": { teaching: null },
+      // What it offers and a common question, from the business profile (D-968), so the
+      // sweep covers their rows and the add choice.
+      "/v1/business-profile": businessProfileFixture({ faqs: [{ question: "Do you take UPI?", answer: "Yes." }] }),
       // Documents and web pages (D-534). One row per state family, so the sweep covers
       // the populated list rather than its empty state: a live PDF, and a photograph
       // waiting for the client to confirm what was read off it.

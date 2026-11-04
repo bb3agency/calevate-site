@@ -6,6 +6,7 @@ import { reachesAgents, uploadState, uploadSteps } from "@/app/c/[slug]/knowledg
 import type { Me } from "@/lib/api/client";
 import type { KbUpload } from "@/lib/api/kb";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import { renderClientPage, type Routes } from "./harness";
 
 /**
@@ -124,6 +125,8 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
+    // Nothing offered and no common questions, so an empty account reads as empty.
+    "/v1/business-profile": businessProfileFixture({ services: [], faqs: [] }),
     ...over,
   });
 }
@@ -135,6 +138,14 @@ describe("the one Add area (D-874)", () => {
     const modes = within(add).getAllByRole("radio").map((r) => r.textContent);
     expect(modes).toEqual(["Write it", "File", "Link"]);
     expect(within(add).getByRole("radio", { name: "Write it" }).getAttribute("aria-checked")).toBe("true");
+    // Writing asks what it is (D-968): the first two go into the business profile.
+    const kinds = screen.getByRole("radiogroup", { name: "What is it?" });
+    expect(within(kinds).getAllByRole("radio").map((r) => r.textContent)).toEqual([
+      "Service and price",
+      "Question and answer",
+      "Something else",
+    ]);
+    fireEvent.click(within(kinds).getByRole("radio", { name: "Something else" }));
     expect(screen.getByRole("button", { name: "Let Pip teach it" })).toBeTruthy();
   });
 

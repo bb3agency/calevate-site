@@ -362,22 +362,63 @@ export function useBusinessProfile(session: Session): UseQueryResult<BusinessPro
 export function useSaveBusinessProfile(
   session: Session,
 ): UseMutationResult<BusinessProfile, Error, ProfilePatch> {
-  const client = useQueryClient();
+  const onSaved = useProfileSaved(session);
   return useMutation({
     mutationFn: (patch: ProfilePatch) =>
       apiRequest<BusinessProfile>(session, BUSINESS_PROFILE_PATH, { method: "PATCH", body: patch }),
-    onSuccess: (profile) => {
-      client.setQueryData(businessProfileKeys.mine(session.orgSlug), profile);
-      const org = session.orgSlug;
-      for (const queryKey of [
-        agentKeys.all(org),
-        ["agent", org],
-        ["agent-handoff", org],
-        ["agent-pending", org],
-      ]) {
-        void client.invalidateQueries({ queryKey });
-      }
+    onSuccess: onSaved,
+  });
+}
+
+function useProfileSaved(session: Session): (profile: BusinessProfile) => void {
+  const client = useQueryClient();
+  return (profile) => {
+    client.setQueryData(businessProfileKeys.mine(session.orgSlug), profile);
+    const org = session.orgSlug;
+    for (const queryKey of [
+      agentKeys.all(org),
+      ["agent", org],
+      ["agent-handoff", org],
+      ["agent-pending", org],
+      // What the business offers and answers counts toward each agent's readiness.
+      ["readiness", org],
+    ]) {
+      void client.invalidateQueries({ queryKey });
+    }
+  };
+}
+
+/** The two profile lists the knowledge screen edits one entry at a time (D-968). */
+export type ServiceItem = Schemas["ServiceItem"];
+export type FaqItem = Schemas["Faq"];
+export interface ProfileLists {
+  services: ServiceItem[];
+  faqs: FaqItem[];
+}
+export type ProfileListChange = {
+  [S in keyof ProfileLists]: { section: S; change: (current: ProfileLists[S]) => ProfileLists[S] };
+}[keyof ProfileLists];
+
+/**
+ * Change ONE list of the profile from where it stands NOW. A PATCH replaces the section
+ * whole, so the change is applied to a fresh read rather than to whatever this screen
+ * loaded earlier: an entry added meanwhile on Business profile, by Pip or in another tab
+ * is kept instead of being written over.
+ */
+export function useChangeProfileList(
+  session: Session,
+): UseMutationResult<BusinessProfile, Error, ProfileListChange> {
+  const onSaved = useProfileSaved(session);
+  return useMutation({
+    mutationFn: async (edit: ProfileListChange) => {
+      const fresh = await apiRequest<BusinessProfile>(session, BUSINESS_PROFILE_PATH);
+      const body: ProfilePatch =
+        edit.section === "services"
+          ? { services: edit.change(fresh.services) }
+          : { faqs: edit.change(fresh.faqs) };
+      return apiRequest<BusinessProfile>(session, BUSINESS_PROFILE_PATH, { method: "PATCH", body });
     },
+    onSuccess: onSaved,
   });
 }
 

@@ -7,6 +7,7 @@ import type { Me } from "@/lib/api/client";
 import type { KbNote } from "@/lib/api/kb";
 
 import { expectNoA11yViolations } from "./a11y";
+import { businessProfileFixture } from "./businessProfileFixture";
 import { problem, renderClientPage, type Routes } from "./harness";
 
 /**
@@ -58,6 +59,7 @@ async function renderNotes(me: Me = OWNER, notes: KbNote[] = [PARKING, DIWALI], 
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
+    "/v1/business-profile": businessProfileFixture(),
     ...over,
   });
 }

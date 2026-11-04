@@ -47,6 +47,9 @@ MAX_FAQS: Final = 50
 MAX_STAFF: Final = 50
 MAX_CONTACTS: Final = 10
 MAX_LANGUAGES: Final = 6
+#: One common question and its answer.
+FAQ_QUESTION_MAX: Final = 300
+FAQ_ANSWER_MAX: Final = 1000
 
 
 class DayHours(_Strict):
@@ -75,8 +78,8 @@ class ServiceItem(_Strict):
 
 
 class Faq(_Strict):
-    question: str = Field(min_length=1, max_length=300)
-    answer: str = Field(min_length=1, max_length=1000)
+    question: str = Field(min_length=1, max_length=FAQ_QUESTION_MAX)
+    answer: str = Field(min_length=1, max_length=FAQ_ANSWER_MAX)
 
 
 class StaffMember(_Strict):
@@ -396,6 +399,8 @@ __all__ = [
     "BLOCKER_COPY",
     "BLOCKER_STEPS",
     "DAYS",
+    "FAQ_ANSWER_MAX",
+    "FAQ_QUESTION_MAX",
     "MAX_BRANCHES",
     "MAX_CONTACTS",
     "MAX_FAQS",

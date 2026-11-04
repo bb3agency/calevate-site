@@ -170,3 +170,44 @@ async def test_a_saved_file_with_no_text_for_the_agents_is_not_counted_as_knowle
             {"id": uuid7(), "tid": tenant_id, "sid": read},
         )
         assert await readiness.knowledge_items(session) == before + 1
+
+
+async def test_what_the_business_profile_offers_and_answers_counts_as_knowledge() -> None:
+    """Services and common questions live in the business profile (D-968), so a client who
+    filled it in is not told to add them again; another account's profile counts for nothing
+    here (hard rule 1)."""
+    tenant_a, _slug_a, _token_a = await _make_tenant()
+    tenant_b, _slug_b, _token_b = await _make_tenant()
+    async with tenant_session(tenant_b) as session:
+        before_b = await readiness.knowledge_items(session)
+    async with tenant_session(tenant_a) as session:
+        before = await readiness.knowledge_items(session)
+        await session.execute(
+            text(
+                "INSERT INTO business_profiles (id, tenant_id) VALUES (:id, :tid) "
+                "ON CONFLICT (tenant_id) DO NOTHING"
+            ),
+            {"id": uuid7(), "tid": tenant_a},
+        )
+        await session.execute(
+            text(
+                "UPDATE business_profiles SET services = CAST(:s AS jsonb), "
+                "faqs = CAST(:f AS jsonb) WHERE tenant_id = :tid"
+            ),
+            {
+                "s": '[{"name": "Haircut", "price_inr": "150", "notes": null}, '
+                '{"name": "Shave", "price_inr": null, "notes": null}]',
+                "f": '[{"question": "Do you open on Sunday?", "answer": "No."}]',
+                "tid": tenant_a,
+            },
+        )
+        assert await readiness.knowledge_items(session) == before + 3
+    async with tenant_session(tenant_b) as session:
+        assert await readiness.knowledge_items(session) == before_b
+
+
+def test_the_knowledge_fix_names_no_service_or_price() -> None:
+    out = readiness.score(replace(FULL, knowledge_items=0), now=NOW)
+    fix = next(f for f in out.fixes if f.component == "knowledge")
+    assert fix.href == "/knowledge"
+    assert "service" not in fix.action.lower() and "price" not in fix.action.lower()

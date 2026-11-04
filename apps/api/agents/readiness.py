@@ -9,8 +9,9 @@ THE FORMULA (four components, 100 points; `score()` is the whole of it and is pu
 | component  | max | points                                                                 |
 |------------|-----|------------------------------------------------------------------------|
 | knowledge  |  40 | D-870's 20-point reading scaled by 40/20, rounded half up. That        |
-|            |     | reading is 10 for live knowledge (live sources + facts on file: 0 → 0, |
-|            |     | 1-4 → 5, 5+ → 10) plus max(0, 10 - 2 * this agent's open knowledge     |
+|            |     | reading is 10 for live knowledge (live sources + facts on file + the   |
+|            |     | profile's offerings and common questions, D-968: 0 → 0, 1-4 → 5,       |
+|            |     | 5+ → 10) plus max(0, 10 - 2 * this agent's open knowledge              |
 |            |     | gaps); the sum is scaled once, so the rounding happens once           |
 | opening    |  20 | 20 when the opening line is set, at most `OPENING_LINE_MAX_CHARS` and  |
 |            |     | fits the greeting budget with the notices as they are; 7 when set but  |
@@ -225,7 +226,9 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     stock = 0 if i.knowledge_items == 0 else 5 if i.knowledge_items < KNOWLEDGE_PLENTY else 10
     gaps = max(0, 10 - 2 * i.open_gaps)
     if stock < 10:
-        knowledge_fix = ("Add your prices, services and answers to common questions.", "/knowledge")
+        # The knowledge screen adds both, into the business profile (D-968). Named without
+        # "service" or "price": each business has its own words for them (`profile_wording`).
+        knowledge_fix = ("Add what you offer and what callers often ask.", "/knowledge")
     else:
         knowledge_fix = ("Answer the questions it could not.", f"{base}?section=training")
     add(
@@ -352,16 +355,26 @@ _AGENT_FACTS_SQL: Final = (
     "FROM agents a WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
 _FACTS_SQL: Final = "SELECT count(*) FROM kb_facts WHERE removed_at IS NULL"
+#: What the business offers and its common questions, from the business profile: their one
+#: home (D-968). Under the caller's tenant session, so RLS scopes it to the account.
+_PROFILE_ENTRIES_SQL: Final = (
+    "SELECT coalesce(sum("
+    "  CASE WHEN jsonb_typeof(services) = 'array' THEN jsonb_array_length(services) ELSE 0 END"
+    "  + CASE WHEN jsonb_typeof(faqs) = 'array' THEN jsonb_array_length(faqs) ELSE 0 END"
+    "), 0) FROM business_profiles"
+)
 
 
 async def knowledge_items(session: AsyncSession) -> int:
-    """Live sources whose words reach the agents, and facts on file. Account-wide: knowledge
-    belongs to the client and every agent carries it (D-689). A PDF or a link counts only
-    while its read words are sent (`kb.service.delivered_source_count`)."""
+    """Live sources whose words reach the agents, facts on file, and each thing offered and
+    common question in the business profile. Account-wide: knowledge belongs to the client
+    and every agent carries it (D-689). A PDF or a link counts only while its read words are
+    sent (`kb.service.delivered_source_count`)."""
     from apps.api.kb.service import delivered_source_count
 
     facts = int((await session.execute(text(_FACTS_SQL))).scalar_one())
-    return await delivered_source_count(session) + facts
+    profile = int((await session.execute(text(_PROFILE_ENTRIES_SQL))).scalar_one())
+    return await delivered_source_count(session) + facts + profile
 
 
 async def gather(

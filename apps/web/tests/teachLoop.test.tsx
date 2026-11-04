@@ -9,7 +9,13 @@ import { TryChat } from "@/components/improvement/TryChat";
 import type { Me } from "@/lib/api/client";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import { noContent, problem, renderClientPage, type Routes } from "./harness";
+
+/** The teach box is behind the Add area's "Something else" choice (D-968). */
+async function chooseSomethingElse() {
+  fireEvent.click(await screen.findByRole("radio", { name: "Something else" }));
+}
 
 /**
  * The teach box and the improvement loop (founder decisions 9 and 11). Each test names the
@@ -62,6 +68,7 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/teach/open": { teaching: null },
+    "/v1/business-profile": businessProfileFixture({ services: [], faqs: [] }),
     ...over,
   });
 }
@@ -122,6 +129,7 @@ describe("the teach box", () => {
     }
     render(<Listener />);
     const { calls } = await renderKnowledge();
+    await chooseSomethingElse();
     fireEvent.change(await screen.findByLabelText("What should your agents know?"), {
       target: { value: "Chilli powder is 120 rupees." },
     });
@@ -197,6 +205,7 @@ describe("the teach box", () => {
         "/v1/kb/teach/teach-1": heard,
         "POST /v1/kb/teach/teach-1/discard": { ...heard, status: "discarded" },
       });
+      await chooseSomethingElse();
       await act(async () => {
         fireEvent.click(await screen.findByRole("button", { name: "Say it" }));
       });
