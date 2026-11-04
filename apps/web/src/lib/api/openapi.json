@@ -975,6 +975,16 @@
             "title": "Refreshing",
             "type": "boolean"
           },
+          "screen_guide": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScreenGuide"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/StepSuggestion"
@@ -7544,6 +7554,16 @@
           "refreshing": {
             "title": "Refreshing",
             "type": "boolean"
+          },
+          "screen_guide": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScreenGuide"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "steps": {
             "items": {
@@ -48431,6 +48451,27 @@
           "follow_up"
         ],
         "title": "ScheduledCallbackOut",
+        "type": "object"
+      },
+      "ScreenGuide": {
+        "additionalProperties": false,
+        "description": "Whether this business's callers are often on its app or website during a call, so its\nagents should guide them on screen (D-906's switch), judged from the business itself.",
+        "properties": {
+          "reason": {
+            "maxLength": 160,
+            "title": "Reason",
+            "type": "string"
+          },
+          "suggested": {
+            "title": "Suggested",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "suggested",
+          "reason"
+        ],
+        "title": "ScreenGuide",
         "type": "object"
       },
       "ScriptCheckOut": {

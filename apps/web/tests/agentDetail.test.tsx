@@ -985,6 +985,69 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect((toggle as HTMLInputElement).checked).toBe(true);
   });
 
+  describe("asks about the screen guide when the business analysis suggests it", () => {
+    const SUGGESTING = {
+      "/v1/business-copy": {
+        placeholders: null,
+        steps: [],
+        caller_details: [],
+        example_questions: [],
+        screen_guide: {
+          suggested: true,
+          reason: "Your callers install your app and sign up while on the phone.",
+        },
+        language: null,
+        generated_at: null,
+        refreshing: false,
+        stop_reason: null,
+        stop_message: null,
+      },
+    };
+
+    it("asks on the Overview with the business's own reason, and one press turns it on", async () => {
+      const { calls } = await renderClientPage(
+        page,
+        routes({ ...SUGGESTING, "PATCH /v1/agents/agent-1/caller-screen": agent({ caller_has_screen: true }) }),
+      );
+
+      await screen.findByText("Do your callers use your app or website on the call?");
+      expect(screen.getByText("Your callers install your app and sign up while on the phone.")).toBeTruthy();
+      await act(async () => {
+        fireEvent.click(await pressable(document.body, /Guide them on screen/));
+      });
+      const patch = calls.find((call) => call.method === "PATCH");
+      expect(patch?.path).toBe("/v1/agents/agent-1/caller-screen");
+      expect(JSON.parse(patch?.body ?? "{}")).toEqual({ enabled: true });
+    });
+
+    it("does not ask once the agent already guides callers on screen", async () => {
+      const { container } = await renderClientPage(
+        page,
+        routes({ ...SUGGESTING, "/v1/agents/agent-1": agent({ caller_has_screen: true }) }),
+      );
+      await screen.findByText(/Latest calls|No calls yet/i);
+      expect(container.textContent).not.toContain("Do your callers use your app or website");
+    });
+
+    it("hides the question when the owner says not now", async () => {
+      await renderClientPage(page, routes(SUGGESTING));
+      await screen.findByText("Do your callers use your app or website on the call?");
+      fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+      expect(screen.queryByText("Do your callers use your app or website on the call?")).toBeNull();
+      window.localStorage.clear();
+    });
+
+    it("shows the business's reason beside the switch in Settings", async () => {
+      openSection("settings");
+      await renderClientPage(page, routes(SUGGESTING));
+      await screen.findByText("Caller follows along on a screen");
+      expect(
+        await screen.findByRole("switch", { name: "Guide callers through their screen (suggested)" }),
+      ).toBeTruthy();
+      expect(screen.getByText("Your callers install your app and sign up while on the phone.")).toBeTruthy();
+    });
+  });
+
   it("shows no re-accept prompt on an account on the current statement", async () => {
     openSection("settings");
     const { container } = await renderClientPage(

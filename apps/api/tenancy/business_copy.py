@@ -203,6 +203,15 @@ class StarterLines(_Strict):
     call_leads: list[Spoken] = Field(min_length=1, max_length=MAX_STARTER_LINES)
 
 
+class ScreenGuide(_Strict):
+    """Whether this business's callers are often on its app or website during a call, so its
+    agents should guide them on screen (D-906's switch), judged from the business itself."""
+
+    suggested: bool
+    #: Why, to the owner, in plain English; empty when not suggested.
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, max_length=LINE_MAX)]
+
+
 class GeneratedCopy(_Strict):
     """Everything one run writes. Closed: an extra key is an unusable answer."""
 
@@ -213,6 +222,9 @@ class GeneratedCopy(_Strict):
     caller_details: list[Chip] = Field(min_length=MIN_CHIPS, max_length=MAX_CHIPS)
     #: Questions callers of this business ask (English), for the knowledge screens.
     example_questions: list[Question] = Field(min_length=MIN_QUESTIONS, max_length=MAX_QUESTIONS)
+    #: Optional so a copy written before it was asked still reads; a new answer must carry it
+    #: (`screen_guide_problems`).
+    screen_guide: ScreenGuide | None = None
 
 
 # --- the text rules -------------------------------------------------------------------------
@@ -274,7 +286,22 @@ def _strings(copy: GeneratedCopy) -> list[tuple[str, str, bool]]:
             out.append((f"starter_lines.{job}.{i}", line, True))
     out += [(f"caller_details.{i}", v, False) for i, v in enumerate(copy.caller_details)]
     out += [(f"example_questions.{i}", v, False) for i, v in enumerate(copy.example_questions)]
+    if copy.screen_guide is not None and copy.screen_guide.reason:
+        out.append(("screen_guide.reason", copy.screen_guide.reason, False))
     return out
+
+
+def screen_guide_problems(copy: GeneratedCopy) -> list[str]:
+    """A new answer must judge the screen question, and give a reason exactly when it
+    suggests the switch."""
+    guide = copy.screen_guide
+    if guide is None:
+        return ["screen_guide: missing"]
+    if guide.suggested and not guide.reason:
+        return ["screen_guide.reason: one sentence when suggested"]
+    if not guide.suggested and guide.reason:
+        return ["screen_guide.reason: empty when not suggested"]
+    return []
 
 
 def screen_text_problems(path: str, value: str, *, clinic: bool) -> list[str]:
@@ -433,6 +460,7 @@ __all__ = [
     "CopyState",
     "GeneratedCopy",
     "Placeholders",
+    "ScreenGuide",
     "StarterLines",
     "StepSuggestion",
     "StopReason",
@@ -445,5 +473,6 @@ __all__ = [
     "provider_words",
     "queue_generation",
     "read_state",
+    "screen_guide_problems",
     "screen_text_problems",
 ]

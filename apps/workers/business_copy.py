@@ -81,6 +81,7 @@ from apps.api.tenancy.business_copy import (
     Trigger,
     copy_problems,
     missing_placeholders,
+    screen_guide_problems,
 )
 from apps.api.tenancy.models import BUSINESS_COPY_TRIGGERS
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
@@ -101,7 +102,7 @@ JOB_NAME: Final = "generate_business_copy"
 
 #: Bumped when the instruction or the shape changes, so the next scheduled check rewrites
 #: copy written under the old one.
-PROMPT_VERSION: Final = 2
+PROMPT_VERSION: Final = 3
 
 #: The description handed to the model, in characters.
 MAX_INPUT_CHARS: Final = 9000
@@ -198,6 +199,7 @@ def answer_schema(starter_counts: dict[str, int]) -> dict[str, object]:
                     ),
                     "caller_details": _strings(MIN_CHIPS, MAX_CHIPS),
                     "example_questions": _strings(MIN_QUESTIONS, MAX_QUESTIONS),
+                    "screen_guide": _object({"suggested": {"type": "boolean"}, "reason": _STR}),
                 }
             ),
         },
@@ -264,7 +266,13 @@ def instruction_for(inputs: Inputs) -> str:
         f"caller_details: {MIN_CHIPS} to {MAX_CHIPS} details the agent may ask a caller for, "
         "1 to 4 words each; example_questions: "
         f"{MIN_QUESTIONS} to {MAX_QUESTIONS} questions callers of this business ask, "
-        "favouring the real ones in the description, rewritten without names or numbers. "
+        "favouring the real ones in the description, rewritten without names or numbers; "
+        "screen_guide: suggested is true only when this business's callers are often on its "
+        "own app or website during the call (installing it, signing up, ordering, paying or "
+        "changing a setting), so its phone agent should walk them through it one tap at a "
+        "time, and false when its callers just talk, ask or book; reason is one short "
+        "sentence to the owner saying what their callers do on screen when suggested, and an "
+        "empty string when not. "
         f"Keep short values under {SHORT_MAX} characters, one-line values under {LINE_MAX}, "
         f"prose under {PROSE_MAX}, details under {CHIP_MAX} and questions under "
         f"{QUESTION_MAX}. Only end_call_rules has a line break, between its two rules. "
@@ -291,6 +299,7 @@ def parse_answer(raw: dict[str, Any], *, inputs: Inputs) -> GeneratedCopy:
         raise _unusable(problems) from None
     problems = [f"placeholders.{key}: missing" for key in missing_placeholders(copy.placeholders)]
     problems += copy_problems(copy, clinic=inputs.clinic, language=inputs.language)
+    problems += screen_guide_problems(copy)
     for job, count in inputs.starter_counts.items():
         given = len(getattr(copy.starter_lines, job))
         if given != count:

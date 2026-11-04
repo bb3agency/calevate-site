@@ -74,6 +74,7 @@ from apps.api.copilot.actions import (
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
+from apps.api.tenancy import business_copy
 
 _ID: Final[dict[str, Any]] = {"type": "string", "description": "The agent's id, never invented."}
 
@@ -1041,7 +1042,13 @@ async def screen_guide_hint(session: AsyncSession, agent_id: UUID, context: str)
     ).first()
     if row is None:
         return ""
-    guided = bool(_SCREEN_WORDS.search(f"{context}\n{row[1] or ''}"))
+    # The account's own analysis (business copy) judges the business as a whole; the words
+    # catch a campaign or script that is screen-guided where the business usually is not.
+    state = await business_copy.read_state(session)
+    guide = state.copy.screen_guide if state is not None and state.copy is not None else None
+    guided = bool(_SCREEN_WORDS.search(f"{context}\n{row[1] or ''}")) or (
+        guide is not None and guide.suggested
+    )
     if guided and not row[0]:
         return (
             " These calls look like they walk people through their phone or computer: ask "

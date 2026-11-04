@@ -442,6 +442,46 @@ async def test_a_screen_guided_campaign_has_pip_ask_about_the_switch() -> None:
     assert "switch caller_has_screen off" in plain.detail
 
 
+async def test_pip_asks_about_the_screen_when_the_business_analysis_suggests_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Founder, 4 Nov 2026: the owner is asked from what the business does, not only when a
+    campaign's name happens to say "app"."""
+    from apps.api.copilot import agent_setup_actions
+    from apps.api.tenancy import business_copy
+
+    guide = business_copy.ScreenGuide(
+        suggested=True, reason="Your callers install your app and sign up while on the phone."
+    )
+    state = business_copy.CopyState(
+        # Only the screen judgement is read here, so the rest of the copy is not built.
+        copy=business_copy.GeneratedCopy.model_construct(screen_guide=guide),
+        language="te-IN",
+        model=None,
+        generated_at=None,
+        cost_inr=None,
+        absorbed=False,
+        running=False,
+        last_trigger=None,
+        last_attempt_at=None,
+        stop_reason=None,
+    )
+
+    async def analysed(_session: object) -> business_copy.CopyState:
+        return state
+
+    monkeypatch.setattr(agent_setup_actions.business_copy, "read_state", analysed)
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    asked = await _run(
+        tenant_id,
+        token,
+        "campaign_create",
+        {"name": "Winter recall", "agent_id": str(agent_id), "classification": "service"},
+    )
+    assert "switch on the agent's caller_has_screen" in asked.detail
+
+
 # --- agent_handover_set ------------------------------------------------------------------------
 
 

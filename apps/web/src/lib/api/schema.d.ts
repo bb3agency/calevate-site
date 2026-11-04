@@ -14287,6 +14287,7 @@ export interface components {
             placeholders: components["schemas"]["Placeholders"] | null;
             /** Refreshing */
             refreshing: boolean;
+            screen_guide?: components["schemas"]["ScreenGuide"] | null;
             /** Steps */
             steps: components["schemas"]["StepSuggestion"][];
             /** Stop Message */
@@ -16438,6 +16439,7 @@ export interface components {
             placeholders: components["schemas"]["Placeholders"] | null;
             /** Refreshing */
             refreshing: boolean;
+            screen_guide?: components["schemas"]["ScreenGuide"] | null;
             /** Steps */
             steps: components["schemas"]["StepSuggestion"][];
             /** Stop Message */
@@ -31471,6 +31473,17 @@ export interface components {
             settled_at: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * ScreenGuide
+         * @description Whether this business's callers are often on its app or website during a call, so its
+         *     agents should guide them on screen (D-906's switch), judged from the business itself.
+         */
+        ScreenGuide: {
+            /** Reason */
+            reason: string;
+            /** Suggested */
+            suggested: boolean;
         };
         /**
          * ScriptCheckOut

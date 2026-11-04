@@ -121,6 +121,7 @@ def copy_dict() -> dict[str, Any]:
             "Is the oil cold-pressed?",
             "Can I pay on delivery?",
         ],
+        "screen_guide": {"suggested": False, "reason": ""},
     }
 
 
@@ -254,6 +255,49 @@ def test_a_copy_stored_before_version_two_still_reads() -> None:
     assert stored.placeholders.teach_note is None
     assert business_copy.copy_problems(stored, clinic=False, language="te-IN") == []
     assert set(business_copy.missing_placeholders(stored.placeholders)) == set(V2_PLACEHOLDERS)
+
+
+def test_a_new_answer_must_judge_whether_callers_use_a_screen() -> None:
+    """FAILS IF: an answer may skip the screen question, or suggest the switch without saying
+    why, or give a reason while not suggesting it."""
+    raw = copy_dict()
+    del raw["screen_guide"]
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "screen_guide: missing" in unusable.value.problems
+
+    raw["screen_guide"] = {"suggested": True, "reason": ""}
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "screen_guide.reason: one sentence when suggested" in unusable.value.problems
+
+    raw["screen_guide"] = {"suggested": False, "reason": "Callers install the app."}
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "screen_guide.reason: empty when not suggested" in unusable.value.problems
+
+    raw["screen_guide"] = {
+        "suggested": True,
+        "reason": "Your callers install your app and sign up while on the phone.",
+    }
+    parsed = worker.parse_answer(raw, inputs=_inputs())
+    assert parsed.screen_guide is not None and parsed.screen_guide.suggested
+
+
+def test_a_copy_stored_before_the_screen_question_still_reads() -> None:
+    """FAILS IF: a copy written before the screen question stops reading."""
+    raw = copy_dict()
+    del raw["screen_guide"]
+    stored = business_copy.parse_stored(raw)
+    assert stored is not None and stored.screen_guide is None
+    assert business_copy.copy_problems(stored, clinic=False, language="te-IN") == []
+
+
+def test_the_instruction_and_schema_ask_the_screen_question() -> None:
+    schema = worker.answer_schema(_inputs().starter_counts)
+    props = schema["json_schema"]["schema"]["properties"]  # type: ignore[index]
+    assert "screen_guide" in props
+    assert "screen_guide:" in worker.instruction_for(_inputs())
 
 
 def test_a_copy_with_the_profiles_retired_examples_still_reads_and_none_is_asked_for() -> None:

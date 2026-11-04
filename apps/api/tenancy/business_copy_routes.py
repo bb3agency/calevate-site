@@ -39,6 +39,9 @@ class BusinessCopyOut(BaseModel):
     steps: list[service.StepSuggestion] = Field(max_length=service.MAX_STEPS)
     caller_details: list[str] = Field(max_length=service.MAX_CHIPS)
     example_questions: list[str] = Field(max_length=service.MAX_QUESTIONS)
+    #: Whether this business's callers use its app or website on a call; None until a run
+    #: has judged it.
+    screen_guide: service.ScreenGuide | None = None
     #: The language the example lines are written in (BCP-47).
     language: str | None
     generated_at: datetime | None
@@ -58,6 +61,7 @@ def render(state: service.CopyState | None) -> BusinessCopyOut:
         steps=list(copy.steps) if copy is not None else [],
         caller_details=list(copy.caller_details) if copy is not None else [],
         example_questions=list(copy.example_questions) if copy is not None else [],
+        screen_guide=copy.screen_guide if copy is not None else None,
         language=state.language if state is not None and copy is not None else None,
         generated_at=state.generated_at if state is not None and copy is not None else None,
         refreshing=state.running if state is not None else False,
