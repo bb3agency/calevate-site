@@ -8,47 +8,48 @@ import { SITE_ORIGIN } from "@/lib/site";
 
 import "./globals.css";
 
-const ppMori = localFont({
+// Nilo, the product typeface (SIL OFL 1.1, Nilo-OFL.txt), self-hosted: no CDN, no CSP egress.
+const nilo = localFont({
   src: [
     {
-      path: "../fonts/PPMori-Extralight.otf",
+      path: "../fonts/Nilo-Extralight.otf",
       weight: "200",
       style: "normal",
     },
     {
-      path: "../fonts/PPMori-ExtralightItalic.otf",
+      path: "../fonts/Nilo-ExtralightItalic.otf",
       weight: "200",
       style: "italic",
     },
     {
-      path: "../fonts/PPMori-Regular.otf",
+      path: "../fonts/Nilo-Regular.otf",
       weight: "400",
       style: "normal",
     },
     {
-      path: "../fonts/PPMori-RegularItalic.otf",
+      path: "../fonts/Nilo-RegularItalic.otf",
       weight: "400",
       style: "italic",
     },
     {
-      path: "../fonts/PPMori-SemiBold.otf",
+      path: "../fonts/Nilo-SemiBold.otf",
       weight: "600",
       style: "normal",
     },
     {
-      path: "../fonts/PPMori-SemiBoldItalic.otf",
+      path: "../fonts/Nilo-SemiBoldItalic.otf",
       weight: "600",
       style: "italic",
     },
   ],
-  variable: "--font-pp-mori",
+  variable: "--font-nilo",
 });
 
 // JetBrains Mono for keys, IDs, codes and any fixed-width value an operator reads or
 // pastes. Chosen over the system monospace stack because it disambiguates the glyphs
 // those values collide on — a dotted zero distinct from O, and 1/l/I all distinct — so
 // a mistyped or misread API key is caught by the eye, not by a failed call later.
-// Self-hosted (SIL OFL 1.1, JetBrainsMono-OFL.txt) like PP Mori: no CDN, no CSP egress.
+// Self-hosted (SIL OFL 1.1, JetBrainsMono-OFL.txt) like Nilo: no CDN, no CSP egress.
 // Only the two weights the UI uses are bundled — Regular for values, Medium for the rare
 // emphasised token — keeping the payload to ~180KB.
 const jetbrainsMono = localFont({
@@ -197,7 +198,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${ppMori.variable} ${jetbrainsMono.variable} ${notoTelugu.variable} ${notoDevanagari.variable} h-full antialiased`}
+      className={`${nilo.variable} ${jetbrainsMono.variable} ${notoTelugu.variable} ${notoDevanagari.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         {children}

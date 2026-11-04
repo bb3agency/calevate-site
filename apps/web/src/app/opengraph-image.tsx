@@ -13,7 +13,7 @@ import { SITE_DESCRIPTION } from "@/lib/seo/structuredData";
  * "one way per problem" rules both point at: a binary in the tree is a copy of the brand
  * that no rebrand can reach, that nobody can diff, and that quietly goes stale the first
  * time the wordmark or the green moves. This renders from the SAME font files the site
- * ships (`src/fonts/PPMori-*.otf`), the same brand hexes `globals.css` declares, and the
+ * ships (`src/fonts/Nilo-*.otf`), the same brand hexes `globals.css` declares, and the
  * same sentence the hero says — so the card cannot disagree with the page it previews.
  *
  * `size` and `contentType` are the file convention's own exports; Next reads them to write
@@ -25,7 +25,7 @@ import { SITE_DESCRIPTION } from "@/lib/seo/structuredData";
  *
  * That is the shape most examples of this route use, and it was written here first and
  * MEASURED FAILING — `GET /opengraph-image` returned 500 with
- * *"Failed to parse URL from /_next/static/media/PPMori-SemiBold.cb07cb68.otf"*
+ * *"Failed to parse URL from /_next/static/media/Nilo-SemiBold.cb07cb68.otf"*
  * (next 15.5.21, `next dev`, 9 Sep 2026). The bundler rewrites the asset URL to a
  * ROOT-RELATIVE path, and `fetch` has no origin to resolve it against on the server.
  *
@@ -35,7 +35,7 @@ import { SITE_DESCRIPTION } from "@/lib/seo/structuredData";
  * (`ecosystem.config.cjs` sets `cwd: __dirname`, which is this directory).
  *
  * OTF rather than the WOFF2 files this app also ships: satori (what `ImageResponse` renders
- * with) reads TTF, OTF and WOFF and does NOT read WOFF2. `PPMori-*.otf` is what
+ * with) reads TTF, OTF and WOFF and does NOT read WOFF2. `Nilo-*.otf` is what
  * `app/layout.tsx` already loads through `next/font/local`.
  *
  * ## LIGHT ONLY (D-471)
@@ -65,8 +65,8 @@ const INK_MUTED = "#475569";
 export default async function OpengraphImage() {
   const fonts = join(process.cwd(), "src", "fonts");
   const [semibold, regular] = await Promise.all([
-    readFile(join(fonts, "PPMori-SemiBold.otf")),
-    readFile(join(fonts, "PPMori-Regular.otf")),
+    readFile(join(fonts, "Nilo-SemiBold.otf")),
+    readFile(join(fonts, "Nilo-Regular.otf")),
   ]);
 
   return new ImageResponse(
@@ -81,7 +81,7 @@ export default async function OpengraphImage() {
           background: SURFACE,
           padding: "72px 80px",
           // satori has no cascade: every text node inherits from here or states its own.
-          fontFamily: "PP Mori",
+          fontFamily: "Nilo",
           color: INK,
         }}
       >
@@ -113,8 +113,8 @@ export default async function OpengraphImage() {
     {
       ...size,
       fonts: [
-        { name: "PP Mori", data: semibold, weight: 600, style: "normal" },
-        { name: "PP Mori", data: regular, weight: 400, style: "normal" },
+        { name: "Nilo", data: semibold, weight: 600, style: "normal" },
+        { name: "Nilo", data: regular, weight: 400, style: "normal" },
       ],
     },
   );

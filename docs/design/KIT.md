@@ -26,7 +26,7 @@ component wins, this file records the decision that was built.
   → `--line`; `--accent`/`--control-on` → `--brand`; `--accent-strong` → `--brand-strong`;
   `--accent-subtle` → `--brand-soft`; `--warning` → `--warn`; `--success` → `--brand`;
   `--shadow-raised/floating` → `shadow-raised`/`shadow-overlay`; `--series-1..4` →
-  `--series-1..6`; radii → `rounded-md` / `rounded-card` (14px). Fonts stay PP Mori.
+  `--series-1..6`; radii → `rounded-md` / `rounded-card` (14px). Fonts stay Nilo (replaced PP Mori, 4 Nov 2026).
 - **Focus.** Every control draws `focus-visible:ring-2 focus-visible:ring-brand` itself; there
   is no global outline rule to lean on.
 - **Touch.** Under a coarse pointer every target is at least 44px (`touch:min-h-11`,

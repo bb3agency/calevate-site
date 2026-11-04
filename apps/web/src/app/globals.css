@@ -242,7 +242,7 @@
   --color-series-5: var(--series-5);
   --color-series-6: var(--series-6);
 
-  --font-sans: var(--font-pp-mori);
+  --font-sans: var(--font-nilo);
   /* JetBrains Mono first (bundled, glyph-disambiguated — see app/layout.tsx), then the
    * platform stack so a key still renders fixed-width if the webfont has not loaded. */
   --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
@@ -968,7 +968,7 @@ html:has([data-app-shell]) body {
 body {
   background: var(--app);
   color: var(--text);
-  /* PP Mori first. It has no Telugu or Devanagari glyphs, so text in those scripts falls
+  /* Nilo first. It has no Telugu or Devanagari glyphs, so text in those scripts falls
      through to the bundled Noto faces; their unicode-range means a page with none of
      that text never downloads them. */
   font-family: var(--font-sans), var(--font-noto-telugu), var(--font-noto-devanagari), ui-sans-serif, system-ui, sans-serif;
@@ -1053,7 +1053,7 @@ h5,
 h6 {
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   font-weight: 600;
-  /* PPMori SemiBold */
+  /* Nilo SemiBold */
 }
 
 /*

@@ -6,13 +6,11 @@ relying on, and no build step — so the values are restated here, once, with th
 custom property each one mirrors named beside it. `tests/brand_tokens_test.py` reads both
 files and fails if they drift, which is what keeps this from becoming the second palette.
 
-**WHY NOT PP MORI.** The product's typeface is a licensed local font served by
-`next/font/local`. Email clients do not load `@font-face` reliably — Gmail's web client
-strips it outright — and hosting the file to try would put a licensed font on a public URL.
-So the mail uses a system stack chosen to sit in the same place: a neutral geometric
-grotesque, no serifs, no personality that fights the wordmark. It will not be PP Mori, and
-pretending otherwise with a webfont link that silently fails is worse than choosing the
-fallback deliberately.
+**WHY NOT NILO.** The product's typeface is Nilo, a local font served by `next/font/local`.
+Email clients do not load `@font-face` reliably (Gmail's web client strips it outright),
+so the mail uses a system stack chosen to sit in the same place: a neutral geometric
+grotesque, no serifs, no personality that fights the wordmark. A webfont link that
+silently fails is worse than choosing the fallback deliberately.
 """
 
 from __future__ import annotations

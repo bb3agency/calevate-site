@@ -10,7 +10,7 @@ then admin.
 | Topic | Decision |
 | --- | --- |
 | Direction | **Calm and plain**, in the style of the Stripe Dashboard and Notion. Lots of white space, plain sentences, one clear primary action per screen, few borders and cards. Settings read as label–value rows with a "Change" link. |
-| Brand | **Keep it.** The green family (`--brand` #16a05d …) and PP Mori stay. Layout, spacing, hierarchy, copy and components are redesigned. The marketing site stays consistent. |
+| Brand | **Keep it.** The green family (`--brand` #16a05d …) and the Nilo typeface (which replaced PP Mori on 4 Nov 2026) stay. Layout, spacing, hierarchy, copy and components are redesigned. The marketing site stays consistent. |
 | Depth | **Overhaul flows too.** Technical forms become guided flows. The API and data contracts do not change; machine values (an action's `name`, param bindings, triggers) are derived behind the scenes. |
 | Process | **Pilot, then fan out.** First the design system plus four client screens. Then STOP for the founder's review. Then the rest of the client side. Admin follows, with its direction confirmed first. |
 
@@ -125,7 +125,7 @@ Design Read:
   artifact: client console (operational product UI), four pilot screens
   audience: Indian small-business owner, non-technical, often on a phone, English as a working language
   visual-language: calm and plain (Stripe Dashboard settings, pre-AI Notion): ink on white, hairlines, one green action
-  mode: Redesign · Overhaul of interaction, Preserve of brand (green family, PP Mori, marketing untouched)
+  mode: Redesign · Overhaul of interaction, Preserve of brand (green family, Nilo, marketing untouched)
   visual-variance: 2    # one layout grammar everywhere; nothing decorative
   motion-intensity: 2   # existing state motion only (press, section fade, value flash); nothing added
   information-density: 5 # figures and rows scan; no cards around them

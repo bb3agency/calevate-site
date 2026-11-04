@@ -14,7 +14,7 @@
  * Two consequences that shape everything below, and both are easy to get wrong:
  *
  * 1. **The root layout's `<html>` className is gone**, and with it the font variables. So
- *    the page names an explicit fallback font stack, because `--font-pp-mori` is no longer
+ *    the page names an explicit fallback font stack, because `--font-nilo` is no longer
  *    defined. (There is no theme class to restore: the product is light-only, D-471.)
  * 2. **The stylesheet may or may not have loaded.** On a client-side throw it is already in
  *    the document; on a root-layout failure during SSR it may not be. So the essential
@@ -53,7 +53,7 @@ export default function GlobalError({
           background: "var(--app, #fafafa)",
           color: "var(--text, #171a1c)",
           fontFamily:
-            "var(--font-pp-mori), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+            "var(--font-nilo), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
         }}
       >
         <div className="flex min-h-dvh flex-col justify-center">

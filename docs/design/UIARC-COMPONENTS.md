@@ -130,7 +130,7 @@ All of this is read from the code in `docs/design/uiarc/registry/`.
    | `--shadow-raised`, `--shadow-floating` | `--elevation-2`, `--elevation-3` |
    | `--series-1..4` | `--brand`, `--chart-warn`, `--chart-danger`, `--chart-neutral` |
 
-   Radii come down to Calevate's (`--radius-card` 14px). The fonts stay PP Mori.
+   Radii come down to Calevate's (`--radius-card` 14px). The fonts stay Nilo.
 2. **Focus ring.** Restore `focus-visible` rings on every control whose CSS sets `outline: none`.
 3. **Touch.** Raise every interactive element to 44px on coarse pointers.
 4. **Strings.** Move every English literal to a prop, and default number and date formatting to `en-IN` and `Asia/Kolkata`.
