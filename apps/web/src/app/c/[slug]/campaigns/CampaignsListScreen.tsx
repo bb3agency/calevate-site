@@ -260,7 +260,7 @@ function CampaignRow({
   return (
     <li
       data-status={campaign.status}
-      className="relative grid gap-x-6 gap-y-3 px-4 py-4 transition-colors duration-(--duration-fast) hover:bg-ink/[0.02] motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center sm:px-5"
+      className="relative grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 transition-colors duration-(--duration-fast) hover:bg-ink/[0.02] motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center sm:px-5"
     >
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -371,7 +371,7 @@ function FirstRun({ canWrite, newHref }: { canWrite: boolean; newHref: string })
           No campaigns yet
         </h2>
         <p className="mt-1 text-body text-ink-muted">Start one in three steps.</p>
-        <ol className="mt-6 grid w-full gap-2 text-left sm:grid-cols-3 sm:gap-3">
+        <ol className="mt-6 grid w-full grid-cols-1 gap-2 text-left sm:grid-cols-3 sm:gap-3">
           {FIRST_STEPS.map((step, index) => (
             <li
               key={step}
@@ -413,7 +413,7 @@ function RowsSkeleton() {
       <span className="sr-only">Loading your campaigns…</span>
       <div aria-hidden className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="grid gap-x-6 gap-y-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center sm:px-5">
+          <div key={i} className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center sm:px-5">
             <div className="space-y-2">
               <div className="h-3 w-24 animate-pulse rounded bg-ink/[0.06] motion-reduce:animate-none" />
               <div className="h-4 w-48 max-w-full animate-pulse rounded bg-ink/[0.08] motion-reduce:animate-none" />
