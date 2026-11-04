@@ -2427,3 +2427,52 @@ we can drop that hold.
 >
 > Thanks,
 > Umesh
+
+## 45. Ashutosh's note of 4 Nov 2026 (10:03 IST): a Text-To-Speech API
+
+Received by the founder, relayed verbatim:
+
+> Hi Umesh,
+> We are working on the items you mentioned.
+> Meanwhile, We are launching the Text-To-Speech API with Rs.0.4/minute pricing. 10 Indian
+> languages supported for now, with streaming TTFA ~100ms, websocket connection, voice cloning.
+> We are surveying client requirements.
+> Please let me know, if you would use this TTS API and if so, what your approximate call
+> volume would be.
+
+VENDOR-STATED, nothing in the docs yet: ₹0.4/minute, 10 Indian languages, streaming
+time-to-first-audio about 100 ms, websocket, voice cloning. "Items you mentioned" (§44 and
+earlier) are not answered yet.
+
+Why it matters: Cartesia speech is about 68% of a Studio minute on our calls (about ₹3.9/min,
+measured on production usage 20 Oct 2026, rememory 530cc6d6). It helps only if an agent on a
+ThinnestAI call can speak with it; a standalone API we would have to put in the call ourselves
+does not fit, because ThinnestAI hosts the whole call.
+
+## 46. Reply to §45 (DRAFTED 4 Nov 2026, unsent)
+
+> Subject: Re: Text-To-Speech API
+>
+> Hi Ashutosh,
+>
+> Yes, we are interested, if our agents can speak with it on calls your platform hosts. Speech
+> is the largest part of our call cost today, so this matters to us.
+>
+> 1. **On calls:** can an agent on your platform use it as its voice (a voice band or a voice
+>    scope we pick per agent), and what would a call minute cost with it, against the Studio
+>    band at ₹2.50 and our own-key voice at ₹1.00 plus the provider?
+> 2. **What ₹0.4 counts:** per minute of audio produced, per minute of call, or by
+>    characters? Are filler lines counted? Is it the same in every language?
+> 3. **Telugu first:** is Telugu among the 10 languages, how many voices are there for Telugu
+>    and Hindi, and can we hear samples? Can numbers, dates and English words inside Telugu be
+>    read the way an Indian speaker says them?
+> 4. **Cloning:** can our admin clone voices for it, how many, and can every customer
+>    workspace use a clone we made?
+> 5. **Data:** is text sent to it kept or used for training, and is it covered by the same
+>    DPA and sub-processor list?
+> 6. **Limits:** concurrent streams, and what a caller hears if it is slow or down.
+>
+> Volume: about <MINUTES> call minutes a month today, and <EXPECTED> expected by <MONTH>.
+>
+> Thanks,
+> Umesh
