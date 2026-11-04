@@ -11,6 +11,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.callbacks import service as callbacks
+from apps.api.callbacks.routes import _view as _callback_view
 from apps.api.compliance.service import add_to_dnc
 from apps.api.core.redis import get_redis
 from apps.api.crm import service as crm
@@ -751,6 +752,21 @@ async def test_a_call_step_is_dialled_by_the_tick_and_retried_when_not_answered(
         assert await runner.on_call_ended(session, call_id=second) == [run_id]
     done = await _run(tenant_id, follow_up_id)
     assert (done["status"], done["end_reason"]) == ("done", "finished")
+
+
+async def test_a_booked_call_names_the_follow_up_that_booked_it() -> None:
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await _call_follow_up(tenant_id, agent_id)
+    lead_id, _ = await _lead(tenant_id, agent_id)
+    run_id = await _start(tenant_id, follow_up_id, lead_id)
+    await runner.drive(tenant_id, run_id)
+    async with tenant_session(tenant_id) as session:
+        listed = [_callback_view(row) for row in await callbacks.list_callbacks(session, limit=50)]
+        booked = next(view for view in listed if view.lead_id == lead_id)
+        one = await callbacks.get_callback(session, booked.id)
+    assert booked.follow_up is not None
+    assert (booked.follow_up.id, booked.follow_up.name) == (follow_up_id, "Test follow-up")
+    assert one is not None and _callback_view(one).follow_up == booked.follow_up
 
 
 async def test_an_answered_call_takes_the_answered_exit_and_calls_off_the_retry() -> None:

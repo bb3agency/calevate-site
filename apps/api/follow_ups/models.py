@@ -34,7 +34,9 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 FOLLOW_UP_STATUSES = ("draft", "live", "paused", "off")
 RUN_STATUSES = ("running", "waiting", "done", "stopped")
 LIVE_RUN_STATUSES = ("running", "waiting")
-#: The ready-made Follow-ups a client can start from (docs/FOLLOW-UPS.md, Starters).
+#: The ready-made Follow-ups a client can start from (docs/FOLLOW-UPS.md, Starters), plus
+#: `win_back`, no longer offered (calling a picked list of leads is a campaign) and kept so
+#: the Follow-ups already made from it still read back.
 STARTER_KEYS = (
     "call_new_leads",
     "qualify_new_leads",

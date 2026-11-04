@@ -665,7 +665,7 @@ describe("starting a Follow-up for picked leads", () => {
       { ids: ["lead-1", "lead-2"], wholeQuery: false },
       { [`POST /v1/follow-ups/${MANUAL_ID}/start`]: { started: 2, skipped: 0, plan_id: null } },
     );
-    const select = await screen.findByLabelText("Start a Follow-up");
+    const select = await screen.findByLabelText("Run a Follow-up");
     expect(Array.from((select as HTMLSelectElement).options).map((option) => option.text)).toEqual([
       "Payment reminder",
     ]);
@@ -679,6 +679,28 @@ describe("starting a Follow-up for picked leads", () => {
       lead_ids: ["lead-1", "lead-2"],
     });
     expect(await screen.findByText(/Started “Payment reminder” for 2/)).toBeTruthy();
+  });
+
+  it("shows nothing when no Follow-up that is on is started by hand", async () => {
+    const { calls } = await renderClientPage(
+      <StartFollowUp
+        session={{ orgSlug: "acme" }}
+        slug="acme"
+        href={(path) => path}
+        selection={{ ids: ["lead-1"], wholeQuery: false }}
+        lens={{}}
+        filteredTotal={1}
+        canStart
+        startReason={null}
+        renderPlan={(planId) => <p>Plan {planId}</p>}
+        onStarted={() => {}}
+      />,
+      { "/v1/follow-ups": LIST },
+    );
+    await waitFor(() => expect(calls.some((call) => call.path.startsWith("/v1/follow-ups"))).toBe(true));
+    await act(async () => {});
+    expect(screen.queryByLabelText("Run a Follow-up")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Start for/ })).toBeNull();
   });
 
   it("sends the table's lens with the confirmed count for every matching lead", async () => {

@@ -360,7 +360,7 @@ describe("the call filters (D-893) are server filters on the one lens", () => {
       fireEvent.change(lastCall, { target: { value: "missed" } });
     });
     await act(async () => {
-      fireEvent.change(screen.getByLabelText("Follow-up"), { target: { value: "not_done" } });
+      fireEvent.change(screen.getByLabelText("Handled"), { target: { value: "not_done" } });
     });
     await act(async () => {
       fireEvent.change(screen.getByLabelText("Call-back"), { target: { value: "false" } });

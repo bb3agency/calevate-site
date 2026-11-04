@@ -37,7 +37,7 @@ import { CallQualityCard } from "./CallQualityCard";
 import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
 import { DisclosureNotice } from "./DisclosureNotice";
-import { FollowUpAction } from "./FollowUpAction";
+import { CallBackAction } from "./CallBackAction";
 import { InsightsCard } from "./InsightsCard";
 import { KeyMomentsCard } from "./KeyMomentsCard";
 import { RecordingCard } from "./RecordingCard";
@@ -108,7 +108,7 @@ export function CallDetailScreen({
    * while impersonating" (D-22): D-587 made `leads:dispatch` writable in a view-as
    * session, so an operator now gets a working button and an audit row naming them.
    */
-  const write = useWriteAccess(session, "leads:dispatch", "place a follow-up call");
+  const write = useWriteAccess(session, "leads:dispatch", "place a call-back");
   // The save's own permission (`POST /v1/calls/{call_id}/test-case`), which Pip's
   // `call_test_prepare` also holds (D-822).
   const testWrite = useWriteAccess(session, "agents:write", "save a call as a test");
@@ -362,7 +362,7 @@ export function CallDetailScreen({
       <CallVerdict
         detail={detail}
         action={
-          <FollowUpAction
+          <CallBackAction
             eligibility={eligibility}
             callback={callback}
             status={callingBack.status}

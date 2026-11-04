@@ -217,27 +217,6 @@ def build(account: _Account) -> list[Starter]:
             available=True,
             needs=needs("outbound_agent", "whatsapp_template"),
         ),
-        Starter(
-            key="win_back",
-            name="Win back old leads",
-            description="Call leads you pick; send a WhatsApp to those not interested yet.",
-            trigger=d.ManualTrigger(kind="manual"),
-            steps=_steps(
-                [
-                    {
-                        "id": "s1",
-                        "kind": "call",
-                        "agent_id": agent,
-                        "next": {"answered": "s2", "not_reached": "s3"},
-                    },
-                    {"id": "s2", "kind": "decide", "on": {"interested": None}, "other": "s3"},
-                    {"id": "s3", "kind": "whatsapp", "template_id": template, "values": blank},
-                ]
-            ),
-            settings=d.Settings(goal="interested"),
-            available=True,
-            needs=needs("outbound_agent", "whatsapp_template"),
-        ),
     ]
 
 

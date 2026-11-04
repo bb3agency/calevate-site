@@ -9,7 +9,7 @@ import { expectNoA11yViolations } from "./a11y";
 import { problem, renderClientPage } from "./harness";
 
 /**
- * The Leads screen's "Add to a campaign" (D-893 lane L3): the table's selection or lens goes
+ * The Leads screen's "Call these leads in a campaign" (D-893 lane L3): the table's selection or lens goes
  * to `POST …/contacts/from-leads` with the confirmed count, and the answer is the server's.
  */
 
@@ -52,7 +52,7 @@ function view(selection: BulkSelection, routes: Record<string, unknown>, onAdded
 describe("adding the selected leads to a campaign", () => {
   it("offers only campaigns that have not started, and is accessible", async () => {
     const { container } = await view({ ids: ["a"], wholeQuery: false }, {});
-    const select = await screen.findByLabelText("Add to a campaign");
+    const select = await screen.findByLabelText("Call these leads in a campaign");
     expect(Array.from((select as HTMLSelectElement).options).map((o) => o.text)).toEqual([
       "Diwali offers",
     ]);

@@ -307,7 +307,7 @@ export function CallsScreen({ slug }: { slug: string }) {
       },
       {
         id: "calls-follow-up",
-        label: "Follow-up",
+        label: "Handled",
         type: "select",
         value: followUpFilter ?? "",
         options: [{ value: "", label: "Any" }, ...FOLLOW_UP.map((f) => ({ value: f.value, label: f.label }))],
@@ -442,13 +442,13 @@ export function CallsScreen({ slug }: { slug: string }) {
                 </select>
               </label>
               <label className="block">
-                <span className="sr-only">Follow-up</span>
+                <span className="sr-only">Handled</span>
                 <select
                   value={followUpFilter ?? ""}
                   onChange={(e) => setFollowUpFilter(FOLLOW_UP.find((f) => f.value === e.target.value)?.value)}
                   className={`${FIELD} mt-0 w-auto`}
                 >
-                  <option value="">Any follow-up</option>
+                  <option value="">Handled or not</option>
                   {FOLLOW_UP.map((f) => (
                     <option key={f.value} value={f.value}>
                       {f.label}

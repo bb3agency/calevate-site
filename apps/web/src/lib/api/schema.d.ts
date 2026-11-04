@@ -17769,6 +17769,16 @@ export interface components {
             /** Rule */
             rule?: string | null;
         };
+        /** CallbackFollowUpOut */
+        CallbackFollowUpOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
         /** CallbackMoveIn */
         CallbackMoveIn: {
             /**
@@ -31379,6 +31389,7 @@ export interface components {
             attempts: number;
             /** Explanation */
             explanation: string;
+            follow_up: components["schemas"]["CallbackFollowUpOut"] | null;
             /** Held */
             held: boolean;
             /**

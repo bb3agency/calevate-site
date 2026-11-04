@@ -11,7 +11,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { EmptySketch } from "@/components/console/emptySketch";
-import { TEXT_ACTION } from "@/components/console/section";
+import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import { HowItWorks } from "@/components/console/howItWorks";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
@@ -280,6 +280,17 @@ export function CallbacksScreen() {
           {/* Not "They said": the note is the agent's summary, a team member's note, or ours
               ("A new enquiry who did not answer the last try"), never the caller's words. */}
           {row.note && <p className="text-meta text-ink-muted">Note: {row.note}</p>}
+          {row.follow_up && (
+            <p className="flex flex-wrap items-center text-meta text-ink-muted">
+              Booked by the Follow-up
+              <Link
+                href={href(`/c/${session.orgSlug}/follow-ups/${row.follow_up.id}`)}
+                className={`${TEXT_ACTION_SM} min-w-0 break-words`}
+              >
+                {row.follow_up.name}
+              </Link>
+            </p>
+          )}
         </div>
       ),
     },
@@ -345,6 +356,7 @@ export function CallbacksScreen() {
           headingLevel={3}
           items={[
             "It rings at the time the caller asked for.",
+            "Calls a Follow-up books show here too.",
             "If a check stops it, the row says why.",
             "Move it to any time, 9am to 9pm.",
             "Calling off does not tell the caller.",

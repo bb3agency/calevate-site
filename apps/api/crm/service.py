@@ -3055,7 +3055,7 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
     ):
         raise ProblemError.business_rule(
             "callback_not_needed",
-            _NOT_NEEDED_REASON.get(current, "This call needs no follow-up."),
+            _NOT_NEEDED_REASON.get(current, "This call needs no call-back."),
         )
     if direction == "inbound":
         # The agent that ANSWERS is not necessarily configured to place calls, and
@@ -3069,7 +3069,7 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
     if age_days > CALLBACK_WINDOW_DAYS:
         raise ProblemError.business_rule(
             "callback_too_old",
-            f"This call was {age_days} days ago; a follow-up now would read as a cold call.",
+            f"This call was {age_days} days ago; a call-back now would read as a cold call.",
             remediation="Call the lead directly from the Leads table instead.",
         )
 
@@ -3085,7 +3085,7 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
     if depth >= MAX_CALLBACK_DEPTH:
         raise ProblemError.business_rule(
             "callback_chain_exhausted",
-            "We have already followed up on this conversation twice.",
+            "We have already called back twice on this conversation.",
             remediation="A person should make the next call.",
         )
 
@@ -3105,10 +3105,10 @@ async def plan_callback(session: AsyncSession, call_id: UUID) -> CallbackPlan:
     )
 
 
-#: Why a follow-up is not offered, per outcome, in the client's words.
+#: Why a call-back is not offered, per outcome, in the client's words.
 _NOT_NEEDED_REASON: dict[str, str] = {
-    "answered": "The agent dealt with this call, so no follow-up is due.",
-    "transferred": "This call was handed to a person on your team, so no follow-up is due.",
+    "answered": "The agent dealt with this call, so no call-back is due.",
+    "transferred": "This call was handed to a person on your team, so no call-back is due.",
 }
 
 

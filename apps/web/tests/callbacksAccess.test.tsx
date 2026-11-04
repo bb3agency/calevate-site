@@ -43,6 +43,7 @@ const WAITING: ScheduledCallback = {
   settled_at: null,
   held: false,
   note: null,
+  follow_up: null,
 };
 
 const LIST = "/v1/callbacks?limit=200&open_only=false";
@@ -100,5 +101,19 @@ describe("a call-back's note", () => {
     fireEvent.click(screen.getByRole("button", { name: "Call off" }));
     expect(await screen.findByText(/· due/)).toBeTruthy();
     expect(screen.queryByText(/asked to be rung back/)).toBeNull();
+  });
+});
+
+describe("a call-back a Follow-up booked", () => {
+  it("names the Follow-up and links to it", async () => {
+    const followUp = { id: "0192f0aa-7777-7000-8000-000000000009", name: "Qualify new leads" };
+    await renderClientPage(<CallbacksPage />, {
+      "/v1/me": OWNER,
+      [LIST]: [{ ...WAITING, follow_up: followUp }],
+    });
+
+    const link = await screen.findByRole("link", { name: "Qualify new leads" });
+    expect(link.getAttribute("href")).toBe(`/c/acme/follow-ups/${followUp.id}`);
+    expect(screen.getByText(/Booked by the Follow-up/)).toBeTruthy();
   });
 });

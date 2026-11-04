@@ -11638,6 +11638,26 @@
         "title": "CallbackEligibilityOut",
         "type": "object"
       },
+      "CallbackFollowUpOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CallbackFollowUpOut",
+        "type": "object"
+      },
       "CallbackMoveIn": {
         "additionalProperties": false,
         "properties": {
@@ -47951,6 +47971,16 @@
             "title": "Explanation",
             "type": "string"
           },
+          "follow_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallbackFollowUpOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "held": {
             "title": "Held",
             "type": "boolean"
@@ -48033,7 +48063,8 @@
           "last_call_id",
           "settled_at",
           "note",
-          "held"
+          "held",
+          "follow_up"
         ],
         "title": "ScheduledCallbackOut",
         "type": "object"

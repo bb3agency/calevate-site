@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Lock, Plus } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { Section } from "@/components/console/section";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { PipMark } from "@/components/illustration/pip";
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
@@ -85,7 +85,17 @@ export function Starters({
   if (offered && offered.length === 0) return null;
 
   return (
-    <Section title="Ready-made" headingLevel={2} description="Start from one, then change it.">
+    <Section
+      title="Ready-made"
+      headingLevel={2}
+      description="Start from one, then change it."
+      // A one-off call list is a campaign; Follow-ups are journeys each lead goes through.
+      action={
+        <Link href={href(`/c/${session.orgSlug}/campaigns/new`)} className={TEXT_ACTION}>
+          Calling a list once? Use a campaign
+        </Link>
+      }
+    >
       {starters.isLoading ? (
         <Skeleton rows={3} label="Loading the ready-made Follow-ups" />
       ) : starters.error ? (

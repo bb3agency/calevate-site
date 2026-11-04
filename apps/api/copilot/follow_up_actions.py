@@ -97,7 +97,9 @@ FORMAT: Final = (
     "settings: goal (an outcome key a decide checks), stop_on_reply, stop_on_won_lost, again "
     "never|after_last|after_30_days, max_days 1-30, starts_per_hour.\n"
     "Ids: agents, messages and actions as listed here; teammates: team_find team_members; "
-    "lead sources: integrations_find integrations_status. Never invent one."
+    "lead sources: integrations_find integrations_status. Never invent one.\n"
+    "Calling a list of leads the person picks, once, is a campaign (campaign_create), not a "
+    "Follow-up."
 )
 
 _FOLLOW_UP_ID: Final = {"type": "string", "description": "Its id from follow_ups_list."}
