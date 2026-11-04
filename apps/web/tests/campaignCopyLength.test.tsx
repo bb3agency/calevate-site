@@ -184,6 +184,7 @@ describe("the campaign screens' default view", () => {
       "/v1/campaigns/numbers": [],
       "/v1/campaigns/templates": [],
       "/v1/call-outcomes": { max_outcomes: 8, agents: [] },
+      "/v1/call-lines": { call_lines: 2, in_progress: 0, on_trial: false },
       ...dltRegistrationRoute(true),
     });
     await screen.findByText("No agent is set up yet.");

@@ -98,6 +98,9 @@ const BLOCKED: LaunchCheck = {
   blockers: [{ rule: "no_contacts", reason: "The campaign has no contacts." }],
 };
 
+/** The account's own lines: two calls at once, the paid default. */
+const CALL_LINES = { call_lines: 2, in_progress: 0, on_trial: false };
+
 /** The reads the create page is built from. */
 function newRoutes(extra: Routes = {}): Routes {
   return {
@@ -106,6 +109,7 @@ function newRoutes(extra: Routes = {}): Routes {
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
     "/v1/call-outcomes": OUTCOMES,
+    "/v1/call-lines": CALL_LINES,
     ...dltRegistrationRoute(),
     ...extra,
   };
@@ -154,9 +158,9 @@ function pasteContacts(text: string): void {
   fireEvent.click(screen.getByRole("button", { name: "Add these rows" }));
 }
 
-/** The create page is four steps; Next checks the step it leaves. */
+/** The create page is four steps; Next names the step it goes to, and checks the one it leaves. */
 function next(): void {
-  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Next: / }));
 }
 
 const PURPOSE_FIELD = "Why are you calling them?";
@@ -342,8 +346,7 @@ describe("the number picker", () => {
         ],
       }),
     );
-    await screen.findByText("Calling from");
-    const picker = screen.getByRole("combobox", { name: /^Calling from/ }) as HTMLSelectElement;
+    const picker = (await screen.findByRole("combobox", { name: /^Calling from/ })) as HTMLSelectElement;
     expect(Array.from(picker.options).map((o) => o.value)).toEqual(["", "n-ok", "n-other"]);
     expect(container.textContent).toContain("Any of your numbers. Every agent can call from them.");
   });
@@ -464,7 +467,7 @@ describe("creating a campaign", () => {
       }),
     );
     await fillNew(rendered.container);
-    fireEvent.click(screen.getByRole("button", { name: "Change starts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change timing" }));
     fireEvent.click(await screen.findByRole("radio", { name: /At a set time/ }));
     next();
     expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
@@ -479,6 +482,52 @@ describe("creating a campaign", () => {
       return call!;
     });
     expect(JSON.parse(armed.body ?? "{}").start_at).toBe("2030-01-15T10:00:00+05:30");
+  });
+});
+
+describe("calls at once on the create page", () => {
+  it("offers only as many as the account's lines, says so, and sends no more", async () => {
+    const rendered = await renderClientPage(
+      newCampaignPage(),
+      newRoutes({
+        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
+      }),
+    );
+    await fillNew(rendered.container);
+    // The review states the pace that will be sent, never the unclamped default of 3.
+    expect(rendered.container.textContent).toContain("Up to 2");
+    expect(rendered.container.textContent).not.toContain("Up to 3");
+    fireEvent.click(screen.getByRole("button", { name: "Change timing" }));
+    const pace = await screen.findByRole("radiogroup", { name: "Calls at the same time" });
+    expect(within(pace).getAllByRole("radio").map((r) => r.textContent)).toEqual(["1", "2"]);
+    expect(within(pace).getByRole("radio", { name: "2" }).getAttribute("aria-checked")).toBe("true");
+    expect(rendered.container.textContent).toContain("Up to 2 at once on your account.");
+    next();
+    fireEvent.click(await screen.findByRole("button", { name: "Create campaign" }));
+    const created = await vi.waitFor(() => {
+      const call = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns");
+      expect(call).toBeDefined();
+      return JSON.parse(call!.body ?? "{}");
+    });
+    expect(created.concurrency).toBe(2);
+  });
+
+  it("offers the campaign's own bound and says so when the account's lines could not be read", async () => {
+    await renderClientPage(
+      newCampaignPage(),
+      newRoutes({ "/v1/call-lines": problem(503, { title: "Unavailable", retryable: true }) }),
+    );
+    await screen.findByRole("heading", { name: "The basics" });
+    fillBasics("Pace");
+    next();
+    await screen.findByRole("heading", { name: "Who should we call?" });
+    pasteContacts("9876543210");
+    fireEvent.click(consentRadios(document.body)[0]!);
+    await pickDate(CONSENT_DATE, "2026-08-01");
+    next();
+    await screen.findByRole("heading", { name: "When should we call?" });
+    expect(await screen.findByText("We couldn't check your account's limit. It still applies.")).toBeTruthy();
   });
 });
 
@@ -709,6 +758,25 @@ describe("editing a draft", () => {
     expect(sent.name).toBe("Autumn recall");
     expect(sent.retry_policy).toEqual({ max_attempts: 2, gaps_minutes: [60] });
     expect(sent).not.toHaveProperty("consent_provenance");
+  });
+
+  it("holds a draft that asked for more calls at once than the account's lines to those lines", async () => {
+    const rendered = await renderClientPage(
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture({ concurrency: 5 }),
+        [`PATCH /v1/campaigns/${CAMPAIGN_ID}`]: new Response(null, { status: 204 }),
+      }),
+    );
+    const pace = await screen.findByRole("radiogroup", { name: "Calls at the same time" });
+    expect(within(pace).getByRole("radio", { name: "2" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const sent = await vi.waitFor(() => {
+      const call = rendered.calls.find((c) => c.method === "PATCH");
+      expect(call).toBeDefined();
+      return JSON.parse(call!.body ?? "{}");
+    });
+    expect(sent.concurrency).toBe(2);
   });
 
   it("offers no form for a campaign that has started", async () => {

@@ -168,7 +168,7 @@ describe("the contact editor", () => {
     const file = new File(["phone,name\n9876543210,Priya\n12345,Bad\n9876543210,Dup"], "list.csv", {
       type: "text/csv",
     });
-    fireEvent.change(screen.getByLabelText("Import a CSV file"), { target: { files: [file] } });
+    fireEvent.change(screen.getByLabelText("Your contacts file"), { target: { files: [file] } });
 
     await screen.findByText(/Added 3 rows from list\.csv/);
     expect(screen.getByText("1 ready")).toBeTruthy();

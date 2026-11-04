@@ -17,6 +17,7 @@ import {
   useCreateCampaign,
   useDltTemplates,
 } from "@/lib/api/campaigns";
+import { useMyCallLines } from "@/lib/api/callLines";
 import { apiRequest } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -28,7 +29,7 @@ import { briefValue } from "./BriefFields";
 import { usePickedLeads } from "./LeadPicker";
 import { NewCampaignFlow } from "./NewCampaignFlow";
 import { campaignNumbers } from "./NewCampaignSteps";
-import { useCampaignForm, useScheduleForm } from "./campaignForm";
+import { clampConcurrency, concurrencyCap, useCampaignForm, useScheduleForm } from "./campaignForm";
 import { useCampaignsCopilotSurface } from "./campaignsCopilotSurface";
 
 /**
@@ -48,6 +49,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const numbers = useCampaignNumbers(session);
   const templates = useDltTemplates(session);
   const create = useCreateCampaign(session);
+  const callLines = useMyCallLines(session);
   // The review step shows the refusal beside "Create campaign"; success moves to the draft.
   const createFeedback = useActionFeedback(create, {
     errorDisplay: "inline",
@@ -64,6 +66,10 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const selectedAgentId = form.agentId || agentOptions[0]?.id || "";
   const selectedAgent = agentOptions.find((option) => option.id === selectedAgentId);
   const hasNoAgents = Boolean(agents.data) && agentOptions.length === 0;
+  // Calls at once are offered and sent only up to the account's lines, the same lines the
+  // campaign page reports; a draft asking for more would read 5 and dial 2.
+  const cap = concurrencyCap(callLines.data?.call_lines);
+  const concurrency = clampConcurrency(form.concurrency, cap);
 
   useCampaignsCopilotSurface({ form, scheduleForm, agentOptions, selectedAgentId, numbers, templates });
   useUnsavedGuard(
@@ -89,7 +95,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         purpose: briefValue(form.purpose),
         goal: briefValue(form.goal),
         classification: form.classification,
-        concurrency: form.concurrency,
+        concurrency,
         number_id: usable ? form.numberId : null,
         dlt_template_id: form.templateId || null,
         calling_hours: form.restrictHours ? { start: form.windowStart, end: form.windowEnd } : null,
@@ -150,16 +156,10 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const failed = followUp as { error: unknown; id: string } | null;
 
   return (
-    <div className="max-w-4xl space-y-5 pb-12">
+    <div className="max-w-6xl space-y-5 pb-12">
       <PageHeader
         back={{ href: href(`/c/${slug}/campaigns`), label: "All campaigns" }}
         title="New campaign"
-        actions={
-          <AskAssistant
-            label={`Build a campaign with ${ASSISTANT_NAME}`}
-            prompt="Fill in this campaign for me: who to call, why, the goal, which agent and when. For example: call this week's hot leads tomorrow at 11 to book a visit."
-          />
-        }
       />
       <TrialLockNotice lock="campaigns" />
       <RestrictionNote reason={write.reason} />
@@ -185,6 +185,15 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         hasNoAgents={hasNoAgents}
         numbers={numbers}
         templates={templates}
+        concurrency={concurrency}
+        concurrencyCap={cap}
+        capUnknown={Boolean(callLines.error)}
+        assistant={
+          <AskAssistant
+            label={`Build a campaign with ${ASSISTANT_NAME}`}
+            prompt="Fill in this campaign for me: who to call, why, the goal, which agent and when. For example: call this week's hot leads tomorrow at 11 to book a visit."
+          />
+        }
         creating={createFeedback.status === "pending" || saving}
         createError={createFeedback.error}
         canWrite={write.allowed && !saving && failed === null}

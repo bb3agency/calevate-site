@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ClipboardPaste, Download, FileUp, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ClipboardPaste, Download, FileUp, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 
 import { SearchField } from "@/components/arc/search-field";
 import { HowItWorks } from "@/components/console/howItWorks";
@@ -155,58 +155,108 @@ export function ContactEditor({
   const keepReady = () =>
     onChange(checked.rows.filter(({ status }) => status.kind === "ready").map(({ entry }) => entry));
 
+  const empty = entries.length === 0;
+
+  const pasteToggle = (
+    <button
+      type="button"
+      aria-expanded={panel === "paste"}
+      onClick={() => setPanel(panel === "paste" ? "none" : "paste")}
+      className={SECONDARY_BUTTON_SM}
+    >
+      <ClipboardPaste aria-hidden className="h-3.5 w-3.5" />
+      Paste
+    </button>
+  );
+  const addToggle = (
+    <button
+      type="button"
+      aria-expanded={panel === "add"}
+      onClick={() => setPanel(panel === "add" ? "none" : "add")}
+      className={SECONDARY_BUTTON_SM}
+    >
+      <Plus aria-hidden className="h-3.5 w-3.5" />
+      Add contact
+    </button>
+  );
+  const sample = (
+    <button
+      type="button"
+      onClick={downloadSample}
+      className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
+    >
+      <Download aria-hidden className="h-3.5 w-3.5" />
+      Sample CSV
+    </button>
+  );
+
   return (
     <section aria-label={label} className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {/* The native file input IS the control, inside a label styled as a button: one
-            focusable thing, opened by click, Enter or Space, with the focus ring drawn on
-            the label because the input is visually hidden. */}
-        <label
-          className={`${SECONDARY_BUTTON_SM} cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app`}
-        >
-          <input
-            type="file"
+      {empty ? (
+        // Nothing yet: the file is the usual way in, so it gets the space; pasting and
+        // adding one person are the two other ways, one tap each, right under it.
+        <div className="space-y-3">
+          <FileDrop
+            label="Your contacts file"
+            hint={FILE_HINT}
             accept={CSV_ACCEPT}
-            className="sr-only"
-            aria-label="Import a CSV file"
-            onChange={(e) => {
-              void readFile(e.target.files?.[0]);
-              e.target.value = "";
-            }}
+            validate={(file) =>
+              file.size > MAX_FILE_BYTES
+                ? "That file is over 4 MB. Split it into smaller files."
+                : null
+            }
+            onFiles={([file]) => void readFile(file)}
+            className="[&>label]:py-8"
           />
-          <FileUp aria-hidden className="h-3.5 w-3.5" />
-          Import CSV
-        </label>
-        <button
-          type="button"
-          aria-expanded={panel === "paste"}
-          onClick={() => setPanel(panel === "paste" ? "none" : "paste")}
-          className={SECONDARY_BUTTON_SM}
-        >
-          <ClipboardPaste aria-hidden className="h-3.5 w-3.5" />
-          Paste
-        </button>
-        <button
-          type="button"
-          aria-expanded={panel === "add"}
-          onClick={() => setPanel(panel === "add" ? "none" : "add")}
-          className={SECONDARY_BUTTON_SM}
-        >
-          <Plus aria-hidden className="h-3.5 w-3.5" />
-          Add contact
-        </button>
-        <button
-          type="button"
-          onClick={downloadSample}
-          className="press inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
-        >
-          <Download aria-hidden className="h-3.5 w-3.5" />
-          Sample CSV
-        </button>
-      </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-meta text-ink-muted">No file?</span>
+            {pasteToggle}
+            {addToggle}
+            <span className="ml-auto">{sample}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p aria-live="polite" className="flex flex-wrap items-baseline gap-x-3 gap-y-1 tabular-nums">
+            <span className="text-heading text-ink">{formatCount(checked.counts.ready)} ready</span>
+            {checked.counts.invalid > 0 && (
+              <span className="text-meta text-danger">{formatCount(checked.counts.invalid)} can&apos;t be called</span>
+            )}
+            {checked.counts.duplicate > 0 && (
+              <span className="text-meta text-ink-muted">
+                {formatCount(checked.counts.duplicate)} {checked.counts.duplicate === 1 ? "duplicate" : "duplicates"}
+              </span>
+            )}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* The native file input IS the control, inside a label styled as a button: one
+                focusable thing, opened by click, Enter or Space, with the focus ring drawn
+                on the label because the input is visually hidden. */}
+            <label
+              className={`${SECONDARY_BUTTON_SM} cursor-pointer has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand-strong has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-app`}
+            >
+              <input
+                type="file"
+                accept={CSV_ACCEPT}
+                className="sr-only"
+                aria-label="Import a CSV file"
+                onChange={(e) => {
+                  void readFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+              />
+              <FileUp aria-hidden className="h-3.5 w-3.5" />
+              Import CSV
+            </label>
+            {pasteToggle}
+            {addToggle}
+            {sample}
+          </div>
+        </div>
+      )}
 
       {panel === "paste" && (
-        <div className="settings-enter space-y-2">
+        <div className="settings-enter space-y-2 rounded-card border border-line p-3">
           <label className="block">
             <span className={FIELD_LABEL}>Paste rows</span>
             <textarea
@@ -233,7 +283,7 @@ export function ContactEditor({
       )}
 
       {panel === "add" && (
-        <div className="settings-enter flex flex-wrap items-end gap-2">
+        <div className="settings-enter flex flex-wrap items-end gap-2 rounded-card border border-line p-3">
           <label className="block min-w-0 flex-1 basis-40">
             <span className={FIELD_LABEL}>Phone</span>
             <input
@@ -277,19 +327,7 @@ export function ContactEditor({
         </p>
       )}
 
-      {entries.length === 0 ? (
-        <FileDrop
-          label="Your contacts file"
-          hint={FILE_HINT}
-          accept={CSV_ACCEPT}
-          validate={(file) =>
-            file.size > MAX_FILE_BYTES
-              ? "That file is over 4 MB. Split it into smaller files."
-              : null
-          }
-          onFiles={([file]) => void readFile(file)}
-        />
-      ) : (
+      {!empty && (
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -297,42 +335,28 @@ export function ContactEditor({
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={onDrop}
-          className={`space-y-2 rounded-card transition-shadow duration-(--duration-fast) ${dragging ? "ring-2 ring-brand" : ""}`}
+          className={`overflow-hidden rounded-card border bg-surface transition-[border-color,box-shadow] duration-(--duration-fast) ${dragging ? "border-brand ring-2 ring-brand" : "border-line"}`}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p aria-live="polite" className="text-sm tabular-nums text-ink">
-              <span className="font-semibold">{formatCount(checked.counts.ready)} ready</span>
-              {checked.counts.invalid > 0 && (
-                <span className="text-danger"> · {formatCount(checked.counts.invalid)} can&apos;t be called</span>
-              )}
-              {checked.counts.duplicate > 0 && (
-                <span className="text-ink-muted">
-                  {" "}
-                  · {formatCount(checked.counts.duplicate)} {checked.counts.duplicate === 1 ? "duplicate" : "duplicates"}
-                </span>
-              )}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              {problems > 0 && (
-                <button type="button" onClick={keepReady} className={SECONDARY_BUTTON_SM}>
-                  Remove {formatCount(problems)} that won&apos;t be called
-                </button>
-              )}
-              <SearchField
-                label="Search contacts"
-                hideLabel
-                placeholder="Search"
-                value={query}
-                onValueChange={(next) => {
-                  setQuery(next);
-                  setPage(1);
-                }}
-                className="w-full sm:w-48"
-              />
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
+            <SearchField
+              label="Search contacts"
+              hideLabel
+              placeholder="Search"
+              value={query}
+              onValueChange={(next) => {
+                setQuery(next);
+                setPage(1);
+              }}
+              className="w-full sm:w-56"
+            />
+            {problems > 0 && (
+              <button type="button" onClick={keepReady} className={SECONDARY_BUTTON_SM}>
+                Remove {formatCount(problems)} that won&apos;t be called
+              </button>
+            )}
           </div>
           {checked.refusal && (
-            <p role="alert" className="text-meta text-danger">
+            <p role="alert" className="border-b border-line px-3 py-2 text-meta text-danger">
               {checked.refusal}
             </p>
           )}
@@ -344,13 +368,18 @@ export function ContactEditor({
             captionId={`${ids}-caption`}
           />
           {pages > 1 && (
-            <Pagination count={pages} page={current} onPageChange={setPage} label="Contact pages" />
+            <div className="border-t border-line px-3 py-2">
+              <Pagination count={pages} page={current} onPageChange={setPage} label="Contact pages" />
+            </div>
           )}
         </div>
       )}
 
-      <p className="text-xs text-ink-muted">
-        Do-not-call numbers are never dialled. Max {formatCount(MAX_CONTACTS_PER_UPLOAD)} per upload.
+      <p className="flex items-start gap-1.5 text-xs text-ink-muted">
+        <ShieldCheck aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-success" />
+        <span>
+          Do-not-call numbers are never dialled. Max {formatCount(MAX_CONTACTS_PER_UPLOAD)} per upload.
+        </span>
       </p>
       <HowItWorks title="File tips" className="mt-0" items={fileTips(agentLanguage)} />
     </section>
@@ -361,6 +390,13 @@ const STATUS_STYLE = {
   ready: "text-ink-muted",
   duplicate: "text-ink-muted",
   invalid: "text-danger",
+} as const;
+
+/** A dot beside the status word, so a long list can be scanned by eye; the word carries it. */
+const STATUS_DOT = {
+  ready: "bg-success",
+  duplicate: "bg-ink-faint",
+  invalid: "bg-danger",
 } as const;
 
 /** Number and status on a phone; name and the variable columns from `sm` and `md` up. Each
@@ -382,7 +418,7 @@ function ContactTable({
   const [editing, setEditing] = useState<string | null>(null);
   const columns = 4 + variables.length;
   return (
-    <div className="overflow-hidden border-y border-line">
+    <div>
       <table className="w-full table-fixed text-left text-sm">
         <caption id={captionId} className="sr-only">
           Contacts and whether each will be called
@@ -432,7 +468,12 @@ function ContactTable({
                 </td>
               ))}
               <td className={`px-3 py-2 text-xs ${STATUS_STYLE[status.kind]}`}>
-                {status.kind === "ready" ? "Ready" : status.kind === "duplicate" ? "Duplicate" : status.reason}
+                <span className="flex items-start gap-1.5">
+                  <span aria-hidden className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[status.kind]}`} />
+                  <span className="min-w-0">
+                    {status.kind === "ready" ? "Ready" : status.kind === "duplicate" ? "Duplicate" : status.reason}
+                  </span>
+                </span>
               </td>
               <td className="whitespace-nowrap px-1 py-1 text-right">
                 <button
