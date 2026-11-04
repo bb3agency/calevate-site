@@ -1384,7 +1384,8 @@ authenticated Get Execution is the TRUTH → persist CallEvent + turns → enque
    on the outcomes or choice answers the owner picked (`team_alerts.queue_after_call`, D-904)
 6. campaign-contact resolution (close or re-queue on the FLOWS §5 retry ladder)
 7. outbound CRM sync (`call.completed` through the outbox, D-23) — summary, never transcript;
-   then the client's after-call actions (D-700)
+   then the client's after-call actions (D-700; only those stored before D-966, which
+   refuses new ones: after-call work is a Follow-up, results go out from Integrations)
 8. the language pass, LAST and as its own job (`workers/call_translation.translate_call_job`,
    queued by `pipeline.queue_language_pass` in step 7's transaction, D-931): English for
    the turns and whichever summary the call lacks. Nothing in steps 3-7 reads what it

@@ -81,7 +81,9 @@ ACTION_KINDS = (
 
 # When the action runs. `during_call` is declared to the engine as a function the LLM may
 # invoke mid-conversation; `after_call` is NOT a tool at all — it runs in the post-call
-# pipeline once the transcript is in, so it never touches the latency path.
+# pipeline once the transcript is in, so it never touches the latency path. No new
+# `after_call` tool is accepted (D-966: after-call work is a Follow-up, results go out from
+# Integrations); the value stays for the rows stored before, which still run.
 ACTION_TRIGGERS = ("during_call", "after_call")
 
 # The concrete implementation behind a `whatsapp` or `calendar` action. `custom` is the

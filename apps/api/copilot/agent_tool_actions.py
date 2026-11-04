@@ -74,7 +74,6 @@ class _ActionSetArgs(BaseModel):
     provider: Annotated[str, Field(max_length=40)] | None
     name: Annotated[str, Field(max_length=64)] | None
     description: Annotated[str, Field(max_length=2000)] | None
-    trigger: Literal["during_call", "after_call"] | None
     pre_call_message: Annotated[str, Field(max_length=200)] | None
     connection_id: UUID | None
     params_json: Annotated[str, Field(max_length=20_000)] | None
@@ -103,7 +102,9 @@ def _definition(
         "provider": pick(parsed.provider, current.provider if current else None),
         "name": pick(parsed.name, current.name if current else None),
         "description": pick(parsed.description, current.description if current else None),
-        "trigger": pick(parsed.trigger, current.trigger if current else "during_call"),
+        # Not Pip's to choose: a new action runs during the call (after-call work is a
+        # Follow-up), and an older after-call one keeps running after the call.
+        "trigger": current.trigger if current else "during_call",
         "pre_call_message": pick(
             parsed.pre_call_message, current.pre_call_message if current else None
         ),
@@ -154,6 +155,7 @@ async def _plan_action_set(
         trigger=definition["trigger"],
         params=definition["params"],
         config=definition["config"],
+        previous=current,
     )
     when = "during the call" if definition["trigger"] == "during_call" else "after the call"
     return Plan(
@@ -233,7 +235,10 @@ AGENT_ACTION_SET: Final = ActionTool(
         "Propose adding (`action_id` null) or changing one of an agent's in-call actions "
         "(send a WhatsApp, book a slot, call a web address...). Null fields keep what the "
         "action has. A wrong shape is refused naming the setting to fix. Connecting an "
-        "account is done on the Connections screen; send the person there." + PROPOSES_ONLY,
+        "account is done on the Connections screen; send the person there. Actions run "
+        "during the call only: something to do after a call (a thank-you WhatsApp) is a "
+        "Follow-up started when a call ends (`follow_up_draft`), and sending call results to "
+        "a sheet, a CRM or the person's own system is set up on Integrations." + PROPOSES_ONLY,
         {
             "agent_id": _ID,
             "action_id": {**_NULLABLE_STR, "description": "From `agent_settings` part `actions`."},
@@ -241,12 +246,6 @@ AGENT_ACTION_SET: Final = ActionTool(
             "provider": _NULLABLE_STR,
             "name": {**_NULLABLE_STR, "description": "lower_snake_case, e.g. send_price_list"},
             "description": {**_NULLABLE_STR, "description": "When the agent should use it."},
-            "trigger": {
-                "anyOf": [
-                    {"type": "string", "enum": ["during_call", "after_call"]},
-                    {"type": "null"},
-                ]
-            },
             "pre_call_message": {**_NULLABLE_STR, "description": "What the agent says first."},
             "connection_id": {**_NULLABLE_STR, "description": "A connection already made."},
             "params_json": {**_NULLABLE_STR, "description": "The values it sends, JSON list."},

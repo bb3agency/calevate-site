@@ -131,7 +131,7 @@ and its own fields, and says where to go next. A step with no `next` ends the ru
 | `assign` | `user_id` (a teammate) | `next` |
 | `set_status` | `status` (`contacted`, `interested`, `hot`, `won`, `lost`) | `next` |
 | `tell_team` | `contact_id` (NULL = the account default), `why` (up to 120 characters) | `next` |
-| `action` | `action_id` (one of the agent's after-call actions: CRM push, custom API, sheet), run for this lead | `done`, `failed` |
+| `action` | `action_id` (any switched-on action of the account: CRM record, custom API, WhatsApp), run for this lead; a Follow-up started by "call ended" is where after-call work lives (D-966) | `done`, `failed` |
 | `end` | `goal: bool` | — |
 
 Each exit names a step id or `null` (end). Version 1 has no loops back to an earlier step
@@ -162,7 +162,7 @@ and `settings.max_days` (default 14, at most 30) ends anything still waiting.
   as the follow-up.
 * **`tell_team`**: `team_alerts` delivery (email or the client's own WhatsApp), keyed on the run
   and step so a retry never alerts twice.
-* **`action`**: the after-call action executor (`actions/execution.execute_action`) for this
+* **`action`**: the action executor (`actions/execution.execute_action`) for this
   lead's latest call.
 
 Every step is idempotent on (`run_id`, `step_id`, `attempt`): a worker retry finds the event
@@ -338,7 +338,7 @@ that list them, and the server refuses an unknown id.
 **As built (`apps/api/copilot/follow_up_actions.py`).** All six actions are `confirm` and
 `leads:dispatch`, refused in a view-as session like every Pip action. `follow_ups_list` also
 returns the ready-made ones with what each still needs, the calling agents with their outcome
-keys, the approved WhatsApp messages with their blank counts, the after-call actions, and the
+keys, the approved WhatsApp messages with their blank counts, the switched-on actions, and the
 step format, so the format is paid for in a tool result rather than in every request's tool
 array. `follow_up_draft` takes `starter` (a ready-made one, refused with its `needs` in plain
 words) or `trigger` + `steps` + `settings`; the planner runs `parse_steps`, `shape_problems`

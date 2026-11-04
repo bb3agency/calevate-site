@@ -17,7 +17,7 @@ import { useClientSession } from "@/lib/api/session";
 import { examplesFor } from "@/lib/verticalExamples";
 
 import { OWNER_ME } from "./fixtures/sharedReads";
-import { renderClientPage } from "./harness";
+import { noReply, renderClientPage } from "./harness";
 
 /**
  * THE GUIDED ACTIONS FLOW (REDESIGN-2): the owner picks a job and a few plain settings,
@@ -260,8 +260,7 @@ describe("every action is a peer (founder, 10 Oct 2026)", () => {
     expect(offered).toEqual([
       "Know who is calling",
       "Send a payment link",
-      "Save callers to your CRM",
-      "Write callers into a Google Sheet",
+      "Save callers to Zoho or HubSpot",
       "Use your own API",
     ]);
     expect(JOBS.map((j) => j.id)).toEqual([
@@ -298,5 +297,56 @@ describe("every action is a peer (founder, 10 Oct 2026)", () => {
     expect(screen.getByText(/Not connected\. It won't work until fixed/)).toBeTruthy();
     expect(screen.getByText("Try it")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Remove send_whatsapp" })).toBeTruthy();
+  });
+});
+
+describe("after the call has one home each", () => {
+  it("points after-call work at Integrations and Follow-ups, and asks no 'when' for a new action", async () => {
+    await renderClientPage(<Panel />, { ...setUpRoutes(), "/v1/agents/agent-1": noReply() });
+    expect((await screen.findByRole("link", { name: "Send results to a sheet or CRM" })).getAttribute("href")).toContain(
+      "/integrations",
+    );
+    expect(screen.getByRole("link", { name: "Follow up after a call" }).getAttribute("href")).toContain("/follow-ups");
+
+    fireEvent.click(screen.getByRole("button", { name: /Use your own API/ }));
+    expect(await screen.findByText("What your agent says while it works")).toBeTruthy();
+    expect(screen.queryByText("When it runs")).toBeNull();
+  });
+
+  it("tells an older after-call WhatsApp where it belongs now", async () => {
+    const legacy: ActionTool = { ...WHATSAPP, trigger: "after_call" };
+    await renderClientPage(<Panel />, {
+      ...setUpRoutes(),
+      "/v1/agents/agent-1/actions": { ...SET_UP, tools: [...SET_UP.tools.slice(0, 2), legacy] },
+      "/v1/agents/agent-1/actions/tool-wa/log": [],
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Send a WhatsApp message" }));
+
+    expect(await screen.findByText("This runs after each call")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Make a Follow-up" }).getAttribute("href")).toContain("/follow-ups");
+  });
+
+  it("moves an older after-call CRM record into the call in one click", async () => {
+    const crm: ActionTool = {
+      ...WHATSAPP,
+      id: "tool-crm",
+      kind: "crm",
+      provider: "zoho",
+      name: "save_to_crm",
+      trigger: "after_call",
+      config: { module: "Leads", fields: [] },
+    };
+    const { calls } = await renderClientPage(<Panel />, {
+      ...setUpRoutes(),
+      "/v1/agents/agent-1/actions": { ...SET_UP, tools: [crm] },
+      "/v1/agents/agent-1/actions/tool-crm/log": [],
+      "/v1/agents/agent-1/actions/tool-crm": { ...crm, trigger: "during_call" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Manage Save callers/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Run it during the call" }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT" && c.path.endsWith("/actions/tool-crm"))).toBe(true));
+    const sent = JSON.parse(calls.find((c) => c.method === "PUT")!.body ?? "{}") as { trigger: string; name: string };
+    expect(sent).toMatchObject({ trigger: "during_call", name: "save_to_crm" });
   });
 });
