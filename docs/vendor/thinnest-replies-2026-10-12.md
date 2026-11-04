@@ -2483,7 +2483,12 @@ does not fit, because ThinnestAI hosts the whole call.
 > Thanks,
 > Umesh
 
-## 47. Two calls out from one number at the same moment, and a "busy" nobody heard (DRAFTED 4 Nov 2026, unsent)
+## 47. Two calls out from one number at the same moment, and a "busy" nobody heard (DRAFTED 4 Nov 2026, unsent; DO NOT SEND)
+
+Replaced before sending: the recipient's Samsung phone logged that 17:54 call as "Suspected
+Spam — Blocked by Phone" (Hiya), so the "busy" was the handset's spam filter, not two calls
+on one number. The email to send instead is section (d) of
+`docs/evidence/caller-spam-labels-2026-11.md`; it keeps the calls-at-once question.
 
 What happened (production, Rytu Khata's campaign, 4 Nov 2026 17:54 IST, our logs and call rows):
 two calls were placed two seconds apart from the same number (Rytu Khata's number, rented
