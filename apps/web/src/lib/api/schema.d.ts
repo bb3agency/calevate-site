@@ -6965,9 +6965,10 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Change a draft's settings: name, purpose, goal, agent, number, hours, calls at once, retries
-         * @description Drafts only (`controls.update_draft`). Audited with the names of the fields changed,
-         *     not their values: who changed which setting is the question an audit answers.
+         * Rename a campaign in any status, or change a draft's settings: purpose, goal, agent, number, hours, calls at once, retries
+         * @description Drafts only (`controls.update_draft`), except a name sent alone. Audited with the
+         *     names of the fields changed, not their values: who changed which setting is the question
+         *     an audit answers.
          */
         patch: operations["update_campaign_v1_campaigns__campaign_id__patch"];
         trace?: never;
@@ -35707,6 +35708,9 @@ export interface components {
          * @description A draft's settings, each optional. An absent field is left alone; `number_id` and
          *     `calling_hours` may be sent as null to clear them. Consent provenance has its own route,
          *     because it is a declaration with its own audit row.
+         *
+         *     `name` sent ALONE is a rename and is taken in any status (`controls.rename_campaign`);
+         *     with any other field the whole edit needs a draft.
          */
         UpdateCampaignIn: {
             /** Agent Id */

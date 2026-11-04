@@ -120,6 +120,11 @@ export async function pickDate(label: string, iso: string): Promise<void> {
   throw new Error(`${iso} never appeared in the ${label} calendar`);
 }
 
+/** Opens one of a launched campaign's tabs (People, What happened, How it calls). */
+export async function openTab(name: string): Promise<void> {
+  fireEvent.click(await screen.findByRole("tab", { name }));
+}
+
 /** A launched campaign's day-by-day read (`CampaignTimeline`): the server's whole year. */
 export const timelinePath = (id: string = FIXTURE_CAMPAIGN_ID) =>
   `/v1/analytics/campaigns?days=366&campaign_id=${id}`;

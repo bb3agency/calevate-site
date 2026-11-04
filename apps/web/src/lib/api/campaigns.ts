@@ -505,6 +505,27 @@ export function useContactResults(
   });
 }
 
+/** How many people on a call the live panel names; the rest are counted, not listed. */
+const CALLING_NOW_SHOWN = 10;
+
+/**
+ * The people on a call this moment (`outcome=calling`), for the live panel. Its own poll,
+ * faster than the people table's, because a call lasts a minute or two and a list that
+ * lags it by thirty seconds names someone who has already hung up. Only while the
+ * progress read says somebody is on a call: an idle campaign asks for nothing.
+ */
+export function useCallingNow(session: Session, campaignId: string, enabled: boolean) {
+  const params = { limit: CALLING_NOW_SHOWN, offset: 0, outcome: "calling" };
+  return useQuery({
+    queryKey: ["campaign", session.orgSlug, campaignId, "contacts", params],
+    queryFn: () =>
+      apiRequest<ContactResults>(session, `/v1/campaigns/${campaignId}/contacts${searchOf(params)}`),
+    enabled,
+    placeholderData: (previous) => previous,
+    refetchInterval: livePoll(enabled ? 10_000 : false),
+  });
+}
+
 export function useCampaignResults(
   session: Session,
   campaignId: string,

@@ -7,6 +7,7 @@ import type { Me } from "@/lib/api/client";
 import {
   FIXTURE_CAMPAIGN_ID as CAMPAIGN_ID,
   campaignPage,
+  contactsFixture,
   detailRoutes,
   progressFixture,
 } from "./campaignFixtures";
@@ -89,6 +90,8 @@ describe("where a campaign is in its run", () => {
   });
 });
 
+const ON_A_CALL = `/v1/campaigns/${CAMPAIGN_ID}/contacts?limit=10&offset=0&outcome=calling`;
+
 describe("a running campaign's page", () => {
   it("opens on its progress, with the steps, ahead of its results", async () => {
     const { container } = await renderClientPage(campaignPage(), {
@@ -100,13 +103,14 @@ describe("a running campaign's page", () => {
         total: 100,
       }),
       [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: { ready: true, blockers: [] },
+      [ON_A_CALL]: contactsFixture(),
     });
     const steps = await screen.findByRole("list", { name: "Where this campaign is" });
     const current = within(steps).getAllByRole("listitem").find((li) => li.getAttribute("aria-current") === "step");
     expect(current?.textContent).toContain("Calling everyone once");
     const headings = Array.from(container.querySelectorAll("h2")).map((h) => h.textContent);
-    expect(headings.indexOf("Progress")).toBeGreaterThanOrEqual(0);
-    expect(headings.indexOf("Progress")).toBeLessThan(headings.indexOf("Results"));
+    expect(headings.indexOf("Right now")).toBeGreaterThanOrEqual(0);
+    expect(headings.indexOf("Right now")).toBeLessThan(headings.indexOf("Results"));
     expect(container.textContent).toContain("of 100 people called");
   });
 });

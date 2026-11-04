@@ -152,8 +152,10 @@ export function InlineEdit({
     return (
       // The hover pad's optical offset sits on the wrapper, not as `-mx-1` on the button:
       // a negative margin on a shrinkable child inside a content-sized flex box shaves
-      // those pixels off the box, and the name truncated with room to spare ("Anj…").
-      <Tag className={clsx("group -ml-1 inline-flex max-w-full items-center gap-1.5", className)}>
+      // those pixels off the box, and the name truncated with room to spare ("Anj…"). The
+      // cap is the parent's width PLUS that offset for the same reason: `max-w-full` held
+      // the wrapper 4px under its own margin box and cut the last letters of a short name.
+      <Tag className={clsx("group -ml-1 inline-flex max-w-[calc(100%+0.25rem)] items-center gap-1.5", className)}>
         <button
           ref={display}
           type="button"

@@ -117,6 +117,7 @@ async def update_draft(
     who it calls with or how often behind that authorisation would make the start mean
     something else. Every id is resolved under the caller's own RLS before it is stored
     (`db/ownership.py`), and the agent must still be assignable (D-440), exactly as at create.
+    A name changed on its own is a rename and goes through in any status (`rename_campaign`).
     """
     unknown = set(changes) - set(_EDITABLE)
     if unknown:
@@ -124,6 +125,9 @@ async def update_draft(
     if not changes:
         await _status_or_404(session, campaign_id)
         return []
+    if set(changes) == {"name"}:
+        await rename_campaign(session, campaign_id=campaign_id, name=str(changes["name"]))
+        return ["name"]
     if "agent_id" in changes:
         await assert_visible(session, "agent", changes["agent_id"])
         await assert_assignable(session, changes["agent_id"])
@@ -158,6 +162,23 @@ async def update_draft(
     if rowcount_of(result) == 0:
         raise _not_a_draft(await _status_or_404(session, campaign_id), "edited")
     return [column for column in _EDITABLE if column in values]
+
+
+async def rename_campaign(session: AsyncSession, *, campaign_id: UUID, name: str) -> None:
+    """Rename a campaign in ANY status.
+
+    The name is a label for the client's own lists: nothing dialled, scheduled or attested
+    reads it, so changing it does not change what an authorised start or a running campaign
+    means — unlike every other setting `update_draft` guards. `updated_at` is left alone on
+    purpose: `crm/attention.stalled_campaigns` dates a stalled campaign by it and the
+    dispatcher reads it as the completion instant, so a rename must not move either.
+    """
+    result = await session.execute(
+        text("UPDATE campaigns SET name = :name WHERE id = :cid"),
+        {"cid": campaign_id, "name": name},
+    )
+    if rowcount_of(result) == 0:
+        raise ProblemError.not_found("Campaign")
 
 
 async def remove_contacts(
