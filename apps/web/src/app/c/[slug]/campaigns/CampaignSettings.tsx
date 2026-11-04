@@ -45,6 +45,8 @@ export function CampaignSettings({
       }
     >
       <SettingRows className="border-y border-line">
+        <SettingRow label="Why it calls" value={progress.purpose ?? "Not said"} />
+        <SettingRow label="Goal" value={progress.goal ?? "Not said"} />
         <SettingRow label="Kind of call" value={lookup(KIND, progress.classification) ?? progress.classification} />
         <SettingRow label="Agent" value={progress.agent_name} />
         <SettingRow

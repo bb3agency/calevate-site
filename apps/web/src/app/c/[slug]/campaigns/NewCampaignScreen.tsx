@@ -24,6 +24,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { TrialLockNotice } from "../TrialLockNotice";
+import { briefValue } from "./BriefFields";
 import { usePickedLeads } from "./LeadPicker";
 import { NewCampaignFlow } from "./NewCampaignFlow";
 import { campaignNumbers } from "./NewCampaignSteps";
@@ -85,6 +86,8 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
       {
         agent_id: selectedAgentId,
         name: form.name,
+        purpose: briefValue(form.purpose),
+        goal: briefValue(form.goal),
         classification: form.classification,
         concurrency: form.concurrency,
         number_id: usable ? form.numberId : null,
@@ -154,7 +157,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         actions={
           <AskAssistant
             label={`Build a campaign with ${ASSISTANT_NAME}`}
-            prompt="Fill in this campaign for me: who to call, which agent and when. For example: call this week's hot leads tomorrow at 11."
+            prompt="Fill in this campaign for me: who to call, why, the goal, which agent and when. For example: call this week's hot leads tomorrow at 11 to book a visit."
           />
         }
       />

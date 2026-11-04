@@ -9,6 +9,7 @@ import { RETRY_GAP_CHOICES, type CampaignNumber, type DltTemplate } from "@/lib/
 
 import { STATUSES } from "../leads/StatusSelect";
 
+import { GOAL_MAX, PURPOSE_MAX } from "./BriefFields";
 import { CLASSIFICATIONS, CONSENT_SOURCES, WEEKDAYS } from "./choices";
 import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
 
@@ -90,6 +91,20 @@ export function useCampaignsCopilotSurface({
         type: "text",
         value: name,
         help: "Only the client sees it. e.g. Diwali service reminder.",
+      },
+      {
+        id: "campaign-purpose",
+        label: "Why are you calling them?",
+        type: "text",
+        value: form.purpose,
+        help: `The agent tells people this. Plain words, at most ${PURPOSE_MAX} characters.`,
+      },
+      {
+        id: "campaign-goal",
+        label: "What should a good call end with?",
+        type: "text",
+        value: form.goal,
+        help: `e.g. they book a visit. Plain words, at most ${GOAL_MAX} characters.`,
       },
       {
         id: "campaign-agent",
@@ -237,6 +252,12 @@ export function useCampaignsCopilotSurface({
         switch (item.field_id) {
           case "campaign-name":
             form.setName(text);
+            break;
+          case "campaign-purpose":
+            form.setPurpose(text);
+            break;
+          case "campaign-goal":
+            form.setGoal(text);
             break;
           case "campaign-agent":
             if (agentOptions.some((agent) => agent.id === text)) form.setAgentId(text);

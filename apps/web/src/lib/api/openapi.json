@@ -12364,6 +12364,16 @@
             "title": "Fields",
             "type": "array"
           },
+          "goal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalCountsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "hot_leads": {
             "title": "Hot Leads",
             "type": "integer"
@@ -16277,6 +16287,22 @@
             ],
             "title": "Call Id"
           },
+          "goal_reached": {
+            "anyOf": [
+              {
+                "enum": [
+                  "yes",
+                  "no",
+                  "unclear"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Reached"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -19137,6 +19163,18 @@
             ],
             "title": "Dlt Template Id"
           },
+          "goal": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
           "name": {
             "maxLength": 120,
             "minLength": 2,
@@ -19154,6 +19192,18 @@
               }
             ],
             "title": "Number Id"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
           },
           "retry_policy": {
             "anyOf": [
@@ -27648,6 +27698,36 @@
           "live_agents"
         ],
         "title": "GoLiveOut",
+        "type": "object"
+      },
+      "GoalCountsOut": {
+        "additionalProperties": false,
+        "description": "People answered, by the verdict on their latest answered call.",
+        "properties": {
+          "not_judged": {
+            "title": "Not Judged",
+            "type": "integer"
+          },
+          "not_reached": {
+            "title": "Not Reached",
+            "type": "integer"
+          },
+          "reached": {
+            "title": "Reached",
+            "type": "integer"
+          },
+          "unclear": {
+            "title": "Unclear",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reached",
+          "not_reached",
+          "unclear",
+          "not_judged"
+        ],
+        "title": "GoalCountsOut",
         "type": "object"
       },
       "GoogleCompleteIn": {
@@ -42504,6 +42584,17 @@
             "title": "Effective Concurrency",
             "type": "integer"
           },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -42596,6 +42687,17 @@
             ],
             "title": "Pause Reason"
           },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
+          },
           "recurrence": {
             "anyOf": [
               {
@@ -42652,6 +42754,8 @@
           "classification",
           "agent_id",
           "agent_name",
+          "purpose",
+          "goal",
           "number_id",
           "consent_source",
           "consent_collected_at",
@@ -59496,6 +59600,18 @@
             ],
             "title": "Concurrency"
           },
+          "goal": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
           "name": {
             "anyOf": [
               {
@@ -59520,6 +59636,18 @@
               }
             ],
             "title": "Number Id"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "maxLength": 400,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
           },
           "retry_policy": {
             "anyOf": [
@@ -83324,7 +83452,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Change a draft's settings: name, agent, number, hours, calls at once, retries",
+        "summary": "Change a draft's settings: name, purpose, goal, agent, number, hours, calls at once, retries",
         "tags": [
           "campaigns"
         ],

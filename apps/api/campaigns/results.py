@@ -89,8 +89,8 @@ _OUTCOME_SQL = """
 #: a call-back nobody picked up leaves the person's earlier conversation as their answer.
 _LATEST_ANSWERED_SQL = """
     SELECT DISTINCT ON (coalesce(k.to_e164, k.id::text))
-           k.id, k.lead_id, k.outcome_tag, k.sentiment, k.business_outcome,
-           k.business_outcome_label
+           k.to_e164, k.id, k.lead_id, k.outcome_tag, k.sentiment, k.business_outcome,
+           k.business_outcome_label, k.goal_reached
     FROM calls k
     WHERE k.campaign_id = :cid AND k.status = 'completed'
     ORDER BY coalesce(k.to_e164, k.id::text), coalesce(k.started_at, k.created_at) DESC,
@@ -165,7 +165,11 @@ async def contacts_page(
         await session.execute(
             text(
                 f"SELECT r.id, r.name, r.phone_e164, r.outcome, r.attempts, r.last_attempt_at, "
-                f"r.next_attempt_at, r.last_call_id, r.status FROM ({_OUTCOME_SQL}) r {where} "
+                f"r.next_attempt_at, r.last_call_id, r.status, g.goal_reached "
+                f"FROM ({_OUTCOME_SQL}) r "
+                # The person's verdict is their latest answered call's (D-913), call-backs
+                # included, as the summary counts it.
+                f"LEFT JOIN ({_LATEST_ANSWERED_SQL}) g ON g.to_e164 = r.phone_e164 {where} "
                 # A total order, so OFFSET pages neither repeat nor skip a row.
                 "ORDER BY r.last_attempt_at DESC NULLS LAST, r.created_at, r.id "
                 "LIMIT :limit OFFSET :offset"
@@ -188,6 +192,7 @@ async def contacts_page(
                 "will_retry": will_retry,
                 "next_attempt_at": r[6] if will_retry else None,
                 "call_id": r[7],
+                "goal_reached": r[9],
             }
         )
     return ContactsPage(items=items, total=total, counts=counts)
@@ -219,6 +224,33 @@ async def _business_outcomes(session: AsyncSession, campaign_id: UUID) -> dict[s
     ]
     unset = sum(int(count) for key, _, count in rows if key is None)
     return {"business_outcomes": items, "business_outcomes_unset": unset}
+
+
+async def _goal_counts(session: AsyncSession, campaign_id: UUID) -> dict[str, int] | None:
+    """The people answered, by whether their latest answered call reached the campaign's
+    goal (D-913 counting); None while the campaign has no goal."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT c.goal IS NOT NULL, "
+                "  count(p.id) FILTER (WHERE p.goal_reached = 'yes'), "
+                "  count(p.id) FILTER (WHERE p.goal_reached = 'no'), "
+                "  count(p.id) FILTER (WHERE p.goal_reached = 'unclear'), "
+                "  count(p.id) FILTER (WHERE p.goal_reached IS NULL) "
+                f"FROM campaigns c LEFT JOIN ({_LATEST_ANSWERED_SQL}) p ON true "
+                "WHERE c.id = :cid GROUP BY c.goal"
+            ),
+            {"cid": campaign_id},
+        )
+    ).one()
+    if not row[0]:
+        return None
+    return {
+        "reached": int(row[1]),
+        "not_reached": int(row[2]),
+        "unclear": int(row[3]),
+        "not_judged": int(row[4]),
+    }
 
 
 async def _field_breakdown(session: AsyncSession, campaign_id: UUID) -> list[dict[str, Any]]:
@@ -417,6 +449,7 @@ async def summary(
         ],
         "opt_outs": optouts,
         "credits_spent_inr": spend_inr,
+        "goal": await _goal_counts(session, campaign_id),
         **await _business_outcomes(session, campaign_id),
         "fields": await _field_breakdown(session, campaign_id),
     }

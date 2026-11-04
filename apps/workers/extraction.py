@@ -114,6 +114,7 @@ from calevate_shared.engine import (
     keeps_default_temperature,
 )
 from calevate_shared.extraction import (
+    GOAL_VERDICTS,
     MODEL_MOMENT_KINDS,
     OUTCOME_HINTS,
     ExtractionField,
@@ -124,6 +125,7 @@ from calevate_shared.extraction import (
     clean_moment_candidates,
     clean_unlisted,
     clip_headline,
+    goal_verdict,
     validate_extraction,
 )
 
@@ -433,6 +435,8 @@ class SarvamExtractor:
     reads_outcomes: Final = True
     #: This runner can be asked without the `unlisted` object (`extract_call`, D-889).
     reads_unlisted: Final = True
+    #: This runner can judge the call against its campaign's goal (`extract_call`).
+    reads_goal: Final = True
 
     async def run(
         self,
@@ -443,6 +447,7 @@ class SarvamExtractor:
         languages: Sequence[str] = (),
         outcomes: Sequence[BusinessOutcome] = (),
         unlisted: bool = True,
+        goal: str | None = None,
     ) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
         # arm that used to live here — the provider declining to answer, which indexed
@@ -458,9 +463,10 @@ class SarvamExtractor:
             languages=languages,
             outcomes=outcomes,
             unlisted=unlisted,
+            goal=goal,
         )
         schema = build_response_schema(
-            spec, moments=moments is not None, outcomes=outcomes, unlisted=unlisted
+            spec, moments=moments is not None, outcomes=outcomes, unlisted=unlisted, goal=goal
         )
 
         outcome = await self._ask(prompt, schema, self._reasoning_effort)
@@ -609,6 +615,7 @@ def build_response_schema(
     moments: bool = False,
     outcomes: Sequence[BusinessOutcome] = (),
     unlisted: bool = True,
+    goal: str | None = None,
 ) -> dict[str, Any]:
     """The strict JSON Schema that makes valid, schema-shaped JSON a MODEL-SIDE guarantee.
 
@@ -669,6 +676,9 @@ def build_response_schema(
             "type": ["string", "null"],
             "enum": [*(o.key for o in outcomes), None],
         }
+    if goal:
+        # Required and never null: `unclear` is how the model says it cannot tell.
+        fixed["goal_reached"] = {"type": "string", "enum": list(GOAL_VERDICTS)}
     choice_keys = [f.key for f in spec.fields if f.type == "enum" and f.key not in fixed]
     if choice_keys and unlisted:
         # One nullable string per choice field: the caller's words when no choice fits
@@ -2429,12 +2439,14 @@ async def _run(
     languages: Sequence[str],
     outcomes: Sequence[BusinessOutcome] = (),
     unlisted: bool = True,
+    goal: str | None = None,
 ) -> dict[str, Any]:
-    """One `run`, with the key-moments brief, the agent's languages and its business
-    outcomes when the runner reads them, and without the `unlisted` ask when told so.
+    """One `run`, with the key-moments brief, the agent's languages, its business outcomes
+    and the campaign's goal when the runner reads them, and without the `unlisted` ask when
+    told so.
 
     Each is handed only to a runner that declares it (`reads_moments`, `reads_languages`,
-    `reads_outcomes`): the offline baseline has no model to ask, and the `Extractor`
+    `reads_outcomes`, `reads_goal`): the offline baseline has no model to ask, and the `Extractor`
     protocol stays two arguments for every test double and harness that implements it.
     """
     context: dict[str, Any] = {}
@@ -2444,6 +2456,8 @@ async def _run(
         context["languages"] = tuple(languages)
     if outcomes and getattr(runner, "reads_outcomes", False):
         context["outcomes"] = tuple(outcomes)
+    if goal and getattr(runner, "reads_goal", False):
+        context["goal"] = goal
     if not unlisted and getattr(runner, "reads_unlisted", False):
         context["unlisted"] = False
     if context:
@@ -2461,6 +2475,7 @@ class _ReadsContext(Protocol):
         languages: Sequence[str] = (),
         outcomes: Sequence[BusinessOutcome] = (),
         unlisted: bool = True,
+        goal: str | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -2507,13 +2522,15 @@ async def extract_call(
     languages: Sequence[str] = (),
     outcomes: Sequence[BusinessOutcome] = (),
     retry_without_unlisted: bool = False,
+    goal: str | None = None,
 ) -> ExtractionOutput:
     """Run one extraction pass and validate it against the schema.
 
     `languages` is the agent's language(s), primary first, as `agents.language_primary`
     and `languages_extra` spell them; empty means the prompt's default. `outcomes` is the
     agent's business outcomes (D-836); the answer's `business_outcome` is one of their keys
-    or None.
+    or None. `goal` is the campaign's goal for a call a campaign placed; the answer's
+    `goal_reached` is a verdict only when the runner was asked it (`reads_goal`).
 
     `retry_without_unlisted` is the post-call pass's: a reading that fails with the D-889
     `unlisted` ask is asked once more without it. The dashboard assist leaves it off, because
@@ -2543,12 +2560,14 @@ async def extract_call(
 
     async def read(*, unlisted: bool) -> dict[str, Any]:
         if provider is None:
-            return await _run(runner, spec, transcript, moments, languages, outcomes, unlisted)
+            return await _run(
+                runner, spec, transcript, moments, languages, outcomes, unlisted, goal
+            )
         # The provider-health hook sits HERE, around the whole `run`, and not around each
         # HTTP request: Azure's 400 → `json_object` degrade is two requests and one answer,
         # and only the answer says whether the leg works.
         async with provider_health.watch("extraction", provider, model=runner.model_name):
-            raw = await _run(runner, spec, transcript, moments, languages, outcomes, unlisted)
+            raw = await _run(runner, spec, transcript, moments, languages, outcomes, unlisted, goal)
             if not _is_answer(raw):
                 raise ExtractionUnusableError(runner.model_name)
             return raw
@@ -2609,6 +2628,11 @@ async def extract_call(
         # Unknown is None, never a verdict (first-call review F-4).
         outcome_tag=hint_of(raw.get("outcome_tag")),
         business_outcome=_chosen_key(raw.get("business_outcome"), outcomes),
+        goal_reached=(
+            goal_verdict(raw.get("goal_reached"))
+            if goal and getattr(runner, "reads_goal", False)
+            else None
+        ),
         out_of_scope=bool(raw.get("out_of_scope")),
         callback_requested=bool(raw.get("callback_requested")),
         valid=outcome.valid,

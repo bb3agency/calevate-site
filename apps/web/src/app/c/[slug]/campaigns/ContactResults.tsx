@@ -31,6 +31,13 @@ import { OUTCOME_ORDER, OUTCOME_WORDS } from "./CampaignResults";
 
 const PAGE_SIZE = 50;
 
+/** Whether the person's latest answered call reached the campaign's goal. */
+const GOAL_WORDS: Record<NonNullable<ContactResult["goal_reached"]>, string> = {
+  yes: "Goal reached",
+  no: "Goal not reached",
+  unclear: "Goal unclear",
+};
+
 const OUTCOME_TONE: Record<ContactOutcome, NoticeTone> = {
   connected: "ok",
   no_answer: "neutral",
@@ -103,6 +110,7 @@ export function ContactResults({
           <StatusPill tone={OUTCOME_TONE[row.outcome]} dot={row.outcome === "not_called" ? STATE_DOT.draft : undefined}>
             {OUTCOME_WORDS[row.outcome]}
           </StatusPill>
+          {row.goal_reached ? <p className="text-meta text-ink-muted">{GOAL_WORDS[row.goal_reached]}</p> : null}
           {row.will_retry && row.next_attempt_at ? (
             <p className="text-meta text-ink-muted">Next try {formatIST(row.next_attempt_at)}</p>
           ) : null}

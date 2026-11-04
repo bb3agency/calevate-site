@@ -847,6 +847,8 @@ async def _campaign_detail(
         return "No campaign with that id in this account."
     counts = ", ".join(f"{k} {v}" for k, v in progress["contacts"].items()) or "no contacts yet"
     lines = [f"Status {progress['status']}; {progress['total']} contact(s) ({counts})."]
+    lines.append(f"Why it calls: {progress['purpose'] or 'not said'}.")
+    lines.append(f"Goal: {progress['goal'] or 'not said'}.")
     if progress["scheduled_start_at"]:
         lines.append(f"Scheduled to start {ist_stamp(progress['scheduled_start_at'])}.")
     if progress["recurrence"]:
@@ -879,6 +881,13 @@ async def _campaign_detail(
             f"answered, reaching {found['people_answered']} people. The counts below are "
             "people, each once, by their latest answered call."
         )
+        if found["goal"] is not None:
+            goal = found["goal"]
+            lines.append(
+                f"Goal reached by {goal['reached']} of {found['people_answered']} people "
+                f"answered; not reached {goal['not_reached']}, unclear {goal['unclear']}, "
+                f"not judged {goal['not_judged']}."
+            )
         if found["outcome_tags"]:
             tags = ", ".join(f"{k} {v}" for k, v in found["outcome_tags"].items())
             lines.append(f"People by what their conversation came to: {tags}.")

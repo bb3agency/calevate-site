@@ -32,6 +32,12 @@ import { checkContacts, type CheckedList, type ContactEntry } from "./contactLis
 export interface CampaignFormState {
   name: string;
   setName: (value: string) => void;
+  /** Why these people are called, in the business's words (`campaigns.purpose`). */
+  purpose: string;
+  setPurpose: (value: string) => void;
+  /** What a good call ends with (`campaigns.goal`). */
+  goal: string;
+  setGoal: (value: string) => void;
   agentId: string;
   setAgentId: (value: string) => void;
   classification: Classification;
@@ -74,6 +80,8 @@ export interface CampaignFormState {
 
 export function useCampaignForm(): CampaignFormState {
   const [name, setName] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [goal, setGoal] = useState("");
   const [agentId, setAgentId] = useState("");
   const [classification, setClassification] = useState<Classification>("service");
   const [concurrency, setConcurrency] = useState(3);
@@ -120,6 +128,8 @@ export function useCampaignForm(): CampaignFormState {
    */
   const reset = () => {
     setName("");
+    setPurpose("");
+    setGoal("");
     setContacts([]);
     setFromLeads(false);
     leads.clearFilters();
@@ -130,6 +140,8 @@ export function useCampaignForm(): CampaignFormState {
 
   return {
     name, setName,
+    purpose, setPurpose,
+    goal, setGoal,
     agentId, setAgentId,
     classification, setClassification,
     concurrency, setConcurrency,

@@ -61,6 +61,7 @@ from calevate_shared.extraction import (
     MomentsBrief,
     OutcomeTag,
     clip_headline,
+    goal_verdict,
 )
 from calevate_shared.lead_fields import with_core
 from sqlalchemy import Numeric, text
@@ -1801,6 +1802,7 @@ async def _extract_stage(
             # Key moments ride in the SAME request (founder, 11 Oct 2026): no second model
             # call, only the extra output tokens, metered below with the rest.
             brief = await load_moments_brief(tenant_id, agent_id)
+            # A campaign's goal is judged in the same request: no second model call.
             extraction = await extract_call(
                 spec,
                 transcript_text,
@@ -1809,6 +1811,7 @@ async def _extract_stage(
                 languages=await _agent_languages(tenant_id, agent_id),
                 outcomes=business_outcomes,
                 retry_without_unlisted=True,
+                goal=await _campaign_goal(tenant_id, call_id),
             )
             extraction_model = extractor.model_name
             await _meter_extraction(
@@ -2532,6 +2535,7 @@ async def _settled_extraction(
                     "SELECT ce.data, ce.valid, ce.errors, ce.needs_review, "
                     "       c.summary, c.sentiment, ce.outcome_hint, ce.out_of_scope, "
                     "       c.callback_requested, c.headline, c.next_step, ce.business_outcome, "
+                    "       c.goal_reached, "
                     "       ce.unlisted "
                     "FROM call_extractions ce "
                     "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
@@ -2563,6 +2567,7 @@ async def _settled_extraction(
         headline,
         next_step,
         business_outcome,
+        goal_reached,
         unlisted,
     ) = row
     errors = errors if isinstance(errors, dict) else {}
@@ -2578,6 +2583,7 @@ async def _settled_extraction(
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
         outcome_tag=hint_of(hint),
         business_outcome=str(business_outcome) if business_outcome else None,
+        goal_reached=goal_verdict(goal_reached),
         out_of_scope=bool(out_of_scope),
         callback_requested=bool(callback_requested),
         valid=bool(valid),
@@ -2671,12 +2677,13 @@ async def _persist_extraction(
         await session.execute(
             text(
                 "UPDATE calls SET sentiment = :sentiment, "
-                "callback_requested = :callback_requested, updated_at = now() "
-                "WHERE id = :id AND tenant_id = :tid"
+                "callback_requested = :callback_requested, goal_reached = :goal_reached, "
+                "updated_at = now() WHERE id = :id AND tenant_id = :tid"
             ),
             {
                 "sentiment": sentiment,
                 "callback_requested": extraction.callback_requested if answered else None,
+                "goal_reached": extraction.goal_reached if answered else None,
                 "id": call_id,
                 "tid": tenant_id,
             },
@@ -3025,6 +3032,22 @@ async def _record_outcome(
             {"outcome": outcome, "cid": call_id, "tid": tenant_id},
         )
     return outcome
+
+
+async def _campaign_goal(tenant_id: UUID, call_id: UUID) -> str | None:
+    """The goal of the campaign this call belongs to (its own dial or a call-back of one,
+    D-914), or None for a call outside a campaign or a campaign with no goal."""
+    async with tenant_session(tenant_id) as session:
+        goal = (
+            await session.execute(
+                text(
+                    "SELECT g.goal FROM calls c JOIN campaigns g ON g.id = c.campaign_id "
+                    "WHERE c.id = :cid AND c.tenant_id = :tid"
+                ),
+                {"cid": call_id, "tid": tenant_id},
+            )
+        ).scalar()
+    return str(goal) if goal else None
 
 
 async def _agent_business_outcomes(tenant_id: UUID, agent_id: UUID) -> list[BusinessOutcome]:

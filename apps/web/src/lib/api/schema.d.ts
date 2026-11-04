@@ -6965,7 +6965,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Change a draft's settings: name, agent, number, hours, calls at once, retries
+         * Change a draft's settings: name, purpose, goal, agent, number, hours, calls at once, retries
          * @description Drafts only (`controls.update_draft`). Audited with the names of the fields changed,
          *     not their values: who changed which setting is the question an audit answers.
          */
@@ -18053,6 +18053,7 @@ export interface components {
             credits_spent_inr: string | null;
             /** Fields */
             fields: components["schemas"]["FieldBreakdownOut"][];
+            goal?: components["schemas"]["GoalCountsOut"] | null;
             /** Hot Leads */
             hot_leads: number;
             /** Leads */
@@ -19543,6 +19544,8 @@ export interface components {
             attempts: number;
             /** Call Id */
             call_id: string | null;
+            /** Goal Reached */
+            goal_reached?: ("yes" | "no" | "unclear") | null;
             /**
              * Id
              * Format: uuid
@@ -20679,10 +20682,14 @@ export interface components {
             consent_provenance?: components["schemas"]["ConsentProvenanceIn"] | null;
             /** Dlt Template Id */
             dlt_template_id?: string | null;
+            /** Goal */
+            goal?: string | null;
             /** Name */
             name: string;
             /** Number Id */
             number_id?: string | null;
+            /** Purpose */
+            purpose?: string | null;
             retry_policy?: components["schemas"]["RetryPolicyIn"] | null;
         };
         /** CreateCampaignOut */
@@ -23807,6 +23814,20 @@ export interface components {
              * @enum {string}
              */
             verify: "todo" | "in_review" | "needs_attention" | "done";
+        };
+        /**
+         * GoalCountsOut
+         * @description People answered, by the verdict on their latest answered call.
+         */
+        GoalCountsOut: {
+            /** Not Judged */
+            not_judged: number;
+            /** Not Reached */
+            not_reached: number;
+            /** Reached */
+            reached: number;
+            /** Unclear */
+            unclear: number;
         };
         /** GoogleCompleteIn */
         GoogleCompleteIn: {
@@ -29197,6 +29218,8 @@ export interface components {
             dnc_scrubbed_at?: string | null;
             /** Effective Concurrency */
             effective_concurrency: number;
+            /** Goal */
+            goal: string | null;
             /**
              * Id
              * Format: uuid
@@ -29217,6 +29240,8 @@ export interface components {
             number_id: string | null;
             /** Pause Reason */
             pause_reason: ("person" | "maintenance" | "healer" | "complaint_spike" | "out_of_credit" | "spend_cap") | null;
+            /** Purpose */
+            purpose: string | null;
             recurrence?: components["schemas"]["RecurrenceOut"] | null;
             /**
              * Retries Waiting
@@ -35678,10 +35703,14 @@ export interface components {
             classification?: ("promotional" | "service") | null;
             /** Concurrency */
             concurrency?: number | null;
+            /** Goal */
+            goal?: string | null;
             /** Name */
             name?: string | null;
             /** Number Id */
             number_id?: string | null;
+            /** Purpose */
+            purpose?: string | null;
             retry_policy?: components["schemas"]["RetryPolicyIn"] | null;
         };
         /**

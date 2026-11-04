@@ -71,6 +71,8 @@ _EDITABLE = (
     "concurrency",
     "calling_hours",
     "retry_policy",
+    "purpose",
+    "goal",
 )
 _JSON_COLUMNS = frozenset({"calling_hours", "retry_policy"})
 
@@ -283,7 +285,7 @@ async def duplicate_campaign(
         await session.execute(
             text(
                 "SELECT name, agent_id, classification, number_id, dlt_template_id, "
-                "concurrency, calling_hours, retry_policy, status "
+                "concurrency, calling_hours, retry_policy, status, purpose, goal "
                 "FROM campaigns WHERE id = :cid"
             ),
             {"cid": source_id},
@@ -310,6 +312,8 @@ async def duplicate_campaign(
         concurrency=int(row[5]),
         calling_hours=row[6] if isinstance(row[6], dict) else None,
         retry_policy=row[7] if isinstance(row[7], dict) else None,
+        purpose=row[9],
+        goal=row[10],
     )
     if not with_unreached:
         return campaign_id, 0

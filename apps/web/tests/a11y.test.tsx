@@ -2033,6 +2033,8 @@ const TENANT_ROUTES: Routes = {
   "/v1/agents": [AGENT],
   "/v1/campaigns/numbers": [],
   "/v1/campaigns/templates": [],
+  // The new and edit campaign pages offer the agent's own outcomes as goals.
+  "/v1/call-outcomes": { max_outcomes: 8, agents: [] },
   // The owner's WhatsApp alert state, read by the operator panel. GRANTED on purpose:
   // it renders the "recorded on" line and the withdrawal control, which the never-asked
   // state does not.
@@ -3151,6 +3153,7 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/agents": [AGENT],
+      "/v1/call-outcomes": { max_outcomes: 8, agents: [] },
       ...dltRegistrationRoute(true),
       "/v1/campaigns/numbers": [
         {
@@ -3184,6 +3187,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents": [AGENT],
       "/v1/campaigns/numbers": [],
       "/v1/campaigns/templates": [],
+      "/v1/call-outcomes": { max_outcomes: 8, agents: [] },
       [`/v1/campaigns/${CAMPAIGN.id}`]: progressFixture({ id: CAMPAIGN.id }),
       ...dltRegistrationRoute(),
     },

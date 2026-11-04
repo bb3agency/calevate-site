@@ -94,6 +94,17 @@ class Campaign(PKMixin, TimestampMixin, Base):
             f"auto_pause_reason IS NULL OR auto_pause_reason IN {AUTO_PAUSE_REASONS!r}",
             name="auto_pause_reason_enum",
         ),
+        # One trimmed line each, sized so the two fit one call variable (`campaigns/brief`).
+        CheckConstraint(
+            "purpose IS NULL OR (char_length(purpose) BETWEEN 3 AND 90 "
+            "AND purpose = btrim(purpose) AND purpose !~ '[\\r\\n]')",
+            name="purpose_line",
+        ),
+        CheckConstraint(
+            "goal IS NULL OR (char_length(goal) BETWEEN 3 AND 50 "
+            "AND goal = btrim(goal) AND goal !~ '[\\r\\n]')",
+            name="goal_line",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -103,6 +114,11 @@ class Campaign(PKMixin, TimestampMixin, Base):
         ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Why the campaign calls these people, and what a good call ends with, in the business's
+    #: words (`campaigns/brief.py`). Both ride every dial as its reason; calls are judged
+    #: against the goal (`calls.goal_reached`). NULL on a campaign made before they existed.
+    purpose: Mapped[str | None] = mapped_column(Text)
+    goal: Mapped[str | None] = mapped_column(Text)
     #: `pip` for a campaign a dialling plan made (D-893, migration f4b8d2a61c39), so its
     #: calls get a campaign's line limit, pacing, hours and retries; `standard` otherwise.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="standard")

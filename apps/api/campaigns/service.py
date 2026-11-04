@@ -789,8 +789,13 @@ async def create_campaign(
     consent_collected_at: datetime | None = None,
     retry_policy: dict[str, Any] | None = None,
     kind: str = "standard",
+    purpose: str | None = None,
+    goal: str | None = None,
 ) -> UUID:
     """Create a draft campaign.
+
+    `purpose` and `goal` arrive already cleaned (`campaigns/brief.clean_purpose`,
+    `clean_goal`) or as None.
 
     `retry_policy` arrives already validated (`validated_retry_policy`) or as None, which
     stores `DEFAULT_RETRY_POLICY`.
@@ -834,12 +839,14 @@ async def create_campaign(
         text(
             "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, number_id, "
             "dlt_template_id, status, concurrency, retry_policy, calling_hours, "
-            "consent_source, consent_collected_at, kind, created_at, updated_at) "
+            "consent_source, consent_collected_at, kind, purpose, goal, created_at, updated_at) "
             "VALUES (:id, :tid, :aid, :name, :cls, :nid, :dlt, 'draft', :conc, "
-            "CAST(:retry AS jsonb), CAST(:window AS jsonb), :source, :collected, :kind, now(), "
-            "now())"
+            "CAST(:retry AS jsonb), CAST(:window AS jsonb), :source, :collected, :kind, "
+            ":purpose, :goal, now(), now())"
         ),
         {
+            "purpose": purpose,
+            "goal": goal,
             "source": source,
             "collected": collected_at,
             "kind": kind,
@@ -1878,7 +1885,8 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
             text(
                 "SELECT c.id, c.name, c.classification, c.agent_id, a.name, c.number_id, "
                 "  c.consent_source, c.consent_collected_at, c.created_at, c.retry_policy, "
-                f"  {PAUSE_REASON_SQL}, c.complaint_reviewed_at, c.tenant_id, a.status "
+                f"  {PAUSE_REASON_SQL}, c.complaint_reviewed_at, c.tenant_id, a.status, "
+                "  c.purpose, c.goal "
                 "FROM campaigns c JOIN agents a ON a.id = c.agent_id WHERE c.id = :cid"
             ),
             {"cid": campaign_id},
@@ -1947,6 +1955,8 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
         "classification": about[2],
         "agent_id": about[3],
         "agent_name": about[4],
+        "purpose": about[14],
+        "goal": about[15],
         "number_id": about[5],
         "consent_source": about[6],
         "consent_collected_at": about[7],

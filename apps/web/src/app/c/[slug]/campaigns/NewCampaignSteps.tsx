@@ -21,6 +21,7 @@ import {
 } from "@/lib/api/campaigns";
 import { Term } from "@/lib/glossary";
 
+import { BriefFields } from "./BriefFields";
 import type { CampaignFormState, ScheduleFormState, StartMode } from "./campaignForm";
 import { offeredClassifications } from "./choices";
 import { RepeatFields, StartAtFields } from "./ScheduleFields";
@@ -146,8 +147,8 @@ function ShortChoice<T extends string>({
 }
 
 /**
- * STEP 1, THE BASICS: what the campaign is called, who makes the calls, what kind of call,
- * and what it dials from. The number sits here, beside the call type. A DLT template is
+ * STEP 1, THE BASICS: what the campaign is called, who makes the calls, why it calls and
+ * what a good call ends with, what kind of call, and what it dials from. The number sits here, beside the call type. A DLT template is
  * optional since D-692 (outbound needs verified KYC and the no-cold-calls pledge); it is
  * still offered for a client who registered one.
  */
@@ -219,6 +220,8 @@ export function BasicsStep({
           ) : null}
         </label>
       )}
+
+      <BriefFields form={form} agentId={selectedAgentId} />
 
       {/* The category decides which number series may dial (DATA-MODEL §6). */}
       <ShortChoice
