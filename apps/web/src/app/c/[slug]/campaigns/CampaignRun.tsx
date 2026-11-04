@@ -13,6 +13,7 @@ import { SECONDARY_BUTTON_SM, formatCount, formatDuration, formatIST, formatPhon
 import { useCallingNow, type CampaignProgress, type ContactResult } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
+import { AtOnceHint } from "./CampaignSettings";
 import { campaignRun, runSentence } from "./campaignProgress";
 
 /**
@@ -124,8 +125,8 @@ function Fact({ label, value, hint, flash }: { label: string; value: string; hin
 
 /**
  * Calls going out now against the most this campaign may have at once
- * (`effective_concurrency`: its own setting under the plan's ceiling and the lines kept
- * free for callers). One slot per allowed call, so a full row reads as "at the limit"
+ * (`effective_concurrency`: its own setting under the plan's ceiling, the lines kept free
+ * for callers and the account's call lines). One slot per allowed call, so a full row reads as "at the limit"
  * without a number; the number is there too, because the slots are not read aloud.
  */
 function LinesInUse({ progress, onCallNow }: { progress: CampaignProgress; onCallNow: number }) {
@@ -138,10 +139,7 @@ function LinesInUse({ progress, onCallNow }: { progress: CampaignProgress; onCal
         Calls at once
         {limited ? (
           <InfoTip label="Calls at once" align="start">
-            <p>
-              You chose {formatCount(progress.concurrency)}. Right now your plan and the lines kept free for people
-              calling you in allow {formatCount(allowed)}.
-            </p>
+            <AtOnceHint progress={progress} className="block" />
           </InfoTip>
         ) : null}
       </dt>

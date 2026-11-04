@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { Tabs } from "@/components/interior/tabs";
-import { Disclosure, ProblemNotice, RestrictionNote, Skeleton, formatCount, formatPhone } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, Skeleton, formatCount, formatPhone } from "@/components/ui";
 import {
   useCampaignProgress,
   useCampaignResults,
@@ -43,10 +43,14 @@ import { CampaignStatusPill } from "./campaignStatus";
 /**
  * `/c/{slug}/campaigns/{id}`: ONE CAMPAIGN, at its own address (D-773).
  *
- * The screen's job changes with the campaign's state, and so does its first block:
+ * The screen's job changes with the campaign's state, and so does its first block, the
+ * status band:
  *
- * - a draft or a scheduled campaign: **get it ready and launch it** — the launch checklist,
- *   then who will be called, then starting later;
+ * - a draft or a scheduled campaign: **get it ready and launch it** — one panel holding
+ *   any armed start, the launch checklist or the one Call button, and beside it what
+ *   pressing it does (people, calls at once, hours, number, kind of call); then starting
+ *   later or repeating as two option cards; then who will be called, with how it calls
+ *   beside them on a wide screen;
  * - a launched one: **what it is doing and how far it has got** — the live panel
  *   (`CampaignRun`: who is on a call, calls at once against the limit, the next try), the
  *   headline results, then three tabs: People first, because each person and their call
@@ -137,7 +141,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
 
   if (progress.isLoading) {
     return (
-      <div className="max-w-5xl space-y-5 pb-12">
+      <div className="max-w-6xl space-y-5 pb-12">
         <PageHeader back={back} title="Campaign" />
         <Skeleton rows={4} />
       </div>
@@ -145,7 +149,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   }
   if (!data) {
     return (
-      <div className="max-w-5xl space-y-5 pb-12">
+      <div className="max-w-6xl space-y-5 pb-12">
         <PageHeader back={back} title="Campaign" />
         <ProblemNotice
           error={progress.error ?? new Error("This campaign did not load.")}
@@ -161,6 +165,15 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     !check.data.ready &&
     (data.schedule_blocked_rules?.length ?? 0) === 0;
 
+  const scheduleCardProps = {
+    status,
+    progress,
+    unschedule: unscheduleFeedback,
+    armedScheduleWouldRefuse,
+    canWrite: write.allowed,
+    refusal,
+  };
+
   const people = (
     <ContactResults
       slug={slug}
@@ -174,7 +187,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   );
 
   return (
-    <div className="max-w-5xl space-y-8 pb-12">
+    <div className="max-w-6xl space-y-8 pb-12">
       <div className="space-y-5">
         <PageHeader
           back={back}
@@ -238,19 +251,18 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
         )}
       </div>
 
-      {launched && <CampaignRun progress={data} campaignId={campaignId} />}
-
-      <ScheduleCards
-        status={status}
-        progress={progress}
-        unschedule={unscheduleFeedback}
-        armedScheduleWouldRefuse={armedScheduleWouldRefuse}
-        canWrite={write.allowed}
-        refusal={refusal}
-      />
-
-      {!launched && (
-        <>
+      {/* THE STATUS BAND: the one block whose job changes with the campaign. Keyed on the
+          phase so a launch swaps it in with a short settle rather than a jump. */}
+      {launched ? (
+        <div key="launched" className="settings-enter">
+          <CampaignRun progress={data} campaignId={campaignId} />
+        </div>
+      ) : (
+        <div
+          key="before-launch"
+          className="settings-enter space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6"
+        >
+          <ScheduleCards {...scheduleCardProps} className="border-b border-line pb-6" />
           <LaunchGate
             slug={slug}
             campaignId={campaignId}
@@ -263,20 +275,24 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             refusal={refusal}
             onAddPeople={addPeople}
           />
-          {check.data && (
-            <Disclosure title="Start later or repeat" subtitle="Pick a time, or repeat every week.">
-              <ArmingForms
-                status={status}
-                check={check}
-                schedule={scheduleFeedback}
-                repeat={repeatFeedback}
-                scheduleForm={scheduleForm}
-                canWrite={write.allowed}
-                refusal={refusal}
-              />
-            </Disclosure>
-          )}
-        </>
+        </div>
+      )}
+
+      {/* A launched campaign can still repeat; its card sits under the live panel. */}
+      {launched && <ScheduleCards {...scheduleCardProps} className="rounded-card border border-line p-4 sm:p-5" />}
+
+      {!launched && check.data && (
+        <Section title={status === "scheduled" ? "Make it weekly" : "Start later or repeat"}>
+          <ArmingForms
+            status={status}
+            check={check}
+            schedule={scheduleFeedback}
+            repeat={repeatFeedback}
+            scheduleForm={scheduleForm}
+            canWrite={write.allowed}
+            refusal={refusal}
+          />
+        </Section>
       )}
 
       {launched ? (
@@ -311,7 +327,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                   </Section>
                 </div>
               ) : tab === "settings" ? (
-                <CampaignSettings slug={slug} campaignId={campaignId} progress={data} bare />
+                <CampaignSettings slug={slug} campaignId={campaignId} progress={data} />
               ) : (
                 people
               )
@@ -319,7 +335,9 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           />
         </>
       ) : (
-        <>
+        // The people take the width and the settings sit beside them on a wide screen,
+        // because the list is what changes before launch and the settings are checked once.
+        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <DraftPeople
             slug={slug}
             campaignId={campaignId}
@@ -329,8 +347,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             adding={addingPeople}
             onAddingChange={setAddingPeople}
           />
-          <CampaignSettings slug={slug} campaignId={campaignId} progress={data} />
-        </>
+          <CampaignSettings slug={slug} campaignId={campaignId} progress={data} layout="aside" />
+        </div>
       )}
     </div>
   );

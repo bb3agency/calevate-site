@@ -1,5 +1,5 @@
-import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
@@ -475,8 +475,18 @@ describe("launching", () => {
     expect(launched[0].method).toBe("POST");
   });
 
-  it("says beside the button when, from where and how many at once, as the server reports", async () => {
-    const { container } = await openLaunchPanel(check(), ME, {
+  /** The launch summary beside the button, as label → value. */
+  function summary(): Record<string, string> {
+    const list = screen.getByRole("group", { name: "What launching does" });
+    const facts: Record<string, string> = {};
+    for (const term of Array.from(list.querySelectorAll("dt"))) {
+      facts[term.textContent ?? ""] = term.nextElementSibling?.textContent ?? "";
+    }
+    return facts;
+  }
+
+  it("says beside the button how many, when, from where and how many at once, as the server reports", async () => {
+    await openLaunchPanel(check(), ME, {
       [`/v1/campaigns/${CAMPAIGN_ID}`]: {
         ...READY_PROGRESS,
         calling_hours: { start: "10:00", end: "18:00" },
@@ -485,18 +495,80 @@ describe("launching", () => {
       [LAUNCH_ROUTE]: LAUNCHED,
     });
     await screen.findByRole("button", { name: "Call 120 people" });
-    expect(container.textContent).toContain("10:00–18:00 IST");
-    expect(container.textContent).toContain("+91 11400 01234");
-    expect(container.textContent).toContain("up to 3 at once");
+    expect(summary()).toEqual({
+      People: "120 people",
+      "Calls at once": "Up to 3",
+      "Calling hours": "10:00–18:00 IST",
+      "Calling from": "+91 11400 01234",
+    });
   });
 
   it("says in words that a campaign with no number of its own rings from the agent's", async () => {
-    const { container } = await openLaunchPanel(check(), ME, {
+    await openLaunchPanel(check(), ME, {
       [`/v1/campaigns/${CAMPAIGN_ID}`]: { ...READY_PROGRESS, number_e164: null },
       [LAUNCH_ROUTE]: LAUNCHED,
     });
     await screen.findByRole("button", { name: "Call 120 people" });
-    expect(container.textContent).toContain("from your agent's number");
+    expect(summary()["Calling from"]).toBe("Your agent's number");
+  });
+
+  it("names the account's call lines when they are what holds the campaign back", async () => {
+    await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: { ...READY_PROGRESS, concurrency: 5, effective_concurrency: 2 },
+      "/v1/call-lines": { call_lines: 2, in_progress: 0, on_trial: false },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    await screen.findByRole("button", { name: "Call 120 people" });
+    await vi.waitFor(() =>
+      expect(summary()["Calls at once"]).toBe("Up to 2You set 5. Your account runs up to 2 calls at once."),
+    );
+    expect(screen.queryByText(/plan allows/)).toBeNull();
+  });
+
+  it("gives the number without a cause when the account's lines are not the limit", async () => {
+    // Lines of 10 under an effective 2: the plan or the inbound pool held it, and the
+    // progress read does not say which, so the line names neither.
+    const { container } = await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: { ...READY_PROGRESS, concurrency: 5, effective_concurrency: 2 },
+      "/v1/call-lines": { call_lines: 10, in_progress: 0, on_trial: false },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    expect((await screen.findAllByText("You set 5. Up to 2 can run at once right now.")).length).toBeGreaterThan(0);
+    expect(container.textContent).not.toContain("plan allows");
+    expect(container.textContent).not.toContain("Your account runs");
+  });
+
+  it("states the kind of call the list makes it, with the window it is held to", async () => {
+    await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: {
+        ...READY_PROGRESS,
+        classification: "service",
+        consent_source: "web_form_optin",
+      },
+      [`/v1/compliance/call-purpose/campaigns/${CAMPAIGN_ID}`]: {
+        campaign_id: CAMPAIGN_ID,
+        agent_id: AGENT_ID,
+        purpose: {
+          purpose: "relationship_enquiry",
+          label: "Follow-up to an enquiry",
+          basis: "x",
+          window: "7 days from their enquiry",
+          explanation: "Calling back someone who asked you about something.",
+        },
+        report: { verdict: "clear", blocks_launch: false, findings: [], truncated: false, fix: "" },
+        blocks_launch: false,
+      },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    await screen.findByRole("button", { name: "Call 120 people" });
+    const kind = summary()["Kind of call"];
+    expect(kind).toContain("Follow-up to an enquiry");
+    expect(kind).toContain("Permission lasts 7 days from their enquiry.");
+    // The list's own source and what the launch check does not do sit behind the tap.
+    const list = screen.getByRole("group", { name: "What launching does" });
+    fireEvent.click(within(list).getByRole("button", { name: "Why?" }));
+    expect(list.textContent).toContain("Your list: Signed up on our website.");
+    expect(list.textContent).toContain("We don't check each person's date for you.");
   });
 
   it("offers no launch at all when the campaign's progress could not be read", async () => {

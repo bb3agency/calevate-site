@@ -76,9 +76,6 @@ describe("Launch waits for the launch check it relies on", () => {
   const confirm = (waiting: string | null, onLaunch = vi.fn()) => (
     <LaunchConfirm
       contacts={3}
-      concurrency={1}
-      callingHours={null}
-      numberE164={null}
       canWrite
       writeReason={undefined}
       status="idle"

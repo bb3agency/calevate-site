@@ -256,7 +256,7 @@ describe("setting a repeat", () => {
   it("cannot be submitted until a day is chosen, and says so", async () => {
     const { calls } = await openCampaign(DRAFT);
 
-    await screen.findByText("Or repeat it every week");
+    await screen.findByRole("heading", { name: "Repeat every week" });
     // The message waits for a press: a form that opens shouting is read as broken.
     expect(screen.queryByText("Choose at least one day.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
@@ -287,7 +287,7 @@ describe("setting a repeat", () => {
       },
     });
 
-    await screen.findByText("Or repeat it every week");
+    await screen.findByRole("heading", { name: "Repeat every week" });
     fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
     fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
 
@@ -318,7 +318,7 @@ describe("setting a repeat", () => {
       }),
     });
 
-    await screen.findByText("Or repeat it every week");
+    await screen.findByRole("heading", { name: "Repeat every week" });
     fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
     fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
 

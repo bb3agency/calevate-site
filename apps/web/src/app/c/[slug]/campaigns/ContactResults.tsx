@@ -2,17 +2,18 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { PhoneCall } from "lucide-react";
+import { PhoneCall, UserMinus } from "lucide-react";
 
 import { ChipGroup } from "@/components/arc/chip-group";
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { FilterToolbar } from "@/components/arc/filter-toolbar";
+import { RowMenu } from "@/components/arc/menu";
 import { SearchField } from "@/components/arc/search-field";
 import { EmptyState } from "@/components/console/emptyState";
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { STATE_DOT, StatusPill } from "@/components/console/statusPill";
 import { Pagination } from "@/components/interior/pagination";
 import {
-  SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
   formatIST,
@@ -30,6 +31,8 @@ import { useClientRealm } from "@/lib/api/session";
 import { OUTCOME_ORDER, OUTCOME_WORDS } from "./CampaignResults";
 
 const PAGE_SIZE = 50;
+
+const CELL = "px-3 py-2.5 first:pl-4 last:pr-3 sm:first:pl-5";
 
 /** Whether the person's latest answered call reached the campaign's goal. */
 const GOAL_WORDS: Record<NonNullable<ContactResult["goal_reached"]>, string> = {
@@ -56,10 +59,11 @@ const OUTCOME_TONE: Record<ContactOutcome, NoticeTone> = {
  * here most. One page of the server's list at a time, filtered by outcome and searched by
  * name or the last digits of the number, so a list of five thousand stays a page.
  *
- * A row rather than a table: on a phone the three things a person row says have to stay
- * together, and a table hides its columns there; the row stacks them instead. Before
- * launch the same list names who will be called, and a person not yet tried can be taken
- * off.
+ * A real table, kept to three columns so nothing scrolls sideways at 375px: the person
+ * (with the number under the name), what happened (the outcome as a status mark, the tries
+ * and the next one), and the row's one action. Before launch the second column is the
+ * phone number, shown under the name on a phone instead, and the action is a ⋯ menu that
+ * takes a person not yet tried off the list.
  */
 export function ContactResults({
   slug,
@@ -130,26 +134,32 @@ export function ContactResults({
     row.call_id ? (
       <Link
         href={href(`/c/${slug}/calls/${row.call_id}`)}
-        className={SECONDARY_BUTTON_SM}
+        className={TEXT_ACTION_SM}
         aria-label={`Open the call with ${who}`}
       >
         <PhoneCall aria-hidden className="h-3.5 w-3.5" />
-        Open call
+        <span className="max-sm:sr-only">Open call</span>
       </Link>
     ) : editable && row.outcome === "not_called" ? (
-      <ActionButton
-        variant="secondary-sm"
-        title={refusal}
-        disabled={!canWrite}
-        status={remove.variables?.[0] === row.id ? removeFeedback.status : "idle"}
-        pendingLabel="Removing"
-        successLabel="Removed"
-        onClick={() => removeFeedback.run([row.id])}
-        aria-label={`Take ${who} off this campaign`}
-      >
-        Remove
-      </ActionButton>
+      // One quiet ⋯ per row rather than a bordered button on every line: taking someone
+      // off is occasional, and a column of identical buttons outweighs the names.
+      <RowMenu
+        label={who}
+        items={[
+          {
+            id: "remove",
+            label: "Take off this campaign",
+            tone: "danger",
+            icon: <UserMinus aria-hidden className="h-3.5 w-3.5" />,
+            disabled: !canWrite,
+            hint: refusal,
+            ariaLabel: `Take ${who} off this campaign`,
+            onSelect: () => removeFeedback.run([row.id]),
+          },
+        ]}
+      />
     ) : null;
+  const removing = (row: ContactResult) => remove.isPending && remove.variables?.[0] === row.id;
 
   return (
     <div className="space-y-4">
@@ -198,32 +208,67 @@ export function ContactResults({
         )
       ) : (
         <>
-          <ul aria-label="People on this campaign" className="divide-y divide-line border-y border-line">
-            {data.items.map((row) => {
-              const who = row.name?.trim() || formatPhone(row.phone_e164);
-              return (
-                <li
-                  key={row.id}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_6.5rem] sm:gap-x-6"
-                >
-                  <div className="col-start-1 row-start-1 min-w-0">
-                    <p className="truncate text-body font-medium text-ink">{who}</p>
-                    {row.name?.trim() ? (
-                      <p className="text-meta tabular-nums text-ink-muted">{formatPhone(row.phone_e164)}</p>
-                    ) : null}
-                  </div>
-                  {editable ? null : (
-                    <div className="col-start-1 row-start-2 min-w-0 sm:col-start-2 sm:row-start-1">
-                      <PersonOutcome row={row} maxAttempts={maxAttempts} />
-                    </div>
+          <div className="overflow-hidden rounded-card border border-line">
+            <table aria-label="People on this campaign" className="w-full table-fixed border-collapse text-left">
+              <thead className="bg-surface-muted">
+                <tr className="text-meta text-ink-muted">
+                  <th scope="col" className={`${CELL} font-medium`}>
+                    Person
+                  </th>
+                  {editable ? (
+                    <th scope="col" className={`${CELL} hidden font-medium sm:table-cell`}>
+                      Phone
+                    </th>
+                  ) : (
+                    <th scope="col" className={`${CELL} font-medium`}>
+                      What happened
+                    </th>
                   )}
-                  <div className="col-start-2 row-span-2 row-start-1 self-center justify-self-end sm:col-start-3 sm:row-span-1">
-                    {action(row, who)}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                  <th scope="col" className={`${CELL} ${editable ? "w-14" : "w-14 sm:w-32"}`}>
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {data.items.map((row) => {
+                  const named = row.name?.trim();
+                  const who = named || formatPhone(row.phone_e164);
+                  return (
+                    <tr
+                      key={row.id}
+                      aria-busy={removing(row) || undefined}
+                      className={`align-middle transition-opacity duration-(--duration-fast) ${removing(row) ? "opacity-50" : ""}`}
+                    >
+                      <td className={CELL}>
+                        <p className="truncate text-body font-medium text-ink">{who}</p>
+                        {named ? (
+                          <p className={`text-meta tabular-nums text-ink-muted ${editable ? "sm:hidden" : ""}`}>
+                            {formatPhone(row.phone_e164)}
+                          </p>
+                        ) : null}
+                        {/* Before launch the only state worth a mark is one that stops a call. */}
+                        {editable && row.outcome !== "not_called" ? (
+                          <StatusPill tone={OUTCOME_TONE[row.outcome]} className="mt-1">
+                            {OUTCOME_WORDS[row.outcome]}
+                          </StatusPill>
+                        ) : null}
+                      </td>
+                      {editable ? (
+                        <td className={`${CELL} hidden text-body tabular-nums text-ink-muted sm:table-cell`}>
+                          {named ? formatPhone(row.phone_e164) : ""}
+                        </td>
+                      ) : (
+                        <td className={CELL}>
+                          <PersonOutcome row={row} maxAttempts={maxAttempts} />
+                        </td>
+                      )}
+                      <td className={`${CELL} text-right`}>{action(row, who)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {pages > 1 && <Pagination count={pages} page={page} onPageChange={setPage} label="People pages" />}
         </>
       )}
