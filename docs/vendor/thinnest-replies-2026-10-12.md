@@ -2449,7 +2449,7 @@ measured on production usage 20 Oct 2026, rememory 530cc6d6). It helps only if a
 ThinnestAI call can speak with it; a standalone API we would have to put in the call ourselves
 does not fit, because ThinnestAI hosts the whole call.
 
-## 46. Reply to §45 (DRAFTED 4 Nov 2026, unsent)
+## 46. Reply to §45 (final wording 4 Nov 2026, for the founder to send; production had 35 calls / 47 min in Oct, 5 / 9 min in Nov to date, all tests)
 
 > Subject: Re: Text-To-Speech API
 >
@@ -2472,7 +2472,13 @@ does not fit, because ThinnestAI hosts the whole call.
 >    DPA and sub-processor list?
 > 6. **Limits:** concurrent streams, and what a caller hears if it is slow or down.
 >
-> Volume: about <MINUTES> call minutes a month today, and <EXPECTED> expected by <MONTH>.
+> Before deciding, we would like to place a few real calls with it, in Telugu first, to hear
+> how natural and human it sounds on the phone. Could you switch it on for our account for a
+> test, or tell us how to try it on a call?
+>
+> On volume: we are not live with clients yet, only test calls so far (about 47 minutes in
+> October), so we cannot give a real monthly figure. We will share one once our first clients
+> are live.
 >
 > Thanks,
 > Umesh
