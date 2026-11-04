@@ -870,6 +870,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/script/proposal", {}, {}),
     ("DELETE", "/v1/agents/{agent_id}/script/proposal/{proposal_id}", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/apply", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/fix-lines", {"script": {}}, {}),
+    ("POST", "/v1/agents/{agent_id}/script/proposal/starter", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/undo", {}, {}),
     # The Actions lane. The `{agent_id}` routes all gate on `_assert_agent` (RLS) first, so
     # even the `{tool_id}` ones refuse a neighbour's agent at 404 before the tool is touched;

@@ -27,9 +27,9 @@ export const NEW_FOLLOW_UP_PROMPT = "Make a new Follow-up. Describe what should 
 function withoutSummary(
   step: FollowUpStarterOut["steps"][number],
 ): FollowUpCreateIn["steps"][number] {
-  const sent: Partial<typeof step> = { ...step };
-  delete sent.summary;
-  return sent as FollowUpCreateIn["steps"][number];
+  const { summary, ...sent } = step;
+  void summary;
+  return sent;
 }
 
 /** Opens Pip with the request written; the owner finishes the sentence and presses Ask. */

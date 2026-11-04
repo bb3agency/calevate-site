@@ -17,12 +17,12 @@ import Link from "next/link";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
-import { useUpdateAction, type ActionTool, type ActionToolInput } from "@/lib/api/actions";
+import { useUpdateAction, type ActionTool } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
 
 import { afterCallHome } from "./jobs";
-import { fromParam, toParam } from "./params";
+import { KINDS, fromParam, toParam } from "./params";
 
 export function AfterCallMove({
   tool,
@@ -37,8 +37,9 @@ export function AfterCallMove({
   const update = useUpdateAction(session, agentId);
   const feedback = useActionFeedback(update, { errorDisplay: "inline" });
   const home = afterCallHome(tool);
+  const kind = KINDS.find((k) => k === tool.kind);
 
-  if (home === "during_call") {
+  if (home === "during_call" && kind !== undefined) {
     return (
       <NoticeBox
         tone="info"
@@ -52,7 +53,7 @@ export function AfterCallMove({
               update.mutate({
                 toolId: tool.id,
                 body: {
-                  kind: tool.kind as ActionToolInput["kind"],
+                  kind,
                   provider: tool.provider,
                   name: tool.name,
                   description: tool.description,
