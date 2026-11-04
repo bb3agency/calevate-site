@@ -57,7 +57,7 @@ from apps.api.billing.number_rental import (
     rental_period_start,
     today_ist,
 )
-from apps.api.campaigns.number_pricing import attested_price_inr, require_attested_price_inr
+from apps.api.campaigns.number_pricing import attested_price_inr
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -302,6 +302,9 @@ class RecordedEngineNumber:
     #: Why a number given to an agent in the client's own workspace could not be moved there
     #: yet (recorded, and answering nobody until it is); None when moved or not needed.
     move_refusal: str | None = None
+    #: A rented number recorded before any monthly price was attested: the client is not
+    #: charged until one is, then from its next renewal.
+    awaiting_price: bool = False
 
 
 async def record_engine_number(
@@ -393,7 +396,12 @@ async def record_engine_number(
     )
     if not move_after:
         await assert_same_workspace(session, number_ref=vendor_ref, agent_id=agent_id)
-    price = await require_attested_price_inr(session) if held.engine_owned else None
+    # A rented number with no attested monthly price yet is recorded unpriced rather than
+    # refused: the operator is giving a number Calevate already pays for, and the daily
+    # number sweep prices it from its next renewal once a price is attested
+    # (`price_recorded_number`), so the client is never back-charged.
+    price = await attested_price_inr(session) if held.engine_owned else None
+    awaiting_price = bool(held.engine_owned) and price is None
     declared = series or series_for_e164(held.e164) or "standard"
     number_id = await agents_service.provision_number(
         session,
@@ -461,6 +469,7 @@ async def record_engine_number(
         platform_held=platform_held,
         first_period=first_period,
         move_refusal=move_refusal,
+        awaiting_price=awaiting_price,
     )
 
 

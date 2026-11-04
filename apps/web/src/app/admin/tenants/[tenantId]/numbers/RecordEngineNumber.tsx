@@ -9,6 +9,7 @@
  * rate (its first month is collected now) and tells the platform which agent answers it.
  */
 
+import Link from "next/link";
 import { useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -21,7 +22,11 @@ import {
 import { useRecordEngineNumber, type RecordedEngineNumber } from "@/lib/api/numbers";
 import type { components } from "@/lib/api/schema";
 
+import { configHref } from "@/app/admin/ops/config/configSections";
+
 import { firstPeriodPhrase } from "./firstPeriod";
+
+const NUMBER_PRICE_HREF = configHref("billing", { panel: "number_price" });
 
 type Agent = components["schemas"]["EngineAgentOut"];
 type Direction = "inbound" | "outbound" | "both";
@@ -45,7 +50,21 @@ export function RecordEngineNumber({
   const [direction, setDirection] = useState<Direction>("both");
   const [agentId, setAgentId] = useState(NO_AGENT);
 
-  if (record.data) return <p className="text-meta text-ink-muted">{recordedSentence(record.data)}</p>;
+  if (record.data) {
+    return (
+      <p className="text-meta text-ink-muted">
+        {recordedSentence(record.data)}
+        {record.data.awaiting_price && (
+          <>
+            {" "}
+            <Link href={NUMBER_PRICE_HREF} className="font-medium text-brand underline-offset-2 hover:underline">
+              Set the number price
+            </Link>
+          </>
+        )}
+      </p>
+    );
+  }
   if (!open) {
     return (
       <button
@@ -122,8 +141,9 @@ export function RecordEngineNumber({
 }
 
 function recordedSentence(recorded: RecordedEngineNumber): string {
-  const price =
-    recorded.client_inr_per_month === null
+  const price = recorded.awaiting_price
+    ? "No monthly number price is set yet, so the client is not charged for it. Once you set one, it is charged from the next month."
+    : recorded.client_inr_per_month === null
       ? "Brought on a carrier account, so there is no monthly charge."
       : firstPeriodPhrase(recorded.first_period, recorded.client_inr_per_month);
   const platform =

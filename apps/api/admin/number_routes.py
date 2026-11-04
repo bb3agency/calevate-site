@@ -737,6 +737,9 @@ class RecordedEngineNumberOut(BaseModel):
     #: A Calevate number given to an agent in the client's own workspace is moved there at
     #: once; this is why it could not be yet (it answers nobody until moved), else null.
     move_refusal: str | None = None
+    #: Rented, and recorded before any monthly number price was attested: the client is not
+    #: charged until one is set, then from its next renewal.
+    awaiting_price: bool = False
 
 
 @router.post(
@@ -749,8 +752,9 @@ class RecordedEngineNumberOut(BaseModel):
         "For a number rented in the voice platform's own console. Refused with "
         "`engine_number_not_held` when the platform does not hold it, "
         "`engine_number_answered_by_other_client` when another client's agent answers it, "
-        "`number_taken` when it is already recorded, and `number_price_not_attested` for a "
-        "rented number while no monthly price is attested. A rented number's first month is "
+        "`number_taken` when it is already recorded. A rented number recorded while no monthly "
+        "price is attested comes back `awaiting_price` and is charged from its next renewal "
+        "once one is. A rented number's first month is "
         "collected now and it renews monthly from today. A number Calevate's own test calls "
         "ring from (the shared free-trial number, the forwarding test's second number) is "
         "taken off that use first, so free trials place no test call until another is set; "
@@ -817,6 +821,7 @@ async def record_tenant_engine_number(
         platform_held=recorded.platform_held,
         first_period=recorded.first_period,
         move_refusal=recorded.move_refusal,
+        awaiting_price=recorded.awaiting_price,
     )
 
 

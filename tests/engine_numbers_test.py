@@ -396,6 +396,30 @@ async def test_the_trial_number_answered_by_calevates_line_agent_can_be_given(
     assert vendor.numbers[trial]["callingAgent"] is None
 
 
+async def test_a_rented_number_is_recorded_unpriced_until_a_price_is_set(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Founder, 4 Nov 2026: giving a client a number Calevate holds was refused while no
+    monthly number price was attested. It is recorded, the client is not charged, and the
+    daily sweep prices it from its next renewal once a price is set."""
+    _admin_id, headers = await _admin()
+    tenant_id, _agent_id, _ref = await _client_with_agent()
+    number = _number()
+    vendor.hold(number)
+
+    async def no_price(_session: Any) -> None:
+        return None
+
+    monkeypatch.setattr(engine_numbers, "attested_price_inr", no_price)
+
+    recorded = await _record(tenant_id, {"e164": f"+{number}"}, headers)
+
+    assert recorded.status_code == 201, recorded.text
+    assert recorded.json()["awaiting_price"] is True
+    assert recorded.json()["client_inr_per_month"] is None
+    assert recorded.json()["first_period"] is None
+
+
 async def test_the_record_route_refuses_off_the_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     _admin_id, headers = await _admin()
     tenant_id, _agent_id, _ref = await _client_with_agent()
