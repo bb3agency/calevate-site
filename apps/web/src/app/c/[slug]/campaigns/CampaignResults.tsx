@@ -44,6 +44,13 @@ function percent(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
+/** Under "Goal reached": who it is out of, and the people the reading could not place. */
+function goalHint(goal: NonNullable<Results["goal"]>, answered: number): string {
+  if (answered === 0) return "Fills in as people answer";
+  const unsure = goal.unclear + goal.not_judged;
+  return unsure > 0 ? `People who answered. ${formatCount(unsure)} unclear` : "People who answered";
+}
+
 /**
  * WHAT THE CAMPAIGN ACHIEVED (FLOWS §5): reach, how the conversations went, leads, spend.
  *
@@ -77,6 +84,16 @@ export function CampaignResults({
   const sentiment = Object.entries(r.sentiment).filter(([, n]) => n > 0);
   return (
     <div className="space-y-8">
+      {/* The campaign's own measure of success, so it leads rather than sharing the row. */}
+      {r.goal && (
+        <div className="border-b border-line pb-6">
+          <Metric
+            label="Goal reached"
+            value={`${formatCount(r.goal.reached)} of ${formatCount(r.people_answered)}`}
+            hint={goalHint(r.goal, r.people_answered)}
+          />
+        </div>
+      )}
       <MetricRow label="Campaign results">
         <Metric
           label="Picked up"

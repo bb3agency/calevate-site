@@ -100,6 +100,7 @@ from apps.api.agents.service import (
     dispatch_call,
 )
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.campaigns.brief import campaign_call_reason
 from apps.api.campaigns.complaint_spike import check_complaint_spike
 from apps.api.campaigns.contact_details import contact_details_of
 from apps.api.campaigns.controls import account_pause_reason, auto_pause
@@ -937,12 +938,15 @@ async def _dispatch_for_campaign(
 
         # The number the campaign chose to call from rides every dial, so the caller id is
         # the campaign's choice and not whichever of the agent's numbers the engine picks.
-        agent_id, number_id = (
+        # Its purpose and goal ride every dial too, as the call's reason, so the agent knows
+        # why it rings and what to aim for.
+        agent_id, number_id, purpose, goal = (
             await session.execute(
-                text("SELECT agent_id, number_id FROM campaigns WHERE id = :cid"),
+                text("SELECT agent_id, number_id, purpose, goal FROM campaigns WHERE id = :cid"),
                 {"cid": campaign_id},
             )
-        ).first() or (None, None)
+        ).first() or (None, None, None, None)
+        reason = campaign_call_reason(purpose, goal)
     # The claim is COMMITTED here — see this function's docstring. Everything below
     # runs in its own short transaction, so losing one loses at most one dial's
     # bookkeeping and never un-rings a phone.
@@ -1026,7 +1030,7 @@ async def _dispatch_for_campaign(
                     lead_id=None,
                     phone_e164=phone,
                     lead_name=name,
-                    context_note=None,
+                    context_note=reason,
                     on_reserved=_link_contact_to_call(contact_id, campaign_id, phone),
                     number_id=number_id,
                     contact_details=contact_details_of(custom),

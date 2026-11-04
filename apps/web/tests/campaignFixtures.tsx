@@ -32,6 +32,8 @@ export function progressFixture(over: Partial<CampaignProgress> = {}): CampaignP
     classification: "promotional",
     agent_id: FIXTURE_AGENT_ID,
     agent_name: "Outbound follow-up",
+    purpose: "Our Diwali offer on service plans",
+    goal: "They book a service visit",
     number_id: null,
     consent_source: null,
     consent_collected_at: null,

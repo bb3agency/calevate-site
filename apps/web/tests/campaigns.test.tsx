@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
 import type { Agent } from "@/lib/api/agents";
+import type { CallOutcomes } from "@/lib/api/callOutcomes";
 import type { CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
@@ -119,10 +120,31 @@ function newRoutes(extra: Routes = {}): Routes {
     "/v1/agents": [AGENT],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],
+    "/v1/call-outcomes": OUTCOMES,
     ...dltRegistrationRoute(),
     ...extra,
   };
 }
+
+/** The agent's own outcomes: the two that move a lead up are offered as goals. */
+const OUTCOMES: CallOutcomes = {
+  max_outcomes: 8,
+  agents: [
+    {
+      id: AGENT_ID,
+      name: "Outbound follow-up",
+      direction: "outbound",
+      status: "live",
+      starting: false,
+      draft: "done",
+      outcomes: [
+        { key: "booked_visit", label: "Booked a visit", meaning: "", lead_status: "hot" },
+        { key: "wants_price", label: "Wants the price list", meaning: "", lead_status: "interested" },
+        { key: "not_now", label: "Not now", meaning: "", lead_status: "contacted" },
+      ],
+    },
+  ],
+};
 
 /** One campaign's page, with `progress` and the launch check answered as given. */
 function detail(progress: unknown, extra: Routes = {}): Routes {
@@ -152,6 +174,16 @@ function next(): void {
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
 }
 
+const PURPOSE_FIELD = "Why are you calling them?";
+const GOAL_FIELD = "What should a good call end with?";
+
+/** The basics step's three typed answers: the name, why it calls and the goal. */
+function fillBasics(name: string, purpose = "Our Diwali service offer", goal = "They book a visit"): void {
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
+  fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), { target: { value: purpose } });
+  fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: goal } });
+}
+
 /** Fills the basics and the list, then walks to the review step. */
 async function fillNew(
   container: HTMLElement,
@@ -160,7 +192,7 @@ async function fillNew(
 ): Promise<void> {
   if (!atWhoToCall) {
     await screen.findByRole("heading", { name: "The basics" });
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
+    fillBasics(name);
     next();
   }
   await screen.findByRole("heading", { name: "Who should we call?" });
@@ -179,7 +211,7 @@ describe("the create page's consent declaration", () => {
     // assertion nobody made, so the page opens empty and refuses to create without one.
     const { container } = await renderClientPage(newCampaignPage(), newRoutes());
     await screen.findByRole("heading", { name: "The basics" });
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "List" } });
+    fillBasics("List");
     next();
     await screen.findByRole("heading", { name: "Who should we call?" });
     expect(consentRadios(container)).toHaveLength(5);
@@ -470,7 +502,7 @@ describe("creating a campaign", () => {
       }),
     );
     await screen.findByRole("heading", { name: "The basics" });
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Hot leads" } });
+    fillBasics("Hot leads");
     next();
     await screen.findByRole("heading", { name: "Who should we call?" });
     fireEvent.click(screen.getByRole("checkbox", { name: "Also call people from your leads" }));
@@ -771,5 +803,114 @@ describe("Pip on the campaign pages", () => {
       detail(progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z" })),
     );
     await screen.findByRole("button", { name: /^Ask Pip about this campaign/ });
+  });
+});
+
+describe("what a campaign is for", () => {
+  it("asks why it calls and the goal before the basics are done", async () => {
+    await renderClientPage(newCampaignPage(), newRoutes());
+    await screen.findByRole("heading", { name: "The basics" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Visits" } });
+    next();
+    expect((await screen.findByRole("alert")).textContent).toContain("Say why you are calling");
+    fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), { target: { value: "Our new offer" } });
+    fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: "**Book**" } });
+    next();
+    expect((await screen.findByRole("alert")).textContent).toContain("plain words");
+    expect(screen.getByRole("heading", { name: "The basics" })).toBeTruthy();
+  });
+
+  it("offers the agent's own outcomes that move a lead up as goals, and sends both lines", async () => {
+    const rendered = await renderClientPage(
+      newCampaignPage(),
+      newRoutes({
+        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
+      }),
+    );
+    await screen.findByRole("heading", { name: "The basics" });
+    const suggestions = await screen.findByRole("group", { name: "Goal suggestions" });
+    expect(within(suggestions).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Booked a visit",
+      "Wants the price list",
+    ]);
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Visits" } });
+    fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), {
+      target: { value: "  Our new   service plan " },
+    });
+    fireEvent.click(within(suggestions).getByRole("button", { name: "Booked a visit" }));
+    expect((screen.getByRole("textbox", { name: GOAL_FIELD }) as HTMLInputElement).value).toBe("Booked a visit");
+    next();
+    await fillNew(rendered.container, "Visits", { atWhoToCall: true });
+    expect(rendered.container.textContent).toContain("Our new service plan");
+    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
+    const created = await vi.waitFor(() => {
+      const call = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns");
+      expect(call).toBeDefined();
+      return JSON.parse(call!.body ?? "{}");
+    });
+    expect(created.purpose).toBe("Our new service plan");
+    expect(created.goal).toBe("Booked a visit");
+  });
+
+  it("reads them back on Edit and sends the changed goal", async () => {
+    const rendered = await renderClientPage(
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture(),
+        [`PATCH /v1/campaigns/${CAMPAIGN_ID}`]: new Response(null, { status: 204 }),
+      }),
+    );
+    const goal = (await screen.findByRole("textbox", { name: GOAL_FIELD })) as HTMLInputElement;
+    expect(goal.value).toBe("They book a service visit");
+    expect((screen.getByRole("textbox", { name: PURPOSE_FIELD }) as HTMLInputElement).value).toBe(
+      "Our Diwali offer on service plans",
+    );
+    fireEvent.change(goal, { target: { value: "They renew the plan" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const sent = await vi.waitFor(() => {
+      const call = rendered.calls.find((c) => c.method === "PATCH");
+      expect(call).toBeDefined();
+      return JSON.parse(call!.body ?? "{}");
+    });
+    expect(sent.goal).toBe("They renew the plan");
+    expect(sent.purpose).toBe("Our Diwali offer on service plans");
+  });
+
+  it("shows the goal on the campaign, how many reached it, and each person's verdict", async () => {
+    const { container } = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ status: "running", launched_at: "2026-10-14T04:30:00Z", total: 1 }), {
+        [contactsPath()]: contactsFixture({
+          total: 1,
+          counts: { ...contactsFixture().counts, connected: 1 },
+          items: [
+            {
+              id: "cc-1",
+              name: "Priya",
+              phone_e164: "+919876543210",
+              outcome: "connected",
+              attempts: 1,
+              last_attempt_at: "2026-10-14T05:00:00Z",
+              will_retry: false,
+              next_attempt_at: null,
+              call_id: "call-9",
+              goal_reached: "yes",
+            },
+          ],
+        }),
+        [`/v1/campaigns/${CAMPAIGN_ID}/results`]: resultsFixture({
+          contacts: 1,
+          tried: 1,
+          people_answered: 4,
+          goal: { reached: 3, not_reached: 0, unclear: 1, not_judged: 0 },
+        }),
+      }),
+    );
+    await screen.findByText("Priya");
+    expect(container.textContent).toContain("They book a service visit");
+    expect(container.textContent).toContain("Goal reached");
+    expect(container.textContent).toContain("3 of 4");
+    expect(container.textContent).toContain("1 unclear");
   });
 });

@@ -27,6 +27,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
 import { lookup } from "@/lib/lookup";
 
+import { briefProblem, briefValue } from "./BriefFields";
 import { ConsentProvenanceFields } from "./ConsentProvenance";
 import { LeadPicker } from "./LeadPicker";
 import { ContactEditor } from "./ContactEditor";
@@ -107,7 +108,7 @@ export function NewCampaignFlow({
     if (index === 0) {
       if (form.name.trim().length < 2) return "Give this campaign a name.";
       if (!selectedAgentId) return "Choose the agent that makes these calls.";
-      return null;
+      return briefProblem(form);
     }
     if (index === 1) {
       if (counts.ready === 0 && !form.fromLeads) {
@@ -231,6 +232,8 @@ export function NewCampaignFlow({
           <SettingRows className="border-y border-line">
             <ReviewRow label="Name" value={form.name.trim() || "Not named yet"} onChange={() => goTo(0)} />
             <ReviewRow label="Agent" value={selectedAgent?.name ?? "Not chosen"} onChange={() => goTo(0)} />
+            <ReviewRow label="Why you are calling" value={briefValue(form.purpose) ?? "Not said"} onChange={() => goTo(0)} />
+            <ReviewRow label="Goal" value={briefValue(form.goal) ?? "Not said"} onChange={() => goTo(0)} />
             <ReviewRow
               label="Kind of call"
               value={CLASSIFICATIONS.find((c) => c.value === form.classification)?.label ?? form.classification}

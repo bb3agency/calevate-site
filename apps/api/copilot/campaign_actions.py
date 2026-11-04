@@ -28,8 +28,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.plans import IST
+from apps.api.campaigns import brief, scheduling
 from apps.api.campaigns import controls as campaign_controls
-from apps.api.campaigns import scheduling
 from apps.api.campaigns import service as campaigns_service
 from apps.api.campaigns.routes import (
     MAX_CONTACT_CUSTOM_FIELDS,
@@ -70,6 +70,32 @@ _BILLED_PER_MINUTE: Final = (
 )
 _ID: Final = {"type": "string", "description": "The campaign's id, from `campaigns_list`."}
 
+#: The two brief fields as Pip's tools describe them; one wording for create and edit.
+BRIEF_SCHEMA: Final = {
+    "purpose": {
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+        "description": (
+            f"Why these people are called, in the person's words, at most {brief.PURPOSE_MAX} "
+            "characters, plain words."
+        ),
+    },
+    "goal": {
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+        "description": (
+            f"What a good call ends with, e.g. book a visit; at most {brief.GOAL_MAX} "
+            "characters, plain words."
+        ),
+    },
+}
+
+
+def brief_line(value: str | None, *, goal: bool) -> str | None:
+    """A purpose or goal cleaned as the routes clean it, or a refusal Pip can relay."""
+    try:
+        return brief.clean_goal(value) if goal else brief.clean_purpose(value)
+    except brief.BriefLineError as exc:
+        raise WriteRefusedError(f"{exc} Ask the person to say it again in short") from exc
+
 
 async def _campaign(session: AsyncSession, campaign_id: UUID) -> tuple[str, str]:
     """The campaign's name and status; a 404 for one this account cannot see (RLS)."""
@@ -108,7 +134,15 @@ def _hours_words(hours: Mapping[str, Any] | None) -> str:
 # =========================================================================================
 
 #: The draft columns this tool may change, in the order the card lists them.
-_EDITED: Final = ("name", "agent_id", "concurrency", "calling_hours", "retry_policy")
+_EDITED: Final = (
+    "name",
+    "purpose",
+    "goal",
+    "agent_id",
+    "concurrency",
+    "calling_hours",
+    "retry_policy",
+)
 
 
 class _EditArgs(BaseModel):
@@ -116,6 +150,8 @@ class _EditArgs(BaseModel):
 
     campaign_id: UUID
     name: Annotated[str, Field(min_length=2, max_length=120)] | None = None
+    purpose: Annotated[str, Field(max_length=400)] | None = None
+    goal: Annotated[str, Field(max_length=400)] | None = None
     agent_id: UUID | None = None
     concurrency: Annotated[int, Field(ge=1, le=10)] | None = None
     #: "HH:MM-HH:MM" IST, or "all" for the whole allowed window.
@@ -138,7 +174,8 @@ async def _snapshot(session: AsyncSession, campaign_id: UUID, *, lock: bool) -> 
     row = (
         await session.execute(
             text(
-                "SELECT status, name, agent_id, concurrency, calling_hours, retry_policy "
+                "SELECT status, name, agent_id, concurrency, calling_hours, retry_policy, "
+                "purpose, goal "
                 "FROM campaigns WHERE id = :cid" + (" FOR UPDATE" if lock else "")
             ),
             {"cid": campaign_id},
@@ -153,6 +190,8 @@ async def _snapshot(session: AsyncSession, campaign_id: UUID, *, lock: bool) -> 
         "concurrency": int(row[3]),
         "calling_hours": row[4],
         "retry_policy": row[5],
+        "purpose": row[6],
+        "goal": row[7],
     }
 
 
@@ -161,6 +200,11 @@ def _edit_changes(parsed: _EditArgs, current: Mapping[str, Any]) -> dict[str, An
     changes: dict[str, Any] = {}
     if parsed.name is not None:
         changes["name"] = strip_invisible(parsed.name.strip())
+    # An empty string clears either; null leaves it as it is.
+    if parsed.purpose is not None:
+        changes["purpose"] = brief_line(parsed.purpose, goal=False)
+    if parsed.goal is not None:
+        changes["goal"] = brief_line(parsed.goal, goal=True)
     if parsed.agent_id is not None:
         changes["agent_id"] = parsed.agent_id
     if parsed.concurrency is not None:
@@ -195,6 +239,8 @@ def _edit_changes(parsed: _EditArgs, current: Mapping[str, Any]) -> dict[str, An
 def _setting_words(column: str, value: Any, agent_names: Mapping[str, str]) -> str:
     if column == "name":
         return f"name “{value}”"
+    if column in ("purpose", "goal"):
+        return f"{column} “{value}”" if value else f"no {column}"
     if column == "agent_id":
         return f"agent “{agent_names.get(str(value), 'unknown')}”"
     if column == "concurrency":
@@ -295,6 +341,8 @@ async def _invert_edit(session: AsyncSession, actor: ToolActor, record: UndoReco
             "concurrency": prior["concurrency"],
             "calling_hours": prior["calling_hours"],
             "retry_policy": prior["retry_policy"],
+            "purpose": prior.get("purpose"),
+            "goal": prior.get("goal"),
         },
     )
     return "The campaign's earlier settings are back."
@@ -310,11 +358,13 @@ CAMPAIGN_EDIT: Final = ActionTool(
     where="on the campaign's Edit page",
     schema=action_schema(
         "campaign_edit",
-        "Change a DRAFT campaign's name, agent, calls at once, calling hours or how often "
-        "each person is tried. Leave out what stays." + DOES_IT,
+        "Change a DRAFT campaign's name, purpose, goal, agent, calls at once, calling hours "
+        'or how often each person is tried. Leave out what stays; "" clears purpose or goal.'
+        + DOES_IT,
         {
             "campaign_id": _ID,
             "name": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+            **BRIEF_SCHEMA,
             "agent_id": {"anyOf": [{"type": "string"}, {"type": "null"}]},
             "concurrency": {
                 "anyOf": [{"type": "integer"}, {"type": "null"}],

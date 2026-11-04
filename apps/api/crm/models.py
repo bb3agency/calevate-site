@@ -12,6 +12,7 @@ from uuid import UUID
 
 from calevate_shared.events import NOT_PLACED_REASONS, CallDirection, CallStatus, Speaker
 from calevate_shared.extraction import (
+    GOAL_VERDICTS,
     LEGACY_OUTCOME_TAGS,
     OUTCOME_HINTS,
     OutcomeTag,
@@ -143,6 +144,9 @@ class Call(PKMixin, TimestampMixin, Base):
             name="follow_up_state",
         ),
         CheckConstraint("headline IS NULL OR char_length(headline) <= 90", name="headline_length"),
+        CheckConstraint(
+            f"goal_reached IS NULL OR goal_reached IN {GOAL_VERDICTS!r}", name="goal_reached_enum"
+        ),
         CheckConstraint(f"sentiment IS NULL OR sentiment IN {SENTIMENTS!r}", name="sentiment_enum"),
         CheckConstraint(
             f"knowledge_state IS NULL OR knowledge_state IN {tuple(sorted(KNOWLEDGE_STATES))!r}",
@@ -312,6 +316,9 @@ class Call(PKMixin, TimestampMixin, Base):
     #: removal never rewrites a past call. Both NULL, or both set.
     business_outcome: Mapped[str | None] = mapped_column(Text)
     business_outcome_label: Mapped[str | None] = mapped_column(Text)
+    #: Whether the call reached its campaign's goal (`campaigns.goal`), as the post-call
+    #: reading judged it from the caller's words. NULL without a goal or without a reading.
+    goal_reached: Mapped[str | None] = mapped_column(String)
     sentiment: Mapped[str | None] = mapped_column(String)
     #: The English summary. Precedence (`workers/pipeline._summaries`): the engine's own
     #: when it is written in Latin script, else the extraction model's.

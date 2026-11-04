@@ -20,6 +20,7 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
+import { briefProblem, briefValue } from "./BriefFields";
 import { windowRefusal } from "./NewCampaignFlow";
 import { BasicsStep, PaceRows, campaignNumbers } from "./NewCampaignSteps";
 import { useCampaignForm } from "./campaignForm";
@@ -55,6 +56,8 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
   useEffect(() => {
     if (!data || loaded) return;
     form.setName(data.name);
+    form.setPurpose(data.purpose ?? "");
+    form.setGoal(data.goal ?? "");
     form.setAgentId(data.agent_id);
     if (data.classification === "promotional" || data.classification === "service") {
       form.setClassification(data.classification as Classification);
@@ -124,13 +127,19 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
   const save = () => {
     const window = form.restrictHours ? windowRefusal(form.windowStart, form.windowEnd) : null;
     const next =
-      form.name.trim().length < 2 ? "Give this campaign a name." : !selectedAgentId ? "Choose the agent that makes these calls." : window;
+      form.name.trim().length < 2
+        ? "Give this campaign a name."
+        : !selectedAgentId
+          ? "Choose the agent that makes these calls."
+          : (briefProblem(form) ?? window);
     setProblem(next);
     if (next) return;
     const usable = campaignNumbers(numbers.data).some((n) => n.id === form.numberId);
     update.mutate(
       {
         name: form.name.trim(),
+        purpose: briefValue(form.purpose),
+        goal: briefValue(form.goal),
         agent_id: selectedAgentId,
         classification: form.classification,
         number_id: usable ? form.numberId : null,

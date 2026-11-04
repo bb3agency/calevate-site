@@ -82,6 +82,7 @@ from apps.api.copilot.actions import (
     principal_of as _principal_of,
 )
 from apps.api.copilot.agent_setup_actions import screen_guide_hint
+from apps.api.copilot.campaign_actions import BRIEF_SCHEMA, brief_line
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_REMOVE
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.set_actions import CAMPAIGN_ADD_LEADS, LEADS_BULK_UPDATE
@@ -1029,6 +1030,8 @@ class _CampaignCreateArgs(BaseModel):
     name: str
     agent_id: UUID
     classification: CampaignClassification
+    purpose: Annotated[str, Field(max_length=400)] | None = None
+    goal: Annotated[str, Field(max_length=400)] | None = None
 
 
 async def _plan_campaign_create(
@@ -1037,14 +1040,17 @@ async def _plan_campaign_create(
     del actor
     parsed = parse_args(_CampaignCreateArgs, args)
     name = _clean_name(parsed.name, what="campaign")
+    purpose = brief_line(parsed.purpose, goal=False)
+    goal = brief_line(parsed.goal, goal=True)
     agent_name, _status = await _agent_name_status(session, parsed.agent_id)
     await _refuse_a_taken_campaign_name(session, name)
+    aim = f" Aim: {goal}." if goal else ""
     return Plan(
         object_id="",
         title="Create a draft campaign",
         summary=(
             f"Create a draft campaign “{name}” for {_CLASSIFICATION_WORDS[parsed.classification]}, "
-            f"made by “{agent_name}”. A draft calls nobody: it needs contacts and a launch."
+            f"made by “{agent_name}”.{aim} A draft calls nobody: it needs contacts and a launch."
         ),
         current=None,
         proposed=f"{name} — draft",
@@ -1054,6 +1060,8 @@ async def _plan_campaign_create(
             "name": name,
             "agent_id": str(parsed.agent_id),
             "classification": parsed.classification,
+            "purpose": purpose,
+            "goal": goal,
         },
     )
 
@@ -1074,6 +1082,8 @@ async def _execute_campaign_create(
         number_id=None,
         dlt_template_id=None,
         concurrency=3,
+        purpose=brief_line(parsed.purpose, goal=False),
+        goal=brief_line(parsed.goal, goal=True),
     )
     hint = await screen_guide_hint(session, parsed.agent_id, parsed.name)
     return Executed(
@@ -1155,9 +1165,10 @@ CAMPAIGN_CREATE: Final = ActionTool(
         "campaign_create",
         "Create a new outbound campaign as a DRAFT. A draft calls nobody until it has "
         "contacts and somebody launches it. Ask for a missing name, agent or kind of calls "
-        "in one short question first." + DOES_IT,
+        "in one short question first; ask why they call and the goal too." + DOES_IT,
         {
             "name": {"type": "string", "description": "What to call the campaign."},
+            **BRIEF_SCHEMA,
             "agent_id": {"type": "string", "description": "The agent that makes the calls."},
             "classification": {
                 "type": "string",

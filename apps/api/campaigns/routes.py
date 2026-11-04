@@ -21,12 +21,21 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
+from calevate_shared.extraction import GoalVerdict
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import AwareDatetime, Field, StringConstraints
+from pydantic import AfterValidator, AwareDatetime, Field, StringConstraints
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns import controls, engine_numbers, number_holds, results, scheduling, service
+from apps.api.campaigns import (
+    brief,
+    controls,
+    engine_numbers,
+    number_holds,
+    results,
+    scheduling,
+    service,
+)
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -101,10 +110,32 @@ def _retry_policy(payload: RetryPolicyIn | None) -> dict[str, Any] | None:
     return service.validated_retry_policy(payload.max_attempts, payload.gaps_minutes)
 
 
+def _purpose(value: str | None) -> str | None:
+    try:
+        return brief.clean_purpose(value)
+    except brief.BriefLineError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def _goal(value: str | None) -> str | None:
+    try:
+        return brief.clean_goal(value)
+    except brief.BriefLineError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+#: Why the campaign calls, one plain line (`campaigns/brief.py`); blank reads as none.
+PurposeIn = Annotated[str | None, Field(max_length=400), AfterValidator(_purpose)]
+#: What a good call ends with, one plain line; blank reads as none.
+GoalIn = Annotated[str | None, Field(max_length=400), AfterValidator(_goal)]
+
+
 class CreateCampaignIn(Strict):
     agent_id: UUID
     name: str = Field(min_length=2, max_length=120)
     classification: ClientClassification
+    purpose: PurposeIn = None
+    goal: GoalIn = None
     number_id: UUID | None = None
     dlt_template_id: UUID | None = None
     concurrency: int = Field(default=3, ge=1, le=10)
@@ -135,6 +166,9 @@ class UpdateCampaignIn(Strict):
     concurrency: int | None = Field(default=None, ge=1, le=10)
     calling_hours: CallingHoursIn | None = None
     retry_policy: RetryPolicyIn | None = None
+    #: Null or blank clears them.
+    purpose: PurposeIn = None
+    goal: GoalIn = None
 
 
 #: Fields that cannot be cleared: sending null for one is a 422, not an erase.
@@ -197,6 +231,9 @@ class ContactResultOut(Strict):
     next_attempt_at: datetime | None
     #: The last call to this person, for the link to the call's own page.
     call_id: UUID | None
+    #: Whether their latest answered call reached the campaign's goal; None when no
+    #: answered call was judged against one.
+    goal_reached: GoalVerdict | None = None
 
 
 class ContactResultsOut(Strict):
@@ -237,6 +274,16 @@ class FieldBreakdownOut(Strict):
     not_captured: int
 
 
+class GoalCountsOut(Strict):
+    """People answered, by the verdict on their latest answered call."""
+
+    reached: int
+    not_reached: int
+    unclear: int
+    #: Answered before the goal was set, or with no reading of the call yet.
+    not_judged: int
+
+
 class CampaignResultsOut(Strict):
     """A campaign's totals (FLOWS §5): reach, conversations, leads, spend."""
 
@@ -250,6 +297,9 @@ class CampaignResultsOut(Strict):
     connected_calls: int
     #: People with at least one answered call; each counts once (D-913).
     people_answered: int
+    #: Those people by whether their latest answered call reached the campaign's goal.
+    #: None while the campaign has no goal.
+    goal: GoalCountsOut | None = None
     average_call_s: int | None
     talk_seconds: int
     #: People by what their latest answered call came to (D-913).
@@ -493,6 +543,9 @@ class ProgressOut(Strict):
     classification: str
     agent_id: UUID
     agent_name: str
+    #: Why it calls and what a good call ends with; None when nobody has said.
+    purpose: str | None
+    goal: str | None
     number_id: UUID | None
     consent_source: str | None
     consent_collected_at: datetime | None
@@ -843,6 +896,8 @@ async def create_campaign(
             payload.consent_provenance.collected_at if payload.consent_provenance else None
         ),
         retry_policy=_retry_policy(payload.retry_policy),
+        purpose=payload.purpose,
+        goal=payload.goal,
     )
     if payload.consent_provenance is not None:
         provenance = payload.consent_provenance
@@ -1267,7 +1322,10 @@ async def resume(
     "/{campaign_id}",
     status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Change a draft's settings: name, agent, number, hours, calls at once, retries",
+    summary=(
+        "Change a draft's settings: name, purpose, goal, agent, number, hours, calls at once, "
+        "retries"
+    ),
 )
 async def update_campaign(
     campaign_id: UUID,

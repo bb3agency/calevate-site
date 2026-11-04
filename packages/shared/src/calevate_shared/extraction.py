@@ -45,6 +45,11 @@ LEGACY_OUTCOME_TAGS: tuple[LegacyOutcomeTag, ...] = (
     "dropped",
 )
 Sentiment = Literal["positive", "neutral", "negative"]
+#: Whether one answered call met its campaign's goal, as the post-call reading judged it from
+#: what the CALLER said. `unclear` is a real answer (the call never came to it), distinct
+#: from no verdict at all, which is a call with no goal to judge or no model answer.
+GoalVerdict = Literal["yes", "no", "unclear"]
+GOAL_VERDICTS: tuple[GoalVerdict, ...] = ("yes", "no", "unclear")
 
 #: The speaker labels the pipeline actually writes — `TranscriptTurn.speaker` is
 #: `Literal["agent", "caller"]` and `_persist_transcript` renders `f"{speaker}: {text}"`.
@@ -323,6 +328,8 @@ class ExtractionOutput(BaseModel):
     #: The key of the agent's own outcome the model chose (D-836), or None when none fitted
     #: or the request listed none. Only ever a key the request offered.
     business_outcome: str | None = None
+    #: Whether the call met its campaign's goal, when the request carried one; else None.
+    goal_reached: GoalVerdict | None = None
     out_of_scope: bool = False
     callback_requested: bool = False
     valid: bool = True
@@ -650,6 +657,7 @@ def build_extraction_prompt(
     languages: Sequence[str] = (),
     outcomes: Sequence[BusinessOutcome] = (),
     unlisted: bool = True,
+    goal: str | None = None,
 ) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
     scores the SAME prompt the pipeline uses (OPERATIONS §3).
@@ -657,6 +665,10 @@ def build_extraction_prompt(
     `outcomes` is the agent's own business outcomes (D-836); with them the answer also
     carries `business_outcome`, one of their keys or null. Without them the prompt is
     unchanged.
+
+    `goal` is the campaign's goal for a call a campaign placed, in the business's words
+    (`campaigns.goal`); with it the answer also carries `goal_reached`. Without it the
+    prompt is unchanged.
 
     `unlisted=False` leaves out the `unlisted` ask (D-889) for a schema with choice fields,
     which makes the prompt the one every reading used before it; `extract_call` asks that way
@@ -718,7 +730,7 @@ Also include:
     hung_up_early  the conversation never really started: silence, a wrong number, an
                    answering machine, or the caller hung up within the first exchange;
     answered       the agent dealt with what the caller wanted and nothing is left open.
-{_business_outcome_section(outcomes)}{_OUT_OF_SCOPE_LINE}
+{_business_outcome_section(outcomes)}{_goal_section(goal)}{_OUT_OF_SCOPE_LINE}
 - "callback_requested": true if the caller asked to be called back, in any language or
   script ("call back", "కాల్ బ్యాక్", "malli call cheyyandi", "वापस कॉल", "baad mein call").
 {_unlisted_section(spec) if unlisted else ""}
@@ -850,6 +862,33 @@ def _business_outcome_section(outcomes: Sequence[BusinessOutcome]) -> str:
     )
 
 
+def goal_verdict(raw: object) -> GoalVerdict | None:
+    """The model's `goal_reached` as a verdict, or None when it gave none we offered."""
+    word = raw.strip().lower() if isinstance(raw, str) else ""
+    return next((v for v in GOAL_VERDICTS if v == word), None)
+
+
+def _goal_section(goal: str | None) -> str:
+    """The `goal_reached` key, for a call a campaign with a goal placed; empty otherwise.
+
+    The goal is the business's own words, quoted on one line so it reads as data and cannot
+    open a new rule. It is judged from the caller's words, like every other key: the agent
+    saying "I have booked you" is an offer until the caller agrees to it.
+    """
+    if not goal:
+        return ""
+    quoted = " ".join(goal.split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
+    return (
+        '- "goal_reached": the business made this call to reach this goal: "'
+        + quoted
+        + '". One of:\n'
+        "    yes      the caller's own words show the goal was reached on this call;\n"
+        "    no       the caller declined it, or the call ended without it once it came up;\n"
+        "    unclear  the call never came to it, or the caller's answer was not clear.\n"
+        "  Judge it from what the CALLER said: the agent saying it is done is not enough.\n"
+    )
+
+
 def _numbered(transcript: str) -> str:
     """Each non-blank line prefixed `[n] `, so a moment can name the line it happened on."""
     return "\n".join(f"[{n}] {line}" for n, line in enumerate(numbered_lines(transcript), 1))
@@ -923,6 +962,7 @@ _MOMENT_KIND_MEANING: dict[str, str] = {
 
 __all__ = [
     "DEFAULT_EXTRACTION_LANGUAGE",
+    "GOAL_VERDICTS",
     "HEADLINE_MAX",
     "LEGACY_OUTCOME_TAGS",
     "MAX_CALL_MOMENTS",
@@ -936,6 +976,7 @@ __all__ = [
     "ExtractionOutput",
     "ExtractionSchemaSpec",
     "FieldType",
+    "GoalVerdict",
     "LegacyOutcomeTag",
     "MomentCandidate",
     "MomentCategory",
@@ -951,6 +992,7 @@ __all__ = [
     "clean_unlisted",
     "clip_headline",
     "coerce_value",
+    "goal_verdict",
     "is_phone_field",
     "numbered_lines",
     "validate_extraction",
