@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useMemo, useState, type DragEvent } from "react";
-import { ClipboardPaste, Download, FileUp, Plus, Trash2, X } from "lucide-react";
+import { useId, useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
+import { ClipboardPaste, Download, FileUp, Pencil, Plus, Trash2, X } from "lucide-react";
 
 import { SearchField } from "@/components/arc/search-field";
 import { HowItWorks } from "@/components/console/howItWorks";
@@ -12,7 +12,9 @@ import { Pagination } from "@/components/interior/pagination";
 import {
   FIELD,
   FIELD_LABEL,
+  FIELD_INLINE,
   MonoValue,
+  PRIMARY_BUTTON_SM,
   QUIET_ICON_BUTTON,
   SECONDARY_BUTTON_SM,
   formatCount,
@@ -148,6 +150,8 @@ export function ContactEditor({
   };
 
   const remove = (id: string) => onChange(entries.filter((entry) => entry.id !== id));
+  const update = (next: ContactEntry) =>
+    onChange(entries.map((entry) => (entry.id === next.id ? next : entry)));
   const keepReady = () =>
     onChange(checked.rows.filter(({ status }) => status.kind === "ready").map(({ entry }) => entry));
 
@@ -332,7 +336,13 @@ export function ContactEditor({
               {checked.refusal}
             </p>
           )}
-          <ContactTable rows={visible} variables={checked.variables} onRemove={remove} captionId={`${ids}-caption`} />
+          <ContactTable
+            rows={visible}
+            variables={checked.variables}
+            onRemove={remove}
+            onUpdate={update}
+            captionId={`${ids}-caption`}
+          />
           {pages > 1 && (
             <Pagination count={pages} page={current} onPageChange={setPage} label="Contact pages" />
           )}
@@ -353,18 +363,24 @@ const STATUS_STYLE = {
   invalid: "text-danger",
 } as const;
 
-/** Number and status on a phone; name and the variable columns from `sm` and `md` up. */
+/** Number and status on a phone; name and the variable columns from `sm` and `md` up. Each
+ * row can be edited in place (founder, 4 Nov 2026): the pencil opens it as a small form across
+ * the whole row, at every width, and the row is checked again on save. */
 function ContactTable({
   rows,
   variables,
   onRemove,
+  onUpdate,
   captionId,
 }: {
   rows: CheckedRow[];
   variables: string[];
   onRemove: (id: string) => void;
+  onUpdate: (entry: ContactEntry) => void;
   captionId: string;
 }) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const columns = 4 + variables.length;
   return (
     <div className="overflow-hidden border-y border-line">
       <table className="w-full table-fixed text-left text-sm">
@@ -381,13 +397,28 @@ function ContactTable({
               </th>
             ))}
             <th scope="col" className="px-3 py-2 font-medium">Status</th>
-            <th scope="col" className="w-12 px-1 py-2">
-              <span className="sr-only">Remove</span>
+            <th scope="col" className="w-20 px-1 py-2">
+              <span className="sr-only">Edit or remove</span>
             </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-line">
-          {rows.map(({ entry, status }) => (
+          {rows.map(({ entry, status }) =>
+            editing === entry.id ? (
+              <tr key={entry.id}>
+                <td colSpan={columns} className="px-3 py-2">
+                  <EditRow
+                    entry={entry}
+                    variables={variables}
+                    onSave={(next) => {
+                      onUpdate(next);
+                      setEditing(null);
+                    }}
+                    onCancel={() => setEditing(null)}
+                  />
+                </td>
+              </tr>
+            ) : (
             <tr key={entry.id}>
               <td className="truncate px-3 py-2">
                 <MonoValue className="tabular-nums text-ink">
@@ -403,7 +434,15 @@ function ContactTable({
               <td className={`px-3 py-2 text-xs ${STATUS_STYLE[status.kind]}`}>
                 {status.kind === "ready" ? "Ready" : status.kind === "duplicate" ? "Duplicate" : status.reason}
               </td>
-              <td className="px-1 py-1 text-right">
+              <td className="whitespace-nowrap px-1 py-1 text-right">
+                <button
+                  type="button"
+                  onClick={() => setEditing(entry.id)}
+                  aria-label={`Edit ${entry.phone || "this row"}`}
+                  className={`press ${QUIET_ICON_BUTTON}`}
+                >
+                  <Pencil aria-hidden className="h-3.5 w-3.5" />
+                </button>
                 <button
                   type="button"
                   onClick={() => onRemove(entry.id)}
@@ -414,9 +453,92 @@ function ContactTable({
                 </button>
               </td>
             </tr>
-          ))}
+            ),
+          )}
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** One contact opened for editing: its number, name and any extra columns, saved together.
+ * Enter saves and Escape cancels; the list checks the row again once it is saved. */
+function EditRow({
+  entry,
+  variables,
+  onSave,
+  onCancel,
+}: {
+  entry: ContactEntry;
+  variables: string[];
+  onSave: (entry: ContactEntry) => void;
+  onCancel: () => void;
+}) {
+  const ids = useId();
+  const [phone, setPhone] = useState(entry.phone);
+  const [name, setName] = useState(entry.name);
+  const [vars, setVars] = useState<Record<string, string>>(entry.vars);
+  const save = () => onSave({ ...entry, phone: phone.trim(), name: name.trim(), vars });
+  const cancelOnEscape = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    onCancel();
+  };
+  return (
+    <form
+      noValidate
+      className="flex flex-wrap items-end gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (phone.trim() !== "") save();
+      }}
+    >
+      <label htmlFor={`${ids}-phone`} className="flex min-w-0 flex-1 basis-40 flex-col gap-1">
+        <span className={FIELD_LABEL}>Phone</span>
+        <input
+          id={`${ids}-phone`}
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- the row was just opened for this
+          autoFocus
+          onKeyDown={cancelOnEscape}
+          value={phone}
+          onChange={(event) => setPhone(event.target.value)}
+          inputMode="tel"
+          autoComplete="off"
+          className={`${FIELD_INLINE} w-full font-mono tabular-nums`}
+        />
+      </label>
+      <label htmlFor={`${ids}-name`} className="flex min-w-0 flex-1 basis-40 flex-col gap-1">
+        <span className={FIELD_LABEL}>Name</span>
+        <input
+          id={`${ids}-name`}
+          onKeyDown={cancelOnEscape}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          autoComplete="off"
+          className={`${FIELD_INLINE} w-full`}
+        />
+      </label>
+      {variables.map((key) => (
+        <label key={key} htmlFor={`${ids}-${key}`} className="flex min-w-0 flex-1 basis-32 flex-col gap-1">
+          <span className={`${FIELD_LABEL} truncate`}>{key}</span>
+          <input
+            id={`${ids}-${key}`}
+            onKeyDown={cancelOnEscape}
+            value={vars[key] ?? ""}
+            onChange={(event) => setVars((current) => ({ ...current, [key]: event.target.value }))}
+            autoComplete="off"
+            className={`${FIELD_INLINE} w-full`}
+          />
+        </label>
+      ))}
+      <div className="flex gap-2">
+        <button type="submit" className={PRIMARY_BUTTON_SM} disabled={phone.trim() === ""}>
+          Save
+        </button>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

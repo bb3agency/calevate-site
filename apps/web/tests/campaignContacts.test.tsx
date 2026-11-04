@@ -187,6 +187,24 @@ describe("the contact editor", () => {
     expect(screen.queryByText("1 ready")).toBeNull();
   });
 
+  it("edits a row in place: a wrong number fixed becomes ready, and Escape keeps the old row", () => {
+    render(<Harness initial={entries("phone,name\n12345,Priya")} />);
+    expect(screen.getByText("We can't read this number")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit 12345" }));
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Phone" }), { key: "Escape" });
+    expect(screen.getByText("We can't read this number")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit 12345" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Phone" }), { target: { value: "98765 43210" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Priya K" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.getByText("+91 98765 43210")).toBeTruthy();
+    expect(screen.getByText("Priya K")).toBeTruthy();
+    expect(screen.getByText("1 ready")).toBeTruthy();
+  });
+
   it("adds one contact, and pastes rows from a spreadsheet", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "Add contact" }));
