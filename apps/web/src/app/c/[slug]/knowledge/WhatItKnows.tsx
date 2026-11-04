@@ -19,6 +19,7 @@ import {
   formatCount,
   type NoticeTone,
 } from "@/components/ui";
+import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useKbUploads, type KbUpload, type useKbNotes } from "@/lib/api/kb";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { PRICES_QUESTION } from "@/lib/api/teachQuestions";
@@ -33,7 +34,9 @@ import {
   type PinnedNotYetOn,
 } from "@/lib/api/teach";
 
+import { Group, NoMatch } from "./KnowledgeGroup";
 import { NotesList, noteTone } from "./NotesList";
+import { ProfileKnowledge, profileMatchCount } from "./ProfileKnowledge";
 import { UploadRow } from "./UploadList";
 import { uploadState } from "./uploadCopy";
 
@@ -67,6 +70,7 @@ export function WhatItKnows({
   const session = useClientSession();
   const knows = useKnows(session);
   const uploads = useKbUploads(session);
+  const profile = useBusinessProfile(session);
   const [query, setQuery] = useState("");
   const clearQuery = () => setQuery("");
 
@@ -103,12 +107,14 @@ export function WhatItKnows({
   const shownFiles = files.filter(uploadMatches);
   const shownLinks = links.filter(uploadMatches);
   const shownAnyNote = allNotes.some((n) => matches(query, n.name));
-  const total = pinned.length + other.length + files.length + links.length + notes.length;
+  // What the business offers and its common questions live in the business profile (D-968).
+  const total =
+    pinned.length + other.length + files.length + links.length + notes.length + profileMatchCount(profile.data, "");
   // "Nothing yet" is said only when every read answered; a read still out is not empty.
   const empty =
-    total === 0 && allNotes.length === 0 && Boolean(uploads.data) && Boolean(notesRead.data);
+    total === 0 && allNotes.length === 0 && Boolean(uploads.data) && Boolean(notesRead.data) && Boolean(profile.data);
   const shown =
-    shownPinned.length + shownOther.length + shownFiles.length + shownLinks.length + (shownAnyNote ? 1 : 0);
+    shownPinned.length + shownOther.length + shownFiles.length + shownLinks.length + (shownAnyNote ? 1 : 0) + profileMatchCount(profile.data, query);
 
   if (empty) {
     // The Add area above is the one way in, so the empty list offers no second form.
@@ -172,6 +178,8 @@ export function WhatItKnows({
         onClearFilter={clearQuery}
         notYetOn={knows.data.pinned_not_yet_on}
       />
+
+      <ProfileKnowledge query={query} />
 
       <Group
         title="Facts and answers"
@@ -271,45 +279,6 @@ export function NeedsYouTally({ tones }: { tones: NoticeTone[] }) {
   );
 }
 
-/** One kind of thing the agents were given: a heading with its count, then its rows. */
-function Group({
-  title,
-  count,
-  hidden,
-  info,
-  status,
-  children,
-}: {
-  title: string;
-  count: number;
-  /** A search left nothing in this group; the page says so once, not per group. */
-  hidden: boolean;
-  info?: ReactNode;
-  status?: ReactNode;
-  children: ReactNode;
-}) {
-  if (hidden) return null;
-  return (
-    <Section
-      title={
-        <>
-          {title}
-          {count > 0 ? (
-            <span className="ml-2 text-meta font-normal tabular-nums text-ink-faint">
-              {formatCount(count)}
-            </span>
-          ) : null}
-        </>
-      }
-      headingLevel={3}
-      info={info}
-      action={status}
-    >
-      {children}
-    </Section>
-  );
-}
-
 /**
  * Where the newest facts are, from `/v1/kb/knows`' `facts_state`. It is ONE state for the
  * whole set (the facts are published together), so it is said once beside the heading
@@ -323,20 +292,6 @@ function FactsStatus({ state, any }: { state: string; any: boolean }) {
   if (state === "in_review") return <StatusPill tone="warn">Waiting for review</StatusPill>;
   if (state === "live") return <StatusPill tone="ok">In use</StatusPill>;
   return null;
-}
-
-/** A list the search emptied: says so, and offers the way back. */
-function NoMatch({ message, onClear }: { message: string; onClear: () => void }) {
-  return (
-    <EmptyState
-      variant="filtered"
-      align="start"
-      className="py-4"
-      message={message}
-      onClear={onClear}
-      clearLabel="Clear the search"
-    />
-  );
 }
 
 function PinnedFacts({

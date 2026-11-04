@@ -6,6 +6,7 @@ import type { Me } from "@/lib/api/client";
 import type { KbNote } from "@/lib/api/kb";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import {
   browserOffline,
   expectTextCount,
@@ -136,7 +137,7 @@ async function renderKnowledge(
   sources: SourceWire[] | ProblemResponse,
   over: Routes = {},
 ) {
-  return await renderClientPage(<KnowledgePage />, {
+  const page = await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     // Two agents, so a picker or a per-row agent name — both gone with D-689 — would
     // have something to render if either came back.
@@ -146,12 +147,17 @@ async function renderKnowledge(
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/teach/open": { teaching: null },
+    // Nothing offered and no common questions, so an empty account reads as empty.
+    "/v1/business-profile": businessProfileFixture({ services: [], faqs: [] }),
     // The document list (D-534). Empty by default: every assertion in this file is about
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
     // on the screen for the reason `STAFF_CURATION` above records.
     "/v1/kb/uploads": [],
     ...over,
   });
+  // The teach box is the Add area's "Something else" (D-968).
+  fireEvent.click(await screen.findByRole("radio", { name: "Something else" }));
+  return page;
 }
 
 /** The teach box's control, found the way a client finds it. */

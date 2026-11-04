@@ -6,6 +6,7 @@ import type { Me } from "@/lib/api/client";
 import type { KbUpload, KbUploadText } from "@/lib/api/kb";
 
 import { expectNoA11yViolations } from "./a11y";
+import { businessProfileFixture } from "./businessProfileFixture";
 import { renderClientPage, type Routes } from "./harness";
 
 /**
@@ -70,6 +71,7 @@ async function openReader(me: Me = OWNER, over: Routes = {}) {
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
+    "/v1/business-profile": businessProfileFixture(),
     "/v1/kb/uploads/u1/text?page=1": page(1, "Thali costs 180 rupees."),
     "/v1/kb/uploads/u1/text?page=2": page(2, "Open all seven days."),
     ...over,

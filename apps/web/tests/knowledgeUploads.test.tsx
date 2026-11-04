@@ -5,6 +5,7 @@ import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import type { Me } from "@/lib/api/client";
 import type { KbUpload } from "@/lib/api/kb";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import {
   problem,
   renderClientPage,
@@ -98,6 +99,7 @@ async function renderKnowledge(
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/teach/open": { teaching: null },
+    "/v1/business-profile": businessProfileFixture(),
     "/v1/kb/uploads": uploads,
     // A row still moving is watched on its own path. By default it answers that it has
     // not moved yet; a test about the move overrides it.

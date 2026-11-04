@@ -237,8 +237,8 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "call_test_prepare",
         # D-827's examples refresh APPENDS.
         "business_copy_refresh",
-        # D-854's pinned answers APPEND.
-        "knowledge_facts_pin",
+        # D-854's common questions APPEND to the profile's.
+        "business_faqs_add",
         # D-893's agent page actions APPEND.
         "agent_restore",
         "agent_prepare",

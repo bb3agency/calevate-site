@@ -13,6 +13,7 @@ import TeamPage from "@/app/c/[slug]/settings/team/page";
 import { fieldProblem } from "@/components/formValidation";
 import type { Me } from "@/lib/api/client";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import { renderAdminPage, renderClientPage } from "./harness";
 import { codeOnly } from "./sourceScan";
 
@@ -292,12 +293,14 @@ describe("the teach box with too little in it", () => {
       "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
       "/v1/teach/questions": { items: [], open_count: 0 },
       "/v1/kb/teach/open": { teaching: null },
+      "/v1/business-profile": businessProfileFixture(),
       "/v1/kb/uploads": [],
     });
   }
 
   it("says what is missing, sends nothing, and puts focus on the box", async () => {
     const page = await renderKnowledge();
+    fireEvent.click(await screen.findByRole("radio", { name: "Something else" }));
     const box = (await screen.findByLabelText(
       "What should your agents know?",
     )) as HTMLTextAreaElement;

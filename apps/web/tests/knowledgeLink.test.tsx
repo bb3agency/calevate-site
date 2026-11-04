@@ -7,6 +7,7 @@ import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import type { Me } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import { renderClientPage } from "./harness";
 
 const ME: Me = {
@@ -28,6 +29,7 @@ const ROUTES = {
   "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
   "/v1/teach/questions": { items: [], open_count: 0 },
   "/v1/kb/teach/open": { teaching: null },
+  "/v1/business-profile": businessProfileFixture(),
 };
 
 describe("a link to the questions followed while the knowledge page is open", () => {

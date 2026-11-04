@@ -12,7 +12,7 @@ Each calls the function the page's own button calls:
 
 Answering a question and changing a fact are `confirm`: what they change is said to callers
 by every live agent on its next call, and a sentence said to a caller cannot be taken back
-(the reason `knowledge_facts_pin` is confirm). A test run spends the AI allowance. A saved
+(the reason `business_faqs_add` is confirm). A test run spends the AI allowance. A saved
 test reaches no caller and spends nothing until it is run, and Undo deletes it exactly.
 """
 

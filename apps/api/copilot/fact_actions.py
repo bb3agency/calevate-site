@@ -1,22 +1,23 @@
-"""Pin the questions callers ask most, with the business's answers (D-854).
+"""Add the questions callers ask most, with the business's answers, to the business profile.
 
-The first-agent chat asks the owner for the three things callers ask most and their answers.
-Those are pinned facts (`teach/pinned.py`): they belong to the business (D-689) and ride in
-every agent's instructions, so a caller is never answered from a search that missed.
+The first-agent chat (D-854) asks the owner for the three things callers ask most and their
+answers. A question and its answer has ONE home: the business profile's common questions
+(`tenancy/business_profile.Faq`), which every agent of the business carries in its facts
+and which both the Business profile screen and What your agents know show and edit.
 
-`confirm`, not `immediate`: a pinned fact reaches the callers of every live agent on the
-next recompile, and an answer said to a caller cannot be taken back. One card carries all of
-them, so the owner confirms the set with one press rather than three.
+`confirm`, not `immediate`: the answers reach the callers of every live agent on the save,
+and an answer said to a caller cannot be taken back. One card carries all of them, so the
+owner confirms the set with one press rather than three.
 
-The executor is `POST /v1/kb/facts`'s own function (`pinned.add_pinned`) once per pair, so
-the section ceiling and the live-agent fit check (D-752) run exactly as they do for the form.
+The executor is `PATCH /v1/business-profile`'s own function (`profile_service.save_profile`),
+so the profile's limits, the knowledge lock and the fan-out to every agent run exactly as
+they do for the form.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Annotated, Any, Final
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,127 +33,141 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.sanitize import strip_invisible
-from apps.api.kb.curation import CURATE_PERMISSION
-from apps.api.teach import pinned
-from apps.api.teach.models import MAX_PINNED_ANSWER_CHARS, MAX_PINNED_QUESTION_CHARS
+from apps.api.tenancy.business_profile import (
+    FAQ_ANSWER_MAX,
+    FAQ_QUESTION_MAX,
+    MAX_FAQS,
+    Faq,
+    load_profile,
+)
 from apps.workers.redaction import redact
 
 #: One card holds at most this many: the first-agent chat asks for three.
-MAX_FACTS_PER_CARD: Final = 3
+MAX_FAQS_PER_CARD: Final = 3
+
+_QUESTION_MAX: Final = FAQ_QUESTION_MAX
+_ANSWER_MAX: Final = FAQ_ANSWER_MAX
 
 
-class _Fact(BaseModel):
+class _Pair(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    question: Annotated[str, Field(max_length=MAX_PINNED_QUESTION_CHARS + 1)]
-    answer: Annotated[str, Field(max_length=MAX_PINNED_ANSWER_CHARS + 1)]
+    question: Annotated[str, Field(max_length=_QUESTION_MAX + 1)]
+    answer: Annotated[str, Field(max_length=_ANSWER_MAX + 1)]
 
 
-class _PinArgs(BaseModel):
+class _AddArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    facts: Annotated[list[_Fact], Field(min_length=1, max_length=MAX_FACTS_PER_CARD)]
+    faqs: Annotated[list[_Pair], Field(min_length=1, max_length=MAX_FAQS_PER_CARD)]
 
 
-def _clean(fact: _Fact) -> tuple[str, str]:
-    question = " ".join(strip_invisible(fact.question).split())
-    answer = strip_invisible(fact.answer).strip()
+def _clean(pair: _Pair) -> Faq:
+    question = " ".join(strip_invisible(pair.question).split())
+    answer = strip_invisible(pair.answer).strip()
     if not question or not answer:
-        raise WriteRefusedError("every fact needs the caller's question and the answer")
-    if len(question) > MAX_PINNED_QUESTION_CHARS or len(answer) > MAX_PINNED_ANSWER_CHARS:
+        raise WriteRefusedError("every entry needs the caller's question and the answer")
+    if len(question) > _QUESTION_MAX or len(answer) > _ANSWER_MAX:
         raise WriteRefusedError(
-            f"a question is at most {MAX_PINNED_QUESTION_CHARS} characters and an answer at "
-            f"most {MAX_PINNED_ANSWER_CHARS}, so shorten it"
+            f"a question is at most {_QUESTION_MAX} characters and an answer at most "
+            f"{_ANSWER_MAX}, so shorten it"
         )
     if redact(question).changed or redact(answer).changed:
         # The value is never named: this reason reaches a log line and the next prompt.
         raise WriteRefusedError(
-            "a fact contains something shaped like a phone number, an email address or an "
+            "an answer contains something shaped like a phone number, an email address or an "
             "identity number, which you may not write; say the person can add it on "
             "What your agents know themselves"
         )
-    return question, answer
+    return Faq(question=question, answer=answer)
 
 
-async def _plan_pin(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
-    """READ ONLY: the facts are cleaned, duplicates of a pinned question refused, and the
-    section ceiling asked before any card, so Confirm is never a click into a refusal."""
-    del actor
-    parsed = parse_args(_PinArgs, args)
-    pairs = [_clean(fact) for fact in parsed.facts]
-    asked = {question.casefold() for question, _ in pairs}
-    if len(asked) != len(pairs):
-        raise WriteRefusedError("two of these facts answer the same question; merge them")
-    already = {(fact.question or "").casefold() for fact in await pinned.list_pinned(session)}
-    repeated = [question for question, _ in pairs if question.casefold() in already]
+async def _checked(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> list[Faq]:
+    """The cleaned entries, refused when two repeat each other, one repeats a question the
+    profile already answers, or the profile would pass its limit."""
+    adding = [_clean(pair) for pair in parse_args(_AddArgs, args).faqs]
+    asked = {faq.question.casefold() for faq in adding}
+    if len(asked) != len(adding):
+        raise WriteRefusedError("two of these answer the same question; merge them")
+    profile = await load_profile(session, tenant_id=actor.tenant_id)
+    already = {faq.question.casefold() for faq in profile.faqs}
+    repeated = [faq.question for faq in adding if faq.question.casefold() in already]
     if repeated:
         raise WriteRefusedError(
-            "the business already has a pinned answer to "
+            "the business already answers "
             + "; ".join(f"“{question}”" for question in repeated)
-            + ", so leave that one out"
+            + ", so leave that one out or change it on What your agents know"
         )
-    await pinned.assert_room(session, adding=pairs)
-    count = len(pairs)
+    if len(profile.faqs) + len(adding) > MAX_FAQS:
+        raise WriteRefusedError(
+            f"the business profile holds at most {MAX_FAQS} common questions; "
+            "remove one on What your agents know first"
+        )
+    return adding
+
+
+async def _plan_add(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
+    """READ ONLY: everything the save would refuse is refused before any card, so Confirm is
+    never a click into a refusal."""
+    adding = await _checked(session, actor, args)
+    count = len(adding)
     return Plan(
-        object_id="",
-        title="Pin what callers ask most" if count > 1 else "Pin what callers ask",
+        object_id=str(actor.tenant_id),
+        title="Add what callers ask most" if count > 1 else "Add what callers ask",
         summary=(
             f"Every one of your agents answers {'these' if count > 1 else 'this'} the same "
-            "way on every call, from the next time its script is refreshed."
+            "way, and they show in your business details."
         ),
         current=None,
-        proposed="\n".join(f"{question} — {answer}" for question, answer in pairs),
+        proposed="\n".join(f"{faq.question} — {faq.answer}" for faq in adding),
         cost=None,
-        reversal="Change or unpin any of them on What your agents know at any time.",
-        args={"facts": [{"question": q, "answer": a} for q, a in pairs]},
+        reversal="Change or remove any of them on What your agents know at any time.",
+        args={"faqs": [faq.model_dump() for faq in adding]},
     )
 
 
-async def _execute_pin(
+async def _execute_add(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    parsed = parse_args(_PinArgs, args)
-    ids: list[UUID] = []
-    for fact in parsed.facts:
-        question, answer = _clean(fact)
-        ids.append(
-            await pinned.add_pinned(
-                session,
-                tenant_id=actor.tenant_id,
-                question=question,
-                answer=answer,
-                origin="taught",
-                created_by=actor.user_id,
-            )
-        )
+    from apps.api.tenancy.profile_service import ProfilePatch, save_profile
+
+    # Checked again against the profile as it is now: another save may have landed since
+    # the card was drawn, and the section is replaced whole.
+    adding = await _checked(session, actor, args)
+    current = (await load_profile(session, tenant_id=actor.tenant_id)).faqs
+    _steps, updated = await save_profile(
+        session,
+        tenant_id=actor.tenant_id,
+        patch=ProfilePatch(faqs=[*current, *adding]),
+        user_id=actor.user_id,
+    )
     return Executed(
         applied=True,
         detail=(
-            "Pinned. Every agent answers "
-            + ("these" if len(ids) > 1 else "this")
-            + " from its next refresh, which takes a few seconds."
+            "Added. Every agent answers "
+            + ("these" if len(adding) > 1 else "this")
+            + f" now; {updated} agent(s) were updated."
         ),
-        # Ids and a count only (hard rules 4 and 6): the words live on the `kb_facts` rows,
-        # where erasure reaches them.
-        audit_summary={"fact_ids": [str(fact_id) for fact_id in ids], "count": len(ids)},
+        # Counts only (hard rule 6): the words live in the business profile.
+        audit_summary={"sections": ["faqs"], "added": len(adding), "agents_updated": updated},
     )
 
 
-KNOWLEDGE_FACTS_PIN: Final = ActionTool(
-    name="knowledge_facts_pin",
+BUSINESS_FAQS_ADD: Final = ActionTool(
+    name="business_faqs_add",
     tier="confirm",
     undo=None,
-    # `POST /v1/kb/facts`'s gate: `kb:write` with the owner's curation switch.
-    permission=CURATE_PERMISSION,
-    object_type="kb_fact",
-    audit_action="kb_fact.add",
+    # `PATCH /v1/business-profile`'s gate.
+    permission="org:manage",
+    object_type="organization",
+    audit_action="business_profile.updated",
     where="on the What your agents know screen",
     schema=action_schema(
-        "knowledge_facts_pin",
-        "Pin up to three caller questions, each with the answer in the person's words. "
-        "Never invent an answer, price or time: ask." + PROPOSES_ONLY,
+        "business_faqs_add",
+        "Add up to three caller questions to the business's common questions, each with the "
+        "answer in the person's words. Never invent an answer, price or time: ask." + PROPOSES_ONLY,
         {
-            "facts": {
+            "faqs": {
                 "type": "array",
                 "items": {
                     "type": "object",
@@ -166,10 +181,10 @@ KNOWLEDGE_FACTS_PIN: Final = ActionTool(
             }
         },
     ),
-    plan=_plan_pin,
-    execute=_execute_pin,
+    plan=_plan_add,
+    execute=_execute_add,
 )
 
-FACT_ACTIONS: Final[tuple[ActionTool, ...]] = (KNOWLEDGE_FACTS_PIN,)
+FACT_ACTIONS: Final[tuple[ActionTool, ...]] = (BUSINESS_FAQS_ADD,)
 
-__all__ = ["FACT_ACTIONS", "KNOWLEDGE_FACTS_PIN", "MAX_FACTS_PER_CARD"]
+__all__ = ["BUSINESS_FAQS_ADD", "FACT_ACTIONS", "MAX_FAQS_PER_CARD"]

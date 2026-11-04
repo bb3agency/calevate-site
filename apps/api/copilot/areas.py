@@ -281,7 +281,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry("call_test_prepare", "calls", "make one call a test for its agent"),
     AreaEntry("business_copy_refresh", "settings", "rewrite the account's examples"),
     AreaEntry(
-        "knowledge_facts_pin", "knowledge", "pin up to three questions with the owner's answers"
+        "business_faqs_add", "knowledge", "add up to three questions with the owner's answers"
     ),
     # D-893 F3: plan-backed actions over a set.
     AreaEntry(
