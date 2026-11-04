@@ -19003,6 +19003,13 @@
             "title": "Billing Step Seconds",
             "type": "integer"
           },
+          "goal_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Goal Labels",
+            "type": "array"
+          },
           "windows": {
             "items": {
               "$ref": "#/components/schemas/CostWindowOut"
@@ -19013,6 +19020,7 @@
         },
         "required": [
           "windows",
+          "goal_labels",
           "billing_step_seconds"
         ],
         "title": "CostPerResultOut",
@@ -19025,10 +19033,6 @@
             "title": "Answered Calls",
             "type": "integer"
           },
-          "booked_results": {
-            "title": "Booked Results",
-            "type": "integer"
-          },
           "days": {
             "title": "Days",
             "type": "integer"
@@ -19038,8 +19042,12 @@
             "title": "From Date",
             "type": "string"
           },
-          "leads_captured": {
-            "title": "Leads Captured",
+          "goals_reached": {
+            "title": "Goals Reached",
+            "type": "integer"
+          },
+          "leads": {
+            "title": "Leads",
             "type": "integer"
           },
           "per_answered_call_inr": {
@@ -19054,7 +19062,7 @@
             ],
             "title": "Per Answered Call Inr"
           },
-          "per_booked_result_inr": {
+          "per_goal_inr": {
             "anyOf": [
               {
                 "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -19064,7 +19072,7 @@
                 "type": "null"
               }
             ],
-            "title": "Per Booked Result Inr"
+            "title": "Per Goal Inr"
           },
           "per_lead_inr": {
             "anyOf": [
@@ -19095,11 +19103,11 @@
           "to_date",
           "spent_inr",
           "answered_calls",
-          "leads_captured",
-          "booked_results",
+          "leads",
+          "goals_reached",
           "per_answered_call_inr",
           "per_lead_inr",
-          "per_booked_result_inr"
+          "per_goal_inr"
         ],
         "title": "CostWindowOut",
         "type": "object"

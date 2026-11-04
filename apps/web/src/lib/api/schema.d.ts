@@ -20623,6 +20623,8 @@ export interface components {
         CostPerResultOut: {
             /** Billing Step Seconds */
             billing_step_seconds: number;
+            /** Goal Labels */
+            goal_labels: string[];
             /** Windows */
             windows: components["schemas"]["CostWindowOut"][];
         };
@@ -20630,8 +20632,6 @@ export interface components {
         CostWindowOut: {
             /** Answered Calls */
             answered_calls: number;
-            /** Booked Results */
-            booked_results: number;
             /** Days */
             days: number;
             /**
@@ -20639,12 +20639,14 @@ export interface components {
              * Format: date
              */
             from_date: string;
-            /** Leads Captured */
-            leads_captured: number;
+            /** Goals Reached */
+            goals_reached: number;
+            /** Leads */
+            leads: number;
             /** Per Answered Call Inr */
             per_answered_call_inr: string | null;
-            /** Per Booked Result Inr */
-            per_booked_result_inr: string | null;
+            /** Per Goal Inr */
+            per_goal_inr: string | null;
             /** Per Lead Inr */
             per_lead_inr: string | null;
             /** Spent Inr */

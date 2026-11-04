@@ -130,12 +130,36 @@ def test_rupees_per_result_are_decimal_paise_and_null_with_nothing_to_divide() -
     assert proof.per_unit(Decimal("100.00"), 0) is None
 
 
-def test_a_booking_is_a_hot_outcome_or_the_starting_buying_outcome() -> None:
-    assert proof.is_booking(None, proof.BUYING_OUTCOME_KEY)
-    assert not proof.is_booking(None, "asked_for_information")
-    own = [{"key": "pickup_booked", "label": "Pickup booked", "meaning": "x", "lead_status": "hot"}]
-    assert proof.is_booking(own, "pickup_booked")
-    assert not proof.is_booking(own, None)
+_INSTALLED = {
+    "key": "app_installed",
+    "label": "App installed successfully",
+    "meaning": "x",
+    "lead_status": "hot",
+}
+_ASKED = {
+    "key": "asked_price",
+    "label": "Asked the price",
+    "meaning": "x",
+    "lead_status": "interested",
+}
+
+
+def test_a_goal_is_an_outcome_the_agents_own_list_makes_hot() -> None:
+    # The starting set names no trade, so nothing in it is anybody's goal.
+    assert not proof.reaches_goal(None, "wants_to_buy")
+    assert proof.reaches_goal([_INSTALLED, _ASKED], "app_installed")
+    assert not proof.reaches_goal([_INSTALLED, _ASKED], "asked_price")
+    assert not proof.reaches_goal([_INSTALLED], None)
+
+
+def test_goal_labels_are_the_owners_hot_outcome_names_each_once() -> None:
+    assert proof.goal_labels([None, [_ASKED]]) == []
+    shouted = {**_INSTALLED, "key": "installed_2", "label": "APP  installed successfully"}
+    visit = {**_INSTALLED, "key": "visit", "label": "Visit booked"}
+    assert proof.goal_labels([[_INSTALLED, _ASKED], [shouted, visit]]) == [
+        "App installed successfully",
+        "Visit booked",
+    ]
 
 
 # --- the summary's content, pure ---------------------------------------------------------
@@ -297,16 +321,29 @@ async def test_cost_per_result_divides_wallet_spend_by_each_result() -> None:
     yesterday = _today_ist() - timedelta(days=1)
     async with tenant_session(tenant_id) as session:
         agent_id = await _agent(session)
-        await _call(session, tenant_id, agent_id, at=_ist(yesterday, 10), outcome="wants_to_buy")
-        await _call(session, tenant_id, agent_id, at=_ist(yesterday, 11), outcome="interested")
+        await session.execute(
+            text("UPDATE agents SET business_outcomes = CAST(:o AS jsonb) WHERE id = :a"),
+            {"o": json.dumps([_INSTALLED, _ASKED]), "a": agent_id},
+        )
+        await _call(session, tenant_id, agent_id, at=_ist(yesterday, 10), outcome="app_installed")
+        await _call(session, tenant_id, agent_id, at=_ist(yesterday, 11), outcome="asked_price")
         await _call(
             session, tenant_id, agent_id, at=_ist(yesterday, 12), status="no_answer", duration_s=0
         )
-        # The owner ringing their own agent is neither an answered call nor a booking.
+        # The owner ringing their own agent is neither an answered call nor a goal reached.
         await _call(
-            session, tenant_id, agent_id, at=_ist(yesterday, 13), outcome="wants_to_buy", trial=True
+            session,
+            tenant_id,
+            agent_id,
+            at=_ist(yesterday, 13),
+            outcome="app_installed",
+            trial=True,
         )
-        await _lead(session, tenant_id, agent_id, at=_ist(yesterday, 10))
+        # Four people on record (the fixture's own and three more); two became a lead.
+        at = _ist(yesterday, 10)
+        await _lead(session, tenant_id, agent_id, at=at, phone="+919876543201")
+        await _lead(session, tenant_id, agent_id, at=at, status="interested", phone="+919876543202")
+        await _lead(session, tenant_id, agent_id, at=at, status="hot", phone="+919876543203")
         await _debit(session, tenant_id, "10.00", _ist(yesterday, 10, 30))
     async with _client() as client:
         response = await client.get(
@@ -315,14 +352,84 @@ async def test_cost_per_result_divides_wallet_spend_by_each_result() -> None:
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["billing_step_seconds"] == 30
+    # The goal is named by the owner's own outcome, never by a word the product chose.
+    assert body["goal_labels"] == ["App installed successfully"]
     week = next(w for w in body["windows"] if w["days"] == 7)
-    # Two leads: the fixture's own (created now) and the one above.
-    assert (week["answered_calls"], week["leads_captured"], week["booked_results"]) == (2, 2, 1)
+    assert (week["answered_calls"], week["leads"], week["goals_reached"]) == (2, 2, 1)
     # Money crosses the wire as a decimal string, never a float.
     assert week["spent_inr"] == "10.00"
     assert week["per_answered_call_inr"] == "5.00"
     assert week["per_lead_inr"] == "5.00"
-    assert week["per_booked_result_inr"] == "10.00"
+    assert week["per_goal_inr"] == "10.00"
+
+
+async def test_an_account_with_no_goal_outcome_has_no_goal_labels() -> None:
+    _tenant_id, _slug, token = await _make_tenant()
+    async with _client() as client:
+        response = await client.get(
+            "/v1/analytics/cost-per-result", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["goal_labels"] == []
+    assert all(w["per_goal_inr"] is None for w in body["windows"])
+
+
+async def _status_event(
+    session: AsyncSession, tenant_id: uuid.UUID, lead_id: uuid.UUID, status: str, at: datetime
+) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, created_at, "
+            "updated_at) VALUES (:id, :t, :l, 'status_change', jsonb_build_object('status', "
+            "CAST(:s AS text)), 'system', :at, :at)"
+        ),
+        {"id": uuid7(), "t": tenant_id, "l": lead_id, "s": status, "at": at},
+    )
+
+
+async def test_a_person_becomes_a_lead_once_on_the_day_they_first_showed_interest() -> None:
+    """Dated by the first move into interested, hot or won on the lead's timeline: a lead
+    that moved on to hot this week became a lead weeks ago, and one marked lost after
+    showing interest this week is still this week's lead."""
+    tenant_id, _slug, _token = await _make_tenant()
+    today = _today_ist()
+    long_ago = _ist(today - timedelta(days=40), 10)
+    this_week = _ist(today - timedelta(days=2), 10)
+    async with tenant_session(tenant_id) as session:
+        agent_id = await _agent(session)
+        old = uuid7()
+        lost = uuid7()
+        for lead_id, phone, status in (
+            (old, "+919876543211", "hot"),
+            (lost, "+919876543212", "lost"),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                    "status_set_at, created_at, updated_at) VALUES (:id, :t, :a, :p, "
+                    "'inbound_call', :s, :at, :created, now())"
+                ),
+                {
+                    "id": lead_id,
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "p": phone,
+                    "s": status,
+                    "at": this_week,
+                    "created": long_ago,
+                },
+            )
+        await _status_event(session, tenant_id, old, "interested", long_ago)
+        await _status_event(session, tenant_id, old, "hot", this_week)
+        await _status_event(session, tenant_id, lost, "interested", this_week)
+        await _status_event(session, tenant_id, lost, "lost", this_week + timedelta(hours=1))
+        counts = await proof.result_counts(session, start=today - timedelta(days=6), end=today)
+        older = await proof.result_counts(
+            session, start=today - timedelta(days=45), end=today - timedelta(days=30)
+        )
+    assert counts.leads == 1
+    assert older.leads == 1
 
 
 async def test_the_fleet_view_groups_every_client_by_language() -> None:

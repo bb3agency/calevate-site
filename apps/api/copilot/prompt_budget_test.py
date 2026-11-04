@@ -65,6 +65,8 @@ def _live(viewer: Viewer | None) -> str:
                 calls_last_7_days=40,
                 leads_waiting={"hot": 1, "interested": 2, "new": 4},
                 campaigns={"running": 1, "paused": 0, "scheduled": 0, "draft": 1},
+                people_total=400,
+                people_last_7_days=30,
                 leads_total=120,
                 leads_last_7_days=9,
                 agents={"live": 1, "paused": 0, "draft": 1},

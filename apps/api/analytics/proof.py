@@ -1,5 +1,5 @@
 """Proof a client can check for themselves: how fast their agent answered each IST week, and
-what each answered call, captured lead and booking cost them (D-944).
+what each answered call, lead and reached goal cost them (D-944).
 
 REPLY SPEED. The figure is the voice platform's answer time (`CallQuality.answer_ms_*`,
 D-902): the caller falling silent to the first word of the actual answer. Aggregated with the
@@ -17,11 +17,13 @@ calls under RLS; the fleet read is `call_speed_scan` (migration f7b3e9a1c254), t
 
 RUPEES PER RESULT. The rupees are what left the client's wallet (`billing/history.
 spend_series`, the Spend screen's reader), not `usage_events.unit_cost_paid`, which is OUR
-cost and not what the client pays. Divided by answered calls (`crm/performance` rule),
-leads created and booked results in the same IST days. A booked result is a call whose
-business outcome (D-836) moves its lead to hot, or the starting set's "Wants to buy or book";
-an agent's own list decides, through `agents/call_outcomes.outcome_lead_move`. A figure with
-nothing to divide by is null, never zero. Every amount is `Decimal`, rounded once by
+cost and not what the client pays. Divided by answered calls (`crm/performance` rule), the
+people who became a lead (`crm/lead_definition`, each person once) and the calls that reached
+the business's own goal, in the same IST days. A goal is a business outcome (D-836) the
+account's agents mark as moving the lead to hot; its NAME is the owner's own outcome label,
+returned as `goal_labels`, because "booking" is one trade's word and most businesses' goal is
+something else. An account with no such outcome has no goal to price, and says so. A figure
+with nothing to divide by is null, never zero. Every amount is `Decimal`, rounded once by
 `billing/service.to_paise`.
 """
 
@@ -34,18 +36,18 @@ from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.business_outcomes import STARTING_OUTCOMES
 from calevate_shared.languages import find_language
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.call_outcomes import outcome_lead_move
+from apps.api.agents.call_outcomes import outcome_lead_move, outcomes_in_use
 from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.billing.rates import CLIENT_PULSE_SECONDS
 from apps.api.billing.service import to_paise
 from apps.api.core.schemas import Strict
 from apps.api.core.settings import get_settings
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.performance import CONNECTED_SQL, DIAL_ONLY_STATUSES
 from apps.api.ops.reply_times import P90_MIN_CALLS, median_or_none, p90_or_none
 
@@ -58,9 +60,6 @@ UNKNOWN_LANGUAGE: Final = "unknown"
 MAX_SPEED_CALLS: Final = 100_000
 #: The windows the cost card offers, in IST days ending today.
 COST_WINDOWS: Final = (7, 30)
-#: The starting set's buying outcome (`STARTING_OUTCOMES[0]`, "Wants to buy or book"), which
-#: moves a lead only to interested and is still a booking.
-BUYING_OUTCOME_KEY: Final = STARTING_OUTCOMES[0].key
 
 _DIAL_ONLY: Final = frozenset(DIAL_ONLY_STATUSES)
 
@@ -291,15 +290,21 @@ class CostWindowOut(Strict):
     #: What left the wallet in these IST days (calls, number rental, AI help, corrections).
     spent_inr: Decimal
     answered_calls: int
-    leads_captured: int
-    booked_results: int
+    #: People who became a lead in these days (`crm/lead_definition`), each counted once.
+    leads: int
+    #: Calls that reached the business's goal: an outcome named in `goal_labels`.
+    goals_reached: int
     per_answered_call_inr: Decimal | None
     per_lead_inr: Decimal | None
-    per_booked_result_inr: Decimal | None
+    per_goal_inr: Decimal | None
 
 
 class CostPerResultOut(Strict):
     windows: list[CostWindowOut]
+    #: The owner's own names for a call that reached the goal: the labels of the outcomes
+    #: their agents mark as making a lead hot, each once, in agent order. Empty when no
+    #: agent has one, and then there is no goal to price.
+    goal_labels: list[str]
     #: Calls are billed in steps of this many seconds, rounded up (D-681).
     billing_step_seconds: int
 
@@ -308,30 +313,48 @@ def per_unit(spent: Decimal, count: int) -> Decimal | None:
     return None if count <= 0 else to_paise(spent / Decimal(count))
 
 
-def is_booking(outcomes: object, key: str | None) -> bool:
-    """A business outcome that moves the lead to hot, or the starting set's buying one."""
-    if not key:
-        return False
-    return key == BUYING_OUTCOME_KEY or outcome_lead_move(outcomes, key) == "hot"
+def reaches_goal(outcomes: object, key: str | None) -> bool:
+    """A call whose business outcome the agent's own list marks as making the lead hot."""
+    return outcome_lead_move(outcomes, key) == "hot"
+
+
+def goal_labels(agent_outcomes: Iterable[object]) -> list[str]:
+    """The hot outcomes' labels across the agents, each once (case ignored, as
+    `outcome_problems` compares them), first spelling kept."""
+    seen: set[str] = set()
+    labels: list[str] = []
+    for raw in agent_outcomes:
+        for outcome in outcomes_in_use(raw)[0]:
+            fold = outcome.label.casefold()
+            if outcome.lead_status == "hot" and fold not in seen:
+                seen.add(fold)
+                labels.append(outcome.label)
+    return labels
 
 
 @dataclass(frozen=True, slots=True)
 class ResultCounts:
     answered_calls: int
-    leads_captured: int
-    booked_results: int
+    leads: int
+    goals_reached: int
 
 
 #: The owner ringing their own agent (D-697, D-859) is neither an answered call nor a
-#: booking, as on every other result count (`crm/performance`, the daily summary).
+#: goal reached, as on every other result count (`crm/performance`, the daily summary).
 _NOT_TEST_CALL: Final = "NOT (c.trial_call OR c.paid_test_call)"
 _ANSWERED_SQL: Final = text(
     "SELECT count(*) FROM calls c WHERE c.started_at >= :start AND c.started_at < :end "
     f"AND {CONNECTED_SQL} AND {_NOT_TEST_CALL}"
 )
 _LEADS_SQL: Final = text(
-    "SELECT count(*) FROM leads WHERE deleted_at IS NULL "
-    "AND created_at >= :start AND created_at < :end"
+    f"SELECT count(*) FROM {BECAME_LEADS_SQL} AS bl "
+    "WHERE bl.became_lead_at >= :start AND bl.became_lead_at < :end"
+)
+#: The agents whose outcomes name the goal: every one still on the roster. An archived
+#: agent is retired, and its outcome names are no longer the business's words.
+_GOAL_AGENTS_SQL: Final = text(
+    "SELECT business_outcomes FROM agents WHERE deleted_at IS NULL AND status <> 'archived' "
+    "ORDER BY created_at, id"
 )
 #: Grouped by agent and outcome key, so the rows are bounded by agents x 8 outcomes.
 _OUTCOMES_SQL: Final = text(
@@ -344,16 +367,21 @@ _OUTCOMES_SQL: Final = text(
 
 
 async def result_counts(session: AsyncSession, *, start: date, end: date) -> ResultCounts:
-    """Answered calls, new leads and booked results on IST days `start`..`end` inclusive."""
+    """Answered calls, people who became a lead and goals reached on IST days `start`..`end`
+    inclusive."""
     binds = {"start": _ist_midnight(start), "end": _ist_midnight(end + timedelta(days=1))}
     answered = int((await session.execute(_ANSWERED_SQL, binds)).scalar_one())
     leads = int((await session.execute(_LEADS_SQL, binds)).scalar_one())
-    booked = sum(
+    goals = sum(
         int(row[2])
         for row in (await session.execute(_OUTCOMES_SQL, binds)).all()
-        if is_booking(row[0], row[1])
+        if reaches_goal(row[0], row[1])
     )
-    return ResultCounts(answered_calls=answered, leads_captured=leads, booked_results=booked)
+    return ResultCounts(answered_calls=answered, leads=leads, goals_reached=goals)
+
+
+async def account_goal_labels(session: AsyncSession) -> list[str]:
+    return goal_labels(row[0] for row in (await session.execute(_GOAL_AGENTS_SQL)).all())
 
 
 async def cost_window(
@@ -369,11 +397,11 @@ async def cost_window(
         to_date=today,
         spent_inr=spent,
         answered_calls=counts.answered_calls,
-        leads_captured=counts.leads_captured,
-        booked_results=counts.booked_results,
+        leads=counts.leads,
+        goals_reached=counts.goals_reached,
         per_answered_call_inr=per_unit(spent, counts.answered_calls),
-        per_lead_inr=per_unit(spent, counts.leads_captured),
-        per_booked_result_inr=per_unit(spent, counts.booked_results),
+        per_lead_inr=per_unit(spent, counts.leads),
+        per_goal_inr=per_unit(spent, counts.goals_reached),
     )
 
 
@@ -386,13 +414,13 @@ async def cost_per_result(
             await cost_window(session, tenant_id=tenant_id, days=days, today=today)
             for days in COST_WINDOWS
         ],
+        goal_labels=await account_goal_labels(session),
         billing_step_seconds=int(CLIENT_PULSE_SECONDS),
     )
 
 
 __all__ = [
     "ALL_LANGUAGES",
-    "BUYING_OUTCOME_KEY",
     "COST_WINDOWS",
     "DEFAULT_WEEKS",
     "MAX_SPEED_CALLS",
@@ -405,14 +433,16 @@ __all__ = [
     "ResultCounts",
     "SpeedCall",
     "WeekSpeed",
+    "account_goal_labels",
     "client_reply_speed",
     "cost_per_result",
     "cost_window",
     "fleet_reply_speed",
-    "is_booking",
+    "goal_labels",
     "ist_today",
     "language_key",
     "per_unit",
+    "reaches_goal",
     "result_counts",
     "rollup",
     "week_speed",

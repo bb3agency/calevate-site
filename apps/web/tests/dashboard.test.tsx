@@ -1357,9 +1357,9 @@ describe("the dashboard arrives in one paint", () => {
 describe("proof on the home screen (D-944)", () => {
   const OWNER_WITH_BILLING: Me = { ...ME, permissions: [...ME.permissions, "org:manage", "billing:read"] };
 
-  it("shows the owner the rupees per new lead from the server's string", async () => {
+  it("shows the owner the rupees per lead from the server's string", async () => {
     await renderClientPage(page, routes({ "/v1/me": OWNER_WITH_BILLING }));
-    expect(await screen.findByText("Cost per new lead, 7 days")).toBeTruthy();
+    expect(await screen.findByText("Cost per lead, 7 days")).toBeTruthy();
     // The label also heads the loading row, so wait for the figure itself.
     expect(await screen.findByText("₹30")).toBeTruthy();
     expect(screen.getByRole("link", { name: /4 leads for ₹120/ }).getAttribute("href")).toBe(
@@ -1381,14 +1381,14 @@ describe("proof on the home screen (D-944)", () => {
     await screen.findByText("Captured after hours");
     await waitFor(() => expect(calls.some((c) => c.path === "/v1/analytics/cost-per-result")).toBe(true));
     await waitFor(() => expect(screen.queryByText("Working out your cost per lead")).toBeNull());
-    expect(screen.queryByText("Cost per new lead, 7 days")).toBeNull();
+    expect(screen.queryByText("Cost per lead, 7 days")).toBeNull();
   });
 
   it("never asks for spend figures without billing:read", async () => {
     const { calls } = await renderClientPage(page, routes());
     await screen.findByText("Captured after hours");
     expect(calls.some((c) => c.path === "/v1/analytics/cost-per-result")).toBe(false);
-    expect(screen.queryByText("Cost per new lead, 7 days")).toBeNull();
+    expect(screen.queryByText("Cost per lead, 7 days")).toBeNull();
   });
 
   it("offers the daily summary to an owner who has it off, with one button that turns it on", async () => {

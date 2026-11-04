@@ -48,7 +48,11 @@ export function UsageView({
       {billingAllowed !== false && (
         <SpendOverTime session={session} allowed={billingAllowed} />
       )}
-      <CostPerResult session={session} allowed={billingAllowed} />
+      <CostPerResult
+        session={session}
+        allowed={billingAllowed}
+        goalsHref={href(`/c/${slug}/settings/lead-details`)}
+      />
       <UsageTab
         session={session}
         slug={slug}

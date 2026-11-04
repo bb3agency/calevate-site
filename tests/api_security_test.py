@@ -120,6 +120,9 @@ async def test_the_dashboard_route_answers_over_http_for_the_session_tenant() ->
     """
     tenant_a, slug_a, token_a = await _make_tenant()
     _, slug_b, token_b = await _make_tenant()
+    # Each tenant's one person on record; only tenant A's became a lead.
+    async with tenant_session(tenant_a) as session:
+        await session.execute(text("UPDATE leads SET status = 'interested'"))
 
     async with _client() as http:
         a = await http.get(
@@ -134,7 +137,7 @@ async def test_the_dashboard_route_answers_over_http_for_the_session_tenant() ->
     assert a.status_code == 200, a.text
     assert b.status_code == 200, b.text
     body = a.json()
-    # `_make_tenant` inserts one lead and no calls, so the numbers are decidable rather
+    # `_make_tenant` inserts one person and no calls, so the numbers are decidable rather
     # than merely present — a test that only asserted the keys would pass on a handler
     # returning a zeroed model for the wrong tenant.
     assert body["leads_new_7d"] == 1
@@ -148,7 +151,7 @@ async def test_the_dashboard_route_answers_over_http_for_the_session_tenant() ->
     assert "+91" not in a.text
 
     # Tenant B's own answer, from the same handler, scoped by its own session.
-    assert b.json()["leads_new_7d"] == 1
+    assert b.json()["leads_new_7d"] == 0
     assert tenant_a is not None
 
 

@@ -43,6 +43,8 @@ def _state(
             calls_last_7_days=calls_week,
             leads_waiting={"hot": hot, "interested": 1, "new": 4},
             campaigns={"running": 1, "paused": 0, "scheduled": 0, "draft": 2},
+            people_total=30,
+            people_last_7_days=8,
             leads_total=leads_total,
             leads_last_7_days=5,
             agents={"live": 1, "paused": 0, "draft": 1},
@@ -115,6 +117,7 @@ def test_the_block_is_fenced_labelled_and_carries_every_half() -> None:
     assert rendered.endswith(context.LIVE_CLOSE)
     assert 'now_ist="2026-08-31 18:42"' in rendered
     assert '<calls today="3" last_7_days="19"/>' in rendered
+    assert '<people total="30" last_7_days="8"/>' in rendered
     assert '<leads total="11" last_7_days="5"/>' in rendered
     assert '<leads_waiting hot="2" interested="1" new="4"/>' in rendered
     assert '<campaigns running="1" paused="0" scheduled="0" draft="2"/>' in rendered
@@ -240,6 +243,8 @@ def test_the_block_is_small_by_construction() -> None:
             calls_last_7_days=9_999_999,
             leads_waiting=dict.fromkeys(context.WAITING_STATUSES, 999_999),
             campaigns=dict.fromkeys(context.LIVE_CAMPAIGN_STATUSES, 999_999),
+            people_total=9_999_999,
+            people_last_7_days=999_999,
             leads_total=9_999_999,
             leads_last_7_days=999_999,
             agents=dict.fromkeys(context.LIVE_AGENT_STATUSES, 999_999),

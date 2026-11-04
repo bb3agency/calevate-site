@@ -10,12 +10,13 @@ import { useCostPerResult } from "@/lib/api/proof";
 
 import { MoneyRowPending } from "./moneyRow";
 
-const LABEL = "Cost per new lead, 7 days";
+const LABEL = "Cost per lead, 7 days";
 
 /**
- * Rupees per new lead over the last 7 days (D-944), inside the home screen's money block.
+ * Rupees per lead over the last 7 days (D-944), inside the home screen's money block. A lead
+ * is a person who showed interest, not everyone called (`crm/lead_definition` on the server).
  * Owner-only like every spend figure: a session without `billing:read` renders nothing and
- * never sends the read. The full card (7 or 30 days, per call and per booking) is on the
+ * never sends the read. The full card (7 or 30 days, per call and per goal reached) is on the
  * Billing screen the hint links to.
  */
 export function CostPerLead({ session, href }: { session: Session; href: string }) {
@@ -50,7 +51,7 @@ export function CostPerLead({ session, href }: { session: Session; href: string 
           href={href}
           className="underline decoration-ink/30 underline-offset-2 hover:text-ink touch:inline-flex touch:min-h-11 touch:items-center"
         >
-          {formatCount(week.leads_captured)} {week.leads_captured === 1 ? "lead" : "leads"} for{" "}
+          {formatCount(week.leads)} {week.leads === 1 ? "lead" : "leads"} for{" "}
           {formatINR(week.spent_inr)}
         </Link>
       }

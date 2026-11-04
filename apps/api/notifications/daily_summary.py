@@ -12,7 +12,8 @@ digits, the hot-lead email's rule (`workers/notifications._compose`): a name is 
 lead recognisable and nobody can ring it; the full number stays behind the dashboard login.
 
 Figures: answered calls by `crm/performance.CONNECTED_SQL`; missed = inbound calls that did not
-connect; the owner's own test calls left out; spend is what left the wallet that day
+connect; the owner's own test calls left out; leads are the people who became a lead that day
+(`crm/lead_definition`), not everyone called; spend is what left the wallet that day
 (`billing/history.spend_series`); follow-ups waiting are open call-backs.
 """
 
@@ -33,6 +34,7 @@ from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.errors import ProblemError
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.performance import CONNECTED_SQL
 from apps.workers.redaction import redact
 
@@ -97,14 +99,15 @@ _CALLS_SQL: Final = text(
     "FROM calls WHERE started_at >= :start AND started_at < :end "
     "AND NOT (trial_call OR paid_test_call)"
 )
+#: People who became a lead that day (`crm/lead_definition`) and how many of them are hot.
 _LEADS_SQL: Final = text(
-    "SELECT count(*), count(*) FILTER (WHERE status = 'hot') FROM leads "
-    "WHERE deleted_at IS NULL AND created_at >= :start AND created_at < :end"
+    f"SELECT count(*), count(*) FILTER (WHERE bl.status = 'hot') FROM {BECAME_LEADS_SQL} AS bl "
+    "WHERE bl.became_lead_at >= :start AND bl.became_lead_at < :end"
 )
 _TOP_HOT_SQL: Final = text(
-    "SELECT name, phone_e164 FROM leads WHERE deleted_at IS NULL AND status = 'hot' "
-    "AND created_at >= :start AND created_at < :end "
-    "ORDER BY status_set_at DESC NULLS LAST, created_at DESC LIMIT :n"
+    f"SELECT l.name, l.phone_e164 FROM {BECAME_LEADS_SQL} AS bl JOIN leads l ON l.id = bl.id "
+    "WHERE bl.status = 'hot' AND bl.became_lead_at >= :start AND bl.became_lead_at < :end "
+    "ORDER BY l.status_set_at DESC NULLS LAST, bl.became_lead_at DESC LIMIT :n"
 )
 _FOLLOW_UPS_SQL: Final = text("SELECT count(*) FROM scheduled_callbacks WHERE status = 'scheduled'")
 _ORG_SQL: Final = text(

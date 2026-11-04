@@ -594,17 +594,25 @@ async def _billing_overview(
             if page.statements
             else "No statements yet."
         )
-        from apps.api.analytics.proof import cost_window, ist_today
+        from apps.api.analytics.proof import account_goal_labels, cost_window, ist_today
 
         cost = await cost_window(session, tenant_id=context.tenant_id, days=30, today=ist_today())
+        goals = await account_goal_labels(session)
 
         def each(value: Decimal | None) -> str:
             return "none to divide by" if value is None else display_inr(value)
 
+        goal = (
+            "no call result counts as the goal yet (set one under Lead details, How calls end)"
+            if not goals
+            else "per call that ended "
+            + " or ".join(f"'{label}'" for label in goals)
+            + f" {each(cost.per_goal_inr)}"
+        )
         lines.append(
             f"Last 30 days: spent {display_inr(cost.spent_inr)}; per answered call "
-            f"{each(cost.per_answered_call_inr)}, per new lead {each(cost.per_lead_inr)}, "
-            f"per booked result {each(cost.per_booked_result_inr)}."
+            f"{each(cost.per_answered_call_inr)}, per lead (a person who became interested, "
+            f"hot or won) {each(cost.per_lead_inr)}; {goal}."
         )
     lines.append(
         "To add credit: the Credits & billing screen, Add credit tab. The assistant cannot "

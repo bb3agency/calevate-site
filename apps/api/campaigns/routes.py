@@ -318,7 +318,7 @@ class CampaignResultsOut(Strict):
     #: Everyone the campaign's calls made a lead record for, interested or not.
     leads: int
     hot_leads: int
-    #: People whose lead is interested, hot or won.
+    #: People who became a lead: reached interested, hot or won (`crm/lead_definition`).
     interested_leads: int
     recent_leads: list[CampaignLeadOut]
     opt_outs: int
