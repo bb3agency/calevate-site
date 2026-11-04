@@ -80,7 +80,21 @@ async def store_business_details(
     details: BusinessDetails,
     document_id: UUID | None = None,
 ) -> None:
-    """Record the vendor's answer as our last reading, in the caller's tenant session."""
+    """Record the vendor's answer as our last reading, in the caller's tenant session.
+
+    The reading that first says `accepted` also queues the move of every Calevate-held
+    number recorded for this client into its workspace: an Indian number moves only into a
+    workspace whose business details are approved (`channels/phone-numbers.md`, Move), so a
+    number given to the client before approval would otherwise wait for someone to press
+    Hand it to the client."""
+    before = (
+        await session.execute(
+            text("SELECT business_status FROM tenant_engine_workspaces WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).scalar()
+    if details.status == "accepted" and before != "accepted":
+        await _queue_waiting_moves(session, tenant_id=tenant_id)
     await session.execute(
         text(
             "UPDATE tenant_engine_workspaces SET business_status = :status, "
@@ -99,6 +113,33 @@ async def store_business_details(
             "tid": tenant_id,
         },
     )
+
+
+#: Numbers recorded for this client still held in our developer workspace (a handle with no
+#: `@workspace`, `calevate_shared.engine_scope`), not released and not a platform line.
+_WAITING_MOVES_SQL: Final = (
+    "SELECT id, engine_number_ref, e164 FROM phone_numbers WHERE released_at IS NULL "
+    "AND engine_number_ref IS NOT NULL AND position('@' in engine_number_ref) = 0"
+)
+
+
+async def _queue_waiting_moves(session: AsyncSession, *, tenant_id: UUID) -> int:
+    from apps.api.campaigns.engine_numbers import MOVE_NUMBER_JOB, is_platform_line
+
+    rows = (await session.execute(text(_WAITING_MOVES_SQL))).all()
+    queued = 0
+    for number_id, ref, e164 in rows:
+        if is_platform_line(str(ref)) or is_platform_line(str(e164)):
+            continue
+        await enqueue_outbox(
+            session,
+            job=MOVE_NUMBER_JOB,
+            payload={"tenant_id": str(tenant_id), "number_id": str(number_id), "attempt": 1},
+        )
+        queued += 1
+    if queued:
+        log.info("engine_number_moves_queued", extra={"tenant_id": str(tenant_id), "count": queued})
+    return queued
 
 
 async def queue_business_details_submission(session: AsyncSession, *, tenant_id: UUID) -> bool:

@@ -24,7 +24,9 @@ from __future__ import annotations
 import inspect
 from uuid import uuid4
 
+import pytest
 from apps.api.agents.service import outbound_number_provider
+from apps.api.campaigns import service as campaigns_service
 from apps.api.campaigns.models import CAMPAIGN_CLASSIFICATIONS
 from apps.api.campaigns.service import (
     CLASSIFICATION_REFUSALS,
@@ -122,3 +124,19 @@ def test_both_gates_ask_it_so_a_running_campaign_stops_too() -> None:
     implementation rather than each carrying a copy."""
     for gate in (launch_blockers, dispatch_blockers):
         assert "_channel_blockers(" in inspect.getsource(gate)
+
+
+def test_a_number_in_another_workspace_than_the_agent_refuses_the_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Founder, 4 Nov 2026: a Calevate number recorded for the client but not yet moved into
+    its workspace failed every dial of a launched campaign; the launch must say so first."""
+    monkeypatch.setattr(campaigns_service, "outbound_number_provider", lambda: "thinnest")
+    moved = _facts(
+        "service", number_engine_ref="918065580032@org_client", agent_engine_ref="ag_1@org_client"
+    )
+    waiting = _facts(
+        "service", number_engine_ref="918065580032", agent_engine_ref="ag_1@org_client"
+    )
+    assert "number_not_in_agent_account" not in _rules(_channel_blockers(moved))
+    assert "number_not_in_agent_account" in _rules(_channel_blockers(waiting))

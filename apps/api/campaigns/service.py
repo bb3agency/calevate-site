@@ -48,6 +48,7 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
 
+from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -216,6 +217,12 @@ PURCHASED_LIST_REASON = (
     "This list is recorded as purchased. Calevate does not dial bought or rented "
     "contact lists, because there is no record of the customers having agreed to be called."
 )
+#: The campaign's number is still in Calevate's account, so its agent cannot call from it.
+NUMBER_NOT_MOVED_RULE = "number_not_in_agent_account"
+NUMBER_NOT_MOVED_REASON = (
+    "This number is still being moved into your account, so your agent can't call from it "
+    "yet. Calevate moves it; nothing to do on your side."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +255,10 @@ class _CampaignFacts:
     #: until `_consent_age_blocker` below — the column existed, the date was true, and a
     #: list collected in 2019 launched today with a green gate.
     consent_collected_at: datetime | None
+    #: The number's and the agent's handles on the voice platform: a number is lent only
+    #: to an agent in the workspace that holds it.
+    number_engine_ref: str | None = None
+    agent_engine_ref: str | None = None
 
 
 async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _CampaignFacts:
@@ -264,7 +275,8 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
                 # tenant's own decision, and never a launch blocker.
                 "  a.status AS agent_status, a.ai_disclosure_line, "
                 "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
-                "  c.consent_source, c.consent_collected_at "
+                "  c.consent_source, c.consent_collected_at, "
+                "  n.engine_number_ref, a.engine_agent_ref "
                 "FROM campaigns c "
                 "LEFT JOIN phone_numbers n ON n.id = c.number_id "
                 "JOIN agents a ON a.id = c.agent_id "
@@ -288,6 +300,8 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         agent_deleted=row[9] is not None,
         consent_source=row[10],
         consent_collected_at=row[11],
+        number_engine_ref=row[12],
+        agent_engine_ref=row[13],
     )
 
 
@@ -399,6 +413,16 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
     refused = number_dial_refusal(facts.number_provider, facts.number_direction)
     if refused is not None:
         blockers.append(refused)
+    # The number is lent to the campaign's agent at each dial, which the platform does only
+    # inside one workspace: a Calevate-held number recorded for the client but not yet moved
+    # into its workspace refuses every dial (`engine_number_other_workspace`).
+    if (
+        outbound_number_provider() is not None
+        and facts.number_engine_ref
+        and facts.agent_engine_ref
+        and scope_of(facts.number_engine_ref) != scope_of(facts.agent_engine_ref)
+    ):
+        blockers.append(LaunchBlocker(NUMBER_NOT_MOVED_RULE, NUMBER_NOT_MOVED_REASON))
 
     return blockers
 

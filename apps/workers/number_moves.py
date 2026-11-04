@@ -36,7 +36,7 @@ def _failed(tenant_id: UUID, number_id: UUID, *, code: str) -> None:
         detail=(
             f"a number could not be moved into its client's own voice workspace ({code}). It "
             "keeps its digits and stays where it was. Fix the cause the code names, then "
-            "press Move to client workspace on the client's admin Numbers page."
+            "press Hand it to the client on the client's admin Numbers page."
         ),
         tenant_id=str(tenant_id),
         number_id=str(number_id),

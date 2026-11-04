@@ -57,6 +57,11 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
     why: "Nobody is left to call. Add other people.",
     owner: "client",
   },
+  number_not_in_agent_account: {
+    text: "Your number is still being moved to your account.",
+    why: "Calevate moves it. Nothing to do on your side.",
+    owner: "calevate",
+  },
   number_not_on_carrier: {
     text: "Your chosen number can't make calls.",
     why: "Choose another number, or none to use your agent's own.",

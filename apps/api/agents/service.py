@@ -3778,12 +3778,25 @@ class CallerLine:
 
 
 async def caller_lines(session: AsyncSession, *, agent_id: UUID) -> list[CallerLine]:
-    """Every number this agent can place calls from, its own first, then oldest first."""
+    """Every number this agent can place calls from, its own first, then oldest first.
+
+    On an engine that rings only from numbers it holds, a number in another workspace than
+    the agent's is left out: the platform cannot lend it across workspaces
+    (`engine_number_other_workspace`), so offering it only turns every dial into a refusal
+    (a Calevate-held number recorded for a client before it is moved into the client's own
+    workspace is exactly that)."""
+    carrier = outbound_number_provider()
     rows = (
-        await session.execute(
-            text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": outbound_number_provider()}
-        )
+        await session.execute(text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": carrier})
     ).all()
+    agent_scope: str | None = None
+    if carrier is not None:
+        agent_ref = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
+            )
+        ).scalar()
+        agent_scope = scope_of(str(agent_ref)) if agent_ref else None
     return [
         CallerLine(
             number_id=UUID(str(row[0])),
@@ -3792,6 +3805,7 @@ async def caller_lines(session: AsyncSession, *, agent_id: UUID) -> list[CallerL
             engine_number_ref=str(row[3]) if row[3] else None,
         )
         for row in rows
+        if carrier is None or not row[3] or scope_of(str(row[3])) == agent_scope
     ]
 
 

@@ -286,3 +286,40 @@ async def test_a_number_calevate_test_calls_ring_from_never_moves(
             )
     assert refused.value.code == "engine_number_is_platform_line"
     assert vendor.moves == []
+
+
+async def test_approved_business_details_queue_the_move_of_a_number_waiting_for_them(
+    vendor: MovingVendor,
+) -> None:
+    """Founder, 4 Nov 2026: a Calevate number given to a client before its business details
+    were approved stayed in our account, and every campaign dial from it was refused."""
+    from apps.api.campaigns.engine_business_details import store_business_details
+    from apps.api.engine.thinnest_numbers import BusinessDetails
+
+    tenant_id, number_id, _number, _workspace, _scoped = await _platform_held_number(vendor)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE tenant_engine_workspaces SET business_status = 'submitted' "
+                "WHERE tenant_id = :tid"
+            ),
+            {"tid": tenant_id},
+        )
+    accepted = BusinessDetails(
+        status="accepted", business_name="X", can_rent=True, submitted_at=None, review_note=None
+    )
+    async with tenant_session(tenant_id) as session:
+        await store_business_details(session, tenant_id=tenant_id, details=accepted)
+        await store_business_details(session, tenant_id=tenant_id, details=accepted)
+    async with untenanted_session() as session:
+        queued = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'number_id' = :nid"
+                ),
+                {"job": engine_numbers.MOVE_NUMBER_JOB, "nid": str(number_id)},
+            )
+        ).scalar_one()
+    # Once, on the reading that first says accepted; the second reading changes nothing.
+    assert queued == 1

@@ -476,3 +476,30 @@ async def test_an_engine_that_cannot_route_numbers_reports_it_once_and_pages_nob
         "asked once per publish is the whole point: one line per NUMBER is the noise this "
         "arm exists to avoid"
     )
+
+
+async def test_a_number_held_in_another_workspace_than_the_agent_is_never_chosen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Founder, 4 Nov 2026: a Calevate number not yet moved into the client's workspace was
+    chosen for every campaign dial, and the platform refused to lend it to the agent."""
+    tenant_id, agent_id = await _tenant()
+    waiting_id, _ = await _number(tenant_id, agent_id=None, engine_number_ref="918065580032")
+    moved_id, _ = await _number(tenant_id, agent_id=None, engine_number_ref="918065580099@org_c")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE phone_numbers SET provider = 'thinnest', direction = 'both' "
+                "WHERE tenant_id = :t"
+            ),
+            {"t": tenant_id},
+        )
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = 'ag_x@org_c' WHERE id = :a"),
+            {"a": agent_id},
+        )
+    monkeypatch.setattr(agents_service, "outbound_number_provider", lambda: "thinnest")
+    async with tenant_session(tenant_id) as session:
+        lines = await agents_service.caller_lines(session, agent_id=agent_id)
+    assert [line.number_id for line in lines] == [moved_id]
+    assert waiting_id not in [line.number_id for line in lines]
