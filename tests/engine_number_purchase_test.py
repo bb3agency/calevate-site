@@ -472,11 +472,14 @@ async def test_our_record_of_a_number_the_vendor_lost_can_be_released(
     platform = await _recorded(tenant_id, test_digits)
     async with tenant_session(tenant_id) as session:
         assert await forget_engine_number(session, tenant_id=tenant_id, number_id=gone)
-        with pytest.raises(ProblemError) as refused:
-            await forget_engine_number(session, tenant_id=tenant_id, number_id=still)
-        assert refused.value.code == "engine_number_still_held"
+        # Founder, 4 Nov 2026: a number in the client's own workspace comes back to ours,
+        # same digits, so it can be given again (or be the free-trial line again).
+        assert await forget_engine_number(session, tenant_id=tenant_id, number_id=still)
         assert await forget_engine_number(session, tenant_id=tenant_id, number_id=platform)
     assert (await _row(tenant_id, gone))[3] is not None
+    assert (await _row(tenant_id, still))[3] is not None
+    assert held_digits not in account.ws(workspace).numbers
+    assert account.ws(None).numbers[held_digits]["agent"] is None
     assert account.ws(None).numbers[test_digits]["agent"] is None
 
 

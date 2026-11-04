@@ -509,14 +509,22 @@ async def forget_engine_number(session: AsyncSession, *, tenant_id: UUID, number
         if not exc.object_absent:
             raise
         held = None
+    moved_back = False
     if held is not None and not is_platform_held(ref):
-        raise ProblemError.business_rule(
-            "engine_number_still_held",
-            "The client's voice workspace still holds this number, so forgetting our record "
-            "would leave it rented and charged to us.",
-            remediation="Release the number instead.",
-        )
-    if held is not None:
+        # Held in the client's own workspace: moved back into ours first, keeping its digits
+        # (`move-phone-number.md:9`: "the developer's own, or any of its customers"), so it is
+        # Calevate's number to give again rather than one rented in a workspace nobody uses.
+        from apps.api.campaigns.engine_numbers import refusal_for_move
+        from apps.api.engine.thinnest_customers import thinnest_customers
+
+        developer = await thinnest_customers().developer_workspace_id()
+        try:
+            await numbers.move(ref, developer)
+        except EngineRejectedError as exc:
+            raise refusal_for_move(exc) from exc
+        ref = digits(ref)
+        moved_back = True
+    if held is not None and not moved_back:
         await numbers.attach(ref, agent=None, calling_agent=None)
     await session.execute(
         text(

@@ -25,7 +25,7 @@ from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
 
-#: Our refusal for a vendor refusal that clears by itself (`engine_numbers._move_refusal`).
+#: Our refusal for a vendor refusal that clears by itself (`engine_numbers.refusal_for_move`).
 _LATER: Final = "engine_number_move_later"
 
 

@@ -877,8 +877,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Release our record of a number the platform no longer holds, or a test number
-         * @description Stops our record and the client's monthly charge without releasing anything at the voice platform: for a number the platform no longer holds (the `engine_number_missing_at_vendor` alarm), or a number held in the platform account that was recorded for this client for testing (it is detached from the client's agents and stays ours). Refused with `engine_number_still_held` for a number the client's own workspace still holds: release that one. Requires `confirm: true`.
+         * Take a number back from a client: our record ends and the number stays ours
+         * @description Stops our record and the client's monthly charge without releasing anything at the voice platform: for a number the platform no longer holds (the `engine_number_missing_at_vendor` alarm), a number held in the platform account that was recorded for this client (detached from the client's agents, stays ours), or a number the client's own workspace holds, which is moved back into ours first with the same digits. Requires `confirm: true`.
          */
         post: operations["admin_forget_v1_admin_engine_workspaces_tenants__tenant_id__numbers__number_id__forget_post"];
         delete?: never;

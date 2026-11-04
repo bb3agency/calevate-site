@@ -1,17 +1,16 @@
 "use client";
 
 /**
- * Release a recorded ThinnestAI number, or release only OUR record of it (D-693).
+ * What an operator can do with a number recorded for a client (D-693), in three plain acts:
  *
- * The two are different acts and both are offered: "Release" gives the number back to the
- * pool at ThinnestAI for good; "Release our record" stops our record and the client's
- * monthly charge without touching ThinnestAI — for a number it no longer holds, or a
- * platform-held test number being taken back. The server refuses the second for a number
- * the client's own workspace still holds (`engine_number_still_held`).
- *
- * A number held in the platform account also offers "Move to client workspace": it moves into
- * the client's own workspace with the same digits, instead of being released and bought again.
- * A number on a call is moved once the call ends.
+ * - "Hand it to the client" (a number still in Calevate's account): moves it into the client's
+ *   own workspace with the same digits, instead of releasing it and buying again. A number on
+ *   a call moves once the call ends.
+ * - "Take it back": the client stops paying and the number returns to Calevate's account
+ *   with the same digits (moved back first when the client's workspace holds it), free to
+ *   give to another client or to ring free-trial test calls again. Also clears our record of
+ *   a number the platform no longer holds.
+ * - "Give it up for good": releases it at ThinnestAI; anybody may take it next.
  */
 
 import { formatPhone } from "@/components/ui";
@@ -37,7 +36,7 @@ export function EngineNumberActions({
   tenantId: string;
   numberId: string;
   e164: string;
-  /** Held in the platform account, so it can be moved into the client's workspace. */
+  /** Still in Calevate's account, so it can be handed to the client. */
   platformHeld?: boolean;
   canWrite: boolean;
 }) {
@@ -49,11 +48,12 @@ export function EngineNumberActions({
   const forgetFeedback = useActionFeedback(forget, { errorDisplay: "inline" });
   const moveFeedback = useActionFeedback(move, { errorDisplay: "inline" });
   const [confirming, setConfirming] = useState<"release" | "forget" | "move" | null>(null);
+  const number = formatPhone(e164);
 
-  if (release.data?.released) return <p className="text-meta text-ink-muted">Released. The monthly charge has stopped.</p>;
-  if (forget.data?.released) return <p className="text-meta text-ink-muted">Our record is released. The monthly charge has stopped.</p>;
+  if (release.data?.released) return <p className="text-meta text-ink-muted">Given up for good. The client is no longer charged for it.</p>;
+  if (forget.data?.released) return <p className="text-meta text-ink-muted">Taken back. It is Calevate&apos;s number again and the client is no longer charged.</p>;
 
-  if (move.data?.status === "moved") return <p className="text-meta text-ink-muted">Moved into the client&apos;s workspace with the same digits.</p>;
+  if (move.data?.status === "moved") return <p className="text-meta text-ink-muted">Handed to the client. Same digits, now in their account.</p>;
   if (move.data?.status === "queued") return <p className="text-meta text-ink-muted">The number is on a call. It moves once the call ends; nothing else to do.</p>;
 
   return (
@@ -68,20 +68,9 @@ export function EngineNumberActions({
             setConfirming("move");
           }}
         >
-          Move to client workspace
+          Hand it to the client
         </button>
       )}
-      <button
-        type="button"
-        className={TEXT_ACTION_DANGER}
-        disabled={!canWrite}
-        onClick={() => {
-          resetIfSettled(release);
-          setConfirming("release");
-        }}
-      >
-        Release
-      </button>
       <button
         type="button"
         className={TEXT_ACTION}
@@ -91,28 +80,23 @@ export function EngineNumberActions({
           setConfirming("forget");
         }}
       >
-        Release our record
+        Take it back
       </button>
-      {confirming === "release" && (
-        <ConfirmDialog
-          title={`Release ${formatPhone(e164)}`}
-          confirmLabel="Release for good"
-          pendingLabel="Releasing…"
-          status={releaseFeedback.status}
-          error={release.error}
-          onCancel={() => setConfirming(null)}
-          onConfirm={() => release.mutate(numberId, { onSuccess: () => setConfirming(null) })}
-        >
-          <p>
-            Permanent: the number goes back to the pool and anybody may take it next. This month is
-            not refunded, by ThinnestAI or to the client. The client&apos;s monthly charge stops.
-          </p>
-        </ConfirmDialog>
-      )}
+      <button
+        type="button"
+        className={TEXT_ACTION_DANGER}
+        disabled={!canWrite}
+        onClick={() => {
+          resetIfSettled(release);
+          setConfirming("release");
+        }}
+      >
+        Give it up for good
+      </button>
       {confirming === "move" && (
         <ConfirmDialog
-          title={`Move ${formatPhone(e164)} to the client's workspace`}
-          confirmLabel="Move it"
+          title={`Hand ${number} to this client`}
+          confirmLabel="Hand it over"
           pendingLabel="Moving…"
           status={moveFeedback.status}
           error={move.error}
@@ -120,27 +104,42 @@ export function EngineNumberActions({
           onConfirm={() => move.mutate(numberId, { onSuccess: () => setConfirming(null) })}
         >
           <p>
-            The number keeps its digits and moves into this client&apos;s own workspace, then answers
-            the client&apos;s agent there. From its next renewal the client pays its monthly charge.
-            An Indian number needs the client&apos;s business details approved first.
+            The number keeps its digits and moves into this client&apos;s own account, where their
+            agents answer and call from it. They pay for it from next month. An Indian number needs
+            the client&apos;s business details approved first.
           </p>
         </ConfirmDialog>
       )}
       {confirming === "forget" && (
         <ConfirmDialog
-          title={`Release our record of ${formatPhone(e164)}`}
-          confirmLabel="Release our record"
-          pendingLabel="Releasing…"
+          title={`Take ${number} back`}
+          confirmLabel="Take it back"
+          pendingLabel="Taking it back…"
           status={forgetFeedback.status}
           error={forget.error}
           onCancel={() => setConfirming(null)}
           onConfirm={() => forget.mutate(numberId, { onSuccess: () => setConfirming(null) })}
         >
           <p>
-            Stops our record and the client&apos;s monthly charge without releasing anything at
-            ThinnestAI. For a number ThinnestAI no longer holds, or a test number held in the
-            platform account (it is detached from this client&apos;s agents and stays ours). A number
-            the client&apos;s own workspace still holds is refused: release that one instead.
+            This client stops using and paying for it. The number comes back to Calevate&apos;s
+            account with the same digits, free to give to another client or to use for free-trial
+            test calls again.
+          </p>
+        </ConfirmDialog>
+      )}
+      {confirming === "release" && (
+        <ConfirmDialog
+          title={`Give up ${number} for good`}
+          confirmLabel="Give it up for good"
+          pendingLabel="Giving it up…"
+          status={releaseFeedback.status}
+          error={release.error}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => release.mutate(numberId, { onSuccess: () => setConfirming(null) })}
+        >
+          <p>
+            The number goes back to ThinnestAI and anybody may take it next. It cannot be got back.
+            This month is not refunded. The client is no longer charged for it.
           </p>
         </ConfirmDialog>
       )}

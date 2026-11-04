@@ -701,14 +701,14 @@ async def admin_release(
     "/tenants/{tenant_id}/numbers/{number_id}/forget",
     response_model=AdminReleasedOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Release our record of a number the platform no longer holds, or a test number",
+    summary="Take a number back from a client: our record ends and the number stays ours",
     description=(
         "Stops our record and the client's monthly charge without releasing anything at the "
         "voice platform: for a number the platform no longer holds (the "
-        "`engine_number_missing_at_vendor` alarm), or a number held in the platform account "
-        "that was recorded for this client for testing (it is detached from the client's "
-        "agents and stays ours). Refused with `engine_number_still_held` for a number the "
-        "client's own workspace still holds: release that one. Requires `confirm: true`."
+        "`engine_number_missing_at_vendor` alarm), a number held in the platform account "
+        "that was recorded for this client (detached from the client's agents, stays ours), "
+        "or a number the client's own workspace holds, which is moved back into ours first "
+        "with the same digits. Requires `confirm: true`."
     ),
 )
 async def admin_forget(

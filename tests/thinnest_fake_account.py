@@ -236,6 +236,20 @@ class FakeAccount:
             self.hold(workspace, number)
             return httpx.Response(201, json=place.numbers[number])
         number = path.removeprefix("/phone-numbers/")
+        if number.endswith("/move") and request.method == "POST":
+            # `move-phone-number.md:9`: keeps its digits, arrives answered by nobody, to the
+            # developer's own workspace or any of its customers.
+            number = number.removesuffix("/move")
+            moving = place.numbers.pop(number, None)
+            if moving is None:
+                return _err(404, "not_found", "That number was not found.")
+            to = json.loads(request.content)["toWorkspace"]
+            target = None if to == DEVELOPER else to
+            if target is not None and target not in self.customers:
+                place.numbers[number] = moving
+                return _err(404, "workspace_not_found", "Workspace not found.")
+            self.ws(target).numbers[number] = {**moving, "agent": None, "callingAgent": None}
+            return httpx.Response(200, json={"to": to, "source": moving["source"]})
         row = place.numbers.get(number)
         if row is None:
             return _err(404, "not_found", "That number was not found.")

@@ -114,7 +114,7 @@ export function NumberRow({
               items={[
                 {
                   id: "forget",
-                  label: "Release our record",
+                  label: "Take it back",
                   tone: "danger",
                   icon: <FileX aria-hidden className="h-4 w-4" />,
                   onSelect: () => {
@@ -133,7 +133,7 @@ export function NumberRow({
               items={[
                 {
                   id: "release",
-                  label: "Release",
+                  label: "Give it up for good",
                   tone: "danger",
                   icon: <PhoneOff aria-hidden className="h-4 w-4" />,
                   onSelect: onRelease,
@@ -146,19 +146,17 @@ export function NumberRow({
 
       {forgetting && (
         <ConfirmDialog
-          title={`Release our record of ${formatPhone(number.e164)}`}
-          confirmLabel="Release our record"
-          pendingLabel="Releasing…"
+          title={`Take ${formatPhone(number.e164)} back`}
+          confirmLabel="Take it back"
+          pendingLabel="Taking it back…"
           status={forgetFeedback.status}
           error={forget.error}
           onCancel={() => setForgetting(false)}
           onConfirm={() => forget.mutate(number.id, { onSuccess: () => setForgetting(false) })}
         >
           <p>
-            Stops our record and the client&apos;s monthly charge. Nothing is released at the voice
-            platform. For a number the voice platform no longer holds, or a test number held in
-            the platform account. A number the client&apos;s own workspace still holds is refused:
-            release it from the voice workspace panel instead.
+            This client stops using and paying for it. If the number is still held, it comes back
+            to Calevate&apos;s account with the same digits, free to give again.
           </p>
         </ConfirmDialog>
       )}

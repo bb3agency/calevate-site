@@ -153,7 +153,7 @@ function recordedSentence(recorded: RecordedEngineNumber): string {
         ? " It is held in the platform account and the agent lives in the client's own workspace, so nobody answers it."
         : "";
   const held = recorded.move_refusal
-    ? ` Not moved into the client's workspace yet: ${recorded.move_refusal} Use Move into the client's workspace once that is done.`
+    ? ` Not moved into the client's workspace yet: ${recorded.move_refusal} Use Hand it to the client once that is done.`
     : recorded.platform_held
       ? " Still in Calevate's account: move it into the client's workspace for their agents to use it."
       : "";

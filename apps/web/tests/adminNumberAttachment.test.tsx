@@ -429,7 +429,7 @@ describe("a recorded number the voice platform has lost can have our record rele
   // the only place a lost number's record (and the client's monthly charge) can be stopped.
   const FORGET_PATH = `/v1/admin/engine-workspaces/tenants/${TENANT}/numbers/${NUMBER}/forget`;
 
-  it("offers 'Release our record' on a voice-platform row, confirms what it does, and posts confirm", async () => {
+  it("offers 'Take it back' on a voice-platform row, confirms what it does, and posts confirm", async () => {
     const calls: unknown[] = [];
     await render({
       ...healthy([number({ provider: "thinnest", engine_owned: true, on_engine: true })]),
@@ -442,13 +442,12 @@ describe("a recorded number the voice platform has lost can have our record rele
     fireEvent.click(await screen.findByRole("button", { name: "More actions for +91 80412 34567" }));
     const menu = await screen.findByRole("menu");
     // The generic release refuses a voice-platform number, so it is not offered beside it.
-    expect(within(menu).queryByRole("menuitem", { name: "Release" })).toBeNull();
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Release our record" }));
+    expect(within(menu).queryByRole("menuitem", { name: "Give it up for good" })).toBeNull();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Take it back" }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/Stops our record and the client.s monthly charge/)).toBeTruthy();
-    expect(within(dialog).getByText(/Nothing is released at the voice\s+platform/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Release our record" }));
+    expect(within(dialog).getByText(/stops using and paying for it/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Take it back" }));
 
     await waitFor(() => expect(calls).toEqual([{ confirm: true }]));
   });
@@ -470,8 +469,8 @@ describe("a recorded number the voice platform has lost can have our record rele
 
     fireEvent.click(await screen.findByRole("button", { name: "More actions for +91 80412 34567" }));
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: "Release" })).toBeTruthy();
-    expect(within(menu).queryByRole("menuitem", { name: "Release our record" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Give it up for good" })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: "Take it back" })).toBeNull();
     expect(screen.queryByRole("button", { name: "More actions for +91 80412 34568" })).toBeNull();
   });
 });

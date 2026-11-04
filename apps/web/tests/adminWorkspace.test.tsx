@@ -22,7 +22,7 @@ import { renderAdminRoute, routeParams } from "./adminRoute";
  * - The workspace's state is said plainly, the plan's customer cap above all, with the
  *   lever that fixes it.
  * - The operator buys with the client's price AND our cost in view.
- * - "Release" and "Release our record" are separate acts, each confirmed.
+ * - "Give it up for good" and "Take it back" are separate acts, each confirmed.
  * - A number held in the platform account is flagged as Calevate's.
  * - The ops summary warns when the plan has one workspace or fewer left.
  */
@@ -344,14 +344,14 @@ describe("one release path for a number the voice platform holds", () => {
     on_engine,
   });
 
-  it("offers no generic Release on a voice-platform number, only releasing our record", async () => {
+  it("offers no generic give-up on a voice-platform number, only taking it back", async () => {
     await render(workspace(), { [COSTS_PATH]: [held(true)] });
     expect(await screen.findAllByText("+91 80123 45672")).toBeTruthy();
     await screen.findByText("Voice workspace");
     fireEvent.click(await screen.findByRole("button", { name: "More actions for +91 80123 45672" }));
     const menu = await screen.findByRole("menu");
-    expect(within(menu).queryByRole("menuitem", { name: "Release" })).toBeNull();
-    expect(within(menu).getByRole("menuitem", { name: "Release our record" })).toBeTruthy();
+    expect(within(menu).queryByRole("menuitem", { name: "Give it up for good" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Take it back" })).toBeTruthy();
   });
 
   it("keeps the generic Release for a number bought elsewhere", async () => {
@@ -370,27 +370,27 @@ describe("the engine numbers list", () => {
     const { calls } = await render(workspace(), {
       [`POST ${WORKSPACE_PATHS.release(TENANT, NUMBER_ID)}`]: { number_id: NUMBER_ID, released: true },
     });
-    fireEvent.click(await enabledButton("Release"));
+    fireEvent.click(await enabledButton("Give it up for good"));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/This month is\s+not refunded/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Release for good" }));
-    expect(await screen.findByText("Released. The monthly charge has stopped.")).toBeTruthy();
+    expect(within(dialog).getByText(/This month is not refunded/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Give it up for good" }));
+    expect(await screen.findByText("Given up for good. The client is no longer charged for it.")).toBeTruthy();
     expect(posts(calls, WORKSPACE_PATHS.release(TENANT, NUMBER_ID)).map((call) => JSON.parse(call.body ?? "null")))
       .toEqual([{ confirm: true }]);
   });
 
-  it("releases only our record, and shows the refusal for a number the client still holds", async () => {
+  it("takes a number back, and shows a refusal inside the dialog", async () => {
     const { calls } = await render(workspace(), {
       [`POST ${WORKSPACE_PATHS.forget(TENANT, NUMBER_ID)}`]: problem(409, {
-        type: "https://calevate.tech/problems/engine_number_still_held",
-        detail: "The client's own workspace still holds this number. Release it instead.",
+        type: "https://calevate.tech/problems/engine_number_move_later",
+        detail: "The number is on a call. Try again in a few minutes.",
       }),
     });
-    fireEvent.click(await enabledButton("Release our record"));
+    fireEvent.click(await enabledButton("Take it back"));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/without releasing anything at\s+ThinnestAI/)).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Release our record" }));
-    expect(await within(dialog).findByText(/still holds this number/)).toBeTruthy();
+    expect(within(dialog).getByText(/comes back to Calevate/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Take it back" }));
+    expect(await within(dialog).findByText(/on a call/)).toBeTruthy();
     expect(posts(calls, WORKSPACE_PATHS.forget(TENANT, NUMBER_ID)).map((call) => JSON.parse(call.body ?? "null")))
       .toEqual([{ confirm: true }]);
   });

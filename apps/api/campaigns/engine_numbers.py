@@ -1217,7 +1217,7 @@ async def queue_number_move(tenant_id: UUID, number_id: UUID, *, attempt: int) -
     )
 
 
-def _move_refusal(exc: EngineRejectedError) -> ProblemError:
+def refusal_for_move(exc: EngineRejectedError) -> ProblemError:
     """A vendor refusal of a move in our words. Admin realm, so the vendor's code rides in
     the remediation an operator reads."""
     code = exc.vendor_code or "unknown"
@@ -1308,7 +1308,7 @@ async def move_into_client_workspace(
     try:
         moved, rented = await thinnest_numbers().move(current, target)
     except EngineRejectedError as exc:
-        raise _move_refusal(exc) from exc
+        raise refusal_for_move(exc) from exc
     await session.execute(
         text(
             "UPDATE phone_numbers SET engine_number_ref = :ref, updated_at = now() WHERE id = :nid"
@@ -1365,6 +1365,7 @@ __all__ = [
     "read_trial_line",
     "reconcile_engine_number_attachments",
     "record_engine_number",
+    "refusal_for_move",
     "releasable_by",
     "search_available",
     "sync_number_attachment",

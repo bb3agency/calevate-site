@@ -223,12 +223,6 @@ async def test_an_admin_sees_the_workspace_buys_releases_and_forgets(
         )
         assert unconfirmed.status_code == 403, unconfirmed.text
         assert unconfirmed.json()["type"].endswith("/step_up_required")
-        still = await http.post(
-            f"{base}/numbers/{number_id}/forget",
-            json={"confirm": True},
-            headers={**headers, "X-Confirm-Action": f"forget_number:{tenant_id}:{number_id}"},
-        )
-        assert "engine_number_still_held" in still.text
         released = await http.post(
             f"{base}/numbers/{number_id}/release",
             json={"confirm": True},
