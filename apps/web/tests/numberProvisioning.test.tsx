@@ -529,6 +529,52 @@ describe("choosing what a number is used for", () => {
       await screen.findByText(/could not connect it to that agent/i),
     ).toBeTruthy();
   });
+
+  it("offers only agents that answer calls", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/agents": [
+          { id: "agent-1", name: "Reception", status: "live", direction: "inbound" },
+          { id: "agent-out", name: "Varsha", status: "live", direction: "outbound" },
+        ],
+      }),
+    );
+
+    const select = (await screen.findByLabelText(/^answers incoming calls$/i)) as HTMLSelectElement;
+    const names = Array.from(select.options).map((option) => option.textContent);
+    expect(names).toContain("Reception");
+    expect(names).not.toContain("Varsha");
+  });
+
+  it("asks for no agent when the number only makes calls", async () => {
+    const { calls } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/agents": [{ id: "agent-out", name: "Varsha", status: "live", direction: "outbound" }],
+        "/v1/campaigns/numbers": [{ ...(heldNumbers() as object[])[0], agent_id: "agent-out" }],
+        [`POST ${PATHS.assign("num-1")}`]: {
+          number_id: "num-1",
+          agent_id: null,
+          bound: 0,
+          released: 1,
+          failed: 0,
+          unsupported: 0,
+        },
+      }),
+    );
+
+    fireEvent.click((await directionOf()).getByRole("radio", { name: /^make calls$/i }));
+    expect(screen.queryByLabelText(/^answers incoming calls$/i)).toBeNull();
+    const save = screen.getByRole("button", { name: /^save$/i });
+    await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(save);
+
+    await waitFor(() => {
+      const post = calls.find((call) => call.path === PATHS.assign("num-1"));
+      expect(JSON.parse(post?.body ?? "{}")).toEqual({ agent_id: null, direction: "outbound" });
+    });
+  });
 });
 
 describe("a number we supplied says which link is missing", () => {

@@ -5133,11 +5133,9 @@ async def attach_number_to_agent(
         if not (_is_agent_direction(direction) and agent_answers_inbound(direction)):
             raise ProblemError.business_rule(
                 "agent_does_not_answer_inbound",
-                "This agent only makes outgoing calls, so attaching a number to it would "
-                "not make that number ring anywhere.",
+                "This agent only makes calls, so it can't answer this number.",
                 remediation=(
-                    "Set the agent to answer incoming calls as well (its direction), or "
-                    "attach the number to a receptionist agent."
+                    "Pick an agent that answers calls, or set this number to Make calls."
                 ),
             )
         # LIVE AND PUBLISHED, or the engine is told to release rather than to bind. An

@@ -95,38 +95,51 @@ export function NumberAssignment({
   }
 
   const result = assign.data;
-  const unlisted =
-    agentId !== null && !agents.data.some((agent) => agent.id === agentId) ? agentId : null;
+  // Only an agent that answers can hold a number for incoming calls; the server refuses an
+  // outbound-only one (`agent_does_not_answer_inbound`), so offering it is offering a refusal.
+  // Every agent calls out from every number (shared outbound), so "Make calls" needs no agent.
+  const answering = agents.data.filter(
+    (agent) => agent.direction !== "outbound" && agent.status !== "archived",
+  );
+  const callsOutOnly = direction === "outbound";
+  const unlisted = agentId !== null && !answering.some((agent) => agent.id === agentId) ? agentId : null;
+  const current = unlisted ? agents.data.find((agent) => agent.id === unlisted) : undefined;
 
   return (
     <section className="border-t border-line pt-4">
-      <h3 className="text-body font-semibold text-ink">Who answers this number</h3>
+      <h3 className="text-body font-semibold text-ink">
+        {callsOutOnly ? "Calls out only" : "Who answers this number"}
+      </h3>
       <p className="mt-1 text-meta text-ink-muted">All your agents can call out from it.</p>
 
-      <div className="mt-3">
-        <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
-          Answers incoming calls
-        </label>
-        <select
-          id={`agent-${numberId}`}
-          className={FIELD}
-          value={agentId ?? NOBODY}
-          disabled={!write.allowed}
-          onChange={(event) =>
-            setAgentId(event.target.value === NOBODY ? null : event.target.value)
-          }
-        >
-          <option value={NOBODY}>Nobody</option>
-          {unlisted !== null && (
-            <option value={unlisted}>Current agent (not in your list)</option>
-          )}
-          {agents.data.map((agent) => (
-            <option key={agent.id} value={agent.id}>
-              {agent.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {!callsOutOnly && (
+        <div className="mt-3">
+          <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
+            Answers incoming calls
+          </label>
+          <select
+            id={`agent-${numberId}`}
+            className={FIELD}
+            value={agentId ?? NOBODY}
+            disabled={!write.allowed}
+            onChange={(event) =>
+              setAgentId(event.target.value === NOBODY ? null : event.target.value)
+            }
+          >
+            <option value={NOBODY}>Nobody</option>
+            {unlisted !== null && (
+              <option value={unlisted}>
+                {current ? `${current.name} (only makes calls)` : "Current agent (not in your list)"}
+              </option>
+            )}
+            {answering.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="mt-3">
         <p className={FIELD_LABEL} aria-hidden>
@@ -188,7 +201,9 @@ export function NumberAssignment({
         status={assignFeedback.status === "success" && (result?.failed ?? 0) > 0 ? "error" : assignFeedback.status}
         disabled={!write.allowed}
         title={write.reason ?? undefined}
-        onClick={() => assignFeedback.run({ numberId, agentId, direction })}
+        onClick={() =>
+          assignFeedback.run({ numberId, agentId: callsOutOnly ? null : agentId, direction })
+        }
         pendingLabel="Saving…"
         successLabel="Saved"
       >

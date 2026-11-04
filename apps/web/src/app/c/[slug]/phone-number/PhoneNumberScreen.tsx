@@ -236,6 +236,8 @@ function NumberCard({
     : number.supplied_by_us
     ? number.answerable
       ? { text: "Ready to answer", tone: "ok" as const }
+      : number.direction === "outbound"
+        ? { text: "Calls out only", tone: "neutral" as const }
       : !number.agent_id
         ? { text: "No agent on it yet", tone: "neutral" as const }
         : outboundOnly
