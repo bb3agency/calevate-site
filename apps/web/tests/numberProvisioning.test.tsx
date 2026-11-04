@@ -530,8 +530,8 @@ describe("choosing what a number is used for", () => {
     ).toBeTruthy();
   });
 
-  it("offers only agents that answer calls", async () => {
-    await renderClientPage(
+  it("shows an agent that only makes calls, greyed out, and names who calls out", async () => {
+    const { container } = await renderClientPage(
       <PhoneNumberPage />,
       routes({
         "/v1/agents": [
@@ -542,9 +542,31 @@ describe("choosing what a number is used for", () => {
     );
 
     const select = (await screen.findByLabelText(/^answers incoming calls$/i)) as HTMLSelectElement;
-    const names = Array.from(select.options).map((option) => option.textContent);
-    expect(names).toContain("Reception");
-    expect(names).not.toContain("Varsha");
+    const options = Array.from(select.options);
+    expect(options.find((option) => option.textContent === "Reception")?.disabled).toBe(false);
+    expect(
+      options.find((option) => option.textContent === "Varsha (only makes calls)")?.disabled,
+    ).toBe(true);
+    expect(container.textContent).toContain("Varsha calls out from it.");
+  });
+
+  it("says the answering agent is switched off rather than not ready", async () => {
+    const { container } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/agents": [{ id: "agent-1", name: "Anjali", status: "paused", direction: "inbound" }],
+        "/v1/campaigns/numbers": [
+          { ...(heldNumbers() as object[])[0], supplied_by_us: true, answerable: false, agent_id: "agent-1" },
+        ],
+      }),
+    );
+
+    expect(await screen.findByText("Anjali is switched off")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Switch Anjali on" }).getAttribute("href")).toBe(
+      "/c/acme/agents/agent-1",
+    );
+    expect(container.textContent).not.toContain("Still connecting");
+    expect(screen.queryByText("Not ready yet")).toBeNull();
   });
 
   it("asks for no agent when the number only makes calls", async () => {

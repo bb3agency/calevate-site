@@ -79,7 +79,7 @@ export function PhoneNumberScreen() {
  * screen says what to ASK for, in the words an Indian operator uses.
  */
 function CalevateNumbers({ existingHref }: { existingHref: string }) {
-  const { session } = useClientRealm();
+  const { session, href } = useClientRealm();
   const numbers = useCampaignNumbers(session);
   const rows = numbers.data;
   const ours = rows?.filter((number) => number.supplied_by_us) ?? [];
@@ -93,8 +93,21 @@ function CalevateNumbers({ existingHref }: { existingHref: string }) {
   const outboundOnly = (number: CampaignNumber): boolean =>
     agents.data?.some((agent) => agent.id === number.agent_id && agent.direction === "outbound") ===
     true;
+  // Only a switched-on agent answers (`engine_numbers.wanted_attachment` needs `live`), so a
+  // number on a paused or draft agent is not "still connecting": the owner has a switch to press.
+  const agentOff = (number: CampaignNumber) => {
+    const agent = agents.data?.find((candidate) => candidate.id === number.agent_id);
+    return agent && agent.status !== "live" && agent.status !== "archived" && !outboundOnly(number)
+      ? agent
+      : undefined;
+  };
   const waiting = (number: CampaignNumber): boolean =>
-    !number.held && !number.answerable && number.agent_id != null && agents.data !== undefined && !outboundOnly(number);
+    !number.held &&
+    !number.answerable &&
+    number.agent_id != null &&
+    agents.data !== undefined &&
+    !outboundOnly(number) &&
+    agentOff(number) === undefined;
   // Where numbers are rented in the business's own calling account (D-693), the three-step
   // journey replaces the older purchase panel; elsewhere the older panel stays.
   const own = useOwnNumbersStatus(session);
@@ -156,6 +169,19 @@ function CalevateNumbers({ existingHref }: { existingHref: string }) {
                     Its agent only calls out. Pick one that answers.
                   </WaitLine>
                 )}
+                {ours.map((number) => ({ number, agent: agentOff(number) }))
+                  .filter(({ number, agent }) => agent && !number.held && !number.answerable)
+                  .map(({ number, agent }) => (
+                    <WaitLine
+                      key={`off-${number.id}`}
+                      why="Only an agent that is switched on answers calls. Callers hear nothing until it is."
+                    >
+                      <Link href={href(`/c/${session.orgSlug}/agents/${agent!.id}`)} className="underline">
+                        Switch {agent!.name} on
+                      </Link>{" "}
+                      to answer this number.
+                    </WaitLine>
+                  ))}
                 {ours.some(waiting) && (
                   <WaitLine why="We are still connecting it. Forward calls only once it says Ready to answer, or callers hear silence.">
                     Still connecting. Nothing to do yet.
@@ -167,6 +193,7 @@ function CalevateNumbers({ existingHref }: { existingHref: string }) {
                     number={number}
                     releasable={ownNumbers && number.releasable === true}
                     outboundOnly={outboundOnly(number)}
+                    agentOffName={agentOff(number)?.name}
                   />
                 ))}
               </div>
@@ -224,11 +251,14 @@ function NumberCard({
   number,
   releasable,
   outboundOnly = false,
+  agentOffName,
 }: {
   number: CampaignNumber;
   releasable: boolean;
   /** On an agent that only makes calls, so it cannot answer whatever else is in place. */
   outboundOnly?: boolean;
+  /** The answering agent's name when it is not switched on. */
+  agentOffName?: string;
 }) {
   const { session, href } = useClientRealm();
   const status = number.held
@@ -242,7 +272,9 @@ function NumberCard({
         ? { text: "No agent on it yet", tone: "neutral" as const }
         : outboundOnly
           ? { text: "Makes calls only", tone: "neutral" as const }
-          : { text: "Not ready yet", tone: "neutral" as const }
+          : agentOffName
+            ? { text: `${agentOffName} is switched off`, tone: "neutral" as const }
+            : { text: "Not ready yet", tone: "neutral" as const }
     : number.dlt_status === "registered"
       ? { text: "Registered for calling out", tone: "ok" as const }
       : { text: "Registration still in progress", tone: "neutral" as const };

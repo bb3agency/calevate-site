@@ -59,6 +59,11 @@ import { DIRECTIONS } from "./direction";
 /** Detach: the recovery path from a wrong binding, and a real choice rather than a gap. */
 const NOBODY = "";
 
+/** "Varsha", "Varsha and Anjali", "Varsha, Anjali and Ravi". */
+function listNames(names: string[]): string {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
 /** Whether a refusal is the one the client can clear themselves. */
 function notActivated(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -95,22 +100,26 @@ export function NumberAssignment({
   }
 
   const result = assign.data;
-  // Only an agent that answers can hold a number for incoming calls; the server refuses an
-  // outbound-only one (`agent_does_not_answer_inbound`), so offering it is offering a refusal.
-  // Every agent calls out from every number (shared outbound), so "Make calls" needs no agent.
-  const answering = agents.data.filter(
-    (agent) => agent.direction !== "outbound" && agent.status !== "archived",
-  );
+  // Every agent that makes calls calls out from every number (shared outbound), so "Make
+  // calls" needs no agent. Only an answering agent can be picked here: the server refuses an
+  // outbound-only one (`agent_does_not_answer_inbound`). Those are still listed, disabled and
+  // named for what they do, so the owner sees why they cannot be picked.
+  const current = agents.data.filter((agent) => agent.status !== "archived");
+  const answers = (agent: (typeof current)[number]) => agent.direction !== "outbound";
+  const callers = current.filter((agent) => agent.direction !== "inbound").map((agent) => agent.name);
   const callsOutOnly = direction === "outbound";
-  const unlisted = agentId !== null && !answering.some((agent) => agent.id === agentId) ? agentId : null;
-  const current = unlisted ? agents.data.find((agent) => agent.id === unlisted) : undefined;
+  const unlisted = agentId !== null && !current.some((agent) => agent.id === agentId) ? agentId : null;
 
   return (
     <section className="border-t border-line pt-4">
       <h3 className="text-body font-semibold text-ink">
         {callsOutOnly ? "Calls out only" : "Who answers this number"}
       </h3>
-      <p className="mt-1 text-meta text-ink-muted">All your agents can call out from it.</p>
+      <p className="mt-1 text-meta text-ink-muted">
+        {callers.length > 0
+          ? `${listNames(callers)} ${callers.length === 1 ? "calls" : "call"} out from it.`
+          : "None of your agents makes calls yet."}
+      </p>
 
       {!callsOutOnly && (
         <div className="mt-3">
@@ -128,13 +137,11 @@ export function NumberAssignment({
           >
             <option value={NOBODY}>Nobody</option>
             {unlisted !== null && (
-              <option value={unlisted}>
-                {current ? `${current.name} (only makes calls)` : "Current agent (not in your list)"}
-              </option>
+              <option value={unlisted}>Current agent (not in your list)</option>
             )}
-            {answering.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
+            {current.map((agent) => (
+              <option key={agent.id} value={agent.id} disabled={!answers(agent) && agent.id !== agentId}>
+                {answers(agent) ? agent.name : `${agent.name} (only makes calls)`}
               </option>
             ))}
           </select>
