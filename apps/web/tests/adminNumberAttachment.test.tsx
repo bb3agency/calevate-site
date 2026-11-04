@@ -166,7 +166,7 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
     ).toBeTruthy();
   });
 
-  it("offers only agents that ANSWER incoming calls, plus the detach choice", async () => {
+  it("offers every agent, including one that only makes calls, plus the detach choice", async () => {
     await render(healthy([number()]));
 
     const picker = (await screen.findByLabelText(
@@ -174,11 +174,8 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
     )) as HTMLSelectElement;
     const options = [...picker.options].map((option) => option.textContent);
     expect(options).toContain("Front desk");
-    // An outbound-only agent would be refused by the server (`agent_does_not_answer_
-    // inbound`), so offering it here would be a choice whose only outcome is a refusal.
-    expect(options.some((label) => label?.includes("Outbound dialler"))).toBe(
-      false,
-    );
+    // A number does what its agent does: one that only makes calls calls out from it.
+    expect(options.some((label) => label?.includes("Outbound dialler"))).toBe(true);
     // DETACH IS AN ORDINARY CHOICE, not a hidden one: it is the only way out of a wrong
     // attachment, and before D-576 there was none at all.
     expect(options[0]).toMatch(/Nobody/);

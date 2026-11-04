@@ -22,7 +22,6 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { RadioGroup } from "@/components/arc/radio-group";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { LoadMore } from "@/components/interior/load-more";
 import {
@@ -64,7 +63,6 @@ import {
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
-import { DIRECTIONS } from "./direction";
 import { StatusPill } from "@/components/console/statusPill";
 import type { NoticeTone } from "@/components/ui";
 
@@ -362,9 +360,8 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
 
   const [chosen, setChosen] = useState<OwnAvailableNumber | null>(null);
   const [agentId, setAgentId] = useState(NO_AGENT);
-  const [direction, setDirection] = useState<OwnNumberDirection>("both");
   // ONE key per press of Buy, held across that purchase's retries. Changing what is being
-  // bought (agent, direction) is a different request and gets a fresh key.
+  // bought (the agent) is a different request and gets a fresh key.
   const [requestKey, setRequestKey] = useState("");
   const [bought, setBought] = useState<PurchasedOwnNumber | null>(null);
 
@@ -373,7 +370,6 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
   function open(offer: OwnAvailableNumber) {
     purchase.reset();
     setAgentId(NO_AGENT);
-    setDirection("both");
     setRequestKey(newRequestKey());
     setChosen(offer);
   }
@@ -386,6 +382,9 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
   const pages = available.data?.pages;
   const numbers = pages === undefined ? undefined : pages.flatMap((page) => page.numbers);
   const chosenAgent = agents.data?.find((agent) => agent.id === agentId);
+  // The number does what its agent does (`agents/service.attach_number_to_agent`); with no
+  // agent yet it stays open for both, so any agent can be put on it later.
+  const direction: OwnNumberDirection = chosenAgent?.direction === "outbound" ? "outbound" : "both";
 
   return (
     <section aria-labelledby="buy-own-number" className="space-y-3">
@@ -543,7 +542,7 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           )}
           <p>Registered in your business&apos;s name.</p>
           <label className="block">
-            <span className={FIELD_LABEL}>The agent that answers it (optional)</span>
+            <span className={FIELD_LABEL}>Agent (optional)</span>
             <select
               className={FIELD}
               value={agentId}
@@ -553,24 +552,22 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
               }}
             >
               <option value={NO_AGENT}>No agent yet, I will choose later</option>
-              {agents.data?.map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
-                </option>
-              ))}
+              {agents.data
+                ?.filter((agent) => agent.status !== "archived")
+                .map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
             </select>
           </label>
-          {chosenAgent && <p>Calls to it reach {chosenAgent.name}.</p>}
-          <RadioGroup
-            label="What this number is for"
-            name="own-number-direction"
-            options={DIRECTIONS}
-            value={direction}
-            onChange={(value) => {
-              setDirection(value as OwnNumberDirection);
-              setRequestKey(newRequestKey());
-            }}
-          />
+          {chosenAgent && (
+            <p>
+              {chosenAgent.direction === "outbound"
+                ? `${chosenAgent.name} calls out from it.`
+                : `Calls to it reach ${chosenAgent.name}.`}
+            </p>
+          )}
           <OwnNumberProblem error={purchase.error} />
           {codeOf(purchase.error) === "number_insufficient_credit" && (
             <Link href={creditsHref} className={SECONDARY_BUTTON_SM}>

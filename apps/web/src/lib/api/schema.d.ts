@@ -3175,7 +3175,7 @@ export interface paths {
         put?: never;
         /**
          * Choose which agent answers this number — or detach it — and route it now
-         * @description Points a recorded number at an agent, or at nothing when `agent_id` is null, and tells the voice platform in the same request rather than waiting for the next publish. Detaching RELEASES the binding at the platform: leaving it in place would keep an agent answering a number our own screens say it is not on. Refused with `agent_does_not_answer_inbound` for an outbound-only agent, with `agent_archived` for a deleted one, with `number_released` for a number given back, and with a 404 for an agent or number belonging to another client. The counts say what the platform was told.
+         * @description Points a recorded number at an agent, or at nothing when `agent_id` is null, and tells the voice platform in the same request rather than waiting for the next publish. Detaching RELEASES the binding at the platform: leaving it in place would keep an agent answering a number our own screens say it is not on. An agent that only makes calls gets it as the line it calls out from. Refused with `agent_archived` for a deleted agent, with `number_released` for a number given back, and with a 404 for an agent or number belonging to another client. The counts say what the platform was told.
          */
         post: operations["set_number_agent_v1_admin_tenants__tenant_id__numbers__number_id__agent_post"];
         delete?: never;
@@ -11579,7 +11579,7 @@ export interface paths {
         put?: never;
         /**
          * Choose which agent answers this number — the binding every other gate needs
-         * @description Points a number at an agent, or at nothing, and tells the voice platform in the same request. This binding is what makes a number the caller ID a campaign dials from and the line an agent answers, so a campaign whose number is bound elsewhere is refused at launch. Refused with `number_not_activated` while the holder's identity is unverified — the number is held, not lost — and with `agent_does_not_answer_inbound` for an outbound-only agent. Detaching (`agent_id: null`) is always allowed. The counts say what the platform was told, so a binding that failed is not reported as one that worked.
+         * @description Points a number at an agent, or at nothing, and tells the voice platform in the same request. This binding is what makes a number the caller ID a campaign dials from and the line an agent answers, so a campaign whose number is bound elsewhere is refused at launch. Refused with `number_not_activated` while the holder's identity is unverified — the number is held, not lost. The number does what its agent does: an agent that only makes calls calls out from it, and its `direction` follows the agent, overriding the request's whenever an agent is given. Detaching (`agent_id: null`) is always allowed. The counts say what the platform was told, so a binding that failed is not reported as one that worked.
          */
         post: operations["assign_number_v1_numbers__number_id__assign_post"];
         delete?: never;

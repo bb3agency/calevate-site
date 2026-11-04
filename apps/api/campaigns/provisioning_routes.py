@@ -444,8 +444,10 @@ async def purchase_number(
         "same request. This binding is what makes a number the caller ID a campaign dials "
         "from and the line an agent answers, so a campaign whose number is bound "
         "elsewhere is refused at launch. Refused with `number_not_activated` while the "
-        "holder's identity is unverified — the number is held, not lost — and with "
-        "`agent_does_not_answer_inbound` for an outbound-only agent. Detaching "
+        "holder's identity is unverified — the number is held, not lost. The number does "
+        "what its agent does: an agent that only makes calls calls out from it, and its "
+        "`direction` follows the agent, overriding the request's whenever an agent is "
+        "given. Detaching "
         "(`agent_id: null`) is always allowed. The counts say what the platform was told, "
         "so a binding that failed is not reported as one that worked."
     ),

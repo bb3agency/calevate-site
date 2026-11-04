@@ -2377,9 +2377,9 @@ async def set_number_dlt_status(
         "tells the voice platform in the same request rather than waiting for the next "
         "publish. Detaching RELEASES the binding at the platform: leaving it in place "
         "would keep an agent answering a number our own screens say it is not on. "
-        "Refused with `agent_does_not_answer_inbound` for an outbound-only agent, with "
-        "`agent_archived` for a deleted one, with `number_released` for a number given "
-        "back, and with a 404 for an agent or number belonging to another client. The "
+        "An agent that only makes calls gets it as the line it calls out from. "
+        "Refused with `agent_archived` for a deleted agent, with `number_released` for a "
+        "number given back, and with a 404 for an agent or number belonging to another client. The "
         "counts say what the platform was told."
     ),
 )

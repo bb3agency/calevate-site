@@ -334,24 +334,27 @@ async def test_the_route_refuses_a_cross_tenant_agent_at_the_wire() -> None:
 # --- the refusals an operator would otherwise meet as silence -------------------------
 
 
-async def test_an_outbound_only_agent_is_refused_by_name_rather_than_attached() -> None:
-    """ "Saved, and nothing happened" is exactly the report this defect was made of.
-
-    An outbound-only agent picks up no incoming call, so attaching a number to it can only
-    produce a screen that says it worked and a phone that does not ring.
-    """
+async def test_an_agent_that_only_makes_calls_gets_the_number_to_call_from() -> None:
+    """The number does what its agent does: nobody answers it, and it is that agent's line
+    for calling out, so its direction follows."""
     tenant_id, agent_id, _ = await _tenant()
     await _publish(tenant_id, agent_id, direction="outbound")
     number_id = await _record_number(tenant_id, ref="num_attach_outbound")
 
-    with pytest.raises(ProblemError) as caught:
-        async with tenant_session(tenant_id) as session:
-            await agents_service.attach_number_to_agent(
-                session, number_id=number_id, agent_id=agent_id
-            )
+    async with tenant_session(tenant_id) as session:
+        routing = await agents_service.attach_number_to_agent(
+            session, number_id=number_id, agent_id=agent_id
+        )
 
-    assert caught.value.code == "agent_does_not_answer_inbound"
-    assert await _attached_agent(tenant_id, number_id) is None
+    assert routing.bound == 0
+    assert await _attached_agent(tenant_id, number_id) == agent_id
+    async with tenant_session(tenant_id) as session:
+        direction = (
+            await session.execute(
+                text("SELECT direction FROM phone_numbers WHERE id = :n"), {"n": number_id}
+            )
+        ).scalar_one()
+    assert direction == "outbound"
 
 
 async def test_a_deleted_agent_cannot_be_given_a_number() -> None:

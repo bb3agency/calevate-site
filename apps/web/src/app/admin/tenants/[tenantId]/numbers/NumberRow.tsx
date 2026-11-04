@@ -80,13 +80,10 @@ export function NumberRow({
   const [ref, setRef] = useState("");
   const [forgetting, setForgetting] = useState(false);
 
-  // Only an agent that ANSWERS incoming calls can hold a number: the server refuses the
-  // rest by name (`agent_does_not_answer_inbound`), and offering them here would be a
-  // picker whose choices are mostly refusals. Deleted agents are excluded for the same
-  // reason — archiving RELEASES an agent's numbers on purpose.
-  const answering = agents?.filter(
-    (agent) => agent.direction !== "outbound" && agent.status !== "archived",
-  );
+  // Any agent can hold a number; it does what the agent does (an agent that only makes
+  // calls calls out from it). Deleted agents are excluded: archiving RELEASES an agent's
+  // numbers on purpose.
+  const answering = agents?.filter((agent) => agent.status !== "archived");
 
   return (
     <li className="space-y-3 py-3.5 text-body sm:px-2">

@@ -385,297 +385,120 @@ describe("buying", () => {
   });
 });
 
-describe("choosing what a number is used for", () => {
-  // The direction is a segmented control in the agent page's words, one per number.
-  const directionOf = async () =>
-    within(await screen.findByRole("radiogroup", { name: /^what it does/i }));
-
-  it("offers answering, calling out, and both", async () => {
-    await renderClientPage(<PhoneNumberPage />, routes());
-
-    const group = await directionOf();
-    expect(group.getByRole("radio", { name: /^answer calls$/i })).toBeTruthy();
-    expect(group.getByRole("radio", { name: /^make calls$/i })).toBeTruthy();
-    expect(group.getByRole("radio", { name: /^both$/i })).toBeTruthy();
+describe("each number has one agent, and does what that agent does", () => {
+  const AGENTS = [
+    { id: "agent-1", name: "Anjali", status: "live", direction: "inbound" },
+    { id: "agent-out", name: "Varsha", status: "live", direction: "outbound" },
+  ];
+  const number = (over: Record<string, unknown> = {}) => ({
+    ...(heldNumbers() as Record<string, unknown>[])[0],
+    supplied_by_us: true,
+    ...over,
+  });
+  const assigned = (agentId: string | null) => ({
+    number_id: "num-1",
+    agent_id: agentId,
+    bound: agentId ? 1 : 0,
+    released: 0,
+    failed: 0,
+    unsupported: 0,
   });
 
-  it("tells the voice platform which agent and which legs", async () => {
-    const { calls } = await renderClientPage(
-      <PhoneNumberPage />,
-      routes({
-        [`POST ${PATHS.assign("num-1")}`]: {
-          number_id: "num-1",
-          agent_id: "agent-1",
-          bound: 1,
-          released: 0,
-          failed: 0,
-          unsupported: 0,
-        },
-      }),
-    );
+  it("offers every agent, each with what it will do, and asks nothing else", async () => {
+    await renderClientPage(<PhoneNumberPage />, routes({ "/v1/agents": AGENTS }));
 
-    fireEvent.change(await screen.findByLabelText(/^answers incoming calls$/i), {
-      target: { value: "agent-1" },
-    });
-    fireEvent.click((await directionOf()).getByRole("radio", { name: /^both$/i }));
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    await waitFor(() => {
-      const post = calls.find((call) => call.path === PATHS.assign("num-1"));
-      expect(post).toBeTruthy();
-      expect(JSON.parse(post!.body ?? "{}")).toEqual({
-        agent_id: "agent-1",
-        direction: "both",
-      });
-    });
-    expect(await screen.findByText(/that agent now uses this number/i)).toBeTruthy();
+    const select = (await screen.findByLabelText(/^agent$/i)) as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+      "No agent",
+      "Anjali · answers calls",
+      "Varsha · makes calls",
+    ]);
+    expect(screen.queryByRole("radiogroup", { name: /what it does/i })).toBeNull();
   });
 
-  it("starts from the agent and the use the number already has", async () => {
-    // A number that is ON an agent, for both legs. The panel used to open on "Nobody" and
-    // "answer calls" whatever the server said, so a Save pressed to change nothing — or
-    // only the direction — took the number off its agent and left its line unanswered.
+  it("puts an agent that only makes calls on a number", async () => {
     const { calls } = await renderClientPage(
       <PhoneNumberPage />,
-      routes({
-        "/v1/campaigns/numbers": [
-          {
-            id: "num-1",
-            e164: "+918041234567",
-            series: "standard",
-            dlt_status: "registered",
-            supplied_by_us: false,
-            answerable: true,
-            agent_id: "agent-1",
-            direction: "both",
-          },
-        ],
-        [`POST ${PATHS.assign("num-1")}`]: {
-          number_id: "num-1",
-          agent_id: "agent-1",
-          bound: 1,
-          released: 0,
-          failed: 0,
-          unsupported: 0,
-        },
-      }),
+      routes({ "/v1/agents": AGENTS, [`POST ${PATHS.assign("num-1")}`]: assigned("agent-out") }),
     );
 
-    const select = (await screen.findByLabelText(/^answers incoming calls$/i)) as HTMLSelectElement;
-    expect(select.value).toBe("agent-1");
-    expect(
-      (await directionOf()).getByRole("radio", { name: /^both$/i }).getAttribute("aria-checked"),
-    ).toBe("true");
-
-    // The page reads the agent list too, so the form can render from the cache before the
-    // write-access read lands; Save is enabled only once it has.
+    fireEvent.change(await screen.findByLabelText(/^agent$/i), { target: { value: "agent-out" } });
     const save = screen.getByRole("button", { name: /^save$/i });
     await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
     fireEvent.click(save);
+
     await waitFor(() => {
       const post = calls.find((call) => call.path === PATHS.assign("num-1"));
-      expect(JSON.parse(post?.body ?? "{}")).toEqual({ agent_id: "agent-1", direction: "both" });
+      expect(JSON.parse(post?.body ?? "{}")).toEqual({ agent_id: "agent-out", direction: null });
     });
   });
 
-  it("names an agent the number is on even when the agent list no longer offers it", async () => {
+  it("opens on the number's agent and says in plain words what happens", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes({ "/v1/agents": AGENTS, "/v1/campaigns/numbers": [number({ agent_id: "agent-out" })] }),
+    );
+
+    const select = (await screen.findByLabelText(/^agent$/i)) as HTMLSelectElement;
+    expect(select.value).toBe("agent-out");
+    expect(await screen.findByText("Varsha calls out from this number.")).toBeTruthy();
+    expect(screen.getByText("Ready")).toBeTruthy();
+    // Nothing changed, so Save has nothing to do.
+    expect(screen.getByRole("button", { name: /^save$/i }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("names a switched-off agent and links to switching it on", async () => {
     await renderClientPage(
       <PhoneNumberPage />,
       routes({
-        "/v1/campaigns/numbers": [
-          {
-            id: "num-1",
-            e164: "+918041234567",
-            series: "standard",
-            dlt_status: "registered",
-            supplied_by_us: false,
-            answerable: true,
-            agent_id: "agent-gone",
-            direction: "inbound",
-          },
-        ],
+        "/v1/agents": [{ ...AGENTS[0], status: "paused" }],
+        "/v1/campaigns/numbers": [number({ agent_id: "agent-1" })],
       }),
     );
 
-    const select = (await screen.findByLabelText(/^answers incoming calls$/i)) as HTMLSelectElement;
-    // Not silently shown as "Nobody", which is the opposite of the truth.
-    expect(select.value).toBe("agent-gone");
-    expect(select.selectedOptions[0]?.textContent).toMatch(/not in your list/i);
+    expect(await screen.findByText("Anjali is off")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Switch Anjali on" }).getAttribute("href")).toBe(
+      "/c/acme/agents/agent-1",
+    );
+  });
+
+  it("says Setting up while an answering number is still being connected", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes({
+        "/v1/agents": AGENTS,
+        "/v1/campaigns/numbers": [number({ agent_id: "agent-1", answerable: false })],
+      }),
+    );
+
+    expect(await screen.findByText("Setting up")).toBeTruthy();
+    expect(screen.getByText("Anjali answers calls to this number.")).toBeTruthy();
+  });
+
+  it("asks for an agent on a number with none", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes({ "/v1/agents": AGENTS, "/v1/campaigns/numbers": [number({ agent_id: null })] }),
+    );
+
+    expect(await screen.findByText("No agent yet")).toBeTruthy();
+    expect(screen.getByText("Pick an agent to use this number.")).toBeTruthy();
   });
 
   it("does not report a binding the carrier refused", async () => {
     await renderClientPage(
       <PhoneNumberPage />,
       routes({
-        [`POST ${PATHS.assign("num-1")}`]: {
-          number_id: "num-1",
-          agent_id: "agent-1",
-          bound: 0,
-          released: 0,
-          failed: 1,
-          unsupported: 0,
-        },
+        "/v1/agents": AGENTS,
+        [`POST ${PATHS.assign("num-1")}`]: { ...assigned("agent-1"), bound: 0, failed: 1 },
       }),
     );
 
-    fireEvent.change(await screen.findByLabelText(/^answers incoming calls$/i), {
-      target: { value: "agent-1" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
-
-    // There is no rented "voice platform" any more (D-639); the binding is ours, on the
-    // carrier, so the sentence says what failed without naming a layer the client cannot see.
-    expect(
-      await screen.findByText(/could not connect it to that agent/i),
-    ).toBeTruthy();
-  });
-
-  it("shows an agent that only makes calls, greyed out, and names who calls out", async () => {
-    const { container } = await renderClientPage(
-      <PhoneNumberPage />,
-      routes({
-        "/v1/agents": [
-          { id: "agent-1", name: "Reception", status: "live", direction: "inbound" },
-          { id: "agent-out", name: "Varsha", status: "live", direction: "outbound" },
-        ],
-      }),
-    );
-
-    const select = (await screen.findByLabelText(/^answers incoming calls$/i)) as HTMLSelectElement;
-    const options = Array.from(select.options);
-    expect(options.find((option) => option.textContent === "Reception")?.disabled).toBe(false);
-    expect(
-      options.find((option) => option.textContent === "Varsha (only makes calls)")?.disabled,
-    ).toBe(true);
-    expect(container.textContent).toContain("Varsha calls out from it.");
-  });
-
-  it("says the answering agent is switched off rather than not ready", async () => {
-    const { container } = await renderClientPage(
-      <PhoneNumberPage />,
-      routes({
-        "/v1/agents": [{ id: "agent-1", name: "Anjali", status: "paused", direction: "inbound" }],
-        "/v1/campaigns/numbers": [
-          { ...(heldNumbers() as object[])[0], supplied_by_us: true, answerable: false, agent_id: "agent-1" },
-        ],
-      }),
-    );
-
-    expect(await screen.findByText("Anjali is switched off")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Switch Anjali on" }).getAttribute("href")).toBe(
-      "/c/acme/agents/agent-1",
-    );
-    expect(container.textContent).not.toContain("Still connecting");
-    expect(screen.queryByText("Not ready yet")).toBeNull();
-  });
-
-  it("asks for no agent when the number only makes calls", async () => {
-    const { calls } = await renderClientPage(
-      <PhoneNumberPage />,
-      routes({
-        "/v1/agents": [{ id: "agent-out", name: "Varsha", status: "live", direction: "outbound" }],
-        "/v1/campaigns/numbers": [{ ...(heldNumbers() as object[])[0], agent_id: "agent-out" }],
-        [`POST ${PATHS.assign("num-1")}`]: {
-          number_id: "num-1",
-          agent_id: null,
-          bound: 0,
-          released: 1,
-          failed: 0,
-          unsupported: 0,
-        },
-      }),
-    );
-
-    fireEvent.click((await directionOf()).getByRole("radio", { name: /^make calls$/i }));
-    expect(screen.queryByLabelText(/^answers incoming calls$/i)).toBeNull();
+    fireEvent.change(await screen.findByLabelText(/^agent$/i), { target: { value: "agent-1" } });
     const save = screen.getByRole("button", { name: /^save$/i });
     await waitFor(() => expect(save.hasAttribute("disabled")).toBe(false));
     fireEvent.click(save);
 
-    await waitFor(() => {
-      const post = calls.find((call) => call.path === PATHS.assign("num-1"));
-      expect(JSON.parse(post?.body ?? "{}")).toEqual({ agent_id: null, direction: "outbound" });
-    });
-  });
-});
-
-describe("a number we supplied says which link is missing", () => {
-  // PG6. `answerable` now needs an agent on the number as well as our carrier binding. A
-  // number with no agent is the client's to fix, so "nothing for you to do" beside it
-  // would leave the line silent for good.
-  const supplied = (id: string, agentId: string | null) => ({
-    id,
-    e164: id === "num-1" ? "+918041234567" : "+918041234568",
-    series: "standard",
-    dlt_status: "registered",
-    supplied_by_us: true,
-    answerable: false,
-    agent_id: agentId,
-    direction: "inbound",
-  });
-
-  it("asks for an agent on one and asks for patience on the other", async () => {
-    const { container } = await renderClientPage(
-      <PhoneNumberPage />,
-      routes({
-        "/v1/campaigns/numbers": [supplied("num-1", null), supplied("num-2", "agent-1")],
-      }),
-    );
-
-    expect(await screen.findByText("No agent on it yet")).toBeTruthy();
-    expect(screen.getByText("Not ready yet")).toBeTruthy();
-    expect(container.textContent).toContain("Pick an agent below before you forward.");
-    expect(container.textContent).toContain("Still connecting. Nothing to do yet.");
-  });
-
-  it("sends the forwarding codes to the other section of the same screen", async () => {
-    await renderClientPage(
-      <PhoneNumberPage />,
-      routes({ "/v1/campaigns/numbers": [supplied("num-1", "agent-1")] }),
-    );
-    expect(screen.getByRole("radio", { name: "From Calevate" }).getAttribute("aria-checked")).toBe("true");
-    expect((await screen.findByRole("link", { name: "Get codes and test" })).getAttribute("href")).toBe(
-      "/c/acme/phone-number?section=existing",
-    );
-  });
-});
-
-describe("a number on an agent that only makes calls says so, not that we are connecting it", () => {
-  // `NumberOut` carries no agent direction; the screen reads it from `/v1/agents`. An
-  // outbound-only agent never answers a number, so "nothing for you to do" would be false.
-  const onDialler = {
-    id: "num-1",
-    e164: "+918041234567",
-    series: "standard",
-    dlt_status: "registered",
-    supplied_by_us: true,
-    answerable: false,
-    agent_id: "agent-out",
-    direction: "both",
-  };
-
-  it("explains that it places calls but does not answer them, and how to make it answer", async () => {
-    const { container } = await renderClientPage(
-      <PhoneNumberPage />,
-      routes({
-        "/v1/campaigns/numbers": [onDialler],
-        "/v1/agents": [
-          { id: "agent-out", name: "Dialler", status: "live", direction: "outbound" },
-        ],
-      }),
-    );
-
-    expect(await screen.findByText("Makes calls only")).toBeTruthy();
-    await waitFor(() =>
-      expect(container.textContent).toContain("Its agent only calls out. Pick one that answers."),
-    );
-    expect(container.textContent).not.toContain("Still connecting");
-    expect(container.textContent).not.toContain("Nothing to do yet");
-    // How to make it answer is one tap away.
-    fireEvent.click(screen.getByRole("button", { name: /why this number is not answering/i }));
-    expect(
-      await screen.findByText(/Choose an agent that answers calls, or set that agent's What it does/),
-    ).toBeTruthy();
-    expect(screen.queryByText("Not ready yet")).toBeNull();
+    expect(await screen.findByText(/could not connect it to that agent/i)).toBeTruthy();
   });
 });

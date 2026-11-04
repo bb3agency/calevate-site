@@ -2,14 +2,12 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { ReactNode } from "react";
 
-import { InfoTip } from "@/components/console/infoTip";
 import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
-import { ProblemNotice, SECONDARY_BUTTON, Skeleton, formatPhone } from "@/components/ui";
-import { useAgents } from "@/lib/api/agents";
+import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
+import { useAgents, type Agent } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
 import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
 import { useClientRealm } from "@/lib/api/session";
@@ -53,61 +51,23 @@ export function PhoneNumberScreen() {
       {section === EXISTING_SECTION ? (
         <ExistingNumberSection fromCalevateHref={sectionHref(FROM_CALEVATE_SECTION)} />
       ) : (
-        <CalevateNumbers existingHref={sectionHref(EXISTING_SECTION)} />
+        <CalevateNumbers />
       )}
     </div>
   );
 }
 
 /**
- * NUMBERS FROM CALEVATE (D-537). PRIMARY JOB: see each number, what it is doing, and put it
- * on an agent.
- *
- * Two kinds of number, told apart by the server's own `supplied_by_us`: one bought for
- * this account is one to forward TO; one the account manager recorded is what the agents
- * call out from and must not be forwarded anywhere. Those are opposite instructions, so
- * they are separate sections. Both are Calevate's to provide on our own telephony account,
- * and no provider is named to a client (white label, founder 6 Oct 2026): neither section
- * may tell a client they hold a connection with an operator of their own.
- *
- * Each number's agent choice sits open on the page, never in a drawer. `answerable` is
- * said in plain words, because a client who forwards their line to a number that cannot
- * answer sends every caller into silence.
- *
- * No price and no operator-specific forwarding steps: neither is a verified fact (the
- * pricing decision is OPERATIONS §2 gate 26, and the steps differ per operator), so the
- * screen says what to ASK for, in the words an Indian operator uses.
+ * NUMBERS FROM CALEVATE (D-537). PRIMARY JOB: see every number this business rents and put
+ * each on an agent. One list, one choice per number (`NumberAssignment`); the number does
+ * what its agent does, so there is nothing else to ask. Getting another number sits below.
  */
-function CalevateNumbers({ existingHref }: { existingHref: string }) {
-  const { session, href } = useClientRealm();
+function CalevateNumbers() {
+  const { session } = useClientRealm();
   const numbers = useCampaignNumbers(session);
-  const rows = numbers.data;
-  const ours = rows?.filter((number) => number.supplied_by_us) ?? [];
-  const theirs = rows?.filter((number) => !number.supplied_by_us) ?? [];
-  const none = rows !== undefined && rows.length === 0;
-  // `NumberOut` does not carry the agent's direction, so it is read from the agent list
-  // (the same query `NumberAssignment` already makes). An agent that only makes calls never
-  // answers a number, so "we are still connecting it" would be false for it; until the list
-  // is read neither sentence is said.
   const agents = useAgents(session);
-  const outboundOnly = (number: CampaignNumber): boolean =>
-    agents.data?.some((agent) => agent.id === number.agent_id && agent.direction === "outbound") ===
-    true;
-  // Only a switched-on agent answers (`engine_numbers.wanted_attachment` needs `live`), so a
-  // number on a paused or draft agent is not "still connecting": the owner has a switch to press.
-  const agentOff = (number: CampaignNumber) => {
-    const agent = agents.data?.find((candidate) => candidate.id === number.agent_id);
-    return agent && agent.status !== "live" && agent.status !== "archived" && !outboundOnly(number)
-      ? agent
-      : undefined;
-  };
-  const waiting = (number: CampaignNumber): boolean =>
-    !number.held &&
-    !number.answerable &&
-    number.agent_id != null &&
-    agents.data !== undefined &&
-    !outboundOnly(number) &&
-    agentOff(number) === undefined;
+  const rows = numbers.data;
+  const none = rows !== undefined && rows.length === 0;
   // Where numbers are rented in the business's own calling account (D-693), the three-step
   // journey replaces the older purchase panel; elsewhere the older panel stays.
   const own = useOwnNumbersStatus(session);
@@ -134,92 +94,20 @@ function CalevateNumbers({ existingHref }: { existingHref: string }) {
       {numbers.isLoading || !rows ? (
         !numbers.error && <Skeleton rows={3} />
       ) : none ? (
-        <p className="text-body text-ink-muted">No number set up yet.</p>
+        <p className="text-body text-ink-muted">No number yet.</p>
       ) : (
-        <>
-          {ours.length > 0 && (
-            <Section
-              title="Forward your phone to this number"
-              info={
-                <p>
-                  Your existing phone forwards calls to this number. Keep advertising your own
-                  number; nobody needs to know this one.
-                </p>
-              }
-            >
-              <div className="space-y-3">
-                <Link
-                  href={existingHref}
-                  scroll={false}
-                  className={`${SECONDARY_BUTTON} w-full justify-center sm:w-auto`}
-                >
-                  Get codes and test
-                </Link>
-                {/* `answerable` needs an agent on the number AND our connection of it at the
-                    carrier. Only the first is the client's to fix, so the two get different
-                    lines: "nothing for you to do" beside a number with no agent would leave it
-                    silent for good. Each says what to do; the why is behind the ⓘ. */}
-                {ours.some((number) => !number.held && !number.answerable && !number.agent_id) && (
-                  <WaitLine why="A number with no agent cannot take calls. Forward calls only once it says Ready to answer.">
-                    Pick an agent below before you forward.
-                  </WaitLine>
-                )}
-                {ours.some((number) => !number.held && !number.answerable && outboundOnly(number)) && (
-                  <WaitLine why="An agent that only makes calls does not answer them. Choose an agent that answers calls, or set that agent's What it does to Answer calls or Both.">
-                    Its agent only calls out. Pick one that answers.
-                  </WaitLine>
-                )}
-                {ours.map((number) => ({ number, agent: agentOff(number) }))
-                  .filter(({ number, agent }) => agent && !number.held && !number.answerable)
-                  .map(({ number, agent }) => (
-                    <WaitLine
-                      key={`off-${number.id}`}
-                      why="Only an agent that is switched on answers calls. Callers hear nothing until it is."
-                    >
-                      <Link href={href(`/c/${session.orgSlug}/agents/${agent!.id}`)} className="underline">
-                        Switch {agent!.name} on
-                      </Link>{" "}
-                      to answer this number.
-                    </WaitLine>
-                  ))}
-                {ours.some(waiting) && (
-                  <WaitLine why="We are still connecting it. Forward calls only once it says Ready to answer, or callers hear silence.">
-                    Still connecting. Nothing to do yet.
-                  </WaitLine>
-                )}
-                {ours.map((number) => (
-                  <NumberCard
-                    key={number.id}
-                    number={number}
-                    releasable={ownNumbers && number.releasable === true}
-                    outboundOnly={outboundOnly(number)}
-                    agentOffName={agentOff(number)?.name}
-                  />
-                ))}
-              </div>
-            </Section>
-          )}
-          {theirs.length > 0 && (
-            <Section
-              title="Numbers your agents call out from"
-              info={
-                <p>
-                  We set these up for you on our own telephony account. Nothing to open or
-                  manage.
-                </p>
-              }
-            >
-              {/* A warning, not a description: Section folds a description behind the ⓘ on
-                  a phone, and this line has to stay in sight. */}
-              <div className="space-y-3">
-                <p className="text-body text-ink-muted">Do not forward these anywhere.</p>
-                {theirs.map((number) => (
-                  <NumberCard key={number.id} number={number} releasable={ownNumbers && number.releasable === true} />
-                ))}
-              </div>
-            </Section>
-          )}
-        </>
+        <Section title="Your numbers">
+          <div>
+            {rows.map((number) => (
+              <NumberCard
+                key={number.id}
+                number={number}
+                agent={agents.data?.find((agent) => agent.id === number.agent_id && agent.status !== "archived")}
+                releasable={ownNumbers && number.releasable === true}
+              />
+            ))}
+          </div>
+        </Section>
       )}
 
       {!none && getNumber}
@@ -234,67 +122,62 @@ const SECTIONS: SegmentedOption[] = [
   { value: EXISTING_SECTION, label: "Your existing number" },
 ];
 
-/** A short line of what to do about a number that cannot answer yet; the why behind ⓘ. */
-function WaitLine({ why, children }: { why: string; children: ReactNode }) {
-  return (
-    <p className="flex items-center gap-1 text-body text-ink-muted">
-      <span>{children}</span>
-      <InfoTip label="why this number is not answering" className="touch:-my-2.5">
-        {why}
-      </InfoTip>
-    </p>
-  );
-}
-
-/** One number: what it is, whether it is live, which agent uses it, and its sender status. */
+/** One number: the number, one word for its state, what happens on it, and its agent. */
 function NumberCard({
   number,
+  agent,
   releasable,
-  outboundOnly = false,
-  agentOffName,
 }: {
   number: CampaignNumber;
+  /** The number's agent, when it has one that is not deleted. */
+  agent: Agent | undefined;
   releasable: boolean;
-  /** On an agent that only makes calls, so it cannot answer whatever else is in place. */
-  outboundOnly?: boolean;
-  /** The answering agent's name when it is not switched on. */
-  agentOffName?: string;
 }) {
   const { session, href } = useClientRealm();
+  const answers = agent !== undefined && agent.direction !== "outbound";
+  // Only a switched-on agent answers or calls (`engine_numbers.wanted_attachment` needs
+  // `live`). An answering number is Ready only once the platform routes it (`answerable`);
+  // until then it is still being set up, which is ours to finish, not the owner's.
   const status = number.held
     ? { text: "Calls stopped", tone: "stop" as const }
-    : number.supplied_by_us
-    ? number.answerable
-      ? { text: "Ready to answer", tone: "ok" as const }
-      : number.direction === "outbound"
-        ? { text: "Calls out only", tone: "neutral" as const }
-      : !number.agent_id
-        ? { text: "No agent on it yet", tone: "neutral" as const }
-        : outboundOnly
-          ? { text: "Makes calls only", tone: "neutral" as const }
-          : agentOffName
-            ? { text: `${agentOffName} is switched off`, tone: "neutral" as const }
-            : { text: "Not ready yet", tone: "neutral" as const }
-    : number.dlt_status === "registered"
-      ? { text: "Registered for calling out", tone: "ok" as const }
-      : { text: "Registration still in progress", tone: "neutral" as const };
+    : !number.supplied_by_us && number.dlt_status !== "registered"
+      ? { text: "Registration in progress", tone: "neutral" as const }
+      : agent === undefined
+        ? { text: "No agent yet", tone: "neutral" as const }
+        : agent.status !== "live"
+          ? { text: `${agent.name} is off`, tone: "neutral" as const }
+          : answers && number.supplied_by_us && !number.answerable
+            ? { text: "Setting up", tone: "neutral" as const }
+            : { text: "Ready", tone: "ok" as const };
+  const doing =
+    agent === undefined
+      ? "Pick an agent to use this number."
+      : agent.direction === "inbound"
+        ? `${agent.name} answers calls to this number.`
+        : agent.direction === "outbound"
+          ? `${agent.name} calls out from this number.`
+          : `${agent.name} answers calls to this number and calls out from it.`;
   return (
-    <div className="border-b border-line py-5">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {/* The client's OWN number, not a called party's (hard rule 6 is about those). */}
-          <p className="font-mono text-heading tabular-nums text-ink">{formatPhone(number.e164)}</p>
-          <StatusPill tone={status.tone}>{status.text}</StatusPill>
-          <span className="text-meta text-ink-faint">{number.series} series</span>
-        </div>
-        <HeldNumberLine number={number} topUpHref={href(`/c/${session.orgSlug}/billing?tab=credits`)} />
-        <NumberAssignment
-          numberId={number.id}
-          currentAgentId={number.agent_id ?? null}
-          currentDirection={number.direction}
-        />
-        {releasable && <ReleaseOwnNumber numberId={number.id} e164={number.e164} />}
+    <div className="space-y-3 border-b border-line py-5 last:border-b-0">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {/* The client's OWN number, not a called party's (hard rule 6 is about those). */}
+        <p className="font-mono text-heading tabular-nums text-ink">{formatPhone(number.e164)}</p>
+        <StatusPill tone={status.tone}>{status.text}</StatusPill>
       </div>
+      <p className="text-body text-ink-muted">
+        {doing}
+        {agent !== undefined && agent.status !== "live" && (
+          <>
+            {" "}
+            <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}`)} className="underline">
+              Switch {agent.name} on
+            </Link>
+          </>
+        )}
+      </p>
+      <HeldNumberLine number={number} topUpHref={href(`/c/${session.orgSlug}/billing?tab=credits`)} />
+      <NumberAssignment numberId={number.id} currentAgentId={number.agent_id ?? null} />
+      {releasable && <ReleaseOwnNumber numberId={number.id} e164={number.e164} />}
     </div>
   );
 }

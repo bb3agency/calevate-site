@@ -369,7 +369,7 @@ describe("buying a number", () => {
     fireEvent.click(screen.getByRole("button", { name: "Buy +91 80123 45671" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/₹499(\.00)? a month while you keep it/)).toBeTruthy();
-    fireEvent.change(within(dialog).getByLabelText(/The agent that answers it/), {
+    fireEvent.change(within(dialog).getByLabelText(/^Agent \(optional\)/), {
       target: { value: "agent-1" },
     });
     expect(within(dialog).getByText("Calls to it reach Reception.")).toBeTruthy();

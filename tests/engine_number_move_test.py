@@ -369,6 +369,46 @@ async def test_giving_a_calevate_held_number_to_an_agent_moves_it_into_the_clien
     assert (await _held_ref(tenant_id, number_id))[0] == f"{number}@{workspace}"
 
 
+async def test_an_agent_that_only_makes_calls_gets_a_calevate_held_number_to_call_from(
+    vendor: MovingVendor,
+) -> None:
+    """Founder, 4 Nov 2026: Varsha, who only makes calls, could not be given a number. The
+    number moves into the client's account and becomes her `callingAgent`; nobody answers
+    it (update-phone-number.md:7, snapshot 2026-10-29)."""
+    from apps.api.campaigns import number_catalog
+
+    tenant_id, number_id, number, workspace, scoped = await _platform_held_number(vendor)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET activated_at = now(), agent_id = NULL WHERE id = :id"),
+            {"id": number_id},
+        )
+        agent_id = (
+            await session.execute(
+                text("SELECT id FROM agents WHERE engine_agent_ref = :r"), {"r": scoped}
+            )
+        ).scalar_one()
+        await session.execute(
+            text("UPDATE agents SET direction = 'outbound' WHERE id = :a"), {"a": agent_id}
+        )
+        await number_catalog.assign_number_to_agent(
+            session, tenant_id=tenant_id, number_id=number_id, agent_id=agent_id
+        )
+    assert vendor.moves == [(None, number, workspace)]
+    held = vendor.held[workspace][number]
+    # The wire carries the bare agent id; its workspace travels in the request header.
+    assert held["callingAgent"] == scoped.split("@")[0]
+    assert held["agent"] is None
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT agent_id, direction FROM phone_numbers WHERE id = :id"),
+                {"id": number_id},
+            )
+        ).one()
+    assert row == (agent_id, "outbound")
+
+
 async def test_a_refused_move_on_assign_is_told_in_the_clients_words(
     vendor: MovingVendor,
 ) -> None:

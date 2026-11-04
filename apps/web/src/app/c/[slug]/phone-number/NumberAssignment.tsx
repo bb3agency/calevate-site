@@ -1,30 +1,16 @@
 "use client";
 
 /**
- * PUTTING A NUMBER ON AN AGENT — the binding every other gate needs.
+ * PUTTING A NUMBER ON AN AGENT: one choice, the agent. The number does what that agent
+ * does: an agent that answers calls answers it, one that makes calls calls out from it.
+ * The server derives the number's direction from the agent, so the owner is never asked
+ * what a number is "for" (the Retell/Vapi model: a number has an agent, nothing else).
  *
- * `phone_numbers.agent_id` is what makes a number the line an agent answers and the
- * caller ID a campaign dials from, so a number attached to nobody publishes a
- * receptionist whose phone never rings.
+ * The form opens on the agent the number HAS. Opening on "No agent" made Save destructive:
+ * pressed with nothing changed, it took the number off its agent.
  *
- * ## The form opens on the binding the number HAS
- *
- * `NumberOut` carries `agent_id` and `direction`, and both seed the form. Opening on
- * "Nobody" instead made the panel's one button destructive: a Save pressed to change only
- * the direction, or pressed with nothing changed, posted `agent_id: null` and took the
- * number off its agent, so its line stopped being answered. An agent the list does not
- * offer (archived, say) is still named as the current choice rather than shown as
- * "Nobody", which would be the opposite of the truth.
- *
- * `AssignOut`'s counts are what the voice platform was TOLD, which is why the result
- * sentence is drawn from `bound`/`released`/`failed` rather than from the request: a
- * binding the platform refused must not be reported as one that worked.
- *
- * ## What it is FOR is asked here as well as at purchase
- *
- * The same three legs as the purchase: the segment words are the agent page's (one
- * question, one set of words), and the line under them is `direction.tsx`'s, which says
- * what the number itself does.
+ * `AssignOut`'s counts are what the voice platform was TOLD, so a binding the platform
+ * refused is reported as a failure rather than drawn from the request.
  */
 
 import Link from "next/link";
@@ -33,36 +19,27 @@ import { useState } from "react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD,
-  FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  formatPhone,
 } from "@/components/ui";
-import { useAgents } from "@/lib/api/agents";
-import { useCampaignNumbers } from "@/lib/api/campaigns";
+import { useAgents, type AgentDirection } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import {
-  NOT_ACTIVATED_CODE,
-  useAssignNumber,
-  type CallDirection,
-} from "@/lib/api/numberProvisioning";
+import { NOT_ACTIVATED_CODE, useAssignNumber } from "@/lib/api/numberProvisioning";
 import { useClientRealm } from "@/lib/api/session";
-import { SegmentedControl } from "@/components/interior/segmented-control";
 
-import { DIRECTIONS as AGENT_DIRECTIONS } from "../agents/DirectionChoice";
-import { DIRECTIONS } from "./direction";
-
-/** Detach: the recovery path from a wrong binding, and a real choice rather than a gap. */
+/** Detach: the recovery path from a wrong choice. */
 const NOBODY = "";
 
-/** "Varsha", "Varsha and Anjali", "Varsha, Anjali and Ravi". */
-function listNames(names: string[]): string {
-  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-}
+/** What each agent will do with the number, said in the option itself. */
+const DOES: Record<AgentDirection, string> = {
+  inbound: "answers calls",
+  outbound: "makes calls",
+  both: "answers and makes calls",
+};
 
 /** Whether a refusal is the one the client can clear themselves. */
 function notActivated(error: unknown): boolean {
@@ -73,149 +50,83 @@ function notActivated(error: unknown): boolean {
 export function NumberAssignment({
   numberId,
   currentAgentId,
-  currentDirection,
 }: {
   numberId: string;
-  /** `NumberOut.agent_id` — the agent the number is on now, or null for nobody. */
+  /** `NumberOut.agent_id`: the agent the number is on now, or null. */
   currentAgentId: string | null;
-  /** `NumberOut.direction` — what the number is recorded as being for. */
-  currentDirection: CallDirection;
 }) {
   const { session, href } = useClientRealm();
   const agents = useAgents(session);
   const assign = useAssignNumber(session);
   const assignFeedback = useActionFeedback(assign, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "choose which agent uses a number");
-
   const [agentId, setAgentId] = useState<string | null>(currentAgentId);
-  const [direction, setDirection] = useState<CallDirection>(currentDirection);
-  // The segmented control is a named region, and the screen lists every number with one of
-  // these panels, so each needs its own name. The list is the screen's own cached read.
-  const e164 = useCampaignNumbers(session).data?.find((number) => number.id === numberId)?.e164;
-  const directionLabel = e164 ? `What it does, ${formatPhone(e164)}` : "What it does";
 
-  if (agents.isLoading) return <Skeleton rows={2} label="Loading your agents" />;
+  if (agents.isLoading) return <Skeleton rows={1} label="Loading your agents" />;
   if (agents.error || !agents.data) {
     return <ProblemNotice error={agents.error ?? new Error("Your agents did not load.")} onRetry={() => agents.refetch()} />;
   }
 
+  const offered = agents.data.filter((agent) => agent.status !== "archived");
+  const unlisted = agentId !== null && !offered.some((agent) => agent.id === agentId) ? agentId : null;
   const result = assign.data;
-  // Every agent that makes calls calls out from every number (shared outbound), so "Make
-  // calls" needs no agent. Only an answering agent can be picked here: the server refuses an
-  // outbound-only one (`agent_does_not_answer_inbound`). Those are still listed, disabled and
-  // named for what they do, so the owner sees why they cannot be picked.
-  const current = agents.data.filter((agent) => agent.status !== "archived");
-  const answers = (agent: (typeof current)[number]) => agent.direction !== "outbound";
-  const callers = current.filter((agent) => agent.direction !== "inbound").map((agent) => agent.name);
-  const callsOutOnly = direction === "outbound";
-  const unlisted = agentId !== null && !current.some((agent) => agent.id === agentId) ? agentId : null;
 
   return (
-    <section className="border-t border-line pt-4">
-      <h3 className="text-body font-semibold text-ink">
-        {callsOutOnly ? "Calls out only" : "Who answers this number"}
-      </h3>
-      <p className="mt-1 text-meta text-ink-muted">
-        {callers.length > 0
-          ? `${listNames(callers)} ${callers.length === 1 ? "calls" : "call"} out from it.`
-          : "None of your agents makes calls yet."}
-      </p>
-
-      {!callsOutOnly && (
-        <div className="mt-3">
-          <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
-            Answers incoming calls
-          </label>
+    <div className="space-y-3">
+      <div>
+        <label className={FIELD_LABEL} htmlFor={`agent-${numberId}`}>
+          Agent
+        </label>
+        <div className="mt-1.5 flex flex-col gap-2 sm:flex-row sm:items-center">
           <select
             id={`agent-${numberId}`}
-            className={FIELD}
+            className={`${FIELD} sm:max-w-md`}
             value={agentId ?? NOBODY}
             disabled={!write.allowed}
-            onChange={(event) =>
-              setAgentId(event.target.value === NOBODY ? null : event.target.value)
-            }
+            onChange={(event) => setAgentId(event.target.value === NOBODY ? null : event.target.value)}
           >
-            <option value={NOBODY}>Nobody</option>
-            {unlisted !== null && (
-              <option value={unlisted}>Current agent (not in your list)</option>
-            )}
-            {current.map((agent) => (
-              <option key={agent.id} value={agent.id} disabled={!answers(agent) && agent.id !== agentId}>
-                {answers(agent) ? agent.name : `${agent.name} (only makes calls)`}
+            <option value={NOBODY}>No agent</option>
+            {unlisted !== null && <option value={unlisted}>Deleted agent</option>}
+            {offered.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name} · {DOES[agent.direction]}
               </option>
             ))}
           </select>
+          <ActionButton
+            variant="primary-sm"
+            // A 200 whose binding the voice platform refused is a failure to the owner.
+            status={assignFeedback.status === "success" && (result?.failed ?? 0) > 0 ? "error" : assignFeedback.status}
+            disabled={!write.allowed || agentId === currentAgentId}
+            title={write.reason ?? undefined}
+            onClick={() => assignFeedback.run({ numberId, agentId, direction: null })}
+            pendingLabel="Saving…"
+            successLabel="Saved"
+          >
+            Save
+          </ActionButton>
         </div>
-      )}
-
-      <div className="mt-3">
-        <p className={FIELD_LABEL} aria-hidden>
-          What it does
-        </p>
-        <SegmentedControl
-          label={directionLabel}
-          className="mt-1.5"
-          value={direction}
-          options={DIRECTIONS.map((option) => ({
-            value: option.value,
-            label: AGENT_DIRECTIONS.find((agent) => agent.value === option.value)?.label ?? option.label,
-            disabled: !write.allowed,
-          }))}
-          onValueChange={(next) => setDirection(next as CallDirection)}
-        />
-        <p className={FIELD_HINT}>{DIRECTIONS.find((option) => option.value === direction)?.hint}</p>
       </div>
 
-      <div className="mt-3">
-        <RestrictionNote reason={write.reason} />
-      </div>
+      <RestrictionNote reason={write.reason} />
 
       {assign.error && (
-        <div className="mt-3 space-y-2">
+        <div className="space-y-2">
           <ProblemNotice error={assign.error} />
-          {/* The one refusal here a client can clear themselves: the number is bought and
-              held, and verification is what releases it. */}
+          {/* The one refusal here a client can clear themselves: verification releases it. */}
           {notActivated(assign.error) && (
-            <Link
-              href={href(`/c/${session.orgSlug}/verify-business`)}
-              className={SECONDARY_BUTTON_SM}
-            >
+            <Link href={href(`/c/${session.orgSlug}/verify-business`)} className={SECONDARY_BUTTON_SM}>
               Verify your business
             </Link>
           )}
         </div>
       )}
 
-      {result && (
-        <div className="mt-3">
-          <NoticeBox tone={result.failed > 0 ? "stop" : "ok"}>
-            {result.failed > 0 ? (
-              <p>Could not connect it to that agent. Try again.</p>
-            ) : result.agent_id === null ? (
-              <p>Done. No agent answers this number now.</p>
-            ) : (
-              <p>Done. That agent now uses this number.</p>
-            )}
-          </NoticeBox>
-        </div>
+      {result && result.failed > 0 && (
+        <NoticeBox tone="stop">
+          <p>Could not connect it to that agent. Try again.</p>
+        </NoticeBox>
       )}
-
-      <ActionButton
-        variant="primary-sm"
-        className="mt-3"
-        // A 200 whose binding the voice platform refused is a failure to the owner, and the
-        // notice above says so; the button must not tick beside it.
-        status={assignFeedback.status === "success" && (result?.failed ?? 0) > 0 ? "error" : assignFeedback.status}
-        disabled={!write.allowed}
-        title={write.reason ?? undefined}
-        onClick={() =>
-          assignFeedback.run({ numberId, agentId: callsOutOnly ? null : agentId, direction })
-        }
-        pendingLabel="Saving…"
-        successLabel="Saved"
-      >
-        Save
-      </ActionButton>
-    </section>
+    </div>
   );
 }

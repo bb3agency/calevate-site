@@ -5093,9 +5093,8 @@ async def attach_number_to_agent(
     answer under RLS rather than a comparison of two values the caller supplied. A deleted
     agent is `agent_archived` (`assert_agent_writable`, the same guard `provision_number`
     asks). A released number is refused: it is a record kept for a closed month's costs,
-    not a connection. An agent that does not answer inbound calls is refused BY NAME rather
-    than attached-and-released, because "saved, and nothing happened" is exactly the report
-    this defect was made of.
+    not a connection. An agent that only makes calls is accepted: the number becomes the
+    line it calls out from, and nobody answers it.
 
     Returns what the engine was told, so the console reports a binding that failed instead
     of implying one that did not happen. Ids and counts only; no phone number (hard rule 6).
@@ -5130,20 +5129,22 @@ async def attach_number_to_agent(
         if agent is None:
             raise ProblemError.not_found("Agent")
         direction, status, engine_agent_ref = agent
-        if not (_is_agent_direction(direction) and agent_answers_inbound(direction)):
-            raise ProblemError.business_rule(
-                "agent_does_not_answer_inbound",
-                "This agent only makes calls, so it can't answer this number.",
-                remediation=(
-                    "Pick an agent that answers calls, or set this number to Make calls."
-                ),
-            )
+        # Any agent can have a number, and the number does what the agent does: an agent
+        # that only makes calls calls out from it (the engine's `callingAgent`, set by
+        # `sync_number_attachment` from the agent's direction) and nobody answers it. The
+        # number's own direction follows, kept `both` for an answering agent so the client's
+        # other agents can still call out from it (shared outbound, founder 4 Nov 2026).
+        inbound = _is_agent_direction(direction) and agent_answers_inbound(direction)
+        await session.execute(
+            text("UPDATE phone_numbers SET direction = :dir, updated_at = now() WHERE id = :nid"),
+            {"dir": "both" if inbound else "outbound", "nid": number_id},
+        )
         # LIVE AND PUBLISHED, or the engine is told to release rather than to bind. An
         # agent that has never been published has no ref to bind to, and a paused or
         # deleted one was deliberately taken off its numbers; `activate` republishes and
         # routes every attached number, so the attachment starts working the moment it
         # comes back. This is `provision_number`'s D-440 reasoning, on the later step.
-        answers = bool(engine_agent_ref) and str(status) == "live"
+        answers = inbound and bool(engine_agent_ref) and str(status) == "live"
         ref = str(engine_agent_ref or "")
 
     # No rowcount check: the row is held under `FOR UPDATE` from the read above, so the
