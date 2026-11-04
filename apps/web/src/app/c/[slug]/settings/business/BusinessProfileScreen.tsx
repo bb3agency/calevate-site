@@ -12,11 +12,12 @@ import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
-  STEPS,
   STEPS_MODE,
   draftFromProfile,
   setupHref,
+  stepsFor,
   useBusinessProfile,
+  wordingFacts,
   type BusinessProfile,
   type ProfileDraft,
 } from "@/lib/api/businessProfile";
@@ -24,7 +25,6 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
-import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { SetupChecklist } from "../../SetupChecklist";
 import { BusinessCopySection } from "./BusinessCopySection";
@@ -97,6 +97,7 @@ function AllAnswers() {
               label: "What agents still need before they can take calls",
               value: profile.data.blockers.map((b) => b.message).join(" ") || "nothing",
             },
+            ...wordingFacts(profile.data.wording),
           ]
         : []),
     ],
@@ -130,7 +131,6 @@ function Profile({
   // Seeded once; each section saves its own topic, and this draft keeps whatever is
   // being typed in the other sections.
   const [draft, setDraft] = useState<ProfileDraft>(() => draftFromProfile(profile));
-  const eg = useVerticalExamples(profile.vertical_template ?? null);
   const saved = draftFromProfile(profile);
 
   return (
@@ -164,7 +164,7 @@ function Profile({
         </SettingRows>
       </Section>
 
-      {STEPS.map((step) => (
+      {stepsFor(profile.wording).map((step) => (
         <ProfileSection
           key={step.id}
           step={step}
@@ -180,8 +180,7 @@ function Profile({
               onChange={setDraft}
               disabled={!canWrite}
               errorAt={errorAt}
-              vertical={profile.vertical_template ?? null}
-              examples={eg}
+              wording={profile.wording}
             />
           )}
         />

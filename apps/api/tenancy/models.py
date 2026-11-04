@@ -172,6 +172,9 @@ class Organization(PKMixin, TimestampMixin, Base):
             "jsonb_typeof(core_field_labels) = 'object'", name="core_field_labels_is_object"
         ),
         CheckConstraint("jsonb_typeof(starter_plans) = 'object'", name="starter_plans_is_object"),
+        CheckConstraint(
+            "jsonb_typeof(profile_wording) = 'object'", name="profile_wording_is_object"
+        ),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -252,6 +255,11 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: Each ready-made job's steps rewritten for this business (`agents/starter_plans`);
     #: `{}` shows the platform's.
     starter_plans: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    #: The business profile's labels, hints and examples written for this business
+    #: (`tenancy/profile_wording`); `{}` shows the neutral wording.
+    profile_wording: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
     # MAY THIS ACCOUNT'S `staff` MEMBERS CURATE KNOWLEDGE — the owner-controlled half of

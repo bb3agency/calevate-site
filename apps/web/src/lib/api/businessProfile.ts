@@ -40,6 +40,7 @@ export type StepState = Schemas["ProfileSetupStepOut"]["state"];
 export type DayHours = Schemas["DayHours"];
 export type Weekday = DayHours["day"];
 export type BusinessContact = Schemas["BusinessContactOut"];
+export type ProfileWording = Schemas["ProfileWording"];
 
 /** The week in the order the agent reads it out. `Weekday` is the generated union. */
 export const DAYS: readonly Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
@@ -67,20 +68,54 @@ export interface StepCopy {
 }
 
 /** One topic per step, in the order the wizard asks them. Business facts only: what each
- *  agent says, its voice and its language live on the agent's own screens. */
+ *  agent says, its voice and its language live on the agent's own screens.
+ *
+ *  Every business of every kind meets these, so none of them names a trade. The two that
+ *  depend on what the business is (what it offers, how a caller goes ahead) are worded per
+ *  business by `stepsFor`; the text here is what a screen without the profile shows. */
 export const STEPS: readonly StepCopy[] = [
   { id: "hours", title: "When are you open?", hint: "Callers ask this first. Mark the days you are closed.", short: "Opening hours" },
-  { id: "branches", title: "Where are you?", hint: "Add each branch callers can visit.", short: "Address" },
-  { id: "services", title: "What do you offer?", hint: "Services and prices your agents can quote.", short: "Services and prices" },
+  { id: "branches", title: "Where are you?", hint: "Add each place callers can visit, or where you work from.", short: "Address" },
+  { id: "services", title: "What do you offer?", hint: "What callers can ask about.", short: "What you offer" },
   { id: "faqs", title: "What do callers often ask?", hint: "Short questions with the answer you want given.", short: "Common questions" },
   { id: "staff", title: "Who works with you?", hint: "Names your agents may mention, and how to say them.", short: "Staff names" },
-  { id: "booking", title: "How do bookings work?", hint: "Slots, notice, deposits — anything a caller should know.", short: "Booking rules" },
+  { id: "booking", title: "How do callers go ahead?", hint: "What a caller should know before they book, buy or sign up.", short: "How to go ahead" },
   { id: "contacts", title: "Who can take a call?", hint: "People callers can be put through to. Indian mobiles only; needed if an agent answers your calls or hands callers over.", short: "People who take calls" },
   { id: "languages", title: "Which languages do you serve?", hint: "New agents start out replying in these. Agents you already have keep theirs; open one to change it.", short: "Languages" },
 ];
 
 export function stepCopy(id: StepId): StepCopy {
   return STEPS.find((step) => step.id === id) ?? STEPS[0];
+}
+
+/** The steps in this business's words (`GET /v1/business-profile`'s `wording`). The short
+ *  labels stay fixed: they are how the checklist, the dashboard and Pip name each step. */
+export function stepsFor(wording: ProfileWording): readonly StepCopy[] {
+  return STEPS.map((step) => {
+    if (step.id === "services") return { ...step, hint: wording.offers_hint };
+    if (step.id === "booking") return { ...step, title: wording.booking_title, hint: wording.booking_hint };
+    return step;
+  });
+}
+
+/** What Pip is told about this business's form, so it names things as the screen does. */
+export function wordingFacts(wording: ProfileWording): { key: string; label: string; value: string }[] {
+  return [
+    { key: "offer_label", label: "What this business calls one thing it offers", value: wording.offer_label },
+    {
+      key: "price_label",
+      label: "What its price is called",
+      value: wording.price_label ?? "it quotes no prices, so the form shows no price column",
+    },
+    { key: "booking_title", label: "The booking step's question", value: wording.booking_title },
+  ];
+}
+
+/** Whether the price column shows: when a price applies to this business, and always
+ *  when one is already on file, so a price stays visible and editable whatever the draft
+ *  says. */
+export function showsPrice(wording: ProfileWording, services: readonly { price_inr: string }[]): boolean {
+  return wording.price_label !== null || services.some((row) => row.price_inr.trim() !== "");
 }
 
 export { STEPS_MODE };

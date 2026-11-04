@@ -50,6 +50,23 @@ def _starter_count(job: str) -> int:
     return len(starters.CATALOGUE[(starters.NEUTRAL_VERTICAL, job)].steps)  # type: ignore[index]
 
 
+#: The business profile's examples, no longer asked for (`RETIRED_PLACEHOLDERS`); a copy
+#: stored before then has them.
+RETIRED: dict[str, str] = {
+    "branch_label": "Kukatpally shop",
+    "service_name": "Cold-pressed groundnut oil (1 litre)",
+    "service_price": "320",
+    "service_note": "Fresh batch every Monday",
+    "ask_on_arrival": "depends on the day's stock",
+    "faq_question": "Do you deliver to Miyapur?",
+    "staff_name": "Ramesh Rao",
+    "staff_spoken": "RAA-mesh RAO",
+    "staff_role": "Owner",
+    "staff_why_it_matters": "regular customers ask for the owner by name",
+    "booking_rules": "Orders before 6 pm are packed the same day. Never promise stock.",
+    "contact_name": "Shop counter",
+}
+
 #: The keys prompt version 2 added; a copy stored under version 1 has none of them.
 V2_PLACEHOLDERS: dict[str, str] = {
     "teach_note": "Groundnut oil is 320 rupees a litre. We deliver in Miyapur. No stock promises.",
@@ -77,18 +94,6 @@ def copy_dict() -> dict[str, Any]:
     """A valid answer for a neutral (non-clinic) account."""
     return {
         "placeholders": {
-            "branch_label": "Kukatpally shop",
-            "service_name": "Cold-pressed groundnut oil (1 litre)",
-            "service_price": "320",
-            "service_note": "Fresh batch every Monday",
-            "ask_on_arrival": "depends on the day's stock",
-            "faq_question": "Do you deliver to Miyapur?",
-            "staff_name": "Ramesh Rao",
-            "staff_spoken": "RAA-mesh RAO",
-            "staff_role": "Owner",
-            "staff_why_it_matters": "regular customers ask for the owner by name",
-            "booking_rules": "Orders before 6 pm are packed the same day. Never promise stock.",
-            "contact_name": "Shop counter",
             "knowledge_title": "This week's oil prices",
             "knowledge_answer": "Free home delivery on orders above 500 rupees within 5 km.",
             "extraction_reason": "so we can pack the order before the customer arrives",
@@ -142,7 +147,7 @@ def _inputs(*, clinic: bool = False) -> worker.Inputs:
 
 def test_a_valid_answer_parses() -> None:
     parsed = worker.parse_answer(copy_dict(), inputs=_inputs())
-    assert parsed.placeholders.service_price == "320"
+    assert parsed.placeholders.knowledge_title == "This week's oil prices"
     assert len(parsed.steps) == 3
 
 
@@ -166,10 +171,10 @@ def test_the_placeholder_keys_are_the_web_tables_keys_less_the_two_shown_before_
 @pytest.mark.parametrize(
     ("path", "value", "rule"),
     [
-        (("placeholders", "service_name"), "**Oil**", "no markdown"),
+        (("placeholders", "campaign_name"), "**Oil**", "no markdown"),
         (("placeholders", "knowledge_title"), "Prices from Gemini", "technology company"),
-        (("placeholders", "contact_name"), "Doctor's desk", "medical words"),
-        (("placeholders", "faq_question"), "Two\nlines", "one line"),
+        (("placeholders", "lead_search"), "Doctor's desk", "medical words"),
+        (("placeholders", "fact_question"), "Two\nlines", "one line"),
         (("placeholders", "end_call_rules"), "One\nTwo\nThree", "two rules"),
         (("caller_details", 0), "Area 🙂", "no emoji"),
         (("placeholders", "teach_note"), "We see patients every morning.", "medical words"),
@@ -205,8 +210,8 @@ def test_a_spoken_line_says_numbers_in_words() -> None:
 
 def test_medical_words_are_a_clinics_own() -> None:
     raw = copy_dict()
-    raw["placeholders"]["contact_name"] = "Doctor's desk"
-    assert worker.parse_answer(raw, inputs=_inputs(clinic=True)).placeholders.contact_name
+    raw["placeholders"]["lead_search"] = "Doctor's desk"
+    assert worker.parse_answer(raw, inputs=_inputs(clinic=True)).placeholders.lead_search
 
 
 def test_the_key_set_is_closed_and_the_lengths_are_capped() -> None:
@@ -214,9 +219,7 @@ def test_the_key_set_is_closed_and_the_lengths_are_capped() -> None:
     extra["placeholders"]["org_name"] = "Green Oils"
     long = copy_dict()
     long["caller_details"] = ["x" * (business_copy.CHIP_MAX + 1), "a", "b"]
-    price = copy_dict()
-    price["placeholders"]["service_price"] = "₹500"
-    for raw in (extra, long, price):
+    for raw in (extra, long):
         with pytest.raises(script_assist.UnusableAnswerError):
             worker.parse_answer(raw, inputs=_inputs())
 
@@ -244,12 +247,23 @@ def test_a_copy_stored_before_version_two_still_reads() -> None:
     raw = copy_dict()
     for key in V2_PLACEHOLDERS:
         del raw["placeholders"][key]
+    raw["placeholders"].update(RETIRED)
     stored = business_copy.parse_stored(raw)
     assert stored is not None
-    assert stored.placeholders.service_price == "320"
+    assert stored.placeholders.knowledge_title == "This week's oil prices"
     assert stored.placeholders.teach_note is None
     assert business_copy.copy_problems(stored, clinic=False, language="te-IN") == []
     assert set(business_copy.missing_placeholders(stored.placeholders)) == set(V2_PLACEHOLDERS)
+
+
+def test_a_copy_with_the_profiles_retired_examples_still_reads_and_none_is_asked_for() -> None:
+    """FAILS IF: a copy written while the profile's examples were asked for stops reading, or
+    a new answer must fill them again."""
+    raw = copy_dict()
+    raw["placeholders"].update(RETIRED)
+    stored = business_copy.parse_stored(raw)
+    assert stored is not None and stored.placeholders.service_price == "320"
+    assert worker.parse_answer(copy_dict(), inputs=_inputs()).placeholders.service_name is None
 
 
 def test_the_instruction_explains_every_placeholder_key() -> None:
@@ -492,7 +506,7 @@ async def test_a_refresh_stores_the_copy_and_meters_the_tokens_on_the_allowance(
         before = await read_ai_quota(session, tenant_id=tenant_id)
     assert await _run(tenant_id, "refresh") == "stored"
     row = await _row(tenant_id)
-    assert row is not None and row[0]["placeholders"]["service_price"] == "320"
+    assert row is not None and row[0]["placeholders"]["knowledge_title"] == "This week's oil prices"
     assert row[3] is False and row[4] is None and row[5] is None and row[6] == "refresh"
     # 16 x 0.0238 (16k in, 12k of it cached: 4k full + 1.2 x the 10k rung) + 1 x 0.1425
     assert row[2] == Decimal("0.0952") + Decimal("0.02856") + Decimal("0.1425")
@@ -820,7 +834,7 @@ async def test_the_screens_read_nothing_until_the_first_copy_lands() -> None:
     assert empty.json()["placeholders"] is None and empty.json()["steps"] == []
     await _seed_row(tenant_id)
     landed = (await _get("/v1/business-copy", headers)).json()
-    assert landed["placeholders"]["service_price"] == "320"
+    assert landed["placeholders"]["knowledge_title"] == "This week's oil prices"
     assert landed["language"] == "te-IN" and "starter_lines" not in landed
 
 

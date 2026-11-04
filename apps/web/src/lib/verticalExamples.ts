@@ -35,26 +35,6 @@ export interface VerticalExamples {
   /** The business itself — the wizard's first two fields. */
   readonly orgName: string;
   readonly orgSlug: string;
-  /** Addresses and branches. */
-  readonly branchLabel: string;
-  /** Services and prices: what is sold, what it costs, the caveat beside it. */
-  readonly serviceName: string;
-  readonly servicePrice: string;
-  readonly serviceNote: string;
-  /** The phrase for "we will not quote a price on the phone" in this trade. */
-  readonly askOnArrival: string;
-  /** A question the price list does not answer. */
-  readonly faqQuestion: string;
-  /** Staff: a name worth spelling phonetically, and what that person does. */
-  readonly staffName: string;
-  readonly staffSpoken: string;
-  readonly staffRole: string;
-  /** What a mispronounced name costs YOU, in this trade's words. */
-  readonly staffWhyItMatters: string;
-  /** Booking rules, as free prose. */
-  readonly bookingRules: string;
-  /** Who a caller is put through to. */
-  readonly contactName: string;
   /** A knowledge note's title — the thing a client types, not a file they send. */
   readonly knowledgeTitle: string;
   /** A gap answer, in this trade's vocabulary. */
@@ -138,19 +118,6 @@ const NEUTRAL_UNTIL_GENERATED = {
 const CLINIC: VerticalExamples = {
   orgName: "Sunrise Clinic",
   orgSlug: "sunrise-clinic",
-  branchLabel: "Main branch",
-  serviceName: "Consultation",
-  servicePrice: "500",
-  serviceNote: "Mornings only",
-  askOnArrival: "ask at reception",
-  faqQuestion: "Do you take walk-ins?",
-  staffName: "Dr Lakshmi Prasad",
-  staffSpoken: "LUCK-shmee pra-SAAD",
-  staffRole: "Dentist",
-  staffWhyItMatters: "a mispronounced doctor's name is the first thing a caller notices",
-  bookingRules:
-    "Slots every 20 minutes, up to two weeks ahead. Never promise a specific doctor without checking.",
-  contactName: "Front desk",
   knowledgeTitle: "Clinic hours",
   knowledgeAnswer:
     "Our consultation fee is ₹500, adjusted against any treatment on the same day.",
@@ -169,20 +136,6 @@ const CLINIC: VerticalExamples = {
 const REAL_ESTATE: VerticalExamples = {
   orgName: "Skyline Properties",
   orgSlug: "skyline-properties",
-  branchLabel: "Head office",
-  serviceName: "2 BHK, Gachibowli",
-  servicePrice: "8500000",
-  serviceNote: "Ready to move",
-  askOnArrival: "discussed at the site visit",
-  faqQuestion: "Is the property loan-approved?",
-  staffName: "Venkat Ramana",
-  staffSpoken: "VENK-at ra-MAA-na",
-  staffRole: "Sales manager",
-  staffWhyItMatters:
-    "a mispronounced agent's name is the first thing a caller notices, and they ask for that person by name",
-  bookingRules:
-    "Site visits Saturday and Sunday, two slots a day, up to three weeks ahead. Never quote a final price on the phone.",
-  contactName: "Sales desk",
   knowledgeTitle: "Site visit timings",
   knowledgeAnswer:
     "The 2 BHK units in Gachibowli start at ₹85 lakh, and the price on the phone is indicative until a site visit.",
@@ -201,20 +154,6 @@ const REAL_ESTATE: VerticalExamples = {
 const INSURANCE: VerticalExamples = {
   orgName: "Sujatha Insurance Services",
   orgSlug: "sujatha-insurance",
-  branchLabel: "Main office",
-  serviceName: "Term life cover",
-  servicePrice: "12000",
-  serviceNote: "Annual premium, age 30",
-  askOnArrival: "quoted after we take your details",
-  faqQuestion: "What documents do I need to renew?",
-  staffName: "Sujatha Rani",
-  staffSpoken: "su-JAA-tha RAA-ni",
-  staffRole: "Advisor",
-  staffWhyItMatters:
-    "a mispronounced advisor's name is the first thing a caller notices, and policyholders ask for their own advisor",
-  bookingRules:
-    "Advisor callbacks weekdays, within one working day. Never confirm a premium on the phone without the policy number.",
-  contactName: "Front office",
   knowledgeTitle: "Renewal documents",
   knowledgeAnswer:
     "A term life renewal needs the policy number and a current address proof; the premium is confirmed once we pull up the policy.",
@@ -234,20 +173,6 @@ const INSURANCE: VerticalExamples = {
 const EDUCATION: VerticalExamples = {
   orgName: "Vidya Coaching Centre",
   orgSlug: "vidya-coaching",
-  branchLabel: "Main centre",
-  serviceName: "NEET crash course",
-  servicePrice: "45000",
-  serviceNote: "Weekend batch",
-  askOnArrival: "discussed at the counselling session",
-  faqQuestion: "When does the next batch start?",
-  staffName: "Padmavathi Reddy",
-  staffSpoken: "pad-maa-VA-thi REDD-y",
-  staffRole: "Physics faculty",
-  staffWhyItMatters:
-    "a mispronounced teacher's name is the first thing a parent notices, and they ask for that faculty by name",
-  bookingRules:
-    "Counselling sessions after 4pm on weekdays, up to a week ahead. Never promise a seat in a batch that is full.",
-  contactName: "Admissions desk",
   knowledgeTitle: "Batch timings",
   knowledgeAnswer:
     "The NEET crash course is ₹45,000 for the weekend batch, and the fee can be paid in two instalments.",
@@ -266,19 +191,6 @@ const EDUCATION: VerticalExamples = {
 const RETAIL: VerticalExamples = {
   orgName: "Green Basket Organics",
   orgSlug: "green-basket-organics",
-  branchLabel: "Main store",
-  serviceName: "Organic green chilli (1 kg)",
-  servicePrice: "120",
-  serviceNote: "Fresh stock on Tuesdays and Fridays",
-  askOnArrival: "depends on the day's stock",
-  faqQuestion: "Do you deliver to Kukatpally?",
-  staffName: "Ramesh Rao",
-  staffSpoken: "RAA-mesh RAO",
-  staffRole: "Owner",
-  staffWhyItMatters: "regular customers ask for the owner by name",
-  bookingRules:
-    "Orders before 6 pm are packed the same day. Home delivery within 5 km. Never promise stock without checking.",
-  contactName: "Store counter",
   knowledgeTitle: "This week's price list",
   knowledgeAnswer: "Free home delivery on orders above ₹500 within 5 km.",
   extractionReason: "so we can pack the order before the customer arrives",
@@ -297,19 +209,6 @@ const RETAIL: VerticalExamples = {
 const LOCAL_SERVICES: VerticalExamples = {
   orgName: "Glow Studio",
   orgSlug: "glow-studio",
-  branchLabel: "Madhapur studio",
-  serviceName: "Haircut and styling",
-  servicePrice: "400",
-  serviceNote: "Home visits on weekends",
-  askOnArrival: "confirmed after a quick look",
-  faqQuestion: "Do you come home for bridal makeup?",
-  staffName: "Swathi Reddy",
-  staffSpoken: "SWAA-thee RED-dee",
-  staffRole: "Senior stylist",
-  staffWhyItMatters: "regular customers ask for their stylist by name",
-  bookingRules:
-    "Slots every 30 minutes, up to a week ahead. Never promise a stylist without checking.",
-  contactName: "Front desk",
   knowledgeTitle: "Service menu",
   knowledgeAnswer: "Bridal packages start at ₹8,000, including a trial session.",
   extractionReason: "so we can send the right stylist",
@@ -327,19 +226,6 @@ const LOCAL_SERVICES: VerticalExamples = {
 const AUTOMOBILE: VerticalExamples = {
   orgName: "Sai Ram Motors",
   orgSlug: "sai-ram-motors",
-  branchLabel: "Service centre",
-  serviceName: "General service (two-wheeler)",
-  servicePrice: "899",
-  serviceNote: "Same-day if dropped before 10 am",
-  askOnArrival: "quoted after inspection",
-  faqQuestion: "Do you pick up the bike from home?",
-  staffName: "Prakash",
-  staffSpoken: "pra-KAASH",
-  staffRole: "Service advisor",
-  staffWhyItMatters: "customers ask for the advisor who handled their last service",
-  bookingRules:
-    "Service slots from 9 am to 6 pm, Monday to Saturday. Never quote a repair cost before inspection.",
-  contactName: "Service desk",
   knowledgeTitle: "Service price list",
   knowledgeAnswer: "Pickup and drop is free within 5 km for a general service.",
   extractionReason: "so the workshop can plan the day's jobs",
@@ -364,19 +250,6 @@ const AUTOMOBILE: VerticalExamples = {
 const CUSTOM: VerticalExamples = {
   orgName: "Sri Traders",
   orgSlug: "sri-traders",
-  branchLabel: "Main branch",
-  serviceName: "The main thing you sell",
-  servicePrice: "500",
-  serviceNote: "Mornings only",
-  askOnArrival: "ask when you visit",
-  faqQuestion: "What the price list does not answer",
-  staffName: "The name a caller asks for",
-  staffSpoken: "How to say it out loud",
-  staffRole: "What they do",
-  staffWhyItMatters: "a mispronounced name is the first thing a caller notices",
-  bookingRules:
-    "How bookings or orders are taken, how far ahead, and what your agent must never promise without checking.",
-  contactName: "Front desk",
   knowledgeTitle: "Your price list",
   knowledgeAnswer: "The answer a caller should have been given.",
   extractionReason: "so we can call back the enquiries that matter most first",
@@ -418,21 +291,27 @@ export function examplesFor(vertical: string | null | undefined): VerticalExampl
 /** The account's AI-written placeholders (D-827), as the server sends them. */
 export type GeneratedPlaceholders = components["schemas"]["Placeholders"];
 
+/** The business profile's examples a copy written before `profile_wording` still carries
+ * (`business_copy.RETIRED_PLACEHOLDERS`): the profile reads its own (`ProfileWording`). */
+type RetiredPlaceholder =
+  | "branch_label"
+  | "service_name"
+  | "service_price"
+  | "service_note"
+  | "ask_on_arrival"
+  | "faq_question"
+  | "staff_name"
+  | "staff_spoken"
+  | "staff_role"
+  | "staff_why_it_matters"
+  | "booking_rules"
+  | "contact_name";
+
 /** Each generated key, in the table's spelling. `orgName` and `orgSlug` are not generated:
  * they are shown only while an operator creates an account. */
-const FROM_GENERATED: Readonly<Record<keyof GeneratedPlaceholders, keyof VerticalExamples>> = {
-  branch_label: "branchLabel",
-  service_name: "serviceName",
-  service_price: "servicePrice",
-  service_note: "serviceNote",
-  ask_on_arrival: "askOnArrival",
-  faq_question: "faqQuestion",
-  staff_name: "staffName",
-  staff_spoken: "staffSpoken",
-  staff_role: "staffRole",
-  staff_why_it_matters: "staffWhyItMatters",
-  booking_rules: "bookingRules",
-  contact_name: "contactName",
+const FROM_GENERATED: Readonly<
+  Record<Exclude<keyof GeneratedPlaceholders, RetiredPlaceholder>, keyof VerticalExamples>
+> = {
   knowledge_title: "knowledgeTitle",
   knowledge_answer: "knowledgeAnswer",
   extraction_reason: "extractionReason",
@@ -476,7 +355,7 @@ export function withGeneratedCopy(
 ): VerticalExamples {
   if (!generated) return base;
   const merged: { -readonly [K in keyof VerticalExamples]: string } = { ...base };
-  for (const from of Object.keys(FROM_GENERATED) as (keyof GeneratedPlaceholders)[]) {
+  for (const from of Object.keys(FROM_GENERATED) as (keyof typeof FROM_GENERATED)[]) {
     const value = generated[from];
     if (typeof value === "string" && value.trim()) merged[FROM_GENERATED[from]] = value;
   }

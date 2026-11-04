@@ -16,13 +16,14 @@ import {
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import {
-  STEPS,
   draftFromProfile,
   rebaseDraft,
   fieldMessage,
   setupHref,
   stepStates,
+  stepsFor,
   toPatch,
+  wordingFacts,
   useBusinessProfile,
   useSaveBusinessProfile,
   useSetupAction,
@@ -32,7 +33,6 @@ import {
 } from "@/lib/api/businessProfile";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
-import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -83,6 +83,7 @@ export function SetupWizard() {
         label: "What is on screen",
         value: profile.data ? "the questions have loaded" : profile.error ? "the questions failed to load" : "still loading",
       },
+      ...(profile.data ? wordingFacts(profile.data.wording) : []),
     ],
     apply: noFill,
   });
@@ -137,13 +138,13 @@ function Wizard({
     setDraft(rebaseDraft(draft, loaded.draft, latest));
     setLoaded({ profile, draft: latest });
   }
-  const eg = useVerticalExamples(profile.vertical_template ?? null);
+  const steps = stepsFor(profile.wording);
   const requested = params.get("step");
   const firstTodo = profile.setup.steps.findIndex((step) => step.state === "todo");
   const [index, setIndex] = useState(() => {
-    const asked = STEPS.findIndex((step) => step.id === requested);
+    const asked = steps.findIndex((step) => step.id === requested);
     if (asked >= 0) return asked;
-    return firstTodo >= 0 ? firstTodo : STEPS.length;
+    return firstTodo >= 0 ? firstTodo : steps.length;
   });
   const [direction, setDirection] = useState<1 | -1>(1);
 
@@ -172,11 +173,11 @@ function Wizard({
     setDirection(to > index ? 1 : -1);
     save.reset();
     setIndex(to);
-    const step = STEPS[to];
+    const step = steps[to];
     router.replace(setupHref(href, step?.id), { scroll: false });
   };
 
-  const step = STEPS[index];
+  const step = steps[index];
   const hint = step ? splitHint(step.hint) : null;
   const problem = step ? stepProblem(draft, step.id) : null;
   const fields = save.error instanceof ApiProblem ? save.error.fields : undefined;
@@ -195,9 +196,9 @@ function Wizard({
   return (
     <div className="grid grid-cols-1 max-w-5xl gap-6 lg:grid-cols-[14rem_minmax(0,1fr)]">
       <nav aria-label="Setup steps" className="hidden lg:block">
-        <ProgressBar value={done} max={STEPS.length} label={`${done} of ${STEPS.length} done`} />
+        <ProgressBar value={done} max={steps.length} label={`${done} of ${steps.length} done`} />
         <ol className="mt-4 space-y-0.5">
-          {STEPS.map((item, i) => (
+          {steps.map((item, i) => (
             <li key={item.id}>
               <button
                 type="button"
@@ -220,7 +221,7 @@ function Wizard({
 
       <div className="min-w-0">
         <p className="mb-3 text-meta tabular-nums text-ink-muted lg:hidden">
-          {step ? SETUP.stepOf(index + 1, STEPS.length) : SETUP.allSeen}
+          {step ? SETUP.stepOf(index + 1, steps.length) : SETUP.allSeen}
         </p>
         {reason && <RestrictionNote reason={reason} />}
         <AnimatePresence mode="wait" initial={false} custom={direction}>
@@ -262,8 +263,7 @@ function Wizard({
                     onChange={setDraft}
                     disabled={!canWrite}
                     errorAt={(path) => fieldMessage(fields, path)}
-                    vertical={profile.vertical_template ?? null}
-                    examples={eg}
+                    wording={profile.wording}
                   />
                 </fieldset>
                 {problem && (
@@ -298,12 +298,12 @@ function Wizard({
                     pendingLabel="Saving…"
                     successLabel="Saved"
                   >
-                    {index === STEPS.length - 1 ? "Save and finish" : "Save and continue"}
+                    {index === steps.length - 1 ? "Save and finish" : "Save and continue"}
                   </ActionButton>
                 </div>
               </form>
             ) : (
-              <SetupDone profile={profile} href={href} onOpen={(id: StepId) => go(STEPS.findIndex((s) => s.id === id))} />
+              <SetupDone profile={profile} href={href} onOpen={(id: StepId) => go(steps.findIndex((s) => s.id === id))} />
             )}
           </motion.section>
         </AnimatePresence>

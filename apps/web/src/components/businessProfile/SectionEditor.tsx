@@ -10,10 +10,11 @@ import {
   blankService,
   blankStaff,
   profileFieldId,
+  showsPrice,
   type ProfileDraft,
+  type ProfileWording,
   type StepId,
 } from "@/lib/api/businessProfile";
-import { examplesFor, type VerticalExamples } from "@/lib/verticalExamples";
 
 import { Field, RowList } from "./fields";
 import { HoursEditor, hoursProblems } from "./HoursEditor";
@@ -26,6 +27,11 @@ import { HoursEditor, hoursProblems } from "./HoursEditor";
  * `errorAt(path)` is the server's message for a wire path of this section
  * (`services.1.price_inr`); rows are pruned before a save, so wire index and row index
  * are the same row.
+ *
+ * Every business-specific word — what it offers, what its price is called, each example
+ * inside an empty field — is the business's own (`wording`, written for it from its own
+ * description). Until that is written the labels are generic and no field has an example:
+ * an example from another kind of business reads as a mistake about this one.
  */
 export function SectionEditor({
   step,
@@ -33,19 +39,17 @@ export function SectionEditor({
   onChange,
   disabled,
   errorAt,
-  vertical,
-  examples,
+  wording,
 }: {
   step: StepId;
   draft: ProfileDraft;
   onChange: (next: ProfileDraft) => void;
   disabled: boolean;
   errorAt: (path: string) => string | undefined;
-  vertical: string | null;
-  /** The account's own examples (`useVerticalExamples`), where the screen has them (D-827). */
-  examples?: VerticalExamples;
+  wording: ProfileWording;
 }) {
-  const eg = examples ?? examplesFor(vertical);
+  const eg = wording.examples;
+  const example = (value: string | null | undefined) => value ?? undefined;
   const input = (path: string, label: string, value: string, set: (v: string) => void, extra?: {
     placeholder?: string;
     hint?: string;
@@ -93,7 +97,7 @@ export function SectionEditor({
           {(row, i, patch) => (
             <>
               {input(`branches.${i}.label`, "Name", row.label, (label) => patch({ label }), {
-                placeholder: eg.branchLabel,
+                placeholder: example(eg.branch_label),
               })}
               {input(`branches.${i}.address`, "Address", row.address, (address) => patch({ address }), {
                 placeholder: "Road, area, city, PIN",
@@ -102,36 +106,47 @@ export function SectionEditor({
           )}
         </RowList>
       );
-    case "services":
+    case "services": {
+      // A business that quotes no price gets no price column; a price already on file
+      // keeps it, so nothing stored is hidden.
+      const priced = showsPrice(wording, draft.services);
       return (
         <RowList
-          noun="service"
+          noun={wording.offer_label}
           rows={draft.services}
           blank={blankService}
-          addLabel="Add a service"
-          empty="No services yet."
-          columns={3}
+          addLabel={`Add ${inSentence(wording.offer_label)}`}
+          empty="Nothing listed yet."
+          columns={priced ? 3 : 2}
           disabled={disabled}
           onChange={(services) => onChange({ ...draft, services })}
         >
           {(row, i, patch) => (
             <>
-              {input(`services.${i}.name`, "Service", row.name, (name) => patch({ name }), {
-                placeholder: eg.serviceName,
+              {input(`services.${i}.name`, wording.offer_label, row.name, (name) => patch({ name }), {
+                placeholder: example(eg.offer_name),
               })}
-              {input(`services.${i}.price_inr`, "Price (₹)", row.price_inr, (price_inr) => patch({ price_inr }), {
-                placeholder: eg.servicePrice,
-                hint: `Digits only. Leave blank for “${eg.askOnArrival}”.`,
-                inputMode: "decimal",
-                mono: true,
-              })}
+              {priced &&
+                input(
+                  `services.${i}.price_inr`,
+                  `${wording.price_label ?? "Price"} (₹)`,
+                  row.price_inr,
+                  (price_inr) => patch({ price_inr }),
+                  {
+                    placeholder: example(eg.offer_price),
+                    hint: "Digits only. Leave blank if you do not say it on the phone.",
+                    inputMode: "decimal",
+                    mono: true,
+                  },
+                )}
               {input(`services.${i}.notes`, "Note", row.notes, (notes) => patch({ notes }), {
-                placeholder: eg.serviceNote,
+                placeholder: example(eg.offer_note),
               })}
             </>
           )}
         </RowList>
       );
+    }
     case "faqs":
       return (
         <RowList
@@ -147,7 +162,7 @@ export function SectionEditor({
           {(row, i, patch) => (
             <>
               {input(`faqs.${i}.question`, "Question", row.question, (question) => patch({ question }), {
-                placeholder: eg.faqQuestion,
+                placeholder: example(eg.faq_question),
               })}
               {input(`faqs.${i}.answer`, "Answer", row.answer, (answer) => patch({ answer }))}
             </>
@@ -169,13 +184,13 @@ export function SectionEditor({
           {(row, i, patch) => (
             <>
               {input(`staff.${i}.name`, "Name", row.name, (name) => patch({ name }), {
-                placeholder: eg.staffName,
+                placeholder: example(eg.staff_name),
               })}
               {input(`staff.${i}.pronunciation`, "Said as", row.pronunciation, (pronunciation) => patch({ pronunciation }), {
-                placeholder: eg.staffSpoken,
+                placeholder: example(eg.staff_spoken),
               })}
               {input(`staff.${i}.role`, "Role", row.role, (role) => patch({ role }), {
-                placeholder: eg.staffRole,
+                placeholder: example(eg.staff_role),
               })}
             </>
           )}
@@ -185,7 +200,7 @@ export function SectionEditor({
       return (
         <Field
           id={profileFieldId("booking_rules")}
-          label="Booking rules"
+          label="Your rules"
           hint="Your agents follow this as written."
           error={errorAt("booking_rules")}
         >
@@ -196,7 +211,7 @@ export function SectionEditor({
               maxLength={2000}
               value={draft.booking_rules}
               disabled={disabled}
-              placeholder={eg.bookingRules}
+              placeholder={example(eg.booking_rules)}
               onChange={(e) => onChange({ ...draft, booking_rules: e.target.value })}
               className={FIELD}
             />
@@ -218,7 +233,7 @@ export function SectionEditor({
           {(row, i, patch) => (
             <>
               {input(`contacts.${i}.label`, "Name", row.name, (name) => patch({ name }), {
-                placeholder: eg.contactName,
+                placeholder: example(eg.contact_name),
               })}
               {input(`contacts.${i}.phone_e164`, "Mobile", row.phone_e164, (phone_e164) => patch({ phone_e164 }), {
                 placeholder: "+919876543210",
@@ -262,6 +277,14 @@ export function SectionEditor({
         </fieldset>
       );
   }
+}
+
+/** A label as it reads mid-sentence: "Plan" becomes "plan", an acronym ("SIM plan") stays. */
+export function inSentence(label: string): string {
+  const [first = "", second = ""] = label;
+  return second === second.toUpperCase() && second !== second.toLowerCase()
+    ? label
+    : first.toLowerCase() + label.slice(1);
 }
 
 /** Whether the draft for one step can be sent, or the sentence that says why not. */

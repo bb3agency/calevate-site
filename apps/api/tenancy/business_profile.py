@@ -276,7 +276,7 @@ async def profile_fact_lines(session: AsyncSession, *, tenant_id: UUID) -> list[
 #:
 #: * hours: the after-hours branch and the handover rota are judged against them;
 #: * an address: "where are you?" is the second question every caller asks;
-#: * a service: the price list is the most-asked question;
+#: * what it offers: "what do you have?" is the most-asked question, price or no price;
 #: * an escalation contact: a handover has nowhere to go without one, so it is asked only
 #:   of an agent that hands calls over or answers calls (founder, 20 Oct 2026, D-838); an
 #:   outbound agent with hand-over off never puts a caller through to anyone.
@@ -342,7 +342,7 @@ async def account_go_live_blockers(session: AsyncSession, *, tenant_id: UUID) ->
 BLOCKER_COPY: Final[dict[str, str]] = {
     "business_hours_missing": "Add your opening hours.",
     "branch_missing": "Add your address.",
-    "service_missing": "Add at least one service.",
+    "service_missing": "Add at least one thing you offer.",
     "escalation_contact_missing": "Add someone your agent can put a caller through to.",
 }
 

@@ -125,18 +125,6 @@ def _flex_for(trigger: Trigger) -> FlexAllowance | None:
 
 #: What each placeholder key is, for the instruction. Mirrors `verticalExamples.ts`.
 PLACEHOLDER_MEANINGS: Final[dict[str, str]] = {
-    "branch_label": "the name of a branch or location",
-    "service_name": "one thing the business sells or offers",
-    "service_price": "a typical price for it in whole rupees, digits only",
-    "service_note": "a short note beside that price",
-    "ask_on_arrival": "how this trade says a price is not quoted on the phone",
-    "faq_question": "a question callers ask that a price list does not answer",
-    "staff_name": "a staff member's name a caller might ask for",
-    "staff_spoken": "how to say that name aloud, in capitalised syllables",
-    "staff_role": "that person's role",
-    "staff_why_it_matters": "why a mispronounced name matters to this business, as a clause",
-    "booking_rules": "how bookings or orders are taken and what the agent must never promise",
-    "contact_name": "who a caller is put through to, as a desk or role",
     "knowledge_title": "the title of a note the owner would write for the agents",
     "knowledge_answer": "an answer the owner would teach for a caller's question",
     "extraction_reason": "why one detail matters, as a clause starting with 'so we can'",

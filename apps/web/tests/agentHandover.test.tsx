@@ -182,7 +182,6 @@ const HANDOFF_PATH = "/v1/agents/agent-1/handoff";
 const PROFILE = {
   business_name: "Sri Clinic",
   legal_name: null,
-  vertical_template: "clinic",
   hours: [],
   branches: [],
   services: [],

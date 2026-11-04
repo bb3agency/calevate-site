@@ -1,5 +1,27 @@
-import type { AdminBusinessProfile, BusinessProfile } from "@/lib/api/businessProfile";
+import type { AdminBusinessProfile, BusinessProfile, ProfileWording } from "@/lib/api/businessProfile";
 import type { UnfinishedOnboarding } from "@/lib/api/onboarding";
+
+/** The wording a business reads before its own is written (`profile_wording.NEUTRAL`). */
+export const NEUTRAL_WORDING: ProfileWording = {
+  offer_label: "Service",
+  price_label: "Price",
+  offers_hint: "What callers can ask about. Add a price where you give one.",
+  booking_title: "How do callers go ahead?",
+  booking_hint: "What a caller should know before they book, buy or sign up.",
+  examples: {
+    branch_label: null,
+    offer_name: null,
+    offer_price: null,
+    offer_note: null,
+    faq_question: null,
+    staff_name: null,
+    staff_spoken: null,
+    staff_role: null,
+    booking_rules: null,
+    contact_name: null,
+  },
+  drafted: false,
+};
 
 /**
  * A business profile as `GET /v1/business-profile` answers it (D-695): every setup step
@@ -10,7 +32,7 @@ export function businessProfileFixture(over: Partial<BusinessProfile> = {}): Bus
   return {
     business_name: "Sri Clinic",
     legal_name: null,
-    vertical_template: "clinic",
+    wording: NEUTRAL_WORDING,
     hours: [{ day: "mon", opens: "09:00", closes: "18:00", closed: false }],
     branches: [{ label: "Main", address: "1 Test Road, Hyderabad" }],
     services: [{ name: "Consultation", price_inr: "500", notes: null }],

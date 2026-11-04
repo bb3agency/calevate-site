@@ -1178,22 +1178,14 @@
             ],
             "title": "Updated At"
           },
-          "vertical_template": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Vertical Template"
+          "wording": {
+            "$ref": "#/components/schemas/ProfileWording"
           }
         },
         "required": [
           "business_name",
           "legal_name",
-          "vertical_template",
+          "wording",
           "hours",
           "branches",
           "services",
@@ -7989,22 +7981,14 @@
             ],
             "title": "Updated At"
           },
-          "vertical_template": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Vertical Template"
+          "wording": {
+            "$ref": "#/components/schemas/ProfileWording"
           }
         },
         "required": [
           "business_name",
           "legal_name",
-          "vertical_template",
+          "wording",
           "hours",
           "branches",
           "services",
@@ -40578,10 +40562,17 @@
             "title": "Agent Role"
           },
           "ask_on_arrival": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Ask On Arrival",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask On Arrival"
           },
           "booking_job_line": {
             "maxLength": 160,
@@ -40596,16 +40587,30 @@
             "type": "string"
           },
           "booking_rules": {
-            "maxLength": 300,
-            "minLength": 1,
-            "title": "Booking Rules",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Rules"
           },
           "branch_label": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Branch Label",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch Label"
           },
           "business_line": {
             "anyOf": [
@@ -40660,10 +40665,17 @@
             "title": "Campaign Name"
           },
           "contact_name": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Contact Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Name"
           },
           "end_call_rules": {
             "maxLength": 300,
@@ -40716,10 +40728,17 @@
             "title": "Fact Question"
           },
           "faq_question": {
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Faq Question",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faq Question"
           },
           "knowledge_answer": {
             "maxLength": 300,
@@ -40863,45 +40882,94 @@
             "title": "Script Change Idea"
           },
           "service_name": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Service Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Name"
           },
           "service_note": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Service Note",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Note"
           },
           "service_price": {
-            "pattern": "^[1-9][0-9]{0,8}$",
-            "title": "Service Price",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[1-9][0-9]{0,8}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service Price"
           },
           "staff_name": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Staff Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Name"
           },
           "staff_role": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Staff Role",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Role"
           },
           "staff_spoken": {
-            "maxLength": 80,
-            "minLength": 1,
-            "title": "Staff Spoken",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Spoken"
           },
           "staff_why_it_matters": {
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Staff Why It Matters",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Why It Matters"
           },
           "teach_note": {
             "anyOf": [
@@ -40931,18 +40999,6 @@
           }
         },
         "required": [
-          "branch_label",
-          "service_name",
-          "service_price",
-          "service_note",
-          "ask_on_arrival",
-          "faq_question",
-          "staff_name",
-          "staff_spoken",
-          "staff_role",
-          "staff_why_it_matters",
-          "booking_rules",
-          "contact_name",
           "knowledge_title",
           "knowledge_answer",
           "extraction_reason",
@@ -41899,6 +41955,124 @@
         "title": "ProfileBlockerOut",
         "type": "object"
       },
+      "ProfileExamples": {
+        "additionalProperties": false,
+        "description": "The examples inside the profile's empty fields; None shows no example.",
+        "properties": {
+          "booking_rules": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Rules"
+          },
+          "branch_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch Label"
+          },
+          "contact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Name"
+          },
+          "faq_question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Faq Question"
+          },
+          "offer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer Name"
+          },
+          "offer_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer Note"
+          },
+          "offer_price": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offer Price"
+          },
+          "staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Name"
+          },
+          "staff_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Role"
+          },
+          "staff_spoken": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Spoken"
+          }
+        },
+        "title": "ProfileExamples",
+        "type": "object"
+      },
       "ProfilePatch": {
         "additionalProperties": false,
         "description": "The sections to replace. A section left out is untouched; a section sent is\nreplaced whole (a deep merge would bring back a service the client deleted).",
@@ -42180,6 +42354,57 @@
           "state"
         ],
         "title": "ProfileSetupStepOut",
+        "type": "object"
+      },
+      "ProfileWording": {
+        "additionalProperties": false,
+        "description": "What the profile's business-specific words are for one business.",
+        "properties": {
+          "booking_hint": {
+            "title": "Booking Hint",
+            "type": "string"
+          },
+          "booking_title": {
+            "title": "Booking Title",
+            "type": "string"
+          },
+          "drafted": {
+            "title": "Drafted",
+            "type": "boolean"
+          },
+          "examples": {
+            "$ref": "#/components/schemas/ProfileExamples"
+          },
+          "offer_label": {
+            "title": "Offer Label",
+            "type": "string"
+          },
+          "offers_hint": {
+            "title": "Offers Hint",
+            "type": "string"
+          },
+          "price_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Label"
+          }
+        },
+        "required": [
+          "offer_label",
+          "price_label",
+          "offers_hint",
+          "booking_title",
+          "booking_hint",
+          "examples",
+          "drafted"
+        ],
+        "title": "ProfileWording",
         "type": "object"
       },
       "ProgressOut": {

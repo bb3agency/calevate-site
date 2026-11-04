@@ -380,8 +380,9 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         route="/c/{slug}/settings/business",
         name="Business profile",
         group=SETTINGS_GROUP,
-        summary="The business's hours, address, services and prices, common questions, "
-        "staff, booking rules, people who take calls and languages — what every agent says. "
+        summary="The business's hours, address, what it offers, common questions, "
+        "staff, how callers go ahead, people who take calls and languages — what every "
+        "agent says. "
         "Every answer on one page, or one question at a time, every question skippable.",
         aliases=(
             "business details",

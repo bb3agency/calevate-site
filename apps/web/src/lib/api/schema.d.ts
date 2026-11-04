@@ -14329,8 +14329,7 @@ export interface components {
             staff: components["schemas"]["StaffMember"][];
             /** Updated At */
             updated_at: string | null;
-            /** Vertical Template */
-            vertical_template: string | null;
+            wording: components["schemas"]["ProfileWording"];
         };
         /** AdminCityOut */
         AdminCityOut: {
@@ -16546,8 +16545,7 @@ export interface components {
             staff: components["schemas"]["StaffMember"][];
             /** Updated At */
             updated_at: string | null;
-            /** Vertical Template */
-            vertical_template: string | null;
+            wording: components["schemas"]["ProfileWording"];
         };
         /** BusinessTypeChoiceOut */
         BusinessTypeChoiceOut: {
@@ -28659,15 +28657,15 @@ export interface components {
             /** Agent Role */
             agent_role?: string | null;
             /** Ask On Arrival */
-            ask_on_arrival: string;
+            ask_on_arrival?: string | null;
             /** Booking Job Line */
             booking_job_line: string;
             /** Booking Job Title */
             booking_job_title: string;
             /** Booking Rules */
-            booking_rules: string;
+            booking_rules?: string | null;
             /** Branch Label */
-            branch_label: string;
+            branch_label?: string | null;
             /** Business Line */
             business_line?: string | null;
             /** Call Ending */
@@ -28677,7 +28675,7 @@ export interface components {
             /** Campaign Name */
             campaign_name?: string | null;
             /** Contact Name */
-            contact_name: string;
+            contact_name?: string | null;
             /** End Call Rules */
             end_call_rules: string;
             /** Extraction Label */
@@ -28691,7 +28689,7 @@ export interface components {
             /** Fact Question */
             fact_question?: string | null;
             /** Faq Question */
-            faq_question: string;
+            faq_question?: string | null;
             /** Knowledge Answer */
             knowledge_answer: string;
             /** Knowledge Title */
@@ -28719,19 +28717,19 @@ export interface components {
             /** Script Change Idea */
             script_change_idea?: string | null;
             /** Service Name */
-            service_name: string;
+            service_name?: string | null;
             /** Service Note */
-            service_note: string;
+            service_note?: string | null;
             /** Service Price */
-            service_price: string;
+            service_price?: string | null;
             /** Staff Name */
-            staff_name: string;
+            staff_name?: string | null;
             /** Staff Role */
-            staff_role: string;
+            staff_role?: string | null;
             /** Staff Spoken */
-            staff_spoken: string;
+            staff_spoken?: string | null;
             /** Staff Why It Matters */
-            staff_why_it_matters: string;
+            staff_why_it_matters?: string | null;
             /** Teach Note */
             teach_note?: string | null;
             /** Test Expectation */
@@ -29046,6 +29044,32 @@ export interface components {
             step: "hours" | "branches" | "services" | "faqs" | "staff" | "booking" | "contacts" | "languages";
         };
         /**
+         * ProfileExamples
+         * @description The examples inside the profile's empty fields; None shows no example.
+         */
+        ProfileExamples: {
+            /** Booking Rules */
+            booking_rules?: string | null;
+            /** Branch Label */
+            branch_label?: string | null;
+            /** Contact Name */
+            contact_name?: string | null;
+            /** Faq Question */
+            faq_question?: string | null;
+            /** Offer Name */
+            offer_name?: string | null;
+            /** Offer Note */
+            offer_note?: string | null;
+            /** Offer Price */
+            offer_price?: string | null;
+            /** Staff Name */
+            staff_name?: string | null;
+            /** Staff Role */
+            staff_role?: string | null;
+            /** Staff Spoken */
+            staff_spoken?: string | null;
+        };
+        /**
          * ProfilePatch
          * @description The sections to replace. A section left out is untouched; a section sent is
          *     replaced whole (a deep merge would bring back a service the client deleted).
@@ -29118,6 +29142,25 @@ export interface components {
              * @enum {string}
              */
             state: "done" | "skipped" | "todo";
+        };
+        /**
+         * ProfileWording
+         * @description What the profile's business-specific words are for one business.
+         */
+        ProfileWording: {
+            /** Booking Hint */
+            booking_hint: string;
+            /** Booking Title */
+            booking_title: string;
+            /** Drafted */
+            drafted: boolean;
+            examples: components["schemas"]["ProfileExamples"];
+            /** Offer Label */
+            offer_label: string;
+            /** Offers Hint */
+            offers_hint: string;
+            /** Price Label */
+            price_label: string | null;
         };
         /** ProgressOut */
         ProgressOut: {
