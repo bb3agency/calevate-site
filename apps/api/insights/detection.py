@@ -17,9 +17,19 @@ THE QUOTES ARE REDACTED, STRUCTURALLY. The one input is a list of `(speaker, tex
 caller-facing quotes a gap carries are redacted by construction (hard rule 6). A phone
 number a caller reads out is already masked before it can reach a `question_redacted`.
 
+A GAP NEEDS A QUESTION (D-970). Every signal counts only after a caller line that asks for
+something (`caller_asked`): a question word or a "?" in English, Telugu, Hindi or their
+transliteration, and never a request to hear the last words again. On the Rytu Khata call of 4
+Nov 2026 the caller agreed to try the app ("I will try."), the agent then gave the business's
+WhatsApp number as its next line, and the WhatsApp match alone made the agreement an
+unanswered question on the owner's list. Unanswered-question reports elsewhere work the same
+way: a user's question the assistant had no answer for (fin.ai/help article 13975776).
+
 WHAT IT DELIBERATELY CANNOT SEE, stated because an honest limit beats a false claim of
 comprehension (the same disclosure `moments.py` and `extraction.OfflineExtractor` make):
 
+- a question with no question word and no "?", which a Telugu yes/no question often is when
+  the transcript drops the mark;
 - a deflection with no preceding caller turn (the agent volunteering "I don't know" out of
   nowhere) — no question to anchor it, so it is not emitted;
 - sarcasm, or an agent that says "I don't know" and then answers anyway in the same turn;
@@ -34,6 +44,8 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
+
+from apps.api.agents.turn_checks import asks_to_repeat, caller_asks
 
 Signal = Literal["dont_know", "deferred_channel", "unanswered_question"]
 
@@ -290,19 +302,26 @@ class DetectedGap:
     hit_count: int = 1
 
 
-def _classify(agent_text: str, caller_asked: bool) -> Signal | None:
-    """Which gap signal (if any) this agent turn carries.
+def caller_asked(caller_text: str) -> bool:
+    """Whether a caller line asks for information, the only thing a gap can answer. A request
+    to say it again asks for nothing new: the agent repeating its number then is no gap."""
+    if asks_to_repeat(caller_text):
+        return False
+    return bool(_QUESTION_RE.search(caller_text) or caller_asks(caller_text))
 
-    `dont_know` and `deferred_channel` stand on their own — an agent that says it doesn't
-    know, or offers WhatsApp, is a gap whether or not we caught the question. `nonanswer`
-    is counted ONLY when the caller actually asked, because "let me check" is an ordinary
-    thing to say while looking something up and is a gap only against an open question.
-    """
+
+def is_gap(caller_text: str, agent_text: str) -> Signal | None:
+    """The gap signal of one caller line and the agent's reply to it, or None."""
+    return _classify(agent_text) if caller_asked(caller_text) else None
+
+
+def _classify(agent_text: str) -> Signal | None:
+    """Which gap signal (if any) this agent turn carries, the caller having asked."""
     if _DONT_KNOW_RE.search(agent_text):
         return "dont_know"
     if _DEFERRED_RE.search(agent_text):
         return "deferred_channel"
-    if caller_asked and _NONANSWER_RE.search(agent_text):
+    if _NONANSWER_RE.search(agent_text):
         return "unanswered_question"
     return None
 
@@ -368,7 +387,7 @@ def detect_gaps(turns: Sequence[Turn]) -> list[DetectedGap]:
         if prev_caller is None:
             continue
         caller_text = prev_caller.strip()
-        signal = _classify(agent_text, _QUESTION_RE.search(caller_text) is not None)
+        signal = is_gap(caller_text, agent_text)
         if signal is None:
             continue
         key, label = _topic(caller_text, agent_text)
@@ -403,4 +422,13 @@ def _nearest_caller(turns: Sequence[Turn], agent_idx: int) -> str | None:
     return None
 
 
-__all__ = ["DetectedGap", "RedactedTurn", "Signal", "Turn", "detect_gaps", "topics_in"]
+__all__ = [
+    "DetectedGap",
+    "RedactedTurn",
+    "Signal",
+    "Turn",
+    "caller_asked",
+    "detect_gaps",
+    "is_gap",
+    "topics_in",
+]

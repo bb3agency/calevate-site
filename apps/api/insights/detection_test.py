@@ -8,7 +8,7 @@ here are the kind the pipeline hands over: `RedactedTurn`s carrying `text_redact
 
 from __future__ import annotations
 
-from apps.api.insights.detection import RedactedTurn, detect_gaps
+from apps.api.insights.detection import RedactedTurn, caller_asked, detect_gaps, is_gap
 
 
 def _turns(*pairs: tuple[str, str]) -> list[RedactedTurn]:
@@ -151,3 +151,39 @@ def test_an_unmapped_question_still_becomes_a_gap_under_a_phrase_label() -> None
     # No canonical keyword matched, so the topic is derived from the caller's content words.
     assert gaps[0].topic_key.startswith("q_")
     assert gaps[0].signal == "dont_know"
+
+
+#: The Rytu Khata call of 4 Nov 2026 at 0:46, in English (the call was in Telugu): the caller
+#: agreed to try the app and the agent's next line gave the business's WhatsApp number. The
+#: agreement was listed as a question the agent could not answer.
+RYTU_KHATA_AGREEMENT = (
+    ("agent", "Open the app and tap Dashboard at the bottom to write an expense."),
+    ("caller", "I will try."),
+    (
+        "agent",
+        "Good. If you have any doubt, message us on WhatsApp at nine eight seven six five, "
+        "four three two one zero. Anything else?",
+    ),
+    ("caller", "Say the number again."),
+    ("agent", "Nine eight seven six five, four three two one zero, on WhatsApp."),
+    ("caller", "Say it a bit slowly."),
+    ("agent", "Nine. Eight. Seven. Six. Five. Four. Three. Two. One. Zero. On WhatsApp."),
+    ("caller", "Written it down. Nothing else."),
+)
+
+
+def test_an_agreement_followed_by_a_whatsapp_number_is_no_gap() -> None:
+    assert detect_gaps(_turns(*RYTU_KHATA_AGREEMENT)) == []
+
+
+def test_only_a_line_that_asks_for_something_can_be_a_gap() -> None:
+    for said in ("I will try.", "Okay.", "Thank you.", "Yes, I installed it."):
+        assert not caller_asked(said), said
+    for said in ("Say the number again?", "Can you repeat that?", "Say it slowly."):
+        assert not caller_asked(said), said
+    assert caller_asked("How do I add an expense?")
+    assert caller_asked("Do you deliver on Sunday")
+    assert is_gap("I will try.", "Message us on WhatsApp if you need help.") is None
+    assert is_gap("What does it cost?", "Message us on WhatsApp for the price.") == (
+        "deferred_channel"
+    )

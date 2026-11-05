@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Final, Literal, Protocol
 from uuid import UUID
 
+from calevate_shared.cut_off import likely_cut_off_rows
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +53,9 @@ class Lesson:
     label: str
     #: What a good telecaller does instead.
     instead: str
+    #: Where in the platform prompt (`calevate_shared.engine`) the fix goes. Operator-only;
+    #: empty where no rule is known to govern the kind yet.
+    rule: str = ""
 
 
 #: The kinds counted on real calls, each with the words an owner reads. Client-facing text,
@@ -60,34 +64,43 @@ LESSONS: Final[dict[str, Lesson]] = {
     "said_again": Lesson(
         "Said the same line again",
         "With no clear reply, ask once in other words, then offer the next step.",
+        'HOW TO SPEAK: "Never re-ask what they said or repeat a sentence"; CANNOT HELP: two '
+        "tries to one question",
     ),
     "asked_again": Lesson(
         "Asked the same question again, word for word",
         "Ask an unanswered question once more, in new words.",
+        'HOW TO SPEAK: "Unclear ... Ask one thing again, reworded"',
     ),
     "reasked_name": Lesson(
         "Asked for a name the caller already gave",
         "Use the name the caller said.",
+        "NAME_RULE",
     ),
     "opened_again": Lesson(
         "Greeted the caller again in the middle of the call",
         "Greet once, at the start.",
+        "START OF THE CALL (OPENING_CONTINUES_RULE)",
     ),
     "caller_line": Lesson(
         "Answered for the caller",
         "Ask, then wait for the caller's own answer.",
+        'HOW TO SPEAK: "Say only your own part, never the caller\'s"',
     ),
     "goodbye_while_asking": Lesson(
         "Said goodbye while the caller was still asking",
         "Answer the caller's question before closing.",
+        'HOW TO SPEAK: "Close ... End only then or when asked, never while they talk"',
     ),
     "false_recall": Lesson(
         "Said it had already told the caller something it never said",
         "Say the detail now.",
+        "ACTION_CLAIM_RULE (its D-849 line)",
     ),
     "wrong_language": Lesson(
         "Answered in a different language from the caller",
         "Reply in the caller's language.",
+        "LANGUAGES, and HOW TO SPEAK's register bullet",
     ),
     "third_person": Lesson(
         "Talked about the caller as “the caller”",
@@ -96,10 +109,12 @@ LESSONS: Final[dict[str, Lesson]] = {
     "offered_more_too_soon": Lesson(
         "Kept asking “anything else?” before the caller was done",
         "Ask once a topic is finished; while helping step by step, give the next step.",
+        'HOW TO SPEAK: "Mid-task ... \\"Anything else?\\" only once a topic is done"',
     ),
     "false_history": Lesson(
         "Said the caller had enquired or spoken to you before, when they had not",
         "Say why you are calling without claiming an earlier enquiry or call.",
+        "CALL_REASON_RULE",
     ),
 }
 assert set(LESSONS) <= set(turn_checks.SOUND_KINDS | turn_checks.JOB_KINDS)
@@ -141,9 +156,10 @@ class SpokenTurn(Protocol):
 
 def _replies(
     turns: Sequence[SpokenTurn], unheard: frozenset[int]
-) -> tuple[str, list[_Reply], _Reply | None]:
-    """The call's opening, each agent reply with the caller line it answered, and the first
-    reply after the opening when the caller spoke over it.
+) -> tuple[str, list[_Reply], _Reply | None, str]:
+    """The call's opening, each agent reply with the caller line it answered, the first
+    reply after the opening when the caller spoke over it, and what the caller said after
+    the agent's last reply.
 
     Consecutive turns of one speaker are one line. The agent's first line is the opening,
     judged as `conversation_problems`' `opening`, not as a reply, whoever spoke first: on a
@@ -191,7 +207,7 @@ def _replies(
                 first_idx = turn.idx
             reply.append(words)
     close()
-    return " ".join(opening), replies, cut_first
+    return " ".join(opening), replies, cut_first, " ".join(said)
 
 
 def mistakes_in(
@@ -207,7 +223,7 @@ def mistakes_in(
     read on each growing prefix, so the first reply that makes it true is the one named.
     `prior_contact` is whether the business had this person on file before the call
     (`workers/pipeline._prior_contact`); None leaves `false_history` unjudged."""
-    opening, replies, cut_first = _replies(turns, frozenset(unheard))
+    opening, replies, cut_first, trailing = _replies(turns, frozenset(unheard))
     found: dict[str, int] = {}
     if cut_first is not None and turn_checks.opened_again(cut_first.exchange.reply):
         found["opened_again"] = cut_first.turn_idx
@@ -215,8 +231,13 @@ def mistakes_in(
         own = turn_checks.turn_problems(
             item.exchange.reply, caller_said=item.exchange.said, language=language
         )
+        # The caller's next line goes with each prefix, unanswered, so a goodbye the caller
+        # talked on after is named on the goodbye rather than on the reply after it.
+        following = replies[n].exchange.said if n < len(replies) else trailing
         whole = turn_checks.conversation_problems(
-            [r.exchange for r in replies[:n]], opening=opening, prior_contact=prior_contact
+            [r.exchange for r in replies[:n]] + [_Exchange(following, "")],
+            opening=opening,
+            prior_contact=prior_contact,
         )
         for problem in (*own, *whole):
             if problem.kind in LESSONS:
@@ -254,6 +275,37 @@ async def record_call_mistakes(
                 },
             )
         fixes = await _latest_fixes(session, found)
+        # Raised once per account and kind in the window, so "our team has been told" on
+        # the client's screen is true without an alarm for every call.
+        seen_before = {
+            str(k)
+            for (k,) in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT kind FROM call_mistakes WHERE kind = ANY(:k) "
+                        "AND call_id <> :c AND call_started_at >= :since"
+                    ),
+                    {
+                        "k": sorted(found),
+                        "c": call_id,
+                        "since": datetime.now(UTC) - timedelta(days=WINDOW_DAYS),
+                    },
+                )
+            ).all()
+        }
+    for kind in sorted(set(found) - set(fixes) - seen_before):
+        alert(
+            "WORKER_STALL",
+            "call_mistake_new",
+            detail=(
+                f"A mistake no fix was recorded for showed on this account ({kind}). Read "
+                "the call on Ops > Mistakes on real calls and change the rule it names."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+            call_id=str(call_id),
+            reason=kind,
+        )
     back = sorted(kind for kind, at in fixes.items() if call_started_at > at)
     for kind in back:
         alert(
@@ -269,6 +321,59 @@ async def record_call_mistakes(
             reason=kind,
         )
     return back
+
+
+#: Kinds whose checks were narrowed by D-970 (a number read again on request; a goodbye after
+#: the caller signed off), so rows found before it are read again.
+RECHECKED_KINDS: Final = ("said_again", "goodbye_while_asking")
+
+
+@dataclass(frozen=True, slots=True)
+class _StoredTurn:
+    idx: int
+    speaker: str
+    text: str
+
+
+async def recheck_call_mistakes(tenant_id: UUID) -> int:
+    """Read again the calls in the window holding a `RECHECKED_KINDS` row, and delete each such
+    row the checks no longer find. Never adds a row: the language and the prior contact the
+    pipeline had are not re-read here, and neither decides these kinds. Returns rows deleted."""
+    since = datetime.now(UTC) - timedelta(days=WINDOW_DAYS)
+    async with tenant_session(tenant_id) as session:
+        flagged = (
+            await session.execute(
+                text(
+                    "SELECT call_id, array_agg(kind) FROM call_mistakes "
+                    "WHERE kind = ANY(:k) AND call_started_at >= :since GROUP BY call_id"
+                ),
+                {"k": list(RECHECKED_KINDS), "since": since},
+            )
+        ).all()
+        dropped = 0
+        for call_id, kinds in flagged:
+            rows = (
+                await session.execute(
+                    text(
+                        "SELECT idx, speaker, text, start_ms FROM transcript_turns "
+                        "WHERE call_id = :c ORDER BY idx"
+                    ),
+                    {"c": call_id},
+                )
+            ).all()
+            turns = [_StoredTurn(int(r[0]), str(r[1]), str(r[2] or "")) for r in rows]
+            unheard = likely_cut_off_rows(
+                (int(r[0]), str(r[1]), len(r[2] or ""), r[3]) for r in rows
+            )
+            still = mistakes_in(turns, language="", unheard=unheard)
+            gone = [k for k in kinds if k not in still]
+            if gone:
+                await session.execute(
+                    text("DELETE FROM call_mistakes WHERE call_id = :c AND kind = ANY(:k)"),
+                    {"c": call_id, "k": gone},
+                )
+                dropped += len(gone)
+    return dropped
 
 
 async def _latest_fixes(session: AsyncSession, kinds: Iterable[str]) -> dict[str, datetime]:
@@ -384,6 +489,11 @@ class PlatformMistake:
     #: The operator's display name; None when no fix is recorded or the operator has no name.
     fixed_by: str | None
     state: State
+    #: Where in the platform prompt the fix goes (`Lesson.rule`).
+    rule: str
+    #: The latest call showing it, so the operator reads the call before changing the rule.
+    last_call_id: UUID | None
+    last_client_slug: str | None
 
 
 async def platform_mistakes(
@@ -420,8 +530,11 @@ async def platform_mistakes(
                     "count(*) AS calls_30d, "
                     "count(DISTINCT s.scanned_tenant_id) AS accounts_30d, "
                     "count(*) FILTER (WHERE s.call_started_at > fx.fixed_at) AS since_fix, "
-                    "max(s.call_started_at) AS last_seen "
+                    "max(s.call_started_at) AS last_seen, "
+                    "(array_agg(s.call_id ORDER BY s.call_started_at DESC))[1] AS last_call, "
+                    "(array_agg(o.slug ORDER BY s.call_started_at DESC))[1] AS last_slug "
                     "FROM call_mistake_scan(:since) s LEFT JOIN fx ON fx.kind = s.kind "
+                    "JOIN organizations o ON o.id = s.scanned_tenant_id "
                     "GROUP BY s.kind"
                 ),
                 {"since": now - timedelta(days=WINDOW_DAYS), "week": now - timedelta(days=7)},
@@ -433,6 +546,8 @@ async def platform_mistakes(
         fixed_at, note, fixed_by = fixes.get(kind, (None, None, None))
         row = counts.get(kind)
         last_seen = row.last_seen if row else None
+        last_call = row.last_call if row else None
+        last_slug = row.last_slug if row else None
         out.append(
             PlatformMistake(
                 kind=kind,
@@ -446,6 +561,9 @@ async def platform_mistakes(
                 fix_note=note,
                 fixed_by=fixed_by,
                 state=_state(fixed_at, last_seen),
+                rule=lesson.rule,
+                last_call_id=last_call,
+                last_client_slug=last_slug,
             )
         )
     order = {"back": 0, "fixing": 1, "fixed": 2}

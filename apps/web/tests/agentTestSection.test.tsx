@@ -342,7 +342,7 @@ describe("the practice tests in Training", () => {
 
   it("invites the first run", async () => {
     await page(tests(null));
-    expect(await screen.findByRole("heading", { name: "Check your agent before your callers do" })).toBeTruthy();
+    expect(await screen.findByText("We ask it what callers ask, and your own tests.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Run the tests" })).toBeTruthy();
   });
   it("asks for prices before the first run when nothing the agent knows has one (D-849)", async () => {

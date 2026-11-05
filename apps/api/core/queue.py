@@ -96,6 +96,7 @@ BULK_JOBS: Final[frozenset[str]] = frozenset(
         # Walks over every agent of an account, republishing each one it changes.
         "refresh_field_reason",
         "strip_retired_example_lines",
+        "recheck_call_quality",
         "recompute_hot_facts",
         # A Pip background job: up to `copilot.service.job_limits` (240 s) of tool loop.
         "run_copilot_job",

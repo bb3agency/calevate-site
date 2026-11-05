@@ -244,8 +244,10 @@ async def test_a_fixed_mistake_that_comes_back_is_raised(
     assert raised == []
 
     await _real_call(tenant_id, agent_id, monkeypatch)
-    assert {code for code, _kw in raised} == {"call_mistake_back"}
-    assert {kw["reason"] for _code, kw in raised} == {"said_again"}
+    assert {kw["reason"] for code, kw in raised if code == "call_mistake_back"} == {"said_again"}
+    # A kind with no fix on record is raised as new, once for the account.
+    assert {code for code, _kw in raised} <= {"call_mistake_back", "call_mistake_new"}
+    assert "said_again" not in {kw["reason"] for code, kw in raised if code == "call_mistake_new"}
 
     headers = await _org_headers(tenant_id)
     async with _client() as http:
@@ -311,3 +313,50 @@ async def test_another_account_sees_none_of_the_mistakes(
                 ),
                 {"id": uuid7(), "t": owner, "a": agent_id, "c": call_id},
             )
+
+
+async def test_a_kind_never_fixed_is_raised_once_per_account(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The client reads "our team has been told" (D-970): the first call showing a kind with
+    no fix on record is how the team is told, and later calls do not raise it again."""
+    raised: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(call_mistakes, "alert", lambda stage, code, **kw: raised.append((code, kw)))
+    tenant_id, agent_id = await _tenant()
+    calls = [uuid7(), uuid7()]
+    async with tenant_session(tenant_id) as session:
+        for call_id in calls:
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, started_at, created_at, updated_at) VALUES (:id, :t, :a, :e, "
+                    "'outbound', 'completed', now(), now(), now())"
+                ),
+                {
+                    "id": call_id,
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "e": f"exec_{uuid.uuid4().hex[:12]}",
+                },
+            )
+    # The second call, and a re-drive of the first, find it already seen on the account.
+    for call_id in (*calls, calls[0]):
+        await call_mistakes.record_call_mistakes(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=call_id,
+            call_started_at=datetime.now(UTC),
+            found={"wrong_language": 2},
+        )
+    assert [(code, kw["reason"]) for code, kw in raised] == [("call_mistake_new", "wrong_language")]
+
+
+async def test_the_board_names_the_rule_and_the_latest_call() -> None:
+    _admin_id, admin = await _operator()
+    async with _client() as http:
+        board = (await http.get(BOARD, headers=admin)).json()
+    rows = {row["kind"]: row for row in board["items"]}
+    assert rows["goodbye_while_asking"]["rule"].startswith("HOW TO SPEAK")
+    assert rows["third_person"]["rule"] == ""
+    seen = [row for row in board["items"] if row["last_call_id"]]
+    assert all(row["last_client_slug"] for row in seen)

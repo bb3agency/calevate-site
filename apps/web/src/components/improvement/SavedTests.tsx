@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useId, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { Section, TEXT_ACTION_SM } from "@/components/console/section";
+import { TEXT_ACTION_SM } from "@/components/console/section";
 import { useFormValidation } from "@/components/formValidation";
 import {
   FIELD,
@@ -13,40 +14,35 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  formatIST,
 } from "@/components/ui";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import {
   useCreateTestCase,
   useDeleteTestCase,
-  useRunTestCases,
   useTestCases,
   type TestCase,
 } from "@/lib/api/teach";
 
 /**
- * An agent's saved tests (made from real calls with "Make this call a test") and what the
- * LIVE agent answered on the last run. Run them after changing the script or knowledge; the
- * owner compares each answer with what they expected. For the agent page:
- * `<SavedTests agentId={agent.id} />`.
+ * An agent's saved tests (made from a call with "Make this call a test", or written here).
+ * They have no run of their own: every new set of the agent's tests asks them, judged like
+ * the rest, so "Test your agent" has one run button and one result per test (D-970; Retell's
+ * batch tests run saved cases as one suite with one pass rate, docs.retellai.com/test/
+ * batch-test-simulation). This list is where they are made, read and deleted.
  */
 export function SavedTests({
   agentId,
+  slug,
   canWrite = true,
-  headingLevel = 2,
-  framed = true,
 }: {
   agentId: string;
+  /** The account, for the link to its calls, where a test is made from a call. */
+  slug: string;
   canWrite?: boolean;
-  headingLevel?: 2 | 3;
-  /** False inside a disclosure that already names it (the Training tab). */
-  framed?: boolean;
 }) {
   const session = useClientSession();
+  const { href } = useClientRealm();
   const cases = useTestCases(session, agentId);
-  const run = useRunTestCases(session, agentId);
-  // The run's failure is shown above the list, so it is not toasted.
-  const runFeedback = useActionFeedback(run, { errorDisplay: "inline" });
   /* Deleting lives here, not in the row: the row is gone once it succeeds, so its own hook
      could not confirm it. */
   const remove = useDeleteTestCase(session, agentId);
@@ -57,61 +53,30 @@ export function SavedTests({
   const [deleting, setDeleting] = useState<TestCase | null>(null);
 
   const data = cases.data;
-  const running = data?.cases.some((c) => c.status !== "idle") ?? false;
-  const Frame = framed ? Section : Unframed;
   const full = (data?.cases.length ?? 0) >= MAX_SAVED_TESTS;
 
   return (
-    <Frame
-      headingLevel={headingLevel}
-      title="Saved tests"
-      info={
-        <p>
-          Made from real calls. Each one sends the caller&apos;s words to your live agent and
-          shows what it answers, so you can check a change fixed it.
-        </p>
-      }
-      action={
-        canWrite && data && data.cases.length > 0 ? (
-          <ActionButton
-            variant="primary-sm"
-            // The run carries on on the server after the request returns; the button stays
-            // busy until every case is back.
-            status={running ? "pending" : runFeedback.status}
-            pendingLabel="Running"
-            successLabel="Done"
-            disabled={!data.available}
-            title={data.unavailable_reason ?? undefined}
-            onClick={() => runFeedback.run()}
-          >
-            Run all
-          </ActionButton>
-        ) : undefined
-      }
-    >
+    <section aria-labelledby={`saved-tests-${agentId}`} className="space-y-3">
+      <h4 id={`saved-tests-${agentId}`} className="text-sm font-semibold text-ink">
+        Your own tests
+      </h4>
       {cases.isLoading ? (
-        <Skeleton rows={3} label="Loading saved tests" />
+        <Skeleton rows={2} label="Loading your own tests" />
       ) : cases.error || !data ? (
         <ProblemNotice
-          error={cases.error ?? new Error("We could not load the saved tests.")}
+          error={cases.error ?? new Error("We could not load your own tests.")}
           onRetry={() => void cases.refetch()}
         />
       ) : data.cases.length === 0 ? (
-        <p className="text-meta text-ink-muted">
-          None yet. Make one from a call, or write one below.
-        </p>
+        <p className="text-meta text-ink-muted">None yet. A test you add runs with the others.</p>
       ) : (
-        <div className="space-y-3">
-          {!data.available && data.unavailable_reason ? (
-            <p className="text-meta text-ink-muted">{data.unavailable_reason}</p>
-          ) : null}
-          {run.error ? <ProblemNotice error={run.error} /> : null}
+        <>
+          <p className="text-meta text-ink-muted">Each new run asks these too.</p>
           <ul className="divide-y divide-line border-y border-line">
             {data.cases.map((testCase) => (
               <CaseRow
                 key={testCase.id}
                 testCase={testCase}
-                liveVersion={data.live_version ?? null}
                 canWrite={canWrite}
                 onDelete={() => {
                   remove.reset();
@@ -120,10 +85,16 @@ export function SavedTests({
               />
             ))}
           </ul>
-          <p className="text-meta text-ink-faint">{data.cost_note}</p>
-        </div>
+        </>
       )}
-      {canWrite && data && !full ? <WriteATest agentId={agentId} /> : null}
+      {canWrite && data && !full ? (
+        <div className="flex flex-wrap items-center gap-x-4">
+          <WriteATest agentId={agentId} />
+          <Link href={href(`/c/${slug}/calls`)} className={`${TEXT_ACTION_SM} -mx-2`}>
+            Save a test from a call
+          </Link>
+        </div>
+      ) : null}
       {deleting ? (
         <ConfirmDialog
           title={`Delete the test "${deleting.title}"?`}
@@ -137,26 +108,14 @@ export function SavedTests({
           It stops running with this agent&apos;s other tests. The call it was made from is kept.
         </ConfirmDialog>
       ) : null}
-    </Frame>
+    </section>
   );
 }
 
 /** `teach/test_cases.MAX_CASES_PER_AGENT`: the server refuses a test past it. */
 const MAX_SAVED_TESTS = 20;
-/** `workers/agent_test_cases.TOO_LONG`: the run stopped at its time budget. */
-const TOO_LONG = "too_long";
 /** `teach/models.MAX_CASE_LINES`. */
 const MAX_CALLER_LINES = 20;
-
-/** The list's own frame when a disclosure around it already carries the title. */
-function Unframed({ action, children }: { action?: ReactNode; children?: ReactNode } & Record<string, unknown>) {
-  return (
-    <div className="space-y-3">
-      {action ? <div className="flex justify-end">{action}</div> : null}
-      {children}
-    </div>
-  );
-}
 
 /**
  * A test written by hand: what the caller says (a line per thing they say) and what the
@@ -177,7 +136,7 @@ function WriteATest({ agentId }: { agentId: string }) {
 
   if (!open) {
     return (
-      <button type="button" className={`${TEXT_ACTION_SM} mt-3`} onClick={() => setOpen(true)}>
+      <button type="button" className={`${TEXT_ACTION_SM} -mx-2`} onClick={() => setOpen(true)}>
         Write a test
       </button>
     );
@@ -189,7 +148,7 @@ function WriteATest({ agentId }: { agentId: string }) {
   return (
     <form
       noValidate
-      className="mt-4 space-y-3"
+      className="w-full space-y-3"
       onSubmit={valid.onSubmit(() =>
         create.mutate(
           // No title: the server names the test from the first line, in six words (D-917).
@@ -257,69 +216,42 @@ function WriteATest({ agentId }: { agentId: string }) {
   );
 }
 
+/** One saved test: its name, what it should do and what the caller says. How it did on the
+ * last run is on that run's result, beside every other test. */
 function CaseRow({
   testCase,
-  liveVersion,
   canWrite,
   onDelete,
 }: {
   testCase: TestCase;
-  liveVersion: number | null;
   canWrite: boolean;
   onDelete: () => void;
 }) {
-  const result = testCase.last_result;
-  const stale =
-    result && liveVersion !== null && testCase.last_prompt_version !== liveVersion;
   return (
-    <li className="space-y-2 py-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h4 className="min-w-0 text-sm font-semibold text-ink [overflow-wrap:anywhere]">
+    <li className="space-y-1.5 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <h5 className="min-w-0 text-sm font-medium text-ink [overflow-wrap:anywhere]">
           {testCase.short_title}
-        </h4>
-        <span className="text-meta text-ink-faint">
-          {testCase.status !== "idle"
-            ? "Running…"
-            : testCase.last_run_at
-              ? `Last run ${formatIST(testCase.last_run_at)}${stale ? " · before your latest change" : ""}`
-              : "Not run yet"}
-        </span>
+        </h5>
+        {canWrite ? (
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            aria-label={`Delete test: ${testCase.short_title}`}
+            onClick={onDelete}
+          >
+            Delete
+          </button>
+        ) : null}
       </div>
       <p className="text-meta text-ink-muted">Should: {testCase.expected}</p>
-      {testCase.last_error === TOO_LONG ? (
-        <p className="text-meta text-warn">
-          <span className="block">The agent was slow, so the run stopped early.</span>
-          <span className="block">Run it again, or split it into two tests.</span>
-        </p>
-      ) : testCase.last_error ? (
-        <p className="text-meta text-warn">The last run did not finish. Run it again.</p>
-      ) : null}
-      {result ? (
-        <ol className="space-y-1.5">
-          {result.map((turn, index) => (
-            <li key={index} className="space-y-0.5 border-l-2 border-line pl-3 text-meta">
-              <p className="text-ink-muted">Caller: {turn.said}</p>
-              <p className="text-ink [overflow-wrap:anywhere]">
-                Agent: {turn.reply || "(no answer)"}
-                {turn.looked_up_knowledge ? (
-                  <span className="text-ink-faint"> · looked it up</span>
-                ) : null}
-              </p>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <ol className="space-y-1 text-meta text-ink-muted">
-          {testCase.caller_lines.map((line, index) => (
-            <li key={index}>Caller: {line}</li>
-          ))}
-        </ol>
-      )}
-      {canWrite ? (
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDelete}>
-          Delete test
-        </button>
-      ) : null}
+      <ol className="space-y-0.5 text-meta text-ink-muted">
+        {testCase.caller_lines.map((line, index) => (
+          <li key={index} className="[overflow-wrap:anywhere]">
+            Caller: {line}
+          </li>
+        ))}
+      </ol>
     </li>
   );
 }

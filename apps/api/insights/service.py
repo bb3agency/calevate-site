@@ -298,6 +298,47 @@ async def scrub_quotes_for_calls(
     return scrubbed
 
 
+async def recheck_open_gaps(session: AsyncSession) -> int:
+    """Drop the occurrences behind OPEN gaps that `detection.is_gap` no longer reads as a gap,
+    and re-derive their aggregates; a gap left with none goes with them. Returns the number
+    of occurrences dropped.
+
+    For gaps detected before a detection fix (D-970: a caller's "I will try." listed as a
+    question). Only open gaps are touched: an answered or dismissed one carries the owner's
+    resolution, which a teach draft reads as a source. An erased quote (both sides the same
+    marker, `scrub_quotes_for_calls`) is kept, so an erasure never moves a count."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT o.id, o.tenant_id, o.agent_id, o.topic_key, o.question_redacted, "
+                "o.answer_redacted FROM knowledge_gap_occurrences o JOIN knowledge_gaps g "
+                "ON g.tenant_id = o.tenant_id AND g.agent_id = o.agent_id "
+                "AND g.topic_key = o.topic_key WHERE g.status = 'open'"
+            )
+        )
+    ).all()
+    stale = [
+        r
+        for r in rows
+        if r.question_redacted != r.answer_redacted
+        and detection.is_gap(r.question_redacted, r.answer_redacted) is None
+    ]
+    if not stale:
+        return 0
+    await session.execute(
+        text("DELETE FROM knowledge_gap_occurrences WHERE id = ANY(:ids)"),
+        {"ids": [r.id for r in stale]},
+    )
+    # Sorted for `record_call_gaps`'s reason: the recompute locks each aggregate row.
+    for tenant_id, agent_id, topic_key in sorted(
+        {(str(r.tenant_id), str(r.agent_id), str(r.topic_key)) for r in stale}
+    ):
+        await _recompute_aggregate(
+            session, tenant_id=UUID(tenant_id), agent_id=UUID(agent_id), topic_key=topic_key
+        )
+    return len(stale)
+
+
 # --- read + mutate (client realm) --------------------------------------------
 
 

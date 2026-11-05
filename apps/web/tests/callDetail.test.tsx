@@ -641,7 +641,7 @@ describe("what went wrong on this call (D-949)", () => {
     );
     const list = await screen.findByRole("list", { name: "What went wrong on this call" });
     expect(list.textContent).toContain("Said the same line again");
-    expect(list.textContent).toContain("We're fixing this");
+    expect(list.textContent).toContain("Our team has been told");
     // The advice is for us, not the owner: the call card never shows it.
     expect(list.textContent).not.toContain("Ask once in other words.");
     // Turn 7 is not in this transcript, so only the first row can jump.

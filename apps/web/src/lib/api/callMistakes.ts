@@ -77,12 +77,22 @@ export function useMarkMistakeFixed() {
   });
 }
 
-/** The client's words for each state: we fix these, the client never does. */
+/**
+ * The client's words for each state: we fix these, the client never does. Each says only
+ * what is true (D-970): "told" because the account's first call showing a kind alerts our
+ * team (`call_mistake_new`) and a kind back after a fix alerts it again
+ * (`call_mistake_back`); "fixed" only once an operator recorded the change.
+ */
 export function clientStateLine(state: MistakeState, fixedOn: string | null): string {
-  if (state === "back") return "Came back after our fix — we're on it";
-  if (state === "fixed") return fixedOn ? `Fixed — not seen since ${fixedOn}` : "Fixed";
-  return "We're fixing this";
+  if (state === "back") {
+    return fixedOn ? `Seen again after our fix on ${fixedOn} · our team has been told` : "Seen again after our fix · our team has been told";
+  }
+  if (state === "fixed") return fixedOn ? `Fixed on ${fixedOn} · not seen since` : "Fixed · not seen since";
+  return "Not fixed yet · our team has been told";
 }
+
+/** What the call page says beside a mistake on that call, whatever has happened since. */
+export const CALL_MISTAKE_TOLD = "Our team has been told";
 
 export function callsLine(calls: number, windowDays: number): string {
   return `${calls} ${calls === 1 ? "call" : "calls"} in ${windowDays} days`;

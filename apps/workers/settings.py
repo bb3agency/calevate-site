@@ -123,6 +123,7 @@ from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
 from apps.workers.business_copy import generate_business_copy, sweep_business_copies
 from apps.workers.business_outcomes_draft import draft_business_outcomes
 from apps.workers.business_type import apply_business_type
+from apps.workers.call_quality_recheck import recheck_call_quality
 from apps.workers.call_timeline import fetch_call_timeline
 from apps.workers.call_translation import (
     BACKFILL_MINUTE as TRANSLATION_BACKFILL_MINUTE,
@@ -435,6 +436,9 @@ FUNCTIONS: list[Any] = [
         # The trade plans' retired example lines off agents still carrying them word for
         # word (D-962), from the outbox (migration e962a4c1d7b3).
         strip_retired_example_lines,
+        # Stored gaps and call mistakes read again after a check was narrowed (D-970),
+        # from the outbox (migration a7d3e9c1f570).
+        recheck_call_quality,
         # Test conversations against the agent and the auto-improve proposal that follows
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,

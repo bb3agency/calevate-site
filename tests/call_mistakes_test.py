@@ -251,3 +251,86 @@ def test_a_both_agent_is_judged_against_both_of_its_openings() -> None:
         placed_opening="Hello, this is Sunrise Dental. Can we talk now?",
     )
     assert brief.rules().opening == f"{brief.opening_line} {brief.placed_opening}"
+
+
+#: The Rytu Khata calls of 4 Nov 2026, in English (both were in Telugu; no personal
+#: details, the number is a stand-in). Call 1: the caller asked to hear the WhatsApp number
+#: again, then slower, then wrote it down and closed.
+RYTU_KHATA_NUMBER = _call(
+    ("caller", "Hello."),
+    ("agent", "Hello, I'm calling from Rytu Khata. Have you installed the Rytu Khata app?"),
+    ("caller", "Yes."),
+    ("agent", "Good. Do you write your expenses in it?"),
+    ("caller", "Not yet."),
+    ("agent", "Open Dashboard at the bottom and tap Add Expense to write one."),
+    ("caller", "I will try."),
+    (
+        "agent",
+        "Our WhatsApp number is nine eight seven six five, four three two one zero. "
+        "Is there anything else I can help with?",
+    ),
+    ("caller", "Say the number again."),
+    (
+        "agent",
+        "Our WhatsApp number is nine eight seven six five, four three two one zero. "
+        "Is there anything else I can help with?",
+    ),
+    ("caller", "Say it a bit slowly."),
+    ("agent", "Nine. Eight. Seven. Six. Five. Four. Three. Two. One. Zero."),
+    ("caller", "Written it down."),
+    ("agent", "Is there anything else I can help with?"),
+    ("caller", "Nothing else."),
+    ("agent", "Thank you. If you need help, call any time. Goodbye!"),
+)
+
+#: Call 2's ending: the caller signed off, saying they would call later.
+RYTU_KHATA_CALL_LATER = _call(
+    ("caller", "Hello."),
+    ("agent", "Hello, I'm calling from Rytu Khata. Have you installed the Rytu Khata app?"),
+    ("caller", "I see Add Expense."),
+    ("agent", "Press it and write one expense from this week. Did you write it?"),
+    ("caller", "Enough for now. I'll call you again later when I'm free."),
+    ("agent", "Sure, call whenever it suits you. Goodbye!"),
+)
+
+
+def test_a_number_read_again_on_request_is_no_mistake() -> None:
+    assert "said_again" not in mistakes_in(RYTU_KHATA_NUMBER, language="en-IN")
+
+
+def test_a_goodbye_after_the_caller_signs_off_is_no_mistake() -> None:
+    assert "goodbye_while_asking" not in mistakes_in(RYTU_KHATA_CALL_LATER, language="en-IN")
+    # A closing line in words no list holds still ends the call when the caller says no more.
+    unlisted = _call(
+        *[(t.speaker, t.text) for t in RYTU_KHATA_CALL_LATER[:4]],
+        ("caller", "Enough for today."),
+        ("agent", "Sure, call whenever it suits you. Goodbye!"),
+    )
+    assert "goodbye_while_asking" not in mistakes_in(unlisted, language="en-IN")
+
+
+def test_a_goodbye_while_the_caller_asks_or_keeps_talking_is_still_found() -> None:
+    asked = _call(
+        *[(t.speaker, t.text) for t in RYTU_KHATA_CALL_LATER[:4]],
+        ("caller", "How do I see last month's total?"),
+        ("agent", "Thank you, goodbye!"),
+    )
+    assert "goodbye_while_asking" in mistakes_in(asked, language="en-IN")
+    talked_on = _call(
+        *[(t.speaker, t.text) for t in RYTU_KHATA_CALL_LATER[:4]],
+        ("caller", "It shows a sign up page"),
+        ("agent", "Thank you, goodbye!"),
+        ("caller", "Wait, it is asking for my name now"),
+    )
+    assert "goodbye_while_asking" in mistakes_in(talked_on, language="en-IN")
+
+
+def test_a_line_said_again_unasked_is_still_said_again() -> None:
+    looped = _call(
+        ("agent", "Hello, this is Asha from Sunrise Dental. Is this a good time?"),
+        ("caller", "Yes."),
+        ("agent", "Which area of the city do you live in?"),
+        ("caller", "Hmm."),
+        ("agent", "Which area of the city do you live in?"),
+    )
+    assert "said_again" in mistakes_in(looped, language="en-IN")

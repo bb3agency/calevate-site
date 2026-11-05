@@ -152,6 +152,11 @@ DATA_ONLY_REPAIRS: dict[str, str] = {
         "false once done, and putting a line back would re-ship the line the founder retired. "
         "Each cleared line stays in the agent's previous script version, restorable there"
     ),
+    "a7d3e9c1f570": (
+        "queues recheck_call_quality per account (D-970): no DDL beyond the RLS bracket; the "
+        "job removes only gaps and call mistakes the current checks no longer find, which are "
+        "false findings with nothing to restore"
+    ),
 }
 
 #: What a schema change looks like in a migration's source. A revision claiming to be a

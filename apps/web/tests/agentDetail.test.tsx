@@ -3022,10 +3022,23 @@ describe("Training is the checklist first, the rest folded (D-893 §6)", () => {
     expect(headings[0]).toBe("Questions to answer");
     expect(headings[1]).toBe("Mistakes on real calls");
     expect(headings.indexOf("Try it")).toBeLessThan(headings.indexOf("What it knows"));
-    expect(headings.indexOf("What it knows")).toBeLessThan(headings.indexOf("Saved tests"));
-    expect(headings.indexOf("Saved tests")).toBeLessThan(headings.indexOf("Practice callers"));
+    expect(headings.indexOf("What it knows")).toBeLessThan(headings.indexOf("Test your agent"));
+    // One section runs every test (D-970): no separate saved tests or practice callers.
+    expect(headings).not.toContain("Saved tests");
+    expect(headings).not.toContain("Practice callers");
     // The tab's badge counts the same list.
     expect((await screen.findByRole("tab", { name: /Training/ })).textContent).toContain("1");
+  });
+
+  it("runs every test from one section with one run button, the owner's own tests listed inside (D-970)", async () => {
+    await renderClientPage(page, routes(TRAINING_READS));
+    const toggle = await screen.findByRole("heading", { name: "Test your agent" });
+    fireEvent.click(toggle);
+    expect(await screen.findByRole("button", { name: "Run the tests" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Run/ })).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Your own tests" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Write a test" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Save a test from a call" })).toBeTruthy();
   });
 
   it("opens on the question a link named", async () => {

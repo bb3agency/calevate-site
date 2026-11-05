@@ -239,15 +239,6 @@ export function useTestCases(session: Session, agentId: string): UseQueryResult<
   });
 }
 
-export function useRunTestCases(session: Session, agentId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<TestCases>(session, `/v1/agents/${agentId}/test-cases/run`, { method: "POST" }),
-    onSuccess: (data) => client.setQueryData(casesKey(session.orgSlug, agentId), data),
-  });
-}
-
 /** Save a test written by hand: what the caller says, and what the agent should do. */
 export function useCreateTestCase(session: Session, agentId: string) {
   const client = useQueryClient();

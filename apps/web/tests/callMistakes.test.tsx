@@ -75,10 +75,10 @@ describe("the Training tab's mistakes on real calls", () => {
     const rows = within(list).getAllByRole("listitem");
     expect(rows).toHaveLength(3);
     expect(rows[0]!.textContent).toContain("3 calls in 30 days");
-    expect(rows[0]!.textContent).toContain("Came back after our fix — we're on it");
+    expect(rows[0]!.textContent).toContain("Seen again after our fix on 20 Oct 2026 · our team has been told");
     expect(rows[1]!.textContent).toContain("1 call in 30 days");
-    expect(rows[1]!.textContent).toContain("We're fixing this");
-    expect(rows[2]!.textContent).toContain("Fixed — not seen since 20 Oct 2026");
+    expect(rows[1]!.textContent).toContain("Not fixed yet · our team has been told");
+    expect(rows[2]!.textContent).toContain("Fixed on 20 Oct 2026 · not seen since");
     expect(within(rows[2]!).getByRole("link", { name: "Hear the last one" }).getAttribute("href")).toBe(
       "/c/acme/calls/call-3",
     );
@@ -127,6 +127,9 @@ function row(over: Partial<PlatformMistake> = {}): PlatformMistake {
     fix_note: null,
     fixed_by: null,
     state: "fixing",
+    rule: 'HOW TO SPEAK: "Never re-ask what they said or repeat a sentence"',
+    last_call_id: "call-9",
+    last_client_slug: "rytu",
     ...over,
   };
 }
@@ -138,7 +141,14 @@ function adminRoutes(over: Routes = {}): Routes {
       window_days: 30,
       items: [
         row({ state: "back", calls_since_fix: 2, fixed_at: "2026-10-20T10:00:00Z", fix_note: "Rephrase rule added." }),
-        row({ kind: "wrong_language", label: "Answered in a different language from the caller", calls_7d: 1 }),
+        row({
+          kind: "wrong_language",
+          label: "Answered in a different language from the caller",
+          calls_7d: 1,
+          rule: "",
+          last_call_id: null,
+          last_client_slug: null,
+        }),
       ],
     },
     ...over,
@@ -158,6 +168,15 @@ describe("Ops > Call mistakes", () => {
       .getAllByRole("row")
       .find((r) => (r.textContent ?? "").includes("different language"));
     expect(open?.textContent).toContain("Not fixed yet");
+    expect(open?.textContent).toContain("No platform rule traced yet");
+  });
+
+  it("names where the fix goes and opens the latest call as that client", async () => {
+    renderAdminPage(<CallMistakesPage />, adminRoutes());
+    const table = await screen.findByRole("table", { name: "Call mistakes by kind" });
+    expect(table.textContent).toContain('Fix in: HOW TO SPEAK: "Never re-ask what they said or repeat a sentence"');
+    const link = within(table).getByRole("link", { name: "Open the latest call: Said the same line again" });
+    expect(link.getAttribute("href")).toBe("/admin/view-as?slug=rytu&path=%2Fcalls%2Fcall-9");
   });
 
   it("refuses a blank note in words, then posts the note and reads the board again", async () => {

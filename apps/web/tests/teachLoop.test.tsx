@@ -386,8 +386,8 @@ describe("make this call a test", () => {
 });
 
 describe("saved tests and the chat", () => {
-  it("shows what the live agent said on the last run and runs them again", async () => {
-    const { calls } = await renderClientPage(<SavedTests agentId="agent-1" />, {
+  it("lists the owner's own tests as part of every run, with no run of their own (D-970)", async () => {
+    const { calls } = await renderClientPage(<SavedTests agentId="agent-1" slug="acme" />, {
       "/v1/me": ME,
       "/v1/agents/agent-1/test-cases": {
         cases: [
@@ -396,6 +396,7 @@ describe("saved tests and the chat", () => {
             agent_id: "agent-1",
             source_call_id: "call-9",
             title: "Asked about chilli",
+            short_title: "Asked about chilli",
             caller_lines: ["chilli undha?"],
             expected: "Gives the chilli price.",
             status: "idle",
@@ -411,20 +412,15 @@ describe("saved tests and the chat", () => {
         live_version: 4,
         cost_note: "Replies here are not charged.",
       },
-      "POST /v1/agents/agent-1/test-cases/run": {
-        cases: [],
-        available: true,
-        unavailable_reason: null,
-        live_version: 4,
-        cost_note: "Replies here are not charged.",
-      },
     });
-    expect(await screen.findByText("Agent: Avunu, 120 rupees.", { exact: false })).toBeTruthy();
-    expect(screen.getByText(/before your latest change/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Run all" }));
-    await waitFor(() =>
-      expect(calls.some((c) => c.method === "POST" && c.path === "/v1/agents/agent-1/test-cases/run")).toBe(true),
-    );
+    expect(await screen.findByRole("heading", { name: "Asked about chilli" })).toBeTruthy();
+    expect(screen.getByText("Each new run asks these too.")).toBeTruthy();
+    expect(screen.getByText("Should: Gives the chilli price.")).toBeTruthy();
+    // One run button lives on the section, so the list has none of its own.
+    expect(screen.queryByRole("button", { name: /Run/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Write a test" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Save a test from a call" }).getAttribute("href")).toBe("/c/acme/calls");
+    expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
 
   it("chats with the live agent and keeps the conversation going", async () => {

@@ -2,11 +2,11 @@
 
 import { Section, TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
-import { clientStateLine, type CallMistake } from "@/lib/api/callMistakes";
+import { CALL_MISTAKE_TOLD, type CallMistake } from "@/lib/api/callMistakes";
 
 /**
  * "What went wrong on this call" (D-949): the mistakes the agent made on this call, each a
- * rule we fix, so every row says we are fixing it and none asks the owner to act. A row
+ * rule we fix, so every row says our team has been told and none asks the owner to act. A row
  * whose transcript line is on screen jumps to it. Hidden when empty (the screen decides).
  */
 export function CallMistakesCard({
@@ -24,7 +24,7 @@ export function CallMistakesCard({
           <li key={`${mistake.kind}-${mistake.turn_idx}`} className="py-2.5 first:pt-0">
             <p className="text-body text-ink [overflow-wrap:anywhere]">{mistake.label}</p>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-3">
-              <StatusPill tone="neutral">{clientStateLine("fixing", null)}</StatusPill>
+              <StatusPill tone="neutral">{CALL_MISTAKE_TOLD}</StatusPill>
               {turnsOnScreen.has(mistake.turn_idx) ? (
                 <button
                   type="button"
