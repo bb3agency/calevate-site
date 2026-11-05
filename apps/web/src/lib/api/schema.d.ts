@@ -28878,8 +28878,14 @@ export interface components {
             kind: string;
             /** Label */
             label: string;
+            /** Last Call Id */
+            last_call_id: string | null;
+            /** Last Client Slug */
+            last_client_slug: string | null;
             /** Last Seen At */
             last_seen_at: string | null;
+            /** Rule */
+            rule: string;
             /**
              * State
              * @enum {string}

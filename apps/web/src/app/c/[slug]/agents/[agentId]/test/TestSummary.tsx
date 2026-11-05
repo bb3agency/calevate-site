@@ -94,6 +94,7 @@ export function HowItWorks({ data, run }: { data: TestConversations; run?: TestR
       <div className="space-y-2 text-[13px] text-ink-muted">
         <ul className="space-y-1">
           <li>We ask your agent what real callers ask.</li>
+          <li>We ask your own tests too.</li>
           <li>We also check the rules every agent keeps.</li>
           <li>Each test runs {trials} times.</li>
           <li>OK means right every time.</li>
@@ -143,11 +144,11 @@ export function FirstRun({
   if (!data.available) return null;
   const noPrices = data.missing_facts?.includes("prices") ?? false;
   return (
-    <section aria-labelledby="tests-first-heading" className="space-y-3">
-      <h4 id="tests-first-heading" className="text-title text-ink">
-        Check your agent before your callers do
-      </h4>
-      <p className="text-body text-ink-muted">Takes a few minutes. You can leave this page.</p>
+    <section aria-label="Run the tests" className="space-y-3">
+      <p className="text-body text-ink">
+        We ask it what callers ask, and your own tests.
+      </p>
+      <p className="text-meta text-ink-muted">Takes a few minutes. You can leave this page.</p>
       {noPrices && (
         <NoticeBox
           tone="neutral"
@@ -328,7 +329,7 @@ export function Verdict(props: NextStepProps) {
       <div className="flex items-center gap-3">
         <Mark aria-hidden className={`size-9 shrink-0 ${HEADLINE_INK[headline.tone]}`} strokeWidth={2} />
         <div className="min-w-0">
-          <h4 id="tests-summary-heading" className="text-figure text-ink">
+          <h4 id="tests-summary-heading" className="text-heading text-ink">
             {headline.title}
           </h4>
           {headline.detail && <p className="text-meta text-ink-muted">{headline.detail}</p>}

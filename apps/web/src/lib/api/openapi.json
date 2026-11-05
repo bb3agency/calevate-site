@@ -41525,6 +41525,29 @@
             "title": "Label",
             "type": "string"
           },
+          "last_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Id"
+          },
+          "last_client_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Client Slug"
+          },
           "last_seen_at": {
             "anyOf": [
               {
@@ -41536,6 +41559,10 @@
               }
             ],
             "title": "Last Seen At"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
           },
           "state": {
             "enum": [
@@ -41558,7 +41585,10 @@
           "fixed_at",
           "fix_note",
           "fixed_by",
-          "state"
+          "state",
+          "rule",
+          "last_call_id",
+          "last_client_slug"
         ],
         "title": "PlatformMistakeOut",
         "type": "object"

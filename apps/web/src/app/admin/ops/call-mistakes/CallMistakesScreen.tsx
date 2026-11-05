@@ -8,7 +8,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Field } from "@/components/arc/field";
 import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { PageHeader } from "@/components/console/pageHeader";
-import { Section } from "@/components/console/section";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { ModalDialog } from "@/components/modalDialog";
 import {
@@ -29,6 +29,7 @@ import {
   type MistakeState,
   type PlatformMistake,
 } from "@/lib/api/callMistakes";
+import { viewAsHref } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -84,8 +85,32 @@ export function CallMistakesScreen() {
     {
       id: "label",
       header: "Mistake",
-      cell: (row) => <span className="font-medium text-ink">{row.label}</span>,
+      cell: (row) => (
+        <span className="[overflow-wrap:anywhere]">
+          <span className="font-medium text-ink">{row.label}</span>
+          <span className="block text-meta text-ink-muted">
+            {row.rule ? `Fix in: ${row.rule}` : "No platform rule traced yet"}
+          </span>
+        </span>
+      ),
       card: "block",
+    },
+    {
+      id: "example",
+      header: "Latest call",
+      card: "block",
+      cell: (row) =>
+        row.last_call_id && row.last_client_slug ? (
+          <a
+            href={viewAsHref(row.last_client_slug, `/calls/${row.last_call_id}`)}
+            className={TEXT_ACTION}
+            aria-label={`Open the latest call: ${row.label}`}
+          >
+            Open the call
+          </a>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
     },
     {
       id: "calls_7d",
@@ -175,8 +200,8 @@ export function CallMistakesScreen() {
           title={`Mistakes on real calls, last ${data.window_days} days`}
           info={
             <p>
-              Each is a platform rule we fix. Mark it fixed once the rule changes; a call
-              showing it again counts as it coming back.
+              Each is a platform rule we fix. Open the latest call, change the rule named under
+              the mistake, then mark it fixed; a call showing it again counts as it coming back.
             </p>
           }
         >

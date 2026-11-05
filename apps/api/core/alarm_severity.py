@@ -173,6 +173,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A mistake marked fixed came back on a real call (D-949). Our platform rule did not
     # hold; the call itself already happened, so this is work, not an outage.
     "call_mistake_back": "attention",
+    # A mistake no fix was ever recorded for showed on an account for the first time
+    # (D-970). The client is told our team has been told; this is how that stays true.
+    "call_mistake_new": "attention",
     # A client's knowledge upload has failed to publish for hours and is still being retried.
     "kb_ingest_stuck": "attention",
     "engine_capability_absent": "attention",

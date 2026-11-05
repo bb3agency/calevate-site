@@ -51,7 +51,8 @@ class AgentMistakeOut(Strict):
     last_seen_at: datetime
     last_call_id: UUID
     fixed_at: datetime | None
-    #: `fixing`: we know and are changing the rule. `fixed`: not seen since the fix.
+    #: `fixing`: no fix recorded yet; the account's first call showing it raised
+    #: `call_mistake_new` to the operator. `fixed`: not seen since the fix.
     #: `back`: seen on a call that started after the fix.
     state: MistakeState
 
@@ -73,6 +74,11 @@ class PlatformMistakeOut(Strict):
     fix_note: str | None
     fixed_by: str | None
     state: MistakeState
+    #: Where in the platform prompt the fix goes; empty where no rule is known yet.
+    rule: str
+    #: The latest call showing it and its client, to open it as that client.
+    last_call_id: UUID | None
+    last_client_slug: str | None
 
 
 class PlatformMistakesOut(Strict):
@@ -146,6 +152,9 @@ async def list_platform_mistakes(session: AdminSession, _: Operator) -> Platform
                 fix_note=m.fix_note,
                 fixed_by=m.fixed_by,
                 state=m.state,
+                rule=m.rule,
+                last_call_id=m.last_call_id,
+                last_client_slug=m.last_client_slug,
             )
             for m in found
         ],

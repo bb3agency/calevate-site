@@ -12,9 +12,9 @@
  *    with the last call it happened on.
  * 2. Try it: one card, a chat with the live agent beside a practice call on a real phone
  *    (phone only; there is no in-browser call).
- * 3. One line each that opens on click: what it knows (with the teach box), saved tests,
- *    and practice callers (the AI-judged run, decision 565c8ef2). Practice callers open by
- *    themselves while a run or suggested fixes are waiting, so a fix Pip prepared is never
+ * 3. One line each that opens on click: what it knows (with the teach box), and Test your
+ *    agent (one run of every test, the owner's own tests among them, D-970). It opens by
+ *    itself while a run or suggested fixes are waiting, so a fix Pip prepared is never
  *    hidden.
  *
  * ONE COPILOT SURFACE. The tab is a `CopilotSurfaceScope`: the teach box, the practice-call
@@ -67,7 +67,7 @@ export function TrainingTab({ agent, slug }: { agent: Agent; slug: string }) {
           key: "what_is_here",
           label: "What this tab holds",
           value:
-            "the questions this agent needs answered, the mistakes it made on real calls (which Calevate fixes), a chat and a practice call with it, what the agents know with a teach box, saved tests, and practice callers",
+            "the questions this agent needs answered, the mistakes it made on real calls (which Calevate fixes), a chat and a practice call with it, what the agents know with a teach box, and Test your agent: one run of the questions callers asked, the owner's own tests and the rules every agent keeps",
         },
       ]}
     >
@@ -127,12 +127,11 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
         </div>
       </Section>
 
-      {/* One list of three folded rows rather than three cards: a fact on each closed row,
-          the chevron beside its title. */}
+      {/* One list of folded rows rather than cards: a fact on each closed row, the chevron
+          beside its title. */}
       <div className={DISCLOSURE_LIST}>
         <WhatItKnows slug={slug} agentId={agent.id} />
-        <SavedTestsSummary agentId={agent.id} canWrite={tryAccess.allowed} />
-        <PracticeCallers agent={agent} slug={slug} />
+        <TestYourAgent agent={agent} slug={slug} canWrite={tryAccess.allowed} />
       </div>
     </div>
   );
@@ -211,35 +210,19 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
   );
 }
 
-/** The saved tests, folded to how many there are and when they last ran. */
-function SavedTestsSummary({ agentId, canWrite }: { agentId: string; canWrite: boolean }) {
-  const session = useClientSession();
-  const cases = useTestCases(session, agentId);
-  let line = "Checking…";
-  if (cases.error) line = "Could not be read";
-  else if (cases.data) {
-    const all = cases.data.cases;
-    const running = all.some((c) => c.status !== "idle");
-    line =
-      all.length === 0
-        ? "None yet"
-        : `${countLine(all.length, "test", "tests")}${running ? ", running now" : ""}`;
-  }
-  return (
-    <Disclosure variant="row" headingLevel={3} title="Saved tests" subtitle={line}>
-      <SavedTests agentId={agentId} canWrite={canWrite} headingLevel={3} framed={false} />
-    </Disclosure>
-  );
-}
-
 /**
- * The AI-judged run, folded. Its closed row states the last result as a fact (UX-DOCTRINE
- * §3: a disclosure advertises what is inside it), and it opens by itself while a run is
- * going or suggested fixes wait for review.
+ * TEST YOUR AGENT, folded: one run of every test, one result per test (D-970). A run asks the
+ * questions real callers asked, the owner's own tests and the rules every agent keeps
+ * (`agents/test_conversations.compose_set`), so the owner's tests are listed here to make,
+ * read and delete, never run on their own. Founder, 5 Nov 2026: "practice callers" and
+ * "saved tests" were two rows with two run buttons for what the server runs as one set.
+ * Its closed row states the last result as a fact (UX-DOCTRINE §3) and how many of the
+ * tests are the owner's, and it opens by itself while a run is going or suggested fixes wait.
  */
-function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
+function TestYourAgent({ agent, slug, canWrite }: { agent: Agent; slug: string; canWrite: boolean }) {
   const session = useClientSession();
   const tests = useTestConversations(session, agent.id);
+  const cases = useTestCases(session, agent.id);
   const latest = tests.data?.latest ?? null;
   const busy =
     latest !== null &&
@@ -257,6 +240,11 @@ function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
   } else if (busy) fact = latest?.improving === true ? `${ASSISTANT_NAME} is fixing tests` : "Running now";
   else if (latest?.status === "failed") fact = "Did not finish";
   else if (latest?.status === "done") fact = lastRunLine(countsOf(latest.results), waiting);
+  // The owner's own tests are counted only once read; a failed read says so inside.
+  const subtitle =
+    cases.data && cases.data.cases.length > 0
+      ? `${fact} · ${countLine(cases.data.cases.length, "test of your own", "tests of your own")}`
+      : fact;
   const shown = open ?? (busy || waiting);
 
   return (
@@ -265,12 +253,15 @@ function PracticeCallers({ agent, slug }: { agent: Agent; slug: string }) {
       <Disclosure
         variant="row"
         headingLevel={3}
-        title="Practice callers"
-        subtitle={fact}
+        title="Test your agent"
+        subtitle={subtitle}
         defaultOpen={busy || waiting}
         onToggle={setOpen}
       >
-        <TestSection agent={agent} slug={slug} declare={shown} />
+        <div className="space-y-8">
+          <TestSection agent={agent} slug={slug} declare={shown} />
+          <SavedTests agentId={agent.id} slug={slug} canWrite={canWrite} />
+        </div>
       </Disclosure>
     </div>
   );

@@ -1083,10 +1083,44 @@ _CALLER_ASKS: Final = re.compile(
     r"क्यों|क्या|कैसे|कब|कहाँ",
     re.IGNORECASE,
 )
+#: Asking for it slower, which wants the same words again at a pace they can follow. The
+#: Telugu and Hindi words are the ones `_PACE_PROMISE` already reads.
+_SLOWER: Final = r"slow(?:ly|er)?|నెమ్మదిగా|మెల్లగా|నిదానంగా|స్లోగా|धीरे"
+#: The caller asking to hear it again: in other words, slower, or because it did not reach
+#: them. Saying it again is then the right answer, not `said_again`.
 _ASKS_REPEAT: Final = re.compile(
-    r"repeat|again|once more|pardon|మళ్ళా|మళ్ళీ|మళ్లీ|మరలా|ఇంకోసారి|फिर से|दोबारा|एक बार और",
+    r"repeat|again|once more|one more time|pardon|come again|"
+    r"(?:didn'?t|did not|couldn'?t|could not|can'?t|cannot) (?:hear|catch|get|follow)|"
+    r"cut off|breaking up|"
+    rf"{_SLOWER}|"
+    r"మళ్ళా|మళ్ళీ|మళ్లీ|మరలా|ఇంకోసారి|फिर से|दोबारा|एक बार और",
     re.IGNORECASE,
 )
+#: A caller line that ends the conversation in so many words, whatever else it holds: "nothing
+#: more for now, I'll call you when I'm free" closes although "when" is in it.
+_CALLER_SIGNS_OFF: Final = re.compile(
+    r"\bnothing (?:else|more)\b|\bthat'?s (?:all|it)\b|\bbye\b|"
+    r"\b(?:i'?ll|i will|we'?ll|will) (?:call|ring|phone|contact) (?:you )?(?:back )?"
+    r"(?:later|again|tomorrow|another time|when)|"
+    r"\b(?:call|talk|speak) (?:to you |you )?later\b|"
+    r"బై|అంతే|बस इतना|बाय",
+    re.IGNORECASE,
+)
+
+
+def asks_to_repeat(said: str) -> bool:
+    """Whether a caller line asks to hear the agent's last words again."""
+    return bool(_ASKS_REPEAT.search(said))
+
+
+def caller_signs_off(said: str) -> bool:
+    """Whether a caller line ends the conversation in words, with no "?" to say otherwise."""
+    return bool(_CALLER_SIGNS_OFF.search(said)) and "?" not in said
+
+
+def caller_asks(said: str) -> bool:
+    """Whether a caller line asks or complains, as opposed to signing off."""
+    return bool(_CALLER_ASKS.search(said)) and not caller_signs_off(said)
 
 
 #: Asking whether now suits, which an opening of ours asks itself ("ఇప్పుడు రెండు నిమిషాలు
@@ -1221,15 +1255,37 @@ SAID_AGAIN_MIN_WORDS: Final = 4
 
 def _said_again(reply: str, earlier: Sequence[str]) -> str | None:
     """The sentence of `reply` that an earlier reply already said (word for word, or as
-    `_same_reply` reads it), or None."""
+    `_same_reply` reads it), or None.
+
+    Two kinds of sentence are left out because saying them again is not a loop: a number
+    read out, which a caller writing it down hears more than once (the Rytu Khata call of 4
+    Nov 2026 read the business's number three times, each asked for), and "anything
+    else?", whose repeats `offered_more_too_soon` judges."""
     return next(
         (
             s
             for s in sentences(reply)
-            if len(_words(s)) >= SAID_AGAIN_MIN_WORDS and any(_same_reply(s, b) for b in earlier)
+            if len(_words(s)) >= SAID_AGAIN_MIN_WORDS
+            and _digit_count(s) < NUMBER_READ_DIGITS
+            and not offers_more(s)
+            and any(_same_reply(s, b) for b in earlier)
         ),
         None,
     )
+
+
+#: Digits (or digit words) that make a sentence a number read out rather than a line.
+NUMBER_READ_DIGITS: Final = 4
+
+
+def _closes_call(said: str) -> bool:
+    return bool(_CALLER_CLOSES.search(said) or caller_signs_off(said)) and not caller_asks(said)
+
+
+def _carried_on(exchanges: Sequence[Exchange], position: int) -> bool:
+    """Whether the caller said anything after `position` other than closing words: a caller
+    who keeps talking after a goodbye was not done."""
+    return any(e.said.strip() and not _closes_call(e.said) for e in exchanges[position + 1 :])
 
 
 def _asked_again(reply: str, previous_reply: str) -> str | None:
@@ -1581,8 +1637,7 @@ def memory_not_said(exchanges: Sequence[Exchange], memory_notice: str) -> str | 
     if not sentence or not replied:
         return None
     last = replied[-1]
-    closes = _CALLER_CLOSES.search(last.said) and not _CALLER_ASKS.search(last.said)
-    if not _GOODBYE.search(last.reply) or not closes:
+    if not _GOODBYE.search(last.reply) or not _closes_call(last.said):
         return None
     if sentence in normalize_utterance(last.reply):
         return None
@@ -1633,7 +1688,7 @@ def conversation_problems(
     )
     name_given = False
     offers: list[bool] = []  # one per spoken reply: did it ask "anything else?"
-    for exchange in exchanges:
+    for position, exchange in enumerate(exchanges):
         said, reply = exchange.said, exchange.reply
         name_given = name_given or bool(_GIVES_NAME.search(said))
         acted = acted or any(not _LOOKUP_TOOL.search(tool) for tool in exchange.tools)
@@ -1807,8 +1862,15 @@ def conversation_problems(
                     "At most it may ask whether to use this same number.",
                 ),
             )
-        closes = _CALLER_CLOSES.search(said) and not _CALLER_ASKS.search(said)
-        if _GOODBYE.search(reply) and said.strip() and not closes:
+        # A goodbye is wrong after a line that asks, and after one that does not close when
+        # the caller carried on talking. Without either, the caller let the call end: a line
+        # that closes in words the closing list does not hold ("OK, enough for now") reads
+        # as that, never as "still asking" (D-970).
+        if (
+            _GOODBYE.search(reply)
+            and said.strip()
+            and (caller_asks(said) or (not _closes_call(said) and _carried_on(exchanges, position)))
+        ):
             found.setdefault(
                 "goodbye_while_asking",
                 TurnProblem(
@@ -1834,7 +1896,7 @@ def conversation_problems(
                 ),
             )
         # A caller who asks to hear it again is `repeated_turn`'s, judged on the whole turn.
-        repeated = None if _ASKS_REPEAT.search(said) else _said_again(reply, earlier_sentences)
+        repeated = None if asks_to_repeat(said) else _said_again(reply, earlier_sentences)
         if repeated:
             found.setdefault(
                 "said_again",
@@ -1885,11 +1947,15 @@ __all__ = [
     "JOB_KINDS",
     "MAX_SENTENCES",
     "MOBILE_DIGITS",
+    "NUMBER_READ_DIGITS",
     "OFFERS_MORE_WINDOW",
     "SOUND_KINDS",
     "Exchange",
     "TurnProblem",
+    "asks_to_repeat",
+    "caller_asks",
     "caller_says_done",
+    "caller_signs_off",
     "claims_done",
     "claims_said_before",
     "conversation_problems",

@@ -189,7 +189,7 @@ describe("the questions to answer", () => {
 
 describe("a test written by hand", () => {
   it("saves the caller's lines one per line and what the agent should do", async () => {
-    const { calls } = await renderClientPage(<SavedTests agentId="agent-1" />, {
+    const { calls } = await renderClientPage(<SavedTests agentId="agent-1" slug="acme" />, {
       "/v1/me": OWNER,
       "/v1/agents/agent-1/test-cases": {
         cases: [],
