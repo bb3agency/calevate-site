@@ -16674,6 +16674,11 @@ export interface components {
             /** Blocked Rule */
             blocked_rule?: string | null;
             /**
+             * Booked By
+             * @enum {string}
+             */
+            booked_by: "in_call" | "after_call" | "person";
+            /**
              * Due At
              * Format: date-time
              */
@@ -16683,11 +16688,15 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Next Try At */
+            next_try_at: string | null;
             /**
              * Status
              * @enum {string}
              */
             status: "scheduled" | "dialing" | "completed" | "cancelled" | "refused" | "missed" | "failed";
+            /** Time From */
+            time_from: ("caller" | "default") | null;
         };
         /** CallCapOut */
         CallCapOut: {
@@ -16806,6 +16815,7 @@ export interface components {
             forwarded_to_phone: boolean;
             /** Forwarding Test */
             forwarding_test: boolean;
+            goal: components["schemas"]["CallGoalOut"] | null;
             /**
              * Has Recording
              * @default false
@@ -16833,6 +16843,8 @@ export interface components {
             moments: components["schemas"]["CallMomentOut"][];
             /** Next Step */
             next_step?: string | null;
+            /** Next Step By */
+            next_step_by: ("business" | "caller" | "nobody") | null;
             /** Not Placed Reason */
             not_placed_reason: string | null;
             /** Outcome Tag */
@@ -16870,6 +16882,8 @@ export interface components {
              * @enum {string}
              */
             translation_state: "pending" | "ready" | "failed" | "not_needed" | "unavailable";
+            /** Unclear Fields */
+            unclear_fields: components["schemas"]["UnclearFieldOut"][];
         };
         /** CallEndedTrigger */
         CallEndedTrigger: {
@@ -16921,6 +16935,19 @@ export interface components {
             set_by: string | null;
             /** State */
             state: ("resolved" | "needs_you") | null;
+        };
+        /**
+         * CallGoalOut
+         * @description How this call did against its campaign's goal, for a call a campaign with a goal
+         *     placed (its own dial or a call-back of one).
+         */
+        CallGoalOut: {
+            /** Goal */
+            goal: string;
+            /** Reached */
+            reached: ("yes" | "no" | "unclear") | null;
+            /** Reason */
+            reason: string | null;
         };
         /**
          * CallGroupOut
@@ -17744,6 +17771,8 @@ export interface components {
             eligible: boolean;
             /** Follow Up Number */
             follow_up_number?: number | null;
+            /** Opens At */
+            opens_at?: string | null;
             /** Reason */
             reason?: string | null;
             /** Rule */
@@ -18259,6 +18288,12 @@ export interface components {
             key: string;
             /** Label */
             label: string;
+            /**
+             * Source
+             * @default call
+             * @enum {string}
+             */
+            source: "call" | "list" | "lead";
             /**
              * Type
              * @enum {string}
@@ -19551,6 +19586,8 @@ export interface components {
             call_id: string | null;
             /** Goal Reached */
             goal_reached?: ("yes" | "no" | "unclear") | null;
+            /** Goal Reason */
+            goal_reason?: string | null;
             /**
              * Id
              * Format: uuid
@@ -35619,6 +35656,24 @@ export interface components {
             cost_inr: string;
             /** Minutes */
             minutes: string;
+        };
+        /**
+         * UnclearFieldOut
+         * @description One detail the caller answered that the reading could not use, and why. Never the
+         *     value: the reason is ours, chosen by kind.
+         */
+        UnclearFieldOut: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "not_a_choice" | "not_yes_no" | "not_a_number" | "phone_in_wrong_place" | "too_long" | "unreadable";
+            /** Label */
+            label: string;
+            /** Reason */
+            reason: string;
         };
         /** UnconfirmedOut */
         UnconfirmedOut: {

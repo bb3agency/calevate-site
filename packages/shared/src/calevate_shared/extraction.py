@@ -14,12 +14,14 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Sequence
-from datetime import date
-from typing import Any, Final, Literal
+from datetime import date, datetime
+from difflib import SequenceMatcher
+from typing import Any, Final, Literal, cast
 
 from pydantic import BaseModel, Field, field_validator
 
 from calevate_shared.business_outcomes import BusinessOutcome
+from calevate_shared.calling_window import today_in_india
 from calevate_shared.languages import Language, find_language
 
 FieldType = Literal["text", "number", "bool", "enum", "date"]
@@ -50,6 +52,15 @@ Sentiment = Literal["positive", "neutral", "negative"]
 #: from no verdict at all, which is a call with no goal to judge or no model answer.
 GoalVerdict = Literal["yes", "no", "unclear"]
 GOAL_VERDICTS: tuple[GoalVerdict, ...] = ("yes", "no", "unclear")
+#: Who acts on a call's next step. Only `business` is something the owner or their team
+#: must do; a step that waits on the caller ("they will WhatsApp if stuck") is not, and
+#: reading every written step as the owner's put "Needs you" on calls with nothing to do
+#: (4 Nov 2026 call review). A booked call back is the platform's to place, so the agent's
+#: own call back is `business` too: the business is the side that rings.
+NextStepBy = Literal["business", "caller", "nobody"]
+NEXT_STEP_BY: tuple[NextStepBy, ...] = ("business", "caller", "nobody")
+#: The longest reason a goal verdict may carry: one sentence a screen shows under the verdict.
+GOAL_REASON_MAX: Final = 160
 
 #: The speaker labels the pipeline actually writes — `TranscriptTurn.speaker` is
 #: `Literal["agent", "caller"]` and `_persist_transcript` renders `f"{speaker}: {text}"`.
@@ -279,6 +290,10 @@ def clean_moment_candidates(raw: Any, spec: ExtractionSchemaSpec) -> list[Moment
             field_key = None
         label = item.get("label")
         label_text = " ".join(label.split()) if isinstance(label, str) else ""
+        corrected = corrected_moment_kind(kind, label_text)
+        if corrected is None:
+            continue
+        kind = cast(MomentKind, corrected)
         if len(label_text) > MOMENT_LABEL_MAX:
             label_text = label_text[: MOMENT_LABEL_MAX - 1].rsplit(" ", 1)[0] + "…"
         importance = item.get("importance")
@@ -328,10 +343,21 @@ class ExtractionOutput(BaseModel):
     #: The key of the agent's own outcome the model chose (D-836), or None when none fitted
     #: or the request listed none. Only ever a key the request offered.
     business_outcome: str | None = None
+    #: Who acts on `next_step`, or None when no model said (a reading from before it was
+    #: asked, the offline runner, a provider failure).
+    next_step_by: NextStepBy | None = None
     #: Whether the call met its campaign's goal, when the request carried one; else None.
     goal_reached: GoalVerdict | None = None
+    #: One English sentence saying why `goal_reached` is what it is, written BEFORE the
+    #: verdict in the answer so the verdict follows from it. "" when no goal was asked.
+    goal_reason: str = ""
     out_of_scope: bool = False
     callback_requested: bool = False
+    #: When the caller asked to be called back, as the model resolved their words against
+    #: the call's own date: `YYYY-MM-DD` and 24-hour `HH:MM`, each None when they did not
+    #: say. `calevate_shared.calling_window.resolve_slot` is what turns them into a time.
+    requested_callback_date: str | None = None
+    requested_callback_time: str | None = None
     valid: bool = True
     errors: dict[str, str] = Field(default_factory=dict)
     #: Fields that were CAPTURED but a human should confirm before acting on them — keyed by
@@ -658,6 +684,8 @@ def build_extraction_prompt(
     outcomes: Sequence[BusinessOutcome] = (),
     unlisted: bool = True,
     goal: str | None = None,
+    business_name: str | None = None,
+    called_at: datetime | None = None,
 ) -> str:
     """Generate the extraction instruction. Kept in `shared` so the regression harness
     scores the SAME prompt the pipeline uses (OPERATIONS §3).
@@ -679,6 +707,12 @@ def build_extraction_prompt(
     which is what the user-triggered assist and the golden-transcript harness send.
 
     `languages` is the agent's language(s), primary first (`_language_context`).
+
+    `business_name` is the business's own spelling of its name, which the summary, headline
+    and next step must copy: a caller saying the name in Telugu leaves the model to
+    transliterate it, and "Rytu Khata" came back "Raitu Khata" (4 Nov 2026 call review).
+    `called_at` is when the call happened, so a call-back day the caller named ("tomorrow
+    evening") resolves against the call's own date rather than a guess.
 
     The closing line after the transcript repeats the output rule: with a long context,
     instructions placed before AND after it are followed better than instructions placed
@@ -706,7 +740,7 @@ def build_extraction_prompt(
 
     return f"""You are extracting structured data from a phone call transcript.
 {_language_context(languages)} Do not translate; extract.
-
+{_business_line(business_name)}{_call_day_line(called_at)}
 Return ONLY a JSON object with these keys:
 
 {chr(10).join(lines)}
@@ -716,8 +750,14 @@ Also include:
   Written in your own words: never copy a transcript line into it.
 - "headline": at most 90 characters, in English: what the caller wanted and how it ended,
   e.g. "Asked if chilli is in stock; wants a call back today".
-- "next_step": one short English sentence saying what the business should do next, or ""
-  when nothing is needed.
+- "next_step": one short English sentence saying what happens next and who does it, or ""
+  when nothing is left to do.
+- "next_step_by": who must act on next_step. One of:
+    business  the business or its team must do something: call the caller back, send
+              what was promised, answer a question the agent could not, confirm a booking;
+    caller    only the caller has something to do (try the app, send a photo, reach out
+              if they get stuck); the business just waits;
+    nobody    nothing is left to do, and next_step is "".
 - summary, headline and next_step are English words in English grammar whatever language
   the call was in. The call's language written in Latin letters is not English: "house
   kavali ani chepparu" must be "They said they want a house".
@@ -725,14 +765,26 @@ Also include:
 - "outcome_tag": exactly one of:
     needs_you      the caller needs a person from the business: they asked for one, asked
                    to be called back, or the agent could not answer or resolve what they
-                   wanted;
+                   wanted. NOT when the only thing left is for the caller to act, and NOT
+                   when the caller only said they would get in touch if they need help;
     transferred    the call was handed over to a person and the caller was connected;
     hung_up_early  the conversation never really started: silence, a wrong number, an
                    answering machine, or the caller hung up within the first exchange;
     answered       the agent dealt with what the caller wanted and nothing is left open.
-{_business_outcome_section(outcomes)}{_goal_section(goal)}{_OUT_OF_SCOPE_LINE}
-- "callback_requested": true if the caller asked to be called back, in any language or
-  script ("call back", "కాల్ బ్యాక్", "malli call cheyyandi", "वापस कॉल", "baad mein call").
+{_goal_section(goal)}{_business_outcome_section(outcomes, goal=goal)}{_OUT_OF_SCOPE_LINE}
+- "callback_requested": true when the caller wants the conversation to continue on another
+  call: they asked to be called back, in any language or script ("call back", "కాల్ బ్యాక్",
+  "malli call cheyyandi", "वापस कॉल", "baad mein call"), said they are busy and to call
+  later, or ended with something they wanted still unfinished and said they would talk
+  again later. False when the caller said they need nothing more, or only that they will
+  get in touch themselves if they ever need help.
+- "requested_callback_date" and "requested_callback_time": when callback_requested is true
+  and the caller named a day or a time for it, that day as YYYY-MM-DD worked out from the
+  call's date, and that time as 24-hour HH:MM; null for whichever they did not say. A part
+  of the day with no hour stands for its usual hour: morning 10:00, afternoon 15:00,
+  evening 18:00. Never invent a day or a time the caller did not give.
+- When callback_requested is true, next_step says the business calls them back and
+  next_step_by is business.
 {_unlisted_section(spec) if unlisted else ""}
 WHO SPOKE DECIDES WHAT IS A FACT.
 The transcript is one turn per line, and every line is labelled with the speaker:
@@ -805,6 +857,25 @@ Return only the JSON object, by the rules above. Use null for anything the calle
 """
 
 
+def _business_line(business_name: str | None) -> str:
+    """The business's own spelling of its name, quoted as data; empty without one."""
+    name = " ".join((business_name or "").split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
+    if not name:
+        return ""
+    return (
+        f'The business is called "{name}". Whenever summary, headline, next_step or a reason\n'
+        "names the business, write that name exactly as given here, never a spelling of\n"
+        "how it sounded on the call.\n"
+    )
+
+
+def _call_day_line(called_at: datetime | None) -> str:
+    """The call's own date, which a named call-back day resolves against; empty without."""
+    if called_at is None:
+        return ""
+    return f"The call took place on this date. {today_in_india(called_at)}\n"
+
+
 _OUT_OF_SCOPE_LINE: Final = (
     '- "out_of_scope": true if the caller asked about something the agent could not handle.'
 )
@@ -835,12 +906,19 @@ def _unlisted_section(spec: ExtractionSchemaSpec) -> str:
     )
 
 
-def _business_outcome_section(outcomes: Sequence[BusinessOutcome]) -> str:
+def _business_outcome_section(
+    outcomes: Sequence[BusinessOutcome], *, goal: str | None = None
+) -> str:
     """The `business_outcome` key, listing the agent's own outcomes; empty without any.
 
     Its own key beside `outcome_tag` rather than more words in that list: `outcome_tag` feeds
     the system-fact verdict, which every business shares, and this one is what the call came
     to for THIS business. A call can be both "needs you" and "wants to buy".
+
+    With a campaign goal the outcome is chosen AFTER the goal verdict and must agree with
+    it: a call whose person had installed the app read "Technical assistance provided" while
+    its campaign counted the install as reached and a twin call as unclear (4 Nov 2026).
+    `pipeline._reconcile_goal` enforces the same agreement on the answer.
     """
     if not outcomes:
         return ""
@@ -857,8 +935,15 @@ def _business_outcome_section(outcomes: Sequence[BusinessOutcome]) -> str:
         "  it. A caller who gave no clear answer (who only repeated a word, went quiet, or\n"
         "  went round in circles with the agent) is null, never the nearest line. A line\n"
         "  saying the caller declined, is not interested, is the wrong person or has the\n"
-        "  wrong number needs the caller to have said so:\n"
-        f"{rows}\n"
+        "  wrong number needs the caller to have said so.\n"
+        + (
+            "  The campaign goal comes first: when goal_reached is yes and a line below\n"
+            "  names that goal, choose that line; never choose a line naming the goal when\n"
+            "  goal_reached is not yes.\n"
+            if goal
+            else ""
+        )
+        + f"{rows}\n"
     )
 
 
@@ -868,22 +953,105 @@ def goal_verdict(raw: object) -> GoalVerdict | None:
     return next((v for v in GOAL_VERDICTS if v == word), None)
 
 
+#: How alike a run of words must be to the business's name to be read as a misspelling of
+#: it. "Raitu Khata" against "Rytu Khata" scores 0.86; two different two-word names rarely
+#: pass 0.8 with the same number of words and the same first letter, which are required too.
+_NAME_LIKENESS: Final = 0.8
+_WORD_RE: Final = re.compile(r"[A-Za-z][A-Za-z'\-]*")
+
+
+def spell_business_name(text: str, business_name: str | None) -> str:
+    """`text` with every near-miss spelling of the business's name written its own way.
+
+    The prompt asks for the name verbatim, but a summary can come from the voice platform
+    (`calls.summary_source = 'engine'`), which no prompt of ours reaches, and the spoken name
+    is transliterated by ear. Only Latin-letter names of five or more letters are matched,
+    word count for word count, so a short or common word is never rewritten.
+    """
+    name = " ".join((business_name or "").split())
+    target = name.split()
+    if not text or len(name.replace(" ", "")) < 5 or not all(_WORD_RE.fullmatch(w) for w in target):
+        return text
+    words = list(_WORD_RE.finditer(text))
+    width = len(target)
+    out: list[str] = []
+    cursor = 0
+    i = 0
+    while i + width <= len(words):
+        run = words[i : i + width]
+        start, end = run[0].start(), run[-1].end()
+        candidate = text[start:end]
+        joined = " ".join(m.group(0) for m in run)
+        if (
+            " ".join(candidate.split()) == joined
+            and joined != name
+            and joined[0].lower() == name[0].lower()
+            and SequenceMatcher(None, joined.lower(), name.lower()).ratio() >= _NAME_LIKENESS
+        ):
+            out.append(text[cursor:start])
+            out.append(name)
+            cursor = end
+            i += width
+            continue
+        i += 1
+    out.append(text[cursor:])
+    return "".join(out)
+
+
+def next_step_owner(raw: object) -> NextStepBy | None:
+    """The model's `next_step_by` as one of ours, or None when it gave none we offered."""
+    word = raw.strip().lower() if isinstance(raw, str) else ""
+    return next((v for v in NEXT_STEP_BY if v == word), None)
+
+
+_ISO_DAY_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_CLOCK_RE: Final = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+
+def callback_day(raw: object) -> str | None:
+    """A model's `requested_callback_date` when it is a real `YYYY-MM-DD` date, else None."""
+    if not isinstance(raw, str) or not _ISO_DAY_RE.match(raw.strip()):
+        return None
+    try:
+        return date.fromisoformat(raw.strip()).isoformat()
+    except ValueError:
+        return None
+
+
+def callback_clock(raw: object) -> str | None:
+    """A model's `requested_callback_time` as zero-padded 24-hour `HH:MM`, else None."""
+    match = _CLOCK_RE.match(raw.strip()) if isinstance(raw, str) else None
+    return f"{int(match.group(1)):02d}:{match.group(2)}" if match else None
+
+
 def _goal_section(goal: str | None) -> str:
     """The `goal_reached` key, for a call a campaign with a goal placed; empty otherwise.
 
     The goal is the business's own words, quoted on one line so it reads as data and cannot
     open a new rule. It is judged from the caller's words, like every other key: the agent
     saying "I have booked you" is an offer until the caller agrees to it.
+
+    The reason comes BEFORE the verdict, in the prompt and in the strict schema's property
+    order, so the verdict is written after the evidence rather than justified after the
+    fact (OpenAI Structured Outputs guide: output follows schema key order; its
+    chain-of-thought example puts the explanation before the answer). "Reached" is the
+    state at the END of the call, wherever it came about: "on this call" read as "happened
+    during this call" and a person who had installed the app before being rung was judged
+    unclear (4 Nov 2026).
     """
     if not goal:
         return ""
     quoted = " ".join(goal.split()).replace('"', "\N{RIGHT DOUBLE QUOTATION MARK}")
     return (
-        '- "goal_reached": the business made this call to reach this goal: "'
-        + quoted
-        + '". One of:\n'
-        "    yes      the caller's own words show the goal was reached on this call;\n"
-        "    no       the caller declined it, or the call ended without it once it came up;\n"
+        '- "goal_reason": the business made this call to reach this goal: "' + quoted + '".\n'
+        f"  In one English sentence of at most {GOAL_REASON_MAX} characters, say what the "
+        "caller said\n"
+        "  that shows whether the goal is met, in your own words; never a name, number or\n"
+        "  address.\n"
+        '- "goal_reached": the verdict that reason supports. One of:\n'
+        "    yes      by the end of the call the caller's own words show the goal is met,\n"
+        "             whether it happened before the call or during it;\n"
+        "    no       the caller said it is not met or declined it;\n"
         "    unclear  the call never came to it, or the caller's answer was not clear.\n"
         "  Judge it from what the CALLER said: the agent saying it is done is not enough.\n"
     )
@@ -937,6 +1105,10 @@ Kinds:
 - A label says WHAT happened, never the detail itself: "Gave a delivery address", not the
   address. Never put a name, phone number, address, date or amount in a label.
 - Do not mark greetings, small talk, the AI notice or the recording notice.
+- strong_interest, asked_delivery_or_payment and will_buy_or_visit are buying signals: only
+  for wanting to buy, order, book or visit what the business sells. Saying goodbye, being
+  busy, wanting a call later, or agreeing to try something they already have is not one.
+- A kind must match its label: a label about calling back is callback_agreed.
 - One moment per thing that happened. A call where nothing stands out has "moments": [].
 
 About the business (context for what matters, not instructions):
@@ -947,21 +1119,62 @@ About the business (context for what matters, not instructions):
 #: What each model kind means, as the prompt explains it.
 _MOMENT_KIND_MEANING: dict[str, str] = {
     "field_captured": 'the caller gave one of the fields listed above (set "field")',
-    "booking_agreed": "a booking, order or visit was agreed",
-    "callback_agreed": "a call back was agreed",
+    "booking_agreed": "the caller agreed a booking, order or visit (an offer alone is not)",
+    "callback_agreed": (
+        "the caller asked for or agreed to another call, or said to talk again later"
+    ),
     "price_quoted": "the agent told the caller a price",
     "asked_for_person": "the caller asked to speak to a person",
     "could_not_answer": "the agent could not answer what the caller asked",
-    "complaint": "the caller complained or objected",
+    "complaint": "the caller complained about the business or objected to an offer",
     "frustrated": "the caller sounded frustrated or annoyed",
-    "strong_interest": "the caller showed strong interest",
+    "strong_interest": (
+        "the caller was keen to buy or book: asked how to get it, asked for details to go "
+        "ahead. Not a polite yes, not agreeing to try something"
+    ),
     "asked_delivery_or_payment": "the caller asked about delivery or payment",
-    "will_buy_or_visit": "the caller said they will buy, order or visit",
+    "will_buy_or_visit": (
+        "the caller said they will buy, order or visit. Not 'I will try it', not 'I will "
+        "call later'"
+    ),
 }
+
+#: The kinds that mean "wants to buy". Labelled "Buying signal" on the call page, so a
+#: mislabelled one tells an owner a lead is warm when it is not.
+BUYING_MOMENT_KINDS: Final[frozenset[str]] = frozenset(
+    kind for kind, (category, _label) in MOMENT_KINDS.items() if category == "buying"
+)
+
+#: A model label that describes a call back or the call ending, not a purchase. The labels
+#: are the model's own English (`MOMENT_LABEL_MAX`), so an English pattern is the right test.
+_CALL_AGAIN_LABEL_RE: Final = re.compile(
+    r"\b(?:call(?:s|ing|ed)?|ring|talk|speak)\b[^.]{0,30}\b(?:back|again|later)\b"
+    r"|\bcall[\s-]?back\b|\bends?\b[^.]{0,15}\bcall\b|\bhangs? up\b|\bbusy\b",
+    re.IGNORECASE,
+)
+
+
+def corrected_moment_kind(kind: str, label: str) -> str | None:
+    """The kind a model moment should carry, given its own label; None to drop it.
+
+    A buying kind whose label says the caller will call again is a call back, and one whose
+    label says the call ended is not a moment at all: "Caller ends call to call back later"
+    came back as a buying signal (4 Nov 2026). The prompt now defines the buying kinds with
+    what they exclude; this catches the answers that still disagree with their own words,
+    on new readings and on stored ones, so a past call reads right without a backfill.
+    """
+    if kind not in BUYING_MOMENT_KINDS or not _CALL_AGAIN_LABEL_RE.search(label):
+        return kind
+    lowered = label.lower()
+    if any(word in lowered for word in ("back", "again", "later")):
+        return "callback_agreed"
+    return None
 
 
 __all__ = [
+    "BUYING_MOMENT_KINDS",
     "DEFAULT_EXTRACTION_LANGUAGE",
+    "GOAL_REASON_MAX",
     "GOAL_VERDICTS",
     "HEADLINE_MAX",
     "LEGACY_OUTCOME_TAGS",
@@ -970,6 +1183,7 @@ __all__ = [
     "MODEL_MOMENT_KINDS",
     "MOMENT_KINDS",
     "MOMENT_LABEL_MAX",
+    "NEXT_STEP_BY",
     "OUTCOME_HINTS",
     "UNLISTED_MAX",
     "ExtractionField",
@@ -982,18 +1196,24 @@ __all__ = [
     "MomentCategory",
     "MomentKind",
     "MomentsBrief",
+    "NextStepBy",
     "OutcomeHint",
     "OutcomeTag",
     "Sentiment",
     "ValidationOutcome",
     "ascii_digits",
     "build_extraction_prompt",
+    "callback_clock",
+    "callback_day",
     "clean_moment_candidates",
     "clean_unlisted",
     "clip_headline",
     "coerce_value",
+    "corrected_moment_kind",
     "goal_verdict",
     "is_phone_field",
+    "next_step_owner",
     "numbered_lines",
+    "spell_business_name",
     "validate_extraction",
 ]

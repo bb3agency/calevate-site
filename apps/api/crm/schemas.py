@@ -33,7 +33,7 @@ from calevate_shared.events import (
     NextStepStatus,
     ObjectionKind,
 )
-from calevate_shared.extraction import OutcomeTag
+from calevate_shared.extraction import GoalVerdict, NextStepBy, OutcomeTag
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from apps.api.agents.trial_panel import TrialPanelOut
@@ -89,6 +89,18 @@ class CallCallbackOut(Strict):
     #: The rule's own name, for a screen that wants to branch
     #: (`trial_live_outbound_unavailable`, `dnc`, ...).
     blocked_rule: str | None = None
+    #: Who booked it: `in_call` (the agent's call-back action, or a hand-over that reached
+    #: nobody), `after_call` (the caller asked to talk again and the call booked nothing, so
+    #: the post-call reading did), or `person` (someone in the account).
+    booked_by: Literal["in_call", "after_call", "person"]
+    #: For an `after_call` booking: `caller` when it keeps the time the caller named,
+    #: `default` when they named none and the platform chose the next day at the hour of
+    #: this call (`workers/after_call_callbacks`). NULL for any other booking.
+    time_from: Literal["caller", "default"] | None
+    #: When it will next be tried, while it waits: `due_at` until something defers it (the
+    #: calling hours had closed, every line was busy), then the deferred time. NULL once it
+    #: is no longer waiting.
+    next_try_at: datetime | None
 
 
 class CapturedChipOut(Strict):
@@ -235,10 +247,44 @@ class CapturedFieldOut(Strict):
     current: bool
     value: Any = None
     unlisted: str | None = None
+    #: Where `value` came from: `call` (the caller said it), or, for a name the call did not
+    #: capture, `list` (the campaign list this call dialled from) or `lead` (the lead's name
+    #: on file). Only a name is ever filled from elsewhere (`crm/captured.with_known_name`).
+    source: Literal["call", "list", "lead"] = "call"
 
 
 class CapturedFieldsOut(Strict):
     fields: list[CapturedFieldOut]
+
+
+#: Why a captured detail is unclear (`crm/captured.unclear_fields`).
+UnclearKind = Literal[
+    "not_a_choice", "not_yes_no", "not_a_number", "phone_in_wrong_place", "too_long", "unreadable"
+]
+
+
+class UnclearFieldOut(Strict):
+    """One detail the caller answered that the reading could not use, and why. Never the
+    value: the reason is ours, chosen by kind."""
+
+    key: str
+    label: str
+    kind: UnclearKind
+    reason: str
+
+
+class CallGoalOut(Strict):
+    """How this call did against its campaign's goal, for a call a campaign with a goal
+    placed (its own dial or a call-back of one)."""
+
+    #: The campaign's goal, in the business's words.
+    goal: str
+    #: `yes` / `no` / `unclear`, judged from what the person said by the end of the call;
+    #: NULL when the call was not read against it (not answered, or read before goals).
+    reached: GoalVerdict | None
+    #: One English sentence saying why, redacted. NULL when there is no verdict, or for a
+    #: call read before reasons were asked.
+    reason: str | None
 
 
 class CallQualityOut(Strict):
@@ -375,7 +421,20 @@ class CallDetailOut(CallSummaryOut):
     extraction: dict[str, Any] = Field(default_factory=dict)
     #: `extraction` with its labels, the core first. Required for `moments`' reason.
     captured: list[CapturedFieldOut]
+    #: False when something the caller said could not be used: a detail in `unclear_fields`,
+    #: or (with `unclear_fields` empty) the reading itself failing. A required detail the
+    #: caller never mentioned does NOT make it false; that detail is just not mentioned.
     extraction_valid: bool = True
+    #: The details that came through unclear, each with the owner's reason. Required for
+    #: `moments`' reason.
+    unclear_fields: list[UnclearFieldOut]
+    #: Who acts on `next_step`: `business` (the owner or their team, which is what "Needs
+    #: you" means), `caller` (the business waits), `nobody`. NULL for a call read before it
+    #: was asked. Required for `moments`' reason.
+    next_step_by: NextStepBy | None
+    #: How the call did against its campaign's goal; NULL outside a campaign with a goal.
+    #: Required for `moments`' reason.
+    goal: CallGoalOut | None
     #: Captured fields a human should confirm before acting on — `{field_key: reason}`,
     #: PII-free (the value is in `extraction`). Empty when nothing was flagged. Today the
     #: one producer is a dial-critical field (a phone) whose captured value is not a
@@ -1213,6 +1272,9 @@ class CallbackEligibilityOut(Strict):
     reason: str | None = None
     rule: str | None = None
     follow_up_number: int | None = None
+    #: When `rule` is `calling_hours`: the next instant a call may be placed (timestamptz;
+    #: show it in IST). NULL otherwise.
+    opens_at: datetime | None = None
 
 
 class DashboardDayOut(Strict):

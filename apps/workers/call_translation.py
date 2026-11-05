@@ -39,6 +39,7 @@ from uuid import UUID
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
+from calevate_shared.extraction import spell_business_name
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -250,7 +251,8 @@ async def translate_call(
         row = (
             await session.execute(
                 text(
-                    "SELECT a.language_primary, c.summary, c.summary_local "
+                    "SELECT a.language_primary, c.summary, c.summary_local, "
+                    "(SELECT o.name FROM organizations o WHERE o.id = c.tenant_id) "
                     "FROM calls c JOIN agents a ON a.id = c.agent_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
@@ -311,7 +313,12 @@ async def translate_call(
         usage = done.usage
         turns_en = call_language.english_lines(pending, done)
         new_local = done.summary_local if want_local else ""
-        new_english = done.summary_en if want_english else ""
+        # The business's own spelling, as `pipeline._record_reading` restores it.
+        new_english = (
+            spell_business_name(done.summary_en, str(row[3]) if row[3] else None)
+            if want_english
+            else ""
+        )
         incomplete = done.failed and bool(
             pending or (want_english and not new_english) or (want_local and not new_local)
         )

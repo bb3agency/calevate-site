@@ -12,12 +12,13 @@ derived here, AFTER extraction, from things the platform holds:
 3. a hand-over reached a person                 -> `transferred`
 4. a hand-over was tried and reached nobody     -> `needs_you`
 5. a connected call too short to be a talk      -> `hung_up_early`
-6. the model read a need nobody met, or the
-   caller asked for a call back nobody booked,
-   or asked about something the agent could not
-   handle                                       -> `needs_you`
+6. the caller asked for a call back nobody
+   booked, or asked about something the agent
+   could not handle, or the model read a need
+   nobody met and did not put the next step on
+   the caller or on nobody                      -> `needs_you`
 7. the model read `answered` but wrote a next
-   step for the business                        -> `needs_you`
+   step that the BUSINESS must take              -> `needs_you`
 8. the model read the conversation              -> its own hint
 9. otherwise                                    -> None (unknown)
 
@@ -40,6 +41,7 @@ from typing import Final, get_args
 
 from calevate_shared.extraction import (
     OUTCOME_HINTS,
+    NextStepBy,
     OutcomeHint,
     OutcomeTag,
 )
@@ -84,9 +86,19 @@ class CallFacts:
     hint: OutcomeHint | None
     callback_requested: bool
     out_of_scope: bool
-    #: The reading wrote a next step for the business (`calls.next_step`). The prompt asks
-    #: for "" when nothing is needed, so a step written is something left to do.
+    #: The reading wrote a next step (`calls.next_step`). The prompt asks for "" when
+    #: nothing is left to do.
     next_step_due: bool = False
+    #: Who acts on that step (`calls.next_step_by`); None for a reading from before it was
+    #: asked, which keeps the older rule that any written step is the business's.
+    next_step_by: NextStepBy | None = None
+
+
+#: "Needs you" means a person in the business must act. A step that waits on the caller
+#: ("they will WhatsApp if stuck") or on nobody is not one, and reading every written step
+#: as the owner's put "Needs you" on a call with nothing to do (4 Nov 2026 call review).
+def _business_must_act(facts: CallFacts) -> bool:
+    return facts.next_step_due and facts.next_step_by in (None, "business")
 
 
 def derive_outcome(facts: CallFacts) -> OutcomeTag | None:
@@ -102,8 +114,13 @@ def derive_outcome(facts: CallFacts) -> OutcomeTag | None:
     short = facts.duration_s is not None and facts.duration_s < HUNG_UP_EARLY_S
     if short and facts.caller_turns <= 1:
         return "hung_up_early"
-    if facts.hint == "needs_you" or facts.callback_requested or facts.out_of_scope:
+    if facts.callback_requested or facts.out_of_scope:
         return "needs_you"
+    if facts.hint == "needs_you":
+        # The same reading saying the step is the caller's, or that nothing is left, is the
+        # more specific answer: the hint is one word, the owner of the step is the question
+        # this verdict exists to answer.
+        return "answered" if facts.next_step_by in ("caller", "nobody") else "needs_you"
     # `transferred` from the model alone is not a fact we hold: no hand-over row says a
     # person picked up, so the caller is still owed one.
     if facts.hint == "transferred":
@@ -112,7 +129,7 @@ def derive_outcome(facts: CallFacts) -> OutcomeTag | None:
     # something is. The two cannot both be true, and the costly error is the one that tells
     # an owner nothing is due: a call that agreed a site visit read "Answered, no follow-up
     # is due" beside "Next step: confirm the site visit" (25 Oct 2026, D-887).
-    if facts.hint == "answered" and facts.next_step_due:
+    if facts.hint == "answered" and _business_must_act(facts):
         return "needs_you"
     return facts.hint
 

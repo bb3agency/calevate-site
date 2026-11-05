@@ -373,6 +373,7 @@ async def test_callback_eligibility_answers_yes_with_the_follow_up_number() -> N
         "reason": None,
         "rule": None,
         "follow_up_number": 1,
+        "opens_at": None,
     }
 
 

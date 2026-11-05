@@ -40,7 +40,7 @@ from uuid import UUID
 
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
-from calevate_shared.business_outcomes import BusinessOutcome, LeadMove
+from calevate_shared.business_outcomes import BusinessOutcome, LeadMove, match_outcome
 from calevate_shared.cut_off import UNHEARD_LABEL, likely_cut_off
 from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
@@ -62,6 +62,8 @@ from calevate_shared.extraction import (
     OutcomeTag,
     clip_headline,
     goal_verdict,
+    next_step_owner,
+    spell_business_name,
 )
 from calevate_shared.lead_fields import with_core
 from sqlalchemy import Numeric, text
@@ -184,6 +186,7 @@ from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.workers import call_language, call_timeline, storage
 from apps.workers import extraction as extraction_module
+from apps.workers.after_call_callbacks import book_requested_callback
 from apps.workers.caller_name import self_names, without_self_names
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
@@ -196,6 +199,7 @@ from apps.workers.engine_delivery import (
 )
 from apps.workers.extraction import (
     MODEL_FAILURE,
+    CallSetting,
     SarvamExtractor,
     extract_call,
     model_answered,
@@ -1550,6 +1554,36 @@ async def _run_post_call_stages(
             stage, summary_state=reading.state, translation_state=reading.translation_state
         )
 
+    # STEP 3d' — the call back the caller asked for and the call did not book. Before the
+    # outcome, so a booked one reads "Call back booked" rather than "Needs you". Only on a
+    # model's reading (`next_step_by` is set only by one): the offline runner's keyword match
+    # over the whole call, agent lines included, is too weak to ring somebody on.
+    if (
+        extraction is not None
+        and model_answered(extraction)
+        and extraction.next_step_by is not None
+        and extraction.callback_requested
+        and snapshot.status == "completed"
+    ):
+        with span("pipeline.after_call_callback", call_id=str(call_id)) as stage:
+            async with tenant_session(tenant_id) as session:
+                booked = await book_requested_callback(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    call_id=call_id,
+                    engine_call_id=snapshot.engine_call_id,
+                    phone_e164=_party_e164(
+                        snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
+                    ),
+                    call_at=snapshot.started_at or datetime.now(UTC),
+                    extraction=extraction,
+                    opted_out=opt_out_signal is not None,
+                )
+            set_span_attributes(
+                stage, booked=booked is not None, time_from=booked.time_from if booked else "none"
+            )
+
     # STEP 3e — the outcome, DERIVED from facts (founder decision 6, `crm/outcomes`). After
     # the hand-over settle (1d) and extraction (3), before the lead (4) whose status rules
     # read it and the CRM fan-out (8) that publishes it.
@@ -1803,6 +1837,7 @@ async def _extract_stage(
             # call, only the extra output tokens, metered below with the rest.
             brief = await load_moments_brief(tenant_id, agent_id)
             # A campaign's goal is judged in the same request: no second model call.
+            goal = await _campaign_goal(tenant_id, call_id)
             extraction = await extract_call(
                 spec,
                 transcript_text,
@@ -1811,8 +1846,13 @@ async def _extract_stage(
                 languages=await _agent_languages(tenant_id, agent_id),
                 outcomes=business_outcomes,
                 retry_without_unlisted=True,
-                goal=await _campaign_goal(tenant_id, call_id),
+                goal=goal,
+                setting=CallSetting(
+                    business_name=await _business_name(tenant_id),
+                    called_at=snapshot.started_at,
+                ),
             )
+            extraction = reconcile_goal(extraction, goal=goal, outcomes=business_outcomes)
             extraction_model = extractor.model_name
             await _meter_extraction(
                 tenant_id,
@@ -1906,6 +1946,41 @@ async def _extract_stage(
                 )
 
     return extraction
+
+
+def reconcile_goal(
+    extraction: ExtractionOutput, *, goal: str | None, outcomes: Sequence[BusinessOutcome]
+) -> ExtractionOutput:
+    """The campaign goal verdict and the business outcome made to agree.
+
+    Campaign goals are usually picked from the agent's own outcome labels, so the same
+    result can be read twice in one answer, and the two readings disagreed: an installed app
+    read "Technical assistance provided" beside "goal reached", and its twin call "goal
+    unclear" (4 Nov 2026). The goal verdict wins, because it is the one question the
+    campaign was placed to answer and it carries its own reason: reached means the outcome
+    that names the goal; not reached means no outcome that claims it.
+    """
+    if not goal or extraction.goal_reached is None:
+        return extraction
+    named = match_outcome(goal, outcomes)
+    if named is None:
+        return extraction
+    if extraction.goal_reached == "yes" and extraction.business_outcome != named.key:
+        return extraction.model_copy(update={"business_outcome": named.key})
+    if extraction.goal_reached != "yes" and extraction.business_outcome == named.key:
+        return extraction.model_copy(update={"business_outcome": None})
+    return extraction
+
+
+async def _business_name(tenant_id: UUID) -> str | None:
+    """The business's name as it spells it (`organizations.name`)."""
+    async with tenant_session(tenant_id) as session:
+        name = (
+            await session.execute(
+                text("SELECT name FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            )
+        ).scalar()
+    return str(name) if name else None
 
 
 async def _agent_self_names(
@@ -2536,7 +2611,7 @@ async def _settled_extraction(
                     "       c.summary, c.sentiment, ce.outcome_hint, ce.out_of_scope, "
                     "       c.callback_requested, c.headline, c.next_step, ce.business_outcome, "
                     "       c.goal_reached, "
-                    "       ce.unlisted "
+                    "       ce.unlisted, c.next_step_by, c.goal_reason "
                     "FROM call_extractions ce "
                     "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
                     "WHERE ce.call_id = :cid AND ce.tenant_id = :tid "
@@ -2569,6 +2644,8 @@ async def _settled_extraction(
         business_outcome,
         goal_reached,
         unlisted,
+        next_step_by,
+        goal_reason,
     ) = row
     errors = errors if isinstance(errors, dict) else {}
     if MODEL_FAILURE in errors:
@@ -2580,10 +2657,12 @@ async def _settled_extraction(
         summary=str(summary or ""),
         headline=str(headline or ""),
         next_step=str(next_step or ""),
+        next_step_by=next_step_owner(next_step_by),
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
         outcome_tag=hint_of(hint),
         business_outcome=str(business_outcome) if business_outcome else None,
         goal_reached=goal_verdict(goal_reached),
+        goal_reason=str(goal_reason or ""),
         out_of_scope=bool(out_of_scope),
         callback_requested=bool(callback_requested),
         valid=bool(valid),
@@ -2678,12 +2757,20 @@ async def _persist_extraction(
             text(
                 "UPDATE calls SET sentiment = :sentiment, "
                 "callback_requested = :callback_requested, goal_reached = :goal_reached, "
+                "goal_reason = :goal_reason, next_step_by = :next_step_by, "
                 "updated_at = now() WHERE id = :id AND tenant_id = :tid"
             ),
             {
                 "sentiment": sentiment,
                 "callback_requested": extraction.callback_requested if answered else None,
                 "goal_reached": extraction.goal_reached if answered else None,
+                # Model prose from the raw transcript, so stored redacted like `next_step`.
+                "goal_reason": (
+                    redact(extraction.goal_reason).text
+                    if answered and extraction.goal_reason and extraction.goal_reached
+                    else None
+                ),
+                "next_step_by": extraction.next_step_by if answered else None,
                 "id": call_id,
                 "tid": tenant_id,
             },
@@ -2800,7 +2887,8 @@ async def _record_reading(
             await session.execute(
                 text(
                     "SELECT a.language_primary, c.summary_local, c.translation_state, "
-                    "c.summary, c.summary_source "
+                    "c.summary, c.summary_source, "
+                    "(SELECT o.name FROM organizations o WHERE o.id = c.tenant_id) "
                     "FROM calls c JOIN agents a ON a.id = c.agent_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
@@ -2892,6 +2980,12 @@ async def _record_reading(
     )
     next_step_text = extraction.next_step if extraction is not None and answered else ""
     next_step = redact(next_step_text).text[:300] if next_step_text else None
+    # The engine's summary is outside any prompt of ours and the name is transliterated by
+    # ear, so the business's own spelling is restored on every English line we store.
+    business_name = str(row[5]) if row[5] else None
+    english = spell_business_name(english, business_name)
+    headline = spell_business_name(headline, business_name) if headline else headline
+    next_step = spell_business_name(next_step, business_name) if next_step else None
 
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -2977,7 +3071,7 @@ _OUTCOME_FACTS_SQL = (
     "  (SELECT h.outcome FROM handoff_attempts h WHERE h.source_call_id = c.id "
     "     ORDER BY h.started_at DESC LIMIT 1), "
     "  ce.outcome_hint, ce.out_of_scope, c.callback_requested, c.status, "
-    "  COALESCE(btrim(c.next_step), '') <> '' "
+    "  COALESCE(btrim(c.next_step), '') <> '', c.next_step_by "
     "FROM calls c "
     "LEFT JOIN call_extractions ce ON ce.call_id = c.id AND ce.tenant_id = c.tenant_id "
     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -3006,6 +3100,7 @@ async def _record_outcome(
             callback_requested,
             row_status,
             next_step_due,
+            next_step_by,
         ) = row
         outcome = derive_outcome(
             CallFacts(
@@ -3022,6 +3117,7 @@ async def _record_outcome(
                 out_of_scope=bool(out_of_scope),
                 # Written by STEP 3d (`_record_reading`), which runs first on every path.
                 next_step_due=bool(next_step_due),
+                next_step_by=next_step_owner(next_step_by),
             )
         )
         await session.execute(

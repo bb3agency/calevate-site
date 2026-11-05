@@ -334,6 +334,10 @@ class Call(PKMixin, TimestampMixin, Base):
     #: next. Model prose about the call, STORED REDACTED because the lead list shows it too.
     headline: Mapped[str | None] = mapped_column(Text)
     next_step: Mapped[str | None] = mapped_column(Text)
+    #: Who acts on `next_step`: `business` / `caller` / `nobody` (migration a9d3f6c2b7e4).
+    next_step_by: Mapped[str | None] = mapped_column(String)
+    #: Why `goal_reached` is what it is, one English sentence, stored redacted.
+    goal_reason: Mapped[str | None] = mapped_column(Text)
     #: The caller asked to be called back (the extraction's reading), booked or not.
     callback_requested: Mapped[bool | None] = mapped_column(Boolean)
     #: Whether `transcript_turns.text_en` has been written for this call.

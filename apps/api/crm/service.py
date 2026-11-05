@@ -19,14 +19,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, NamedTuple, get_args
 from uuid import UUID
 
-from calevate_shared.calling_window import IST
+from calevate_shared.calling_window import CALLING_HOURS_RULE, IST
 from calevate_shared.cut_off import likely_cut_off_rows
 from calevate_shared.events import CallInsights, CallStatus, CallTimeline
 from calevate_shared.extraction import (
     MOMENT_KINDS,
     ExtractionField,
     OutcomeTag,
+    corrected_moment_kind,
+    goal_verdict,
     is_phone_field,
+    next_step_owner,
 )
 from calevate_shared.lead_fields import with_core
 from pydantic import ValidationError
@@ -38,11 +41,13 @@ from apps.api.agents.call_mistakes import call_mistakes as read_call_mistakes
 from apps.api.agents.call_outcomes import outcome_lead_move
 from apps.api.billing.caps import read_spend_counters
 from apps.api.billing.models import LEDGER_KEY_SINCE_SQL
+from apps.api.callbacks.service import booked_by as callbacks_booked_by
+from apps.api.callbacks.service import time_from as callbacks_time_from
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
-from apps.api.crm.captured import captured_fields
+from apps.api.crm.captured import captured_fields, unclear_fields, with_known_name
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.lens import (
     CALL_AT,
@@ -58,6 +63,7 @@ from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
+    CallGoalOut,
     CallInsightsOut,
     CallMistakeOut,
     CallMomentOut,
@@ -90,6 +96,7 @@ from apps.api.tenancy.core_labels import core_labels
 # forget to call.
 from apps.workers.call_language import call_language
 from apps.workers.caller_name import is_own_name
+from apps.workers.extraction import MODEL_FAILURE
 from apps.workers.moments import field_backed
 from apps.workers.redaction import redact
 
@@ -260,7 +267,8 @@ async def list_calls(
                 "c.summary, c.lead_id, c.summary_state, c.headline, c.trial_call, "
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
                 "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at, "
-                f"a.business_outcomes, {_LIVE_STATE} AS live_state, {_BUSINESS_NAME_COLUMN} "
+                f"a.business_outcomes, {_LIVE_STATE} AS live_state, {_BUSINESS_NAME_COLUMN}, "
+                "cb.source_execution_id, cb.next_attempt_at "
                 "FROM page JOIN calls c ON c.id = page.id JOIN agents a ON a.id = c.agent_id "
                 f"{_CALLBACK_JOIN} "
                 f"ORDER BY page.live DESC, {_CALL_AT} DESC, c.id DESC"
@@ -294,7 +302,7 @@ async def list_calls(
             summary_state=_summary_state(r[11], r[13]),
             headline=r[14],
             test_call=bool(r[15]),
-            callback=_callback_out(r[16:21]),
+            callback=_callback_out(r[16:21], key=r[30], next_try=r[31]),
             lead_name=_caller_name(r[21], agent_name=r[2], business_name=r[29]),
             credits_used_inr=f"{r[22]:.2f}" if r[22] is not None and r[22] > 0 else None,
             captured_preview=previews.get(r[0], []),
@@ -413,7 +421,8 @@ async def captured_previews(
 #: `booked_at` because a conversation keeps one live promise and that is the one it holds.
 _CALLBACK_JOIN = (
     "LEFT JOIN LATERAL (SELECT s.id, s.requested_at, s.status, s.last_refusal_reason, "
-    "s.last_refusal_rule FROM scheduled_callbacks s WHERE s.source_call_id = c.id "
+    "s.last_refusal_rule, s.source_execution_id, s.next_attempt_at "
+    "FROM scheduled_callbacks s WHERE s.source_call_id = c.id "
     "AND s.tenant_id = c.tenant_id ORDER BY s.booked_at DESC, s.id DESC LIMIT 1) cb ON true"
 )
 _CALLBACK_COLUMNS = (
@@ -423,6 +432,13 @@ _CALLBACK_COLUMNS = (
 #: scalar subquery rather than a join, for the reason `_LEAD_COLUMNS` gives.
 _LEAD_NAME_COLUMN = (
     "(SELECT ln.name FROM leads ln WHERE ln.id = c.lead_id AND ln.deleted_at IS NULL) AS lead_name"
+)
+#: The name on the campaign list row this call dialled (a call-back of a campaign call
+#: carries the campaign too, D-914), matched on the number like `contact_details.call_origin`.
+_LIST_NAME_COLUMN = (
+    "(SELECT cc.name FROM campaign_contacts cc WHERE cc.campaign_id = c.campaign_id "
+    "AND cc.phone_e164 = CASE WHEN c.direction = 'outbound' THEN c.to_e164 ELSE c.from_e164 END "
+    "AND cc.name IS NOT NULL LIMIT 1) AS list_name"
 )
 #: The business's own name, which `_caller_name` keeps off the caller's side of a call.
 _BUSINESS_NAME_COLUMN = (
@@ -464,16 +480,32 @@ def _summary_state(summary: str | None, state: str | None) -> SummaryState:
     return "pending"
 
 
-def _callback_out(cells: Any) -> CallCallbackOut | None:
+#: The owner's sentence for a call-back waiting on the calling hours. The gate's own sentence
+#: states the rule ("only placed between 9:00 and 21:00 IST") without saying what happens to
+#: this call-back; `next_try_at` beside this says when it goes out.
+CALLBACK_WAITS_FOR_HOURS: Final = (
+    "Calling hours had closed, so it waits until they open again (9 am to 9 pm)."
+)
+
+
+def _callback_out(
+    cells: Any, *, key: str | None, next_try: datetime | None
+) -> CallCallbackOut | None:
     callback_id, due_at, status, reason, rule = cells
     if callback_id is None:
         return None
+    waiting = status == "scheduled"
     return CallCallbackOut(
         id=callback_id,
         due_at=due_at,
         status=status,
-        blocked_reason=reason,
+        blocked_reason=CALLBACK_WAITS_FOR_HOURS if rule == CALLING_HOURS_RULE else reason,
         blocked_rule=rule,
+        booked_by=callbacks_booked_by(key),
+        time_from=callbacks_time_from(key),
+        next_try_at=(max(due_at, next_try) if next_try is not None else due_at)
+        if waiting
+        else None,
     )
 
 
@@ -560,7 +592,11 @@ async def get_call(
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
                 "c.business_outcome, c.business_outcome_label, c.not_placed_reason, "
                 "c.follow_up_state, a.business_outcomes, c.engine_timeline, c.insights, "
-                f"{_BUSINESS_NAME_COLUMN} "
+                f"{_BUSINESS_NAME_COLUMN}, "
+                "cb.source_execution_id, cb.next_attempt_at, "
+                "c.next_step_by, c.goal_reason, c.goal_reached, "
+                "(SELECT g.goal FROM campaigns g WHERE g.id = c.campaign_id), "
+                f"{_LIST_NAME_COLUMN} "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -592,7 +628,8 @@ async def get_call(
     extraction = (
         await session.execute(
             text(
-                "SELECT data, valid, moments, needs_review, schema_version, model, unlisted "
+                "SELECT data, valid, moments, needs_review, schema_version, model, unlisted, "
+                "errors "
                 "FROM call_extractions "
                 "WHERE call_id = :cid ORDER BY created_at DESC LIMIT 1"
             ),
@@ -621,6 +658,18 @@ async def get_call(
         data=extraction_data,
         unlisted=extraction[6] if extraction else None,
     )
+    unclear = unclear_fields(extraction[7] if extraction else None, captured)
+    # Only a call that connected names its person from the list: a call nobody answered
+    # captured nothing, and listing a name there would read as something said.
+    if row[4] == "completed":
+        captured = with_known_name(
+            captured,
+            list_name=row[50],
+            lead_name=_caller_name(row[29], agent_name=row[2], business_name=row[43]),
+        )
+    reading_failed = bool(
+        extraction and isinstance(extraction[7], dict) and MODEL_FAILURE in extraction[7]
+    )
     return CallDetailOut(
         id=row[0],
         agent_id=row[1],
@@ -643,7 +692,7 @@ async def get_call(
         summary_state=_summary_state(row[11], row[15]),
         headline=row[16],
         test_call=bool(row[17]),
-        callback=_callback_out(row[18:23]),
+        callback=_callback_out(row[18:23], key=row[44], next_try=row[45]),
         caller_id_hidden=bool(row[33]),
         forwarding_test=bool(row[34]),
         forwarded_to_phone=bool(row[35]),
@@ -682,7 +731,18 @@ async def get_call(
         ],
         extraction=extraction_data,
         captured=captured,
-        extraction_valid=bool(extraction[1]) if extraction else True,
+        extraction_valid=not (unclear or reading_failed),
+        unclear_fields=unclear,
+        next_step_by=next_step_owner(row[46]),
+        goal=(
+            CallGoalOut(
+                goal=str(row[49]),
+                reached=goal_verdict(row[48]),
+                reason=row[47] if row[48] else None,
+            )
+            if row[49]
+            else None
+        ),
         mistakes=[
             CallMistakeOut(kind=m.kind, label=m.label, instead=m.instead, turn_idx=m.turn_idx)
             for m in await read_call_mistakes(session, call_id)
@@ -736,6 +796,14 @@ def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
             continue
         try:
             kind = item["kind"]
+            if item.get("source") == "model":
+                # A stored suggestion whose own label contradicts its kind (a call back filed
+                # as a buying signal) is read as its label says, so past calls read right.
+                corrected = corrected_moment_kind(kind, label)
+                if corrected is None:
+                    continue
+                if corrected != kind:
+                    kind, item = corrected, {**item, "category": None}
             turn_idx = item.get("turn_idx")
             importance = item.get("importance")
             out.append(

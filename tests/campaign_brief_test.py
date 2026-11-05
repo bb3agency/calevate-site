@@ -233,7 +233,7 @@ def test_the_prompt_and_schema_ask_for_the_goal_only_when_there_is_one() -> None
     asked = build_extraction_prompt(SPEC, "caller: avunu", goal='Book a "free" visit')
     assert "goal_reached" not in plain
     assert '"goal_reached"' in asked and "Book a \N{RIGHT DOUBLE QUOTATION MARK}free" in asked
-    section = asked[asked.index('- "goal_reached"') : asked.index('- "out_of_scope"')]
+    section = asked[asked.index('- "goal_reason"') : asked.index('- "out_of_scope"')]
     assert asked.replace(section, "") == plain, "the goal adds one block and changes nothing else"
     schema = build_response_schema(SPEC, goal=GOAL)
     assert schema["properties"]["goal_reached"] == {

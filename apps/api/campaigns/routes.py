@@ -244,6 +244,9 @@ class ContactResultOut(Strict):
     #: Whether their latest answered call reached the campaign's goal; None when no
     #: answered call was judged against one.
     goal_reached: GoalVerdict | None = None
+    #: Why that verdict, one English sentence, redacted (`calls.goal_reason`); None without a
+    #: verdict or for a call read before reasons were asked.
+    goal_reason: str | None = None
 
 
 class ContactResultsOut(Strict):

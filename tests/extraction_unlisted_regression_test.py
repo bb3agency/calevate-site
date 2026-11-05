@@ -127,7 +127,7 @@ def test_the_prompt_asks_for_the_unlisted_answer_the_strict_schema_accepts() -> 
 def test_without_the_ask_the_request_is_the_one_before_d889() -> None:
     prompt = build_extraction_prompt(SPEC, TRANSCRIPT, unlisted=False)
     assert '"unlisted"' not in prompt
-    assert '"baad mein call").\n\nWHO SPOKE' in prompt
+    assert "next_step_by is business.\n\nWHO SPOKE" in prompt
     assert "unlisted" not in build_response_schema(SPEC, unlisted=False)["properties"]
 
 

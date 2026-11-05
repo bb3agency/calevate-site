@@ -242,7 +242,7 @@ def test_sarvam_sends_the_brief_inside_the_shared_prompt() -> None:
     source = " ".join(inspect.getsource(SarvamExtractor).split())
     assert (
         "build_extraction_prompt( spec, transcript, moments=moments, languages=languages, "
-        "outcomes=outcomes, unlisted=unlisted, )" in source
+        "outcomes=outcomes, unlisted=unlisted, goal=goal," in source
     )
     assert SarvamExtractor.reads_moments is True
 
@@ -285,7 +285,7 @@ def test_a_suggestion_lands_on_its_turn_with_our_label_for_a_captured_field() ->
 
 
 def test_a_model_label_is_stored_redacted_as_well_as_raw() -> None:
-    placed = _place([MomentCandidate(line=3, kind="complaint", label="Gave 9876543210 angrily")])
+    placed = _place([MomentCandidate(line=2, kind="complaint", label="Gave 9876543210 angrily")])
     assert placed[0]["label"] == "Gave 9876543210 angrily"
     assert "9876543210" not in placed[0]["label_redacted"]
 
@@ -296,12 +296,12 @@ def test_a_suggestion_with_no_line_or_no_time_is_dropped() -> None:
 
 
 def test_an_empty_model_label_falls_back_to_the_plain_one() -> None:
-    placed = _place([MomentCandidate(line=1, kind="strong_interest")])
+    placed = _place([MomentCandidate(line=2, kind="strong_interest")])
     assert placed[0]["label"] == "Strong interest"
 
 
 def test_merged_moments_are_capped_at_eight() -> None:
-    placed = _place([MomentCandidate(line=1, kind="strong_interest") for _ in range(12)])
+    placed = _place([MomentCandidate(line=2, kind="strong_interest") for _ in range(12)])
     distinct = [{**m, "turn_idx": i, "at_ms": i * 1_000} for i, m in enumerate(placed)]
     assert len(merge_moments([], distinct)) == 8
 
