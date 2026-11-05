@@ -81,8 +81,9 @@ HARD RULE 6. Nothing here logs or returns transcript text. The answer is one tri
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
+from calevate_shared import spoken_lines
 from calevate_shared.engine import said_as_taught
 from calevate_shared.languages import get_language
 
@@ -174,34 +175,14 @@ DEFAULT_LANGUAGE = get_language("english_india").bcp47
 #: Hindi's verb follows the voice's gender (`HINDI_PROGRESSIVE`). Both lines NEED
 #: NATIVE-SPEAKER REVIEW. The other languages keep a sentence without the agent's name and
 #: D-861's order (the opening line first); the founder has worded no introduction for them.
-AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
-    # The ‌ (zero-width non-joiner) keeps "ట్" and "ని" apart as the founder wrote them.
-    "te-IN": "నేను {business} నుండి {name}ని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి.",
-    "hi-IN": "मैं {business} से {name}, एआई असिस्टेंट, बात कर {progressive} हूँ।",
-    "en-IN": "This is the AI assistant for {business}.",
-    # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
-    # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
-    "ta-IN": "இது {business} AI assistant.",
-    "kn-IN": "ಇದು {business} AI assistant.",
-    "ml-IN": "ഇത് {business} AI assistant ആണ്.",
-    "mr-IN": "हा {business} AI assistant आहे.",
-}
+#: The lines themselves are the founder's (`calevate_shared/spoken_lines.json`, G4-2).
+AI_DISCLOSURE_TEMPLATES: dict[str, str] = spoken_lines.lines("disclosure.ai")
 
 #: Sentence two: **"this call is recorded"** — the DPDP notice-and-consent side, and a
 #: different regime from the sentence above. Deliberately business-agnostic: it takes no
 #: `{business}` placeholder, because the AI sentence has already named the caller's
 #: counterparty and a second naming reads as a script that lost its place.
-RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
-    "te-IN": "ఈ కాల్ రికార్డ్ అవుతుంది.",
-    "hi-IN": "यह कॉल रिकॉर्ड हो रही है।",
-    "en-IN": "This call is being recorded.",
-    # Staged (D-855), drafted 23 Oct 2026: NEEDS NATIVE-SPEAKER REVIEW. No caller hears
-    # these until `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
-    "ta-IN": "இந்த call record ஆகிறது.",
-    "kn-IN": "ಈ call record ಆಗುತ್ತಿದೆ.",
-    "ml-IN": "ഈ call record ചെയ്യുന്നുണ്ട്.",
-    "mr-IN": "हा call record होत आहे.",
-}
+RECORDING_NOTICE_TEMPLATES: dict[str, str] = spoken_lines.lines("disclosure.recording")
 
 
 #: The memory sentence on file (D-507), which no call says (D-971, founder, 5 Nov 2026:
@@ -210,17 +191,7 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: not (`caller_memory.CALLER_MEMORY_ATTESTATIONS` version 3). These sentences only fill
 #: `agents.caller_memory_notice_line`, which stays NOT NULL until its two-step removal
 #: (hard rule 8). Every line is NEEDS NATIVE-SPEAKER REVIEW, as written for D-861.
-CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
-    "te-IN": "మీరు మళ్ళీ కాల్ చేసినప్పుడు గుర్తుండేలా, ఈ కాల్ గురించి ఒక చిన్న నోట్ ఉంచుకుంటాను.",
-    "hi-IN": "आप दोबारा कॉल करें तो याद रहे, इसलिए हम इस कॉल का एक छोटा नोट रखते हैं।",
-    "en-IN": "So I remember it when you call again, I keep a short note about this call.",
-    "ta-IN": (
-        "நீங்கள் மீண்டும் call செய்யும்போது நினைவில் இருக்க, இந்த call பற்றி ஒரு சின்ன note வைத்துக்கொள்கிறேன்."
-    ),
-    "kn-IN": "ನೀವು ಮತ್ತೆ call ಮಾಡಿದಾಗ ನೆನಪಿರಲಿ ಎಂದು, ಈ call ಬಗ್ಗೆ ಒಂದು ಚಿಕ್ಕ note ಇಟ್ಟುಕೊಳ್ಳುತ್ತೇನೆ.",
-    "ml-IN": ("നിങ്ങൾ വീണ്ടും call ചെയ്യുമ്പോൾ ഓർമ്മയുണ്ടാകാൻ, ഈ call പറ്റി ഒരു ചെറിയ note ഞാൻ സൂക്ഷിക്കും."),
-    "mr-IN": "तुम्ही पुन्हा call केल्यावर लक्षात राहावे म्हणून, या call ची एक छोटी note आम्ही ठेवतो.",
-}
+CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = spoken_lines.lines("disclosure.caller_memory")
 
 
 VoiceGender = Literal["female", "male"]
@@ -229,7 +200,9 @@ VoiceGender = Literal["female", "male"]
 #: रहा हूँ" by a man. The voice is the speaker the caller hears, so its catalogue gender decides
 #: (`agents/voice_pick.voice_gender`); unknown takes the woman's form, the first run's default
 #: voice (`agents/voice_pick`, D-855).
-HINDI_PROGRESSIVE: Final[dict[VoiceGender, str]] = {"female": "रही", "male": "रहा"}
+HINDI_PROGRESSIVE: Final[dict[VoiceGender, str]] = cast(
+    "dict[VoiceGender, str]", spoken_lines.lines("disclosure.hindi_progressive")
+)
 
 
 def _rendered(

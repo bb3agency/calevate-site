@@ -2,6 +2,7 @@ import { ArrowRight, Check, Pause, Play } from "lucide-react";
 
 import { Turn, type CallTurn } from "./callCards";
 import { Avatar, Bar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, Window } from "./kit";
+import { founderLine } from "@/lib/founderLines";
 
 /**
  * The remaining product screens, each drawn for the one section that talks about it, from
@@ -24,27 +25,27 @@ import { Avatar, Bar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, Windo
 const CLINIC_TURNS: readonly CallTurn[] = [
   {
     who: "Agent",
-    te: "నమస్కారం, Sunrise Dental. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలా సహాయం చేయగలను?",
+    te: founderLine("marketing.feature_mockups.0"),
     en: "Namaskaram, Sunrise Dental. I am an AI assistant, and this call is recorded. How can I help?",
   },
   {
     who: "Caller",
-    te: "రూట్ కెనాల్ చేస్తారా? ఖర్చు ఎంత అవుతుంది?",
+    te: founderLine("marketing.feature_mockups.1"),
     en: "Do you do root canal? What does it cost?",
   },
   {
     who: "Agent",
-    te: "చేస్తాము. ఖర్చు పంటిని బట్టి ఉంటుంది — ముందుగా చెకప్ బుక్ చేయనా?",
+    te: founderLine("marketing.feature_mockups.2"),
     en: "We do. It depends on the tooth — shall I book a check-up first?",
   },
   {
     who: "Caller",
-    te: "అవును. మంగళవారం సాయంత్రం. నా పేరు ప్రియ.",
+    te: founderLine("marketing.feature_mockups.3"),
     en: "Yes. Tuesday evening. My name is Priya.",
   },
   {
     who: "Agent",
-    te: "మంగళవారం సాయంత్రం 6 గంటలకు బుక్ చేశాను.",
+    te: founderLine("marketing.feature_mockups.4"),
     en: "Booked for Tuesday at 6 PM.",
   },
 ];

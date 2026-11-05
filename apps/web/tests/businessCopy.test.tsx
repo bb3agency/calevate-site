@@ -80,11 +80,13 @@ function Probe() {
 }
 
 describe("useVerticalExamples reads the stored copy", () => {
-  it("shows the account's business type until the first copy lands", async () => {
+  it("shows neutral examples, never its business type's, until the first copy lands", async () => {
     await renderClientPage(<Probe />, {
       "/v1/me": { ...OWNER_ME, organization: { ...OWNER_ME.organization, vertical_template: "retail" } },
     });
-    expect((await screen.findByTestId("service")).textContent).toBe(examplesFor("retail").knowledgeTitle);
+    // G2-1: an app filed as a shop read a grocery's examples until its copy landed.
+    expect((await screen.findByTestId("service")).textContent).toBe(examplesFor(undefined).knowledgeTitle);
+    expect(screen.getByTestId("service").textContent).not.toBe(examplesFor("retail").knowledgeTitle);
     expect(screen.getByTestId("question").textContent).toBe("none");
   });
 

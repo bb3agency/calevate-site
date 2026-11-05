@@ -166,11 +166,14 @@ def test_every_offered_language_has_the_sentences_an_agent_speaks() -> None:
         "ai_disclosure": disclosure.AI_DISCLOSURE_TEMPLATES,
         "recording_notice": disclosure.RECORDING_NOTICE_TEMPLATES,
         "caller_memory_notice": disclosure.CALLER_MEMORY_NOTICE_TEMPLATES,
-        "handoff_spoken": handoff.HANDOFF_SPOKEN_TEMPLATES,
     }
     for name, table in tables.items():
         for tag in built_language_tags():
             assert table.get(tag, "").strip(), f"{name} has nothing to say in {tag}"
+    # The handover line says only that a person is being rung, so a language with no line
+    # of the founder's in its own letters hears the English one (G4-1).
+    for tag in built_language_tags():
+        assert handoff.spoken_line_for(tag).strip(), f"handoff has nothing to say in {tag}"
 
 
 def test_the_two_fallback_languages_are_one_row() -> None:
@@ -211,15 +214,6 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "the `Literal` Pydantic turns into the OpenAPI enum, which cannot be computed — "
         "pinned to `offered_language_tags()` by the first test in this file"
     ),
-    "apps/api/compliance/disclosure.py": (
-        "three tables of SENTENCES an agent speaks, keyed by language. Content per "
-        "language, not a list of languages; a missing key is caught above"
-    ),
-    "apps/api/agents/handoff.py": "the spoken handover line per language, for the same reason",
-    "apps/api/agents/patient_caller.py": (
-        "the silence preset's spoken nudge, can you see it, per language (D-907), for the "
-        "same reason; `tests/patient_caller_test.py` keeps its keys to the built languages"
-    ),
     "apps/api/agents/specimen_scenarios.py": (
         "the standing test callers' LINES per language (D-749): what a caller says in "
         "Telugu, Hindi and English, keyed by tag. Content per language on the same terms "
@@ -240,11 +234,6 @@ TAG_SPELLING_ALLOWED: dict[str, str] = {
         "the console's one table of language NAMES, `Record<AgentLanguage, string>` over "
         "the generated union — exhaustive by the type checker, so the keys are the built "
         "set and cannot silently grow; plus the staged set its static picker leaves out"
-    ),
-    "apps/web/src/lib/firstAgent.ts": (
-        "the first run's language MARKS, a syllable in each language's own script (D-863), "
-        "`Record<AgentLanguage, string>` over the generated union like the names above: "
-        "content per language, which cannot be derived, and exhaustive by the type checker"
     ),
 }
 

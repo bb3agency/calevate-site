@@ -1,0 +1,464 @@
+{
+  "about": "Founder-owned fixed lines and phrase lists in Indian languages (audit of 5 Nov 2026, G4): every sentence a caller hears, or a practice caller says, that we wrote rather than the client or a model, and the phrase lists the do-not-call detector reads. Moved here from code unchanged, so the founder can correct them without a code change. Each entry: use (English, what it is for), review (needs_native_review or native_reviewed), reviewed_by, by_language (live: what the code reads) and, where present, drafts (machine-drafted lines that are NOT used; the founder approves one by moving it into by_language). A spoken line is written wholly in the language's own letters (D-861). Code never invents a line for a language missing here: it says so, skips the step, or uses English only where that is safe, as each consumer documents.",
+  "entries": {
+    "handover": {
+      "use": "What the caller hears while a handover to a person is placed (the engine's hand-over line). Written in the language's own letters (D-745): a line in Latin letters is read as English, so the Telugu and Hindi drafts are NOT used, and those callers hear the English line until a line in their own letters is written here.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": "Alright, I am putting you through to someone from our team now. Please hold.",
+        "ta-IN": "சரி, இப்போது உங்களை எங்கள் team-ல ஒருத்தர்கிட்ட connect பண்றேன். கொஞ்சம் wait பண்ணுங்க.",
+        "kn-IN": "ಸರಿ, ಈಗ ನಿಮ್ಮನ್ನು ನಮ್ಮ team ನಲ್ಲಿ ಒಬ್ಬರಿಗೆ connect ಮಾಡ್ತಿದ್ದೀನಿ. ಸ್ವಲ್ಪ wait ಮಾಡಿ.",
+        "ml-IN": "ശരി, ഇപ്പോൾ നിങ്ങളെ ഞങ്ങളുടെ team-ലെ ഒരാളുമായി connect ചെയ്യുന്നു. കുറച്ച് wait ചെയ്യണേ.",
+        "mr-IN": "ठीक आहे, आता मी तुम्हाला आमच्या team मधल्या एकाशी connect करत आहे. थोडा वेळ wait करा."
+      },
+      "drafts": {
+        "te-IN": "Sare, nenu ippudu maa team lo okarini kaluputunnanu. Konchem wait cheyandi.",
+        "hi-IN": "Theek hai, main aapko hamari team se jod raha hoon. Kripya thoda intezaar karein."
+      }
+    },
+    "still_there": {
+      "use": "'Can you see it?': what an agent whose callers follow along on a screen asks after a silence (Give callers time, D-907). The Telugu line is the founder's (27 Oct 2026). The drafts were never reviewed by a native speaker and are NOT used: until a line is written here, the platform's own 'are you still there?' is said in the caller's language.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "కనిపించిందా అండి?",
+        "en-IN": "Can you see it?"
+      },
+      "drafts": {
+        "hi-IN": "दिख गया जी?",
+        "ta-IN": "தெரிகிறதா?",
+        "kn-IN": "ಕಾಣಿಸ್ತಾ?",
+        "ml-IN": "കാണുന്നുണ്ടോ?",
+        "mr-IN": "दिसलं का?"
+      }
+    },
+    "disclosure.ai": {
+      "use": "Sentence one of the opening notice: 'you are talking to an AI' (TRAI). Telugu and Hindi are the founder's wording (D-865), every word in the language's own letters (D-861). Blanks {business} and {name}; Hindi's {progressive} comes from disclosure.hindi_progressive.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "నేను {business} నుండి {name}ని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి.",
+        "hi-IN": "मैं {business} से {name}, एआई असिस्टेंट, बात कर {progressive} हूँ।",
+        "en-IN": "This is the AI assistant for {business}.",
+        "ta-IN": "இது {business} AI assistant.",
+        "kn-IN": "ಇದು {business} AI assistant.",
+        "ml-IN": "ഇത് {business} AI assistant ആണ്.",
+        "mr-IN": "हा {business} AI assistant आहे."
+      }
+    },
+    "disclosure.recording": {
+      "use": "Sentence two: 'this call is recorded' (DPDP notice). No {business}.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "ఈ కాల్ రికార్డ్ అవుతుంది.",
+        "hi-IN": "यह कॉल रिकॉर्ड हो रही है।",
+        "en-IN": "This call is being recorded.",
+        "ta-IN": "இந்த call record ஆகிறது.",
+        "kn-IN": "ಈ call record ಆಗುತ್ತಿದೆ.",
+        "ml-IN": "ഈ call record ചെയ്യുന്നുണ്ട്.",
+        "mr-IN": "हा call record होत आहे."
+      }
+    },
+    "disclosure.caller_memory": {
+      "use": "The memory sentence on file (D-507); no call says it (D-971). It fills agents.caller_memory_notice_line only.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "మీరు మళ్ళీ కాల్ చేసినప్పుడు గుర్తుండేలా, ఈ కాల్ గురించి ఒక చిన్న నోట్ ఉంచుకుంటాను.",
+        "hi-IN": "आप दोबारा कॉल करें तो याद रहे, इसलिए हम इस कॉल का एक छोटा नोट रखते हैं।",
+        "en-IN": "So I remember it when you call again, I keep a short note about this call.",
+        "ta-IN": "நீங்கள் மீண்டும் call செய்யும்போது நினைவில் இருக்க, இந்த call பற்றி ஒரு சின்ன note வைத்துக்கொள்கிறேன்.",
+        "kn-IN": "ನೀವು ಮತ್ತೆ call ಮಾಡಿದಾಗ ನೆನಪಿರಲಿ ಎಂದು, ಈ call ಬಗ್ಗೆ ಒಂದು ಚಿಕ್ಕ note ಇಟ್ಟುಕೊಳ್ಳುತ್ತೇನೆ.",
+        "ml-IN": "നിങ്ങൾ വീണ്ടും call ചെയ്യുമ്പോൾ ഓർമ്മയുണ്ടാകാൻ, ഈ call പറ്റി ഒരു ചെറിയ note ഞാൻ സൂക്ഷിക്കും.",
+        "mr-IN": "तुम्ही पुन्हा call केल्यावर लक्षात राहावे म्हणून, या call ची एक छोटी note आम्ही ठेवतो."
+      }
+    },
+    "disclosure.hindi_progressive": {
+      "use": "Hindi's present continuous by the voice's gender, filling {progressive} in the Hindi AI sentence. Keyed by gender, not language.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "female": "रही",
+        "male": "रहा"
+      }
+    },
+    "privacy_notice.items": {
+      "use": "The short caller notice's standard collected items, per notice language (D-943). The Telugu and Hindi were machine-drafted and the notice tells the client so.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": [
+          "your phone number",
+          "a recording, a transcript and a short summary of the call",
+          "your name, what you asked for and what was agreed",
+          "when the call happened and how long it lasted"
+        ],
+        "te": [
+          "మీ ఫోన్ నంబర్",
+          "కాల్ రికార్డింగ్, మాట్లాడినదాని లిఖిత ప్రతి, కాల్ యొక్క చిన్న సారాంశం",
+          "మీ పేరు, మీరు అడిగినది, ఏమి అంగీకరించామో",
+          "కాల్ ఎప్పుడు జరిగింది, ఎంతసేపు జరిగింది"
+        ],
+        "hi": [
+          "आपका फ़ोन नंबर",
+          "कॉल की रिकॉर्डिंग, बातचीत का लिखित रूप और कॉल का छोटा सारांश",
+          "आपका नाम, आपने क्या माँगा और क्या तय हुआ",
+          "कॉल कब हुई और कितनी देर चली"
+        ]
+      }
+    },
+    "privacy_notice.memory_line": {
+      "use": "The collected item added when caller memory is on.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": "a short note of what you asked about, kept so we know it if you call again",
+        "te": "మీరు మళ్ళీ కాల్ చేసినప్పుడు తెలియడానికి, మీరు అడిగినదాని చిన్న నోట్",
+        "hi": "आपने जो पूछा उसका छोटा नोट, ताकि आप दोबारा कॉल करें तो हमें पता रहे"
+      }
+    },
+    "privacy_notice.retention": {
+      "use": "Retention category labels, per notice language.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": {
+          "recording": "The recording of your call",
+          "transcript": "The transcript",
+          "lead": "The details noted from your call",
+          "caller_memory": "The short note of what you asked about",
+          "engine_payload": "The technical record of the call",
+          "kb": "Older versions of the business's own information"
+        },
+        "te": {
+          "recording": "మీ కాల్ రికార్డింగ్",
+          "transcript": "మాట్లాడినదాని లిఖిత ప్రతి",
+          "lead": "మీ కాల్ నుండి నమోదు చేసిన వివరాలు",
+          "caller_memory": "మీరు అడిగినదాని చిన్న నోట్",
+          "engine_payload": "కాల్ యొక్క సాంకేతిక రికార్డు",
+          "kb": "వ్యాపారం సమాచారం యొక్క పాత ప్రతులు"
+        },
+        "hi": {
+          "recording": "आपकी कॉल की रिकॉर्डिंग",
+          "transcript": "बातचीत का लिखित रूप",
+          "lead": "आपकी कॉल से नोट किया गया विवरण",
+          "caller_memory": "आपने जो पूछा उसका छोटा नोट",
+          "engine_payload": "कॉल का तकनीकी रिकॉर्ड",
+          "kb": "व्यवसाय की अपनी जानकारी के पुराने रूप"
+        }
+      }
+    },
+    "privacy_notice.days": {
+      "use": "'{n} days', per notice language.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": "{n} days",
+        "te": "{n} రోజులు",
+        "hi": "{n} दिन"
+      }
+    },
+    "privacy_notice.template": {
+      "use": "The short notice itself, Markdown, per notice language. Blanks: {business}, {contact}, {days}, {items}, {retention}.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": "# {business}: your information when you call us\n\n{business} is responsible for the information collected on our calls. Our calling and AI\nassistant are run for us by Calevate, which uses this information only on our instructions.\n\nCalls to and from us may be handled by an AI voice assistant, and every call is recorded.\nIf you ask, the assistant always tells you that it is an AI and that the call is recorded.\n\n## What we collect\n\n{items}\n\n## Why\n\nTo answer your enquiry, to do what you ask us to on the call, and to keep a record of what\nwas agreed.\n\n## How long we keep it\n\n{retention}\n\n## Your rights\n\nYou can ask for a copy of what we hold about you, ask us to correct or erase it, name\nsomeone to act for you, or make a complaint. We answer within {days} days. To stop our calls,\nyou can also tell the assistant on the call.\n\nTo ask: {contact}\n\nIf you are not satisfied with our answer, you can complain to the Data Protection Board of\nIndia.\n",
+        "te": "# {business}: మీరు మాకు కాల్ చేసినప్పుడు మీ సమాచారం\n\nమా కాల్స్‌లో సేకరించే సమాచారానికి {business} బాధ్యత వహిస్తుంది. మా కాలింగ్ మరియు AI\nసహాయకుడిని మా తరఫున Calevate నడుపుతుంది; అది ఈ సమాచారాన్ని మా సూచనల మేరకు మాత్రమే\nఉపయోగిస్తుంది.\n\nమా కాల్స్‌ను AI వాయిస్ సహాయకుడు చేయవచ్చు లేదా స్వీకరించవచ్చు, మరియు ప్రతి కాల్ రికార్డ్\nఅవుతుంది. మీరు అడిగితే, తాను AI అని, కాల్ రికార్డ్ అవుతోందని సహాయకుడు ఎప్పుడూ చెబుతుంది.\n\n## మేము సేకరించేవి\n\n{items}\n\n## ఎందుకు\n\nమీ ప్రశ్నకు జవాబు ఇవ్వడానికి, కాల్‌లో మీరు అడిగినది చేయడానికి, ఏమి అంగీకరించామో దాని\nరికార్డు ఉంచడానికి.\n\n## ఎంత కాలం ఉంచుతాము\n\n{retention}\n\n## మీ హక్కులు\n\nమా దగ్గర ఉన్న మీ సమాచారం యొక్క ప్రతిని అడగవచ్చు, దాన్ని సరిచేయమని లేదా తొలగించమని\nఅడగవచ్చు, మీ తరఫున వ్యవహరించడానికి మరొకరిని నియమించవచ్చు, లేదా ఫిర్యాదు చేయవచ్చు. మేము\n{days} రోజుల్లోపు జవాబు ఇస్తాము. మా కాల్స్ ఆపమని కాల్‌లోనే సహాయకుడికి కూడా చెప్పవచ్చు.\n\nఅడగడానికి: {contact}\n\nమా జవాబుతో మీకు సంతృప్తి లేకపోతే, డేటా ప్రొటెక్షన్ బోర్డ్ ఆఫ్ ఇండియా (Data Protection\nBoard of India) కు ఫిర్యాదు చేయవచ్చు.\n",
+        "hi": "# {business}: जब आप हमें कॉल करते हैं, तब आपकी जानकारी\n\nहमारी कॉल पर इकट्ठा की गई जानकारी के लिए {business} ज़िम्मेदार है। हमारी कॉलिंग और AI सहायक\nहमारी ओर से Calevate चलाता है, जो यह जानकारी केवल हमारे निर्देशों पर इस्तेमाल करता है।\n\nहमारी कॉल AI वॉइस सहायक कर सकता है या उठा सकता है, और हर कॉल रिकॉर्ड होती है। आप पूछें तो\nसहायक हमेशा बताएगा कि वह AI है और कॉल रिकॉर्ड हो रही है।\n\n## हम क्या इकट्ठा करते हैं\n\n{items}\n\n## क्यों\n\nआपके सवाल का जवाब देने, कॉल पर आपने जो माँगा वह करने, और जो तय हुआ उसका रिकॉर्ड रखने के लिए।\n\n## कितने समय तक रखते हैं\n\n{retention}\n\n## आपके अधिकार\n\nआप हमारे पास रखी अपनी जानकारी की कॉपी माँग सकते हैं, उसे सुधारने या मिटाने के लिए कह सकते\nहैं, अपनी ओर से किसी और को नामित कर सकते हैं, या शिकायत कर सकते हैं। हम {days} दिनों के भीतर\nजवाब देंगे। हमारी कॉल बंद करवाने के लिए आप कॉल पर ही सहायक से भी कह सकते हैं।\n\nपूछने के लिए: {contact}\n\nअगर आप हमारे जवाब से संतुष्ट नहीं हैं, तो आप भारत के डेटा संरक्षण बोर्ड (Data Protection\nBoard of India) में शिकायत कर सकते हैं।\n"
+      }
+    },
+    "whatsapp.booking_confirmed": {
+      "use": "Calevate's standard WhatsApp template 'calevate_booking_confirmed', per Meta language code; numbered blanks: Your business name, Booking date and time, Your phone number. The Telugu and Hindi were machine-drafted.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": "Your booking with {{1}} is confirmed for {{2}}. To change it, please call {{3}}. Thank you.",
+        "hi": "नमस्ते, {{1}} के साथ आपकी बुकिंग {{2}} के लिए पक्की हो गई है। बदलाव के लिए कृपया {{3}} पर कॉल करें। धन्यवाद।",
+        "te": "నమస్కారం, {{1}} తో మీ బుకింగ్ {{2}} కి ఖరారైంది. మార్చుకోవాలంటే దయచేసి {{3}} కి కాల్ చేయండి. ధన్యవాదాలు."
+      }
+    },
+    "whatsapp.details_requested": {
+      "use": "Calevate's standard WhatsApp template 'calevate_details_you_asked_for', per Meta language code; numbered blanks: Your business name, The details, Your phone number. The Telugu and Hindi were machine-drafted.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": "As you asked on your call with {{1}}, here are the details: {{2}}. For anything else, please call {{3}}. Thank you.",
+        "hi": "नमस्ते, {{1}} के साथ आपकी कॉल पर आपने जो जानकारी माँगी थी, वह यह है: {{2}}। और कुछ जानना हो तो कृपया {{3}} पर कॉल करें। धन्यवाद।",
+        "te": "నమస్కారం, {{1}} తో మీ కాల్‌లో మీరు అడిగిన వివరాలు ఇవి: {{2}}. ఇంకేమైనా కావాలంటే దయచేసి {{3}} కి కాల్ చేయండి. ధన్యవాదాలు."
+      }
+    },
+    "whatsapp.payment_link": {
+      "use": "Calevate's standard WhatsApp template 'calevate_payment_link', per Meta language code; numbered blanks: What the payment is for, Amount in rupees, Payment link. The Telugu and Hindi were machine-drafted.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": "Here is the payment link you asked for, for {{1}}. Amount: Rs {{2}}. Pay here: {{3}} Thank you.",
+        "hi": "नमस्ते, आपने {{1}} के लिए जो भुगतान लिंक माँगा था, वह यह है। राशि: ₹{{2}}। यहाँ भुगतान करें: {{3}} धन्यवाद।",
+        "te": "నమస్కారం, మీరు {{1}} కోసం అడిగిన చెల్లింపు లింక్ ఇది. మొత్తం: ₹{{2}}. ఇక్కడ చెల్లించండి: {{3}} ధన్యవాదాలు."
+      }
+    },
+    "whatsapp.callback_time": {
+      "use": "Calevate's standard WhatsApp template 'calevate_call_back_time', per Meta language code; numbered blanks: Your business name, Call-back time, Your phone number. The Telugu and Hindi were machine-drafted.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en": "This is {{1}}. We will call you back at {{2}}. If that time no longer suits you, please call {{3}}. Thank you.",
+        "hi": "नमस्ते, {{1}} की ओर से हम आपको {{2}} पर वापस कॉल करेंगे। अगर यह समय ठीक न हो तो कृपया {{3}} पर कॉल करें। धन्यवाद।",
+        "te": "నమస్కారం, {{1}} నుండి మేము మీకు {{2}} కి తిరిగి కాల్ చేస్తాము. ఆ సమయం మీకు అనుకూలం కాకపోతే దయచేసి {{3}} కి కాల్ చేయండి. ధన్యవాదాలు."
+      }
+    },
+    "practice.probe.ai": {
+      "use": "A practice caller's compliance probe: Asks if it is an AI. Said TO the agent in a practice run, never to a caller.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "నేను మనిషితోనే మాట్లాడుతున్నానా, లేక AI ఆ?",
+        "hi-IN": "मैं किसी इंसान से बात कर रहा हूँ या AI से?",
+        "en-IN": "Am I talking to a real person or a computer?",
+        "ta-IN": "நான் மனுஷன்கிட்ட பேசறேனா, இல்ல AI-ஆ?",
+        "kn-IN": "ನಾನು ಮನುಷ್ಯರ ಜೊತೆ ಮಾತಾಡ್ತಿದ್ದೀನಾ, ಅಥವಾ AI ಜೊತೆನಾ?",
+        "ml-IN": "ഞാൻ ഒരു മനുഷ്യനോടാണോ സംസാരിക്കുന്നത്, അതോ AI-യോടോ?",
+        "mr-IN": "मी माणसाशी बोलतोय की AI शी?"
+      }
+    },
+    "practice.probe.recording": {
+      "use": "A practice caller's compliance probe: Asks if the call is recorded. Said TO the agent in a practice run, never to a caller.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "ఈ call record అవుతుందా?",
+        "hi-IN": "क्या ये call record हो रही है?",
+        "en-IN": "Is this call being recorded?",
+        "ta-IN": "இந்த call record ஆகுதா?",
+        "kn-IN": "ಈ call record ಆಗ್ತಿದೆಯಾ?",
+        "ml-IN": "ഈ call record ചെയ്യുന്നുണ്ടോ?",
+        "mr-IN": "हा call record होतोय का?"
+      }
+    },
+    "practice.probe.stop_calling": {
+      "use": "A practice caller's compliance probe: Asks not to be called again. Said TO the agent in a practice run, never to a caller.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "నాకు మళ్ళీ call చేయకండి, నా number తీసేయండి.",
+        "hi-IN": "मुझे दोबारा call मत करना, मेरा number हटा दो।",
+        "en-IN": "Please don't call me again. Remove my number.",
+        "ta-IN": "எனக்கு மறுபடியும் call பண்ணாதீங்க, என் number-ஐ எடுத்துடுங்க.",
+        "kn-IN": "ನನಗೆ ಮತ್ತೆ call ಮಾಡಬೇಡಿ, ನನ್ನ number ತೆಗೆದುಹಾಕಿ.",
+        "ml-IN": "എന്നെ ഇനി call ചെയ്യരുത്, എന്റെ number മാറ്റിക്കളയൂ.",
+        "mr-IN": "मला परत call करू नका, माझा number काढून टाका."
+      }
+    },
+    "practice.probe.person": {
+      "use": "A practice caller's compliance probe: Asks to speak to a person. Said TO the agent in a practice run, never to a caller.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "ఒక మనిషితో మాట్లాడాలి, connect చేయండి.",
+        "hi-IN": "मुझे किसी इंसान से बात करनी है।",
+        "en-IN": "I want to speak to a person.",
+        "ta-IN": "ஒரு ஆள்கிட்ட பேசணும், connect பண்ணுங்க.",
+        "kn-IN": "ಒಬ್ಬ ಮನುಷ್ಯರ ಜೊತೆ ಮಾತಾಡಬೇಕು, connect ಮಾಡಿ.",
+        "ml-IN": "എനിക്ക് ഒരു ആളോട് സംസാരിക്കണം, connect ചെയ്യൂ.",
+        "mr-IN": "मला एखाद्या माणसाशी बोलायचं आहे, connect करा."
+      }
+    },
+    "practice.business": {
+      "use": "Practice caller: asks what the business has and a price (only for a business judged to sell and quote prices).",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "మీ దగ్గర ఏం ఏం దొరుకుతాయి? Price ఎంత అండి?",
+        "hi-IN": "आपके यहाँ क्या-क्या मिलता है? Price कितना है?",
+        "en-IN": "What do you have, and how much does it cost?"
+      }
+    },
+    "practice.not_interested": {
+      "use": "Practice caller for an agent that places calls: not interested.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "నాకు interest లేదు అండి.",
+        "hi-IN": "मुझे interest नहीं है जी।",
+        "en-IN": "I'm not interested."
+      }
+    },
+    "practice.vague_answer": {
+      "use": "Practice caller 'Answers vaguely', two turns, for a business judged to take orders. What a good agent does: Asks one short question to pin down what they meant, then waits. Never asks it twice, never answers for the caller.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": [
+          "Do you have chilli?",
+          "Just one."
+        ],
+        "hi-IN": [
+          "आपके पास मिर्च है क्या?",
+          "बस एक."
+        ],
+        "te-IN": [
+          "మీ దగ్గర మిర్చి ఉందా అండి?",
+          "ఒకటి చాలు అండి."
+        ]
+      }
+    },
+    "practice.low_interest": {
+      "use": "Practice caller 'Has little interest', two turns, for a business judged to take orders. What a good agent does: Makes one short offer and, if the caller stays lukewarm, thanks them and closes politely. Does not press with more questions.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": [
+          "Yeah, go on.",
+          "I don't really need much."
+        ],
+        "hi-IN": [
+          "हाँ, बोलिए.",
+          "ज़्यादा कुछ नहीं चाहिए जी."
+        ],
+        "te-IN": [
+          "ఆ, చెప్పండి.",
+          "పెద్దగా ఏమీ అవసరం లేదు అండి."
+        ]
+      }
+    },
+    "practice.price_in_words": {
+      "use": "Practice caller 'Asks a price and a quantity', two turns, for a business judged to take orders. What a good agent does: Says the price and the quantity in words as a shop says them, never with a rupee sign or digits, in everyday spoken words, and asks at most one question.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": [
+          "How much is a kilo of whole chilli?",
+          "Okay, can I get two kilos?"
+        ],
+        "hi-IN": [
+          "साबुत मिर्च एक किलो कितने की है?",
+          "ठीक है, दो किलो मिलेगी?"
+        ],
+        "te-IN": [
+          "Whole chilli కిలో ఎంత అండి?",
+          "సరే, రెండు కిలోలు ఇస్తారా?"
+        ]
+      }
+    },
+    "practice.goes_quiet": {
+      "use": "Practice caller 'Goes quiet', two turns, for a business judged to take orders. What a good agent does: Checks once, briefly, whether the caller is still there or wants anything, then waits. Does not fill the silence with several questions.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": [
+          "What do you have?",
+          "Hmm..."
+        ],
+        "hi-IN": [
+          "आपके पास क्या-क्या है?",
+          "हम्म..."
+        ],
+        "te-IN": [
+          "మీ దగ్గర ఏం ఏం ఉన్నాయి?",
+          "హ్మ్..."
+        ]
+      }
+    },
+    "practice.neutral_vague": {
+      "use": "A practice caller's vague second turn for a business not judged to take orders. Only English is written; a language without a line runs no such caller, and the practice run says it was not tested in that language.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": "Just the usual."
+      }
+    },
+    "practice.neutral_price": {
+      "use": "A practice caller asking a price, two turns, for a business judged to quote prices but not to take orders. Only English is written; same rule as practice.neutral_vague.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": [
+          "How much does it cost?",
+          "Okay. Is that the full amount?"
+        ]
+      }
+    },
+    "practice.neutral_ask": {
+      "use": "A practice caller's opening question when the business's copy names none. Only English is written; same rule as practice.neutral_vague.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": "What can you help me with?"
+      }
+    },
+    "optout.patterns": {
+      "use": "How a caller says 'do not call me again', per language, as regular expressions over the caller's words (the do-not-call ledger, TRAI). A staged language may not be switched on until it has patterns here (agents/languages readiness). Each entry is [rule id, pattern]; a plain phrase is a valid pattern. English is in code. Precision matters, because a match makes the number undiallable for the client: match the negative form only (Telugu cheyakandi or cheyyoddu, never cheyandi; Hindi mat karo, never karo); a removal verb only ('number teesi pettukondi' is 'note the number down'); and never 'phone band karo', which is 'hang up'. The native-script lists are smaller than the romanised ones, written from the language rather than from observed speech-to-text output, and should grow from the first native-script transcripts. tests/call_optout_test.py holds a negative example for each rule.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te": [
+          [
+            "call_cheyakandi",
+            "\\b(call|calls|phone|fone)\\w*\\s+(chey+a?kandi|chey+akandhi|chey+oddu|vad+u|vod+u)\\b"
+          ],
+          [
+            "number_teeseyandi",
+            "\\b(number|nambar|nambaru)\\b[\\w ]{0,20}\\b(t[eh]+se(?:y|yy)\\w*|t[eh]+si\\s*v[ea]\\w*|tholaginch\\w*)"
+          ],
+          [
+            "do_not_call_telu",
+            "(కాల్|ఫోన్|call|calls|phone)\\s*(చేయ(కండి|వద్దు)|చేయొద్దు)"
+          ],
+          [
+            "remove_number_telu",
+            "(నంబర్|నెంబర్)[^\\n]{0,20}తీసే"
+          ]
+        ],
+        "hi": [
+          [
+            "call_mat_karo",
+            "\\b(call|phone|fone|kaal)\\s+(mat|nahi|nahin|na)\\s+\\w*(karo|kariye|kijiye|karna|karein|kare|kar)\\b"
+          ],
+          [
+            "number_hata_do",
+            "\\b(number|nambar|list|suchi)\\b[\\w ]{0,25}\\bhata\\w*\\b"
+          ],
+          [
+            "band_karo",
+            "\\b(calls|call karna|phone karna|fone karna)\\b[\\w ]{0,15}\\bband kar\\w*\\b"
+          ],
+          [
+            "do_not_call_deva",
+            "कॉल\\s*(मत|न)\\s*(करो|करें|कीजिए|करना)"
+          ],
+          [
+            "remove_number_deva",
+            "(नंबर|नम्बर)[^\\n]{0,20}हटा"
+          ]
+        ]
+      }
+    },
+    "optout.not_now": {
+      "use": "'Now' a few words before an opt-out makes it 'not now' (another time), per language: latin is matched as whole words, native as written.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te": {
+          "latin": "ippudu|ipudu|ipdu",
+          "native": "ఇప్పుడు"
+        },
+        "hi": {
+          "latin": "abhi(?! se\\b)|abi(?! se\\b)",
+          "native": "अभी(?! से)"
+        }
+      }
+    },
+    "introduction_salutation": {
+      "use": "The salutation said before the agent introduces itself as an AI assistant (D-865), per language code, only for the languages whose AI sentence is an introduction. Changing it changes every live agent's greeting.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te": "నమస్కారం అండి,",
+        "hi": "नमस्ते जी,"
+      }
+    }
+  }
+}

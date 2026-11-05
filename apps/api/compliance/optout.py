@@ -153,9 +153,10 @@ import re
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Final, Protocol
 from uuid import UUID
 
+from calevate_shared import spoken_lines
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -304,56 +305,29 @@ _PATTERNS: tuple[tuple[str, str, str], ...] = (
     ("remove_my_number", "en", r"\b(remove|delete|drop) (my|this|the) (number|phone|contact)\b"),
     ("take_me_off", "en", r"\btake (me|my number|my name) off\b"),
     ("unsubscribe", "en", r"\bunsubscribe\b|\bopt me out\b|\bopt out\b"),
-    # --- Telugu (romanised) ---------------------------------------------------
-    # "call cheyakandi" / "phone cheyyoddu" / "calls vaddu" — the negative form only.
-    (
-        "call_cheyakandi",
-        "te",
-        r"\b(call|calls|phone|fone)\w*\s+(chey+a?kandi|chey+akandhi|chey+oddu|vad+u|vod+u)\b",
-    ),
-    # "naa number teeseyandi" / "list lo nunchi teesivEyandi" — remove my number. A removal
-    # verb only: "number teesi pettukondi" (note the number down) is not one.
-    (
-        "number_teeseyandi",
-        "te",
-        r"\b(number|nambar|nambaru)\b[\w ]{0,20}"
-        r"\b(t[eh]+se(?:y|yy)\w*|t[eh]+si\s*v[ea]\w*|tholaginch\w*)",
-    ),
-    # --- Hindi (romanised) ----------------------------------------------------
-    (
-        "call_mat_karo",
-        "hi",
-        r"\b(call|phone|fone|kaal)\s+(mat|nahi|nahin|na)\s+"
-        r"\w*(karo|kariye|kijiye|karna|karein|kare|kar)\b",
-    ),
-    ("number_hata_do", "hi", r"\b(number|nambar|list|suchi)\b[\w ]{0,25}\bhata\w*\b"),
-    # "calls band karo" / "call karna band karo". Not "phone band karo", which is "hang up".
-    (
-        "band_karo",
-        "hi",
-        r"\b(calls|call karna|phone karna|fone karna)\b[\w ]{0,15}\bband kar\w*\b",
-    ),
-    # --- Native script --------------------------------------------------------
-    # A SMALLER list than the romanised ones, and marked as such: every red-team fixture
-    # we hold is romanised, so these are written from the language rather than from
-    # observed STT output. They are additive — nothing depends on them being complete —
-    # and the first native-script transcript from the pilot is what should grow them.
-    # Code-mixed "call చేయకండి" is matched too: Indian STT writes the English loanword
-    # in Latin script inside a Telugu sentence.
-    ("do_not_call_deva", "hi", r"कॉल\s*(मत|न)\s*(करो|करें|कीजिए|करना)"),
-    ("remove_number_deva", "hi", r"(नंबर|नम्बर)[^\n]{0,20}हटा"),
-    (
-        "do_not_call_telu",
-        "te",
-        r"(కాల్|ఫోన్|call|calls|phone)\s*(చేయ(కండి|వద్దు)|చేయొద్దు)",
-    ),
-    ("remove_number_telu", "te", r"(నంబర్|నెంబర్)[^\n]{0,20}తీసే"),
+)
+
+#: Every other language's patterns are the founder's (`calevate_shared/spoken_lines.json`, entry
+#: `optout.patterns`, G5-2): romanised Telugu and Hindi, the smaller native-script lists
+#: (written from the language rather than from observed STT output, additive, to grow
+#: from the first native-script transcripts), and code-mixed "call చేయకండి", which Indian
+#: STT writes with the English loanword in Latin letters.
+_PATTERNS += tuple(
+    (str(rule), str(language), str(pattern))
+    for language, rules in spoken_lines.by_language("optout.patterns").items()
+    for rule, pattern in rules
 )
 
 #: "Now" in Telugu and Hindi, in the few words before a match: "ippudu call cheyakandi",
 #: "abhi call mat karo" ask for another time. Not "abhi se" ("from now on"), which is the
 #: opposite.
-_NOT_NOW = re.compile(r"\b(?:ippudu|ipudu|ipdu|abhi(?! se\b)|abi(?! se\b))\b|ఇప్పుడు|अभी(?! से)")
+_NOT_NOW_WORDS: Final = spoken_lines.by_language("optout.not_now")
+_NOT_NOW = re.compile(
+    r"\b(?:"
+    + "|".join(w["latin"] for w in _NOT_NOW_WORDS.values())
+    + r")\b|"
+    + "|".join(w["native"] for w in _NOT_NOW_WORDS.values())
+)
 _NOT_NOW_WINDOW = 25
 
 _COMPILED: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(

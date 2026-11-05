@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared import spoken_lines
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,9 +80,11 @@ class StandardTemplate:
 BUSINESS_NAME_VARIABLE: Final = "Your business name"
 
 
-#: Calevate's standard UTILITY templates. Every body names the business and, where it can,
-#: the business's own number to call: Meta's policy asks automated messaging to offer an
-#: escalation path (whatsappbusiness.com/policy, read 15 Oct 2026).
+#: Calevate's standard UTILITY templates, their bodies the founder's
+#: (`calevate_shared/spoken_lines.json`, entries `whatsapp.<purpose>`, G4-2). Every body
+#: names the business and, where it can, the business's own number to call: Meta's policy
+#: asks automated messaging to offer an escalation path (whatsappbusiness.com/policy, read
+#: 15 Oct 2026).
 STANDARD: Final[tuple[StandardTemplate, ...]] = (
     StandardTemplate(
         purpose="booking_confirmed",
@@ -89,39 +92,14 @@ STANDARD: Final[tuple[StandardTemplate, ...]] = (
         variables=("Your business name", "Booking date and time", "Your phone number"),
         examples=("Lakshmi Traders", "Friday 18 October, 4 pm", "+91 98765 43210"),
         needs=("takes_bookings",),
-        bodies={
-            "en": (
-                "Your booking with {{1}} is confirmed for {{2}}. To change it, please call "
-                "{{3}}. Thank you."
-            ),
-            "hi": (
-                "नमस्ते, {{1}} के साथ आपकी बुकिंग {{2}} के लिए पक्की हो गई है। बदलाव के लिए "
-                "कृपया {{3}} पर कॉल करें। धन्यवाद।"
-            ),
-            "te": (
-                "నమస్కారం, {{1}} తో మీ బుకింగ్ {{2}} కి ఖరారైంది. మార్చుకోవాలంటే దయచేసి {{3}} కి కాల్ చేయండి. ధన్యవాదాలు."
-            ),
-        },
+        bodies=spoken_lines.lines("whatsapp.booking_confirmed"),
     ),
     StandardTemplate(
         purpose="details_requested",
         name="calevate_details_you_asked_for",
         variables=("Your business name", "The details", "Your phone number"),
         examples=("Lakshmi Traders", "Open 9 am to 7 pm, Monday to Saturday", "+91 98765 43210"),
-        bodies={
-            "en": (
-                "As you asked on your call with {{1}}, here are the details: {{2}}. For "
-                "anything else, please call {{3}}. Thank you."
-            ),
-            "hi": (
-                "नमस्ते, {{1}} के साथ आपकी कॉल पर आपने जो जानकारी माँगी थी, वह यह है: {{2}}। "
-                "और कुछ जानना हो तो कृपया {{3}} पर कॉल करें। धन्यवाद।"
-            ),
-            "te": (
-                "నమస్కారం, {{1}} తో మీ కాల్‌లో మీరు అడిగిన వివరాలు ఇవి: {{2}}. ఇంకేమైనా "
-                "కావాలంటే దయచేసి {{3}} కి కాల్ చేయండి. ధన్యవాదాలు."
-            ),
-        },
+        bodies=spoken_lines.lines("whatsapp.details_requested"),
     ),
     StandardTemplate(
         purpose="payment_link",
@@ -131,40 +109,14 @@ STANDARD: Final[tuple[StandardTemplate, ...]] = (
         variables=("What the payment is for", "Amount in rupees", "Payment link"),
         examples=("your order", "1500", "https://rzp.io/l/example"),
         needs=("sells", "takes_orders"),
-        bodies={
-            "en": (
-                "Here is the payment link you asked for, for {{1}}. Amount: Rs {{2}}. Pay "
-                "here: {{3}} Thank you."
-            ),
-            "hi": (
-                "नमस्ते, आपने {{1}} के लिए जो भुगतान लिंक माँगा था, वह यह है। राशि: ₹{{2}}। "
-                "यहाँ भुगतान करें: {{3}} धन्यवाद।"
-            ),
-            "te": (
-                "నమస్కారం, మీరు {{1}} కోసం అడిగిన చెల్లింపు లింక్ ఇది. మొత్తం: ₹{{2}}. "
-                "ఇక్కడ చెల్లించండి: {{3}} ధన్యవాదాలు."
-            ),
-        },
+        bodies=spoken_lines.lines("whatsapp.payment_link"),
     ),
     StandardTemplate(
         purpose="callback_time",
         name="calevate_call_back_time",
         variables=("Your business name", "Call-back time", "Your phone number"),
         examples=("Lakshmi Traders", "Friday 18 October, 4 pm", "+91 98765 43210"),
-        bodies={
-            "en": (
-                "This is {{1}}. We will call you back at {{2}}. If that time no longer suits "
-                "you, please call {{3}}. Thank you."
-            ),
-            "hi": (
-                "नमस्ते, {{1}} की ओर से हम आपको {{2}} पर वापस कॉल करेंगे। अगर यह समय ठीक न "
-                "हो तो कृपया {{3}} पर कॉल करें। धन्यवाद।"
-            ),
-            "te": (
-                "నమస్కారం, {{1}} నుండి మేము మీకు {{2}} కి తిరిగి కాల్ చేస్తాము. ఆ సమయం మీకు "
-                "అనుకూలం కాకపోతే దయచేసి {{3}} కి కాల్ చేయండి. ధన్యవాదాలు."
-            ),
-        },
+        bodies=spoken_lines.lines("whatsapp.callback_time"),
     ),
 )
 

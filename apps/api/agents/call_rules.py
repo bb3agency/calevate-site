@@ -104,7 +104,7 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
         judge=(
             "It uses what the caller already said and does not ask it again. Asking for a "
             "detail the caller has not given yet, or checking an amount that was unclear "
-            '("two kg or two packets?"), is right, not a repeat.'
+            '("did you say two, or ten?"), is right, not a repeat.'
         ),
         writer="Ask only for the listed details, and only those the caller has not already said.",
         expect="",
@@ -119,7 +119,7 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
         judge=(
             "It says only its own part, never the caller's. When the caller breaks off "
             "mid-answer or says something that fits none of the options it offered, asking "
-            'again or offering its reading as a question with a way out ("one kg, or more?") '
+            'again or offering its reading as a question with a way out ("just one, or more?") '
             "and waiting is right; finishing their sentence or acting on a guess is not."
         ),
         writer="No line answers for the caller or treats a guess as what they said.",

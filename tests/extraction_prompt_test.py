@@ -124,7 +124,7 @@ def test_the_prompt_says_only_the_callers_words_are_facts_about_the_caller() -> 
 def test_the_prompt_forbids_taking_a_value_from_the_agents_question() -> None:
     """Defect 1, in the model's words: "Mee peru cheppandi?" is a request for a name.
     A model that treats it as an answer files a person who does not exist."""
-    _requires("mee peru cheppandi", "is a question", "not an answer")
+    _requires("asking for a name has no name in it", "not the caller's intent")
 
 
 def test_the_prompt_forbids_taking_a_value_from_the_agents_menu_of_options() -> None:
@@ -137,7 +137,7 @@ def test_the_prompt_says_a_denial_is_not_a_confirmation() -> None:
     """Defect 2: the caller answering "Ledu" set `wants_callback = true`, and the client
     then rings someone who said no — the harm the do-not-call machinery exists to
     prevent."""
-    _requires("ledu", "vaddu", "denial", "false", "never true")
+    _requires("in any language or script", "refused", "denial", "false", "never true")
 
 
 def test_a_yes_no_field_nobody_asked_about_is_null_not_false() -> None:

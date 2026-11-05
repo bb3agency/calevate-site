@@ -13,8 +13,10 @@ import {
   UNKNOWN_CAPABILITIES,
   businessLanguage,
   callersWord,
+  capabilitiesJudged,
   capabilitiesOf,
   goAheadLabel,
+  leadWords,
   quotesPrices,
 } from "@/lib/businessCapabilities";
 import { suggestedQuestions } from "@/lib/copilot/suggestions";
@@ -99,6 +101,29 @@ describe("the capability profile, read", () => {
     expect(businessLanguage("en")).toBe("en-IN");
     expect(businessLanguage(null)).toBe("te-IN");
     expect(businessLanguage("fr-FR")).toBe("te-IN");
+  });
+});
+
+describe("the lead ladder's words (G1-1)", () => {
+  it("says lead and hot lead only for a business judged to sell", () => {
+    expect(leadWords(capabilitiesOf(SHOP)).hotLead).toBe("hot lead");
+    expect(leadWords(capabilitiesOf(SHOP)).leads).toBe("leads");
+  });
+
+  it("names the callers neutrally for one that sells nothing, and for one not judged yet", () => {
+    expect(leadWords(capabilitiesOf(HELPS_USERS))).toEqual({
+      lead: "interested user",
+      leads: "interested users",
+      newLead: "interested user",
+      hotLead: "most interested user",
+      hotLeads: "most interested users",
+    });
+    expect(leadWords(capabilitiesOf(UNKNOWN)).hotLeads).toBe("most interested callers");
+  });
+
+  it("knows whether the business has been judged yet", () => {
+    expect(capabilitiesJudged(capabilitiesOf(UNKNOWN))).toBe(false);
+    expect(capabilitiesJudged(capabilitiesOf(SHOP))).toBe(true);
   });
 });
 

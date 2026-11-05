@@ -149,7 +149,8 @@ async def test_one_topic_is_one_question_across_agents_ranked_by_calls() -> None
 async def test_practice_and_setup_questions_appear_only_while_nothing_answers_them() -> None:
     tenant_id, _agent_id, _ = await _tenant()
     keys = {q.key: q.why for q in (await _list(tenant_id)).items}
-    assert keys == {"pricing": "practice", "timings": "setup", "location": "setup"}
+    # Not judged to quote prices yet, so no price question (G1-1).
+    assert keys == {"timings": "setup", "location": "setup"}
 
     await _profile(
         tenant_id,
@@ -176,7 +177,7 @@ async def test_an_agent_scope_narrows_the_callers_questions_only() -> None:
     await _gap(tenant_id, agent_id, "Do you deliver to Kukatpally?")
     other = await _list(tenant_id, agent_id=uuid.uuid4())
     assert "delivery" not in {q.key for q in other.items}
-    assert {q.why for q in other.items} == {"practice", "setup"}
+    assert {q.why for q in other.items} == {"setup"}
 
 
 # --- answering and dismissing -----------------------------------------------------------
@@ -378,7 +379,7 @@ async def test_no_draft_without_sources_and_no_model_call(monkeypatch: pytest.Mo
     async with tenant_session(tenant_id) as session:
         fingerprint = (
             await session.execute(
-                text("SELECT inputs_hash FROM teach_questions WHERE question_key = 'pricing'")
+                text("SELECT inputs_hash FROM teach_questions WHERE question_key = 'timings'")
             )
         ).scalar_one()
 
@@ -388,11 +389,11 @@ async def test_no_draft_without_sources_and_no_model_call(monkeypatch: pytest.Mo
     monkeypatch.setattr(draft_worker, "ask_json", never)
     outcome = await draft_worker.draft_teach_question(
         {},
-        {"tenant_id": str(tenant_id), "question_key": "pricing", "inputs_hash": fingerprint},
+        {"tenant_id": str(tenant_id), "question_key": "timings", "inputs_hash": fingerprint},
     )
     assert outcome == "no_sources"
-    pricing = next(q for q in (await _list(tenant_id)).items if q.key == "pricing")
-    assert pricing.draft is None and pricing.drafting is False
+    timings = next(q for q in (await _list(tenant_id)).items if q.key == "timings")
+    assert timings.draft is None and timings.drafting is False
 
 
 # --- the routes and the neighbour ---------------------------------------------------------

@@ -54,6 +54,7 @@ from datetime import UTC, datetime
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared import spoken_lines
 from calevate_shared.engine import E164, HandoffSpec
 from calevate_shared.languages import get_language
 from sqlalchemy import text
@@ -177,25 +178,15 @@ HANDOFF_TRIGGER_DEFAULT: Final = (
 #: agree because they read one row, not because two comments say they should.
 _FALLBACK_LANGUAGE: Final = get_language("english_india").bcp47
 
-#: WHAT THE CALLER HEARS while the handover is placed, per language.
+#: WHAT THE CALLER HEARS while the handover is placed, per language: the founder's lines
+#: (`calevate_shared/spoken_lines.json`, entry `handover`), never typed here (G4-1).
 #:
-#: Composed here rather than typed by a client, for `compliance/disclosure.py`'s reason:
-#: this sentence is spoken on every escalated call and the wording is a product decision,
-#: not a per-agent field. It promises only what this platform can keep — that somebody is
-#: being rung — and never "they know why you are calling", which would be a claim about a
-#: whisper that does not exist.
-HANDOFF_SPOKEN_TEMPLATES: Final[dict[str, str]] = {
-    "te-IN": "Sare, nenu ippudu maa team lo okarini kaluputunnanu. Konchem wait cheyandi.",
-    "hi-IN": "Theek hai, main aapko hamari team se jod raha hoon. Kripya thoda intezaar karein.",
-    "en-IN": "Alright, I am putting you through to someone from our team now. Please hold.",
-    # Staged (D-855), drafted 23 Oct 2026 in each language's own script (D-745) with the
-    # English words people use: NEEDS NATIVE-SPEAKER REVIEW. No caller hears these until
-    # `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
-    "ta-IN": "சரி, இப்போது உங்களை எங்கள் team-ல ஒருத்தர்கிட்ட connect பண்றேன். கொஞ்சம் wait பண்ணுங்க.",
-    "kn-IN": "ಸರಿ, ಈಗ ನಿಮ್ಮನ್ನು ನಮ್ಮ team ನಲ್ಲಿ ಒಬ್ಬರಿಗೆ connect ಮಾಡ್ತಿದ್ದೀನಿ. ಸ್ವಲ್ಪ wait ಮಾಡಿ.",
-    "ml-IN": "ശരി, ഇപ്പോൾ നിങ്ങളെ ഞങ്ങളുടെ team-ലെ ഒരാളുമായി connect ചെയ്യുന്നു. കുറച്ച് wait ചെയ്യണേ.",
-    "mr-IN": "ठीक आहे, आता मी तुम्हाला आमच्या team मधल्या एकाशी connect करत आहे. थोडा वेळ wait करा.",
-}
+#: Composed by the platform rather than typed by a client, for `compliance/disclosure.py`'s
+#: reason: this sentence is spoken on every escalated call and the wording is a product
+#: decision, not a per-agent field. It promises only what this platform can keep — that
+#: somebody is being rung — and never "they know why you are calling", which would be a claim
+#: about a whisper that does not exist.
+HANDOFF_SPOKEN_TEMPLATES: Final[dict[str, str]] = spoken_lines.lines("handover")
 
 #: Why nobody is on duty. Each value is a sentence a CLIENT is shown and an operator
 #: metric label, so the set is closed and each member has an authored remediation below.
@@ -396,8 +387,15 @@ def spoken_line_for(language: str) -> str:
     ONE PRODUCER, so the sentence the client's screen SHOWS and the sentence the engine
     SPEAKS cannot come to differ — `compose_opening_line` is the same discipline about the
     same class of string.
+
+    A language with no line in its own letters gets the English line: the line only says a
+    person is being rung, so English is safe, while a Telugu sentence in Latin letters is read
+    by the voice as English anyway, and wrongly (D-745).
     """
-    return HANDOFF_SPOKEN_TEMPLATES.get(language, HANDOFF_SPOKEN_TEMPLATES[_FALLBACK_LANGUAGE])
+    line = HANDOFF_SPOKEN_TEMPLATES.get(language)
+    if line and spoken_lines.in_own_script(line, language):
+        return line
+    return HANDOFF_SPOKEN_TEMPLATES[_FALLBACK_LANGUAGE]
 
 
 def handoff_spec(duty: OnDuty, *, trigger: str | None, language: str) -> HandoffSpec | None:

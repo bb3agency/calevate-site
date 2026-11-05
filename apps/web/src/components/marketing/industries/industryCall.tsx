@@ -1,5 +1,6 @@
 import { lookup } from "@/lib/lookup";
 import { Chip, MaskedPhone, StatusPill, Tag, Window } from "@/components/marketing/home/mockups/kit";
+import { founderLine } from "@/lib/founderLines";
 
 /**
  * One call per trade, opened the way the console opens it — `app/c/[slug]/calls/[callId]`:
@@ -58,27 +59,27 @@ export const INDUSTRY_CALLS: Record<string, IndustryCall> = {
     turns: [
       {
         who: "Agent",
-        said: "నమస్కారం, Sunrise Dental. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలా సహాయం చేయగలను?",
+        said: founderLine("marketing.industry_call.0"),
         en: "Namaskaram, Sunrise Dental. I am an AI assistant, and this call is recorded. How can I help?",
       },
       {
         who: "Caller",
-        said: "పంటి నొప్పిగా ఉంది, రూట్ కెనాల్ కావాలేమో. డాక్టర్ రావు గారు ఉంటారా?",
+        said: founderLine("marketing.industry_call.1"),
         en: "My tooth hurts, I may need a root canal. Is Dr Rao available?",
       },
       {
         who: "Agent",
-        said: "ఉంటారు. ఈ వారంలో ఏ రోజు మీకు వీలవుతుంది?",
+        said: founderLine("marketing.industry_call.2"),
         en: "He is. Which day this week suits you?",
       },
       {
         who: "Caller",
-        said: "మంగళవారం సాయంత్రం 6కి. ఇన్సూరెన్స్ లేదు, క్యాష్ కడతాను.",
+        said: founderLine("marketing.industry_call.3"),
         en: "Tuesday at 6 in the evening. No insurance, I will pay cash.",
       },
       {
         who: "Agent",
-        said: "మంగళవారం సాయంత్రం 6 గంటలకు డాక్టర్ రావు గారితో బుక్ చేశాను.",
+        said: founderLine("marketing.industry_call.4"),
         en: "Booked with Dr Rao for Tuesday at 6 PM.",
       },
     ],
@@ -103,32 +104,32 @@ export const INDUSTRY_CALLS: Record<string, IndustryCall> = {
     turns: [
       {
         who: "Agent",
-        said: "నమస్కారం, Gachibowli Homes. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలాంటి ఇల్లు కావాలి?",
+        said: founderLine("marketing.industry_call.5"),
         en: "Namaskaram, Gachibowli Homes. I am an AI assistant, and this call is recorded. What kind of home are you looking for?",
       },
       {
         who: "Caller",
-        said: "గచ్చిబౌలిలో 3BHK కావాలి. బడ్జెట్ 80 లక్షల వరకు.",
+        said: founderLine("marketing.industry_call.6"),
         en: "A 3BHK in Gachibowli. Budget up to 80 lakhs.",
       },
       {
         who: "Agent",
-        said: "ఎప్పటిలోగా తీసుకోవాలనుకుంటున్నారు?",
+        said: founderLine("marketing.industry_call.7"),
         en: "By when are you looking to buy?",
       },
       {
         who: "Caller",
-        said: "ఈ నెలలోనే.",
+        said: founderLine("marketing.industry_call.8"),
         en: "This month itself.",
       },
       {
         who: "Agent",
-        said: "శనివారం సైట్ విజిట్ బుక్ చేయనా?",
+        said: founderLine("marketing.industry_call.9"),
         en: "Shall I book a site visit for Saturday?",
       },
       {
         who: "Caller",
-        said: "సరే, శనివారం ఉదయం.",
+        said: founderLine("marketing.industry_call.10"),
         en: "Okay, Saturday morning.",
       },
     ],
@@ -193,27 +194,27 @@ export const INDUSTRY_CALLS: Record<string, IndustryCall> = {
     turns: [
       {
         who: "Agent",
-        said: "नमस्ते, Vision Academy. मैं एक AI असिस्टेंट हूँ, और यह कॉल रिकॉर्ड की जा रही है। मैं आपकी क्या मदद कर सकती हूँ?",
+        said: founderLine("marketing.industry_call.11"),
         en: "Namaste, Vision Academy. I am an AI assistant, and this call is recorded. How can I help?",
       },
       {
         who: "Caller",
-        said: "मेरा बेटा NEET दोबारा देना चाहता है। उसने इस साल 12वीं पास की है।",
+        said: founderLine("marketing.industry_call.12"),
         en: "My son wants to sit NEET again. He finished Class 12 this year.",
       },
       {
         who: "Agent",
-        said: "हमारा रिपीटर बैच है। क्या वह शुक्रवार को एक डेमो क्लास में बैठना चाहेगा?",
+        said: founderLine("marketing.industry_call.13"),
         en: "We have a repeater batch. Would he like to sit in on a demo class on Friday?",
       },
       {
         who: "Caller",
-        said: "हाँ। फ़ीस कितनी है?",
+        said: founderLine("marketing.industry_call.14"),
         en: "Yes. What are the fees?",
       },
       {
         who: "Agent",
-        said: "फ़ीस की पूरी जानकारी काउंसलर देंगे। शुक्रवार शाम 5 बजे का डेमो बुक कर दिया है।",
+        said: founderLine("marketing.industry_call.15"),
         en: "The counsellor will go through the fees. I have booked the demo for Friday at 5 PM.",
       },
     ],

@@ -6,21 +6,34 @@ plans, the script switches, the calendar reminder and the practice callers all n
 few answers from it, so they read this one small, hashable value rather than each parsing
 the stored copy. Hashable so a starter built for it can be cached like the catalogue.
 
-THE UNKNOWN RULE carries through unchanged: every flag is None until the business is
-judged, and a consumer then does exactly what it did before the profile existed. Only False
-withdraws anything.
+UNKNOWN IS NEUTRAL (audit of 5 Nov 2026, G1-1). Every flag is None until the business is
+judged, and what an agent says is then written for no particular kind of business: nothing
+offers a booking, quotes a price, speaks of buying or of a place to visit until the business
+is judged to do it. The `assumes_*` properties are that reading, and every consumer that
+WRITES for callers (starters, playbooks, practice callers) uses them rather than
+`flag is not False`, which made "a shop that books" the platform's default. What an owner may
+switch on is a different question (`ScriptPolicies`, `script_routes.policies_applicable`): an
+unjudged business is offered every switch, because hiding one would take away what it may
+really do.
+
+ONE AGENT'S JOB (G1-2). The profile is the business's; an agent's own "may do" switches are
+its job. `for_agent` narrows the profile to one agent: a switch the owner turned off withdraws
+what it governs, so a selling business's support agent is practised and written for as a
+support agent. A switch left on asserts it only while the business is unjudged, because the
+switch is hidden (and its value stale) once the business is judged not to do it.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.call_script import ScriptPolicies
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.tenancy.business_copy import GeneratedCopy, parse_stored
+from apps.api.tenancy.business_copy import GeneratedCopy, StarterWords, parse_stored
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +54,8 @@ class BusinessFit:
     #: The copy's own sentences for the agent's goal and role (English).
     call_goal: str | None = None
     agent_role: str | None = None
+    #: The ready-made agents' own words (names, topics, capture, caution) once written.
+    words: StarterWords | None = None
 
     @property
     def books(self) -> bool | None:
@@ -51,6 +66,56 @@ class BusinessFit:
         if self.takes_bookings or self.takes_orders:
             return True
         return None
+
+    @property
+    def judged(self) -> bool:
+        """Whether the copy run has judged every capability."""
+        return None not in (
+            self.takes_bookings,
+            self.takes_orders,
+            self.quotes_prices,
+            self.has_premises,
+            self.sells,
+        )
+
+    @property
+    def assumes_booking(self) -> bool:
+        """Callers book or order: only when judged so. Unknown offers nothing."""
+        return self.books is True
+
+    @property
+    def assumes_orders(self) -> bool:
+        return self.sells is True and self.takes_orders is True
+
+    @property
+    def assumes_prices(self) -> bool:
+        """Callers are told prices: only when judged to sell and to quote them."""
+        return self.sells is True and self.quotes_prices is True
+
+    @property
+    def assumes_sale(self) -> bool:
+        return self.sells is True
+
+    @property
+    def assumes_premises(self) -> bool:
+        """Callers come to a place: only when judged so."""
+        return self.has_premises is True
+
+    def for_agent(self, policies: ScriptPolicies | None) -> BusinessFit:
+        """This business as one agent's job (G1-2). A switch the owner turned off withdraws
+        what it governs; a switch left on asserts it only while the business is unjudged."""
+        if policies is None:
+            return self
+        fit = self
+        if not policies.take_bookings:
+            fit = replace(fit, takes_bookings=False, takes_orders=False)
+        elif fit.takes_bookings is None and fit.takes_orders is None:
+            fit = replace(fit, takes_bookings=True)
+        if not policies.share_prices:
+            fit = replace(fit, quotes_prices=False)
+        elif fit.quotes_prices is None and fit.sells is None:
+            fit = replace(fit, quotes_prices=True, sells=True)
+        return fit
 
     @property
     def offer_noun(self) -> str | None:
@@ -126,6 +191,7 @@ def fit_of(copy: GeneratedCopy | None, *, language: str | None = None) -> Busine
         example_questions=tuple(copy.example_questions),
         call_goal=placeholders.call_goal,
         agent_role=placeholders.agent_role,
+        words=copy.starter_words,
     )
 
 

@@ -32,6 +32,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from calevate_shared import spoken_lines
 from calevate_shared.call_script import (
     COLLECT_HEADER,
     NativeStep,
@@ -3005,7 +3006,9 @@ _REGISTER_BULLET: Final = (
 #:   rule says, for every language at once, that a suffix or particle is written joined to its
 #:   word. It is in English and names no language's words: the founder's native example for a
 #:   language is the `written_form` slot in `spoken_style.json`, quoted after this rule.
-_WRITTEN_FORM_BULLET: Final = "- Write as native speakers do: a suffix, particle or vowel joins its word.\n"
+_WRITTEN_FORM_BULLET: Final = (
+    "- Write as native speakers do: a suffix, particle or vowel joins its word.\n"
+)
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 
@@ -4501,10 +4504,7 @@ def notice_fields(posture: DisclosurePosture, *, call_is_recorded: bool) -> Noti
 #: language keeps D-861's order, the opening line first and the notices after it. Fixed text:
 #: changing it changes every live agent's greeting, which `agents/live_apply.
 #: platform_prompt_revision` carries.
-INTRODUCTION_SALUTATIONS: Final[dict[str, str]] = {
-    "te": "నమస్కారం అండి,",
-    "hi": "नमस्ते जी,",
-}
+INTRODUCTION_SALUTATIONS: Final[dict[str, str]] = spoken_lines.lines("introduction_salutation")
 
 
 def introduction_salutation(language: str) -> str | None:

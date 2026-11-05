@@ -354,7 +354,8 @@ async def test_the_preview_is_the_callers_own_business_type() -> None:
     assert [s["job"] for s in body["starters"]] == ["answer_calls", "call_new_leads", "call_leads"]
     receptionist = body["starters"][0]
     assert receptionist["direction"] == "inbound"
-    assert receptionist["step_titles"][3] == "Offer a site visit"
+    # Not yet judged to book (no copy row): the offer step agrees the next step (G1-1).
+    assert receptionist["step_titles"][3] == "Agree the next step"
     assert receptionist["captured_details"] == [
         *(f.label for f in CORE_LEAD_FIELDS),
         *(f["label"] for f in VERTICAL_TEMPLATES["real_estate"]),

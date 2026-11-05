@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import Final
 from uuid import UUID
 
+from calevate_shared import spoken_lines
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,19 +59,10 @@ REASK_AFTER_MS: Final = REASK_NEVER
 #: 10-minute default.
 CALL_CAP_S: Final = 900
 
-#: "Can you see it?" in each language an agent can be stored in (`agents/languages.
-#: BUILT_LANGUAGES`; `tests/patient_caller_test.py` holds the keys to it). The Telugu line is
-#: the founder's (RytuKhata brief, 27 Oct 2026); the others are spoken forms of the same short
-#: question, not yet reviewed by a native speaker, and are the owner's to change.
-NUDGE_PHRASES: Final[dict[str, str]] = {
-    "te-IN": "కనిపించిందా అండి?",
-    "hi-IN": "दिख गया जी?",
-    "en-IN": "Can you see it?",
-    "ta-IN": "தெரிகிறதா?",
-    "kn-IN": "ಕಾಣಿಸ್ತಾ?",
-    "ml-IN": "കാണുന്നുണ്ടോ?",
-    "mr-IN": "दिसलं का?",
-}
+#: "Can you see it?" per language: the founder's lines (`calevate_shared/spoken_lines.json`, entry
+#: `still_there`, A-12). A language with no line there gets none, which leaves the
+#: platform's own "are you still there?" in the caller's language (D-915).
+NUDGE_PHRASES: Final[dict[str, str]] = spoken_lines.lines("still_there")
 
 
 def nudge_phrase_for(language: str, *, caller_has_screen: bool) -> str:

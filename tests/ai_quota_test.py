@@ -44,10 +44,10 @@ from uuid import UUID
 import pytest
 from apps.api.billing import ai_quota
 from apps.api.billing.ai_quota import (
-    AI_OVERAGE_BLOCK_INR,
     AI_QUOTA_INR,
     PLATFORM_AI_BRAKE_INR,
     AiQuota,
+    ai_overage_block_inr,
     assist_nominal_inr,
     ktok,
     new_assist_ref,
@@ -578,10 +578,10 @@ async def test_the_acceptance_is_the_only_thing_that_debits_and_it_writes_one_ro
     after = await get_balance_for(tenant_id)
 
     assert result.charged is True
-    assert before - after == AI_OVERAGE_BLOCK_INR, f"debited {before - after}"
+    assert before - after == ai_overage_block_inr(), f"debited {before - after}"
 
     ledger = [row for row in await _ledger(tenant_id) if row[0] == "usage"]
-    assert ledger == [("usage", -AI_OVERAGE_BLOCK_INR, overage_ref(current_billing_month()))], (
+    assert ledger == [("usage", -ai_overage_block_inr(), overage_ref(current_billing_month()))], (
         f"expected exactly one usage row keyed by the month, got {ledger}"
     )
 
@@ -598,7 +598,7 @@ async def test_a_second_acceptance_of_the_same_month_charges_nothing() -> None:
 
     assert first.charged is True
     assert second.charged is False, "a second acceptance charged again"
-    assert second.amount_inr == AI_OVERAGE_BLOCK_INR
+    assert second.amount_inr == ai_overage_block_inr()
     usage_rows = [row for row in await _ledger(tenant_id) if row[0] == "usage"]
     assert len(usage_rows) == 1, f"two rows for one month: {usage_rows}"
 
@@ -642,7 +642,7 @@ async def test_two_interleaved_acceptances_debit_once_and_the_second_really_wait
                 await a_locked.wait()
             async with tenant_session(tenant_id) as session:
                 return await purchase_ai_overage(
-                    session, tenant_id=tenant_id, accepted_amount_inr=AI_OVERAGE_BLOCK_INR
+                    session, tenant_id=tenant_id, accepted_amount_inr=ai_overage_block_inr()
                 )
 
         results = await asyncio.gather(accept(False), accept(True))
@@ -711,7 +711,7 @@ async def test_the_bought_block_raises_the_allowance_and_then_the_month_is_finis
     await _buy(tenant_id)
 
     quota = await _quota(tenant_id)
-    assert quota.allowance_inr == AI_QUOTA_INR["self_serve"] + AI_OVERAGE_BLOCK_INR
+    assert quota.allowance_inr == AI_QUOTA_INR["self_serve"] + ai_overage_block_inr()
     assert quota.state == "within", "the block did not raise the allowance"
 
     # Spend the block too: six more ₹100 assists take used past ₹600.
@@ -753,7 +753,7 @@ async def test_the_acceptance_lands_an_audit_row_in_the_same_transaction() -> No
 
     async with tenant_session(tenant_id) as session:
         await buy_ai_extra(
-            AiExtraIn(accept_amount_inr=AI_OVERAGE_BLOCK_INR),
+            AiExtraIn(accept_amount_inr=ai_overage_block_inr()),
             session,
             _request(),
             _principal(tenant_id),
@@ -796,7 +796,7 @@ async def test_a_replayed_acceptance_writes_no_second_audit_row() -> None:
     for _ in range(2):
         async with tenant_session(tenant_id) as session:
             await buy_ai_extra(
-                AiExtraIn(accept_amount_inr=AI_OVERAGE_BLOCK_INR),
+                AiExtraIn(accept_amount_inr=ai_overage_block_inr()),
                 session,
                 _request(),
                 _principal(tenant_id),
@@ -892,7 +892,7 @@ async def test_no_money_field_crosses_the_wire_as_a_json_number() -> None:
     assert _floats(body) == [], f"money left as JSON floats: {_floats(body)}"
     assert body["included_inr"] == "100.00"
     assert body["used_inr"] == str(to_paise(ONE_ASSIST_INR))
-    assert body["extra_block_inr"] == str(AI_OVERAGE_BLOCK_INR)
+    assert body["extra_block_inr"] == str(ai_overage_block_inr())
     assert body["extra_purchased_inr"] is None, "nothing bought reads as null, not 0.00"
 
 
@@ -930,7 +930,7 @@ async def get_balance_for(tenant_id: UUID) -> Decimal:
 async def _buy(tenant_id: UUID) -> ai_quota.ExtraPurchase:
     async with tenant_session(tenant_id) as session:
         return await purchase_ai_overage(
-            session, tenant_id=tenant_id, accepted_amount_inr=AI_OVERAGE_BLOCK_INR
+            session, tenant_id=tenant_id, accepted_amount_inr=ai_overage_block_inr()
         )
 
 
@@ -1057,7 +1057,7 @@ async def test_a_tenant_under_its_ceiling_is_let_through_with_its_quota() -> Non
 # 9. The product terms are ARITHMETIC, not opinions (D-140)
 # ============================================================================
 #
-# `AI_QUOTA_INR`, `assist_nominal_inr`, `AI_OVERAGE_BLOCK_INR` and
+# `AI_QUOTA_INR`, `assist_nominal_inr`, `ai_overage_block_inr()` and
 # `PLATFORM_AI_BRAKE_INR` shipped as four typed rupee figures whose only justification
 # was a sentence beside each. A sentence cannot be wrong by 100x and a number can, and a
 # ceiling wrong by 100x is a product defect that reads exactly like a correct one — it
@@ -1166,13 +1166,13 @@ def test_no_product_constant_is_out_by_an_order_of_magnitude(model: str) -> None
     # The block has to be worth buying (at least a self_serve month over again) and must
     # not exceed one month's brake — a single tenant able to buy past the platform's own
     # ceiling would make the brake unreachable by purchase.
-    assert AI_QUOTA_INR["self_serve"] <= AI_OVERAGE_BLOCK_INR
-    assert AI_OVERAGE_BLOCK_INR < PLATFORM_AI_BRAKE_INR
+    assert AI_QUOTA_INR["self_serve"] <= ai_overage_block_inr()
+    assert ai_overage_block_inr() < PLATFORM_AI_BRAKE_INR
 
     # The brake must clear the largest single tenant's worst case (their whole allowance
     # plus a block) several times over, or one client trips it alone and the per-tenant
     # ceiling is doing no work.
-    worst_tenant = AI_QUOTA_INR["managed"] + AI_OVERAGE_BLOCK_INR
+    worst_tenant = AI_QUOTA_INR["managed"] + ai_overage_block_inr()
     assert worst_tenant * 10 <= PLATFORM_AI_BRAKE_INR, "one tenant can trip the platform brake"
 
 
@@ -1267,7 +1267,7 @@ async def test_the_published_assist_estimate_follows_the_live_model_switch(
     # And the wire shape carries the same arithmetic, so the modal's "N more uses" cannot
     # quote a different model from the panel behind it.
     assert quota_payload(dear)["extra_block_requests"] == int(
-        AI_OVERAGE_BLOCK_INR // assist_nominal_inr(other)
+        ai_overage_block_inr() // assist_nominal_inr(other)
     )
 
 

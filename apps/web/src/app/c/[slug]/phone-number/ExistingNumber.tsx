@@ -47,7 +47,7 @@ import { AskForMoreLines } from "@/components/callLines/AskForMoreLines";
 import { callsAtOnce, useMyCallLines } from "@/lib/api/callLines";
 import { useBusinessCopy } from "@/lib/api/businessCopy";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { capabilitiesOf, takesBookingsOrOrders } from "@/lib/businessCapabilities";
+import { capabilitiesOf, offerNoun } from "@/lib/businessCapabilities";
 import { useClientRealm } from "@/lib/api/session";
 
 /**
@@ -323,8 +323,8 @@ export function SaveNumber({ session }: { session: Session }) {
   // The switch itself shows the new state; a refusal is drawn under it.
   useActionFeedback(set, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change the save-our-number message");
-  // A business that takes no bookings or orders only ever sends it after a call back.
-  const books = takesBookingsOrOrders(capabilitiesOf(useBusinessCopy(session).data));
+  // Named for what this business is judged to take; a call back until then (G1-1).
+  const offer = offerNoun(capabilitiesOf(useBusinessCopy(session).data));
   return (
     <Section
       title="Ask callers to save your number"
@@ -337,8 +337,8 @@ export function SaveNumber({ session }: { session: Session }) {
       ) : (
         <div className="space-y-2">
           <ToggleSwitch
-            label={books ? "Send one message after a booking" : "Send one message after a call back"}
-            hint={books ? "After a booking or call back, on WhatsApp." : "After a call back is arranged, on WhatsApp."}
+            label={offer ? `Send one message after ${offer}` : "Send one message after a call back"}
+            hint={offer ? `After ${offer} or a call back, on WhatsApp.` : "After a call back or what your agent arranges, on WhatsApp."}
             checked={state.data.enabled}
             disabled={!write.allowed || set.isPending}
             onChange={(next) => set.mutate(next)}

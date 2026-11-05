@@ -36,6 +36,7 @@ from uuid import UUID
 import httpx
 from calevate_shared.call_script import upgrade_to_v2
 from calevate_shared.engine import VoiceEngine
+from calevate_shared.languages import find_language
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -82,6 +83,7 @@ from apps.api.agents.test_conversations import (
     standard_scenarios,
     store_improve_stop,
     store_improvement,
+    untested_callers,
     waiting_update,
     wants_auto_improvement,
     wrong_tests,
@@ -171,6 +173,15 @@ IMPROVE_FAILED_NOTE: Final = (
     "Suggestions could not be worked out this time. That is on our side and we're fixing "
     "it. Try again in a few minutes."
 )
+
+
+def untested_note(language: str, titles: list[str]) -> str:
+    """The run's note when standard callers had no line in the agent's language (G5-1): the
+    run says so rather than practise the agent in another language."""
+    found = find_language(language)
+    name = found.english_name if found is not None else language
+    return f"Not tested in {name} yet: {', '.join(titles)}."
+
 
 #: The note on a run whose tests came from real calls alone.
 FROM_REAL_CALLS_NOTE: Final = (
@@ -377,6 +388,9 @@ async def new_test_set(
             if s.probe is None and wrong.keeps(s)
         ],
     )
+    if few_calls and (untested := untested_callers(language, brief.direction, brief.fit)):
+        said = untested_note(language, untested)
+        note = f"{note} {said}" if note else said
     return scenarios, note
 
 

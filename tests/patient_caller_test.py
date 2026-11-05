@@ -137,8 +137,12 @@ async def test_the_owner_sets_it_for_one_agent_or_all_and_the_live_agent_follows
 # --- the preset -----------------------------------------------------------------------------
 
 
-def test_a_question_for_every_language_an_agent_can_speak() -> None:
-    assert set(patient_caller.NUDGE_PHRASES) == set(BUILT_LANGUAGES)
+def test_only_the_founders_lines_are_asked() -> None:
+    """A-12: the lines come from the founder's data file; a language with no line there
+    gets none, and the machine drafts are never asked."""
+    assert set(patient_caller.NUDGE_PHRASES) <= set(BUILT_LANGUAGES)
+    assert set(patient_caller.NUDGE_PHRASES) == {"te-IN", "en-IN"}
+    assert patient_caller.nudge_phrase_for("hi-IN", caller_has_screen=True) == ""
     for phrase in patient_caller.NUDGE_PHRASES.values():
         assert phrase.strip() == phrase and 0 < len(phrase) <= NUDGE_PHRASE_MAX_CHARS
     assert patient_caller.nudge_phrase_for("te-IN", caller_has_screen=True) == "కనిపించిందా అండి?"
@@ -151,10 +155,10 @@ def test_can_you_see_it_is_asked_only_of_callers_following_a_screen() -> None:
     any language; the platform's own "are you still there?" stays."""
     for language in patient_caller.NUDGE_PHRASES:
         assert patient_caller.nudge_phrase_for(language, caller_has_screen=False) == ""
-    assert patient_caller.preset_changes("hi-IN", caller_has_screen=False)["nudge_phrase"] == ""
+    assert patient_caller.preset_changes("te-IN", caller_has_screen=False)["nudge_phrase"] == ""
     assert (
-        patient_caller.preset_changes("hi-IN", caller_has_screen=True)["nudge_phrase"]
-        == (patient_caller.NUDGE_PHRASES["hi-IN"])
+        patient_caller.preset_changes("te-IN", caller_has_screen=True)["nudge_phrase"]
+        == (patient_caller.NUDGE_PHRASES["te-IN"])
     )
 
 
