@@ -185,10 +185,10 @@ def test_the_client_settings_and_the_platform_values_are_on_every_agent() -> Non
 
 
 def test_the_defaults_leave_the_wording_and_fillers_to_the_platform() -> None:
-    """F9: ask after 8 s, once; hang up after 20 s. An empty prompt line or filler list is
-    the platform's own, in the caller's language."""
+    """F9: ask once, after the console's 15 s (founder, 6 Nov 2026); hang up after 20 s. An
+    empty prompt line or filler list is the platform's own, in the caller's language."""
     voice = _held(_cfg())["voice"]
-    assert (voice["nudgeAfterSeconds"], voice["nudges"], voice["nudgePhrase"]) == (8, 1, None)
+    assert (voice["nudgeAfterSeconds"], voice["nudges"], voice["nudgePhrase"]) == (15, 1, None)
     assert voice["endAfterSilenceSeconds"] == 20
     assert voice["thinkingLines"] == []
     assert (voice["ambience"], voice["ambienceVolume"]) == (None, 0.15)

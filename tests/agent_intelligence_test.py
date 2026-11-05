@@ -290,7 +290,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # placed call ask if now suits (7,930 before). 5 Nov 2026: speech written as native
     # speakers write it (F-5); a mid-call hello never restarts, "I don't remember you" gets
     # who and why, and "what do you hold?" gets THIS CALL's name and details (8,120 before).
-    assert len(prompt) <= 8_200
+    # The founder's Rytu Khata call of 6 Nov 2026: a line the caller spoke over comes back in
+    # new words, a question is answered rather than the last point repeated, and no greeting
+    # in any later turn (8,199 before); `PER_CALL_MAX` held.
+    assert len(prompt) <= 8_250
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

@@ -76,8 +76,12 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
         assert prompt.rindex(TRUTHFUL_ANSWER_MARKER) > prompt.index(START_OF_CALL_HEADER)
     rule = OPENING_CONTINUES_RULE
     # A hello said back and the business name again were the second start of 2 Nov 2026
-    # (D-958), so both are named.
-    assert "Never greet, say hello back, repeat it or its names, or re-ask if now suits" in rule
+    # (D-958), so both are named. A greeting word in any later turn is a second greeting
+    # (founder's call of 6 Nov 2026).
+    assert (
+        "Never greet again in any turn, say hello back, repeat it or its names, or re-ask if "
+        "now suits" in rule
+    )
     # A caller's first question gets its answer, never the opening again (D-910).
     assert "even after answering." in rule
     # A one-word "No" to "can we talk now?" is no yes (D-965).
@@ -111,7 +115,8 @@ def test_what_the_section_costs() -> None:
     # busy or later to the opening's question gets (+56). D-969 a placed call whose first turn
     # did not ask if now suits says the name, who and why and asks it next (+131). 5 Nov 2026:
     # a later hello never restarts, "forgot us?" gets who and why, and "what do you hold?"
-    # gets THIS CALL's name and details (+104).
+    # gets THIS CALL's name and details (+104). 6 Nov 2026: "never greet again in any turn",
+    # paid for by dropping "never restart" (+3).
     assert len(start) - len(spoken) < 920
 
 

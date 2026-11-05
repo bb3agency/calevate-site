@@ -16,6 +16,7 @@ from apps.api.agents.call_handling import (
     PLATFORM_SETTINGS,
     SETTING_FIELDS,
     CallSettings,
+    platform_settings,
     resolve_settings,
 )
 from apps.api.agents.call_handling_routes import _audit_summary
@@ -30,10 +31,11 @@ from tests.call_handling_test import _client, _make_live, _operator, _runs, _ten
 
 
 def test_calevates_defaults_are_the_founders() -> None:
-    """F9: ask once after 8 seconds, hang up after 20; the platform's question and lines; no
-    background sound, at 15% once switched on."""
-    p = PLATFORM_SETTINGS
-    assert (p.nudge_after_seconds, p.nudge_count, p.end_after_silence_seconds) == (8, 1, 20)
+    """F9: ask once, after the console's wait (15 s, founder 6 Nov 2026), hang up after 20; the
+    platform's question and lines; no background sound, at 15% once switched on."""
+    p = platform_settings()
+    assert (p.nudge_after_seconds, p.nudge_count, p.end_after_silence_seconds) == (15, 1, 20)
+    assert PLATFORM_SETTINGS.nudge_after_seconds is None
     assert (p.nudge_phrase, p.filler_lines) == ("", ())
     assert (p.ambience, p.ambience_volume_pct) == ("off", 15)
     assert set(SETTING_FIELDS) == set(CallSettings.__dataclass_fields__)
@@ -111,7 +113,7 @@ async def test_an_agent_takes_each_setting_and_says_where_it_comes_from() -> Non
     async with _client() as client:
         first = (await client.get(f"/v1/agents/{agent_id}/call-handling", headers=headers)).json()
         assert first["nudge_after_seconds"] is None
-        assert first["nudge_after_seconds_effective"] == 8
+        assert first["nudge_after_seconds_effective"] == 15
         assert first["nudge_after_seconds_source"] == "platform"
         assert first["filler_lines_effective"] == []
         assert first["ambience_effective"] == "off"
@@ -302,7 +304,7 @@ async def test_the_published_config_carries_the_resolved_settings() -> None:
 
     # No lines of the client's own: ours in the agent's language (founder, 23 Oct 2026), so a
     # Telugu call is never covered by the engine's English filler.
-    assert await config() == (8, 1, None, 20, ("ఒక్క సెకండ్ అండి",), None, 15, False)
+    assert await config() == (15, 1, None, 20, ("ఒక్క సెకండ్ అండి",), None, 15, False)
     async with _client() as client:
         await client.put(
             "/v1/organization/call-handling",

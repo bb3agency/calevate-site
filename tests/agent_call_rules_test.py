@@ -335,7 +335,8 @@ def test_a_placed_call_tells_the_person_their_own_details_and_never_restarts() -
     prompt = compose_engine_prompt(placed)
     assert CALL_REASON_RULE in prompt and OPENING_CONTINUES_RULE in prompt
     assert (
-        "never restart" in OPENING_CONTINUES_RULE
+        "Later hello? You're here, go on." in OPENING_CONTINUES_RULE
+        and "Never greet again in any turn" in OPENING_CONTINUES_RULE
         and "Forgot us? Who and why" in OPENING_CONTINUES_RULE
     )
     assert "Say THIS CALL's name, details" in CALL_REASON_RULE

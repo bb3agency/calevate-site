@@ -192,7 +192,11 @@ whole tenths, sent as `voice.openingWaitSeconds` to an agent that waits for hell
 its own; unset, nothing is sent and ThinnestAI's own 4 s applies); `thinnest_acknowledgements`
 (default on, the vendor default: under Ear the agent says a short "haan ji" while a caller explains,
 spoken in its voice and billed as voice characters on Studio, §25.0); `thinnest_interrupt_words`
-(D-862, default 2 against ThinnestAI's 3, 1..6: the words a caller must say to stop the agent).
+(D-862, default 2 against ThinnestAI's 3, 1..6: the words a caller must say to stop the agent);
+`thinnest_nudge_after_seconds` (founder, 6 Nov 2026: default 15, 10..180, sent as
+`voice.nudgeAfterSeconds` to every agent whose own and account values are unset; the engine adds
+two or three seconds of audio processing, and asks on its own timer, which a caller's "one
+minute" cannot lengthen).
 `thinnest_in_call_default_model` (optional; applies to live agents: saving it moves every live
 Clear agent with no model of its own onto it, and the settings sweep `agents/engine_settings.py`
 repairs one left behind) is the in-call model such an agent is published with; empty keeps

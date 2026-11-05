@@ -538,6 +538,15 @@ class Settings(BaseSettings):
     #: Set, it is the default every agent without its own follows. Saving it republishes every
     #: live agent.
     thinnest_opening_wait_ms: int | None = Field(default=None, ge=500, le=10_000, multiple_of=100)
+    #: Seconds of caller silence before an agent asks whether they are still on the line
+    #: (`voice.nudgeAfterSeconds`, 5-180 s; `channels/voice.md:812`, 29 Oct 2026 snapshot), for
+    #: every agent whose own and account values are unset. The floor is the founder's "at least
+    #: 10 seconds" (6 Nov 2026: at 8 s a caller installing an app was asked twice); the vendor
+    #: adds two or three seconds of audio processing to what is set (same page). The engine asks
+    #: on its own timer outside the model, so a caller saying "one minute" cannot lengthen it
+    #: (ThinnestAI, `docs/vendor/thinnest-replies-2026-10-12.md:885`). Saving it republishes
+    #: every live agent.
+    thinnest_nudge_after_seconds: int = Field(default=15, ge=10, le=180)
     #: Under `ear` only, whether the agent says a short "haan ji" while a caller explains (the
     #: vendor's default is on; founder, 21 Oct 2026: acceptable). They are spoken on our
     #: Cartesia key and counted in `usage.ttsCharacters` (VENDOR-STATED, ThinnestAI's email

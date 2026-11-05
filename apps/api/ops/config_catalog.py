@@ -388,6 +388,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         _THINNEST,
         details="Unset, nothing is sent and ThinnestAI waits 4 s.",
     ),
+    "thinnest_nudge_after_seconds": _m(
+        "voice-engine",
+        "thinnest",
+        "Quiet before asking if the caller is still there",
+        "Seconds of silence before an agent asks, unless the agent or account sets its own.",
+        _THINNEST,
+        details="ThinnestAI adds 2-3 s of audio processing to this.",
+    ),
     "thinnest_acknowledgements": _m(
         "voice-engine",
         "thinnest",
@@ -1463,6 +1471,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "thinnest_timer_turn_silence_ms": ControlHint(
         kind="duration", unit="milliseconds", help="200 to 3,000."
     ),
+    "thinnest_nudge_after_seconds": ControlHint(kind="duration", unit="seconds", help="10 to 180."),
     "thinnest_turn_detection": ControlHint(
         options=(
             OptionLabel("timer", "Silence", "The pause set in Call handling ends the turn."),

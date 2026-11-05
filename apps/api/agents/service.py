@@ -90,6 +90,7 @@ from typing import (
 )
 from uuid import UUID
 
+from calevate_shared import spoken_lines
 from calevate_shared.call_script import (
     CallScript,
     Capabilities,
@@ -873,6 +874,21 @@ def platform_filler_lines(languages: Sequence[str]) -> tuple[str, ...]:
     return tuple(lines)
 
 
+#: The founder's "are you still on the line?" per language (`spoken_lines.json`, `on_the_line`).
+ON_THE_LINE: Final[dict[str, str]] = spoken_lines.lines("on_the_line")
+
+
+def platform_nudge_phrase(languages: Sequence[str]) -> str:
+    """Our "are you still on the line?" for an agent speaking `languages`, or '' for the voice
+    platform's own. The engine holds one question per agent (`voice.nudgePhrase`) and says it
+    whatever the caller speaks, while its own question is asked in the caller's language
+    (`channels/voice.md:814`, 29 Oct 2026 snapshot); so ours is set only on an agent of one
+    language, where the two cannot differ."""
+    if len(languages) != 1:
+        return ""
+    return ON_THE_LINE.get(languages[0], "")
+
+
 def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[str, Any]:
     """The `AgentConfig` fields of the call settings, resolved agent -> account -> Calevate
     (`agents/call_handling`). The sentinels a client chooses become the config's own: never
@@ -896,7 +912,7 @@ def _call_settings_fields(agent: AgentRow, *, languages: Sequence[str]) -> dict[
         "end_call_on_finish": v.end_call_on_finish,
         "nudge_after_seconds": after if after else None,
         "nudge_count": v.nudge_count,
-        "nudge_phrase": v.nudge_phrase or None,
+        "nudge_phrase": v.nudge_phrase or platform_nudge_phrase(languages) or None,
         "end_after_silence_seconds": v.end_after_silence_seconds,
         "filler_lines": v.filler_lines or platform_filler_lines(languages),
         "ambience": None if v.ambience == "off" else v.ambience,

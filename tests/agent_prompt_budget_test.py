@@ -245,6 +245,10 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: F-5 (5 Nov 2026) RAISED both by 75 (7,713/6,838): on the founder's production Telugu call a
 #: question particle was written as its own word and the voice read it apart, so "write as
 #: native speakers do: a suffix, particle or vowel joins its word" is new text.
+#: Founder's Rytu Khata call of 6 Nov 2026 left both where they were (7,707/6,832, each 6
+#: under): a line the caller spoke over comes back "in new words", and a question is answered
+#: "to it, never your last point again". The placed-call START OF THE CALL's "one greeting"
+#: clause is paid for by dropping "never restart" there; it is not in these agents.
 PER_CALL_MAX = 7_713
 PER_CALL_ONE_LANGUAGE_MAX = 6_838
 

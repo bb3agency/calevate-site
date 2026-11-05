@@ -33,6 +33,14 @@
         "mr-IN": "दिसलं का?"
       }
     },
+    "on_the_line": {
+      "use": "'Are you still on the line?': what an agent asks after the caller goes quiet (the voice platform's question, voice.nudgePhrase) when the agent speaks one language and neither it nor its account wrote its own question. The Telugu line is the founder's (6 Nov 2026), given in Latin letters as 'line lo unnara andi?' and written here in Telugu letters; he is to confirm the spelling. A language with no line keeps the platform's own 'are you still there?' in the caller's language.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": "లైన్ లో ఉన్నారా అండి?"
+      }
+    },
     "disclosure.ai": {
       "use": "Sentence one of the opening notice: 'you are talking to an AI' (TRAI). Telugu and Hindi are the founder's wording (D-865), every word in the language's own letters (D-861). Blanks {business} and {name}; Hindi's {progressive} comes from disclosure.hindi_progressive.",
       "review": "needs_native_review",

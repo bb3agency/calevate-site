@@ -615,6 +615,11 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "thinnest_acknowledgements": AppliesRule(
         LIVE_AGENTS, f"saving it moves every live agent onto it while turns end by ear{_NOW}"
     ),
+    # Stamped on every agent at publish (`agents/call_handling.platform_settings`).
+    "thinnest_nudge_after_seconds": AppliesRule(
+        LIVE_AGENTS,
+        f"saving it moves every live agent whose own and account's wait are unset onto it{_NOW}",
+    ),
     # Stamped on every agent at publish (D-852).
     "thinnest_early_answers": AppliesRule(
         LIVE_AGENTS, f"saving it moves every live agent onto it{_NOW}"

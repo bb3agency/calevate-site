@@ -190,8 +190,8 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
         "recordDoNotCall": True,
         # No number attached yet: nowhere, never the website button or WhatsApp (F1).
         "surfaces": [],
-        # The client's call settings at Calevate's defaults (F3, F9).
-        "nudgeAfterSeconds": 8,
+        # The client's call settings at Calevate's defaults (F3, F9; the console's 15 s wait).
+        "nudgeAfterSeconds": 15,
         "nudges": 1,
         "nudgePhrase": None,
         "endAfterSilenceSeconds": 20,
