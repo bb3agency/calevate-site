@@ -24,6 +24,9 @@ import {
  * audio. Pressing a row plays from a couple of seconds earlier so the moment is not missed,
  * and opens the recording first when it is not open yet (opening it is audited, so it only
  * happens on a press).
+ *
+ * The rows stay selectable: with `select-none` a copied list pasted as "1. 2. 3." with
+ * nothing after the numbers, which read as empty moments (6 Nov 2026 call review).
  */
 export function KeyMomentsCard({
   moments,
@@ -38,6 +41,7 @@ export function KeyMomentsCard({
   /** False when the call has no recording: the rows are then a plain list. */
   canPlay: boolean;
 }) {
+  if (moments.length === 0) return null;
   const approximate = moments.some((moment) => moment.precision === "approximate");
   return (
     <Section title="Key moments">
@@ -81,7 +85,7 @@ export function KeyMomentsCard({
                     moment.source === "model" ? " (suggested)" : ""
                   }`}
                   aria-current={active ? "true" : undefined}
-                  className={`${row} touch-manipulation transition-colors duration-(--duration-fast) ease-out select-none hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand active:bg-ink/[0.05] motion-reduce:transition-none`}
+                  className={`${row} touch-manipulation transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand active:bg-ink/[0.05] motion-reduce:transition-none`}
                 >
                   {body}
                 </button>

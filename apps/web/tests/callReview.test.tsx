@@ -652,13 +652,13 @@ describe("what the reading says after the call (4 Nov 2026 call review)", () => 
     );
     expect(await screen.findByText("Something is left to do. See the next step below.")).toBeTruthy();
     const step = screen.getByText("Next step").nextElementSibling!;
-    expect(step.textContent).toBe("You: Call them back.");
+    // An instruction to the owner needs no "You:" in front (6 Nov 2026 call review).
+    expect(step.textContent).toBe("Call them back.");
   });
 
   it("shows no step for nobody, and keeps the older rule for a call read before who-acts", () => {
     expect(nextStepLine({ next_step: "Nothing more.", next_step_by: "nobody" })).toBeNull();
     expect(nextStepLine({ next_step: "Confirm the visit.", next_step_by: null })).toEqual({
-      who: null,
       text: "Confirm the visit.",
       note: null,
     });
@@ -861,5 +861,43 @@ describe("the call back and the details, round two", () => {
     const notMentioned = screen.getByRole("list", { name: "Not mentioned" });
     expect(notMentioned.textContent).toContain("Suggestions");
     expect(notMentioned.textContent).not.toContain("Satisfaction level");
+  });
+});
+
+describe("key moments (6 Nov 2026 call review)", () => {
+  const blank = {
+    at_ms: 4_000,
+    turn_idx: 1,
+    kind: "complaint",
+    category: "attention",
+    label: "  ",
+    source: "model",
+    precision: "approximate",
+    importance: 2,
+  } as const;
+
+  it("never draws a moment with no words, and keeps the rest readable when copied", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          has_recording: true,
+          moments: [blank, { ...blank, label: "Asked how to use the app" }, blank],
+        }),
+      ),
+    );
+    const heading = await screen.findByRole("heading", { name: "Key moments" });
+    const list = heading.closest("section")!.querySelector("ol")!;
+    expect(list.querySelectorAll("li")).toHaveLength(1);
+    expect(list.textContent).toContain("Asked how to use the app");
+    // A copied list kept its numbers and lost its words while the rows were `select-none`.
+    expect(list.querySelector("button")).toBeTruthy();
+    expect(list.querySelector(".select-none")).toBeNull();
+  });
+
+  it("hides the section when every moment is blank", async () => {
+    await renderClientPage(page, routes(detail({ moments: [blank, blank, blank] })));
+    await screen.findByRole("heading", { name: "Conversation" });
+    expect(screen.queryByRole("heading", { name: "Key moments" })).toBeNull();
   });
 });

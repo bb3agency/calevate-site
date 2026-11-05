@@ -23,7 +23,7 @@ import { MakeCallTest } from "@/components/improvement/MakeCallTest";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { MomentTag } from "@/components/calls/MomentTag";
-import { momentsByTurn } from "@/lib/callMoments";
+import { momentsByTurn, shownMoments } from "@/lib/callMoments";
 import { callTitle } from "@/lib/callReview";
 import { useBusinessCapabilities } from "@/lib/businessCapabilities";
 
@@ -354,7 +354,7 @@ export function CallDetailScreen({
   const detail = call.data;
   // Read defensively: during a deploy the web can be newer than the API, and a list the
   // server did not send yet must not take the screen down (L3-06).
-  const moments = detail.moments ?? [];
+  const moments = shownMoments(detail.moments);
   const mistakes = detail.mistakes ?? [];
   const momentsOnTurn = momentsByTurn(moments);
   // The raw view REPLACES the redacted turns only once the raw request has actually

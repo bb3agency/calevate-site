@@ -32,6 +32,7 @@ from calevate_shared.extraction import (
     interest_moments_label,
     is_phone_field,
     next_step_owner,
+    owner_step,
 )
 from calevate_shared.lead_fields import with_core
 from pydantic import ValidationError
@@ -709,7 +710,7 @@ async def get_call(
         summary_local=row[23] if raw else redacted_summary(row[23]),
         summary_language=row[24],
         summary_source=row[25],
-        next_step=row[26],
+        next_step=owner_step(row[26]) if row[26] else None,
         insights=_insights_out(row[42]),
         callback_requested=row[27],
         translation_state=row[28],
@@ -794,6 +795,8 @@ def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
     written by a worker and read by a request; a marker whose `kind` a later release
     retired must not turn a client's call detail into a 500 on the deploy that removes it.
     Dropping loses one row of a navigation aid, and the transcript beneath is untouched.
+    A marker with no words is dropped the same way: the screen would draw it as an empty
+    numbered row.
     """
     if not isinstance(stored, list):
         return []
@@ -802,8 +805,9 @@ def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:
         if not isinstance(item, dict):
             continue
         label = _label_for(item, raw=raw)
-        if label is None:
+        if label is None or not label.strip():
             continue
+        label = " ".join(label.split())
         try:
             kind = item["kind"]
             if item.get("source") == "model":

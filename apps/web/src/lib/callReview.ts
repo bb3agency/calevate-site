@@ -159,19 +159,20 @@ function businessActs(by: CallDetail["next_step_by"] | undefined): boolean {
 }
 
 /**
- * The next step with who takes it. The step itself is the reading's sentence and is shown
- * as written; what this adds is whose move it is, because "Wait for the caller to message
- * you" under "Needs you" read as a job for the owner (4 Nov 2026 call review). A step for
- * nobody is not shown: there is nothing to do.
+ * The next step, and a note when it is not the owner's. The step is the reading's sentence;
+ * one the business takes is written as the owner's own instruction ("Call them back."), so
+ * it needs no "You:" in front (6 Nov 2026 call review: "You: The business needs to ..."
+ * read machine-written). One that waits on the caller says so, because "Wait for the caller
+ * to message you" under "Needs you" read as a job for the owner (4 Nov 2026 call review).
+ * A step for nobody is not shown: there is nothing to do.
  */
 export function nextStepLine(
   call: Pick<CallDetail, "next_step_by"> & { next_step?: string | null },
-): { who: string | null; text: string; note: string | null } | null {
+): { text: string; note: string | null } | null {
   const text = call.next_step?.trim();
   if (!text || call.next_step_by === "nobody") return null;
-  if (call.next_step_by === "caller") return { who: null, text, note: "Up to them. Nothing for you to do." };
-  if (call.next_step_by === "business") return { who: "You", text, note: null };
-  return { who: null, text, note: null };
+  if (call.next_step_by === "caller") return { text, note: "Up to them. Nothing for you to do." };
+  return { text, note: null };
 }
 
 type Goal = NonNullable<CallDetail["goal"]>;

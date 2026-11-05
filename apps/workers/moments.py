@@ -161,7 +161,10 @@ def moment(
 
 
 def _field_label(key: str, field_labels: dict[str, str]) -> str:
-    return f"{field_labels.get(key, key.replace('_', ' ').capitalize())} captured"
+    # A blank client label falls back like a missing one: " captured" alone is a marker
+    # with no subject.
+    name = " ".join((field_labels.get(key) or "").split())
+    return f"{name or key.replace('_', ' ').capitalize()} captured"
 
 
 def derive_moments(
@@ -286,8 +289,12 @@ def model_moments(
             label = _field_label(candidate.field, field_labels)
             redacted = label
         else:
-            label = candidate.label or MOMENT_KINDS[candidate.kind][1]
+            label = " ".join(candidate.label.split()) or MOMENT_KINDS[candidate.kind][1]
             redacted = redact(label)
+            if not redacted.strip():
+                # Redaction can leave nothing of a label that was all number or name; the
+                # kind's own words say the same moment without the caller's data.
+                redacted = MOMENT_KINDS[candidate.kind][1]
         out.append(
             moment(
                 turn=turn,

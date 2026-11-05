@@ -210,7 +210,9 @@ def _prompt(
     if want_summaries and (summary_local or romanised) and not summary_en:
         asks.append(
             '"summary_en": the summary below, in plain English: English words and English '
-            "grammar. Same facts, nothing added."
+            'grammar. Same facts, nothing added. Call the person "the caller" or "they", '
+            'never "he" or "she": a verb ending or a name does not say how they want to be '
+            "referred to."
         )
     summary_block = ""
     if want_summaries and (summary_en or summary_local or romanised):

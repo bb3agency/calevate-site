@@ -177,7 +177,6 @@ function NextSteps({ detail }: { detail: CallDetail }) {
       )}
       {step && (
         <Row term="Next step">
-          {step.who && <span className="font-medium">{step.who}: </span>}
           {step.text}
           {step.note && <Aside>{step.note}</Aside>}
         </Row>
