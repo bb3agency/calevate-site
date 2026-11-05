@@ -1255,6 +1255,8 @@ class CallLeadIn(Strict):
 class CallLeadOut(Strict):
     status: Literal["queued", "blocked"]
     call_handle: str | None = None
+    #: Our call row, once one was reserved (`GET /v1/calls/{id}`, `GET /v1/calls/live`).
+    call_id: UUID | None = None
     blocked_reason: str | None = None
     blocked_rule: str | None = None
 
@@ -1266,6 +1268,8 @@ class CallbackOut(Strict):
 
     status: Literal["queued", "blocked"]
     call_handle: str | None = None
+    #: Our call row, once one was reserved (`GET /v1/calls/{id}`, `GET /v1/calls/live`).
+    call_id: UUID | None = None
     blocked_reason: str | None = None
     blocked_rule: str | None = None
     follow_up_number: int | None = None

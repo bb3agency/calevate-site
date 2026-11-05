@@ -217,11 +217,10 @@ def test_the_screens_shut_to_staff_are_the_ones_rbac_shuts() -> None:
     """`screens_closed_to` reads the enforcement's own table, so this states the outcome a
     staff member actually gets rather than a role list written twice."""
     staff = screens_module.screens_closed_to(ROLE_PERMISSIONS["staff"])
-    # ONE entry, where there were four, because Usage, Spend and Invoice are now tabs
-    # inside a screen staff can open rather than screens of their own (D-525). The list
-    # shrank without anything being opened up: the owner's figures still refuse, per TAB,
-    # inside `billing/page.tsx`. AI help is the last screen that refuses at the door.
-    assert [screen.name for screen in staff] == ["AI help"]
+    # Usage, Spend and Invoice are tabs inside a screen staff can open rather than screens of
+    # their own (D-525); the owner's figures still refuse, per TAB, inside `billing/page.tsx`.
+    # AI help and Make a call (`leads:dispatch`) refuse at the door.
+    assert [screen.name for screen in staff] == ["Make a call", "AI help"]
     assert screens_module.screens_closed_to(ROLE_PERMISSIONS["owner"]) == ()
     # The wallet is the one billing-shaped screen staff CAN open (`wallet:read`, 2 Sep
     # 2026) — the whole reason a role check had to be per screen rather than per group.
@@ -389,10 +388,10 @@ def test_a_staff_member_is_named_the_screens_they_cannot_open() -> None:
     """By NAME, because a name is what they will look for in the sidebar — and only when
     there are any, because an empty attribute is a thing a model paraphrases."""
     staff = _render(context.viewer_for(role="staff", route="/c/acme/billing"))
-    # ONE name where there were four: Usage, Spend and Invoice are tabs of a screen staff
-    # can open now (D-525), and their figures refuse inside it. AI help is the last screen
-    # shut at the door.
-    assert 'screens_you_cannot_open="AI help"' in staff
+    # Usage, Spend and Invoice are tabs of a screen staff
+    # can open now (D-525), and their figures refuse inside it. AI help and Make a call
+    # (`leads:dispatch`) are shut at the door.
+    assert 'screens_you_cannot_open="Make a call, AI help"' in staff
     owner = _render(context.viewer_for(role="owner", route="/c/acme/billing"))
     assert "screens_you_cannot_open" not in owner
 

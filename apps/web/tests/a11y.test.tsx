@@ -100,6 +100,7 @@ import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import BreachPlaybookPage from "@/app/c/[slug]/breach-playbook/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
+import MakeCallPage from "@/app/c/[slug]/make-a-call/page";
 import FollowUpsPage from "@/app/c/[slug]/follow-ups/page";
 import FollowUpPage from "@/app/c/[slug]/follow-ups/[followUpId]/page";
 import AssistantPage from "@/app/c/[slug]/assistant/page";
@@ -3584,6 +3585,54 @@ const CLIENT_SCREENS: Screen[] = [
         problems: [{ step_id: "s4", code: "template_not_approved", message: "This message is not approved yet." }],
         updated_at: "2026-10-30T05:00:00Z",
       } satisfies FollowUpOut,
+    },
+  },
+  {
+    // Make a call: the form, an agent that places calls, a call booked for later and one
+    // made earlier, so the form, both lists and their links are swept.
+    file: "c/[slug]/make-a-call/page.tsx",
+    realm: "client",
+    element: () => <MakeCallPage />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents": [AGENT],
+      "/v1/callbacks?limit=200&open_only=true&booked_by_person=true": [
+        {
+          id: "cb-9",
+          agent_id: "agent-1",
+          lead_id: "lead-9",
+          phone_e164: "+919876543212",
+          requested_at: "2026-11-06T05:30:00Z",
+          status: "scheduled",
+          attempts: 0,
+          explanation: "Waiting for the time they asked for.",
+          last_call_id: null,
+          settled_at: null,
+          held: false,
+          note: "Remind about Saturday",
+          follow_up: null,
+        },
+      ],
+      "/v1/calls?placed_by_person=true&limit=10&test_calls=false": [
+        {
+          id: "call-9",
+          agent_id: "agent-1",
+          agent_name: "Front desk",
+          direction: "outbound",
+          status: "no_answer",
+          caller_e164: "+919876543213",
+          lead_name: "Suresh",
+          started_at: null,
+          created_at: "2026-11-05T05:30:00Z",
+          duration_s: null,
+          outcome_tag: null,
+          summary_state: "empty",
+          test_call: false,
+          summary: null,
+          lead_id: "lead-8",
+          follow_up_state: null,
+        },
+      ],
     },
   },
   {

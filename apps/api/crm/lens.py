@@ -93,6 +93,8 @@ class CallFilters:
     follow_up: Literal["done", "not_done"] | None = None
     #: True: a call-back booked on the call is still to be placed; False: none is.
     callback_open: bool | None = None
+    #: True: only the one-off calls a person placed (`calls.placed_by_person`).
+    placed_by_person: bool = False
 
 
 #: When a call happened, for filtering and ordering the log: when it connected, else when it
@@ -138,6 +140,8 @@ def call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
             f"AND s.tenant_id = c.tenant_id AND {_OPEN_CALLBACK})"
         )
         clauses.append(exists if filters.callback_open else f"NOT {exists}")
+    if filters.placed_by_person:
+        clauses.append("c.placed_by_person")
     return (f"WHERE {' AND '.join(clauses)}" if clauses else ""), params
 
 

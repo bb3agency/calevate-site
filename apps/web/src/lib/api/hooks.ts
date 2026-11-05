@@ -27,7 +27,6 @@ import {
   type UseInfiniteQueryResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
-import { useRef } from "react";
 
 import type { components } from "./schema";
 
@@ -40,7 +39,6 @@ import { accountAction, withAccountCode } from "./accountCode";
 import {
   apiRequest,
   type CallDetail,
-  type CallLeadResult,
   type CallSummary,
   type Dashboard,
   type Me,
@@ -381,6 +379,8 @@ export function useCall(
   return useQuery({
     queryKey: queryKeys.call(session.orgSlug, callId),
     queryFn: () => fetchCall(session, callId),
+    // No id, no read: Make a call asks for a call only when it was opened from one.
+    enabled: Boolean(callId),
     // A call opened while it is live, or while its summary and English turns are still
     // being written, fills in as they land; once they have, there is nothing to poll for.
     // The summary is bounded by age, so one that was never written is not re-read forever.
@@ -430,51 +430,11 @@ function recentCall(call: CallDetail | undefined): boolean {
  * note above gives about the export.
  */
 
-/**
- * Place a call to one lead.
- *
- * ONE `Idempotency-Key` PER DIAL, HELD UNTIL AN ANSWER, `useCallAssist`'s rule. A fresh key
- * per press made a second press after a lost response — a timeout, a dropped connection —
- * a second request the server had never seen, i.e. a second phone ringing. Holding it
- * means that press is answered from the first: replayed if it finished, refused "in
- * flight" if the vendor may be dialling. The server releases the key on every refusal
- * that rang nothing, so a held key never blocks a genuine retry.
- *
- * Keyed by the whole body, because the server hashes it into the claim and refuses the
- * same key on a different request; success clears it, since the next press is a person
- * asking for another call.
+/*
+ * Placing a call is `lib/api/oneCall.useMakeCall` (Make a call, the one form). The two
+ * per-door hooks that dialled a lead and called a call back from their own rows were
+ * removed with their quick-dial UI (founder, 5 Nov 2026).
  */
-export function useCallLead(session: Session) {
-  const client = useQueryClient();
-  const held = useRef(new Map<string, string>());
-  const attemptOf = (leadId: string, agentId: string, contextNote?: string) =>
-    JSON.stringify([leadId, agentId, contextNote ?? null]);
-  return useMutation({
-    mutationFn: ({
-      leadId,
-      agentId,
-      contextNote,
-    }: {
-      leadId: string;
-      agentId: string;
-      contextNote?: string;
-    }) => {
-      const attempt = attemptOf(leadId, agentId, contextNote);
-      const key = held.current.get(attempt) ?? crypto.randomUUID();
-      held.current.set(attempt, key);
-      return apiRequest<CallLeadResult>(session, `/v1/leads/${leadId}/call`, {
-        method: "POST",
-        body: { agent_id: agentId, context_note: contextNote },
-        idempotencyKey: key,
-      });
-    },
-    onSuccess: (_result, { leadId, agentId, contextNote }) => {
-      held.current.delete(attemptOf(leadId, agentId, contextNote));
-      void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
-      void client.invalidateQueries({ queryKey: queryKeys.callsLog(session.orgSlug) });
-    },
-  });
-}
 
 /**
  * D-21 M2: follow up a call that ended without a resolution.
@@ -500,28 +460,6 @@ export function useCallbackEligibility(session: Session, callId: string) {
         `/v1/calls/${callId}/callback`,
       ),
     enabled: Boolean(callId),
-  });
-}
-
-export function useCallBack(session: Session, callId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<components["schemas"]["CallbackOut"]>(
-        session,
-        `/v1/calls/${callId}/callback`,
-        {
-          method: "POST",
-        },
-      ),
-    onSuccess: () => {
-      void client.invalidateQueries({
-        queryKey: ["callback-check", session.orgSlug, callId],
-      });
-      void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
-      void client.invalidateQueries({ queryKey: queryKeys.callsLog(session.orgSlug) });
-      void client.invalidateQueries({ queryKey: queryKeys.call(session.orgSlug, callId) });
-    },
   });
 }
 

@@ -84,16 +84,9 @@ export function useLeadRowKit({
     leadStatus: lead.status,
   });
 
-  // A 200 carrying `status: "blocked"` is the compliance gate answering, not an error: it
-  // is kept against the row like the queued case.
+  // Opens Make a call with this lead and the agent chosen under the table.
   const callCell = (lead: Lead) =>
-    canCall ? (
-      <CallControl
-        result={followUp.callResult(lead.id)}
-        pending={followUp.actionsFor(targetOf(lead)).primary.status === "pending"}
-        onCall={() => followUp.startCall(targetOf(lead))}
-      />
-    ) : null;
+    canCall ? <CallControl href={followUp.callHref(targetOf(lead))} /> : null;
 
   const ownerCell = (lead: Lead, className: string) => (
     <AssigneeSelect

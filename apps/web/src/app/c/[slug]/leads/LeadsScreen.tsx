@@ -166,11 +166,9 @@ export function LeadsScreen() {
 
   const selectedDialer = dialers?.find((agent) => agent.id === selectedAgentId);
   const followUp = useFollowUpActions(session, {
-    // Calls from this table are placed by the agent chosen under it, so a swipe rings with
-    // the same one, and a booked call back is made by it too.
+    // Make a call opens with the agent chosen under this table, for a call now or later.
     dialerFor: () => (selectedDialer ? { id: selectedDialer.id, name: selectedDialer.name } : null),
     noDialerReason: unavailable ?? undefined,
-    scheduleAgentId: selectedDialer?.id,
   });
 
   useLeadsCopilotSurface({

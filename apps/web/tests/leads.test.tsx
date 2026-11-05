@@ -3,13 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import LeadsPage from "@/app/c/[slug]/leads/page";
 import type { Agent } from "@/lib/api/agents";
-import type { CallLeadResult, Me } from "@/lib/api/client";
+import type { Me } from "@/lib/api/client";
 import type { Lead, LeadList, Member } from "@/lib/api/leads";
 
 import { readInfoTip } from "./infoTip";
 import {
   csv,
-  expectTextCount,
   lensOf,
   problem,
   renderClientPage,
@@ -51,7 +50,6 @@ const PHONE_A = "+919876543210";
 const PHONE_B = "+919912347788";
 /** How the screen PRINTS them (`formatPhone`): grouped for reading. */
 const SHOWN_A = "+91 98765 43210";
-const SHOWN_B = "+91 99123 47788";
 /** The national-format digits of `PHONE_A`, which is the form a URL would carry. */
 const PHONE_A_DIGITS = "9876543210";
 
@@ -227,20 +225,6 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
-const BLOCKED: CallLeadResult = {
-  status: "blocked",
-  blocked_reason: "This number is on your do-not-call list.",
-  blocked_rule: "dnc_tenant",
-  call_handle: null,
-};
-
-const QUEUED: CallLeadResult = {
-  status: "queued",
-  blocked_reason: null,
-  blocked_rule: null,
-  call_handle: "call-1",
-};
-
 /**
  * The export button is gated on the permission the ROUTE requires, not on the one the
  * list requires. `/v1/leads/export.csv` is the only place a client's contact list
@@ -366,164 +350,26 @@ describe("the number on the row", () => {
   });
 });
 
-describe("the D-21 dispatch verdict, per lead", () => {
-  const TWO_LEADS = leadList([
-    lead({ id: "lead-a", name: "Ramesh Kumar", phone_e164: PHONE_A }),
-    lead({ id: "lead-b", name: "Priya Nair", phone_e164: PHONE_B }),
-  ]);
-
-  function row(text: string): HTMLElement {
-    const cell = screen.getByText(text);
-    const tr = cell.closest("tr");
-    expect(tr, `no row for ${text}`).not.toBeNull();
-    return tr as HTMLElement;
-  }
-
-  it("keeps a refusal on the lead it was given for when a second lead is called", async () => {
-    // The exact sequence the page comment predicts. `callLead.data` is a single slot, so
-    // a verdict read off the mutation would move Ramesh's compliance refusal onto Priya
-    // the moment Priya is called — a client would then see a do-not-call warning against
-    // a number that is not on the list, and dial the one that is.
-    const { container } = await renderClientPage(
-      <LeadsPage />,
-      routes({
-        "POST /v1/leads/search": TWO_LEADS,
-        "/v1/leads/lead-a/call": BLOCKED,
-        "/v1/leads/lead-b/call": QUEUED,
-      }),
-    );
-
-    const buttons = await screen.findAllByRole("button", {
-      name: /Call with AI/,
-    });
-    expect(buttons).toHaveLength(2);
-
-    // Calling rings a phone, so it is asked first (the follow-up actions' confirmation).
-    fireEvent.click(buttons[0]);
-    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
-    // The refusal is said in the dialog where the press was; closing it leaves it on the row.
-    await screen.findAllByText(/do-not-call list/);
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
-    // ONE lead was called, so one verdict may exist. A shared slot puts it on both rows
-    // here, before the second click has even happened.
-    const firstVerdict = await screen.findAllByText(/do-not-call list/);
-    expect(firstVerdict, "one call placed, one verdict on screen").toHaveLength(
-      1,
-    );
-
-    // Priya's row is still callable, and calling her must not disturb Ramesh's answer.
-    fireEvent.click(screen.getByRole("button", { name: /Call with AI/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
-    await screen.findByText("Calling now");
-
-    expect(row(SHOWN_A).textContent).toContain(
-      "This number is on your do-not-call list.",
-    );
-    expect(row(SHOWN_A).textContent).not.toContain("Calling now");
-    expect(row(SHOWN_B).textContent).toContain("Calling now");
-    expect(row(SHOWN_B).textContent).not.toContain("do-not-call");
-    // One refusal was issued, so exactly one may be on screen.
-    expectTextCount(container, "This number is on your do-not-call list.", 1);
-  });
-
-  it("sends the same Idempotency-Key when a press that got no answer is retried", async () => {
-    // A lost response may follow a phone that is already ringing. A fresh key on the
-    // retry is a request the server has never seen — a second call to the same person —
-    // while the same key is answered from the first attempt.
-    let answers = 0;
+describe("a lead's Call button (D-21, founder 5 Nov 2026)", () => {
+  it("opens Make a call with the lead and the chosen agent, by id and never by number", async () => {
     const { calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "POST /v1/leads/search": leadList([lead()]),
-        "/v1/leads/lead-a/call": () => {
-          answers += 1;
-          return answers === 1
-            ? problem(504, { title: "Timed out", kind: "transient", retryable: true })
-            : QUEUED;
-        },
+        "POST /v1/leads/search": leadList([
+          lead({ id: "lead-a", name: "Ramesh Kumar", phone_e164: PHONE_A }),
+          lead({ id: "lead-b", name: "Priya Nair", phone_e164: PHONE_B }),
+        ]),
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
-    await screen.findByRole("alert");
-    // The retry is the same confirm button, still open with the failure inside it.
-    fireEvent.click(screen.getByRole("button", { name: "Call now" }));
-    await screen.findByText("Calling now");
-
-    const keys = calls
-      .filter((c) => c.path === "/v1/leads/lead-a/call")
-      .map((c) => c.headers["Idempotency-Key"] ?? c.headers["idempotency-key"]);
-    expect(keys).toHaveLength(2);
-    expect(keys[0]).toBeTruthy();
-    expect(keys[1]).toBe(keys[0]);
-  });
-
-  it("shows a blocked dispatch as the gate's decision, not as a malfunction", async () => {
-    // `POST /v1/leads/{id}/call` answers 200 with `status: "blocked"`. Rendering that
-    // through ProblemNotice would tell a client their compliance rules are our bug; and
-    // leaving the button enabled would read as "nothing happened", so they press again.
-    const { container } = await renderClientPage(
-      <LeadsPage />,
-      routes({
-        "POST /v1/leads/search": leadList([lead()]),
-        "/v1/leads/lead-a/call": BLOCKED,
-      }),
-    );
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Call with AI/ }),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
-
-    expect((await screen.findAllByText(/do-not-call list/)).length).toBeGreaterThan(0);
-    /*
-     * THE RULE NAME IS NOT SHOWN, AND THIS ASSERTION USED TO BE ITS OPPOSITE.
-     *
-     * It read "the rule is named beside the reason: `dnc_tenant` is what an operator
-     * needs to find the row, and the client needs to know which check refused" — and the
-     * screen printed "… (dnc_tenant)" to the person it had just refused. The operator
-     * half of that argument is true and is served elsewhere: the admin realm renders
-     * these names deliberately (`lib/api/clientHealth.ts`), and the refusal is on the
-     * audit trail either way. The client half is not: `dnc_tenant` tells a clinic owner
-     * nothing they can do, and the founder's standard for client-facing copy bans a code
-     * identifier outright. The server's own sentence already says what happened.
-     */
-    expect(container.textContent).not.toContain("dnc_tenant");
-    expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
-  });
-
-  it("sends a lead refused for credit to the screen that fixes it", async () => {
-    // The money gate a prepaid account meets, on the screen where a receptionist works
-    // the queue one lead at a time. The server's sentence says the credit ran out and
-    // (since D-551) that the agents have stopped answering; what it cannot say from here
-    // is where the top-up is, or that one payment undoes both.
-    const { container } = await renderClientPage(
-      <LeadsPage />,
-      routes({
-        "POST /v1/leads/search": leadList([lead()]),
-        "/v1/leads/lead-a/call": {
-          status: "blocked",
-          blocked_reason: "This account has no calling credit left.",
-          blocked_rule: "no_credits",
-          call_handle: null,
-        },
-      }),
-    );
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Call with AI/ }),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Call now" }));
-
-    await screen.findAllByText(/no calling credit left/);
-    expect(container.textContent).not.toContain("still get through");
-    // The remedy is a button to the screen that fixes it, not a sentence about it.
-    const fix = await screen.findByRole("link", { name: "Add credit" });
-    expect(fix.getAttribute("href")).toContain("/c/acme/billing");
-    // The gate's own name is not what the person who was refused reads.
-    expect(container.textContent).not.toContain("no_credits");
+    const links = await screen.findAllByRole("link", { name: /Call with AI/ });
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "/c/acme/make-a-call?lead=lead-a&agent=agent-1",
+      "/c/acme/make-a-call?lead=lead-b&agent=agent-1",
+    ]);
+    for (const link of links) expect(link.getAttribute("href")).not.toContain("98765");
+    // Nothing is dialled from the row any more: the form places the call.
+    expect(calls.some((c) => c.path.endsWith("/call"))).toBe(false);
   });
 });
 
@@ -1195,7 +1041,7 @@ describe("dispatching a call from the table, when a read did not answer", () => 
     expect(container.textContent).toContain(
       "Reload to call.",
     );
-    expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Call with AI/ })).toBeNull();
     expect(container.textContent).not.toContain(
       "Calls go from",
     );
@@ -1217,7 +1063,7 @@ describe("dispatching a call from the table, when a read did not answer", () => 
     expect(container.textContent).toContain(
       "Couldn't check your sign-in.",
     );
-    expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Call with AI/ })).toBeNull();
     // The owner filter goes with it, and the same sentence covers it — the chip used to
     // vanish on its own, which reads as "there is no such filter".
     expect(screen.queryByRole("button", { name: "Assigned to me" })).toBeNull();
@@ -1235,7 +1081,7 @@ describe("dispatching a call from the table, when a read did not answer", () => 
     );
 
     expect(
-      await screen.findByRole("button", { name: /Call with AI/ }),
+      await screen.findByRole("link", { name: /Call with AI/ }),
     ).toBeDefined();
     expect(container.textContent).toContain(
       "Calls go from",

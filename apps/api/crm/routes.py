@@ -11,6 +11,7 @@ raw transcript, recording link, and "call this lead".
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Any
@@ -40,6 +41,7 @@ from apps.api.crm.captured import captured_fields, lead_unlisted, with_known_nam
 from apps.api.crm.lead_dial import call_back_check, place_call_back, place_lead_call
 from apps.api.crm.lens import LEAD_ROW_FILTER_FIELDS, LeadRowFilters
 from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
+from apps.api.crm.one_call import OneCallIn, OneCallOut, place_one_call
 from apps.api.crm.performance import performance
 from apps.api.crm.recording_download import DOWNLOAD_LINK_TTL_S, recording_download_for
 from apps.api.crm.schemas import (
@@ -132,6 +134,9 @@ async def get_calls(
         None, description="done: marked handled; not_done: not marked handled"
     ),
     callback_open: bool | None = Query(None, description="True: a call-back is waiting"),
+    placed_by_person: bool = Query(
+        False, description="True: only the one-off calls a person placed (Make a call)"
+    ),
     principal: Principal = Depends(requires("calls:read")),
 ) -> list[CallSummaryOut]:
     filters = _call_filters(
@@ -146,6 +151,8 @@ async def get_calls(
         follow_up=follow_up,
         callback_open=callback_open,
     )
+    if placed_by_person:
+        filters = replace(filters, placed_by_person=True)
     return await service.list_calls(
         session,
         limit=limit,
@@ -1597,6 +1604,48 @@ async def call_lead(
         lead_id=lead_id,
         agent_id=payload.agent_id,
         context_note=payload.context_note,
+        idempotency_key=idem_key,
+        ip=client_request_ip(request),
+    )
+
+
+@router.post(
+    "/one-calls",
+    response_model=OneCallOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Make a call: one AI call to one person now or at a time — gated, idempotent",
+)
+async def make_one_call(
+    payload: OneCallIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> OneCallOut:
+    """Reaches the person by number, lead or earlier call, then dials through
+    `crm/lead_dial` or books through the call-back path (`crm/one_call.py`). The key is
+    required for `POST /v1/leads/{id}/call`'s reason: the attempt rings a real phone."""
+    assert principal.tenant_id is not None
+    if payload.call_id is None and not (payload.reason or "").strip():
+        # Asked of a person here and not of Pip's `call_place`, whose note stays optional.
+        raise ProblemError(
+            kind="validation",
+            code="one_call_no_reason",
+            title="Say why you are calling",
+            detail="The agent tells the person why it is calling, so it needs the reason.",
+            fields=[{"field": "reason", "rule": "required", "message": "missing"}],
+        )
+    idem_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key"),
+        title="Making a call needs an Idempotency-Key header",
+        detail=(
+            "A call rings a real phone, so every attempt names itself and a repeat of the "
+            "same attempt is answered rather than dialled again."
+        ),
+    )
+    return await place_one_call(
+        session,
+        principal=principal,
+        request=payload,
         idempotency_key=idem_key,
         ip=client_request_ip(request),
     )

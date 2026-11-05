@@ -10160,6 +10160,18 @@
             ],
             "title": "Call Handle"
           },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
           "status": {
             "enum": [
               "queued",
@@ -12301,6 +12313,18 @@
               }
             ],
             "title": "Call Handle"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
           },
           "follow_up_number": {
             "anyOf": [
@@ -39113,6 +39137,228 @@
           "response"
         ],
         "title": "Objection",
+        "type": "object"
+      },
+      "OneCallIn": {
+        "additionalProperties": false,
+        "description": "Who to call, with which agent, why, and when. Exactly one of `phone`, `lead_id` or\n`call_id` names the person.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "maxLength": 150,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 150,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "OneCallIn",
+        "type": "object"
+      },
+      "OneCallOut": {
+        "additionalProperties": false,
+        "description": "`blocked` is an answer, not an error: `blocked_reason` is the gate's own sentence.",
+        "properties": {
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Rule"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "callback_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Callback Id"
+          },
+          "follow_up_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follow Up Number"
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Id"
+          },
+          "opens_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opens At"
+          },
+          "requested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested At"
+          },
+          "rescheduled": {
+            "default": false,
+            "title": "Rescheduled",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "scheduled",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "OneCallOut",
         "type": "object"
       },
       "OnlyIf": {
@@ -83835,6 +84081,18 @@
               "title": "Open Only",
               "type": "boolean"
             }
+          },
+          {
+            "description": "True: only the calls a person booked for a time (Make a call)",
+            "in": "query",
+            "name": "booked_by_person",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "True: only the calls a person booked for a time (Make a call)",
+              "title": "Booked By Person",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -84244,6 +84502,18 @@
               ],
               "description": "True: a call-back is waiting",
               "title": "Callback Open"
+            }
+          },
+          {
+            "description": "True: only the one-off calls a person placed (Make a call)",
+            "in": "query",
+            "name": "placed_by_person",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "True: only the one-off calls a person placed (Make a call)",
+              "title": "Placed By Person",
+              "type": "boolean"
             }
           }
         ],
@@ -96978,6 +97248,45 @@
           "campaigns"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/one-calls": {
+      "post": {
+        "description": "Reaches the person by number, lead or earlier call, then dials through\n`crm/lead_dial` or books through the call-back path (`crm/one_call.py`). The key is\nrequired for `POST /v1/leads/{id}/call`'s reason: the attempt rings a real phone.",
+        "operationId": "make_one_call_v1_one_calls_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OneCallIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OneCallOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Make a call: one AI call to one person now or at a time \u2014 gated, idempotent",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:dispatch"
       }
     },
     "/v1/ops/alerts": {

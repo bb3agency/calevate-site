@@ -105,7 +105,7 @@ export function useRecentTestCalls(session: Session, enabled = true): UseQueryRe
 
 /**
  * Place one test call. ONE `Idempotency-Key` PER ATTEMPT, held until an answer, the rule
- * `useCallLead` follows: a second press after a lost response is answered from the first
+ * `oneCall.useMakeCall` follows: a second press after a lost response is answered from the first
  * rather than ringing the person a second time.
  */
 export function usePlaceTrialCall(session: Session) {

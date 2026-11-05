@@ -186,6 +186,13 @@ class Call(PKMixin, TimestampMixin, Base):
             "created_at",
             postgresql_where=text("carrier_recording_id IS NOT NULL AND recording_url IS NULL"),
         ),
+        # The Make a call screen's recent list: a few rows per account, newest first.
+        Index(
+            "ix_calls_placed_by_person",
+            "tenant_id",
+            "created_at",
+            postgresql_where=text("placed_by_person"),
+        ),
         # Calls whose content deletion at the voice platform is queued and not yet settled:
         # the backstop's worklist (`workers/engine_customer_data`, migration e4b7d2a9c160).
         Index(
@@ -367,6 +374,11 @@ class Call(PKMixin, TimestampMixin, Base):
     #: what its daily cap counts. One placed through the shared trial line before the client
     #: has its own number is `trial_call` too, so the one-call-at-a-time line counts it.
     paid_test_call: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
+    #: A one-off call a person placed (Make a call, a lead's or a call's Call, Pip's
+    #: `call_place`; `crm/lead_dial`), set in the intent transaction before the dial. What
+    #: the Make a call screen's recent list reads; campaigns, follow-ups and booked
+    #: call-backs leave it false (migration d3a9f5c1e7b4).
+    placed_by_person: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=false())
     #: The forwarding test this inbound call was (D-746): its minutes are ours, it files no lead.
     forwarding_test_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("forwarding_tests.id", ondelete="SET NULL")

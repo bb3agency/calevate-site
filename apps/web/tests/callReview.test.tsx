@@ -128,7 +128,9 @@ describe("the verdict", () => {
     expect(screen.getAllByText("Lakshmi")[0].closest("section")).toBeNull();
     expect(screen.getByText("+91 98765 43210")).toBeTruthy();
     // ONE filled action, its label the consequence, and the lead one quiet link away.
-    const action = screen.getByRole("button", { name: "Call back now" });
+    const action = screen.getByRole("link", { name: "Call back now" });
+    // It opens Make a call, the one form, with this call filled in.
+    expect(action.getAttribute("href")).toBe("/c/acme/make-a-call?call=c1");
     expect(action.className).toContain("bg-brand-strong");
     expect(screen.getByRole("link", { name: "Open Lakshmi's lead" })).toBeTruthy();
     // The verdict comes before the conversation.
@@ -149,7 +151,7 @@ describe("the verdict", () => {
   it("states the server's refusal as a sentence, not a dead button", async () => {
     await renderClientPage(page, routes(detail()));
     expect(await screen.findByText("A call back is already booked.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /call back now/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /call back now/i })).toBeNull();
   });
 
   it("shows the summary in English while the conversation opens as spoken", async () => {

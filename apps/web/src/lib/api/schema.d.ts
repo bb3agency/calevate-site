@@ -11823,6 +11823,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/one-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a call: one AI call to one person now or at a time — gated, idempotent
+         * @description Reaches the person by number, lead or earlier call, then dials through
+         *     `crm/lead_dial` or books through the call-back path (`crm/one_call.py`). The key is
+         *     required for `POST /v1/leads/{id}/call`'s reason: the attempt rings a real phone.
+         */
+        post: operations["make_one_call_v1_one_calls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/alerts": {
         parameters: {
             query?: never;
@@ -17431,6 +17453,8 @@ export interface components {
             blocked_rule?: string | null;
             /** Call Handle */
             call_handle?: string | null;
+            /** Call Id */
+            call_id?: string | null;
             /**
              * Status
              * @enum {string}
@@ -18183,6 +18207,8 @@ export interface components {
             blocked_rule?: string | null;
             /** Call Handle */
             call_handle?: string | null;
+            /** Call Id */
+            call_id?: string | null;
             /** Follow Up Number */
             follow_up_number?: number | null;
             /**
@@ -28347,6 +28373,61 @@ export interface components {
             objection: string;
             /** Response */
             response: string;
+        };
+        /**
+         * OneCallIn
+         * @description Who to call, with which agent, why, and when. Exactly one of `phone`, `lead_id` or
+         *     `call_id` names the person.
+         */
+        OneCallIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** At */
+            at?: string | null;
+            /** Call Id */
+            call_id?: string | null;
+            /** Details */
+            details?: string | null;
+            /** Lead Id */
+            lead_id?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Phone */
+            phone?: string | null;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * OneCallOut
+         * @description `blocked` is an answer, not an error: `blocked_reason` is the gate's own sentence.
+         */
+        OneCallOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
+            /** Call Id */
+            call_id?: string | null;
+            /** Callback Id */
+            callback_id?: string | null;
+            /** Follow Up Number */
+            follow_up_number?: number | null;
+            /** Lead Id */
+            lead_id?: string | null;
+            /** Opens At */
+            opens_at?: string | null;
+            /** Requested At */
+            requested_at?: string | null;
+            /**
+             * Rescheduled
+             * @default false
+             */
+            rescheduled: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "scheduled" | "blocked";
         };
         /**
          * OnlyIf
@@ -50120,6 +50201,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 open_only?: boolean;
+                /** @description True: only the calls a person booked for a time (Make a call) */
+                booked_by_person?: boolean;
             };
             header?: never;
             path?: never;
@@ -50298,6 +50381,8 @@ export interface operations {
                 follow_up?: ("done" | "not_done") | null;
                 /** @description True: a call-back is waiting */
                 callback_open?: boolean | null;
+                /** @description True: only the one-off calls a person placed (Make a call) */
+                placed_by_person?: boolean;
             };
             header?: never;
             path?: never;
@@ -59546,6 +59631,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssignOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    make_one_call_v1_one_calls_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OneCallIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OneCallOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

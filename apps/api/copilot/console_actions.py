@@ -464,9 +464,13 @@ DNC_REMOVE: Final = ActionTool(
 class _CallPlaceArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    lead_id: UUID
+    #: A lead on file, or null with `phone` for somebody who is not one yet.
+    lead_id: UUID | None = None
+    phone: Annotated[str, Field(max_length=32)] | None = None
+    name: Annotated[str, Field(max_length=120)] | None = None
     agent_id: UUID
-    note: Annotated[str, Field(max_length=500)] | None
+    #: THIS CALL's reason, which carries at most 150 characters (`crm/one_call.REASON_MAX`).
+    note: Annotated[str, Field(max_length=150)] | None = None
 
 
 async def _plan_call_place(
@@ -477,10 +481,22 @@ async def _plan_call_place(
     refused here with the gate's own reason rather than after a click. The gate runs again
     at the click."""
     from apps.api.compliance.service import check_dispatch
+    from apps.api.crm.one_call import normalised_phone
 
     parsed = parse_args(_CallPlaceArgs, args)
+    if (parsed.lead_id is None) == (parsed.phone is None):
+        raise WriteRefusedError("name the person by lead_id or by phone, exactly one of them")
     agent_name, _status = await _agent_name_status(session, parsed.agent_id)
-    phone, _name = await crm_service.lead_phone(session, parsed.lead_id)
+    if parsed.lead_id is not None:
+        phone, _name = await crm_service.lead_phone(session, parsed.lead_id)
+        who = "this lead"
+    else:
+        assert parsed.phone is not None
+        try:
+            phone = normalised_phone(parsed.phone)
+        except ProblemError as bad:
+            raise WriteRefusedError(f"{bad.detail} Ask the person for the number again") from bad
+        who = (strip_invisible(parsed.name.strip()) if parsed.name else "") or "this number"
     decision = await check_dispatch(
         session, tenant_id=actor.tenant_id, agent_id=parsed.agent_id, phone_e164=phone
     )
@@ -490,21 +506,26 @@ async def _plan_call_place(
             f"{decision.rule}: {decision.reason}. Tell the person exactly this"
         )
     note = None if parsed.note is None else (strip_invisible(parsed.note.strip()) or None)
+    attempt = str(uuid4())
     return Plan(
-        object_id=str(parsed.lead_id),
-        title="Call this lead now",
-        summary=f"“{agent_name}” calls this lead now. Their phone rings as soon as you confirm.",
+        # A person not on file yet has no lead id until the click; the attempt names the
+        # proposal in the audit row instead of the number (hard rule 6).
+        object_id=str(parsed.lead_id) if parsed.lead_id else f"new:{attempt}",
+        title=f"Call {who} now",
+        summary=f"“{agent_name}” calls {who} now. Their phone rings as soon as you confirm.",
         current=None,
         proposed="A call now",
         cost=_BILLED_PER_MINUTE,
         reversal="A call cannot be taken back once it has started ringing.",
         args={
-            "lead_id": str(parsed.lead_id),
+            "lead_id": str(parsed.lead_id) if parsed.lead_id else None,
+            "phone": phone if parsed.lead_id is None else None,
+            "name": parsed.name,
             "agent_id": str(parsed.agent_id),
             "note": note,
             # One attempt per proposal: the dial's idempotency key, so a retried confirm
             # answers with the first result rather than ringing twice.
-            "attempt": str(uuid4()),
+            "attempt": attempt,
         },
     )
 
@@ -516,18 +537,22 @@ class _CallPlaceSigned(_CallPlaceArgs):
 async def _execute_call_place(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`crm.lead_dial.place_lead_call` — the body of `POST /v1/leads/{id}/call`, so the gate
-    runs again at the click, the claim is the button's, and the `lead.call_dispatched` row
-    is written by the same code."""
-    from apps.api.crm.lead_dial import place_lead_call
+    """`crm.one_call.place_one_call` — the body of Make a call (`POST /v1/one-calls`), which
+    dials through `crm.lead_dial.place_lead_call`: the gate runs again at the click, the
+    claim is the button's, and the `lead.call_dispatched` row is written by the same code."""
+    from apps.api.crm.one_call import OneCallIn, place_one_call
 
     parsed = parse_args(_CallPlaceSigned, args)
-    result = await place_lead_call(
+    result = await place_one_call(
         session,
         principal=_principal_of(actor),
-        lead_id=parsed.lead_id,
-        agent_id=parsed.agent_id,
-        context_note=parsed.note,
+        request=OneCallIn(
+            lead_id=parsed.lead_id,
+            phone=None if parsed.lead_id else parsed.phone,
+            name=parsed.name,
+            agent_id=parsed.agent_id,
+            reason=parsed.note,
+        ),
         idempotency_key=f"copilot:{parsed.attempt}",
         audit_extra={"via": "copilot"},
     )
@@ -556,11 +581,23 @@ CALL_PLACE: Final = ActionTool(
     where="in Call logs",
     schema=action_schema(
         "call_place",
-        "Propose having one of the account's agents call one lead now; on a free trial use "
-        "`agent_test_call`. Every calling rule is checked first (hours, do-not-call, "
-        "verification, credit); relay a refusal's reason, do not retry." + PROPOSES_ONLY,
+        "Propose having one of the account's agents call one person now: a lead by id, or a "
+        "number the person gave you; on a free trial use `agent_test_call`. Every calling "
+        "rule is checked first (hours, do-not-call, verification, credit); relay a refusal's "
+        "reason, do not retry." + PROPOSES_ONLY,
         {
-            "lead_id": {"type": "string", "description": "The lead's id, never invented."},
+            "lead_id": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": "The lead's id, never invented; null when calling a number.",
+            },
+            "phone": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": "The number exactly as the person gave it; null with lead_id.",
+            },
+            "name": {
+                "anyOf": [{"type": "string"}, {"type": "null"}],
+                "description": "Who is being called, if the person said; else null.",
+            },
             "agent_id": {
                 "type": "string",
                 "description": "The agent that makes the call, from `agents_list`.",

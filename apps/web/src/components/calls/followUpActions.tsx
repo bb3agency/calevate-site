@@ -7,22 +7,23 @@
  * (`ButtonGroup`) all run the same code with the same checks and the same feedback.
  *
  * Which one is primary (swipe right): calling them. On both lists the reason a person opens
- * a row from a phone is to get back to the caller, so the one-swipe action is the call; it
- * still asks first, because it rings somebody's phone. Everything else is swipe left.
+ * a row from a phone is to get back to the caller, so the one-swipe action is the call.
+ * Everything else is swipe left.
  *
  * What each action answers with:
- * - Call now: a confirmation naming who rings whom, then "Calling now" or the server's
- *   refusal (a `blocked` result is an answer, shown in the dialog, never an error toast).
+ * - Call now / Call back later: open Make a call, the one form for one call (founder,
+ *   5 Nov 2026), with this person and agent filled in; it asks, places or books, and shows
+ *   the gate's refusal in its own words. No second quick-dial UI lives here.
  * - Mark: a short choice. The change is undone from its toast by sending the previous value
  *   with the new one as the expected value, so a colleague's later change is never
  *   overwritten; a 409 says exactly that and the list refreshes.
- * - Call back later: a day and a time between 9am and 9pm India time. Undo cancels it.
  * - WhatsApp: the server says first whether a message may be sent and which approved
  *   messages there are; when it may not, its reason is the whole answer.
  * Calls and messages are never offered an Undo: they have already left.
  */
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Clock, MessageCircle, PhoneOutgoing, Tag } from "lucide-react";
@@ -36,7 +37,6 @@ import { Field } from "@/components/arc/field";
 import { DatePicker } from "@/components/arc/calendar";
 import { RadioGroup } from "@/components/arc/radio-group";
 import { addDays, todayIST, type ISODate } from "@/components/arc/ist-dates";
-import { ConfirmDialog } from "@/components/confirmDialog";
 import { ModalDialog } from "@/components/modalDialog";
 import {
   FIELD,
@@ -45,19 +45,15 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
-  formatIST,
-  formatPhone,
-  MonoValue,
 } from "@/components/ui";
-import { ApiProblem, type CallLeadResult, type Session } from "@/lib/api/client";
-import { useCancelCallback } from "@/lib/api/callbacks";
+import { ApiProblem, type Session } from "@/lib/api/client";
+import { makeCallHref } from "@/lib/api/oneCall";
 import { useClientRealm } from "@/lib/api/session";
-import { useCallLead, useWriteAccess } from "@/lib/api/hooks";
+import { useWriteAccess } from "@/lib/api/hooks";
 import {
   SWIPE_LEAD_STATUS,
   useMarkCallFollowUp,
   useMarkLeadStatus,
-  useScheduleCallback,
   useSendWhatsApp,
   useWhatsAppOptions,
   type CallFollowUpState,
@@ -215,11 +211,7 @@ export function useCallbackWhen(): { fields: ReactNode; check: () => string | nu
 
 // --- the hook -----------------------------------------------------------------------------
 
-type Dialog =
-  | { kind: "call"; target: FollowUpTarget; dialer: Dialer }
-  | { kind: "mark"; target: FollowUpTarget }
-  | { kind: "later"; target: FollowUpTarget }
-  | { kind: "whatsapp"; target: FollowUpTarget };
+type Dialog = { kind: "mark"; target: FollowUpTarget } | { kind: "whatsapp"; target: FollowUpTarget };
 
 type ActionSet = { primary: SwipeAction; secondary: SwipeAction[] };
 
@@ -230,10 +222,8 @@ export type FollowUpActions = {
   menuItems: (target: FollowUpTarget) => MenuItem[];
   /** The same actions for a record's header `ButtonGroup`, primary first. */
   groupActions: (target: FollowUpTarget) => GroupAction[];
-  /** The last answer to "call now" for a lead on this screen, kept per lead. */
-  callResult: (leadId: string) => CallLeadResult | undefined;
-  /** Opens the call confirmation directly (a row's own Call button). */
-  startCall: (target: FollowUpTarget) => void;
+  /** Make a call, pre-filled with this row's person and agent (a row's own Call button). */
+  callHref: (target: FollowUpTarget) => string;
   /** Mount once, anywhere on the screen. */
   dialogs: ReactNode;
 };
@@ -243,17 +233,16 @@ export function useFollowUpActions(
   {
     dialerFor,
     noDialerReason = "No agent makes calls yet. Set one up first.",
-    scheduleAgentId,
   }: {
     /** The agent that places a call for this row, or null when none can. */
     dialerFor: (target: FollowUpTarget) => Dialer | null;
     noDialerReason?: string;
-    /** The agent a call-back is booked with; left out, the server picks the lead's own. */
-    scheduleAgentId?: string;
   },
 ): FollowUpActions {
   const toasts = useToast();
   const client = useQueryClient();
+  const router = useRouter();
+  const { href } = useClientRealm();
   // The swipe hooks refresh the lists; a lead's own screen and its history are kept apart.
   const refreshLead = (leadId: string) => {
     void client.invalidateQueries({ queryKey: ["lead", session.orgSlug, leadId] });
@@ -265,14 +254,17 @@ export function useFollowUpActions(
   const mayWrite = useWriteAccess(session, "leads:write", "mark calls and leads");
   const mayDispatch = useWriteAccess(session, "leads:dispatch", "call a lead or book a call back");
 
-  // --- call now ---
-  const callLead = useCallLead(session);
-  const [callResults, setCallResults] = useState<Record<string, CallLeadResult>>({});
-  const call = useActionFeedback(callLead, {
-    errorTitle: "Could not place the call",
-    successToast: (result) => (result.status === "queued" ? "Calling now" : null),
-    successDescription: "It shows in your call log in a moment.",
-  });
+  // --- call now, call back later: both open Make a call, the one form (founder, 5 Nov 2026) ---
+  // By the LEAD, with this screen's agent, as these buttons always dialled; following up a
+  // call's own conversation is the call screen's "Call back" (`?call=`).
+  const callHref = (target: FollowUpTarget, later = false) =>
+    href(
+      makeCallHref(session.orgSlug, {
+        lead: target.leadId ?? undefined,
+        agent: dialerFor(target)?.id,
+        later,
+      }),
+    );
 
   // --- mark (and its undo, kept apart so an undo's toast does not offer another undo) ---
   const conflict = (error: unknown, fallback: string, retry: () => void) => {
@@ -346,25 +338,6 @@ export function useFollowUpActions(
     markCall.mutate(vars, { onError: (error) => conflict(error, "Could not mark this call", () => chooseCallMark(target, state)) });
   };
 
-  // --- call back later; its undo cancels the booking ---
-  const schedule = useScheduleCallback(session);
-  const cancelMutation = useCancelCallback(session);
-  const cancel = useActionFeedback(cancelMutation, {
-    errorTitle: "Could not cancel the call back",
-    successToast: "Call back cancelled",
-  });
-  const later = useActionFeedback(schedule, {
-    errorDisplay: "inline",
-    successToast: (out) => (out.status === "scheduled" && out.requested_at ? `Call-back booked for ${formatIST(out.requested_at)}` : null),
-    successDescription: (out) =>
-      out.rescheduled
-        ? "Moved the call back already booked."
-        : "Do-not-call and calling-hours checks still apply.",
-    undo: (out) => {
-      if (out.callback_id) cancel.run(out.callback_id);
-    },
-  });
-
   // --- WhatsApp ---
   const sendMutation = useSendWhatsApp(session);
   const send = useActionFeedback(sendMutation, {
@@ -376,7 +349,6 @@ export function useFollowUpActions(
   const leadless = "No lead from this call, so no one to contact.";
   const forTarget = (target: FollowUpTarget) => {
     const dialer = dialerFor(target);
-    const callBusy = callLead.isPending && callLead.variables?.leadId === target.leadId;
     const callDisabledHint = !target.leadId
       ? leadless
       : !mayDispatch.allowed
@@ -390,9 +362,8 @@ export function useFollowUpActions(
       icon: <PhoneOutgoing className="h-4 w-4" />,
       disabled: callDisabledHint !== undefined,
       hint: callDisabledHint,
-      status: callBusy ? call.status : undefined,
       onSelect: () => {
-        if (target.leadId && dialer) setDialog({ kind: "call", target, dialer });
+        if (target.leadId && dialer) router.push(callHref(target));
       },
     };
     const markHint = target.callId ? undefined : !target.leadId ? leadless : undefined;
@@ -416,8 +387,7 @@ export function useFollowUpActions(
       disabled: dispatchHint !== undefined,
       hint: dispatchHint,
       onSelect: () => {
-        schedule.reset();
-        setDialog({ kind: "later", target });
+        if (target.leadId) router.push(callHref(target, true));
       },
     };
     const whatsapp: SwipeAction = {
@@ -466,62 +436,13 @@ export function useFollowUpActions(
     );
   };
 
-  const placeCall = (target: FollowUpTarget, dialer: Dialer) => {
-    if (!target.leadId) return;
-    const leadId = target.leadId;
-    callLead.mutate(
-      { leadId, agentId: dialer.id },
-      {
-        onSuccess: (result) => {
-          setCallResults((prev) => ({ ...prev, [leadId]: result }));
-          if (result.status === "queued") close();
-        },
-      },
-    );
-  };
-
   const dialogs = dialog ? (
-    dialog.kind === "call" ? (
-      <CallDialog
-        target={dialog.target}
-        dialer={dialog.dialer}
-        status={call.status}
-        result={callLead.variables?.leadId === dialog.target.leadId ? callLead.data : undefined}
-        error={callLead.variables?.leadId === dialog.target.leadId ? callLead.error : null}
-        onCancel={() => {
-          callLead.reset();
-          close();
-        }}
-        onConfirm={() => placeCall(dialog.target, dialog.dialer)}
-      />
-    ) : dialog.kind === "mark" ? (
+    dialog.kind === "mark" ? (
       <MarkDialog
         target={dialog.target}
         onClose={close}
         onLead={(status) => chooseLeadMark(dialog.target, status)}
         onCall={(state) => chooseCallMark(dialog.target, state)}
-      />
-    ) : dialog.kind === "later" ? (
-      <LaterDialog
-        target={dialog.target}
-        status={later.status}
-        result={schedule.data}
-        error={schedule.error}
-        onClose={close}
-        onSubmit={(at, note) => {
-          if (!dialog.target.leadId) return;
-          schedule.mutate(
-            { leadId: dialog.target.leadId, at, note: note || undefined, agentId: scheduleAgentId },
-            {
-              onSuccess: (out) => {
-                if (out.status === "scheduled") close();
-              },
-              onSettled: () => {
-                if (dialog.target.leadId) refreshLead(dialog.target.leadId);
-              },
-            },
-          );
-        }}
       />
     ) : (
       <WhatsAppDialog
@@ -553,62 +474,12 @@ export function useFollowUpActions(
     actionsFor,
     menuItems,
     groupActions,
-    callResult: (leadId) => (Object.hasOwn(callResults, leadId) ? callResults[leadId] : undefined),
-    startCall: (target) => {
-      const dialer = dialerFor(target);
-      if (target.leadId && dialer && mayDispatch.allowed) setDialog({ kind: "call", target, dialer });
-    },
+    callHref: (target) => callHref(target),
     dialogs,
   };
 }
 
 // --- the dialogs --------------------------------------------------------------------------
-
-function CallDialog({
-  target,
-  dialer,
-  status,
-  result,
-  error,
-  onCancel,
-  onConfirm,
-}: {
-  target: FollowUpTarget;
-  dialer: Dialer;
-  status: ReturnType<typeof useActionFeedback>["status"];
-  result: CallLeadResult | undefined;
-  error: unknown;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const blocked = result?.status === "blocked";
-  return (
-    <ConfirmDialog
-      title={`Call ${target.name} now?`}
-      confirmLabel="Call now"
-      pendingLabel="Calling…"
-      successLabel="Calling"
-      cancelLabel={blocked ? "Close" : "Cancel"}
-      // A refusal is the answer: the button that would ask again is held, the reason shown.
-      status={blocked ? "idle" : status}
-      confirmDisabled={blocked}
-      error={error}
-      onCancel={onCancel}
-      onConfirm={onConfirm}
-    >
-      <p>
-        {dialer.name} rings {target.phone ? <MonoValue className="tabular-nums text-ink">{formatPhone(target.phone)}</MonoValue> : "them"} now.
-      </p>
-      {/* Kept on screen, not behind a tap: these checks can stop the call the person asked for. */}
-      <p className="mt-1">Do-not-call, hours and consent checks still apply.</p>
-      {blocked ? (
-        <NoticeBox tone="warn" role="status">
-          {result?.blocked_reason ?? "This call was not allowed."}
-        </NoticeBox>
-      ) : null}
-    </ConfirmDialog>
-  );
-}
 
 const CHOICE =
   "press flex w-full items-start justify-between gap-3 rounded-md border border-line px-3 py-2.5 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 aria-[current=true]:border-brand";
@@ -679,85 +550,6 @@ function MarkDialog({
           </li>
         ))}
       </ul>
-    </ModalDialog>
-  );
-}
-
-const NOTE_MAX = 200;
-
-function LaterDialog({
-  target,
-  status,
-  result,
-  error,
-  onClose,
-  onSubmit,
-}: {
-  target: FollowUpTarget;
-  status: ReturnType<typeof useActionFeedback>["status"];
-  result: { status: string; blocked_reason?: string | null } | undefined;
-  error: unknown;
-  onClose: () => void;
-  onSubmit: (at: string, note: string) => void;
-}) {
-  const when = useCallbackWhen();
-  const [note, setNote] = useState("");
-  const blocked = result?.status === "blocked";
-
-  const submit = () => {
-    const at = when.check();
-    if (at) onSubmit(at, note.trim());
-  };
-
-  return (
-    <ModalDialog
-      title="Call back later"
-      description={
-        <>
-          <span className="block break-words font-medium text-ink">{target.name}</span>
-          9am to 9pm India time, within 30 days.
-        </>
-      }
-      onClose={onClose}
-      actions={
-        <>
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose} disabled={status === "pending"}>
-            Cancel
-          </button>
-          <ActionButton status={blocked ? "idle" : status} successLabel="Booked" pendingLabel="Booking…" onClick={submit} disabled={blocked}>
-            Book the call back
-          </ActionButton>
-        </>
-      }
-    >
-      <form
-        className="mt-4 space-y-4"
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        {when.fields}
-        <Field label="What is it about? (optional)" hint="Your agent hears this before it rings.">
-          {(control) => (
-            <textarea
-              {...control}
-              value={note}
-              maxLength={NOTE_MAX}
-              rows={2}
-              onChange={(event) => setNote(event.target.value)}
-              className={FIELD}
-            />
-          )}
-        </Field>
-        {blocked ? (
-          <NoticeBox tone="warn" role="status">
-            {result?.blocked_reason ?? "A call back for this person is not allowed."}
-          </NoticeBox>
-        ) : null}
-        <ProblemNotice error={error} />
-      </form>
     </ModalDialog>
   );
 }
