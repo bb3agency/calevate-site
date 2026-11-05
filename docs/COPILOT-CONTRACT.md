@@ -43,6 +43,17 @@ Rules that bind every tool:
 3. When in doubt, it is `confirm`. A mis-tiered action is an incident.
 4. `actions_test.py` enumerates the registry; a new tool that reaches a caller or moves
    money must appear in its confirm list.
+5. An `immediate` action runs only when its `<area>_do` call carries `because`: words of the
+   person's latest message (`quotes.quoted_in`, D-833's rule for fills). Without it the call
+   is refused back to the model, which asks the person first (`service._because_of`, e2e
+   audit PIP-08): a lookup can hand the model a caller's words, and those must never run a
+   change with no click.
+6. A refusal the model can fix is `WriteRefusedError(reason, plain=...)`. `reason` is for the
+   model and may name tools and arguments; `plain` is the owner's sentence, shown on the step,
+   in "Nothing was changed." and on an approval. Leave `plain` out only where the generic
+   `actions.REFUSED_PLAIN` is the best the owner can be told.
+7. An executor that only QUEUES its work (a job writes the result later) returns
+   `Executed(queued=True)`; the card then says Started, never Done.
 
 ## 2. The planner, `prior_state` and the inverse
 

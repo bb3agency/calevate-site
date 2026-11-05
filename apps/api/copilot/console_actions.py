@@ -44,7 +44,7 @@ deadlock the inner one. The compare-and-swap is then the service's own lock.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated, Any, Final, Literal
@@ -84,6 +84,7 @@ from apps.api.copilot.actions import (
 from apps.api.copilot.agent_setup_actions import screen_guide_hint
 from apps.api.copilot.campaign_actions import BRIEF_SCHEMA, brief_line
 from apps.api.copilot.knowledge_actions import KNOWLEDGE_REMOVE
+from apps.api.copilot.quotes import owners_wording
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.set_actions import CAMPAIGN_ADD_LEADS, LEADS_BULK_UPDATE
 from apps.api.core.errors import ProblemError
@@ -1602,8 +1603,25 @@ def _on_off(value: bool) -> str:
     return "on" if value else "off"
 
 
-def _describe_edit(parsed: _AgentEditArgs, current: dict[str, Any]) -> tuple[list[str], list[str]]:
-    """What changes, as `(was, becomes)` phrases — only for the fields the request names."""
+async def _voice_labels(session: AsyncSession, ids: Sequence[str]) -> dict[str, str]:
+    """The display name of each catalogue voice id, from the platform catalogue (the name the
+    Voices screen shows). An id with no row is left out, and the card says "another voice"
+    rather than the id: a catalogue id is our own key and means nothing to the owner."""
+    wanted = [voice for voice in ids if voice]
+    if not wanted:
+        return {}
+    rows = await session.execute(
+        text("SELECT voice_id, label FROM platform_voice_catalog WHERE voice_id = ANY(:ids)"),
+        {"ids": wanted},
+    )
+    return {str(row[0]): strip_invisible(str(row[1])) for row in rows}
+
+
+def _describe_edit(
+    parsed: _AgentEditArgs, current: dict[str, Any], voices: Mapping[str, str]
+) -> tuple[list[str], list[str]]:
+    """What changes, as `(was, becomes)` phrases — only for the fields the request names.
+    `voices` names catalogue voices (`_voice_labels`)."""
     was: list[str] = []
     becomes: list[str] = []
     if parsed.language_primary is not None:
@@ -1613,8 +1631,13 @@ def _describe_edit(parsed: _AgentEditArgs, current: dict[str, Any]) -> tuple[lis
         )
         becomes.append(f"speaks {LANGUAGE_LABELS[parsed.language_primary]}")
     if parsed.voice_id is not None:
-        was.append(f"voice {current['voice_id'] or 'the default'}")
-        becomes.append(f"voice {strip_invisible(parsed.voice_id)}")
+        before = current["voice_id"]
+        if not before:
+            was.append("the default voice")
+        else:
+            was.append(f"voice {voices[before]}" if before in voices else "its current voice")
+        after = parsed.voice_id.strip()
+        becomes.append(f"voice {voices[after]}" if after in voices else "a different voice")
     if parsed.ai_disclosure_enabled is not None:
         was.append(f"AI disclosure {_on_off(current['ai_disclosure_enabled'])}")
         becomes.append(f"AI disclosure {_on_off(parsed.ai_disclosure_enabled)}")
@@ -1633,13 +1656,25 @@ def _describe_edit(parsed: _AgentEditArgs, current: dict[str, Any]) -> tuple[lis
 
 
 def _opening_line_problem(
-    line: str, current: dict[str, Any], language: str, *, field: str = "opening_line"
-) -> str | None:
+    line: str,
+    current: dict[str, Any],
+    language: str,
+    *,
+    said: Sequence[str],
+    field: str = "opening_line",
+) -> WriteRefusedError | None:
     """Why Pip may not write this opening line, or None: blank, or a textbook word callers do
-    not say (D-832's spoken-style list). A word the line already had is the owner's."""
+    not say (D-832's spoken-style list). A word the line already had, or one the person wrote
+    in this conversation, is the owner's (`quotes.owners_wording`, as the form fill judges)."""
     if not line:
-        return f"the `{field}` was blank, so ask the person what the agent should say first"
-    return textbook_problem(field, line, language, allowed=current[field])
+        return WriteRefusedError(
+            f"the `{field}` was blank, so ask the person what the agent should say first",
+            plain="The opening line was empty.",
+        )
+    problem = textbook_problem(field, line, language, allowed=owners_wording(current[field], said))
+    if problem is None:
+        return None
+    return WriteRefusedError(problem, plain="The opening line used words callers do not say.")
 
 
 _TRUTHFUL_ANYWAY: Final = (
@@ -1649,7 +1684,7 @@ _TRUTHFUL_ANYWAY: Final = (
 
 
 async def _plan_agent_edit_common(
-    session: AsyncSession, args: Mapping[str, Any], *, live: bool
+    session: AsyncSession, args: Mapping[str, Any], *, live: bool, said: Sequence[str] = ()
 ) -> tuple[_AgentEditArgs, Plan]:
     parsed = parse_args(_AgentEditArgs, args)
     current = await _agent_settings(session, parsed.agent_id)
@@ -1664,7 +1699,10 @@ async def _plan_agent_edit_common(
             update={"opening_line": parsed.outbound_opening_line, "outbound_opening_line": None}
         )
     name, _status = await _agent_name_status(session, parsed.agent_id)
-    was, becomes = _describe_edit(parsed, current)
+    voices = await _voice_labels(
+        session, [v.strip() for v in (current["voice_id"], parsed.voice_id) if v is not None]
+    )
+    was, becomes = _describe_edit(parsed, current, voices)
     if not becomes:
         raise WriteRefusedError("name at least one thing to change on the agent")
     if live and current["status"] != "live":
@@ -1683,10 +1721,10 @@ async def _plan_agent_edit_common(
     if parsed.opening_line is not None:
         opening_line = strip_invisible(parsed.opening_line.strip())
         problem = _opening_line_problem(
-            opening_line, current, parsed.language_primary or current["language_primary"]
+            opening_line, current, parsed.language_primary or current["language_primary"], said=said
         )
         if problem is not None:
-            raise WriteRefusedError(problem)
+            raise problem
     outbound_opening_line = None
     if parsed.outbound_opening_line is not None:
         if current["direction"] != "both":
@@ -1699,10 +1737,11 @@ async def _plan_agent_edit_common(
             outbound_opening_line,
             current,
             parsed.language_primary or current["language_primary"],
+            said=said,
             field="outbound_opening_line",
         )
         if problem is not None:
-            raise WriteRefusedError(problem)
+            raise problem
     plan = Plan(
         object_id=str(parsed.agent_id),
         title="Change this agent" if not live else "Change this live agent",
@@ -1874,16 +1913,14 @@ async def _execute_agent_edit(
 async def _plan_agent_edit(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    del actor
-    _parsed, plan = await _plan_agent_edit_common(session, args, live=False)
+    _parsed, plan = await _plan_agent_edit_common(session, args, live=False, said=actor.said)
     return plan
 
 
 async def _plan_agent_edit_live(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    del actor
-    _parsed, plan = await _plan_agent_edit_common(session, args, live=True)
+    _parsed, plan = await _plan_agent_edit_common(session, args, live=True, said=actor.said)
     return plan
 
 

@@ -19,7 +19,7 @@ import json
 import pytest
 from calevate_shared.spoken_guard import textbook_words
 
-from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
+from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem, CopilotTurn
 from apps.api.copilot.service import UNQUOTED_FILL_REASON, FillRefusedError, validate_fill
 
 PAYLOAD = CopilotAskIn.model_validate(
@@ -348,6 +348,24 @@ def _said(*items: dict[str, object]) -> str:
     return _call(*items, because="opening line")
 
 
+def test_a_textbook_word_the_owner_dictated_in_an_earlier_message_is_theirs() -> None:
+    """FAILS IF: the owner dictates a line in one message, says "put it in" in the next, and
+    the owner's own textbook word is refused because only the latest message was read
+    (PIP-10). Every message the person sent counts as their wording."""
+    payload = _spoken(question="yes, put that in the opening line").model_copy(
+        update={
+            "history": [
+                CopilotTurn(role="user", content=f"My opening line: {TEXTBOOK_OPENING}"),
+                CopilotTurn(role="assistant", content="Shall I put it in?"),
+            ]
+        }
+    )
+    items = validate_fill(
+        payload, _said({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
+    )
+    assert items[0].value == TEXTBOOK_OPENING
+
+
 # --- a fill quotes the latest message (D-833) ------------------------------------------
 
 
@@ -423,18 +441,39 @@ def test_a_repair_of_a_grounded_fill_needs_no_new_quote() -> None:
     `because` answers our refusal rather than the person (Varsha, 5 Nov 2026)."""
     payload = _asked("is my script ready now?", EARLIER)
     items = validate_fill(
-        payload, _call({"field_id": "open", "value": "09:00"}, because="fixed it"), grounded=True
+        payload,
+        _call({"field_id": "open", "value": "09:00"}, because="fixed it"),
+        grounded_for=frozenset({"open"}),
     )
     assert items == (CopilotFillItem(field_id="open", value="09:00"),)
 
 
-def test_a_refusal_says_whether_the_call_was_grounded() -> None:
+def test_a_repair_that_adds_a_field_must_quote_the_person_itself() -> None:
+    """FAILS IF: the grounding of one fill is waived for a later fill naming a field the
+    grounded call never named (PIP-09): a repair may not add fields nobody asked about."""
+    payload = _asked("is my script ready now?", EARLIER)
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(
+            payload,
+            _call(
+                {"field_id": "open", "value": "09:00"},
+                {"field_id": "close", "value": "18:00"},
+                because="fixed it",
+            ),
+            grounded_for=frozenset({"open"}),
+        )
+    assert UNQUOTED_FILL_REASON in refused.value.reasons
+
+
+def test_a_refusal_names_the_fields_it_grounded() -> None:
     with pytest.raises(FillRefusedError) as quoted:
         validate_fill(PAYLOAD, _call({"field_id": "status", "value": "x"}))
     assert quoted.value.grounded is True
+    assert quoted.value.grounded_ids == frozenset({"status"})
     with pytest.raises(FillRefusedError) as unquoted:
         validate_fill(PAYLOAD, _call({"field_id": "status", "value": "x"}, because="nope"))
     assert unquoted.value.grounded is False
+    assert unquoted.value.grounded_ids == frozenset()
 
 
 def test_the_owners_copy_names_labels_and_no_ids() -> None:

@@ -164,6 +164,9 @@ async def test_the_refusals_the_model_can_act_on(
     with pytest.raises(WriteRefusedError) as refused:
         await _propose(tenant_id, token, _args(agent_id, mode=mode, change=change, answers=answers))
     assert reason in refused.value.reason
+    # The owner reads `plain`, never the model's reason with its modes and backticks (PIP-03).
+    assert refused.value.plain != refused.value.reason
+    assert "`" not in refused.value.plain and "mode" not in refused.value.plain
 
 
 async def test_a_role_without_the_script_permission_is_refused() -> None:
@@ -280,6 +283,8 @@ async def _requested(tenant_id: UUID, token: str, args: dict[str, Any]) -> UUID:
     proposal = await _propose(tenant_id, token, args)
     outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
     assert outcome.applied
+    # Queued, not done: the writer may still fail, so the card must not say "Done" (A-06).
+    assert outcome.queued is True
     async with tenant_session(tenant_id) as session:
         pending = await script_proposals.read_proposal(session, UUID(args["agent_id"]))
     assert pending is not None
@@ -596,7 +601,7 @@ async def test_confirming_fixes_queues_the_improver_once_and_audits() -> None:
     run_id = await _failed_run(tenant_id, agent_id, verdicts=("failed",))
     proposal = await _propose_fix(tenant_id, token, {"agent_id": str(agent_id), "test_keys": None})
     outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert outcome.applied
+    assert outcome.applied and outcome.queued is True
     assert (await _outbox_jobs(tenant_id)).count(test_conversations.IMPROVE_JOB) == 1
     assert ("agent.tests_improvement", "agent", str(agent_id)) in await _audit(tenant_id)
     async with tenant_session(tenant_id) as session:

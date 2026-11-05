@@ -197,6 +197,8 @@ function stubCopilot(options: {
   conversation?: { turns: unknown[]; has_more: boolean };
   plan?: Record<string, unknown>;
   download?: string;
+  /** The agent's script suggestion, as `GET /v1/agents/{id}/script/proposal` answers. */
+  scriptProposal?: Record<string, unknown> | null;
 }) {
   const bodies: string[] = [];
   const confirms: string[] = [];
@@ -279,6 +281,12 @@ function stubCopilot(options: {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
+      }
+      if (options.scriptProposal !== undefined && /^\/v1\/agents\/[^/]+\/script\/proposal$/.test(path)) {
+        return new Response(JSON.stringify({ proposal: options.scriptProposal }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (options.plan && path.startsWith("/v1/copilot/plans/")) {
         // D-893: a plan proposal's card reads the plan it names.
@@ -539,6 +547,29 @@ describe("the panel", () => {
       "09:00",
     );
     expect(screen.queryAllByText("Filled 2 fields").length).toBe(0);
+  });
+
+  it("LISTS THE CHANGED FIELDS ONCE: not again in the card when the answer names them (F-1)", async () => {
+    stubCopilot({
+      chunks: [
+        'event: fill\ndata: {"items":[{"field_id":"t-name","value":"Sri Clinic"},{"field_id":"t-opens","value":"11:00"}]}\n\n',
+        'event: text\ndata: {"delta":"I changed Business name and Opens."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <PanelMount />
+        </>,
+      ),
+    );
+    await ask("fill in the hours");
+    expect(await screen.findByText("I changed Business name and Opens.")).toBeTruthy();
+    expect(screen.queryByText("Filled 2 fields")).toBeNull();
+    expect(screen.queryByText("Business name, Opens")).toBeNull();
+    expect(screen.getByRole("button", { name: /Undo/ })).toBeTruthy();
   });
 
   it("SENDS A PLACEHOLDER FOR A PERSONAL FIELD AND RESTORES THE REAL VALUE LOCALLY", async () => {
@@ -930,6 +961,57 @@ describe("a proposal", () => {
     expect(
       screen.queryAllByText("Suggestion — nothing has happened yet").length,
     ).toBe(0);
+  });
+
+  it("follows a QUEUED script suggestion to its end and never calls it Done (A-06, A-07)", async () => {
+    const agentId = "0192f0aa-0000-7000-8000-00000000a001";
+    stubCopilot({
+      chunks: proposalChunks({ ...PROPOSAL, tool: "agent_script_suggest", object_type: "agent", object_id: agentId }),
+      confirm: {
+        status: 200,
+        body: {
+          tool: "agent_script_suggest",
+          object_type: "agent",
+          object_id: agentId,
+          applied: true,
+          queued: true,
+          detail: "Writing it now. In about half a minute it is on Varsha's Script tab.",
+        },
+      },
+      scriptProposal: { id: "p1", status: "failed", note: "The suggestion could not be written. Try again." },
+    });
+    renderPanel();
+    await ask("rewrite the opening of my script");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    await clickConfirm();
+
+    expect(await screen.findByText("Could not write the suggestion")).toBeTruthy();
+    expect(screen.getByText("The suggestion could not be written. Try again.")).toBeTruthy();
+    expect(screen.queryAllByText("Done").length).toBe(0);
+  });
+
+  it("says STARTED, not Done, for any other queued change", async () => {
+    stubCopilot({
+      chunks: proposalChunks(),
+      confirm: {
+        status: 200,
+        body: {
+          tool: "agent_tests_fix",
+          object_type: "agent",
+          object_id: PROPOSAL.object_id,
+          applied: true,
+          queued: true,
+          detail: "Working out the fixes now.",
+        },
+      },
+    });
+    renderPanel();
+    await ask("fix my failed tests");
+    await screen.findByRole("button", { name: /^Confirm — / });
+    await clickConfirm();
+
+    expect(await screen.findByText("Started")).toBeTruthy();
+    expect(screen.queryAllByText("Done").length).toBe(0);
   });
 
   it("says NOTHING TO CHANGE when the world was already in that state", async () => {

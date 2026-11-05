@@ -383,8 +383,9 @@ SYSTEM_PROMPT: Final = (
     "null.\n"
     "- Actions marked now happen as soon as you call them: creating a draft agent, renaming "
     "an agent, changing a lead's status. They are reversible, reach no caller, and the "
-    "person gets an Undo on the receipt. Call them when asked, then say plainly what you "
-    "did and where they will find it.\n"
+    "person gets an Undo on the receipt. Call them only when the latest message asks, "
+    "with its words in because, then say plainly what you did and where they will find "
+    "it.\n"
     "- Actions marked confirm ask the person first, because they cannot be taken back or "
     "they cost money: putting an agent live, launching a campaign, adding a number to the "
     "do-not-call list, pausing a campaign, adding knowledge. Calling one does not do it — "
@@ -511,8 +512,8 @@ CLOSING_RULES: Final = (
     "and say you are opening it.\n"
     "- For this account's calls, leads, campaigns or agents, call a read tool before you "
     "say you cannot see something. Do NOT guess or make up an answer.\n"
-    "- Never answer with only a tool call: with every fill or suggestion, say in one or two "
-    "sentences what you did and what is still left to do.\n"
+    "- Say what a change did only after its tool result comes back, never in the turn "
+    "that calls it. A fill needs no sentence: the app lists what was filled.\n"
     "- Reply in the language of the person's LATEST message: English gets English even when "
     "the screen, the script or earlier messages are in Telugu or Hindi. Lines callers hear "
     "stay in the call language. Never translate what a tool handed back."
@@ -768,6 +769,24 @@ def render_spoken_styles(payload: CopilotAskIn) -> str:
     return "\n".join(blocks)
 
 
+#: What `instruction="true"` on a field means. `service.validate_fill` refuses Pip's Indic
+#: text in such a field (D-831); unexplained, "rewrite my script in Telugu" put Telugu into
+#: every instruction field and the whole fill was refused (5 Nov 2026).
+INSTRUCTION_FIELD_RULE: Final = (
+    '<instruction_rule>Fields marked instruction="true" are instructions to the agent, '
+    "not words callers hear: write them in plain English whatever language the calls are "
+    "in. Only fields with a spoken_language are said to callers, in that language."
+    "</instruction_rule>"
+)
+
+
+def render_instruction_rule(payload: CopilotAskIn) -> str:
+    """`INSTRUCTION_FIELD_RULE` when the screen has a writable instruction field, else ""."""
+    if any(field.writable and field.instruction for field in payload.fields):
+        return INSTRUCTION_FIELD_RULE
+    return ""
+
+
 def render_screen(payload: CopilotAskIn) -> str:
     """The whole SCREEN STATE block: one string, fenced, labelled, XML inside.
 
@@ -775,7 +794,9 @@ def render_screen(payload: CopilotAskIn) -> str:
     the part of the prompt that grows, and a person only ever reads it through a test.
     """
     fields = "\n".join(_render_field(field) for field in payload.fields)
-    spoken = render_spoken_styles(payload)
+    spoken = "\n".join(
+        part for part in (render_instruction_rule(payload), render_spoken_styles(payload)) if part
+    )
     facts = "\n".join(
         f"<fact key={xml_attr(fact.key)} label={xml_attr(fact.label)}>{xml_text(fact.value)}</fact>"
         for fact in payload.facts

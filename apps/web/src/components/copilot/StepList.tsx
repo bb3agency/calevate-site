@@ -14,7 +14,7 @@ import type { CopilotStep } from "@/lib/copilot/types";
  * Each step reads as the server's plain label ("Searched your calls"), never as the tool's
  * identifier or its timing: those are for logs and support, and on a business owner's
  * screen "search_calls 93 ms" is noise (ux-writing). The identifier stays on the frame
- * (`step.tool`) and in the `title` of each row for anybody quoting it to support.
+ * (`step.tool`), and in the admin realm only it is each row's hover `title` for support.
  *
  * ## Quiet by default
  *
@@ -29,7 +29,8 @@ import type { CopilotStep } from "@/lib/copilot/types";
  * the answer above already says what Pip could and could not do, and nothing here asks the
  * reader to act, so the warning colour would be an alarm with no action behind it. A step
  * that failed and then succeeded when Pip tried the same thing again is not a problem at
- * all: it reads "Tried again" and does not count against the summary.
+ * all: it reads "Tried again", without the reason it was first refused, and is not counted
+ * in the summary.
  *
  * ## No repeated sentences
  *
@@ -41,17 +42,27 @@ import type { CopilotStep } from "@/lib/copilot/types";
  * The list is not `aria-live`: it changes several times per second while a run is going,
  * and announcing every frame would talk over the answer, which IS announced.
  */
-export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?: string }) {
+export function StepList({
+  steps,
+  answer = "",
+  realm = "client",
+}: {
+  steps: CopilotStep[];
+  answer?: string;
+  realm?: "client" | "admin";
+}) {
   const [open, setOpen] = useState(false);
   const listId = useId();
   if (steps.length === 0) return null;
+  // The tool's name on hover is for support, which only the operator's console is.
+  const hover = (step: CopilotStep) => (realm === "admin" ? step.tool : undefined);
 
   const running = steps.filter((step) => step.status === "running");
   if (running.length > 0) {
     return (
       <ul className="space-y-1 text-meta text-ink-muted">
         {running.map((step) => (
-          <li key={step.id} className="flex items-center gap-1.5" title={step.tool}>
+          <li key={step.id} className="flex items-center gap-1.5" title={hover(step)}>
             <Loader2 aria-hidden className="h-3.5 w-3.5 shrink-0 animate-spin text-ink-faint motion-reduce:animate-none" />
             {labelOf(step)}
           </li>
@@ -62,12 +73,14 @@ export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?
 
   const retried = recoveredSteps(steps);
   const problems = steps.filter((step) => isProblem(step) && !retried.has(step.id)).length;
+  // A retry that worked is one thing done, not two.
+  const counted = steps.length - retried.size;
   const summary =
     problems > 0
-      ? problems === steps.length
+      ? problems === counted
         ? "Could not finish what it tried"
-        : `${problems} of ${steps.length} steps did not finish`
-      : `Checked ${steps.length === 1 ? "1 thing" : `${steps.length} things`}`;
+        : `${problems} of ${counted} steps did not finish`
+      : `Checked ${counted === 1 ? "1 thing" : `${counted} things`}`;
   const shown = new Set<string>([normalise(answer)]);
 
   return (
@@ -92,11 +105,12 @@ export function StepList({ steps, answer = "" }: { steps: CopilotStep[]; answer?
       {open ? (
         <ul id={listId} className="mt-1.5 space-y-1.5 border-l border-line pl-3">
           {steps.map((step) => {
-            const detail = freshDetail(step.detail, shown);
             const again = retried.has(step.id);
+            // Why a retried step was refused is no longer true of anything on screen.
+            const detail = again ? null : freshDetail(step.detail, shown);
             const failed = isProblem(step) && !again;
             return (
-              <li key={step.id} title={step.tool}>
+              <li key={step.id} title={hover(step)}>
                 <span className={`flex items-center gap-1.5 ${failed || again ? "text-ink-muted" : "text-ink"}`}>
                   {again ? <RotateCcw aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" /> : null}
                   {failed ? <CircleMinus aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" /> : null}

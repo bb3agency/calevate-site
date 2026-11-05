@@ -92,10 +92,40 @@ describe("the assistant's steps, as the person sees them", () => {
         ]}
       />,
     );
-    expect(screen.getByText("Checked 2 things")).toBeTruthy();
+    expect(screen.getByText("Checked 1 thing")).toBeTruthy();
     open();
     expect(screen.getByText("Tried again")).toBeTruthy();
     expect(screen.queryByText(/Could not finish/)).toBeNull();
+  });
+
+  it("reads a refused fill that a repair landed as tried again, without the old reason (F-1)", () => {
+    render(
+      <StepList
+        steps={[
+          step({
+            id: "a",
+            tool: "set_fields",
+            status: "refused",
+            label: "Filling in this form…",
+            detail: "Opening line used words callers do not say",
+          }),
+          step({ id: "b", tool: "set_fields", status: "done", label: "Filled in this form", detail: "" }),
+        ]}
+      />,
+    );
+    expect(screen.queryByText(/Could not finish/)).toBeNull();
+    open();
+    expect(screen.getByText("Tried again")).toBeTruthy();
+    expect(screen.getByText("Filled in this form")).toBeTruthy();
+    expect(screen.queryByText(/callers do not say/)).toBeNull();
+  });
+
+  it("shows the tool's name on hover to the operator only", () => {
+    const { container, rerender } = render(<StepList steps={[step()]} />);
+    open();
+    expect(container.querySelector("[title='search_calls']")).toBeNull();
+    rerender(<StepList steps={[step()]} realm="admin" />);
+    expect(container.querySelector("[title='search_calls']")).not.toBeNull();
   });
 
   it("says a step that did not finish in muted ink, not the warning colour", () => {

@@ -20146,6 +20146,11 @@ export interface components {
             object_type: string;
             /** Plan Id */
             plan_id?: string | null;
+            /**
+             * Queued
+             * @default false
+             */
+            queued: boolean;
             /** Tool */
             tool: string;
         };

@@ -1,0 +1,20 @@
+{
+  "_about": "Words that say a call walks the person through something on their phone or computer (D-906). Pip uses them only as a hint to ASK the owner whether the agent should guide callers on a screen; a false match costs one question. Founder-owned: add or remove words per language. Matching ignores the zero-width non-joiner, so a word matches with or without it. English words live in code (apps/api/copilot/agent_setup_actions.py).",
+  "words": {
+    "te": [
+      "యాప్",
+      "ఇన్‌స్టాల్",
+      "డౌన్‌లోడ్",
+      "వెబ్‌సైట్",
+      "లాగిన్",
+      "ఐకాన్"
+    ],
+    "hi": [
+      "ऐप",
+      "इंस्टॉल",
+      "डाउनलोड",
+      "वेबसाइट",
+      "लॉगिन"
+    ]
+  }
+}

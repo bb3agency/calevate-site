@@ -716,6 +716,10 @@ def _area_tool(
             "type": "object",
             "properties": {
                 "action": {"type": "string", "enum": [action.name for action in actions]},
+                # An action marked `now` runs only when this quotes the person's latest
+                # message (`service._because_of`, D-833's rule for fills). Explained once in
+                # the system prompt, so it costs a property name here and nothing more.
+                **({"because": {"type": "string"}} if kind == "do" else {}),
                 "args": {
                     "type": "object",
                     "properties": {key: _merged(found) for key, found in by_name.items()},
