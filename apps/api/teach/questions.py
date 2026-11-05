@@ -34,11 +34,11 @@ from datetime import datetime
 from typing import Final, Literal
 from uuid import UUID
 
+from calevate_shared.call_words import extend as _extend
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.test_conversations import PRICE_PATTERN
-from apps.api.agents.test_conversations import missing_facts
+from apps.api.agents.test_conversations import PRICE_PATTERN, missing_facts
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.insights.detection import withheld_topics
@@ -74,14 +74,16 @@ TOPIC_QUESTIONS: Final[dict[str, str]] = {
 }
 
 #: Something that reads as opening times in a fact or a document. Postgres regex.
-_HOURS_PATTERN: Final = (
+#: The Indian-language words of both are the founder's (`call_words.json`).
+_HOURS_PATTERN: Final = _extend(
     r"\m[0-9]{1,2}(:[0-9]{2})?\s*(am|pm)\M|o'?clock|\mopen(s|ing)?\M|\mclosed\M|\mtimings?\M"
-    r"|\mhours\M|గంటల|సమయం|बजे|खुल"
+    r"|\mhours\M",
+    "teach_questions._HOURS_PATTERN",
 )
 #: Something that reads as an address.
-_ADDRESS_PATTERN: Final = (
-    r"\maddress|\mroad\M|\mstreet|nagar\M|\mnear\M|\mopposite\M|\mlocated|\mbranch"
-    r"|చిరునామా|पता"
+_ADDRESS_PATTERN: Final = _extend(
+    r"\maddress|\mroad\M|\mstreet|nagar\M|\mnear\M|\mopposite\M|\mlocated|\mbranch",
+    "teach_questions._ADDRESS_PATTERN",
 )
 
 _WHY_ORDER: Final[dict[Why, int]] = {"callers": 0, "practice": 1, "setup": 2}

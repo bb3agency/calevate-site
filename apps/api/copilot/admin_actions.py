@@ -452,6 +452,204 @@ ADMIN_WORKSPACE_PROVISION: Final = AdminActionTool(
 )
 
 
+# --- admin_call_lines_raise / admin_call_lines_decline (A7-19) ---------------------------
+# The client's numbers page answers a request for more calls at once with two buttons: set
+# the lines (which closes the request when it raises them), or decline with a reason the
+# client reads. Same functions, same confirmation, same audit action as those routes.
+
+
+def _call_lines_confirmation(_args: Mapping[str, Any], tenant: UUID | None) -> str:
+    from apps.api.tenancy.call_lines_routes import call_lines_confirmation
+
+    return call_lines_confirmation(_client_of(tenant))
+
+
+class _RaiseLinesArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    call_lines: int
+
+
+async def _plan_call_lines_raise(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Plan:
+    from apps.api.tenancy import call_line_requests as requests_
+    from apps.api.tenancy.call_lines import read_call_lines, refuse_call_lines_out_of_range
+
+    parsed = parse_args(_RaiseLinesArgs, args)
+    refuse_call_lines_out_of_range(parsed.call_lines)
+    tenant_id = _viewing(actor)
+    name = await _client_name(session, tenant_id)
+    state = await read_call_lines(session, tenant_id=tenant_id)
+    if parsed.call_lines <= state.lines:
+        raise WriteRefusedError(
+            f"{name} already has {state.lines} calls at once; raising means a larger number"
+        )
+    asked = await requests_.open_request_for(session, tenant_id=tenant_id)
+    return Plan(
+        object_id=str(tenant_id),
+        title="Raise this client's calls at once",
+        summary=(
+            f"Let {name} have {parsed.call_lines} calls at once (now {state.lines})."
+            + (
+                f" This answers their request for {requests_.wanted_phrase(asked)}."
+                if asked is not None
+                else ""
+            )
+        ),
+        current=str(state.lines),
+        proposed=str(parsed.call_lines),
+        cost="More calls at the same moment are billed at the same moment.",
+        reversal="It can be lowered again on the client's page.",
+        args={"call_lines": parsed.call_lines},
+    )
+
+
+async def _execute_call_lines_raise(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Executed:
+    """`tenancy.call_lines.set_call_lines` — the Calls at once panel's own write."""
+    from apps.api.tenancy.call_lines import set_call_lines
+
+    parsed = parse_args(_RaiseLinesArgs, args)
+    state, moved, closed = await set_call_lines(
+        session,
+        tenant_id=_viewing(actor),
+        lines=parsed.call_lines,
+        admin_id=actor.admin_user_id,
+    )
+    return Executed(
+        applied=moved,
+        detail=(
+            f"The client now has {state.lines} calls at once"
+            + ("; their request is answered." if closed is not None else ".")
+            if state.engine_state == "ours"
+            else "The new number is being sent to the voice platform; the request closes when "
+            "it is confirmed."
+        ),
+        audit_summary={
+            "call_lines": parsed.call_lines,
+            "in_force": state.lines,
+            "moved": moved,
+            "request_closed": None if closed is None else str(closed.id),
+        },
+    )
+
+
+ADMIN_CALL_LINES_RAISE: Final = AdminActionTool(
+    name="admin_call_lines_raise",
+    tier="confirm",
+    permission="admin:tenants",
+    object_type="organization",
+    audit_action="admin.call_lines_set",
+    where="on the client's page, under Calls at once",
+    schema=action_schema(
+        "admin_call_lines_raise",
+        "Propose raising how many calls the open client may have at once, which also answers "
+        "its open request for more." + PROPOSES_ONLY,
+        {"call_lines": {"type": "integer", "description": "The new number of calls at once."}},
+    ),
+    plan=_plan_call_lines_raise,
+    execute=_execute_call_lines_raise,
+    confirm_action=_call_lines_confirmation,
+    scope="tenant",
+)
+
+
+class _DeclineLinesArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class _DeclineLinesPlanned(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: UUID
+    reason: str
+
+
+async def _plan_call_lines_decline(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Plan:
+    from apps.api.tenancy import call_line_requests as requests_
+    from apps.api.tenancy.models import CALL_LINE_REQUEST_TEXT_MAX
+
+    parsed = parse_args(_DeclineLinesArgs, args)
+    reason = requests_.clean_text(strip_invisible(parsed.reason))
+    if reason is None or len(reason) > CALL_LINE_REQUEST_TEXT_MAX:
+        raise WriteRefusedError(
+            f"the reason is what the client reads: one short sentence, at most "
+            f"{CALL_LINE_REQUEST_TEXT_MAX} characters"
+        )
+    tenant_id = _viewing(actor)
+    name = await _client_name(session, tenant_id)
+    asked = await requests_.open_request_for(session, tenant_id=tenant_id)
+    if asked is None:
+        raise WriteRefusedError(f"{name} has no open request for more calls at once")
+    return Plan(
+        object_id=str(asked.id),
+        title="Decline this client's request for more calls at once",
+        summary=(
+            f"Decline {name}'s request for {requests_.wanted_phrase(asked)} calls at once "
+            f"and show them: “{reason}”."
+        ),
+        current="open",
+        proposed="declined",
+        cost=None,
+        reversal="A decline is not reopened; the client can ask again after a day.",
+        args={"request_id": str(asked.id), "reason": reason},
+    )
+
+
+async def _execute_call_lines_decline(
+    session: AsyncSession, actor: AdminActor, args: Mapping[str, Any]
+) -> Executed:
+    """`tenancy.call_line_requests.decline` — the Decline button's own write, on the request
+    the card showed (a request answered since is refused, never a newer one declined)."""
+    from apps.api.tenancy import call_line_requests as requests_
+
+    parsed = parse_args(_DeclineLinesPlanned, args)
+    declined = await requests_.decline(
+        session,
+        tenant_id=_viewing(actor),
+        request_id=parsed.request_id,
+        admin_id=actor.admin_user_id,
+        reason=parsed.reason,
+    )
+    return Executed(
+        applied=True,
+        detail="The request is declined; the client sees the reason on its bell.",
+        audit_summary={"lines_at_request": declined.lines_at_request},
+    )
+
+
+ADMIN_CALL_LINES_DECLINE: Final = AdminActionTool(
+    name="admin_call_lines_decline",
+    tier="confirm",
+    permission="admin:tenants",
+    object_type="call_line_request",
+    audit_action="call_lines_request.declined",
+    where="on the client's page, under Calls at once",
+    schema=action_schema(
+        "admin_call_lines_decline",
+        "Propose declining the open client's request for more calls at once, with the reason "
+        "the client will read." + PROPOSES_ONLY,
+        {
+            "reason": {
+                "type": "string",
+                "description": "Why, in one short sentence written to the client.",
+            }
+        },
+    ),
+    plan=_plan_call_lines_decline,
+    execute=_execute_call_lines_decline,
+    # The Decline button asks for no step-up (`admin_decline_call_lines_request`).
+    confirm_action=None,
+    scope="tenant",
+)
+
+
 class _AdminNumberArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1037,6 +1235,8 @@ ADMIN_ACTIONS: Final[tuple[AdminActionTool, ...]] = (
     HEALER_RETRY,
     HEALER_RESOLVE,
     HEALER_ATTEST_RATE,
+    ADMIN_CALL_LINES_RAISE,
+    ADMIN_CALL_LINES_DECLINE,
 )
 
 _BY_NAME: Final[dict[str, AdminActionTool]] = {tool.name: tool for tool in ADMIN_ACTIONS}

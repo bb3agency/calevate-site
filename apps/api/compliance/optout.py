@@ -156,7 +156,7 @@ from dataclasses import dataclass
 from typing import Final, Protocol
 from uuid import UUID
 
-from calevate_shared import spoken_lines
+from calevate_shared import call_words
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -307,21 +307,21 @@ _PATTERNS: tuple[tuple[str, str, str], ...] = (
     ("unsubscribe", "en", r"\bunsubscribe\b|\bopt me out\b|\bopt out\b"),
 )
 
-#: Every other language's patterns are the founder's (`calevate_shared/spoken_lines.json`, entry
+#: Every other language's patterns are the founder's (`calevate_shared/call_words.json`, entry
 #: `optout.patterns`, G5-2): romanised Telugu and Hindi, the smaller native-script lists
 #: (written from the language rather than from observed STT output, additive, to grow
 #: from the first native-script transcripts), and code-mixed "call చేయకండి", which Indian
 #: STT writes with the English loanword in Latin letters.
 _PATTERNS += tuple(
     (str(rule), str(language), str(pattern))
-    for language, rules in spoken_lines.by_language("optout.patterns").items()
+    for language, rules in call_words.table("optout.patterns").items()
     for rule, pattern in rules
 )
 
 #: "Now" in Telugu and Hindi, in the few words before a match: "ippudu call cheyakandi",
 #: "abhi call mat karo" ask for another time. Not "abhi se" ("from now on"), which is the
 #: opposite.
-_NOT_NOW_WORDS: Final = spoken_lines.by_language("optout.not_now")
+_NOT_NOW_WORDS: Final = call_words.table("optout.not_now")
 _NOT_NOW = re.compile(
     r"\b(?:"
     + "|".join(w["latin"] for w in _NOT_NOW_WORDS.values())

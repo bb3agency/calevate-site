@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BusinessCopySection, REFRESH_REQUEST, lastRefreshed } from "@/app/c/[slug]/settings/business/BusinessCopySection";
+import { BusinessCopySection, REFRESH_REQUEST, lastRefreshed, notJudged } from "@/app/c/[slug]/settings/business/BusinessCopySection";
 import { TeachBox, exampleSentences } from "@/app/c/[slug]/knowledge/TeachBox";
 import { capabilityLine, costLine, writtenLine } from "@/app/admin/tenants/[tenantId]/BusinessCopyPanel";
 import type { AdminBusinessCopy, BusinessCopy, GeneratedPlaceholders } from "@/lib/api/businessCopy";
@@ -201,6 +201,28 @@ describe("the Business profile's examples row", () => {
   it("is disabled for a reader", async () => {
     await renderClientPage(<Section canWrite={false} />, { "/v1/business-copy": LANDED });
     expect((await screen.findByRole("button", { name: /^Refresh now: / }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says it is still learning the business, with a Retry that asks Pip again", async () => {
+    const asked = listenToPip();
+    await renderClientPage(<Section />, { "/v1/business-copy": LANDED });
+    expect(await screen.findByText("Still learning what your business does")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Retry: / }));
+    });
+    expect(asked.map((a) => a.prompt)).toEqual([REFRESH_REQUEST]);
+  });
+
+  it("says nothing about learning once the business is judged or while a run writes", async () => {
+    const judged = {
+      ...LANDED,
+      capabilities: { ...LANDED.capabilities, sells: { reason: "A shop.", applies: true } },
+    };
+    expect(notJudged(judged)).toBe(false);
+    expect(notJudged({ ...LANDED, refreshing: true })).toBe(false);
+    await renderClientPage(<Section />, { "/v1/business-copy": judged });
+    expect(await screen.findByText(lastRefreshed(judged, false, false))).toBeTruthy();
+    expect(screen.queryByText("Still learning what your business does")).toBeNull();
   });
 
   it("says plainly why the last run wrote nothing", async () => {

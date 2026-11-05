@@ -1,5 +1,5 @@
 {
-  "about": "Founder-owned fixed lines and phrase lists in Indian languages (audit of 5 Nov 2026, G4): every sentence a caller hears, or a practice caller says, that we wrote rather than the client or a model, and the phrase lists the do-not-call detector reads. Moved here from code unchanged, so the founder can correct them without a code change. Each entry: use (English, what it is for), review (needs_native_review or native_reviewed), reviewed_by, by_language (live: what the code reads) and, where present, drafts (machine-drafted lines that are NOT used; the founder approves one by moving it into by_language). A spoken line is written wholly in the language's own letters (D-861). Code never invents a line for a language missing here: it says so, skips the step, or uses English only where that is safe, as each consumer documents.",
+  "about": "Founder-owned fixed lines in Indian languages (audit of 5 Nov 2026, G4): every sentence a caller hears, or a practice caller says, that we wrote rather than the client or a model. Words a check LISTENS for (the do-not-call phrases among them) are in call_words.json. Moved here from code unchanged, so the founder can correct them without a code change. Each entry: use (English, what it is for), review (needs_native_review or native_reviewed), reviewed_by, by_language (live: what the code reads) and, where present, drafts (machine-drafted lines that are NOT used; the founder approves one by moving it into by_language). A spoken line is written wholly in the language's own letters (D-861). Code never invents a line for a language missing here: it says so, skips the step, or uses English only where that is safe, as each consumer documents.",
   "entries": {
     "handover": {
       "use": "What the caller hears while a handover to a person is placed (the engine's hand-over line). Written in the language's own letters (D-745): a line in Latin letters is read as English, so the Telugu and Hindi drafts are NOT used, and those callers hear the English line until a line in their own letters is written here.",
@@ -387,68 +387,6 @@
       "reviewed_by": null,
       "by_language": {
         "en-IN": "What can you help me with?"
-      }
-    },
-    "optout.patterns": {
-      "use": "How a caller says 'do not call me again', per language, as regular expressions over the caller's words (the do-not-call ledger, TRAI). A staged language may not be switched on until it has patterns here (agents/languages readiness). Each entry is [rule id, pattern]; a plain phrase is a valid pattern. English is in code. Precision matters, because a match makes the number undiallable for the client: match the negative form only (Telugu cheyakandi or cheyyoddu, never cheyandi; Hindi mat karo, never karo); a removal verb only ('number teesi pettukondi' is 'note the number down'); and never 'phone band karo', which is 'hang up'. The native-script lists are smaller than the romanised ones, written from the language rather than from observed speech-to-text output, and should grow from the first native-script transcripts. tests/call_optout_test.py holds a negative example for each rule.",
-      "review": "needs_native_review",
-      "reviewed_by": null,
-      "by_language": {
-        "te": [
-          [
-            "call_cheyakandi",
-            "\\b(call|calls|phone|fone)\\w*\\s+(chey+a?kandi|chey+akandhi|chey+oddu|vad+u|vod+u)\\b"
-          ],
-          [
-            "number_teeseyandi",
-            "\\b(number|nambar|nambaru)\\b[\\w ]{0,20}\\b(t[eh]+se(?:y|yy)\\w*|t[eh]+si\\s*v[ea]\\w*|tholaginch\\w*)"
-          ],
-          [
-            "do_not_call_telu",
-            "(కాల్|ఫోన్|call|calls|phone)\\s*(చేయ(కండి|వద్దు)|చేయొద్దు)"
-          ],
-          [
-            "remove_number_telu",
-            "(నంబర్|నెంబర్)[^\\n]{0,20}తీసే"
-          ]
-        ],
-        "hi": [
-          [
-            "call_mat_karo",
-            "\\b(call|phone|fone|kaal)\\s+(mat|nahi|nahin|na)\\s+\\w*(karo|kariye|kijiye|karna|karein|kare|kar)\\b"
-          ],
-          [
-            "number_hata_do",
-            "\\b(number|nambar|list|suchi)\\b[\\w ]{0,25}\\bhata\\w*\\b"
-          ],
-          [
-            "band_karo",
-            "\\b(calls|call karna|phone karna|fone karna)\\b[\\w ]{0,15}\\bband kar\\w*\\b"
-          ],
-          [
-            "do_not_call_deva",
-            "कॉल\\s*(मत|न)\\s*(करो|करें|कीजिए|करना)"
-          ],
-          [
-            "remove_number_deva",
-            "(नंबर|नम्बर)[^\\n]{0,20}हटा"
-          ]
-        ]
-      }
-    },
-    "optout.not_now": {
-      "use": "'Now' a few words before an opt-out makes it 'not now' (another time), per language: latin is matched as whole words, native as written.",
-      "review": "needs_native_review",
-      "reviewed_by": null,
-      "by_language": {
-        "te": {
-          "latin": "ippudu|ipudu|ipdu",
-          "native": "ఇప్పుడు"
-        },
-        "hi": {
-          "latin": "abhi(?! se\\b)|abi(?! se\\b)",
-          "native": "अभी(?! से)"
-        }
       }
     },
     "introduction_salutation": {

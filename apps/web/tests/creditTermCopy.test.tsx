@@ -20,6 +20,7 @@ const CARD: CreditPacks = {
   studio_tier_label: "Studio",
   voice_not_offered: null,
   voice_not_offered_notice: null,
+  billing_step_seconds: 30,
   packs: [],
   credit_expiry_months: 12,
 };
@@ -34,5 +35,20 @@ describe("what calls cost: the credit term", () => {
   it("states no term when the card has not loaded", () => {
     const { container } = render(<WhatCallsCost card={undefined} labels={undefined} />);
     expect(container.textContent).not.toMatch(/never expires|lasts \d+ months/i);
+  });
+});
+
+describe("what calls cost: the billing step (G8-3)", () => {
+  it("states the step the server's card names", () => {
+    const { container } = render(
+      <WhatCallsCost card={{ ...CARD, billing_step_seconds: 60 }} labels={undefined} />,
+    );
+    expect(screen.getByText("Calls are billed in 60-second steps")).toBeTruthy();
+    expect(container.textContent).not.toContain("30-second");
+  });
+
+  it("states no step when the card has not loaded", () => {
+    const { container } = render(<WhatCallsCost card={undefined} labels={undefined} />);
+    expect(container.textContent).not.toMatch(/-second steps/);
   });
 });

@@ -190,11 +190,11 @@ async def test_a_short_brief_asks_the_profiles_own_gaps_without_a_model() -> Non
     assert questions_out["status"] == "ready"
     items = questions_out["items"]
     # The profile's gaps, then the one every owner is asked (D-945).
-    assert [item["maps_to"] for item in items] == ["trade", "location", "offer", "hours", None]
+    # No menu of guessed offerings per business type (G2-5): what the business sells is
+    # offered as choices only by the model, which read the owner's own words.
+    assert [item["maps_to"] for item in items] == ["location", "offer", "hours", "booking", None]
     assert items[-1]["id"] == ONE_THING.id
     assert [item["id"] for item in items] == ["q1", "q2", "q3", "q4", ONE_THING.id]
-    trade = items[0]
-    assert trade["kind"] == "choices" and "Villas" in trade["options"]
     assert (await _run(tenant_id)).question_runs == 0
 
 
@@ -415,7 +415,7 @@ async def test_with_no_model_the_questions_are_the_profiles_gaps(
         },
     )
     stored = (await _run(tenant_id)).questions
-    assert [q["maps_to"] for q in stored] == ["trade", "location", "offer", "hours", None]
+    assert [q["maps_to"] for q in stored] == ["location", "offer", "hours", "booking", None]
 
 
 async def test_a_run_from_before_d863_reads_its_keys_as_the_fixed_questions() -> None:
@@ -493,9 +493,19 @@ async def _asked(tenant_id: uuid.UUID, items: list[questions.Question]) -> None:
 async def test_the_answers_land_in_the_business_profile_merged() -> None:
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
-    fixed = [
+    # A trade question as the model writes one (the fixed set asks none, G2-5).
+    trade = questions.Question(
+        "q1",
+        "What do you sell or rent?",
+        "Pick all that apply.",
+        "choices",
+        options=("Apartments", "Villas", "Plots"),
+        maps_to="trade",
+    )
+    fixed = [trade] + [
         questions.fixed_question(topic, "real_estate", question_id=f"q{n}")
         for n, topic in enumerate(questions.PROFILE_TOPICS, 1)
+        if topic != "trade"
     ]
     loans = questions.Question("q6", "Do you help with loans?", "", "single_choice", ("Yes", "No"))
     await _asked(tenant_id, [q for q in fixed if q is not None] + [loans])

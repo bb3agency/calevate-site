@@ -21509,6 +21509,11 @@ export interface components {
          *     site renders a name we chose once rather than a copy that drifts from it.
          */
         CreditPacksOut: {
+            /**
+             * Billing Step Seconds
+             * @default 30
+             */
+            billing_step_seconds: number;
             /** Clear Tier Label */
             clear_tier_label: string;
             /** Credit Expiry Months */

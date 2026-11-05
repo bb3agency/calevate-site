@@ -36,11 +36,26 @@ export function BusinessCopySection({ session, canWrite }: { session: Session; c
           }
         />
       </SettingRows>
+      {copy.data && notJudged(copy.data) ? (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-body text-ink">Still learning what your business does</p>
+          <AskAssistant label="Retry" prompt={REFRESH_REQUEST} disabled={!canWrite} />
+        </div>
+      ) : null}
       {copy.data?.stop_message ? (
         <p className="mt-2 text-meta text-ink-muted">{copy.data.stop_message}</p>
       ) : null}
     </Section>
   );
+}
+
+/**
+ * Nothing about what the business does has been judged yet (every capability's `applies`
+ * is null) and no run is writing it now: until then screens use neutral wording, so the
+ * owner is told it is still being learned and can ask for it again. Exported for the test.
+ */
+export function notJudged(data: BusinessCopy): boolean {
+  return !data.refreshing && Object.values(data.capabilities).every((c) => c.applies === null);
 }
 
 /** The row's value, in plain words. Exported for the test. */

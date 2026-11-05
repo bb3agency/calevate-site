@@ -294,7 +294,18 @@ def test_the_improver_may_not_write_a_long_or_claiming_opening() -> None:
 # --- 4d. the owner hears about missing prices before the first run ---------------------------
 
 
-async def test_missing_prices_are_named_until_a_fact_gives_one() -> None:
+async def test_missing_prices_are_named_until_a_fact_gives_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """For a business judged to sell and quote prices; one not judged is never asked for
+    prices (G1-1, `business_words_guard`'s sibling `business_fit_agents_test`)."""
+    from apps.api.agents import test_conversations
+    from apps.api.agents.business_fit import BusinessFit
+
+    async def selling(_session: object, _tenant_id: object = None) -> BusinessFit:
+        return BusinessFit(sells=True, quotes_prices=True)
+
+    monkeypatch.setattr(test_conversations, "business_fit", selling)
     tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         # The fixture's profile prices its services, and those reach every agent too.
@@ -313,7 +324,6 @@ async def test_missing_prices_are_named_until_a_fact_gives_one() -> None:
         assert await missing_facts(session) == []
 
 
-
 def test_a_placed_call_tells_the_person_their_own_details_and_never_restarts() -> None:
     """Founder's Rytu Khata call of 5 Nov 2026: a mid-call hello drew the opening again, not
     remembering signing up drew "we can end the call", and "what name did I register under?"
@@ -324,7 +334,10 @@ def test_a_placed_call_tells_the_person_their_own_details_and_never_restarts() -
     placed = inbound.model_copy(update={"direction": "outbound"})
     prompt = compose_engine_prompt(placed)
     assert CALL_REASON_RULE in prompt and OPENING_CONTINUES_RULE in prompt
-    assert "never restart" in OPENING_CONTINUES_RULE and "Forgot us? Who and why" in OPENING_CONTINUES_RULE
+    assert (
+        "never restart" in OPENING_CONTINUES_RULE
+        and "Forgot us? Who and why" in OPENING_CONTINUES_RULE
+    )
     assert "Say THIS CALL's name, details" in CALL_REASON_RULE
     # An answering agent holds no list details about the caller, so it is not told this.
     assert CALL_REASON_RULE not in compose_engine_prompt(inbound)

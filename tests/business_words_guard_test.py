@@ -69,10 +69,9 @@ TRADE_ALLOWED: dict[str, tuple[int, str]] = {
         "retired lines kept only to find and remove them on live agents (D-962)",
     ),
     "apps/api/agents/turn_checks.py": (
-        5,
-        "practice-run reply checks (units said in digits): matched, never said; lane C",
+        1,
+        "practice-run reply check of units written in digits: matched, never said",
     ),
-    "apps/workers/caller_help.py": (1, "a model prompt's example caller noun; lane B"),
 }
 
 #: Indian scripts, by the Unicode name of their letters and marks.
@@ -102,10 +101,6 @@ INDIC_ALLOWED: dict[str, tuple[int, str]] = {
         2,
         "detector of textbook words in a spoken line: matched, never said",
     ),
-    "packages/shared/src/calevate_shared/opening_notices.py": (
-        2,
-        "detector of the AI and recording sentences in a reply: matched, never said; lane B",
-    ),
     "apps/api/agents/retired_lines.py": (
         117,
         "retired lines kept only to find and remove them on live agents (D-962)",
@@ -113,10 +108,6 @@ INDIC_ALLOWED: dict[str, tuple[int, str]] = {
     "packages/shared/src/calevate_shared/call_script.py": (
         1,
         "the retired default don't-know line, kept only to recognise it (D-965)",
-    ),
-    "apps/api/copilot/identity.py": (
-        6,
-        "provider names in Indian scripts, detected so the assistant never says them; lane A",
     ),
     "apps/workers/caller_name.py": (
         1,
@@ -127,16 +118,8 @@ INDIC_ALLOWED: dict[str, tuple[int, str]] = {
         "the offline extractor used only locally and in CI (`get_extractor`); lane C",
     ),
     "apps/api/agents/turn_checks.py": (
-        244,
-        "practice-run reply checks; to move to a founder-owned language pack; lane C",
-    ),
-    "apps/api/agents/script_lint.py": (7, "script detectors; lane B"),
-    "apps/workers/script_assist.py": (1, "a prompt example (G3-4); lane B"),
-    "apps/api/copilot/agent_setup_actions.py": (1, "a detector; lane A"),
-    "apps/api/teach/questions.py": (2, "hours and address detectors (G5-6)"),
-    "apps/api/agents/test_conversations.py": (
-        2,
-        "detectors of a price and of a hand-over said in a reply: matched, never said",
+        13,
+        "Unicode ranges naming each Indian script's block, not words",
     ),
     "apps/api/agents/specimen_scenarios.py": (
         50,
@@ -255,11 +238,16 @@ def test_every_allowance_is_exact() -> None:
 
 
 def test_the_moved_lines_are_in_the_founders_data_file() -> None:
-    from calevate_shared import spoken_lines
+    from calevate_shared import call_words, spoken_lines
 
-    for key in ("handover", "still_there", "disclosure.ai", "optout.patterns"):
+    for key in ("handover", "still_there", "disclosure.ai"):
         assert key in spoken_lines.entry_keys()
     assert any(indic(line) for line in spoken_lines.lines("disclosure.ai").values())
+    # Words a check listens for are in the one detector file, never beside spoken lines.
+    detectors = call_words.keys()
+    for key in ("optout.patterns", "optout.not_now"):
+        assert key in detectors
+        assert key not in spoken_lines.entry_keys()
 
 
 def test_the_guard_sees_what_it_guards() -> None:

@@ -221,6 +221,10 @@ async def test_a_tenant_with_no_settings_reads_the_defaults_and_a_usage_based_su
         )
         state = await auto_recharge.read_auto_recharge(session, tenant_id=tenant_id)
     assert state.suggested_threshold_inr == Decimal("200.00")
+    # The offer is sized from that calling (G8-2): a week of it per recharge, four a month.
+    assert state.threshold_inr == Decimal("200.00")
+    assert state.amount_inr == Decimal("700.00")
+    assert state.monthly_cap_inr == Decimal("2800.00")
 
 
 @pytest.mark.parametrize(

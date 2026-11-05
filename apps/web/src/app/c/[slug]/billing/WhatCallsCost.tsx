@@ -111,11 +111,15 @@ export function WhatCallsCost({
   labels: TierLabels | undefined;
 }) {
   const months = card?.credit_expiry_months ?? null;
+  // The step the debit bills in, from the server's card (G8-3); unstated while unknown.
+  const step = card?.billing_step_seconds ?? null;
   return (
     <Disclosure
       title="What calls cost"
       icon={<ReceiptText className="h-4 w-4" />}
-      subtitle="1 credit = ₹1 · 30-second steps · missed calls free"
+      subtitle={
+        step ? `1 credit = ₹1 · ${step}-second steps · missed calls free` : "1 credit = ₹1 · missed calls free"
+      }
       showLabel="Show"
       hideLabel="Hide"
     >
@@ -154,13 +158,14 @@ export function WhatCallsCost({
           same purchase is drawn down at its other fixed rate.
         </Fact>
 
-        <Fact
-          icon={<Clock3 className="h-4 w-4" aria-hidden />}
-          claim="Calls are billed in 30-second steps"
-        >
-          Rounded up: a 10-second call costs half a minute, a 40-second call
-          one minute.
-        </Fact>
+        {step && (
+          <Fact
+            icon={<Clock3 className="h-4 w-4" aria-hidden />}
+            claim={`Calls are billed in ${step}-second steps`}
+          >
+            Each part-step is rounded up: a 10-second call is billed as {step} seconds.
+          </Fact>
+        )}
 
         <Fact
           icon={<PhoneMissed className="h-4 w-4" aria-hidden />}

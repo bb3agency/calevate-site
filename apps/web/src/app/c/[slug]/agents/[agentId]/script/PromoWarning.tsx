@@ -33,10 +33,17 @@ export function PromoWarning({
   const promotional = report.verdict === "promotional";
   const shown = report.findings.slice(0, SHOWN);
   const more = report.findings.length - shown.length;
+  // Wording in a language the check cannot read is named, never passed as clear.
+  const unread = report.not_checked_in ?? [];
+  const title = promotional
+    ? "This script talks about offers"
+    : shown.length > 0
+      ? "Check these lines"
+      : "Read these lines yourself";
   return (
     <NoticeBox
       tone={promotional ? "warn" : "neutral"}
-      title={promotional ? "This script talks about offers" : "Check these lines"}
+      title={title}
       action={
         <AskAssistant label={`Ask ${ASSISTANT_NAME} to rewrite it`} prompt={rewritePrompt(agentName)} />
       }
@@ -49,10 +56,13 @@ export function PromoWarning({
         ))}
       </ul>
       {more > 0 && <p className="text-meta text-ink-muted">and {more} more</p>}
+      {unread.length > 0 && <p className="text-meta">Not checked in {unread.join(", ")}</p>}
       <Why inline>
         {promotional
           ? "One offer or sales line makes a call you place promotional. Campaigns using this script cannot launch until it is out."
-          : "These lines are sometimes promotional. They do not stop a campaign."}
+          : shown.length > 0
+            ? "These lines are sometimes promotional. They do not stop a campaign."
+            : "The offer check cannot read these languages. Make sure the script makes no offer."}
       </Why>
     </NoticeBox>
   );

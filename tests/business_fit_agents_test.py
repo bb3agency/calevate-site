@@ -403,3 +403,35 @@ async def test_the_fit_is_read_from_the_accounts_copy_and_no_price_is_nagged_for
         assert await business_fit(session, unjudged) == UNKNOWN
         # Not judged to quote prices: no price nag (G1-1).
         assert await test_conversations.missing_facts(session) == []
+
+
+async def test_the_script_writer_is_given_this_agents_own_job() -> None:
+    """G1-2: a draft is written for the agent's own switches, like every other consumer of
+    the fit (`BusinessFit.for_agent`): a support agent whose owner turned prices and
+    bookings off is not briefed as a seller, whatever the business does."""
+    from apps.api.agents import script_builder, script_proposals
+    from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript, ScriptPolicies
+    from tests.conftest import create_org_with_receptionist
+
+    created = await create_org_with_receptionist(
+        name="Fit Lane H",
+        slug=f"fit-{uuid.uuid4().hex[:8]}",
+        vertical_template="custom",
+        billing_email=None,
+        language="en-IN",
+        created_by=None,
+    )
+    tenant_id, agent_id = created["id"], created["agent_id"]
+    async with tenant_session(tenant_id) as session:
+        await script_builder.save_draft(
+            session,
+            agent_id,
+            CallScript(
+                schema_version=SCRIPT_SCHEMA_VERSION,
+                policies=ScriptPolicies(share_prices=False, take_bookings=False),
+            ),
+        )
+        fit = (await script_proposals.brief_for(session, tenant_id, agent_id)).fit
+    assert fit.quotes_prices is False
+    assert fit.takes_bookings is False
+    assert fit.takes_orders is False

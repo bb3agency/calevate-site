@@ -487,8 +487,7 @@ def _symbol_problems(reply: str) -> list[TurnProblem]:
             TurnProblem(
                 "money_digits",
                 f"It wrote {_quoted(money.group(0).strip())} in digits and symbols. Prices "
-                'and quantities should be words, as a shop says them ("one twenty rupees", '
-                '"one kg").',
+                'and quantities should be words, as people say them aloud ("one twenty rupees").',
             )
         )
     return found
@@ -764,8 +763,7 @@ def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> l
             TurnProblem(
                 "too_long",
                 f"The caller stopped mid-sentence ({_quoted(caller_said)}). One short question "
-                'offering what they may mean ("one kg, or more?") lets them finish; a full reply '
-                "guesses.",
+                "offering what they may mean lets them finish; a full reply guesses.",
             )
         )
     elif len(counted) > MAX_SENTENCES and not _ASKS_DETAIL.search(caller_said):

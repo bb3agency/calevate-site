@@ -177,7 +177,13 @@ def test_the_writers_never_ask_for_what_the_agent_cannot_truthfully_do() -> None
     assert "says an order or booking is placed, booked, fixed or confirmed" in IMPROVE_INSTRUCTION
     assert "only those the caller has not already said" in _SYSTEM_INSTRUCTION
     assert "takes the details for the team to confirm" in _SYSTEM_INSTRUCTION
+    from apps.api.agents.business_fit import BusinessFit
+
+    # The product question is asked of a business judged to sell and quote prices.
+    shop = BusinessFit(
+        takes_bookings=True, takes_orders=True, quotes_prices=True, has_premises=True, sells=True
+    )
     products = next(
-        s for s in standard_scenarios("te-IN", "inbound") if s.key == "asks_about_products"
+        s for s in standard_scenarios("te-IN", "inbound", shop) if s.key == "asks_about_products"
     )
     assert "the team will confirm it" in products.expect

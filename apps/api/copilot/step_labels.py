@@ -234,6 +234,10 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "healer_retry": _l("Running the repair again", "Ran the repair again"),
     "healer_resolve": _l("Marking the problem handled", "Marked the problem handled"),
     "healer_attest_rate": _l("Recording the rate you read", "Recorded the rate"),
+    "admin_call_line_requests": _l("Checking requests for more lines", "Checked line requests"),
+    "admin_dead_letters": _l("Checking failed messages", "Checked failed messages"),
+    "admin_call_lines_raise": _l("Raising the calls at once", "Raised the calls at once"),
+    "admin_call_lines_decline": _l("Declining the request", "Declined the request"),
 }
 
 #: An area call (D-893) is shown under the registry name it resolves to; the area's own

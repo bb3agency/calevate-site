@@ -33,7 +33,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript, upgrade_to_v2
+from calevate_shared.call_script import CallScript, ScriptPolicies, upgrade_to_v2
 from calevate_shared.engine import introduces_itself
 from calevate_shared.lead_fields import business_only
 from calevate_shared.opening_notices import WovenNotices
@@ -643,8 +643,19 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
         step_plans=tuple(
             (await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)).items()
         ),
-        fit=await business_fit(session, tenant_id),
+        # The agent's own job, as the switches the owner is editing say it (G1-2): the
+        # autosaved working copy when there is one, else the draft version.
+        fit=(await business_fit(session, tenant_id)).for_agent(
+            await _edited_policies(session, agent_id)
+        ),
     )
+
+
+async def _edited_policies(session: AsyncSession, agent_id: UUID) -> ScriptPolicies:
+    draft = await script_builder.read_draft(session, agent_id)
+    if draft is not None:
+        return draft.script.policies
+    return (await script_builder.load_agent_script(session, agent_id)).script.policies
 
 
 def _stage_index(script: CallScript, stage_id: str) -> int | None:

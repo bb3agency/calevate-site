@@ -108,10 +108,17 @@ CHARGE_MAY_HAVE_MOVED_CODES: Final[frozenset[str]] = frozenset(
     }
 )
 
-#: Defaults offered before a client has chosen anything (the founder's examples).
+#: What is offered before a client has chosen anything AND has no calling to size it from
+#: (the founder's examples). Once the account has calling, the offer is sized from it
+#: (`AutoRechargeDefaults.from_usage`), so a business that spends ₹50 a day and one that
+#: spends ₹5,000 are not offered the same numbers (audit of 5 Nov 2026, G8-2).
 DEFAULT_THRESHOLD_INR: Final = Decimal("500.00")
 DEFAULT_AMOUNT_INR: Final = Decimal("2000.00")
 DEFAULT_MONTHLY_CAP_INR: Final = Decimal("6000.00")
+#: A recharge sized from usage carries this many days of calling...
+RECHARGE_DAYS: Final = Decimal("7")
+#: ...and the monthly limit allows this many of them, about a month of calling.
+CAP_RECHARGES: Final = 4
 
 _TOKEN_STATUS_OF_EVENT: Final = {
     "token.confirmed": "confirmed",
@@ -189,7 +196,8 @@ RECHARGE_LAG_DAYS: Final = Decimal("1.5")
 _USAGE_WINDOW_DAYS: Final = 14
 
 
-async def _suggested_threshold(session: AsyncSession, tenant_id: UUID) -> Decimal | None:
+async def _daily_usage(session: AsyncSession, tenant_id: UUID) -> Decimal:
+    """The account's average daily calling spend over the last `_USAGE_WINDOW_DAYS`."""
     spent = (
         await session.execute(
             text(
@@ -199,17 +207,42 @@ async def _suggested_threshold(session: AsyncSession, tenant_id: UUID) -> Decima
             {"tid": tenant_id, "days": _USAGE_WINDOW_DAYS},
         )
     ).scalar()
-    daily = Decimal(str(spent or 0)) / _USAGE_WINDOW_DAYS
-    if daily <= 0:
-        return None
-    # Rounded UP to the next ₹100, so the suggestion is a number a person would type.
-    hundreds = (daily * RECHARGE_LAG_DAYS / 100).to_integral_value(rounding=ROUND_CEILING)
+    return Decimal(str(spent or 0)) / _USAGE_WINDOW_DAYS
+
+
+def _hundreds_up(value: Decimal) -> Decimal:
+    """Rounded UP to the next ₹100 (at least ₹100), so it is a number a person would type."""
+    hundreds = (value / 100).to_integral_value(rounding=ROUND_CEILING)
     return to_paise(max(hundreds * 100, Decimal("100")))
+
+
+def _suggested_threshold(daily: Decimal) -> Decimal | None:
+    return _hundreds_up(daily * RECHARGE_LAG_DAYS) if daily > 0 else None
+
+
+@dataclass(frozen=True, slots=True)
+class AutoRechargeDefaults:
+    threshold_inr: Decimal
+    amount_inr: Decimal
+    monthly_cap_inr: Decimal
+
+    @classmethod
+    def from_usage(cls, daily: Decimal) -> AutoRechargeDefaults:
+        """Sized from the account's own calling; the founder's examples with none yet."""
+        if daily <= 0:
+            return cls(DEFAULT_THRESHOLD_INR, DEFAULT_AMOUNT_INR, DEFAULT_MONTHLY_CAP_INR)
+        from apps.api.billing.payment_routes import MAX_TOPUP_INR, MIN_TOPUP_INR
+
+        ceiling = min(MAX_TOPUP_INR, MANDATE_MAX_DEBIT_INR)
+        amount = min(max(_hundreds_up(daily * RECHARGE_DAYS), MIN_TOPUP_INR), ceiling)
+        threshold = _hundreds_up(daily * RECHARGE_LAG_DAYS)
+        return cls(threshold, amount, amount * CAP_RECHARGES)
 
 
 async def read_auto_recharge(session: AsyncSession, *, tenant_id: UUID) -> AutoRechargeState:
     """The client's settings and mandate, or the defaults when they have none yet."""
-    suggested = await _suggested_threshold(session, tenant_id)
+    daily = await _daily_usage(session, tenant_id)
+    suggested = _suggested_threshold(daily)
     row = await _settings_row(session, tenant_id)
     pending = (
         await session.execute(
@@ -222,11 +255,12 @@ async def read_auto_recharge(session: AsyncSession, *, tenant_id: UUID) -> AutoR
     ).scalar()
     spent = await _month_spent(session, tenant_id, at=datetime.now(UTC))
     if row is None:
+        offered = AutoRechargeDefaults.from_usage(daily)
         return AutoRechargeState(
             enabled=False,
-            threshold_inr=DEFAULT_THRESHOLD_INR,
-            amount_inr=DEFAULT_AMOUNT_INR,
-            monthly_cap_inr=DEFAULT_MONTHLY_CAP_INR,
+            threshold_inr=offered.threshold_inr,
+            amount_inr=offered.amount_inr,
+            monthly_cap_inr=offered.monthly_cap_inr,
             mandate_status="none",
             mandate_method=None,
             mandate_max_inr=None,
@@ -424,6 +458,7 @@ async def begin_mandate(
             purpose=MANDATE,
             amount_inr=MANDATE_AUTH_AMOUNT_INR,
         )
+        offered = AutoRechargeDefaults.from_usage(await _daily_usage(session, tenant_id))
         await session.execute(
             text(
                 "INSERT INTO auto_recharge_settings (id, tenant_id, enabled, threshold_inr, "
@@ -440,9 +475,9 @@ async def begin_mandate(
             {
                 "id": uuid7(),
                 "tid": tenant_id,
-                "th": DEFAULT_THRESHOLD_INR,
-                "amt": min(DEFAULT_AMOUNT_INR, max_debit_inr),
-                "cap": max(DEFAULT_MONTHLY_CAP_INR, max_debit_inr),
+                "th": offered.threshold_inr,
+                "amt": min(offered.amount_inr, max_debit_inr),
+                "cap": max(offered.monthly_cap_inr, max_debit_inr),
                 "cust": customer_id,
                 "method": method,
                 "max": max_debit_inr,

@@ -20839,6 +20839,11 @@
         "additionalProperties": false,
         "description": "The pack rate card: six packs, each with a Clear and a Studio \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged. The\ntwo tier LABELS obey the same rule for a different kind of value: the name a client\nreads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing\nsite renders a name we chose once rather than a copy that drifts from it.",
         "properties": {
+          "billing_step_seconds": {
+            "default": 30,
+            "title": "Billing Step Seconds",
+            "type": "integer"
+          },
           "clear_tier_label": {
             "title": "Clear Tier Label",
             "type": "string"

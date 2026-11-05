@@ -774,6 +774,31 @@ async def _manual_submission(
     return headers
 
 
+async def test_the_review_scan_reads_each_record_under_its_own_tenant(s3: FakeS3) -> None:
+    """A7-21: the queue is one scan, not a session per client, and the scan widens nothing:
+    run from another client's session it finds no record but that client's own, and it
+    leaves the caller's tenant scope as it found it."""
+    from apps.api.compliance.kyc_review import waiting_reviews
+    from apps.api.db.session import admin_session
+
+    waiting = await _tenant()
+    other = await _tenant()
+    waiting_id, other_id = UUID(str(waiting["id"])), UUID(str(other["id"]))
+    await _manual_submission(waiting, s3)
+    async with admin_session() as directory:
+        queue = await waiting_reviews(directory)
+    mine = [w for w in queue if w.tenant_id == waiting_id]
+    assert [(w.status, w.slug) for w in mine] == [("submitted", waiting["slug"])]
+    assert all(w.tenant_id != other_id for w in queue)
+    async with tenant_session(other_id) as session:
+        seen = (
+            await session.execute(text("SELECT scanned_tenant_id FROM kyc_waiting_scan()"))
+        ).all()
+        after = (await session.execute(text("SELECT current_setting('app.tenant_id')"))).scalar()
+    assert seen == []
+    assert after == str(other_id)
+
+
 async def test_the_manual_path_submits_reviews_and_deletes_the_owner_id(s3: FakeS3) -> None:
     org = await _tenant()
     tenant_id = UUID(str(org["id"]))

@@ -1,5 +1,5 @@
 {
-  "about": "FOUNDER-OWNED. The words the call checks listen for in Indian languages, moved out of code on 5 Nov 2026 unchanged (founder rule: no Telugu or Hindi written in code). Read by calevate_shared/call_words.py. Keys are <module>.<name in that module>: turn_checks = the checks behind 'Mistakes on real calls' (apps/api/agents/turn_checks.py); detection = the 'Questions to answer' detector (apps/api/insights/detection.py); call_language = the test for a summary written in romanised Telugu or Hindi (apps/workers/call_language.py); offline_extractor = the no-network extractor (apps/workers/extraction.py). A string value is a regular-expression fragment: alternatives separated by |, (?: ) groups, \\s for a space, \\S* for 'any ending'; English alternatives that sat in the same pattern moved with it. A list value is a list of words. Emptying a value switches that check's words off (it then finds nothing). Every value was written by engineers, not native speakers: each is needs_native_review. Words the founder is asked to supply are listed under 'missing' with what they are for.",
+  "about": "FOUNDER-OWNED. The words the call checks listen for in Indian languages, moved out of code on 5 Nov 2026 unchanged (founder rule: no Telugu or Hindi written in code). Read by calevate_shared/call_words.py. Keys are <module>.<name in that module>: turn_checks = the checks behind 'Mistakes on real calls' (apps/api/agents/turn_checks.py); detection = the 'Questions to answer' detector (apps/api/insights/detection.py); call_language = the test for a summary written in romanised Telugu or Hindi (apps/workers/call_language.py); offline_extractor = the no-network extractor (apps/workers/extraction.py); optout = the do-not-call detector (apps/api/compliance/optout.py), whose two entries are tables by language and have their use written under notes; opening_notices = the AI and recording words (calevate_shared/opening_notices.py); script_lint = the script checks (apps/api/agents/script_lint.py); teach_questions = the opening-hours and address detectors (apps/api/teach/questions.py); test_conversations = the price and put-through detectors of practice runs (apps/api/agents/test_conversations.py). Where a pattern also has English alternatives, the English stays in code and only the Indian-language alternatives are here, so emptying one never switches off the English check. A string value is a regular-expression fragment: alternatives separated by |, (?: ) groups, \\s for a space, \\S* for 'any ending'; English alternatives that sat in the same pattern moved with it. A list value is a list of words. Emptying a value switches that check's words off (it then finds nothing). Every value was written by engineers, not native speakers: each is needs_native_review. Words the founder is asked to supply are listed under 'missing' with what they are for.",
   "review": "needs_native_review",
   "missing": {
     "turn_checks.question_words": "Telugu and Hindi question words with an ending joined on, as callers say them (the Telugu for 'how much for', 'to where', 'from when', 'by when'). Only whole bare question words are heard as a question today, so such a question without a '?' is missed (5 Nov 2026, L5-05). Add each form to this list.",
@@ -632,6 +632,76 @@
     "offline_extractor.negation": "ledu|ledhu|leedu|vaddu|vaddhu|vaddandi|voddu|kaadu|kaadhu|kadu|saripodu|saripodhu|saripoledu|nahi|nahin|mat",
     "offline_extractor.prohibitive_endings": "akandi|akande|avaddu|oddu",
     "offline_extractor.but": "kaani|kani",
-    "offline_extractor.asking": "adag\\w*|adug\\w*|telusuko\\w*"
+    "offline_extractor.asking": "adag\\w*|adug\\w*|telusuko\\w*",
+    "optout.patterns": {
+      "te": [
+        [
+          "call_cheyakandi",
+          "\\b(call|calls|phone|fone)\\w*\\s+(chey+a?kandi|chey+akandhi|chey+oddu|vad+u|vod+u)\\b"
+        ],
+        [
+          "number_teeseyandi",
+          "\\b(number|nambar|nambaru)\\b[\\w ]{0,20}\\b(t[eh]+se(?:y|yy)\\w*|t[eh]+si\\s*v[ea]\\w*|tholaginch\\w*)"
+        ],
+        [
+          "do_not_call_telu",
+          "(కాల్|ఫోన్|call|calls|phone)\\s*(చేయ(కండి|వద్దు)|చేయొద్దు)"
+        ],
+        [
+          "remove_number_telu",
+          "(నంబర్|నెంబర్)[^\\n]{0,20}తీసే"
+        ]
+      ],
+      "hi": [
+        [
+          "call_mat_karo",
+          "\\b(call|phone|fone|kaal)\\s+(mat|nahi|nahin|na)\\s+\\w*(karo|kariye|kijiye|karna|karein|kare|kar)\\b"
+        ],
+        [
+          "number_hata_do",
+          "\\b(number|nambar|list|suchi)\\b[\\w ]{0,25}\\bhata\\w*\\b"
+        ],
+        [
+          "band_karo",
+          "\\b(calls|call karna|phone karna|fone karna)\\b[\\w ]{0,15}\\bband kar\\w*\\b"
+        ],
+        [
+          "do_not_call_deva",
+          "कॉल\\s*(मत|न)\\s*(करो|करें|कीजिए|करना)"
+        ],
+        [
+          "remove_number_deva",
+          "(नंबर|नम्बर)[^\\n]{0,20}हटा"
+        ]
+      ]
+    },
+    "optout.not_now": {
+      "te": {
+        "latin": "ippudu|ipudu|ipdu",
+        "native": "ఇప్పుడు"
+      },
+      "hi": {
+        "latin": "abhi(?! se\\b)|abi(?! se\\b)",
+        "native": "अभी(?! से)"
+      }
+    },
+    "opening_notices.AI_WORDS": "ఏఐ|ఏ\\s?ఐ|కృత్రిమ|एआई|ए\\.?\\s?आई|कृत्रिम",
+    "opening_notices.RECORDING_WORDS": "రికార్డ్|రికార్డు|रिकॉर्ड|रेकॉर्ड",
+    "script_lint._NEGATED": "కుదరదు|లేరు|లేదు|చేయలేను|नहीं|कोई नहीं|\\b\\w+(?:lemu|lenu|ledu)\\b|\\bkudaradu\\b|\\bnahi?n?\\b",
+    "script_lint._CLAUSE_BREAK": "kani|ani|lekapothe|par|lekin|aur|toh",
+    "script_lint._WHATSAPP": "వాట్సాప్|వాట్సప్|व्हाट्सएप|व्हाट्सऐप",
+    "script_lint._SENDS": "\\bpamp(?:i|u)|\\bbhej|పంపి|పంపు|పంపా|షేర్|भेज|शेयर",
+    "script_lint._SMS": "ఎస్ఎంఎస్|एसएमएस",
+    "script_lint._CALL_BACK": "తిరిగి కాల్|కాల్ బ్యాక్|మళ్ళీ కాల్|वापस कॉल|कॉल बैक|\\b(?:malli|tirigi|tarvata|taruvata) call chest|\\b(?:wapas|vapas|baad mein) call kar",
+    "script_lint._BOOKS": "బుక్ చేస్తాను|కన్ఫర్మ్ చేస్తాను|बुक कर (?:देत|दूँग|दूंग)",
+    "script_lint._HANDS_OVER": "కనెక్ట్ చేస్తాను|ట్రాన్స్‌ఫర్|कनेक्ट कर|ट्रांसफर",
+    "teach_questions._HOURS_PATTERN": "గంటల|సమయం|बजे|खुल",
+    "teach_questions._ADDRESS_PATTERN": "చిరునామా|पता",
+    "test_conversations.PRICE_PATTERN": "రూపాయ|ధర|रुपय|रुपए|रुपये|कीमत|दाम",
+    "test_conversations._PRETENDS_TO_CONNECT": "(?:కలుపుతున్నాను|కలుపుతాను|కనెక్ట్ చేస్తున్నాను|కనెక్ట్ చేస్తాను|connect చేస్తున్నాను|connect చేస్తాను|ట్రాన్స్ఫర్ చేస్తున్నాను|transfer చేస్తున్నాను|transfer చేస్తాను)|(?:जोड़ रहा|जोड़ रही|कनेक्ट कर रहा|कनेक्ट कर रही|ट्रांसफर कर रहा|ट्रांसफर कर रही)"
+  },
+  "notes": {
+    "optout.patterns": "How a caller says 'do not call me again', per language, as regular expressions over the caller's words (the do-not-call ledger, TRAI). A staged language may not be switched on until it has patterns here (agents/languages readiness). Each entry is [rule id, pattern]; a plain phrase is a valid pattern. English is in code. Precision matters, because a match makes the number undiallable for the client: match the negative form only (Telugu cheyakandi or cheyyoddu, never cheyandi; Hindi mat karo, never karo); a removal verb only ('number teesi pettukondi' is 'note the number down'); and never 'phone band karo', which is 'hang up'. The native-script lists are smaller than the romanised ones, written from the language rather than from observed speech-to-text output, and should grow from the first native-script transcripts. tests/call_optout_test.py holds a negative example for each rule.",
+    "optout.not_now": "'Now' a few words before an opt-out makes it 'not now' (another time), per language: latin is matched as whole words, native as written."
   }
 }

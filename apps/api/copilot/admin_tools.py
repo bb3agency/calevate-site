@@ -360,6 +360,91 @@ async def _admin_kyc_queue(
     )
 
 
+async def _admin_call_line_requests(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """The bell's work list of clients waiting for more calls at once, through the route
+    function that serves it (`list_open_call_line_requests`), so the assistant and the bell
+    read one list (A7-19). Account facts only: who asked and their note stay on the client's
+    page."""
+    del args
+    from apps.api.core.context import Principal
+    from apps.api.tenancy.call_lines_routes import list_open_call_line_requests
+
+    principal = Principal(realm="admin", user_id=None, tenant_id=None, role=context.role)
+    items = await list_open_call_line_requests(session, principal)
+    lines = [
+        _clean(
+            f"{item.name}: {item.lines_at_request} at once when they asked, wants "
+            f"{item.wanted_lines if item.wanted_lines is not None else 'more'}, asked "
+            f"{_when(item.created_at)}"
+        )
+        + f" [tenant_id {item.tenant_id}]"
+        for item in items[:MAX_ROWS]
+    ]
+    return _listing(
+        lines,
+        total=len(items),
+        shown_of="open requests for more calls at once",
+        nothing="No client is waiting for more calls at once.",
+    ) + (
+        "\nTo answer one, open that client's page; `admin_call_lines_raise` and "
+        "`admin_call_lines_decline` act on the client whose page is open."
+        if items
+        else ""
+    )
+
+
+async def _admin_dead_letters(
+    session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
+) -> str:
+    """The ops console's outbox panel: dead letters per job with the last (already redacted)
+    error and why it never did its work, and the pending messages that are stuck or held.
+    Through the readers the panel uses (`reliability.service`, `ops.outbox_view`), never a
+    query of its own, and never a payload (hard rule 6)."""
+    del context, args
+    from apps.api.ops.outbox_view import (
+        STALLED_AFTER,
+        dead_letter_cause,
+        job_label,
+        read_dead_letter_errors,
+        read_outbox_backlog,
+    )
+    from apps.api.reliability.service import read_dead_letter_queue
+
+    dlq = await read_dead_letter_queue(session)
+    errors = await read_dead_letter_errors(session)
+    backlog = await read_outbox_backlog(session)
+    causes = {
+        "never_ran": "it never ran",
+        "earlier_run_failed": "an earlier run of it failed",
+    }
+    lines = []
+    for entry in dlq.by_job[:MAX_ROWS]:
+        error = errors.get(entry.job)
+        cause = dead_letter_cause(error)
+        lines.append(
+            _clean(
+                f"{job_label(entry.job)} ({entry.job}): {entry.depth} failed, oldest "
+                f"{_when(entry.oldest_created_at)}"
+                + (f"; {causes[cause]}" if cause is not None else "")
+                + (f"; last error: {error[:200]}" if error else "")
+            )
+        )
+    head = (
+        f"Failed messages: {dlq.depth}. Pending longer than "
+        f"{int(STALLED_AFTER.total_seconds() // 60)} minutes: {backlog.stalled}. Held for a "
+        f"newer release: {backlog.held_for_release}. Held for the bulk worker: "
+        f"{backlog.held_for_bulk_worker}.\n"
+    )
+    return head + _listing(
+        lines,
+        total=len(dlq.by_job),
+        shown_of="jobs with failed messages",
+        nothing="No message has failed.",
+    )
+
+
 async def _admin_held_accounts(
     session: AsyncSession, context: ToolContext, args: Mapping[str, Any]
 ) -> str:
@@ -1034,6 +1119,32 @@ ADMIN_READ_TOOLS: Final[tuple[ReadTool, ...]] = (
     ),
     # D-934: a chart across clients, drawn in the panel (`copilot/charts.py`).
     FLEET_CHART,
+    # A7-19 APPENDS: the bell's call-line requests and the outbox panel.
+    ReadTool(
+        name="admin_call_line_requests",
+        description=(
+            "Clients waiting for more calls at once, oldest first: how many they had when "
+            "they asked, how many they want, and when they asked."
+        ),
+        parameters=_NO_ARGS,
+        # The route's own permission is `org:read` in the admin realm; the platform tools
+        # are gated on a permission no client role holds.
+        permission="admin:tenants",
+        scope="platform",
+        run=_admin_call_line_requests,
+    ),
+    ReadTool(
+        name="admin_dead_letters",
+        description=(
+            "The outbox's failed messages per job, with the last error and why it never did "
+            "its work, and pending messages that are stuck or held for a release or the bulk "
+            "worker. The ops console's outbox panel."
+        ),
+        parameters=_NO_ARGS,
+        permission="ops:manage",
+        scope="platform",
+        run=_admin_dead_letters,
+    ),
 )
 
 ADMIN_READ_TOOL_NAMES: Final[frozenset[str]] = frozenset(tool.name for tool in ADMIN_READ_TOOLS)

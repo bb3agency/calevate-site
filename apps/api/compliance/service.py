@@ -65,7 +65,13 @@ from calevate_shared.call_script import opening_line_of
 from calevate_shared.calling_window import CALLING_HOURS_RULE as _CALLING_HOURS_RULE
 from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
 from calevate_shared.calling_window import IST
-from calevate_shared.engine import DisclosurePosture, join_first_words, notice_fields
+from calevate_shared.engine import (
+    DisclosurePosture,
+    join_first_words,
+    notice_fields,
+    said_as_taught,
+    said_notices,
+)
 from calevate_shared.opening_notices import first_words_disclose
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -961,8 +967,14 @@ def _first_words_disclose(agent: Row[Any]) -> bool:
 
     Composed with `join_first_words`, the one composer every dial goes through: the opening
     line in its own words, else the stored sentence beside it. A guard on that composer rather
-    than a second policy: it fails only if the composer drops a notice."""
-    ai_on, recording_on, recording_line, language, body = agent[4:9]
+    than a second policy: it fails only if the composer drops a notice.
+
+    The opening and the woven notice words are read as `compose_first_utterance` reads them
+    (in their taught form, `said` from the compiled script), so the gate checks the greeting
+    the engine speaks: without `said` it would compose a greeting that keeps the stored
+    sentence where the spoken one drops it, and pass a line whose woven words were lost."""
+    ai_on, recording_on, recording_line, language, body, business_name = agent[4:10]
+    business = str(business_name or "")
     posture = DisclosurePosture(
         ai_disclosure_line=str(agent[0]),
         ai_disclosure_enabled=bool(ai_on),
@@ -970,17 +982,20 @@ def _first_words_disclose(agent: Row[Any]) -> bool:
         recording_notice_enabled=bool(recording_on),
     )
     fields = notice_fields(posture, call_is_recorded=engine_capabilities().records_audio)
+    said = said_notices(body, business=business)
     first_words = join_first_words(
         fields["opening_line"],
-        opening_line_of(body),
+        said_as_taught(opening_line_of(body), body=body, business=business),
         ai_notice=fields["ai_notice"],
         language=str(language),
+        said=said,
     )
     ai_notice = fields["ai_notice"]
     return first_words_disclose(
         first_words,
         ai_notice=ai_notice,
         recording_notice=fields["opening_line"].removeprefix(ai_notice).strip(),
+        said=said,
     )
 
 
@@ -1069,8 +1084,10 @@ async def check_dispatch(
                 "SELECT a.ai_disclosure_line, a.status, a.direction, a.engine_agent_ref, "
                 "a.ai_disclosure_enabled, a.recording_notice_enabled, a.recording_notice_line, "
                 "a.language_primary, (SELECT pv.body FROM prompt_versions pv "
-                "WHERE pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id)) "
-                "FROM agents a "
+                "WHERE pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id)), "
+                # The business name the spoken opening is written with (`said_as_taught`).
+                "o.name "
+                "FROM agents a LEFT JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.tenant_id = :tid AND a.deleted_at IS NULL"
             ),
             {"aid": agent_id, "tid": tenant_id},

@@ -74,6 +74,7 @@ from uuid import UUID
 
 from calevate_shared import spoken_lines
 from calevate_shared.call_script import upgrade_to_v2
+from calevate_shared.call_words import extend as _extend
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.engine import placed_call_line
 from calevate_shared.opening_notices import says_ai, says_recorded
@@ -301,7 +302,7 @@ _STANDARD_SHAPE: Final[dict[str, tuple[str, Turns, str]]] = {
     "price_in_words": (
         "Asks a price and a quantity",
         _turns("practice.price_in_words"),
-        "Says the price and the quantity in words as a shop says them, never with a rupee "
+        "Says the price and the quantity in words as people say them aloud, never with a rupee "
         "sign or digits, in everyday spoken words, and asks at most one question.",
     ),
     "goes_quiet": (
@@ -733,14 +734,15 @@ _SAID_NOBODY_CAN_TAKE_IT: Final = (
     "can do instead."
 )
 #: A reply promising to put the caller through right now: "connecting you", "కలుపుతున్నాను",
-#: "transfer చేస్తున్నాను", "जोड़ रहा हूँ". "Our team will call you" is not one.
+#: "transfer చేస్తున్నాను", "जोड़ रहा हूँ". "Our team will call you" is not one. The
+#: Indian-language forms are the founder's (`call_words.json`).
 _PRETENDS_TO_CONNECT: Final = re.compile(
-    r"\b(?:connecting you|i(?:['\N{RIGHT SINGLE QUOTATION MARK}]ll| will| am"
-    r"|['\N{RIGHT SINGLE QUOTATION MARK}]m) (?:now )?(?:connect|transfer|put)"
-    r"(?:ing)? you|putting you through|transferring (?:you|your call))\b"
-    r"|(?:కలుపుతున్నాను|కలుపుతాను|కనెక్ట్ చేస్తున్నాను|కనెక్ట్ చేస్తాను|connect చేస్తున్నాను|"
-    r"connect చేస్తాను|ట్రాన్స్ఫర్ చేస్తున్నాను|transfer చేస్తున్నాను|transfer చేస్తాను)"
-    r"|(?:जोड़ रहा|जोड़ रही|कनेक्ट कर रहा|कनेक्ट कर रही|ट्रांसफर कर रहा|ट्रांसफर कर रही)",
+    _extend(
+        r"\b(?:connecting you|i(?:['\N{RIGHT SINGLE QUOTATION MARK}]ll| will| am"
+        r"|['\N{RIGHT SINGLE QUOTATION MARK}]m) (?:now )?(?:connect|transfer|put)"
+        r"(?:ing)? you|putting you through|transferring (?:you|your call))\b",
+        "test_conversations._PRETENDS_TO_CONNECT",
+    ),
     re.IGNORECASE,
 )
 #: A judge's reason that is about wording alone ("used a forbidden formal word"), and the
@@ -2003,9 +2005,10 @@ async def waiting_tests(session: AsyncSession, agent_id: UUID, run: TestRun | No
 MissingFact = Literal["prices"]
 
 #: Something that reads as a price in a fact or a knowledge document: a rupee sign or word, a
-#: "price" word in English, Telugu or Hindi, or the "450/-" shop form. Postgres regex.
-PRICE_PATTERN: Final = (
-    r"₹|\mrs\.?\s?[0-9]|rupee|\minr\M|\mprice|\m[0-9]+\s*/-|రూపాయ|ధర|रुपय|रुपए|रुपये|कीमत|दाम"
+#: "price" word in English, Telugu or Hindi (the founder's, `call_words.json`), or the "450/-"
+#: form. Postgres regex.
+PRICE_PATTERN: Final = _extend(
+    r"₹|\mrs\.?\s?[0-9]|rupee|\minr\M|\mprice|\m[0-9]+\s*/-", "test_conversations.PRICE_PATTERN"
 )
 
 

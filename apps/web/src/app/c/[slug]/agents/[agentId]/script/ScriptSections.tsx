@@ -320,7 +320,7 @@ export function OpeningEditor({
         : "Its first words. Pip adds any notice you switch on.",
       value: script.opening_line,
       maxChars: room,
-      placeholder: "For example: Namaskaram andi, cheppandi, em kavali?",
+      placeholder: "For example: Hello, thank you for calling [business]. How can I help?",
       rows: 2,
     },
     ...(both
@@ -331,7 +331,7 @@ export function OpeningEditor({
             hint: "Who it is, the business and why it calls.",
             value: script.outbound_opening_line ?? "",
             maxChars: undefined,
-            placeholder: "For example: Namaskaram andi, mee enquiry gurinchi.",
+            placeholder: "For example: Hello, this is [name] from [business]. Is now a good time?",
             rows: 2,
           },
         ]
@@ -423,7 +423,7 @@ export function StyleSection({
         rows={1}
         maxLength={200}
         value={style.address_form}
-        placeholder="For example: andi and garu, never by first name"
+        placeholder="For example: politely, with the respectful word callers expect"
         onChange={(v) => patch({ address_form: v })}
       />
       <fieldset>

@@ -100,7 +100,7 @@ _BOOKS_ONLY = BusinessFit(
 
 
 def test_who_is_this_gets_who_and_why_then_a_stop() -> None:
-    assert "Say both in one line, once, then stop and wait" in OPENING_CONTINUES_RULE
+    assert "Both in one line, once, wait." in OPENING_CONTINUES_RULE
     assert "then your first question." not in OPENING_CONTINUES_RULE.split("Asked who")[1][:60]
 
 

@@ -2643,3 +2643,43 @@ not:
   "Are you still there?" (`voice.md:829-836`); it is not described as replaying the opening.
 - Nothing in the pinned docs says the platform replays the opening after the first turn, on a
   reconnection or otherwise, and there is no setting for it. Question 5 above asks.
+
+## 50. Which letters the caller transcript is written in (audit G5-4; DRAFTED 5 Nov 2026, unsent)
+
+Why we ask: our post-call checks (the "Questions to answer" topics in `insights/detection.py`,
+the do-not-call detector in `compliance/optout.py`, the turn checks) match the caller's words
+in the transcript. They hold English, romanised Telugu and Hindi, and smaller lists in Telugu
+and Devanagari letters (`calevate_shared/call_words.json`). Which of those a Telugu caller's
+words arrive in decides which list does the work, and whether a topic or an opt-out is missed.
+
+What the pinned docs say, and what they do not (snapshots of 13 and 29 Oct 2026):
+
+- The "thinking" lines: words of an Indian language typed in Roman letters are converted to
+  that language's script when saved (`snapshots/2026-10-29/pages/channels/voice.md:513-516`).
+  That is text we type, not the caller transcript.
+- Chat: "Match the customer" reads the script of the customer's message, and a message in
+  English letters, Telugu or Hindi typed in them included, is left to the agent's judgement
+  (`snapshots/2026-10-13/pages/agent/behaviour.md:70-79`). That is chat, not a phone call.
+- The only transcription settings described are the realtime model's (`transcriptionModel`,
+  `transcriptionPrompt`, `voice.md:194-195`, `:229-230`), which our agents do not use.
+- Nothing says in which letters the speech-to-text writes a Telugu or Hindi caller on a phone
+  call, or what it does with English words said inside a Telugu sentence.
+
+UNVERIFIED until ThinnestAI answers. Code-mixed native script ("call చేయకండి") is handled
+either way by the opt-out lists; the topic lists still miss a Telugu-script question.
+
+> Subject: Which letters is the caller transcript written in?
+>
+> Hi Ashutosh,
+>
+> 1. On a phone call in Telugu (agent language te-IN), is the caller's side of the transcript
+>    (Get Call and `call.completed`) written in Telugu letters, in English letters
+>    (romanised), or either depending on the call?
+> 2. The same for Hindi: Devanagari or English letters?
+> 3. When a caller says English words inside a Telugu or Hindi sentence ("call cheyakandi",
+>    "order cancel karo"), are those words written in English letters, or in the sentence's
+>    script?
+> 4. Is there a setting that fixes which letters the transcript uses?
+>
+> Thanks,
+> Umesh
