@@ -94,6 +94,15 @@ class OutboxMessage(PKMixin, Base):
     # dispatcher, so a re-publish after a lost `published` mark is skipped instead of run
     # twice (`reliability.service.mark_outbox_consumed`, migration c8a4e2f7b913).
     consumed_at: Mapped[datetime | None]
+    # When a published message with no `consumed_at` counts as lost (arq dropped it, its
+    # run failed for good): `sweep_unconsumed_outbox` alarms and re-publishes it. Set at
+    # publish for every job that keeps its payload until consumed; NULL for a row published
+    # before migration f5a9c3e1d7b2 (payload already gone) and for `SCRUB_AT_PUBLISH_JOBS`.
+    consume_by: Mapped[datetime | None]
+    # The alembic revision a release must contain before its dispatcher may claim this row.
+    # A migration that queues work stamps its own revision, so the release still running
+    # between migrate and swap leaves the message for the code it was written for.
+    min_revision: Mapped[str | None] = mapped_column(Text)
     last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

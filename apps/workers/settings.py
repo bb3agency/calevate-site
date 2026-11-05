@@ -56,6 +56,8 @@ copies and metering too, which is a far worse failure than degraded extraction.
 
 import asyncio
 import logging
+import os
+import socket
 import sys
 from collections.abc import Mapping
 from contextlib import suppress
@@ -84,13 +86,16 @@ from apps.api.core.observability import (
 from apps.api.core.platform_config import refresh as refresh_platform_config
 from apps.api.core.platform_config import start_config_refresher, stop_config_refresher
 from apps.api.core.queue import (
+    BULK_CONSUMER_REFRESH_S,
     BULK_JOBS,
     BULK_QUEUE,
     DEFAULT_QUEUE,
     WORKER_JOB_TIMEOUT_S,
     WORKER_MAX_TRIES,
+    advertise_bulk_consumer,
     close_queue,
     redis_settings,
+    withdraw_bulk_consumer,
 )
 from apps.api.core.redis import close_redis
 from apps.api.core.settings import (
@@ -142,6 +147,7 @@ from apps.workers.caller_memory_distil import (
 )
 from apps.workers.caller_memory_distil import (
     distil_caller_memories,
+    refile_caller_memories,
 )
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.client_actions import run_after_call_actions, run_client_action
@@ -445,8 +451,11 @@ FUNCTIONS: list[Any] = [
         # word (D-962), from the outbox (migration e962a4c1d7b3).
         strip_retired_example_lines,
         # Stored gaps and call mistakes read again after a check was narrowed (D-970),
-        # from the outbox (migration a7d3e9c1f570).
+        # from the outbox (migration a7d3e9c1f570, and again f5a9c3e1d7b2 for L5-05).
         recheck_call_quality,
+        # Notes from outbound calls filed under the person called, not the business's own
+        # number (L5-02), from the outbox (migration f5a9c3e1d7b2).
+        refile_caller_memories,
         # Test conversations against the agent and the auto-improve proposal that follows
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,
@@ -1975,9 +1984,48 @@ async def startup(ctx: dict[str, Any]) -> None:
     _log_start(observability, jobs=len(FUNCTIONS), crons=len(CRON_JOBS))
 
 
+#: ctx keys for the bulk worker's advertisement (`core/queue.advertise_bulk_consumer`).
+_BULK_INSTANCE = "bulk_consumer_instance"
+_BULK_ADVERTISER = "bulk_consumer_advertiser"
+
+
+def _bulk_job_names() -> frozenset[str]:
+    return frozenset(getattr(fn, "__name__", "") for fn in BULK_FUNCTIONS)
+
+
+async def _keep_advertising(redis: Any, instance: str) -> None:
+    """Refresh this process's advertisement until shutdown cancels it. A failed refresh is
+    logged and retried: the key's TTL makes a silent worker stop counting, which holds bulk
+    jobs in the outbox rather than losing them."""
+    while True:
+        await asyncio.sleep(BULK_CONSUMER_REFRESH_S)
+        try:
+            await advertise_bulk_consumer(redis, instance, _bulk_job_names())
+        except Exception as exc:
+            log.warning("bulk_consumer_advertise_failed", extra={"error": type(exc).__name__})
+
+
 async def bulk_startup(ctx: dict[str, Any]) -> None:
     observability = await _boot("workers-bulk")
+    instance = f"{socket.gethostname()}:{os.getpid()}"
+    # Advertised only once the boot above succeeded, so the dispatcher never routes to a
+    # worker that is about to fail its own startup.
+    await advertise_bulk_consumer(ctx["redis"], instance, _bulk_job_names())
+    ctx[_BULK_INSTANCE] = instance
+    ctx[_BULK_ADVERTISER] = asyncio.create_task(_keep_advertising(ctx["redis"], instance))
     _log_start(observability, jobs=len(BULK_FUNCTIONS), crons=0)
+
+
+async def bulk_shutdown(ctx: dict[str, Any]) -> None:
+    """Withdraw first, so the dispatcher holds new bulk jobs while this release drains."""
+    advertiser = ctx.pop(_BULK_ADVERTISER, None)
+    if advertiser is not None:
+        advertiser.cancel()
+    instance = ctx.pop(_BULK_INSTANCE, None)
+    if instance is not None:
+        with suppress(Exception):
+            await withdraw_bulk_consumer(ctx["redis"], instance)
+    await shutdown(ctx)
 
 
 def _log_start(observability: str, *, jobs: int, crons: int) -> None:
@@ -2242,7 +2290,7 @@ class BulkWorkerSettings:
     queue_name = BULK_QUEUE
     redis_settings = redis_settings()
     on_startup = bulk_startup
-    on_shutdown = shutdown
+    on_shutdown = bulk_shutdown
     on_job_start = on_job_start
     on_job_end = on_job_end
     max_tries = WORKER_MAX_TRIES
@@ -2250,4 +2298,8 @@ class BulkWorkerSettings:
     retry_jobs = True
     job_timeout = WORKER_JOB_TIMEOUT_S
     keep_result = 3600
-    job_completion_wait = 45
+    # A whole job timeout, not the main worker's 45 s: a cancelled bulk job is re-queued
+    # with its try spent, so a long walk or document read caught by three deploys was lost
+    # with `job_retries_exhausted` only. Nothing here holds a slot a call is waiting for,
+    # so the swap may wait (`compose.prod.yml` grace 330 s, tested).
+    job_completion_wait = WORKER_JOB_TIMEOUT_S

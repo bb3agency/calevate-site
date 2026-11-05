@@ -69,6 +69,7 @@ from calevate_shared.extraction import (
 )
 from calevate_shared.lead_fields import with_core
 from sqlalchemy import Numeric, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment, call_mistakes
@@ -1280,6 +1281,84 @@ async def _post_call_stages(
         raise
 
 
+async def _owner_insights_stage(
+    tenant_id: UUID,
+    agent_id: UUID,
+    call_id: UUID,
+    snapshot: ExecutionSnapshot,
+    *,
+    direction: str,
+) -> None:
+    """STEP 5c: the call's knowledge gaps and mistakes, never holding up the lead or meter.
+
+    A database error propagates (the run retries; both writes replace this call's rows). Any
+    other exception is a defect in a check: alarmed with the call id and the exception's
+    class only (hard rule 6), and the run goes on.
+    """
+    try:
+        # STEP 3c — knowledge gaps: the questions this agent could not answer (D-Knowledge-Gaps).
+        # An inline string-match stage like STEP 2b/3b — no model call, no round trip — over the
+        # REDACTED turns, so the caller-facing quotes it stores can never carry raw PII (hard
+        # rule 6). It reads `redact(turn.text).text`, the same redaction STEP 2 wrote to
+        # `transcript_turns.text_redacted`, and never `turn.text`. Exactly-once per call:
+        # `record_call_gaps` replaces this call's occurrence rows and recomputes the aggregate,
+        # so a re-drive cannot double-count (`apps/api/insights/service.py`). Guarded on a
+        # transcript existing — a call with none implies no gaps.
+        if snapshot.transcript:
+            redacted_turns = [
+                gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
+                for turn in snapshot.transcript
+            ]
+            with span(
+                "pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)
+            ) as stage:
+                gap_count = await gap_service.record_call_gaps(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    call_id=call_id,
+                    turns=redacted_turns,
+                )
+                set_span_attributes(stage, gap_count=gap_count)
+
+        # STEP 3c' — mistakes on real calls (D-949): the practice-test turn checks, read on this
+        # call, so the same mistake is counted across calls and a fixed one is caught coming
+        # back. Kinds and turn indexes only are stored (hard rule 6). Idempotent per call.
+        if snapshot.transcript:
+            with span(
+                "pipeline.call_mistakes", call_id=str(call_id), agent_id=str(agent_id)
+            ) as stage:
+                languages = await _agent_languages(tenant_id, agent_id)
+                found = call_mistakes.mistakes_in(
+                    snapshot.transcript,
+                    language=languages[0] if languages else "",
+                    unheard=likely_cut_off(snapshot.transcript),
+                    prior_contact=await _prior_contact(
+                        tenant_id,
+                        call_id,
+                        _party_e164(
+                            snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
+                        ),
+                    ),
+                )
+                await call_mistakes.record_call_mistakes(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    call_id=call_id,
+                    call_started_at=snapshot.started_at or datetime.now(UTC),
+                    found=found,
+                )
+                set_span_attributes(stage, mistake_count=len(found))
+    except DBAPIError:
+        raise
+    except Exception as exc:
+        log.exception("pipeline_insights_failed", extra={"call_id": str(call_id)})
+        alert(
+            "CORE_LOGIC",
+            "pipeline_insights_failed",
+            detail=f"{type(exc).__name__} on call {call_id}",
+        )
+
+
 async def _run_post_call_stages(
     tenant_id: UUID,
     call_id: UUID,
@@ -1501,53 +1580,6 @@ async def _run_post_call_stages(
         business_outcomes=business_outcomes,
     )
 
-    # STEP 3c — knowledge gaps: the questions this agent could not answer (D-Knowledge-Gaps).
-    # An inline string-match stage like STEP 2b/3b — no model call, no round trip — over the
-    # REDACTED turns, so the caller-facing quotes it stores can never carry raw PII (hard
-    # rule 6). It reads `redact(turn.text).text`, the same redaction STEP 2 wrote to
-    # `transcript_turns.text_redacted`, and never `turn.text`. Exactly-once per call:
-    # `record_call_gaps` replaces this call's occurrence rows and recomputes the aggregate,
-    # so a re-drive cannot double-count (`apps/api/insights/service.py`). Guarded on a
-    # transcript existing — a call with none implies no gaps.
-    if snapshot.transcript:
-        redacted_turns = [
-            gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
-            for turn in snapshot.transcript
-        ]
-        with span("pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)) as stage:
-            gap_count = await gap_service.record_call_gaps(
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                call_id=call_id,
-                turns=redacted_turns,
-            )
-            set_span_attributes(stage, gap_count=gap_count)
-
-    # STEP 3c' — mistakes on real calls (D-949): the practice-test turn checks, read on this
-    # call, so the same mistake is counted across calls and a fixed one is caught coming
-    # back. Kinds and turn indexes only are stored (hard rule 6). Idempotent per call.
-    if snapshot.transcript:
-        with span("pipeline.call_mistakes", call_id=str(call_id), agent_id=str(agent_id)) as stage:
-            languages = await _agent_languages(tenant_id, agent_id)
-            found = call_mistakes.mistakes_in(
-                snapshot.transcript,
-                language=languages[0] if languages else "",
-                unheard=likely_cut_off(snapshot.transcript),
-                prior_contact=await _prior_contact(
-                    tenant_id,
-                    call_id,
-                    _party_e164(snapshot.from_e164 if direction == "inbound" else snapshot.to_e164),
-                ),
-            )
-            await call_mistakes.record_call_mistakes(
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                call_id=call_id,
-                call_started_at=snapshot.started_at or datetime.now(UTC),
-                found=found,
-            )
-            set_span_attributes(stage, mistake_count=len(found))
-
     # STEP 3d — what the call came to, in words: the summaries as the engine and the model
     # wrote them, the headline and the next step (founder decisions 4, 5, 12). After
     # extraction because the model's summary is one input; the engine's own summary is the
@@ -1636,6 +1668,13 @@ async def _run_post_call_stages(
                     billing=snapshot.billing,
                 ),
             )
+
+    # STEP 5c — owner insights: knowledge gaps and mistakes on real calls. AFTER the lead and
+    # the meter, and isolated, so a defect in a string check (a bad pattern, a turn shape it
+    # did not expect) costs those two lists for this call and an alarm, never the call's
+    # lead or its `usage_events` (hard rule 7). A database error still raises for the retry
+    # ladder; every stage before this one is idempotent, so the re-run finds them done.
+    await _owner_insights_stage(tenant_id, agent_id, call_id, snapshot, direction=direction)
 
     # STEP 6 — tell everyone who hears about hot leads (the owner and the team addresses),
     # through the OUTBOX so a crash cannot lose it, once per person per channel per call.

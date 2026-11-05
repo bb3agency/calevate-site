@@ -106,6 +106,7 @@ from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 import httpx
 from calevate_shared.business_outcomes import BusinessOutcome, match_outcome
+from calevate_shared.call_words import say as _say
 from calevate_shared.engine import (
     AZURE_LOCATION,
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -1237,27 +1238,24 @@ class OfflineExtractor:
     # the clause — which is why the list carries the standalone words a caller uses to
     # REFUSE or RETRACT, the two cases that put a wrong value in a client's CRM.
     _NEGATION_RE = re.compile(
-        r"(?<!\w)(?:"
-        r"ledu|ledhu|leedu|"  # "there is none" / "did not" — "avasaram ledu"
-        r"vaddu|vaddhu|vaddandi|voddu|"  # "I don't want it"
-        r"kaadu|kaadhu|kadu|"  # "it is not that" — the Telugu self-correction marker
-        r"saripodu|saripodhu|saripoledu|"  # "that will not do"
-        r"nahi|nahin|mat|"  # Hindi
-        r"no|not|never|"
+        r"(?<!\w)(?:" + _say("offline_extractor.negation") + r"|no|not|never|"
         r"don'?t|doesn'?t|didn'?t|won'?t|can'?t|cannot"
         r")(?!\w)"
         # The Telugu PROHIBITIVE is a suffix, not a word: "cheyakandi" (do not do it),
         # "ravaddu" (do not come), "cheyyoddu". Without this, "appointment cancel
         # cheyakandi" reads as a cancellation — the most expensive false positive in
         # the clinic vertical.
-        r"|(?<!\w)\w+(?:akandi|akande|avaddu|oddu)(?!\w)",
+        r"|(?<!\w)\w+(?:" + _say("offline_extractor.prohibitive_endings") + r")(?!\w)",
         re.IGNORECASE,
     )
     # Clause boundaries — NegEx's "termination terms", as punctuation plus the two
     # contrastive conjunctions this product's transcripts actually use.
     # (dashes as escapes: a literal em/en dash in source is a lint-flagged homoglyph)
     _CLAUSE_SPLIT_RE = re.compile(
-        "[,;.!?\u2026\u2014\u2013]+|\\s+(?:--|kaani|kani|but|however)\\s+", re.IGNORECASE
+        "[,;.!?\u2026\u2014\u2013]+|\\s+(?:--|"
+        + _say("offline_extractor.but")
+        + "|but|however)\\s+",
+        re.IGNORECASE,
     )
     # "Did my booking get cancelled?" is not a cancellation. A caller who rings to ASK
     # about something says its name just as plainly as one who did it, so the word alone
@@ -1272,7 +1270,9 @@ class OfflineExtractor:
     # left out because "I want to check in" is not an enquiry, and a false enquiry
     # DISCARDS a fact the caller really did state.
     _ASKING_RE = re.compile(
-        r"(?<!\w)(?:adag\w*|adug\w*|telusuko\w*|ask\w*|enquir\w*|inquir\w*|wanted to know)(?!\w)",
+        r"(?<!\w)(?:"
+        + _say("offline_extractor.asking")
+        + r"|ask\w*|enquir\w*|inquir\w*|wanted to know)(?!\w)",
         re.IGNORECASE,
     )
     # Speaker prefixes as the transcript writes them. Anything unprefixed is treated as
