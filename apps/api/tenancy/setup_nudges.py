@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -63,10 +63,17 @@ _NEEDS_YOU_SQL: Final = (
 )
 
 
+#: What the evidence was. The dashboard lists open unanswered questions as their own step,
+#: whose answer also closes this nudge, so it shows an `unanswered_questions` nudge only
+#: when that step is not there.
+NudgeCause = Literal["unanswered_questions", "needed_a_person"]
+
+
 @dataclass(frozen=True, slots=True)
 class Nudge:
     step: str
     message: str
+    cause: NudgeCause
 
 
 def _plural(n: int, one: str, many: str) -> str:
@@ -105,7 +112,7 @@ async def setup_nudges(
         step = GAP_TOPIC_STEP.get(str(topic), _FALLBACK_STEP)
         by_step[step] = by_step.get(step, 0) + int(calls)
     nudges = [
-        Nudge(step=step, message=_gap_message(step, calls))
+        Nudge(step=step, message=_gap_message(step, calls), cause="unanswered_questions")
         for step, calls in by_step.items()
         if step in open_steps
     ]
@@ -119,6 +126,7 @@ async def setup_nudges(
                         f"{_plural(needed, 'call', 'calls')} in the last 14 days needed a "
                         "person, and nobody is set up to take calls."
                     ),
+                    cause="needed_a_person",
                 )
             )
     return nudges
@@ -145,6 +153,7 @@ __all__ = [
     "FIRST_DAY",
     "GAP_TOPIC_STEP",
     "Nudge",
+    "NudgeCause",
     "on_dashboard",
     "setup_nudges",
 ]

@@ -29135,6 +29135,11 @@ export interface components {
          * @description Why the checklist is back on the dashboard after the first day, for one step.
          */
         ProfileSetupNudgeOut: {
+            /**
+             * Cause
+             * @enum {string}
+             */
+            cause: "unanswered_questions" | "needed_a_person";
             /** Message */
             message: string;
             /**

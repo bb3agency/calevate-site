@@ -348,7 +348,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
     );
     const steps = (await screen.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
     expect(steps.textContent).toContain("3 things need you");
-    expect(within(steps).getByRole("link", { name: "Review" }).getAttribute("href")).toBe("/c/acme/attention");
+    expect(within(steps).getByRole("link", { name: "Review all" }).getAttribute("href")).toBe("/c/acme/attention");
     // The queue's full list is Needs attention, one tap from the heading.
     expect(within(steps).getByRole("link", { name: "See all" }).getAttribute("href")).toBe("/c/acme/attention");
     expect(container.textContent).toContain("3");
@@ -1060,7 +1060,7 @@ describe("this week", () => {
     });
     const steps = (await screen.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
     expect((await within(steps).findByRole("link", { name: /Continue/ })).getAttribute("href")).toBe("/c/acme/agents/first");
-    expect(screen.queryByText(/Set up your business/)).toBeNull();
+    expect(screen.queryByText(/Finish your business details/)).toBeNull();
   });
 
   it("leads with the agent when none is switched on", async () => {
@@ -1423,7 +1423,7 @@ describe("next steps", () => {
   const stepLinks = (card: HTMLElement) =>
     within(card)
       .getAllByRole("link")
-      .filter((link) => link.closest("li") !== null)
+      .filter((link) => link.closest("[data-step]") !== null)
       .map((link) => ({
         name: link.textContent,
         href: link.getAttribute("href"),
@@ -1440,52 +1440,170 @@ describe("next steps", () => {
     );
     const card = await nextSteps();
     await waitFor(() => expect(card.textContent).toContain("Go live: step 2 of 4"));
-    expect(card.textContent).toContain("Next: verify your business");
+    // The button names the step it opens, so no line under the row repeats it.
     expect(stepLinks(card)).toEqual([
-      { name: "Continue", href: "/c/acme/go-live", primary: true },
+      { name: "Verify business", href: "/c/acme/go-live", primary: true },
       { name: "Call back", href: "/c/acme/leads", primary: false },
     ]);
   });
 
+  const GAP = {
+    id: "gap-1",
+    agent_id: "agent-1",
+    agent_name: "Reception",
+    topic_key: "pricing",
+    topic_label: "Pricing",
+    status: "open",
+    signal: "dont_know",
+    occurrence_count: 3,
+    call_count: 2,
+    example_question: "How much is it?",
+    example_answer: "I don't know.",
+    first_seen_at: "2026-10-20T04:30:00Z",
+    last_seen_at: "2026-10-22T04:30:00Z",
+  };
+  type Fix = { component: string; action: string; href: string; points: number };
+  const readinessRead = (score: number, fixes: Fix[]) => ({
+    score,
+    agents: [{ agent_id: "agent-1", agent_name: "Reception", score, components: [], fixes }],
+    top_fixes: fixes,
+    computed_at: "2026-10-22T05:00:00Z",
+  });
+
   it("shows a step two sources suggest once: unanswered questions and the readiness fix", async () => {
-    const gap = {
-      id: "gap-1",
-      agent_id: "agent-1",
-      agent_name: "Reception",
-      topic_key: "pricing",
-      topic_label: "Pricing",
-      status: "open",
-      signal: "dont_know",
-      occurrence_count: 3,
-      call_count: 2,
-      example_question: "How much is it?",
-      example_answer: "I don't know.",
-      first_seen_at: "2026-10-20T04:30:00Z",
-      last_seen_at: "2026-10-22T04:30:00Z",
-    };
     await renderClientPage(
       page,
       routes({
-        "/v1/knowledge-gaps?status=open&limit=20": { items: [gap], open_count: 1, total: 1 },
-        "/v1/readiness": {
-          score: 62,
-          agents: [{ agent_id: "agent-1", agent_name: "Reception", score: 62, components: [], fixes: [] }],
-          top_fixes: [
-            { component: "missed", action: "Teach it the answers callers asked for.", href: "/agents/agent-1?section=training", points: 20 },
-            { component: "opening", action: "Write the opening line callers hear first.", href: "/agents/agent-1?section=script", points: 15 },
-          ],
-          computed_at: "2026-10-22T05:00:00Z",
-        },
+        "/v1/knowledge-gaps?status=open&limit=20": { items: [GAP], open_count: 1, total: 1 },
+        "/v1/readiness": readinessRead(62, [
+          { component: "missed", action: "Teach it the answers callers asked for.", href: "/agents/agent-1?section=training", points: 20 },
+          { component: "opening", action: "Write the opening line callers hear first.", href: "/agents/agent-1?section=script", points: 15 },
+        ]),
       }),
     );
     const card = await nextSteps();
-    await waitFor(() => expect(card.textContent).toContain("Ready for calls: 62 of 100"));
-    expect(card.textContent).toContain("1 question not answered");
+    await waitFor(() => expect(card.textContent).toContain("1 question not answered"));
+    await waitFor(() => expect(card.textContent).toContain("Write the opening line callers hear first."));
     expect(card.textContent).not.toContain("Teach it the answers callers asked for.");
-    expect(stepLinks(card).map((link) => link.href)).toEqual([
-      "/c/acme/agents/agent-1?section=training&question=pricing",
-      "/c/acme/agents/agent-1?section=script",
+    expect(stepLinks(card)).toEqual([
+      { name: "Teach answer", href: "/c/acme/agents/agent-1?section=training&question=pricing", primary: true },
+      { name: "Edit opening line", href: "/c/acme/agents/agent-1?section=script", primary: false },
     ]);
+  });
+
+  it("explains the readiness figure: the share, its band in words, a meter and the fixes left", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/readiness": readinessRead(62, [
+          { component: "opening", action: "Shorten the opening line to a greeting and one question.", href: "/agents/agent-1?section=script", points: 13 },
+          { component: "live", action: "Apply your saved changes to live calls.", href: "/agents/agent-1?section=script", points: 12 },
+        ]),
+      }),
+    );
+    const card = await nextSteps();
+    const meter = await within(card).findByRole("meter", { name: "Ready for calls" });
+    expect(meter.getAttribute("aria-valuenow")).toBe("62");
+    expect(meter.getAttribute("aria-valuetext")).toBe("62 out of 100, Nearly ready");
+    expect(card.textContent).toContain("62%");
+    expect(card.textContent).toContain("Nearly ready");
+    expect(card.textContent).toContain("2 fixes to reach 100%");
+    // Two fixes on one screen are two problems, each named by what it does, for its agent.
+    expect(stepLinks(card).map((link) => link.name)).toEqual(["Edit opening line", "Apply changes"]);
+    expect(card.textContent).toContain("For Reception");
+    expect(within(card).queryByRole("link", { name: "Fix" })).toBeNull();
+  });
+
+  it("says nothing is left to fix at 100", async () => {
+    await renderClientPage(page, routes({ "/v1/readiness": readinessRead(100, []) }));
+    const card = await nextSteps();
+    expect(await within(card).findByText("Nothing left to fix")).toBeTruthy();
+    expect(card.textContent).toContain("100%");
+  });
+
+  it("does not say an unanswered question twice: the question step stands for the setup reason", async () => {
+    const answered = businessProfileFixture().setup;
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/me": OWNER,
+        "/v1/knowledge-gaps?status=open&limit=20": { items: [GAP], open_count: 1, total: 1 },
+        "/v1/business-profile": businessProfileFixture({
+          setup: {
+            ...answered,
+            steps: answered.steps.map((step) => (step.id === "faqs" ? { ...step, state: "todo" as const } : step)),
+            complete: false,
+            on_dashboard: true,
+            nudges: [
+              {
+                step: "faqs",
+                message: "1 caller asked questions in the last 14 days that your agent could not answer.",
+                cause: "unanswered_questions",
+              },
+            ],
+          },
+        }),
+      }),
+    );
+    const card = await nextSteps();
+    await waitFor(() => expect(card.textContent).toContain("1 question not answered"));
+    expect(card.textContent).not.toContain("could not answer");
+    expect(within(card).queryByRole("link", { name: "Add common questions" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Hide from dashboard" })).toBeNull();
+  });
+
+  it("keeps a setup reason the question step does not cover, and leaves the gap reason off", async () => {
+    const answered = businessProfileFixture().setup;
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/me": OWNER,
+        "/v1/knowledge-gaps?status=open&limit=20": { items: [GAP], open_count: 1, total: 1 },
+        "/v1/business-profile": businessProfileFixture({
+          setup: {
+            ...answered,
+            steps: answered.steps.map((step) =>
+              step.id === "faqs" || step.id === "contacts" ? { ...step, state: "todo" as const } : step,
+            ),
+            complete: false,
+            on_dashboard: true,
+            nudges: [
+              { step: "faqs", message: "1 caller asked questions your agent could not answer.", cause: "unanswered_questions" },
+              { step: "contacts", message: "3 calls needed a person.", cause: "needed_a_person" },
+            ],
+          },
+        }),
+      }),
+    );
+    const card = await nextSteps();
+    await waitFor(() => expect(card.textContent).toContain("1 question not answered"));
+    expect(card.textContent).toContain("3 calls needed a person.");
+    expect(card.textContent).not.toContain("could not answer");
+  });
+
+  it("lets the business setup stand for the readiness fix that asks for the same answers", async () => {
+    const answered = businessProfileFixture().setup;
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/me": OWNER,
+        "/v1/readiness": readinessRead(70, [
+          { component: "knowledge", action: "Add what you offer and what callers often ask.", href: "/knowledge", points: 20 },
+        ]),
+        "/v1/business-profile": businessProfileFixture({
+          setup: {
+            ...answered,
+            steps: answered.steps.map((step) => (step.id === "faqs" ? { ...step, state: "todo" as const } : step)),
+            complete: false,
+            on_dashboard: true,
+          },
+        }),
+      }),
+    );
+    const card = await nextSteps();
+    expect(await within(card).findByRole("link", { name: "Add common questions" })).toBeTruthy();
+    await waitFor(() => expect(card.textContent).toContain("70%"));
+    expect(card.textContent).not.toContain("Add what you offer and what callers often ask.");
   });
 
   it("resumes the business's facts one question at a time, saying why when calls showed a gap", async () => {
@@ -1500,14 +1618,15 @@ describe("next steps", () => {
             steps: answered.steps.map((step) => (step.id === "contacts" ? { ...step, state: "todo" as const } : step)),
             complete: false,
             on_dashboard: true,
-            nudges: [{ step: "contacts", message: "3 calls needed a person." }],
+            nudges: [{ step: "contacts", message: "3 calls needed a person.", cause: "needed_a_person" }],
           },
         }),
       }),
     );
     const card = await nextSteps();
     expect(card.textContent).toContain("3 calls needed a person.");
-    expect(within(card).getByRole("link", { name: "Continue" }).getAttribute("href")).toBe(
+    expect(card.textContent).toContain("1 of 8 steps left");
+    expect(within(card).getByRole("link", { name: "Add who takes calls" }).getAttribute("href")).toBe(
       "/c/acme/settings/business?mode=steps&step=contacts",
     );
     expect(await within(card).findByRole("button", { name: "Hide from dashboard" })).toBeTruthy();
@@ -1516,7 +1635,7 @@ describe("next steps", () => {
   it("leaves the business's facts off when the server says they are not due", async () => {
     await renderClientPage(page, routes({ "/v1/me": OWNER }));
     const card = await nextSteps();
-    expect(card.textContent).not.toContain("Set up your business");
+    expect(card.textContent).not.toContain("Finish your business details");
   });
 
   it("says it could not check readiness rather than all clear", async () => {
