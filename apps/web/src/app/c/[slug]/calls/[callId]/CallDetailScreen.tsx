@@ -12,10 +12,10 @@ import { PageHeader } from "@/components/console/pageHeader";
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
+import { makeCallHref } from "@/lib/api/oneCall";
 import { useClientRealm } from "@/lib/api/session";
 import {
   useCall,
-  useCallBack,
   useCallbackEligibility,
   useWriteAccess,
 } from "@/lib/api/hooks";
@@ -142,9 +142,6 @@ export function CallDetailScreen({
   const { session, href, viewAsRequested } = useClientRealm();
   const call = useCall(session, callId);
   const eligibility = useCallbackEligibility(session, callId);
-  const callback = useCallBack(session, callId);
-  // The answer (calling now, or the gate's reason) replaces the button in the card itself.
-  const callingBack = useActionFeedback(callback, { errorDisplay: "inline" });
   /**
    * The eligibility QUERY is `leads:read` on purpose — the server made it a read so this
    * button could render disabled with a reason — while the POST behind the button is
@@ -426,9 +423,7 @@ export function CallDetailScreen({
             action={
               <CallBackAction
                 eligibility={eligibility}
-                callback={callback}
-                status={callingBack.status}
-                onCallBack={() => callingBack.run()}
+                callHref={href(makeCallHref(session.orgSlug, { call: callId }))}
                 write={write}
                 leadHref={leadHref}
                 leadLabel={leadName ? `Open ${leadName}'s lead` : "Open the lead"}

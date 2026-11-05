@@ -1,123 +1,22 @@
 "use client";
 
-import { type ReactNode } from "react";
 import Link from "next/link";
-import { CheckCircle2, PhoneOutgoing, ShieldAlert, Wallet } from "lucide-react";
+import { PhoneOutgoing } from "lucide-react";
 
 import { SECONDARY_BUTTON_SM } from "@/components/ui";
-import { type CallLeadResult } from "@/lib/api/client";
-import { useClientRealm } from "@/lib/api/session";
 
 /**
- * CALL THIS LEAD — the dispatch control, and the one thing a refusal adds to the
- * server's own sentence.
+ * CALL THIS LEAD — opens Make a call with the lead and this screen's agent filled in.
  *
- * Extracted from `page.tsx` (UX-DOCTRINE §6). The refusal copy below is a compliance
- * surface: `result.blocked_reason` is the SERVER's wording and is rendered as-is
- * (UX-DOCTRINE §8 — "a paraphrase is a second implementation of a compliance rule"), and
- * `blockedRemedy` adds only the destination the server cannot know.
+ * It used to dial from the row and keep the gate's answer beside it. One form now places
+ * every one-off call (founder, 5 Nov 2026), so the refusal, the next allowed time and the
+ * live status are said there, once, in the same words for every door.
  */
-/**
- * D-21 dispatch, per lead — the one control shared by the table and the board.
- *
- * The shape it has to respect: `POST /v1/leads/{id}/call` answers **200** with
- * `status: "blocked"` when the compliance gate refuses, because a refusal is a decision
- * this screen should explain, not an exception to swallow. Falling through to the
- * enabled button on that answer would look like the click did nothing, and the client
- * would press it again — so a blocked row shows the reason and offers no second attempt
- * (the server has already recorded its answer for this lead).
- *
- * A refusal is amber, not rose: the gate working is not a fault, and painting it like an
- * error is what teaches a client to report their own compliance rules as bugs.
- */
-/**
- * The one thing a refused dial's rule NAME was ever worth to a client: where the refusal
- * is cleared.
- *
- * Only the two money gates have a destination on this screen's side of the product, and
- * they are the two a prepaid account meets — which is now nearly every account. Every
- * other rule (consent, do-not-call, calling hours, the DLT registrations) already carries
- * its own remedy inside the server's sentence, and a second link would be a worse version
- * of it. An unknown rule adds nothing rather than printing itself.
- */
-function blockedRemedy(rule: string | null | undefined): ReactNode {
-  // BOTH SCREENS ARE ONE SCREEN NOW (D-525). This used to name "Calling credit" and
-  // "Usage", which were two of the four money screens; they are tabs of Credits & billing,
-  // so the destination is the same in both arms and only the tab differs. The tab is not
-  // named here on purpose — a client who lands on the screen sees the balance and the
-  // limit without being told which tab to press, and a tab name is one more thing that
-  // goes stale on a screen this sentence cannot see.
-  // NEVER "people ringing you still get through": an empty wallet silences answering as
-  // well as dialling (D-551). The server's own sentence
-  // (`compliance.service.NO_CREDITS_REASON`) already says both halves stopped, so this adds
-  // only what it cannot know — where the button is, and that one payment undoes both.
-  if (rule === "no_credits") return <BillingLink label="Add credit" />;
-  if (rule === "spend_cap") {
-    return (
-      <>
-        <span className="block">Callers still get through.</span>
-        <BillingLink label="See your limit" />
-      </>
-    );
-  }
-  return null;
-}
-
-/** The way to the screen that fixes a money refusal, as a button rather than a sentence. */
-function BillingLink({ label }: { label: string }) {
-  const { session, href } = useClientRealm();
+export function CallControl({ href }: { href: string }) {
   return (
-    <Link href={href(`/c/${session.orgSlug}/billing`)} className={`${SECONDARY_BUTTON_SM} mt-1.5 whitespace-nowrap`}>
-      <Wallet aria-hidden className="h-3.5 w-3.5 shrink-0" />
-      {label}
+    <Link href={href} className={`${SECONDARY_BUTTON_SM} whitespace-nowrap`}>
+      <PhoneOutgoing aria-hidden className="h-3.5 w-3.5 shrink-0" />
+      Call with AI
     </Link>
-  );
-}
-
-export function CallControl({
-  result,
-  pending,
-  onCall,
-}: {
-  result: CallLeadResult | undefined;
-  pending: boolean;
-  onCall: () => void;
-}) {
-  if (result?.status === "queued") {
-    return (
-      <span className="flex items-center gap-1.5 whitespace-nowrap text-meta font-semibold text-brand-strong dark:text-brand-bright">
-        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-        Calling now
-      </span>
-    );
-  }
-  if (result?.status === "blocked") {
-    return (
-      <span className="flex items-start gap-1.5 text-meta text-warn">
-        <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0">
-          {result.blocked_reason ?? "This call was not allowed."}
-          {/* NEVER PRINT THE RULE NAME to the client — "This account has no calling credit
-              left. (no_credits)" hands the platform's own vocabulary to the person it
-              refused and tells them nothing they can act on.
-              `tests/plainLanguageGuard.test.ts` enforces the literal half of that rule; a
-              rule name in a variable slips past it. What goes here instead is what the
-              name was standing in for: WHERE the two money refusals are fixed. Every other
-              rule keeps the server's sentence alone, which names its own remedy. */}
-          {blockedRemedy(result.blocked_rule)}
-        </span>
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={onCall}
-      className={`${SECONDARY_BUTTON_SM} whitespace-nowrap`}
-    >
-      <PhoneOutgoing className="h-3.5 w-3.5 shrink-0" />
-      {pending ? "Calling…" : "Call with AI"}
-    </button>
   );
 }

@@ -101,7 +101,7 @@ export function useSubjectExport(session: Session) {
 /**
  * File an erasure request. Irreversible on the server, so idempotent on the wire.
  *
- * The `Idempotency-Key` is per attempt (`useCallLead`'s reasoning): a double-click must
+ * The `Idempotency-Key` is per attempt (`oneCall.useMakeCall`'s reasoning): a double-click must
  * not file two requests for one person. The server also deduplicates by open request, so
  * this is belt and braces on an action nobody can take back.
  */

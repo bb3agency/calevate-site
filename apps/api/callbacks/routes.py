@@ -180,8 +180,13 @@ async def list_callbacks(
     _: Reader,
     limit: int = Query(MAX_PAGE, ge=1, le=MAX_PAGE),
     open_only: bool = Query(False),
+    booked_by_person: bool = Query(
+        False, description="True: only the calls a person booked for a time (Make a call)"
+    ),
 ) -> list[ScheduledCallbackOut]:
-    rows = await callbacks.list_callbacks(session, limit=limit, open_only=open_only)
+    rows = await callbacks.list_callbacks(
+        session, limit=limit, open_only=open_only, booked_by_person=booked_by_person
+    )
     return [_view(row) for row in rows]
 
 

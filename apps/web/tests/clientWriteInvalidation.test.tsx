@@ -7,7 +7,8 @@ import { ACCEPTANCES_PATH, useAcceptAgreement } from "@/lib/api/agreements";
 import { creditPacksKey, useCreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
 import { useEngineCatalogue } from "@/lib/api/engineCatalogue";
-import { queryKeys, useCallBack, useCallLead } from "@/lib/api/hooks";
+import { queryKeys } from "@/lib/api/hooks";
+import { useMakeCall } from "@/lib/api/oneCall";
 import { useReplaceLeadFields, useReviewLeadFieldsDraft } from "@/lib/api/leadFields";
 import { useLeadSuggestions } from "@/lib/api/leadSuggestions";
 import { useEditLead } from "@/lib/api/leads";
@@ -95,21 +96,19 @@ describe("writes that add or mark a call", () => {
     await expectInvalidated(keys, [key("calls-log", "acme"), key("call", "acme", CALL)]);
   });
 
-  it("calling a lead and calling back re-read the log, and the call back its own call", async () => {
-    stubApi({
-      [`POST /v1/leads/${LEAD}/call`]: { call_id: CALL },
-      [`POST /v1/calls/${CALL}/callback`]: { call_id: CALL },
-    });
+  it("making a call re-reads the log, the call-backs and the call it followed up", async () => {
+    stubApi({ "POST /v1/one-calls": { status: "queued", call_id: CALL, lead_id: LEAD } });
     const { wrapper, keys } = harness();
-    const lead = renderHook(() => useCallLead(SESSION), { wrapper });
+    const make = renderHook(() => useMakeCall(SESSION), { wrapper });
     await act(async () => {
-      await lead.result.current.mutateAsync({ leadId: LEAD, agentId: AGENT });
+      await make.result.current.mutateAsync({ lead_id: LEAD, agent_id: AGENT, reason: "Hi" });
     });
-    const back = renderHook(() => useCallBack(SESSION, CALL), { wrapper });
-    await act(async () => {
-      await back.result.current.mutateAsync();
-    });
-    await expectInvalidated(keys, [JSON.stringify(queryKeys.callsLog("acme")), key("call", "acme", CALL)]);
+    await expectInvalidated(keys, [
+      JSON.stringify(queryKeys.callsLog("acme")),
+      key("calls", "acme"),
+      key("callbacks", "acme", true),
+      key("call", "acme"),
+    ]);
   });
 });
 

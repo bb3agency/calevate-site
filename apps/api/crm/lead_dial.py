@@ -25,6 +25,7 @@ from calevate_shared.calling_window import (
     ist_wall_clock,
     next_window_opening,
 )
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -57,6 +58,26 @@ async def _release_undialled_claim(tenant_id: UUID, claim: IdempotencyClaim) -> 
         await fail_idempotency(fail_session, claim=claim)
 
 
+#: The label a person's "anything the agent should know" travels under in THIS CALL's
+#: details line (`calevate_shared.engine.DETAILS_LINE`), ahead of the lead's stored details.
+CALL_NOTE_LABEL = "Note"
+
+
+class _PersonPlacedCall:
+    """`dispatch_call`'s `on_reserved` for a call a person placed: marks the intent row
+    `placed_by_person` in the intent's own transaction (so the mark exists before anything
+    can ring and survives a lost engine response) and keeps the row's id for the reply."""
+
+    def __init__(self) -> None:
+        self.call_id: UUID | None = None
+
+    async def __call__(self, intent: AsyncSession, call_id: UUID) -> None:
+        self.call_id = call_id
+        await intent.execute(
+            text("UPDATE calls SET placed_by_person = true WHERE id = :id"), {"id": call_id}
+        )
+
+
 async def place_lead_call(
     session: AsyncSession,
     *,
@@ -67,14 +88,26 @@ async def place_lead_call(
     idempotency_key: str,
     ip: str | None = None,
     audit_extra: dict[str, Any] | None = None,
+    details: str | None = None,
 ) -> CallLeadOut:
     """Gate, then dial, one lead. `blocked` is an answer, not an exception.
 
     `audit_extra` is merged into the `lead.call_dispatched` summary — the assistant passes
     `{"via": "copilot"}` so the one row records which door the call came through.
+
+    `details` is what the person wants the agent to know on this call; it rides THIS CALL's
+    details line under `CALL_NOTE_LABEL`, before the lead's stored details.
     """
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
+    hashed: dict[str, Any] = {
+        "lead_id": str(lead_id),
+        "agent_id": agent_id,
+        "context_note": context_note,
+    }
+    if details:
+        # Only when present, so a key sent before `details` existed hashes as it did.
+        hashed["details"] = details
     async with tenant_session(tenant_id) as claim_session:
         claim = await claim_idempotency(
             claim_session,
@@ -82,9 +115,7 @@ async def place_lead_call(
             route=CALL_ROUTE,
             method="POST",
             key=idempotency_key,
-            request_hash=body_hash(
-                {"lead_id": str(lead_id), "agent_id": agent_id, "context_note": context_note}
-            ),
+            request_hash=body_hash(hashed),
         )
     if claim.state == "replay" and claim.response_payload:
         return CallLeadOut.model_validate(claim.response_payload)
@@ -111,7 +142,7 @@ async def place_lead_call(
                 done_session,
                 claim=claim,
                 response_status=200,
-                response_payload=result.model_dump(),
+                response_payload=result.model_dump(mode="json"),
             )
         return result
 
@@ -120,12 +151,20 @@ async def place_lead_call(
         dial_was_not_placed,
         dispatch_call,
     )
+    from apps.api.campaigns.contact_details import lead_details
 
     # Committed before the phone can ring: from here the key is never re-run, even past the
     # lease, unless a failure proves no line was seized.
     async with tenant_session(tenant_id) as doubt_session:
         await mark_idempotency_in_doubt(doubt_session, claim=claim)
+    reserved = _PersonPlacedCall()
     try:
+        # With no note, `dispatch_call` reads the lead's stored details itself.
+        contact = (
+            {CALL_NOTE_LABEL: details, **await lead_details(session, lead_id=lead_id)}
+            if details
+            else None
+        )
         handle = await dispatch_call(
             session,
             tenant_id=tenant_id,
@@ -134,6 +173,8 @@ async def place_lead_call(
             phone_e164=phone,
             lead_name=name,
             context_note=context_note,
+            contact_details=contact,
+            on_reserved=reserved,
         )
     except DialUnconfirmedError as unconfirmed:
         # The claim stays `in_doubt`: releasing it would let the next press re-dial
@@ -156,7 +197,7 @@ async def place_lead_call(
             await _release_undialled_claim(tenant_id, claim)
         raise
 
-    result = CallLeadOut(status="queued", call_handle=handle)
+    result = CallLeadOut(status="queued", call_handle=handle, call_id=reserved.call_id)
     async with tenant_session(tenant_id) as record_session:
         await write_audit(
             record_session,
@@ -168,7 +209,9 @@ async def place_lead_call(
             ip=ip,
             summary={
                 "agent_id": str(agent_id),
+                "call_id": str(reserved.call_id) if reserved.call_id else None,
                 "has_note": bool(context_note),
+                "has_details": bool(details),
                 **(audit_extra or {}),
             },
         )
@@ -176,7 +219,7 @@ async def place_lead_call(
             record_session,
             claim=claim,
             response_status=200,
-            response_payload=result.model_dump(),
+            response_payload=result.model_dump(mode="json"),
         )
     return result
 
@@ -218,8 +261,9 @@ async def call_back_check(
     return CallbackEligibilityOut(eligible=False, reason=decision.reason, rule=decision.rule)
 
 
-def calling_hours_reason(opens: datetime, *, now: datetime) -> str:
-    """Why "Call back now" waits, and until when, as one sentence in IST."""
+def calling_hours_reason(opens: datetime, *, now: datetime, verb: str = "call back") -> str:
+    """Why a call waits, and until when, as one sentence in IST. `verb` names the action
+    the person pressed ("call back", "call")."""
     opens_ist = opens.astimezone(IST)
     day = (
         "today"
@@ -232,7 +276,7 @@ def calling_hours_reason(opens: datetime, *, now: datetime) -> str:
     meridiem = "am" if opens_ist.hour < 12 else "pm"
     return (
         "Calls can only be placed between 9 am and 9 pm. "
-        f"You can call back from {hour}:{opens_ist:%M} {meridiem} {day}."
+        f"You can {verb} from {hour}:{opens_ist:%M} {meridiem} {day}."
     )
 
 
@@ -290,6 +334,7 @@ async def place_call_back(
 
     async with tenant_session(tenant_id) as doubt_session:
         await mark_idempotency_in_doubt(doubt_session, claim=claim)
+    reserved = _PersonPlacedCall()
     try:
         handle = await dispatch_call(
             session,
@@ -299,6 +344,7 @@ async def place_call_back(
             phone_e164=plan.phone_e164,
             lead_name=plan.lead_name,
             context_note=plan.context_note,
+            on_reserved=reserved,
         )
     except DialUnconfirmedError as unconfirmed:
         raise ProblemError(
@@ -320,7 +366,12 @@ async def place_call_back(
     # The chain link stays on the caller's session: it is a pointer between two of our own
     # rows, and its loss costs a follow-up count, not a record of a call.
     await service.link_callback(session, handle=handle, parent_call_id=call_id)
-    result = CallbackOut(status="queued", call_handle=handle, follow_up_number=plan.depth + 1)
+    result = CallbackOut(
+        status="queued",
+        call_handle=handle,
+        call_id=reserved.call_id,
+        follow_up_number=plan.depth + 1,
+    )
     async with tenant_session(tenant_id) as record_session:
         await write_audit(
             record_session,
@@ -336,13 +387,14 @@ async def place_call_back(
             record_session,
             claim=claim,
             response_status=200,
-            response_payload=result.model_dump(),
+            response_payload=result.model_dump(mode="json"),
         )
     return result
 
 
 __all__ = [
     "CALL_BACK_ROUTE",
+    "CALL_NOTE_LABEL",
     "CALL_ROUTE",
     "call_back_check",
     "calling_hours_reason",

@@ -1,5 +1,13 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+/** One router for the file, so a test can see where a Call button sends the person. */
+const navigation = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(window.location.search),
+  usePathname: () => "/",
+  useRouter: () => ({ ...navigation, replace: vi.fn(), refresh: vi.fn(), back: vi.fn(), forward: vi.fn(), prefetch: vi.fn() }),
+}));
 
 import CallsPage from "@/app/c/[slug]/calls/page";
 import { ToastProvider } from "@/components/arc/toast";
@@ -138,25 +146,11 @@ describe("the actions that reach a person", () => {
     expect(item.textContent).toContain("No agent makes calls yet");
   });
 
-  it("shows a refused call back later as the reason, and keeps the dialog open", async () => {
-    await renderClientPage(
-      page,
-      routes({
-        "POST /v1/leads/lead-a/callbacks": {
-          status: "blocked",
-          blocked_reason: "This person asked not to be called.",
-          blocked_rule: "dnc_tenant",
-          callback_id: null,
-          requested_at: null,
-          rescheduled: false,
-        },
-      }),
-    );
+  it("opens Make a call for a later time with the lead filled in, and no dialog of its own", async () => {
+    await renderClientPage(page, routes());
     await openMenuItem(/Call back later/);
-    const dialog = await screen.findByRole("dialog", { name: "Call back later" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Book the call back" }));
-    expect(await within(dialog).findByText("This person asked not to be called.")).toBeTruthy();
-    expect(within(dialog).queryByText(/dnc_tenant/)).toBeNull();
+    expect(navigation.push).toHaveBeenCalledWith("/c/acme/make-a-call?lead=lead-a&when=later");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("gives the server's reason when no WhatsApp message may be sent, and offers no Send", async () => {

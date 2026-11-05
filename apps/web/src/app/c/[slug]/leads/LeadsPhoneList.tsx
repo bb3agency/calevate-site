@@ -7,7 +7,6 @@ import { MonoValue, StageDot, formatIST, formatPhone } from "@/components/ui";
 import { needsAttention, outcomeWords } from "@/lib/callReview";
 import { leadNextStep } from "@/lib/leadLabels";
 
-import { CallControl } from "./CallControl";
 import { stageLabel } from "./StatusSelect";
 import { cellValue } from "./leadsTable";
 import type { LeadRowKit } from "./leadRowKit";
@@ -28,7 +27,6 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
       {items.map((lead) => {
         const target = targetOf(lead);
         const { primary, secondary } = followUp.actionsFor(target);
-        const answer = followUp.callResult(lead.id);
         const reason = lead.last_call_headline ?? leadNextStep(lead);
         const call = { outcome_tag: lead.last_call_outcome ?? null, business_outcome_label: lead.last_call_business_outcome_label };
         // A lead no call has reached yet is described by its stage instead.
@@ -71,11 +69,6 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
                   </span>
                 </span>
               </Link>
-              {answer ? (
-                <div className="px-4 pb-3">
-                  <CallControl result={answer} pending={false} onCall={() => followUp.startCall(target)} />
-                </div>
-              ) : null}
               {rowFailure(lead)}
             </SwipeActions>
           </li>

@@ -838,6 +838,20 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {"agent_id": "{agent_id}"},
         {"Idempotency-Key": "idor-sweep-call"},
     ),
+    # Make a call names the person in the BODY: a neighbour's lead, or a neighbour's call
+    # to follow up. No `{id}` in the path, so the route walk below does not ask for these.
+    (
+        "POST",
+        "/v1/one-calls",
+        {"lead_id": "{lead_id}", "agent_id": "{agent_id}", "reason": "idor sweep"},
+        {"Idempotency-Key": "idor-sweep-one-call"},
+    ),
+    (
+        "POST",
+        "/v1/one-calls",
+        {"call_id": "{call_id}"},
+        {"Idempotency-Key": "idor-sweep-one-call-2"},
+    ),
     # D-869 swipe actions. Booking a call back and sending a WhatsApp reach a neighbour's
     # customer by phone or message; the follow-up mark and the readiness read are the
     # neighbour's call and agent. Bodies valid, so the refusal is the row, not validation.

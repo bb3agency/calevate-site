@@ -157,6 +157,17 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         permission="leads:read",
     ),
     Screen(
+        route="/c/{slug}/make-a-call",
+        name="Make a call",
+        group=None,
+        summary=(
+            "Have an agent call one person now or at a time you pick, by number or from a "
+            "lead or a call, and see the calls placed this way."
+        ),
+        aliases=("call one person", "single call", "one call", "call a number", "quick call"),
+        permission="leads:dispatch",
+    ),
+    Screen(
         route="/c/{slug}/campaigns",
         name="Campaigns",
         group=None,

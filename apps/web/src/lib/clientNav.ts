@@ -41,6 +41,7 @@ import {
   MessageSquare,
   Phone,
   PhoneCall,
+  PhoneForwarded,
   PhoneOutgoing,
   PhoneOff,
   ScrollText,
@@ -99,6 +100,10 @@ export function clientNavigation(slug: string): NavGroup[] {
         // while the header bell promoted it — the sidebar now agrees with the bell
         // (ux-audit client-daily-work C2).
         { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
+        // One person, one call, now or at a time (founder, 5 Nov 2026): beside Campaigns, its
+        // many-people counterpart. Every other Call button opens this screen pre-filled.
+        // "Make a call" over "Dialer" (a campaign word in this trade) and "Quick call".
+        { href: `/c/${slug}/make-a-call`, label: "Make a call", icon: PhoneForwarded },
         { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },

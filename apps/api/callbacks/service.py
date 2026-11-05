@@ -898,7 +898,7 @@ _CLIENT_FROM: Final = (
 
 
 async def list_callbacks(
-    session: AsyncSession, *, limit: int, open_only: bool = False
+    session: AsyncSession, *, limit: int, open_only: bool = False, booked_by_person: bool = False
 ) -> list[dict[str, Any]]:
     """The client's list. Bounded by `limit` at the route, which is what keeps it off the
     BOUNDED_LISTS registry.
@@ -907,15 +907,22 @@ async def list_callbacks(
     recent activity sit at the top. Only the open ones: soonest FIRST, because the limit
     cuts from the end and the promises due next are the ones somebody has to act on; the
     other way round, a client with more open promises than the page lost today's.
+
+    `booked_by_person` keeps the calls a person booked for a time (Make a call, a lead's
+    "Call later"), which is what the Make a call screen lists as waiting.
     """
-    where, order = (" WHERE s.status = 'scheduled'", "ASC") if open_only else ("", "DESC")
+    clauses = (["s.status = 'scheduled'"] if open_only else []) + (
+        ["s.source_execution_id LIKE :person"] if booked_by_person else []
+    )
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    order = "ASC" if open_only else "DESC"
     rows = (
         await session.execute(
             text(
                 f"SELECT {_CLIENT_COLUMNS} FROM {_CLIENT_FROM}{where} "
                 f"ORDER BY s.requested_at {order}, s.id LIMIT :n"
             ),
-            {"n": limit},
+            {"n": limit, "person": f"{CLIENT_SCHEDULE_PREFIX}%"},
         )
     ).mappings()
     return [dict(row) for row in rows]
