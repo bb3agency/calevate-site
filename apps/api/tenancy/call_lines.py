@@ -30,6 +30,7 @@ from apps.api.compliance.trial_access import restricting_trial, trial_line_horiz
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.call_line_requests import LineRequest, close_on_raise
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.api.tenancy.models import CALL_LINES_MAX, CALL_LINES_MIN
 
@@ -109,10 +110,12 @@ async def queue_call_lines_sync(session: AsyncSession, *, tenant_id: UUID) -> bo
 
 
 async def set_call_lines(
-    session: AsyncSession, *, tenant_id: UUID, lines: int | None
-) -> tuple[CallLines, bool]:
+    session: AsyncSession, *, tenant_id: UUID, lines: int | None, admin_id: UUID | None = None
+) -> tuple[CallLines, bool, LineRequest | None]:
     """Set the client's calls at once (None: Calevate's default) and owe its workspace the
-    new value when it moved. Answers the state and whether it moved."""
+    new value when it moved. A raise above what the client had when it asked closes its
+    open request in the same transaction. Answers the state, whether it moved, and the
+    request it closed."""
     refuse_call_lines_out_of_range(lines)
     row = (
         await session.execute(
@@ -133,13 +136,17 @@ async def set_call_lines(
             {"n": lines, "tid": tenant_id},
         )
     after = await read_call_lines(session, tenant_id=tenant_id)
+    closed = None
     if after.lines != before.lines:
         await queue_call_lines_sync(session, tenant_id=tenant_id)
+        closed = await close_on_raise(
+            session, tenant_id=tenant_id, lines_in_force=after.lines, admin_id=admin_id
+        )
     log.info(
         "call_lines_set",
         extra={"tenant_id": str(tenant_id), "lines": after.lines, "moved": moved},
     )
-    return after, moved
+    return after, moved, closed
 
 
 async def calls_in_progress(session: AsyncSession, *, tenant_id: UUID) -> int:

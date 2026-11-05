@@ -172,6 +172,20 @@ def ops_alerts_link() -> str:
     return f"{ADMIN_CONSOLE_BASE}{ADMIN_OPS_ALERTS_PATH}"
 
 
+#: The query the client's Numbers page reads to open its "Calls at once" control.
+CALL_LINES_FOCUS_QUERY = "focus=call-lines"
+
+
+def admin_call_lines_path(tenant_id: object) -> str:
+    """One client's Numbers page with its calls-at-once control open."""
+    return f"/admin/tenants/{tenant_id}/numbers?{CALL_LINES_FOCUS_QUERY}"
+
+
+def admin_call_lines_link(tenant_id: object) -> str:
+    """`admin_call_lines_path` on the operator console, for an email."""
+    return f"{ADMIN_CONSOLE_BASE}{admin_call_lines_path(tenant_id)}"
+
+
 __all__ = [
     "ADMIN_AUTH_PREFIX",
     "ADMIN_BOOTSTRAP_PATH",
@@ -181,6 +195,7 @@ __all__ = [
     "ADMIN_REALM_PREFIXES",
     "ADMIN_RESET_PASSWORD_PATH",
     "APEX_CREDENTIALED_PREFIXES",
+    "CALL_LINES_FOCUS_QUERY",
     "CLIENT_ACCEPT_INVITE_PATH",
     "CLIENT_RESET_PASSWORD_PATH",
     "CONSOLE_BASE",
@@ -188,6 +203,8 @@ __all__ = [
     "VIEW_AS_HANDOFF_PATHS",
     "accept_invitation_link",
     "admin_bootstrap_link",
+    "admin_call_lines_link",
+    "admin_call_lines_path",
     "client_console_redirect",
     "console_base",
     "ops_alerts_link",

@@ -9,6 +9,7 @@ import AdminLayout from "@/app/admin/layout";
 import ClientRealmLayout from "@/app/c/[slug]/layout";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 import {
   sidebarFadeClass,
@@ -78,6 +79,7 @@ const ADMIN_ME: AdminMe = {
 const ADMIN_ROUTES: Routes = {
   [ADMIN_ME_PATH]: ADMIN_ME,
   [HOLDS_PATH]: [],
+  [OPEN_CALL_LINE_REQUESTS_PATH]: [],
   [KYC_REVIEWS_PATH]: [],
   "/v1/admin/tenants": [],
 };

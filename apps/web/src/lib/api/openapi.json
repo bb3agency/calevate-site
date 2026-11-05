@@ -9848,6 +9848,187 @@
         "title": "CallLeadOut",
         "type": "object"
       },
+      "CallLineRequestAdminOut": {
+        "additionalProperties": false,
+        "description": "The client's open request, as the operator raising its lines reads it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lines_at_request": {
+            "title": "Lines At Request",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "requested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested By"
+          },
+          "wanted_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wanted Lines"
+          }
+        },
+        "required": [
+          "id",
+          "requested_by",
+          "lines_at_request",
+          "wanted_lines",
+          "note",
+          "created_at"
+        ],
+        "title": "CallLineRequestAdminOut",
+        "type": "object"
+      },
+      "CallLineRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "wanted": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": 2.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wanted"
+          }
+        },
+        "title": "CallLineRequestIn",
+        "type": "object"
+      },
+      "CallLineRequestOut": {
+        "additionalProperties": false,
+        "description": "A request for more calls at once, as its client sees it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decline_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decline Reason"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lines_at_request": {
+            "title": "Lines At Request",
+            "type": "integer"
+          },
+          "lines_granted": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lines Granted"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "done",
+              "declined"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "wanted_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wanted Lines"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "lines_at_request",
+          "wanted_lines",
+          "created_at",
+          "resolved_at",
+          "lines_granted",
+          "decline_reason"
+        ],
+        "title": "CallLineRequestOut",
+        "type": "object"
+      },
       "CallLinesIn": {
         "additionalProperties": false,
         "properties": {
@@ -9898,6 +10079,16 @@
           "on_trial": {
             "title": "On Trial",
             "type": "boolean"
+          },
+          "open_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallLineRequestAdminOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "paid_default": {
             "title": "Paid Default",
@@ -13914,7 +14105,7 @@
       },
       "ClientCallLinesOut": {
         "additionalProperties": false,
-        "description": "What the client sees of its own lines: the number in force and how many are busy\nnow. Choosing it stays the operator's (a commercial decision), so the client is told\nwhom to ask rather than offered a control.",
+        "description": "What the client sees of its own lines: the number in force, how many are busy now,\nand its request for more. Choosing the number stays the operator's (a commercial\ndecision), so the client asks rather than sets.",
         "properties": {
           "call_lines": {
             "title": "Call Lines",
@@ -13924,15 +14115,30 @@
             "title": "In Progress",
             "type": "integer"
           },
+          "max_lines": {
+            "title": "Max Lines",
+            "type": "integer"
+          },
           "on_trial": {
             "title": "On Trial",
             "type": "boolean"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallLineRequestOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "call_lines",
           "in_progress",
-          "on_trial"
+          "on_trial",
+          "max_lines"
         ],
         "title": "ClientCallLinesOut",
         "type": "object"
@@ -21013,6 +21219,22 @@
           "reason"
         ],
         "title": "DeclarationBlockerOut",
+        "type": "object"
+      },
+      "DeclineIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 280,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "DeclineIn",
         "type": "object"
       },
       "DeleteCampaignOut": {
@@ -37499,7 +37721,8 @@
             "enum": [
               "attention",
               "announcement",
-              "plan"
+              "plan",
+              "call_lines"
             ],
             "title": "Source",
             "type": "string"
@@ -38037,6 +38260,50 @@
           }
         },
         "title": "OnlyIf",
+        "type": "object"
+      },
+      "OpenCallLineRequestOut": {
+        "additionalProperties": false,
+        "description": "One client waiting for more lines. Account facts only: who asked and their note stay\non the client's own page, behind the permission that opens it (hard rule 6).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "lines_at_request": {
+            "title": "Lines At Request",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "wanted_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wanted Lines"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "lines_at_request",
+          "wanted_lines",
+          "created_at"
+        ],
+        "title": "OpenCallLineRequestOut",
         "type": "object"
       },
       "OpenTeachingOut": {
@@ -65084,6 +65351,39 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/call-line-requests": {
+      "get": {
+        "description": "Every open request for more calls at once. Raising the client's lines, or declining the request on its numbers page, removes it from this list.",
+        "operationId": "list_open_call_line_requests_v1_admin_call_line_requests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OpenCallLineRequestOut"
+                  },
+                  "title": "Response List Open Call Line Requests V1 Admin Call Line Requests Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Clients waiting for more calls at once, oldest request first",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/admin/calling-number-filings": {
       "get": {
         "operationId": "read_filing_board_v1_admin_calling_number_filings_get",
@@ -68059,7 +68359,7 @@
     },
     "/v1/admin/organizations/{org_id}/call-lines": {
       "get": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
         "operationId": "admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get",
         "parameters": [
           {
@@ -68098,7 +68398,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "put": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
         "operationId": "admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put",
         "parameters": [
           {
@@ -68157,6 +68457,67 @@
           }
         },
         "summary": "Set how many calls one client may have at once",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/organizations/{org_id}/call-lines/requests/{request_id}/decline": {
+      "post": {
+        "description": "Closes the open request as declined; the client reads the reason on its bell. 409 `call_lines_request_not_open` when it was already answered.",
+        "operationId": "admin_decline_call_lines_request_v1_admin_organizations__org_id__call_lines_requests__request_id__decline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclineIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallLineRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Decline a client's request for more calls at once, saying why",
         "tags": [
           "admin"
         ],
@@ -81786,12 +82147,52 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "How many calls your account can have at once, and how many are on now",
+        "summary": "How many calls your account can have at once, how many are on now, and your ask",
         "tags": [
           "admin",
           "numbers"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/call-lines/requests": {
+      "post": {
+        "description": "Opens a request and tells Calevate's operators. One request is open at a time: asking again while one waits answers that one with 200 and tells nobody twice. Refused on a free trial (`call_lines_request_on_trial`), at the most an account can have (`call_lines_at_most`), and for a day after a decline (`call_lines_request_too_soon`).",
+        "operationId": "ask_for_more_call_lines_v1_call_lines_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallLineRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallLineRequestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask Calevate for more calls at once",
+        "tags": [
+          "admin",
+          "numbers"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/call-outcomes": {

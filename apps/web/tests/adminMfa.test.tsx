@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH } from "@/app/admin/access";
 import AdminLayout from "@/app/admin/layout";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import { problem, stubApi, type Routes } from "./harness";
@@ -56,6 +57,7 @@ describe("the operator console under an MFA refusal", () => {
     const { container } = renderShell({
       [ADMIN_ME_PATH]: MFA_REFUSAL,
       [HOLDS_PATH]: [],
+      [OPEN_CALL_LINE_REQUESTS_PATH]: [],
       [KYC_REVIEWS_PATH]: [],
     });
 
@@ -97,6 +99,7 @@ describe("the operator console under an MFA refusal", () => {
           "Check the inbox for the address this operator account was created with.",
       }),
       [HOLDS_PATH]: [],
+      [OPEN_CALL_LINE_REQUESTS_PATH]: [],
       [KYC_REVIEWS_PATH]: [],
     });
 
@@ -114,6 +117,7 @@ describe("every other state of the console", () => {
     const { container } = renderShell({
       [ADMIN_ME_PATH]: OPERATOR,
       [HOLDS_PATH]: [],
+      [OPEN_CALL_LINE_REQUESTS_PATH]: [],
       [KYC_REVIEWS_PATH]: [],
     });
 
@@ -144,6 +148,7 @@ describe("every other state of the console", () => {
         kind: "permission",
       }),
       [HOLDS_PATH]: [],
+      [OPEN_CALL_LINE_REQUESTS_PATH]: [],
       [KYC_REVIEWS_PATH]: [],
     });
     // Same status and the same `kind` as the MFA refusal, settling on the same tick —

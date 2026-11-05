@@ -539,6 +539,9 @@ TENANT_TABLES = [
     # dismissed, acted on and resolved. DELETEd by tenant erasure; notes older than
     # `copilot/notes.KEEP_DAYS` are pruned by the detector run.
     "copilot_notes",
+    # A client's "Need more? Ask us." for more calls at once (migration e3b8d1f6a924):
+    # who asked, how many, an optional note, and the operator's answer.
+    "call_line_requests",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage

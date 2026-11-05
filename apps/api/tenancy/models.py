@@ -812,3 +812,66 @@ class BusinessCopy(PKMixin, TimestampMixin, Base):
     last_trigger: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stop_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+#: A client's request for more calls at once (`tenancy/call_line_requests`, migration
+#: e3b8d1f6a924): open until an operator raises the lines (`done`) or declines it.
+CALL_LINE_REQUEST_STATUSES = ("open", "done", "declined")
+#: The client's note and the operator's decline reason are one short sentence each.
+CALL_LINE_REQUEST_TEXT_MAX = 280
+
+
+class CallLineRequest(PKMixin, TimestampMixin, Base):
+    """One "Need more? Ask us." from a client. At most one is open per client, held by a
+    unique partial index rather than a read-then-insert, so a double tap cannot open two."""
+
+    __tablename__ = "call_line_requests"
+    __table_args__ = (
+        CheckConstraint(f"status IN {CALL_LINE_REQUEST_STATUSES!r}", name="status_enum"),
+        CheckConstraint(
+            f"lines_at_request >= {CALL_LINES_MIN} AND lines_at_request <= {CALL_LINES_MAX}",
+            name="lines_at_request_range",
+        ),
+        CheckConstraint(
+            f"wanted_lines IS NULL OR (wanted_lines > lines_at_request "
+            f"AND wanted_lines <= {CALL_LINES_MAX})",
+            name="wanted_lines_range",
+        ),
+        CheckConstraint(
+            f"note IS NULL OR char_length(note) BETWEEN 1 AND {CALL_LINE_REQUEST_TEXT_MAX}",
+            name="note_length",
+        ),
+        CheckConstraint(
+            f"decline_reason IS NULL OR char_length(decline_reason) BETWEEN 1 AND "
+            f"{CALL_LINE_REQUEST_TEXT_MAX}",
+            name="decline_reason_length",
+        ),
+        CheckConstraint("(status = 'open') = (resolved_at IS NULL)", name="resolved_when_closed"),
+        CheckConstraint(
+            "(status = 'done') = (lines_granted IS NOT NULL)", name="granted_when_done"
+        ),
+        CheckConstraint(
+            "(status = 'declined') = (decline_reason IS NOT NULL)", name="reason_when_declined"
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    #: The person who asked; NULL once their user row is gone.
+    requested_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    lines_at_request: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: NULL: "more", with no number named.
+    wanted_lines: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="open")
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="SET NULL"), nullable=True
+    )
+    #: The lines in force when an operator's raise closed it.
+    lines_granted: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: Shown to the client on the bell, in the operator's words.
+    decline_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -43,6 +43,7 @@ import {
   type ForwardedLine,
   type ForwardingMode,
 } from "@/lib/api/forwarding";
+import { AskForMoreLines } from "@/components/callLines/AskForMoreLines";
 import { callsAtOnce, useMyCallLines } from "@/lib/api/callLines";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
@@ -114,7 +115,7 @@ export function ExistingNumberSection({ fromCalevateHref }: { fromCalevateHref: 
 }
 
 /** How many calls the account can have at once. Only Calevate changes it, so the row
- *  says whom to ask rather than offering a control. */
+ *  offers a request for more rather than a control. */
 export function CallsAtOnce({ session }: { session: Session }) {
   const lines = useMyCallLines(session);
   return (
@@ -130,11 +131,7 @@ export function CallsAtOnce({ session }: { session: Session }) {
         <SettingRows className="border-y border-line">
           <SettingRow
             label={callsAtOnce(lines.data.call_lines)}
-            hint={
-              lines.data.on_trial
-                ? "Trial: one line. More once you pay."
-                : "Need more? Ask us."
-            }
+            hint={<AskForMoreLines session={session} />}
             value={
               <StatusPill tone={lines.data.in_progress > 0 ? "ok" : "neutral"}>
                 {lines.data.in_progress} on a call now

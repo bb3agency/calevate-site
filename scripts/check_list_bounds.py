@@ -1381,6 +1381,11 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per signed client currently held by a human gate — a work queue that "
         "is empty in the steady state and is bounded by the client count in the worst."
     ),
+    "GET /v1/admin/call-line-requests": BoundedByConstruction(
+        by="one row per client with an OPEN request for more calls at once, and the unique "
+        "partial index `uq_call_line_requests_one_open` allows one open request per client — "
+        "bounded by the client count, empty once operators have answered."
+    ),
     "GET /v1/admin/onboarding/unfinished": BoundedByConstruction(
         by="one row per signed client whose wizard is incomplete — bounded by the client "
         "count, and the whole point of the screen is that nothing is missed."

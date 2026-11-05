@@ -264,6 +264,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "calling-numbers",
     "call-lines",
     "my-call-lines",
+    // A request for more lines: the operators' bell lists it, the client's bell answers it.
+    "call-line-requests",
+    "notifications",
     // An agent's `inbound_number_count` is counted from `phone_numbers`.
     "agent",
     "agents",

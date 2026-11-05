@@ -13,6 +13,7 @@ from the queue the attention screen reads. What is stored is one high-water mark
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final, Literal
@@ -26,10 +27,15 @@ from apps.api.announcements import service as announcements
 from apps.api.announcements.models import Tone
 from apps.api.crm.attention import attention_queue
 from apps.api.db.base import uuid7
+from apps.api.tenancy import call_line_requests
+from apps.api.tenancy.call_line_requests import LineRequest
 
 MAX_FEED: Final = 100
 
-NotificationSource = Literal["attention", "announcement", "plan"]
+NotificationSource = Literal["attention", "announcement", "plan", "call_lines"]
+
+#: Realm-relative: the Phone numbers screen, where the "Calls at once" tile is.
+CALL_LINES_HREF: Final = "/phone-number"
 
 #: How loud each attention kind is on the bell. A kind missing here is `warning`: an
 #: unlisted refusal is still something to look at.
@@ -149,6 +155,35 @@ async def _finished_plans(session: AsyncSession, *, user_id: UUID | None) -> lis
     ]
 
 
+def _call_lines_notice(
+    answered: LineRequest, unread: Callable[[datetime], bool]
+) -> NotificationOut:
+    """Our answer to the account's request for more calls at once, read from the request."""
+    assert answered.resolved_at is not None
+    tone: Tone
+    if answered.status == "done":
+        lines = answered.lines_granted or 0
+        tone = "success"
+        title = f"You can now have {lines} {'call' if lines == 1 else 'calls'} at once."
+        detail = None
+    else:
+        tone = "warning"
+        title = "We could not add more calls at once."
+        detail = answered.decline_reason
+    return NotificationOut(
+        id=f"call_lines:{answered.id}",
+        source="call_lines",
+        kind=f"call_lines_{answered.status}",
+        tone=tone,
+        title=title,
+        detail=detail,
+        href=CALL_LINES_HREF,
+        link_label="See your lines",
+        occurred_at=answered.resolved_at,
+        unread=unread(answered.resolved_at),
+    )
+
+
 async def feed(
     session: AsyncSession, *, tenant_id: UUID, user_id: UUID | None, limit: int
 ) -> NotificationFeedOut:
@@ -205,6 +240,10 @@ async def feed(
             unread=unread(plan.finished_at),
         )
         for plan in await _finished_plans(session, user_id=user_id)
+    ]
+    items += [
+        _call_lines_notice(answered, unread)
+        for answered in await call_line_requests.resolved_recently(session, limit=limit)
     ]
     items.sort(key=lambda n: (n.occurred_at, n.id), reverse=True)
     items = items[:limit]

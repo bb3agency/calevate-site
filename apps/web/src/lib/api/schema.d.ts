@@ -308,6 +308,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/call-line-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Clients waiting for more calls at once, oldest request first
+         * @description Every open request for more calls at once. Raising the client's lines, or declining the request on its numbers page, removes it from this list.
+         */
+        get: operations["list_open_call_line_requests_v1_admin_call_line_requests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/calling-number-filings": {
         parameters: {
             query?: never;
@@ -1441,15 +1461,35 @@ export interface paths {
         };
         /**
          * How many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
          */
         get: operations["admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get"];
         /**
          * Set how many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
          */
         put: operations["admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/organizations/{org_id}/call-lines/requests/{request_id}/decline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decline a client's request for more calls at once, saying why
+         * @description Closes the open request as declined; the client reads the reason on its bell. 409 `call_lines_request_not_open` when it was already answered.
+         */
+        post: operations["admin_decline_call_lines_request_v1_admin_organizations__org_id__call_lines_requests__request_id__decline_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6499,10 +6539,30 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** How many calls your account can have at once, and how many are on now */
+        /** How many calls your account can have at once, how many are on now, and your ask */
         get: operations["get_my_call_lines_v1_call_lines_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/call-lines/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Calevate for more calls at once
+         * @description Opens a request and tells Calevate's operators. One request is open at a time: asking again while one waits answers that one with 200 and tells nobody twice. Refused on a free trial (`call_lines_request_on_trial`), at the most an account can have (`call_lines_at_most`), and for a day after a decline (`call_lines_request_too_soon`).
+         */
+        post: operations["ask_for_more_call_lines_v1_call_lines_requests_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -17114,6 +17174,68 @@ export interface components {
              */
             status: "queued" | "blocked";
         };
+        /**
+         * CallLineRequestAdminOut
+         * @description The client's open request, as the operator raising its lines reads it.
+         */
+        CallLineRequestAdminOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lines At Request */
+            lines_at_request: number;
+            /** Note */
+            note: string | null;
+            /** Requested By */
+            requested_by: string | null;
+            /** Wanted Lines */
+            wanted_lines: number | null;
+        };
+        /** CallLineRequestIn */
+        CallLineRequestIn: {
+            /** Note */
+            note?: string | null;
+            /** Wanted */
+            wanted?: number | null;
+        };
+        /**
+         * CallLineRequestOut
+         * @description A request for more calls at once, as its client sees it.
+         */
+        CallLineRequestOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decline Reason */
+            decline_reason: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Lines At Request */
+            lines_at_request: number;
+            /** Lines Granted */
+            lines_granted: number | null;
+            /** Resolved At */
+            resolved_at: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "done" | "declined";
+            /** Wanted Lines */
+            wanted_lines: number | null;
+        };
         /** CallLinesIn */
         CallLinesIn: {
             /** Call Lines */
@@ -17131,6 +17253,7 @@ export interface components {
             min_lines: number;
             /** On Trial */
             on_trial: boolean;
+            open_request?: components["schemas"]["CallLineRequestAdminOut"] | null;
             /** Paid Default */
             paid_default: number;
             /**
@@ -18698,17 +18821,20 @@ export interface components {
         };
         /**
          * ClientCallLinesOut
-         * @description What the client sees of its own lines: the number in force and how many are busy
-         *     now. Choosing it stays the operator's (a commercial decision), so the client is told
-         *     whom to ask rather than offered a control.
+         * @description What the client sees of its own lines: the number in force, how many are busy now,
+         *     and its request for more. Choosing the number stays the operator's (a commercial
+         *     decision), so the client asks rather than sets.
          */
         ClientCallLinesOut: {
             /** Call Lines */
             call_lines: number;
             /** In Progress */
             in_progress: number;
+            /** Max Lines */
+            max_lines: number;
             /** On Trial */
             on_trial: boolean;
+            request?: components["schemas"]["CallLineRequestOut"] | null;
         };
         /**
          * ClientFilingOut
@@ -21383,6 +21509,11 @@ export interface components {
             reason: string;
             /** Rule */
             rule: string;
+        };
+        /** DeclineIn */
+        DeclineIn: {
+            /** Reason */
+            reason: string;
         };
         /**
          * DeleteCampaignOut
@@ -27528,7 +27659,7 @@ export interface components {
              * Source
              * @enum {string}
              */
-            source: "attention" | "announcement" | "plan";
+            source: "attention" | "announcement" | "plan" | "call_lines";
             /** Title */
             title: string;
             /**
@@ -27765,6 +27896,29 @@ export interface components {
             lead_status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost")[] | null;
             /** Source Ids */
             source_ids?: string[] | null;
+        };
+        /**
+         * OpenCallLineRequestOut
+         * @description One client waiting for more lines. Account facts only: who asked and their note stay
+         *     on the client's own page, behind the permission that opens it (hard rule 6).
+         */
+        OpenCallLineRequestOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Lines At Request */
+            lines_at_request: number;
+            /** Name */
+            name: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Wanted Lines */
+            wanted_lines: number | null;
         };
         /** OpenTeachingOut */
         OpenTeachingOut: {
@@ -37908,6 +38062,35 @@ export interface operations {
             };
         };
     };
+    list_open_call_line_requests_v1_admin_call_line_requests_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpenCallLineRequestOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_filing_board_v1_admin_calling_number_filings_get: {
         parameters: {
             query?: never;
@@ -39896,6 +40079,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallLinesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_decline_call_lines_request_v1_admin_organizations__org_id__call_lines_requests__request_id__decline_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclineIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallLineRequestOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -49016,6 +49235,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClientCallLinesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    ask_for_more_call_lines_v1_call_lines_requests_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallLineRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallLineRequestOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
