@@ -14271,6 +14271,9 @@ export interface components {
             absorbed: boolean;
             /** Caller Details */
             caller_details: string[];
+            /** Caller Noun */
+            caller_noun: string | null;
+            capabilities: components["schemas"]["Capabilities"];
             /** Cost Inr */
             cost_inr: string | null;
             /** Example Questions */
@@ -14285,6 +14288,10 @@ export interface components {
             last_trigger: string | null;
             /** Model */
             model: string | null;
+            /** Objections */
+            objections: components["schemas"]["CallerObjection"][];
+            /** Pip Questions */
+            pip_questions: string[];
             placeholders: components["schemas"]["Placeholders"] | null;
             /** Refreshing */
             refreshing: boolean;
@@ -16431,12 +16438,19 @@ export interface components {
         BusinessCopyOut: {
             /** Caller Details */
             caller_details: string[];
+            /** Caller Noun */
+            caller_noun: string | null;
+            capabilities: components["schemas"]["Capabilities"];
             /** Example Questions */
             example_questions: string[];
             /** Generated At */
             generated_at: string | null;
             /** Language */
             language: string | null;
+            /** Objections */
+            objections: components["schemas"]["CallerObjection"][];
+            /** Pip Questions */
+            pip_questions: string[];
             placeholders: components["schemas"]["Placeholders"] | null;
             /** Refreshing */
             refreshing: boolean;
@@ -17885,6 +17899,16 @@ export interface components {
             retention: components["schemas"]["RetentionLineOut"][];
         };
         /**
+         * CallerObjection
+         * @description A push-back this business's callers really raise, and how the agent should meet it.
+         */
+        CallerObjection: {
+            /** Caller Says */
+            caller_says: string;
+            /** How To Answer */
+            how_to_answer: string;
+        };
+        /**
          * CallerScreenIn
          * @description Switch "caller follows along on a screen" for one agent (D-906).
          */
@@ -18167,6 +18191,44 @@ export interface components {
             x: number;
             /** Y */
             y: number;
+        };
+        /**
+         * Capabilities
+         * @description What this business does with its callers, judged by the copy run from its own details.
+         *
+         *     takes_bookings: callers book a time, slot, visit or meeting. takes_orders: callers order
+         *     goods for pickup or delivery. quotes_prices: the business tells callers prices.
+         *     has_premises: callers come to a place (a shop, an office, a site). sells: the business
+         *     sells anything to callers at all (False for a free app helping its registered users, or a
+         *     helpline). health_business: it gives health or medical care.
+         *
+         *     THE UNKNOWN RULE: `applies is None` means "not judged yet", and a consumer then behaves
+         *     exactly as it did before this profile existed. Only `applies is False` may withdraw
+         *     anything; never read None as False.
+         */
+        Capabilities: {
+            has_premises: components["schemas"]["Capability"];
+            health_business: components["schemas"]["Capability"];
+            quotes_prices: components["schemas"]["Capability"];
+            sells: components["schemas"]["Capability"];
+            takes_bookings: components["schemas"]["Capability"];
+            takes_orders: components["schemas"]["Capability"];
+        };
+        /**
+         * Capability
+         * @description One yes/no judgement about what the business does with its callers.
+         *
+         *     `applies` is None only in the UNKNOWN profile (`Capabilities.unknown`): no run has judged
+         *     this account yet. A judged answer is always True or False with a reason
+         *     (`capability_problems`). `reason` comes before `applies` so the model writes its grounds
+         *     before its verdict: in JSON generated left to right, a reason written after the verdict
+         *     cannot inform it.
+         */
+        Capability: {
+            /** Applies */
+            applies: boolean | null;
+            /** Reason */
+            reason: string;
         };
         /**
          * CapsIn
@@ -28687,9 +28749,9 @@ export interface components {
             /** Ask On Arrival */
             ask_on_arrival?: string | null;
             /** Booking Job Line */
-            booking_job_line: string;
+            booking_job_line?: string | null;
             /** Booking Job Title */
-            booking_job_title: string;
+            booking_job_title?: string | null;
             /** Booking Rules */
             booking_rules?: string | null;
             /** Branch Label */

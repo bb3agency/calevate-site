@@ -29,6 +29,13 @@ export type BusinessCopy = Schemas["BusinessCopyOut"];
 export type AdminBusinessCopy = Schemas["AdminBusinessCopyOut"];
 export type GeneratedPlaceholders = Schemas["Placeholders"];
 export type StepSuggestion = Schemas["StepSuggestion"];
+/**
+ * What the business does with its callers. A capability whose `applies` is null has not
+ * been judged yet: keep today's behaviour. Only `false` may withdraw anything.
+ */
+export type Capabilities = Schemas["Capabilities"];
+export type Capability = Schemas["Capability"];
+export type CallerObjection = Schemas["CallerObjection"];
 
 export const businessCopyKeys = {
   client: (org: string) => ["business-copy", org] as const,

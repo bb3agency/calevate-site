@@ -122,10 +122,52 @@ def copy_dict() -> dict[str, Any]:
             "Can I pay on delivery?",
         ],
         "screen_guide": {"suggested": False, "reason": ""},
+        # Deep: a test that edits a judgement must not edit the next test's answer.
+        **copylib.deepcopy(V4_PROFILE),
     }
 
 
-def _inputs(*, clinic: bool = False) -> worker.Inputs:
+def _capability(applies: bool, reason: str) -> dict[str, Any]:
+    return {"reason": reason, "applies": applies}
+
+
+#: The fields prompt version 4 added; a copy stored under version 3 has none of them.
+V4_PROFILE: dict[str, Any] = {
+    "capabilities": {
+        "takes_bookings": _capability(False, "Callers order oil; nobody books a time."),
+        "takes_orders": _capability(True, "Callers order oil for pickup or delivery."),
+        "quotes_prices": _capability(True, "The shop lists its oil prices."),
+        "has_premises": _capability(True, "Callers can come to the shop in Kukatpally."),
+        "sells": _capability(True, "It sells oil to its callers."),
+        "health_business": _capability(False, "It is an oil shop."),
+    },
+    "objections": [
+        {
+            "caller_says": "Konchem ekkuva ga undi andi",
+            "how_to_answer": "Say what makes the oil worth it, once, and offer the smaller pack.",
+        }
+    ],
+    "caller_noun": "Customer",
+    "pip_questions": ["Who asked for delivery this week?", "Which oil do callers ask about most?"],
+}
+
+
+def _not_selling() -> dict[str, Any]:
+    """An answer for a free app's helpline: no bookings, no orders, nothing sold."""
+    raw = copy_dict()
+    caps = raw["capabilities"]
+    caps["takes_bookings"] = _capability(False, "Users call for help with the app.")
+    caps["takes_orders"] = _capability(False, "Nothing is ordered on these calls.")
+    caps["quotes_prices"] = _capability(False, "The app is free.")
+    caps["has_premises"] = _capability(False, "Users never visit an office.")
+    caps["sells"] = _capability(False, "A free app helping its registered users.")
+    raw["placeholders"]["booking_job_title"] = ""
+    raw["placeholders"]["booking_job_line"] = ""
+    raw["caller_noun"] = "farmer"
+    return raw
+
+
+def _inputs(*, owner_words: str = "Business name: Green Oils") -> worker.Inputs:
     steps = {
         job: tuple(
             (s.title, s.instruction)
@@ -136,8 +178,8 @@ def _inputs(*, clinic: bool = False) -> worker.Inputs:
     return worker.Inputs(
         description="Business name: Green Oils",
         language="te-IN",
-        vertical="clinic" if clinic else "retail",
-        clinic=clinic,
+        vertical="retail",
+        owner_words=owner_words,
         starter_steps=steps,
         inputs_hash="0" * 64,
     )
@@ -209,10 +251,31 @@ def test_a_spoken_line_says_numbers_in_words() -> None:
     worker.parse_answer(raw, inputs=_inputs())
 
 
-def test_medical_words_are_a_clinics_own() -> None:
+def test_a_pharmacy_filed_under_retail_may_say_doctor() -> None:
+    """FAILS IF: medical words are still decided by the type on file rather than by what the
+    business is (a pharmacy filed under retail was refused "doctor")."""
+    raw = copy_dict()
+    raw["capabilities"]["health_business"] = _capability(True, "It is a pharmacy.")
+    raw["placeholders"]["lead_search"] = "Doctor's slip for cough syrup"
+    parsed = worker.parse_answer(raw, inputs=_inputs())
+    assert parsed.placeholders.lead_search == "Doctor's slip for cough syrup"
+
+
+def test_a_shop_may_not_say_doctor_unless_its_owner_did() -> None:
+    """FAILS IF: a shop's copy may use medical words, or a word the owner's own description
+    uses is refused (the `provider_problem(allowed=...)` rule, applied to medical words)."""
     raw = copy_dict()
     raw["placeholders"]["lead_search"] = "Doctor's desk"
-    assert worker.parse_answer(raw, inputs=_inputs(clinic=True)).placeholders.lead_search
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "placeholders.lead_search: medical words" in unusable.value.problems
+    owner = "Business name: Green Oils\nIn the owner's words: doctors recommend our oil"
+    assert worker.parse_answer(raw, inputs=_inputs(owner_words=owner)).placeholders.lead_search
+    # Only the word the owner used: "patients" is still the model's own.
+    raw["placeholders"]["lead_search"] = "oil for patients"
+    with pytest.raises(script_assist.UnusableAnswerError):
+        worker.parse_answer(raw, inputs=_inputs(owner_words=owner))
+    assert business_copy.health_words_problem("x", "Doctor", health=True) is None
 
 
 def test_the_key_set_is_closed_and_the_lengths_are_capped() -> None:
@@ -253,7 +316,7 @@ def test_a_copy_stored_before_version_two_still_reads() -> None:
     assert stored is not None
     assert stored.placeholders.knowledge_title == "This week's oil prices"
     assert stored.placeholders.teach_note is None
-    assert business_copy.copy_problems(stored, clinic=False, language="te-IN") == []
+    assert business_copy.copy_problems(stored, health=False, language="te-IN") == []
     assert set(business_copy.missing_placeholders(stored.placeholders)) == set(V2_PLACEHOLDERS)
 
 
@@ -284,13 +347,133 @@ def test_a_new_answer_must_judge_whether_callers_use_a_screen() -> None:
     assert parsed.screen_guide is not None and parsed.screen_guide.suggested
 
 
+def test_each_capability_is_judged_with_a_reason() -> None:
+    """FAILS IF: a new answer may leave out the profile, a verdict or a reason."""
+    parsed = worker.parse_answer(copy_dict(), inputs=_inputs())
+    assert parsed.capabilities is not None and parsed.capabilities.judged
+    assert parsed.capabilities.takes_orders.applies is True
+    assert parsed.capabilities.takes_bookings.applies is False
+    raw = copy_dict()
+    del raw["capabilities"]
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "capabilities: missing" in unusable.value.problems
+    raw = copy_dict()
+    raw["capabilities"]["sells"] = {"reason": "", "applies": True}
+    raw["capabilities"]["quotes_prices"]["applies"] = None
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "capabilities.sells.reason: one short line" in unusable.value.problems
+    assert "capabilities.quotes_prices.applies: true or false" in unusable.value.problems
+    raw = copy_dict()
+    raw["capabilities"]["sells"]["applies"] = "yes"
+    with pytest.raises(script_assist.UnusableAnswerError):
+        worker.parse_answer(raw, inputs=_inputs())
+    raw = copy_dict()
+    raw["capabilities"]["sells"]["reason"] = "x" * (business_copy.LINE_MAX + 1)
+    with pytest.raises(script_assist.UnusableAnswerError):
+        worker.parse_answer(raw, inputs=_inputs())
+
+
+def test_objections_caller_noun_and_pip_questions_parse_and_are_bounded() -> None:
+    """FAILS IF: the version-4 lists are unbounded, may be left out, or the caller noun is
+    not one to three plain words (a screen puts it inside a sentence)."""
+    parsed = worker.parse_answer(copy_dict(), inputs=_inputs())
+    assert parsed.caller_noun == "customer"
+    assert parsed.objections is not None and parsed.objections[0].how_to_answer
+    assert parsed.pip_questions == list(V4_PROFILE["pip_questions"])
+    empty = copy_dict()
+    empty["objections"] = []
+    empty["pip_questions"] = []
+    assert worker.parse_answer(empty, inputs=_inputs()).objections == []
+    for key in ("objections", "caller_noun", "pip_questions"):
+        raw = copy_dict()
+        del raw[key]
+        with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+            worker.parse_answer(raw, inputs=_inputs())
+        assert f"{key}: missing" in unusable.value.problems
+    too_many = copy_dict()
+    too_many["objections"] = too_many["objections"] * (business_copy.MAX_OBJECTIONS + 1)
+    too_many_questions = copy_dict()
+    too_many_questions["pip_questions"] = ["Who called?"] * (business_copy.MAX_PIP_QUESTIONS + 1)
+    for noun in ("the customers of the shop", "customer!", ""):
+        bad = copy_dict()
+        bad["caller_noun"] = noun
+        with pytest.raises(script_assist.UnusableAnswerError):
+            worker.parse_answer(bad, inputs=_inputs())
+    for raw in (too_many, too_many_questions):
+        with pytest.raises(script_assist.UnusableAnswerError):
+            worker.parse_answer(raw, inputs=_inputs())
+
+
+def test_an_objection_is_spoken_with_numbers_in_words() -> None:
+    raw = copy_dict()
+    raw["objections"][0]["caller_says"] = "Rs 500 ekkuva andi"
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(raw, inputs=_inputs())
+    assert "objections.0.caller_says: numbers in words" in unusable.value.problems
+
+
+def test_the_booking_job_is_optional_and_agrees_with_the_capabilities() -> None:
+    """FAILS IF: a business that neither books nor takes orders must still be given a
+    booking job, or one that does may be left without it, or an empty one is stored as text."""
+    parsed = worker.parse_answer(_not_selling(), inputs=_inputs())
+    assert parsed.placeholders.booking_job_title is None
+    assert parsed.placeholders.booking_job_line is None
+    assert parsed.caller_noun == "farmer"
+    assert "booking_job_title" not in business_copy.missing_placeholders(parsed.placeholders)
+
+    given = _not_selling()
+    given["placeholders"]["booking_job_title"] = "Take bookings"
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(given, inputs=_inputs())
+    assert "placeholders.booking_job_title: empty string" in unusable.value.problems
+
+    needed = copy_dict()
+    needed["placeholders"]["booking_job_line"] = ""
+    with pytest.raises(script_assist.UnusableAnswerError) as unusable:
+        worker.parse_answer(needed, inputs=_inputs())
+    assert "placeholders.booking_job_line: needed" in unusable.value.problems
+
+
+def test_a_teach_note_without_a_price_is_asked_for() -> None:
+    """FAILS IF: the instruction still asks every business for a price in its teach note."""
+    meaning = worker.PLACEHOLDER_MEANINGS["teach_note"]
+    assert "a price only if" in meaning
+
+
+def test_the_instruction_and_schema_ask_for_the_profile_reason_first() -> None:
+    schema = worker.answer_schema(_inputs().starter_counts)
+    props = schema["json_schema"]["schema"]["properties"]  # type: ignore[index]
+    caps = props["capabilities"]
+    assert caps["required"] == list(business_copy.CAPABILITY_KEYS)
+    assert list(caps["properties"]["sells"]["properties"]) == ["reason", "applies"]
+    assert props["objections"]["maxItems"] == business_copy.MAX_OBJECTIONS
+    assert props["pip_questions"]["maxItems"] == business_copy.MAX_PIP_QUESTIONS
+    said = worker.instruction_for(_inputs())
+    for key in (*business_copy.CAPABILITY_KEYS, "objections:", "caller_noun:", "pip_questions:"):
+        assert key in said
+
+
+def test_a_copy_stored_before_the_profile_reads_as_unknown() -> None:
+    """FAILS IF: a version-3 copy stops reading, or reads as a judged profile."""
+    raw = copy_dict()
+    for key in V4_PROFILE:
+        del raw[key]
+    stored = business_copy.parse_stored(raw)
+    assert stored is not None and stored.capabilities is None and stored.caller_noun is None
+    unknown = business_copy.Capabilities.unknown()
+    assert not unknown.judged
+    assert all(getattr(unknown, k).applies is None for k in business_copy.CAPABILITY_KEYS)
+
+
 def test_a_copy_stored_before_the_screen_question_still_reads() -> None:
     """FAILS IF: a copy written before the screen question stops reading."""
     raw = copy_dict()
     del raw["screen_guide"]
     stored = business_copy.parse_stored(raw)
     assert stored is not None and stored.screen_guide is None
-    assert business_copy.copy_problems(stored, clinic=False, language="te-IN") == []
+    assert business_copy.copy_problems(stored, health=False, language="te-IN") == []
 
 
 def test_the_instruction_and_schema_ask_the_screen_question() -> None:
@@ -994,3 +1177,133 @@ async def test_the_daily_check_queues_only_accounts_due_and_never_a_trial(
             )
         ).scalar()
     assert count == 1
+
+
+# --- 8. the capability profile: reading it, and re-judging after a prompt change ------------
+
+
+def _json(value: Any) -> str:
+    import json
+
+    return json.dumps(value)
+
+
+async def test_the_accessor_is_unknown_until_a_profile_is_judged() -> None:
+    """FAILS IF: an account with no copy, or a copy from before the profile, reads as a
+    judged profile (consumers would withdraw behaviour nobody judged), or a judged one is
+    not returned."""
+    tenant_id, _slug, _token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        none_yet = await business_copy.capabilities_for(session, tenant_id)
+    assert none_yet == business_copy.Capabilities.unknown() and not none_yet.judged
+    old = copy_dict()
+    for key in V4_PROFILE:
+        del old[key]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_copies (id, tenant_id, generated) "
+                "VALUES (:id, :t, CAST(:g AS jsonb))"
+            ),
+            {"id": uuid7(), "t": tenant_id, "g": _json(old)},
+        )
+        assert not (await business_copy.capabilities_for(session, tenant_id)).judged
+        await session.execute(
+            text("UPDATE business_copies SET generated = CAST(:g AS jsonb)"),
+            {"g": _json(copy_dict())},
+        )
+        judged = await business_copy.capabilities_for(session, tenant_id)
+    assert judged.judged and judged.takes_orders.applies is True
+    assert judged.health_business.applies is False
+
+
+async def test_the_screens_read_the_profile_and_unknown_before_it() -> None:
+    tenant_id, slug, token = await _make_tenant(role="staff")
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    before = (await _get("/v1/business-copy", headers)).json()
+    assert {v["applies"] for v in before["capabilities"].values()} == {None}
+    assert before["objections"] == [] and before["caller_noun"] is None
+    assert before["pip_questions"] == []
+    await _seed_row(tenant_id)
+    after = (await _get("/v1/business-copy", headers)).json()
+    assert after["capabilities"]["takes_orders"] == {
+        "reason": "Callers order oil for pickup or delivery.",
+        "applies": True,
+    }
+    assert after["caller_noun"] == "customer"
+    assert after["objections"][0]["caller_says"] == "Konchem ekkuva ga undi andi"
+    assert after["pip_questions"] == V4_PROFILE["pip_questions"]
+
+
+async def test_a_copy_behind_the_prompt_is_due_at_once_even_on_a_trial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a prompt-version bump waits up to 15 days to re-judge an account, skips a
+    trial, or re-queues an account whose copy is current."""
+    now = datetime.now(UTC)
+    _trial(monkeypatch, True)
+    behind, _s, _t = await _make_tenant()
+    current, _s2, _t2 = await _make_tenant()
+    for tenant_id, version in ((behind, None), (current, worker.PROMPT_VERSION)):
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO business_copies (id, tenant_id, generated, prompt_version, "
+                    "last_attempt_at) VALUES (:id, :t, CAST(:g AS jsonb), :v, :at)"
+                ),
+                {
+                    "id": uuid7(),
+                    "t": tenant_id,
+                    "g": _json(copy_dict()),
+                    "v": version,
+                    "at": now - timedelta(days=1),
+                },
+            )
+    assert await worker._due(behind, now=now) is True
+    assert await worker._due(current, now=now) is False
+    _trial(monkeypatch, False)
+    assert await worker._due(current, now=now) is False
+
+
+async def test_the_rewrite_of_a_copy_behind_the_prompt_is_ours_and_records_the_version(
+    model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: our prompt change is charged to the client's allowance, or the new copy
+    does not record the version it was written under (it would be re-queued every day)."""
+    _trial(monkeypatch, False)
+    tenant_id, _slug, _token = await _make_tenant()
+    await _seed_row(tenant_id)
+    assert await _run(tenant_id, "scheduled") == "stored"
+    assert {feature for _, feature in await _ledger(tenant_id)} == {
+        ASSIST_FEATURE_BUSINESS_COPY_ABSORBED
+    }
+    async with tenant_session(tenant_id) as session:
+        version = (
+            await session.execute(text("SELECT prompt_version FROM business_copies"))
+        ).scalar()
+    assert version == worker.PROMPT_VERSION
+    # Current now: the next scheduled check is the client's again and skips unchanged inputs.
+    assert await _run(tenant_id, "scheduled") == "inputs_unchanged"
+
+
+async def test_worker_start_queues_the_upgrade_walk_once_per_version() -> None:
+    """FAILS IF: a deploy that bumps the prompt leaves accounts to the 15-day check, or
+    every worker restart walks the fleet again."""
+    key = f"business-copy-upgrade:v{worker.PROMPT_VERSION}"
+    await worker.queue_upgrade_on_start()
+    await worker.queue_upgrade_on_start()
+    async with admin_session() as session:
+        rows = (
+            await session.execute(
+                text("SELECT job, payload FROM outbox_messages WHERE dedupe_key = :k"),
+                {"k": key},
+            )
+        ).all()
+    assert [(r[0], r[1]) for r in rows] == [
+        (worker.UPGRADE_JOB, {"prompt_version": worker.PROMPT_VERSION})
+    ]
+    names = {getattr(f, "name", getattr(f, "__name__", "")) for f in WorkerSettings.functions}
+    assert worker.UPGRADE_JOB in names or any(
+        getattr(f, "coroutine", None) is worker.upgrade_business_copies
+        for f in WorkerSettings.functions
+    )

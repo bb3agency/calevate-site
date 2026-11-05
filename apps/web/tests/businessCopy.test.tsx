@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { BusinessCopySection, REFRESH_REQUEST, lastRefreshed } from "@/app/c/[slug]/settings/business/BusinessCopySection";
 import { TeachBox } from "@/app/c/[slug]/knowledge/TeachBox";
-import { costLine, writtenLine } from "@/app/admin/tenants/[tenantId]/BusinessCopyPanel";
+import { capabilityLine, costLine, writtenLine } from "@/app/admin/tenants/[tenantId]/BusinessCopyPanel";
 import type { AdminBusinessCopy, BusinessCopy, GeneratedPlaceholders } from "@/lib/api/businessCopy";
 import { useClientSession } from "@/lib/api/session";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
@@ -198,5 +198,11 @@ describe("the operator's lines", () => {
     expect(costLine({ ...admin, absorbed: false })).toContain("from the client's AI allowance");
     expect(writtenLine(admin)).toContain("account created");
     expect(writtenLine({ ...admin, generated_at: null })).toMatch(/^Not yet/);
+  });
+
+  it("shows each capability as judged, and says when it is not judged yet", () => {
+    expect(capabilityLine({ applies: true, reason: "Callers order oil." })).toBe("Yes: Callers order oil.");
+    expect(capabilityLine({ applies: false, reason: "The app is free." })).toBe("No: The app is free.");
+    expect(capabilityLine(admin.capabilities.sells)).toBe("Not judged yet");
   });
 });

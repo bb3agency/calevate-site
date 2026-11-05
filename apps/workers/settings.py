@@ -120,7 +120,12 @@ from apps.workers.agent_test_conversations import (
 from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import FEE_SWEEP_MINUTE, issue_platform_fees
-from apps.workers.business_copy import generate_business_copy, sweep_business_copies
+from apps.workers.business_copy import (
+    generate_business_copy,
+    queue_upgrade_on_start,
+    sweep_business_copies,
+    upgrade_business_copies,
+)
 from apps.workers.business_outcomes_draft import draft_business_outcomes
 from apps.workers.business_type import apply_business_type
 from apps.workers.call_timeline import fetch_call_timeline
@@ -460,6 +465,8 @@ FUNCTIONS: list[Any] = [
         # An account's AI-written examples and suggestions (D-827), from the outbox
         # (`tenancy/business_copy.queue_generation` and `sweep_business_copies`).
         generate_business_copy,
+        # The walk that rewrites copies behind a new prompt version, queued once at start.
+        upgrade_business_copies,
         # One agent's AI draft of its call outcomes (D-836), from the outbox
         # (`agents/call_outcomes.queue_draft`).
         draft_business_outcomes,
@@ -1948,6 +1955,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     # Main worker only: one process queues the platform walk per deploy, and the bulk
     # worker starting alongside it would only ask for the same walk again.
     await apply_platform_prompt_on_start()
+    await queue_upgrade_on_start()
     _log_start(observability, jobs=len(FUNCTIONS), crons=len(CRON_JOBS))
 
 
