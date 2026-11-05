@@ -302,7 +302,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "thinnest",
         "Longest agent reply, in tokens",
         "For agents with no reply length of their own, 100 to 800. A reply that hits it is "
-        "cut off mid-sentence, so keep it high. 800 by default; ThinnestAI's own is 300.",
+        "cut off mid-sentence; keep it high. 800 by default; ThinnestAI's own is 300.",
         _THINNEST,
     ),
     "thinnest_own_rules": _m(
