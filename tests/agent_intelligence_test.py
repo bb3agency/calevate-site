@@ -285,8 +285,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # said when "anything else?" belongs (7,708 before). D-961 says to answer from knowledge
     # before a call back and asks the name after the first answer (7,856 before). D-965 says
     # what a no, busy or later to the opening's question gets in START OF THE CALL; HOW TO
-    # SPEAK and WHAT YOU CAN DO stayed the same size (7,870 before).
-    assert len(prompt) <= 7_930
+    # SPEAK and WHAT YOU CAN DO stayed the same size (7,870 before). D-969 reads every number
+    # digit by digit, explains one step a turn, books a call back at a day and time, and has a
+    # placed call ask if now suits (7,930 before).
+    assert len(prompt) <= 8_120
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

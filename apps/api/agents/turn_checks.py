@@ -36,7 +36,6 @@ from calevate_shared.spoken_guard import opens_with_greeting, textbook_note, tex
 from calevate_shared.spoken_style import style_for
 
 from apps.api.agents.script_lint import CapabilityManifest, unbacked_promise
-from apps.api.compliance.optout import normalize_utterance
 
 Kind = Literal[
     "brackets",
@@ -70,8 +69,6 @@ Kind = Literal[
     # The Sri Estates call of 23 Oct 2026 (D-864): a second greeting, or "can you talk now?"
     # again, in the first reply after the opening; a salutation mid-reply later on (D-910).
     "opened_again",
-    # D-865: an agent that remembers callers closed a call without its memory sentence.
-    "memory_not_said",
     # D-888: "you enquired on our website", which neither the caller nor the facts said.
     "invented_source",
     # D-894: the same short reaction ("మంచిది అండి", "సరే అండి") before reply after reply.
@@ -127,8 +124,6 @@ SOUND_KINDS: Final = frozenset(
         "no_breath",
         # The START OF THE CALL layer decides it, not the owner's script (D-864).
         "opened_again",
-        # The platform's goodbye rule decides it, not the owner's script (D-865).
-        "memory_not_said",
         # HOW TO SPEAK decides how a turn opens, not the owner's script (D-894).
         "same_opening",
         "asked_again",
@@ -1571,32 +1566,10 @@ def wrong_weekday(reply: str, today: date) -> str | None:
     return None
 
 
-def memory_not_said(exchanges: Sequence[Exchange], memory_notice: str) -> str | None:
-    """Why a conversation that ended on the agent's goodbye is missing the memory sentence,
-    or None (D-865). Only a goodbye after the caller closed counts; the sentence is matched
-    after the same normalisation the disclosure evidence uses, so punctuation and spacing do
-    not decide it."""
-    sentence = normalize_utterance(memory_notice)
-    replied = [e for e in exchanges if e.reply.strip()]
-    if not sentence or not replied:
-        return None
-    last = replied[-1]
-    closes = _CALLER_CLOSES.search(last.said) and not _CALLER_ASKS.search(last.said)
-    if not _GOODBYE.search(last.reply) or not closes:
-        return None
-    if sentence in normalize_utterance(last.reply):
-        return None
-    return (
-        "It said goodbye without saying that it keeps a short note of the call. An agent that "
-        "remembers callers says its memory sentence once with its goodbye."
-    )
-
-
 def conversation_problems(
     exchanges: Sequence[Exchange],
     *,
     number_known: bool = True,
-    memory_notice: str = "",
     known: str = "",
     opening: str = "",
     manifest: CapabilityManifest | None = None,
@@ -1606,8 +1579,7 @@ def conversation_problems(
     """The problems only a whole conversation shows, each kind once, in order.
 
     `number_known` is False only for a call whose number the network hid (D-746), where
-    asking for a number is right. `memory_notice` is the sentence the closing goodbye must
-    carry, empty where none is owed (D-865). `known` is what the agent was given (its
+    asking for a number is right. `known` is what the agent was given (its
     script and facts), which may say where its callers come from (D-888). `opening` is what
     the engine said before the first exchange, when it is not one of `exchanges`: a real
     call's greeting, against which every later reply is judged for asking it again (D-912).
@@ -1864,9 +1836,6 @@ def conversation_problems(
         ):
             awaiting = None
         previous_reply = reply
-    unsaid = memory_not_said(exchanges, memory_notice)
-    if unsaid:
-        found.setdefault("memory_not_said", TurnProblem("memory_not_said", unsaid))
     stock = _stock_opener([e.reply for e in exchanges if e.reply.strip()])
     if stock:
         said, times = stock
@@ -1895,7 +1864,6 @@ __all__ = [
     "conversation_problems",
     "formal_swaps",
     "greeted_midway",
-    "memory_not_said",
     "offers_more",
     "opened_again",
     "sentences",

@@ -45,8 +45,9 @@ It is not legal advice and does not become the client's notice by being generate
 
 **CROSS-CALL MEMORY IS DESCRIBED WHEN IT HAPPENS AND ONLY THEN (D-506, D-507).** The
 draft names the agents that remember callers, itemises the note, prints the period from the
-tenant's own `caller_memory` retention row, and says that those agents announce it with
-their goodbye (D-865) — which they do, on no switch of their own. Two ways it can be silent,
+tenant's own `caller_memory` retention row, and says that those agents do not announce it on
+the call (D-969, founder, 4 Nov 2026), so the written notice is where the caller is told.
+Two ways it can be silent,
 and both are the accurate document rather than an omission: the client has the switch off
 (every client today), or the tenant is on a vertical where `caller_memory.
 spdi_refuses_memory` refuses the write outright (D-507(b)), in which case the switch may
@@ -399,15 +400,12 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
     agent with the announcement switched off does not say it, so the client's written
     notice is where the obligation lands.
 
-    A FOURTH SENTENCE SINCE D-507, AND IT IS NOT A FOURTH TOGGLE. An agent that remembers
-    its callers says so with its goodbye — `calevate_shared.engine.memory_goodbye_rule`
-    quotes `agents.caller_memory_notice_line` in its prompt (D-865), gated on
-    `caller_memory_enabled` and on no
-    switch of its own, so "remembers a caller without saying so" is not a state this
-    product can be configured into. The draft therefore describes it as a consequence of
-    the memory setting and never as a third announcement the client could turn off; a
-    document that implied otherwise would send them looking for a control that does not
-    exist, and a support answer would eventually invent one.
+    A FOURTH SENTENCE SINCE D-507, AND IT IS NOT A TOGGLE. An agent that remembers its
+    callers keeps its note without saying so on the call (D-969), so this draft is where
+    the caller is told, for every agent with `caller_memory_enabled` on. It describes memory
+    as a consequence of that setting, never as an announcement the client could turn on;
+    a document that implied otherwise would send them looking for a control that does not
+    exist.
     """
     lines: list[str] = []
     if not draft.ai_disclosure_off:
@@ -433,10 +431,9 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
     if draft.caller_memory_on:
         named = ", ".join(draft.caller_memory_on)
         lines.append(
-            f"The assistants that keep notes about you between calls also say so when they "
-            f"say goodbye at the end of the call ({named}). They always do: an assistant "
-            'that keeps notes says so, and there is no separate setting for it — see "If '
-            'you have called us before" below.'
+            f"Some of our assistants keep notes about you between calls ({named}). They do "
+            'not say so on the call, so this notice is where we tell you — see "If you have '
+            'called us before" below.'
         )
     lines.append(
         "Whatever the call opens with, if you ask the assistant whether it is an AI, or "
@@ -515,8 +512,8 @@ def _memory_paragraph(draft: CallerNoticeDraft) -> str:
     return (
         "## If you have called us before\n\n"
         f"Some of our assistants keep a short note of what you asked about, so that the "
-        f"next time you call they already know ({named}). Those assistants tell you so when "
-        "they say goodbye at the end of the call. It is a note of the SUBJECT — "
+        f"next time you call they already know ({named}). They do not announce it on the "
+        "call. It is a note of the SUBJECT — "
         '"asked about prices", not a recording or a transcript of what you said — and '
         f"{kept} — a clock of its own, not the one that applies to the recording or the "
         "transcript. You can ask us to erase it with everything else, using the "

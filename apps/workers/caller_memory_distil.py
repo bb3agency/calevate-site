@@ -77,8 +77,8 @@ BOTH DIRECTIONS FEED MEMORY (the founder's decision, taken knowingly)
 Inbound AND outbound. The tempting restriction is inbound-only — a person who rang US
 chose to — but it makes the product incoherent: the same caller, the same agent, the same
 business, and whether the agent remembers them depends on who dialled. The notice is the
-same sentence on both legs (`memory_goodbye_rule` is direction-blind), so the disclosure
-argument does not distinguish them either.
+same written one on both legs (`compliance/caller_notice`), so the disclosure argument does
+not distinguish them either.
 """
 
 from __future__ import annotations

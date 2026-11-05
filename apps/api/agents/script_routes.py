@@ -475,6 +475,7 @@ SoundKind = Literal[
     "foreign_script",
     "repeated_turn",
     "opened_again",
+    # No longer found (D-969: the memory sentence is not said); kept so stored results read.
     "memory_not_said",
 ]
 
