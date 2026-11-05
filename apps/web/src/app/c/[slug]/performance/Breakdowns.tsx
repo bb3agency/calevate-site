@@ -21,7 +21,7 @@ import {
   type SummaryRow,
 } from "@/lib/api/analytics";
 import { useClientSession } from "@/lib/api/session";
-import { outcomeLabel } from "@/lib/callReview";
+import { OUTCOME_ORDER, callOutcome, endingLabel } from "@/lib/callReview";
 
 import { PERFORMANCE_COPY as COPY } from "./copy";
 
@@ -32,12 +32,10 @@ const BUCKETS: { value: SummaryBucket; label: string }[] = [
 ];
 
 const GROUPS: { value: CallGroupBy; label: string }[] = [
-  { value: "caller", label: "Caller" },
+  { value: "caller", label: "Person" },
   { value: "outcome", label: "Outcome" },
   { value: "agent", label: "Agent" },
 ];
-
-type RankedGroup = CallGroup & { rank: number };
 
 /** Rows a grouped table shows; its counts still cover every call. */
 const GROUP_LIMIT = 25;
@@ -110,8 +108,8 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
       ) : (
         <div className="space-y-3">
           <p className="text-meta text-ink-muted">
-            {formatCount(data.calls)} calls, {formatCount(data.answered)} answered,{" "}
-            {formatCount(data.leads)} new leads
+            {formatCount(data.calls)} {data.calls === 1 ? "call" : "calls"}, {formatCount(data.answered)} answered,{" "}
+            {formatCount(data.leads)} {data.leads === 1 ? "new lead" : "new leads"}
             {data.spent_inr !== null ? `, ${formatINR(data.spent_inr)} spent` : ""}.
           </p>
           <DataTable
@@ -137,15 +135,37 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
   );
 }
 
+/**
+ * A person by name when their lead or a campaign list names them, else by the last two
+ * digits of their number. Neutral about direction: half these people were rung by a
+ * campaign, so "caller" and "lead" would both misname them.
+ */
 function groupName(group: CallGroup, by: CallGroupBy): string {
-  if (by === "outcome") return outcomeLabel(group.key) ?? "Not recorded";
+  if (by === "outcome") return endingLabel(group.key);
   if (by === "agent") return group.label ?? "An agent since removed";
-  const who = group.label ?? "No lead yet";
-  return group.number_tail ? `${who} · ends ${group.number_tail}` : who;
+  const tail = group.number_tail;
+  if (group.label) return tail ? `${group.label} · ends ${tail}` : group.label;
+  return tail ? `Number ending ${tail}` : "Number not known";
+}
+
+/** How the latest call went, in the call log's words: a fact, else the business's own outcome. */
+function latestCallWords(group: CallGroup): string {
+  const tag = OUTCOME_ORDER.find((known) => known === group.latest_outcome) ?? null;
+  return callOutcome({
+    status: group.latest_status,
+    outcome_tag: tag,
+    business_outcome_label: group.latest_business_outcome_label,
+    summary_state: "ready",
+  }).words;
+}
+
+/** A person's row opens their lead, or their latest call when no lead was filed. */
+function personHref(slug: string, group: CallGroup): string {
+  return group.lead_id ? `/c/${slug}/leads/${group.lead_id}` : `/c/${slug}/calls/${group.latest_call_id}`;
 }
 
 /**
- * WHO CALLED, HOW CALLS ENDED, WHICH AGENT TOOK THEM: every call in the period counted per
+ * WHO WAS ON THE CALL, HOW CALLS ENDED, WHICH AGENT TOOK THEM: every call in the period counted per
  * group by the server (`/v1/analytics/call-groups`), never from the page of calls a list
  * happens to hold. Test calls are left out: they are the owner ringing their own agent.
  */
@@ -164,13 +184,13 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
   });
   const data = groups.data;
 
-  const columns: DataColumn<RankedGroup>[] = [
+  const columns: DataColumn<CallGroup>[] = [
     {
       id: "name",
-      header: by === "caller" ? "Caller" : by === "outcome" ? "Outcome" : "Agent",
+      header: by === "caller" ? "Person" : by === "outcome" ? "Outcome" : "Agent",
       cell: (group) =>
-        by === "caller" && group.lead_id ? (
-          <Link href={`/c/${slug}/leads/${group.lead_id}`} className="font-medium underline-offset-2 hover:underline [overflow-wrap:anywhere] after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand">
+        by === "caller" ? (
+          <Link href={personHref(slug, group)} className="font-medium underline-offset-2 hover:underline [overflow-wrap:anywhere] after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand">
             {groupName(group, by)}
           </Link>
         ) : (
@@ -181,15 +201,15 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
     { id: "answered", header: "Answered", align: "right", cell: (group) => formatCount(group.answered), sort: { value: (g) => g.answered, kind: "number", first: "desc" } },
     { id: "latest", header: "Latest call", cell: (group) => formatIST(group.latest_at), sort: { value: (g) => g.latest_at, kind: "time", first: "desc" }, hideBelow: "sm" },
     ...(by !== "outcome"
-      ? [{ id: "ended", header: "Last ended", cell: (group: CallGroup) => outcomeLabel(group.latest_outcome) ?? "—" }]
+      ? [{ id: "went", header: "How it went", cell: (group: CallGroup) => latestCallWords(group) }]
       : []),
   ];
 
   const headline = !data
     ? null
     : by === "caller"
-      ? `${formatCount(data.calls)} calls. ${formatCount(data.repeat_groups)} ${data.repeat_groups === 1 ? "caller" : "callers"} called more than once.`
-      : `${formatCount(data.calls)} calls across ${formatCount(data.groups_total)} ${by === "outcome" ? "outcomes" : "agents"}.`;
+      ? `${formatCount(data.calls)} ${data.calls === 1 ? "call" : "calls"}. ${formatCount(data.repeat_groups)} ${data.repeat_groups === 1 ? "person" : "people"} had more than one call.`
+      : `${formatCount(data.calls)} ${data.calls === 1 ? "call" : "calls"} across ${formatCount(data.groups_total)} ${by === "outcome" ? "outcomes" : "agents"}.`;
 
   return (
     <Section
@@ -230,10 +250,10 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
               />
             ) : (
               <DataTable
-                rows={data.groups.map((group, rank) => ({ ...group, rank }))}
+                rows={data.groups}
                 columns={columns}
-                getRowId={(group) => group.lead_id ?? (group.key === "number" ? `number:${group.rank}` : `${by}:${group.key}`)}
-                label={`Calls by ${by}, most calls first`}
+                getRowId={(group) => (by === "caller" ? (group.lead_id ?? group.latest_call_id) : `${by}:${group.key}`)}
+                label={`Calls by ${by === "caller" ? "person" : by}, most calls first`}
                 partialNote={
                   data.groups.length < (by === "caller" && repeatOnly ? data.repeat_groups : data.groups_total)
                     ? `Showing the ${formatCount(data.groups.length)} with the most calls.`

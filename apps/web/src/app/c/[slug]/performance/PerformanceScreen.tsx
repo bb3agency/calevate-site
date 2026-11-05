@@ -36,6 +36,7 @@ import {
 import { useMe } from "@/lib/api/hooks";
 import { usePerformance } from "@/lib/api/performance";
 import { useClientSession } from "@/lib/api/session";
+import { endingLabel } from "@/lib/callReview";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
@@ -45,6 +46,8 @@ import { CallGroupsTable, PeriodTable } from "./Breakdowns";
 import { ReplySpeed } from "./ReplySpeed";
 import {
   DURATIONS_NOTE,
+  MOST_CALLS_UNDER,
+  TYPICAL_LENGTH,
   FUNNEL_NOTE,
   Funnel,
   HEATMAP_NOTE,
@@ -146,7 +149,7 @@ export function PerformanceScreen() {
               label: "How calls ended",
               value:
                 Object.entries(perf.data.outcomes)
-                  .map(([outcome, count]) => `${outcome}: ${count}`)
+                  .map(([outcome, count]) => `${endingLabel(outcome)}: ${count}`)
                   .join(", ") || "nothing recorded",
             },
           ]
@@ -248,10 +251,10 @@ export function PerformanceScreen() {
 
       <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-12 page-lg:gap-12">
         <Section title={COPY.funnelTitle} info={FUNNEL_NOTE} className="page-lg:col-span-7">
-          <PerformancePanel perf={perf} kind="funnel" />
+          <PerformancePanel perf={perf} kind="funnel" period={rangeWords} />
         </Section>
         <Section title={COPY.outcomesTitle} info={OUTCOMES_NOTE} className="page-lg:col-span-5">
-          <PerformancePanel perf={perf} kind="outcomes" />
+          <PerformancePanel perf={perf} kind="outcomes" period={rangeWords} />
         </Section>
       </div>
 
@@ -309,8 +312,8 @@ export function PerformanceScreen() {
           series={durations.data ? durationRows(durations.data) : []}
           maxValue={durations.data ? durationAxisEnd(durations.data) : undefined}
           labelColumn={groupBy === "agent" ? "Agent" : "Outcome"}
-          medianColumn="Middle call"
-          p90Column="9 in 10 under"
+          medianColumn={TYPICAL_LENGTH}
+          p90Column={MOST_CALLS_UNDER}
           loading={!durations.data && !durations.error}
           error={chartError(durations.error, COPY.lengthError, () => void durations.refetch())}
           empty={COPY.lengthEmpty}
@@ -328,19 +331,20 @@ function formatCountOfCalls(n: number): string {
 function PerformancePanel({
   perf,
   kind,
+  period,
 }: {
   perf: ReturnType<typeof usePerformance>;
   kind: "funnel" | "outcomes";
+  /** The chosen dates in words: the range can end before today, so "Last 30 days" would be wrong. */
+  period: string;
 }) {
   if (perf.error && !perf.data) {
     return <ProblemNotice error={perf.error} onRetry={() => void perf.refetch()} />;
   }
   if (!perf.data) return <Skeleton rows={3} />;
-  // `perf.data.days` is the period the server measured, which can trail the control while a
-  // new range loads.
   return kind === "funnel" ? (
     <div className="space-y-3">
-      <Funnel funnel={perf.data.funnel} days={perf.data.days} />
+      <Funnel funnel={perf.data.funnel} period={period} />
       {perf.data.funnel.calls > 0 ? (
         <p className="text-meta text-ink-muted">
           {formatCount(perf.data.inbound)} incoming, {formatCount(perf.data.outbound)} outgoing
@@ -349,7 +353,7 @@ function PerformancePanel({
     </div>
   ) : (
     <div className="space-y-3">
-      <Outcomes outcomes={perf.data.outcomes} days={perf.data.days} />
+      <Outcomes outcomes={perf.data.outcomes} period={period} />
     </div>
   );
 }

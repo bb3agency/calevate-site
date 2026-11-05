@@ -98,6 +98,20 @@ const STATUS_WORDS: Record<string, string> = {
 };
 
 /**
+ * A count's key in an owner's words, for reads that group calls by outcome: the outcome
+ * tag, else the call's status (`COALESCE(outcome_tag, status)`), else nothing recorded
+ * (`''`, `unread`, or a completed call that was never tagged). One mapping, so a chart
+ * never prints `hung_up_early` where the call log says "Hung up early".
+ */
+export function endingLabel(key: string | null | undefined): string {
+  if (!key || key === "unread" || key === "completed") return "Not recorded";
+  const known = lookup(OUTCOME_WORDS, key)?.label ?? lookup(STATUS_WORDS, key);
+  if (known) return known;
+  const words = key.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/**
  * Why the call reads the way it does, in one sentence. The caller asking for a call back
  * that nobody booked is said in those words, because it is the case an owner most needs
  * to notice and the general "needs you" sentence would hide it.

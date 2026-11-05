@@ -5,8 +5,9 @@ import type { RidgeSeries } from "@/components/arc/ridgeline";
 import { formatCount } from "@/components/ui";
 import type { Durations } from "@/lib/api/analytics";
 import type { Performance } from "@/lib/api/performance";
+import { endingLabel } from "@/lib/callReview";
 
-import { outcomeWords } from "../OutcomeSplit";
+import { outcomeFill } from "../OutcomeSplit";
 import { PERFORMANCE_COPY as COPY } from "./copy";
 
 /**
@@ -23,8 +24,12 @@ export const OUTCOMES_NOTE =
 export const HEATMAP_NOTE =
   "Each square counts what started in that hour on that day of the week, Indian Standard Time.";
 export const DURATIONS_NOTE =
-  "Completed calls only. The tick on each row is the middle call: half were shorter, half longer. " +
-  "The right-hand edge holds every call that ran longer.";
+  "Completed calls only. Typical length is the middle call, marked by the tick: half were " +
+  "shorter, half longer. Most calls under: 9 in 10 calls were shorter than this. The " +
+  "right-hand edge holds every call that ran longer.";
+/** The ridgeline's headings for the median and the 90th percentile, as `DURATIONS_NOTE` defines them. */
+export const TYPICAL_LENGTH = "Typical length";
+export const MOST_CALLS_UNDER = "Most calls under";
 
 /** Said, rather than left for the reader to notice numbers moving under them. */
 export function Updating({ busy }: { busy: boolean }) {
@@ -37,7 +42,7 @@ export function Updating({ busy }: { busy: boolean }) {
 }
 
 /** Calls → answered → interested, each a bar against the top of the funnel. */
-export function Funnel({ funnel, days }: { funnel: Performance["funnel"]; days: number }) {
+export function Funnel({ funnel, period }: { funnel: Performance["funnel"]; period: string }) {
   const stages = [
     { label: "Calls", count: funnel.calls },
     { label: "Answered", count: funnel.connected },
@@ -47,7 +52,7 @@ export function Funnel({ funnel, days }: { funnel: Performance["funnel"]; days: 
     <BarChart
       title={COPY.funnelTitle}
       hideTitle
-      description={`Last ${formatCount(days)} days`}
+      description={period}
       orientation="horizontal"
       showValues
       labelColumn="Stage"
@@ -65,7 +70,7 @@ export function Funnel({ funnel, days }: { funnel: Performance["funnel"]; days: 
 }
 
 /** Outcome → count, busiest first. */
-export function Outcomes({ outcomes, days }: { outcomes: Record<string, number>; days: number }) {
+export function Outcomes({ outcomes, period }: { outcomes: Record<string, number>; period: string }) {
   const rows = Object.entries(outcomes)
     .filter(([, count]) => count > 0)
     .sort(([, a], [, b]) => b - a);
@@ -73,11 +78,12 @@ export function Outcomes({ outcomes, days }: { outcomes: Record<string, number>;
     <BarChart
       title={COPY.outcomesTitle}
       hideTitle
-      description={`Last ${formatCount(days)} days`}
+      description={period}
       orientation="horizontal"
       showValues
       labelColumn="Outcome"
-      categories={rows.map(([outcome]) => outcomeWords(outcome))}
+      categories={rows.map(([outcome]) => endingLabel(outcome))}
+      categoryFills={rows.map(([outcome]) => outcomeFill(outcome))}
       series={[
         {
           label: "Calls",
@@ -110,7 +116,9 @@ export function durationRows(data: Durations): RidgeSeries[] {
       const at = (data.bin_edges_s[i] ?? i * data.bin_s) + half;
       for (let k = 0; k < drawn; k += 1) values.push(at);
     });
-    return { label: group.label, values, median: group.median_s, p90: group.p90_s, count: group.calls };
+    // An outcome arrives as its key; the words are the call log's.
+    const label = data.group_by === "outcome" ? endingLabel(group.key) : group.label;
+    return { label, values, median: group.median_s, p90: group.p90_s, count: group.calls };
   });
 }
 

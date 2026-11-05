@@ -9442,6 +9442,22 @@
             ],
             "title": "Latest At"
           },
+          "latest_business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Business Outcome Label"
+          },
+          "latest_call_id": {
+            "format": "uuid",
+            "title": "Latest Call Id",
+            "type": "string"
+          },
           "latest_outcome": {
             "anyOf": [
               {
@@ -9452,6 +9468,10 @@
               }
             ],
             "title": "Latest Outcome"
+          },
+          "latest_status": {
+            "title": "Latest Status",
+            "type": "string"
           },
           "lead_id": {
             "anyOf": [
@@ -9485,7 +9505,10 @@
           "calls",
           "answered",
           "latest_at",
-          "latest_outcome"
+          "latest_call_id",
+          "latest_status",
+          "latest_outcome",
+          "latest_business_outcome_label"
         ],
         "title": "CallGroupOut",
         "type": "object"

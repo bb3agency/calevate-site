@@ -465,10 +465,14 @@ export function DataTable<T>({
                         {column.renderHeader()}
                       </>
                     ) : column.sort ? (
+                      // `align-top`, not the baseline: a right-aligned header puts its icon
+                      // first (`flex-row-reverse`), an inline-flex box takes its baseline from
+                      // that icon's bottom edge, and the header text then sat off the line of
+                      // its unsortable neighbours.
                       <button
                         type="button"
                         onClick={() => setSort(nextSort(column, sort))}
-                        className={`group inline-flex items-center gap-1 rounded-sm hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${
+                        className={`group inline-flex items-center gap-1 rounded-sm align-top hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${
                           active ? "text-ink" : ""
                         } ${column.align === "right" ? "flex-row-reverse" : ""}`}
                       >

@@ -35,14 +35,14 @@ export const PERFORMANCE_COPY = {
   spendWholeAccount: "Spend covers the whole account.",
   spendLink: "See spend in Usage",
 
-  groupsTitle: "Who called, and how it went",
+  groupsTitle: "Who was on the call, and how it went",
   groupsNote: "Your own test calls are not counted.",
   groupsCountBy: "Count by",
-  repeatOnly: "Only people who called more than once",
+  repeatOnly: "Only people with more than one call",
   groupsError: "We could not count these calls.",
   groupsLoading: "Counting calls",
   groupsNone: "No calls in this period.",
-  groupsNoRepeat: "Nobody called more than once in this period.",
+  groupsNoRepeat: "Nobody had more than one call in this period.",
 } as const;
 
 export const periodHeadline = (range: string): string => `How your agents did, ${range}.`;

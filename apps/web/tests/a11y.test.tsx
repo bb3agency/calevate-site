@@ -1307,7 +1307,7 @@ function performanceAnalytics(): Routes {
       repeat_groups: 1,
       min_calls: 2,
       groups: [
-        { key: "l1", label: "Ravi Kumar", lead_id: "0192f0aa-0000-7000-8000-00000000000a", number_tail: "42", calls: 3, answered: 2, latest_at: "2026-10-26T09:30:00Z", latest_outcome: "answered" },
+        { key: "l1", label: "Ravi Kumar", lead_id: "0192f0aa-0000-7000-8000-00000000000a", number_tail: "42", calls: 3, answered: 2, latest_at: "2026-10-26T09:30:00Z", latest_call_id: "0192f0aa-0000-7000-8000-0000000000c1", latest_status: "completed", latest_outcome: "answered", latest_business_outcome_label: null },
       ],
     },
     [`/v1/analytics/timeline?days=90&to=${todayIST()}&test_calls=true`]: {

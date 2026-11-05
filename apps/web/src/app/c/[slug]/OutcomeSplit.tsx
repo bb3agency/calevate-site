@@ -3,7 +3,7 @@
 import { BarChart } from "@/components/arc/bar-chart";
 import { Section } from "@/components/console/section";
 import { formatCount } from "@/components/ui";
-import { callOutcome, outcomeLabel, type CallOutcome } from "@/lib/callReview";
+import { OUTCOME_ORDER, callOutcome, endingLabel } from "@/lib/callReview";
 
 import { OUTCOME_DOT } from "./calls/callColumns";
 
@@ -13,9 +13,16 @@ export function outcomeWords(outcome: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** The call log's dot colour for a call that ended with this tag, so both screens agree. */
-function outcomeFill(tag: string): string {
-  return OUTCOME_DOT[callOutcome({ status: "completed", outcome_tag: tag as CallOutcome, summary_state: "ready" }).kind];
+/**
+ * The call log's dot colour for a call that ended with this key, so both screens agree. A
+ * key that is not an outcome tag is a call status (`COALESCE(outcome_tag, status)`).
+ */
+export function outcomeFill(key: string): string {
+  const tag = OUTCOME_ORDER.find((known) => known === key);
+  const call: Parameters<typeof callOutcome>[0] = tag
+    ? { status: "completed", outcome_tag: tag, summary_state: "ready" }
+    : { status: key, outcome_tag: null, summary_state: "ready" };
+  return OUTCOME_DOT[callOutcome(call).kind];
 }
 
 /**
@@ -38,7 +45,7 @@ export function OutcomeSplit({ split }: { split: Record<string, number> }) {
         orientation="horizontal"
         showValues
         labelColumn="Outcome"
-        categories={rows.map(([outcome]) => outcomeLabel(outcome) ?? outcomeWords(outcome))}
+        categories={rows.map(([outcome]) => endingLabel(outcome))}
         categoryFills={rows.map(([outcome]) => outcomeFill(outcome))}
         series={[
           { label: "Calls", values: rows.map(([, count]) => count), display: rows.map(([, count]) => formatCount(count)) },
