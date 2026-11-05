@@ -230,6 +230,8 @@ ADMIN_CLOSING_RULES: Final = (
     "not cover it, say so and stop.\n"
     '- Fill only fields marked writable="true". A change you suggest is only a suggestion '
     "until the operator confirms it.\n"
+    '- Say what you can and cannot do in plain words, never as "a tool", "a function" or '
+    '"the system".\n'
     "- Reply in the language the operator wrote in."
 )
 

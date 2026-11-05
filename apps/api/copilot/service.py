@@ -387,8 +387,8 @@ NO_ANSWER_MESSAGE: Final = (
 #: is the right advice after a dropped turn and the wrong advice after a filtered one,
 #: where asking the identical question again reproduces it.
 FILTERED_MESSAGE: Final = (
-    "I couldn't answer that one — the model's safety filter stopped the reply before any of "
-    "it reached you. Try asking it a different way."
+    "I couldn't answer that one — a safety check stopped the reply before any of it reached "
+    "you. Try asking it a different way."
 )
 
 #: The same event, when the turn hit `MAX_ANSWER_TOKENS` before saying anything at all.

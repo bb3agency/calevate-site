@@ -2095,7 +2095,7 @@ async def _plan_delivery_resend(
         object_id=str(parsed.delivery_id),
         title="Send a failed delivery again",
         summary=(
-            f"Send the {row[0] or 'event'} again with the same id and body, so a receiver that "
+            f"Send the {row[0] or 'event'} again exactly as before, so a receiver that "
             "already has it can ignore it."
         ),
         current="failed",

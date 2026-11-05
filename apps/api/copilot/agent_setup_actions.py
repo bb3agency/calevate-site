@@ -257,7 +257,7 @@ AGENT_PREPARE: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.prepared",
-    where="on the agent's Try it tab",
+    where="under Try it on the agent's Training tab",
     schema=action_schema(
         "agent_prepare",
         "Propose getting a draft or paused agent ready to try in chat, without taking calls. "

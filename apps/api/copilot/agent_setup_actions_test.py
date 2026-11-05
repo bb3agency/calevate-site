@@ -13,7 +13,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from calevate_shared.call_script import CallScript
+from calevate_shared.call_script import CALL_BACK, CallScript, ConversationStage, StageBranch
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
@@ -21,7 +21,7 @@ from tests.conftest import accept_agreements, business_contact
 
 from apps.api.agents import script_builder
 from apps.api.copilot import write_tools
-from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ
+from apps.api.copilot.agent_reads import AGENT_SETTINGS_READ, PARTS, script_text
 from apps.api.copilot.tools import READ_TOOLS, ToolContext
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
 from apps.api.core.errors import ProblemError
@@ -544,7 +544,7 @@ async def test_a_neighbours_agent_is_a_404_for_every_setup_action() -> None:
         assert crossed.value.status == 404, name
 
 
-@pytest.mark.parametrize("part", ["settings", "script", "handover", "actions", "lead_fields"])
+@pytest.mark.parametrize("part", list(PARTS))
 async def test_agent_settings_reads_each_part_without_a_phone_number(part: str) -> None:
     tenant_id, _slug, _token = await _make_tenant()
     agent_id = await _agent(tenant_id)
@@ -559,6 +559,112 @@ async def test_agent_settings_reads_each_part_without_a_phone_number(part: str) 
     assert "9000000713" not in answer
     if part == "handover":
         assert "Asha" in answer
+
+
+def _two_step_script(opening: str) -> CallScript:
+    return CallScript(
+        schema_version=2,
+        opening_line=opening,
+        outbound_purpose="Check the app is installed.",
+        stages=[
+            ConversationStage(
+                id="s1",
+                name="Check it is a good time",
+                instruction="Ask if now is a good time.",
+                sounds_like="Is now a good time?",
+                branches=[StageBranch(when="they are busy", target=CALL_BACK)],
+            ),
+            ConversationStage(id="s2", name="Close", instruction="Thank them and end."),
+        ],
+        ending="Thank them by name.",
+    )
+
+
+def test_the_script_prints_every_step_in_order_with_its_line_and_where_it_goes() -> None:
+    """FAILS IF: asked to print an agent's script, Pip has nothing to print (founder,
+    6 Nov 2026: "the system does not provide a tool to print the entire script")."""
+    lines = script_text(
+        _two_step_script("Hello {{lead_name}}, this is Varsha."), direction="outbound"
+    )
+    printed = "\n".join(lines)
+    assert "Opening line: Hello {Caller's name}, this is Varsha." in printed
+    assert "Why you are calling: Check the app is installed." in printed
+    assert "1. Check it is a good time: Ask if now is a good time." in printed
+    assert "Example line: “Is now a good time?”" in printed
+    assert "When they are busy: Offer a call back." in printed
+    assert "Then: 2. Close." in printed
+    assert "2. Close: Thank them and end." in printed
+    assert "Then: Wraps up the call." in printed
+    assert "How it ends the call: Thank them by name." in printed
+    assert printed.index("1. Check") < printed.index("2. Close")
+
+
+async def test_agent_settings_script_prints_the_script_tab_copy_and_says_whether_it_is_live() -> (
+    None
+):
+    tenant_id, _slug, _token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    context = ToolContext(tenant_id=tenant_id, role="owner")
+    args = {"agent_id": str(agent_id), "part": "script"}
+    async with tenant_session(tenant_id) as session:
+        await script_builder.save_agent_script(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=_two_step_script("Saved opening."),
+            notes="saved",
+            created_by=None,
+        )
+    async with tenant_session(tenant_id) as session:
+        saved = await AGENT_SETTINGS_READ.run(session, context, args)
+    assert "Opening line: Saved opening." in saved
+    assert "1. Check it is a good time" in saved
+    assert "NOT live" not in saved
+
+    async with tenant_session(tenant_id) as session:
+        await script_builder.save_draft(session, agent_id, _two_step_script("Draft opening."))
+    async with tenant_session(tenant_id) as session:
+        drafted = await AGENT_SETTINGS_READ.run(session, context, args)
+    assert "Opening line: Draft opening." in drafted
+    assert "Saved opening." not in drafted
+    assert "working copy" in drafted and "NOT live" in drafted
+
+
+async def test_agent_settings_tests_says_which_practice_tests_did_not_pass_and_who_fixes_them() -> (
+    None
+):
+    """FAILS IF: an owner asks Pip which practice tests failed and Pip has no read for it."""
+    tenant_id, _slug, _token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    results = [
+        {"key": "k1", "title": "Asks for a discount", "verdict": "passed"},
+        {
+            "key": "k2",
+            "title": "Wants to talk to a person",
+            "verdict": "failed",
+            "reason": "it kept the caller on the line",
+            "owner": "script",
+        },
+    ]
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO agent_test_runs (id, tenant_id, agent_id, status, results, "
+                "created_at, updated_at) VALUES (gen_random_uuid(), :t, :a, 'done', "
+                "CAST(:r AS jsonb), now(), now())"
+            ),
+            {"t": tenant_id, "a": agent_id, "r": json.dumps(results)},
+        )
+    async with tenant_session(tenant_id) as session:
+        answer = await AGENT_SETTINGS_READ.run(
+            session,
+            ToolContext(tenant_id=tenant_id, role="owner"),
+            {"agent_id": str(agent_id), "part": "tests"},
+        )
+    assert "1 of 2 passed" in answer
+    assert "Wants to talk to a person: failed, because it kept the caller on the line" in answer
+    assert "a script change" in answer
+    assert "Asks for a discount" not in answer
 
 
 async def test_agents_list_gives_each_agent_its_id_and_names_the_deleted_ones() -> None:

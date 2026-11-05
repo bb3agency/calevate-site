@@ -261,8 +261,9 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_script_suggest",
         "agents",
-        "suggest a script change (change), a whole script from the five answers (whole), "
-        "or steps (steps); failed tests: agent_tests_fix; a dictated value: set_fields",
+        "any script change, incl. add, delete, rename or reorder steps (change); whole "
+        "script from the six answers (whole); hand-written into steps (steps); failed "
+        "tests: agent_tests_fix; a dictated value: set_fields",
     ),
     AreaEntry(
         "agent_tests_fix",
@@ -299,7 +300,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_settings",
         "agents",
-        "one part of an agent's set-up, with the ids its actions take",
+        "one part of an agent's set-up with ids; part script: the whole script, to print",
     ),
     AreaEntry(
         "billing_settings",

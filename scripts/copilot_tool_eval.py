@@ -76,6 +76,7 @@ from uuid import UUID
 import httpx
 from apps.api.billing.ai_quota import assist_ledger_rows
 from apps.api.copilot import areas, model_tiers, service, write_tools
+from apps.api.copilot.owner_words import machine_words
 from apps.api.copilot.prompt import SET_FIELDS_TOOL_NAME, assert_screen_fits, render_screen
 from apps.api.copilot.schemas import CopilotAskIn, CopilotRealm
 from apps.api.core.settings import get_settings
@@ -476,11 +477,15 @@ class LiveAnswer:
     tokens_out: int
     cost_inr: Decimal | None
     error: str | None = None
+    #: Machinery an owner's answer named ("a tool", "the system", an id: `owner_words`).
+    #: Empty for an operator's answer, where ids and tool names are the operator's words.
+    machinery: list[str] = field(default_factory=list)
 
     def as_record(self) -> dict[str, Any]:
         return {
             "tools": self.tools,
             "answer": self.answer,
+            "machinery": self.machinery,
             "tokens_in": self.tokens_in,
             "tokens_cached": self.tokens_cached,
             "tokens_out": self.tokens_out,
@@ -545,7 +550,17 @@ async def live_answer(case: Case, tenant_id: UUID | None) -> LiveAnswer:
         return LiveAnswer(
             case.id, tools, "", usage_in, cached, usage_out, cost, type(failure).__name__
         )
-    return LiveAnswer(case.id, tools, redact("".join(text)).text, usage_in, cached, usage_out, cost)
+    answer = redact("".join(text)).text
+    return LiveAnswer(
+        case.id,
+        tools,
+        answer,
+        usage_in,
+        cached,
+        usage_out,
+        cost,
+        machinery=machine_words(answer) if case.realm == "client" else [],
+    )
 
 
 async def live_run(cases: Sequence[Case], tenant_id: UUID | None) -> list[LiveAnswer]:
@@ -568,6 +583,7 @@ def render_live(answers: Sequence[LiveAnswer]) -> str:
         lines.append(
             f"{a.case_id} | {','.join(a.tools) or '-'} | {a.tokens_in} | {cached} | "
             f"{a.tokens_out} | {cost}{' | ERROR ' + a.error if a.error else ''}"
+            f"{' | MACHINE WORDS ' + '; '.join(a.machinery) if a.machinery else ''}"
         )
     priced = [a.cost_inr for a in answers if a.cost_inr is not None]
     lines.append(
