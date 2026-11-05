@@ -125,7 +125,8 @@ export function WhatItKnows({
           illustration={<EmptySketch kind="knowledge" />}
           message={
             <>
-              <span className="block font-medium text-ink">Your agents don&rsquo;t know anything yet</span>
+              {/* Its own script may already state facts (A-20): only this page is empty. */}
+              <span className="block font-medium text-ink">Nothing added to Knowledge yet</span>
               <span className="mt-1 block">Start with what callers ask most.</span>
             </>
           }

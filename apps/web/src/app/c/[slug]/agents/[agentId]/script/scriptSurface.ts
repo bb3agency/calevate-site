@@ -73,6 +73,10 @@ export const OPENING_LINE_COPILOT_HELP =
   "of the company. The agent's identity, goal, stages, objections and quick facts go in " +
   "their own sections, not here.";
 
+/** Said of every instruction field: the agent reads it, no caller hears it (PIP-06). */
+export const INSTRUCTION_FIELD_HELP =
+  "Written in plain English for the agent to follow; callers never hear these words.";
+
 /** The agent's role: plain English instructions, not a brochure. */
 export const IDENTITY_COPILOT_HELP =
   "Who the agent is and its job on the phone, in one or two plain English sentences " +
@@ -115,7 +119,13 @@ export function scriptCopilotFields(
 ): CopilotField[] {
   // The lines callers hear, as against the instructions the in-call model reads (D-832).
   const spoken = (field: CopilotField): CopilotField => (language ? { ...field, spokenLanguage: language } : field);
-  const instruction = (field: CopilotField): CopilotField => ({ ...field, instruction: true });
+  // Every instruction box says what it is, so Pip never writes it as a line for callers
+  // (PIP-06).
+  const instruction = (field: CopilotField): CopilotField => ({
+    ...field,
+    instruction: true,
+    help: field.help ? `${INSTRUCTION_FIELD_HELP} ${field.help}` : INSTRUCTION_FIELD_HELP,
+  });
   if (raw) {
     return [
       spoken({

@@ -76,6 +76,7 @@ import {
 } from "@/lib/api/script";
 
 import { OpeningEditor, StrictnessSection } from "./ScriptSections";
+import { OpeningRewritten } from "./OpeningRewritten";
 import { ScriptParts } from "./ScriptParts";
 import { PipAsk, WHOLE_REQUEST } from "./PipAsk";
 import { PipProposal } from "./PipProposal";
@@ -666,6 +667,13 @@ function Editor({
               />
             </section>
           ) : (
+            <>
+            <OpeningRewritten
+              session={session}
+              agentId={agentId}
+              script={script}
+              both={context?.direction === "both"}
+            />
             <fieldset disabled={!write.allowed} className="min-w-0">
               <legend className="sr-only">How the call opens</legend>
               <OpeningEditor
@@ -682,6 +690,7 @@ function Editor({
                 }
               />
             </fieldset>
+            </>
           )}
           </div>
           {!raw && (

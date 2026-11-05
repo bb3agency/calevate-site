@@ -314,7 +314,10 @@ export function OpeningEditor({
     {
       id: "opening_line",
       title: both ? "When it answers" : "Opening line",
-      hint: both ? "Its first words to a caller. Keep it short." : "Its first words, after any notices. Keep it short.",
+      // D-971: a notice switched on is woven into this line when it goes live.
+      hint: both
+        ? "First words to a caller. Pip adds any notice you switch on."
+        : "Its first words. Pip adds any notice you switch on.",
       value: script.opening_line,
       maxChars: room,
       placeholder: "For example: Namaskaram andi, cheppandi, em kavali?",

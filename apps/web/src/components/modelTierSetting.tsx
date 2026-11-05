@@ -60,6 +60,9 @@ const COPY: Record<
   },
 };
 
+/** The default's tier, running now, that the catalogue does not offer as a choice of its own. */
+export const IN_USE_THROUGH_DEFAULT = "In use through the default; not offered on its own.";
+
 type ModelTierSettingProps = {
   mode: ModelTierMode;
   /** Scopes the radio group. */
@@ -139,7 +142,14 @@ function TierChoice({
       detail: option.description,
       surcharge: option.client_surcharge_inr_per_minute,
       baseline: saved !== null && option.tier === saved,
-      unavailable: tierUnavailableReason(option),
+      // The tier the default runs today is running, whatever the catalogue says about
+      // picking it on its own; "not switched on" beside "running now" was two states (A-24).
+      unavailable:
+        tierUnavailableReason(option) === null
+          ? null
+          : saved === null && option.tier === catalogue.effective_tier
+            ? IN_USE_THROUGH_DEFAULT
+            : tierUnavailableReason(option),
     })),
   ];
 

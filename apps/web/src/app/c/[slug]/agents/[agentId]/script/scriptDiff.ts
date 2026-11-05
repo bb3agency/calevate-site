@@ -140,6 +140,21 @@ export function diffScripts(before: CallScript, after: CallScript): Change[] {
 }
 
 /**
+ * Does keeping `change` take away something the owner has: a removed step, or a part the
+ * suggestion leaves empty? Such rows start unticked, so one "Keep" never deletes the
+ * owner's work they did not look at (A-04).
+ */
+export function removesContent(change: Change): boolean {
+  if (change.kind === "section-removed") return true;
+  return change.kind === "part" && change.before.trim() !== "" && change.after.trim() === "";
+}
+
+/** The rows ticked when a suggestion opens: every change but the ones that remove content. */
+export function keptAtFirst(changes: readonly Change[]): Set<string> {
+  return new Set(changes.filter((c) => !removesContent(c)).map((c) => c.id));
+}
+
+/**
  * The owner's script with only the kept changes applied. Ways out that point at a section
  * the result does not have are dropped (a discarded addition, a kept removal), so the
  * result is always a script the server accepts.
@@ -183,6 +198,12 @@ export function applyTraced(
     if (change.kind === "part") {
       const part = change.part;
       next = { ...next, [part]: edited[part] } as CallScript;
+      // Pip's record of the notice words it wove into an opening travels with that line;
+      // the server counts it only while the line is unchanged (D-971).
+      if (part === "opening_line") next = { ...next, opening_notices: proposal.opening_notices };
+      if (part === "outbound_opening_line") {
+        next = { ...next, outbound_opening_notices: proposal.outbound_opening_notices };
+      }
     } else if (change.kind === "section-removed") {
       sections = sections.filter((s) => s.id !== change.before.id);
     }

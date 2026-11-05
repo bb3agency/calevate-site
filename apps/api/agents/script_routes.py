@@ -1432,6 +1432,7 @@ async def request_opening_after_introduction(
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
         requested_by=principal.user_id,
+        replace_ready=False,
     )
     return _proposal_out(proposal)
 
@@ -1512,6 +1513,7 @@ async def rewrite_starter_script(
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
         requested_by=principal.user_id,
+        replace_ready=False,
     )
     return _proposal_out(proposal)
 
@@ -1521,42 +1523,65 @@ class FixLinesIn(BaseModel):
 
     #: The draft on screen, saved as the working copy so the fix is made to what was checked.
     script: CallScript
+    #: The draft's `saved_at` the screen holds (null: there was no draft). When sent, the save
+    #: is refused with `script_changed_elsewhere` (409) if the stored draft moved since.
+    base_saved_at: datetime | None = None
+
+
+class FixLinesOut(ScriptProposalOut):
+    #: When the draft the fix is made to was saved: the `base_saved_at` to keep the fix with.
+    draft_saved_at: datetime
 
 
 @router.post(
     "/fix-lines",
-    response_model=ScriptProposalOut,
+    response_model=FixLinesOut,
     status_code=202,
     openapi_extra=permission_meta("org:manage"),
     summary="Fix the lines the script check found, before putting it live",
     description=(
         '"Fix them first" on Put it live. Saves `script` as the working copy, runs the same '
-        "check as `POST .../check` on it and asks for a suggestion that fixes exactly those "
-        "lines and changes nothing else; poll `GET .../proposal` until it is `ready`. "
-        "Refused with `script_has_nothing_to_fix` when the check finds nothing."
+        "check as `POST .../check` on it and asks for a suggestion that changes only the "
+        "lines the check named; poll `GET .../proposal` until it is `ready`, then show it "
+        "to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` "
+        "when the check finds nothing, `fix_lines_hand_written` for a script written as one "
+        "text, and `script_suggestion_waiting` while another suggestion waits for review."
     ),
 )
 async def fix_script_lines(
     agent_id: UUID, payload: FixLinesIn, session: Session, principal: ScriptWriter
-) -> ScriptProposalOut:
+) -> FixLinesOut:
     assert principal.tenant_id is not None
     assert principal.user_id is not None
     # Spends the dashboard AI allowance like any suggestion Pip writes.
     assert_view_as_may(principal, "billing.ai_assist")
+    if payload.script.raw_override is not None:
+        # The writer edits a script in steps; handed one text it returned steps written from
+        # nothing in place of the owner's words (A-01).
+        raise ProblemError.business_rule(
+            "fix_lines_hand_written",
+            "Pip cannot fix lines in a script written as one text.",
+            remediation="Edit those lines in the text yourself, or turn it into steps first.",
+        )
     await require_ai_assist(session, tenant_id=principal.tenant_id)
     script = upgrade_to_v2(payload.script)
     context = await lint_context_for(session, tenant_id=principal.tenant_id, agent_id=agent_id)
-    found = [plain(problem) for problem in script_problems(script, replace(context, promo=False))]
-    if not found:
+    problems = script_problems(script, replace(context, promo=False))
+    if not problems:
         raise ProblemError.conflict(
             "script_has_nothing_to_fix",
             "The check finds nothing to fix in this script.",
             remediation="Put it live as it is.",
         )
-    await script_builder.save_draft(session, agent_id, payload.script)
+    if "base_saved_at" in payload.model_fields_set:
+        saved_at = await script_builder.save_draft(
+            session, agent_id, payload.script, base_saved_at=payload.base_saved_at
+        )
+    else:
+        saved_at = await script_builder.save_draft(session, agent_id, payload.script)
     change = (
         "Fix only these problems the script check found, and change nothing else: "
-        + " ".join(found)
+        + " ".join(plain(problem) for problem in problems)
     )[: script_proposals.MAX_CHANGE_CHARS]
     proposal = await script_proposals.request_proposal(
         session,
@@ -1566,8 +1591,10 @@ async def fix_script_lines(
         change=change,
         answers={},
         requested_by=principal.user_id,
+        paths=sorted({problem.partition(": ")[0] for problem in problems}),
+        replace_ready=False,
     )
-    return _proposal_out(proposal)
+    return FixLinesOut(**_proposal_out(proposal).model_dump(), draft_saved_at=saved_at)
 
 
 class PublishIn(BaseModel):
@@ -1657,17 +1684,27 @@ async def script_versions(
     ]
 
 
+class RestoredOut(DraftOut):
+    #: The draft the restore replaced (null: there was none), so the screen can undo it by
+    #: saving it back with `saved_at` as the base.
+    replaced: CallScript | None = None
+
+
 @router.post(
     "/versions/{version}/restore",
-    response_model=DraftOut,
+    response_model=RestoredOut,
     openapi_extra=permission_meta("org:manage"),
     summary="Copy an earlier version into the draft (callers keep the live one)",
 )
 async def restore_script_version(
     agent_id: UUID, version: int, session: Session, principal: ScriptWriter
-) -> DraftOut:
-    draft = await script_builder.restore_into_draft(session, agent_id, version)
-    return DraftOut(script=draft.script, saved_at=draft.saved_at)
+) -> RestoredOut:
+    restored = await script_builder.restore_into_draft(session, agent_id, version)
+    return RestoredOut(
+        script=restored.draft.script,
+        saved_at=restored.draft.saved_at,
+        replaced=restored.replaced,
+    )
 
 
 @router.post(
@@ -1695,6 +1732,7 @@ async def rewrite_opening_in_language(
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
         requested_by=principal.user_id,
+        replace_ready=False,
     )
     return _proposal_out(proposal)
 
@@ -1756,6 +1794,49 @@ async def replace_opening_line(
                 ip=client_request_ip(request),
                 summary={"version": done.version, "when": payload.when},
             )
+    return OpeningLineOut(opening_line=done.opening_line, when=payload.when, version=done.version)
+
+
+class PutBackOpeningIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    when: Literal["answers", "calls"] = "answers"
+
+
+@router.post(
+    "/opening-line/put-back",
+    response_model=OpeningLineOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Put back the opening line Pip rewrote to say the notices, and put it live",
+    description=(
+        "The Undo for the notice writer (D-971): the opening line it replaced goes live "
+        "again and is not rewritten on the next publish; the stored notice sentences are said "
+        "beside it. Refused when the line has changed since it was rewritten, or while other "
+        "script changes are waiting to go live."
+    ),
+)
+async def put_back_opening_line(
+    agent_id: UUID, payload: PutBackOpeningIn, request: Request, principal: ScriptWriter
+) -> OpeningLineOut:
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as session:
+        done = await script_builder.put_back_opening_line(
+            session,
+            tenant_id=principal.tenant_id,
+            agent_id=agent_id,
+            created_by=principal.user_id,
+            placed=payload.when == "calls",
+        )
+        await write_audit(
+            session,
+            action="agent.opening_line_put_back",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            summary={"version": done.version, "when": payload.when},
+        )
     return OpeningLineOut(opening_line=done.opening_line, when=payload.when, version=done.version)
 
 

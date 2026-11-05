@@ -124,6 +124,7 @@ from calevate_shared.engine import (
     placed_call_first_words,
     placed_call_line,
     said_as_taught,
+    said_notices,
     spoken_ai_notice,
     truthful_answer_directive,
 )
@@ -4083,6 +4084,7 @@ def lead_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
         language=language,
         # The agent's name only, as on any placed call (`placed_call_first_words`).
         names=introduction_names(name=str(agent["name"]), business="", body=body),
+        said=said_notices(body, business=business, placed=agent["direction"] == "both"),
     )
 
 

@@ -11,7 +11,9 @@ import pytest
 from apps.api.agents import script_proposals
 from apps.api.db.session import tenant_session
 from apps.workers import script_proposal as worker
+from apps.workers.opening_line import WrittenOpening
 from calevate_shared.call_script import CallScript
+from calevate_shared.opening_notices import NONE_SAID
 from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
@@ -101,7 +103,7 @@ async def test_an_opening_suggestion_is_written_to_follow_the_introduction(
         seen["introduced"] = brief.introduced
         seen["problems"] = kwargs["problems"]
         return SimpleNamespace(
-            value="ఏ ఇల్లు చూస్తున్నారు అండి?",
+            value=WrittenOpening(line="ఏ ఇల్లు చూస్తున్నారు అండి?", said=NONE_SAID),
             capability=SimpleNamespace(disclosure=None),
             usage=None,
             model="gemini-2.5-flash-lite",

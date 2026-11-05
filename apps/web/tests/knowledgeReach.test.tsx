@@ -261,7 +261,7 @@ describe("what the agents know, grouped", () => {
 
   it("invites the first fact when there is nothing at all", async () => {
     await renderKnowledge();
-    expect(await screen.findByText("Your agents don’t know anything yet")).toBeTruthy();
+    expect(await screen.findByText("Nothing added to Knowledge yet")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /^Links/ })).toBeNull();
   });
 });

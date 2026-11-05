@@ -37,7 +37,12 @@ from apps.api.first_run.documents import document_words, read_documents
 from apps.api.kb.service import knowledge_agents
 from apps.workers.extraction import TenantModelLeg
 from apps.workers.first_run import documents_block
-from apps.workers.opening_line import opening_problems, rewrite_problem, write_opening
+from apps.workers.opening_line import (
+    WrittenOpening,
+    opening_problems,
+    rewrite_problem,
+    write_opening,
+)
 from apps.workers.script_assist import (
     CONVERT_INSTRUCTION,
     JsonAnswer,
@@ -129,12 +134,23 @@ async def _introduced_opening(
         quota_exhausted=quota_exhausted,
     )
     return ScriptDraft(
-        script=base.model_copy(update={"opening_line": answer.value}),
+        script=with_opening(base, answer.value, placed=False),
         capability=answer.capability,
         usage=answer.usage,
         model=answer.model,
         earlier=answer.earlier,
     )
+
+
+def with_opening(script: CallScript, written: WrittenOpening, *, placed: bool) -> CallScript:
+    """`script` with `written` as its opening line (`placed`: the one for calls it places)
+    and the words in it that say each notice kept beside it (D-971)."""
+    field, notices = (
+        ("outbound_opening_line", "outbound_opening_notices")
+        if placed
+        else ("opening_line", "opening_notices")
+    )
+    return script.model_copy(update={field: written.line, notices: written.notices()})
 
 
 def _written_problems(line: str, field: str, brief: ScriptBrief) -> list[str]:
@@ -175,7 +191,7 @@ async def _written_opening(
         quota_exhausted=quota_exhausted,
     )
     return ScriptDraft(
-        script=base.model_copy(update={"opening_line": answer.value}),
+        script=with_opening(base, answer.value, placed=False),
         capability=answer.capability,
         usage=answer.usage,
         model=answer.model,
@@ -270,7 +286,7 @@ def openings_kept(script: CallScript, base: CallScript) -> CallScript:
 
 async def _opening_repaired(
     tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal, script: CallScript
-) -> tuple[CallScript, list[JsonAnswer[str] | ProblemError]]:
+) -> tuple[CallScript, list[JsonAnswer[WrittenOpening] | ProblemError]]:
     """The proposal's script with each opening line the model wrote that breaks the opening
     rule repaired by the opening writer, as onboarding's are (`first_run._write_greeting`,
     `first_run._write_placed_opening`), and what the repairs spent. A conversion keeps the
@@ -301,7 +317,7 @@ async def _opening_repaired(
         placed_line = script.outbound_opening_line.strip()
         both = context.direction == "both"
         judged = [("outbound_opening_line", True, placed_line)] if both else []
-    spends: list[JsonAnswer[str] | ProblemError] = []
+    spends: list[JsonAnswer[WrittenOpening] | ProblemError] = []
     for field, placed, line in judged:
         problems = (
             _written_problems(line, field, context)
@@ -333,7 +349,7 @@ async def _opening_repaired(
             spends.append(refused)
             continue
         spends.append(answer)
-        script = script.model_copy(update={field: answer.value})
+        script = with_opening(script, answer.value, placed=placed)
     return script, spends
 
 
@@ -380,16 +396,20 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         await _fail(tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE)
         return "failed"
 
+    drafted = draft.script
+    if proposal.paths:
+        # A fix changes the lines the check named and nothing else (A-02).
+        drafted = script_proposals.kept_to_paths(drafted, proposal.base_script, proposal.paths)
+    elif proposal.mode == script_proposals.KNOWLEDGE_MODE:
+        drafted = script_proposals.emptied_kept(drafted, proposal.base_script)
     try:
-        script, opening_spends = await _opening_repaired(
-            tenant_id, agent_id, proposal, draft.script
-        )
+        script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, drafted)
     except Exception:
         # The draft is already paid for: a failure in the optional opening repair must not
         # lose its meter row (hard rule 7) nor leave the request `drafting` until it goes
         # stale. The proposal is stored as drafted, for the owner to review.
         log.exception("script_proposal_opening_crashed", extra={"agent_id": str(agent_id)})
-        script, opening_spends = draft.script, []
+        script, opening_spends = drafted, []
     unplaced = (
         unplaced_lines(proposal.base_script.raw_override or "", draft.script)
         if proposal.mode == "steps"
@@ -414,7 +434,7 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
                 session, tenant_id=tenant_id, agent_id=agent_id, proposal=proposal, script=script
             )
         )
-        spends: list[ScriptDraft | JsonAnswer[str] | ProblemError | None] = [
+        spends: list[ScriptDraft | JsonAnswer[WrittenOpening] | ProblemError | None] = [
             draft,
             *opening_spends,
         ]

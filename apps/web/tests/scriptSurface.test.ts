@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  INSTRUCTION_FIELD_HELP,
   OPENING_LINE_COPILOT_HELP,
   RAW_SCRIPT_COPILOT_HELP,
   PUT_LIVE,
@@ -78,9 +79,17 @@ describe("the structured-mode steer", () => {
 
   it("carries the task-flow steer on every existing stage row", () => {
     const fields = scriptCopilotFields(STRUCTURED, false);
-    expect(helpFor(fields, "script-stages-0-instruction")).toBe(STEP_COPILOT_HELP);
-    expect(helpFor(fields, "script-stages-1-instruction")).toBe(STEP_COPILOT_HELP);
+    expect(helpFor(fields, "script-stages-0-instruction")).toContain(STEP_COPILOT_HELP);
+    expect(helpFor(fields, "script-stages-1-instruction")).toContain(STEP_COPILOT_HELP);
     expect(STEP_COPILOT_HELP.toLowerCase()).toContain("hint");
+  });
+
+  it("says on every instruction field that it is plain English for the agent (PIP-06)", () => {
+    const fields = scriptCopilotFields(STRUCTURED, false, "te-IN");
+    const instructions = fields.filter((f) => f.instruction);
+    expect(instructions.length).toBeGreaterThan(0);
+    for (const field of instructions) expect(field.help).toContain(INSTRUCTION_FIELD_HELP);
+    expect(fields.filter((f) => !f.instruction).some((f) => f.help?.includes(INSTRUCTION_FIELD_HELP))).toBe(false);
   });
 
   it("declares the sections, then each stage, push-back and quick-fact row", () => {

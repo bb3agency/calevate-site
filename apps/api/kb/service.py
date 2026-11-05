@@ -563,7 +563,7 @@ async def submit_source(
             ),
             remediation=(
                 "Paste the wording you want the agent to use into the text box. Write it "
-                "the way you would tell a new receptionist."
+                "the way you would tell a new member of your team."
             ),
             status=422,
         )

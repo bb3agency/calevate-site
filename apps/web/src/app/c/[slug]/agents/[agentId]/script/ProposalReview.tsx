@@ -26,7 +26,15 @@ import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
 
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
-import { applyTraced, diffScripts, partText, type Change, type PartKey } from "./scriptDiff";
+import {
+  applyTraced,
+  diffScripts,
+  keptAtFirst,
+  partText,
+  removesContent,
+  type Change,
+  type PartKey,
+} from "./scriptDiff";
 import {
   DEFAULT_LIMITS,
   sectionReadable,
@@ -84,7 +92,8 @@ export function ProposalReview({
   children?: ReactNode;
 }) {
   const changes = useMemo(() => diffScripts(base ?? current, proposal), [base, current, proposal]);
-  const [kept, setKept] = useState<Set<string>>(() => new Set(changes.map((c) => c.id)));
+  // A removal starts unticked: the owner keeps it only after looking at it (A-04).
+  const [kept, setKept] = useState<Set<string>>(() => keptAtFirst(changes));
   // The proposal as the owner reworded it. The parent keys this component by proposal id,
   // so a new suggestion always starts from Pip's own words.
   const [edited, setEdited] = useState<CallScript>(proposal);
@@ -429,11 +438,12 @@ export function headline(change: Change): string {
 export function kindLabel(change: Change): string {
   switch (change.kind) {
     case "part":
+      if (removesContent(change)) return "Pip removes this";
       return change.before ? "Changed" : "Added";
     case "section-added":
       return "New step";
     case "section-removed":
-      return "Step removed";
+      return "Pip removes this step";
     case "section-changed":
       return "Step changed";
   }

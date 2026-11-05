@@ -3,7 +3,7 @@
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Disclosure, formatCountOf } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useUseCallInstructions, type KbUpload } from "@/lib/api/kb";
+import { useUseCallInstructions, type KbUpload, type UseInstructionsResult } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
 
 /**
@@ -43,19 +43,36 @@ export function CallInstructions({ upload, agent }: { upload: KbUpload; agent?: 
   );
 }
 
+/**
+ * What was sent, as the server counted it (A-11). An agent with a suggestion the owner asked
+ * for still waiting, or a script written as one text, is skipped
+ * (`script_proposals.request_knowledge_proposal`); nothing sent is never said as sent.
+ */
+export function sentLine(result: UseInstructionsResult, agentName?: string): string {
+  const { agents, skipped } = result;
+  if (agents === 0) {
+    return agentName ? `Not sent to ${agentName}. See its Script page.` : "Not sent to any agent. See their Script pages.";
+  }
+  const sent = agentName
+    ? `Suggestion on ${agentName}'s Script page soon`
+    : `Sent to ${formatCountOf(agents, "agent")}. Suggestion soon.`;
+  return skipped > 0 ? `${sent} ${skipped} not sent.` : sent;
+}
+
 function UseButton({ upload, agent }: { upload: KbUpload; agent?: { id: string; name: string } }) {
   const session = useClientSession();
   const send = useUseCallInstructions(session);
   const feedback = useActionFeedback(send, {
     errorDisplay: "toast",
-    successToast: agent ? `Suggestion on ${agent.name}'s Script page soon` : "Suggestion on each Script page soon",
+    successToast: (result) => sentLine(result, agent?.name),
   });
+  const nothingSent = send.data?.agents === 0;
   return (
     <ActionButton
       variant="secondary-sm"
       status={feedback.status}
       pendingLabel="Sending…"
-      successLabel="Sent"
+      successLabel={nothingSent ? "Not sent" : "Sent"}
       onClick={() => feedback.run({ uploadId: upload.id, agentId: agent?.id })}
     >
       {agent ? `Use in ${agent.name}'s script` : "Use in call scripts"}

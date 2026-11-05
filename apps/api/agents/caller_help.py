@@ -4,8 +4,9 @@ Two settings exist for that caller: the screen guide (D-906, `caller_has_screen`
 the agent name what is on the caller's screen and give one step at a time, and "Give callers
 time" (D-907, `agents/patient_caller`), which stops the agent hanging up on a caller who has
 gone quiet to do what it asked. Whether an agent needs them depends on what THAT agent does:
-Rytu Khata's agent that walks farmers through installing an app needs both; the same
-account's receptionist needs neither. So the judgement reads the agent, not the business:
+an agent that walks callers through installing an app needs both, and another agent of the
+same business that only answers questions needs neither. So the judgement reads the agent,
+not the business:
 
 * its latest saved script (who it is, what it is for, its steps and small steps, its FAQs);
 * the purpose and goal of its campaigns;

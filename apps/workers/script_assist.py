@@ -50,9 +50,11 @@ from calevate_shared.call_script import (
     MAX_SCRIPT_FAQS,
     MAX_SCRIPT_OBJECTIONS,
     MAX_SCRIPT_STAGES,
+    NOTICE_RECORDS,
     PROCEDURE_STEP_MAX,
     PROCEDURE_WAIT_MAX,
     SCRIPT_SCHEMA_VERSION,
+    SPECIAL_TARGETS,
     STAGE_DETAIL_MAX,
     CallScript,
     ConversationStage,
@@ -143,12 +145,12 @@ _SYSTEM_INSTRUCTION = (
     "address_form, stage instructions and exit conditions, objection responses, ending) in "
     "plain English letters, never in the call language's script, even when the call is in "
     "Telugu or Hindi. identity is one plain-English sentence describing the agent's job in "
-    "this business's terms (a shop: \"Answers calls for the shop: products, prices, orders and "
-    'delivery"; an app\'s helpline: "Helps registered users with the app, one step at a '
-    'time"), never just the business name. Write the words the agent will SAY (opening_line, '
+    "this business's own terms, taken from the brief, never just the business name. Write "
+    "the words the agent will SAY (opening_line, "
     "sounds_like, sample_phrases, example_exchange) in the call language as people really "
     "speak it on the phone, every word in the script that language is normally written in, "
-    "the English words they use too (Telugu: ఆర్డర్, డెలివరీ, బుకింగ్; Hindi: ऑर्डर, डिलीवरी), "
+    "the English words they use too, written in that script as the spoken-style guide "
+    "shows, "
     "never formal written language. Follow the spoken-style guide in the brief exactly: use "
     "the spoken word and never its formal form, use its tags and fillers lightly, say "
     "prices, quantities and times as its number rules say, and copy how its example "
@@ -382,13 +384,16 @@ def edited_script(
     introduced: bool = False,
     lint: LintContext | None = None,
     woven: WovenNotices | None = None,
+    lenient: bool = False,
 ) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
     script (the edit is then reported as no draft rather than half applied). A field the
     model changed must keep the language rules (`language_problems`); what the owner already
-    had is never judged."""
+    had is never judged. `lenient` (an answer after the repair): a line still breaking a
+    rule is put back to the owner's, and the rest is kept."""
     fields = _stages_where_they_belong(
-        {k: v for k, v in raw.items() if k in CallScript.model_fields}, current
+        {k: v for k, v in raw.items() if k in CallScript.model_fields and k not in NOTICE_RECORDS},
+        current,
     )
     try:
         edited = CallScript.model_validate({**current.model_dump(), **fields})
@@ -417,10 +422,59 @@ def edited_script(
         lint=lint,
         woven=woven,
     )
+    if problems and lenient:
+        # After the one repair: the lines still breaking a rule go back to the owner's, and
+        # the rest of the change is kept (A-07), rather than the owner getting nothing.
+        edited = owners_where(edited, current, problems)
+        if edited == current:
+            raise UnusableAnswerError("; ".join(problems[:12]))
+        log.info("script_assist_lines_put_back", extra={"count": len(problems)})
+        problems = []
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
         raise UnusableAnswerError("; ".join(problems[:12]))
     return edited.model_copy(update={"raw_override": None, "schema_version": 2})
+
+
+def owners_where(edited: CallScript, current: CallScript, problems: Sequence[str]) -> CallScript:
+    """`edited` with each part a problem names put back as `current` has it: a step by its
+    id (a step the model added is dropped), any other part whole. A problem names its part
+    first ("stages.2.instruction: ...")."""
+    stages = list(edited.stages)
+    update: dict[str, Any] = {}
+    for problem in problems:
+        path = problem.partition(": ")[0].split(".")
+        part = path[0]
+        if part == "stages" and len(path) > 1 and path[1].isdigit():
+            index = int(path[1])
+            if index >= len(edited.stages):
+                continue
+            stage_id = edited.stages[index].id
+            owned = next((s for s in current.stages if s.id == stage_id), None)
+            stages = [
+                kept for s in stages if (kept := (owned if s.id == stage_id else s)) is not None
+            ]
+            update["stages"] = stages
+        elif part in CallScript.model_fields and part not in NOTICE_RECORDS:
+            update[part] = getattr(current, part)
+    if not update:
+        return edited
+    restored = edited.model_copy(update=update)
+    # A way out to a step that was dropped would be refused at save; it points nowhere now.
+    ids = {s.id for s in restored.stages} | SPECIAL_TARGETS
+    return restored.model_copy(
+        update={
+            "stages": [
+                s.model_copy(
+                    update={
+                        "otherwise": s.otherwise if s.otherwise in ids else "",
+                        "branches": [b for b in s.branches if b.target in ids],
+                    }
+                )
+                for s in restored.stages
+            ]
+        }
+    )
 
 
 #: The ceiling on ONE draft answer, in tokens: a safety valve on a runaway generation, which
@@ -1352,9 +1406,9 @@ async def draft_script(
         instruction = EDIT_INSTRUCTION
         description = (
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
-            f"{edit_of.model_dump_json(exclude={'raw_override'})}"
+            f"{edit_of.model_dump_json(exclude={'raw_override', *NOTICE_RECORDS})}"
         )
-        parse = partial(
+        strict = partial(
             edited_script,
             current=edit_of,
             language=full.language,
@@ -1364,6 +1418,16 @@ async def draft_script(
             lint=full.lint_context(),
             woven=full.woven,
         )
+        answers = 0
+
+        def parse_edit(raw: dict[str, Any]) -> CallScript | None:
+            # The first answer is sent back with its problems for the one repair; a later
+            # one keeps what it got right (A-07).
+            nonlocal answers
+            answers += 1
+            return strict(raw, lenient=answers > 1)
+
+        parse = parse_edit
     else:
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
         # so only a textbook word the owner did not write is the model's to fix.
