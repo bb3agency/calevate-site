@@ -3864,6 +3864,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # (D-869): the account's own state, gone with it.
         await session.execute(text("DELETE FROM announcement_dismissals"))
         await session.execute(text("DELETE FROM notification_reads"))
+        # Requests for more calls at once: the account's own asks and our answers.
+        await session.execute(text("DELETE FROM call_line_requests"))
         # Pip's notes (D-936): ids and counts about this account, gone with it.
         await session.execute(text("DELETE FROM copilot_notes"))
         # The teach box and the improvement loop: saved tests hold callers' redacted lines,

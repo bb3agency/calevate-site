@@ -4272,6 +4272,10 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       "/v1/admin/me": ADMIN_ME,
       "/v1/admin/compliance/holds": [HELD_TENANT],
+      // A client asking for more lines, so the bell's per-client row is swept.
+      "/v1/admin/call-line-requests": [
+        { tenant_id: "t1", name: "Acme", lines_at_request: 2, wanted_lines: 4, created_at: "2026-11-05T06:30:00Z" },
+      ],
     },
   },
   {

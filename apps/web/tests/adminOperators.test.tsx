@@ -22,6 +22,7 @@ import {
   type Operator,
 } from "@/lib/api/adminOperators";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import {
@@ -319,6 +320,7 @@ describe("the nav entry that reaches this screen", () => {
     const shell = (identity: unknown): Routes => ({
       [ADMIN_ME_PATH]: identity,
       [HOLDS_PATH]: [],
+      [OPEN_CALL_LINE_REQUESTS_PATH]: [],
       [KYC_REVIEWS_PATH]: [],
     });
 

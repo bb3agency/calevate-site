@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import HeldAccountsPage from "@/app/admin/holds/page";
 import { HOLDS_PATH, type HeldTenant } from "@/lib/api/holds";
+import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 
 import { browserOffline, problem, renderAdminPage } from "./harness";
 
@@ -138,6 +139,7 @@ describe("the hold queue", () => {
   it("says nobody is waiting, in words, when nobody is", async () => {
     const { container } = renderAdminPage(<HeldAccountsPage />, {
       [HOLDS_PATH]: [],
+      [OPEN_CALL_LINE_REQUESTS_PATH]: [],
     });
 
     await screen.findByText("Nobody is waiting on us");

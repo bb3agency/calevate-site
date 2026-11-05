@@ -445,6 +445,12 @@ ERASURE_EXEMPT: dict[str, str] = {
 #: reaches fails, and so does one that duplicates `ERASURE_EXEMPT`.
 ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
     "execute_deletion_request": {
+        "call_line_requests": (
+            "The BUSINESS asking Calevate for more calls at once: a number, a short note from "
+            "the account's owner to us, and our answer. It is about the account's capacity, "
+            "never about a caller, so a caller's deletion request has nothing to match here. "
+            "The rows end with the engagement, which `execute_tenant_erasure` covers."
+        ),
         "agent_rule_proposals": (
             "A rule the owner taught for one agent's script (how the agent should behave), "
             "the business's own instruction and never a caller's words; a caller's deletion "

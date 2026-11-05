@@ -35,6 +35,7 @@ import {
   SkipLink,
 } from "@/components/ui";
 import { useHeldTenants, useTenant } from "@/lib/api/admin";
+import { callLinesPagePath, useOpenCallLineRequests } from "@/lib/api/callLines";
 import { useKycReviewQueue } from "@/lib/api/kycReview";
 import { NotificationCenter } from "@/components/arc/notification-center";
 import { ApiProblem } from "@/lib/api/client";
@@ -377,9 +378,11 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
 /**
  * The header's bell: everything waiting on an operator, one number, one list.
  *
- * Two queues feed it: held accounts (`admin/holds.py`) and identity checks waiting for a
- * reviewer (`compliance/kyc_admin_routes.kyc_review_queue`). Both are things nobody opens
- * unprompted, which is why they belong in shell chrome rather than only in the sidebar.
+ * Three queues feed it: held accounts (`admin/holds.py`), clients asking for more calls at
+ * once (`tenancy/call_line_requests`, one row per client, linking to its control), and
+ * identity checks waiting for a reviewer (`compliance/kyc_admin_routes.kyc_review_queue`).
+ * All are things nobody opens unprompted, which is why they belong in shell chrome rather
+ * than only in the sidebar.
  * Each reuses its screen's query key, so the bell adds no request of its own.
  *
  * "We do not know" is never shown as "none" (§52): a queue whose read failed marks the
@@ -392,9 +395,16 @@ function AttentionBell() {
   const mayReview = adminAccess(me, "admin:tenants", "open the identity review queue").allowed;
   const held = useHeldTenants();
   const reviews = useKycReviewQueue({ enabled: mayReview });
+  const lineRequests = useOpenCallLineRequests();
 
   const queues: AttentionQueue[] = [
     { label: "Held accounts", href: "/admin/holds", count: held.data?.length, failed: held.error != null },
+    {
+      label: "Requests for more call lines",
+      href: null,
+      count: lineRequests.data?.length,
+      failed: lineRequests.error != null,
+    },
     ...(mayReview
       ? [
           {
@@ -428,30 +438,47 @@ function AttentionBell() {
       errorText="We could not read the queues."
       onRetry={() => {
         void held.refetch();
+        void lineRequests.refetch();
         if (mayReview) void reviews.refetch();
       }}
       partial={failed && !allFailed}
       count={settled ? total : undefined}
-      items={queues.map((queue) => ({
-        id: queue.href,
-        title: queue.label,
-        href: queue.href,
-        tone: queue.failed ? "warn" : queue.count ? "danger" : "default",
-        meta: queue.failed
-          ? "Could not read"
-          : queue.count === undefined
-            ? "…"
-            : queue.count === 0
-              ? "None"
-              : `${queue.count} waiting`,
-      }))}
+      items={queues.flatMap((queue) =>
+        // A client asking for more lines is one row each, whose link opens that client's
+        // control at the number asked for: the operator acts from the bell, not a list.
+        queue.href === null && lineRequests.data && lineRequests.data.length > 0
+          ? lineRequests.data.map((ask) => ({
+              id: `call-lines:${ask.tenant_id}`,
+              title: `Raise ${ask.name}'s call lines`,
+              href: callLinesPagePath(ask.tenant_id),
+              tone: "danger" as const,
+              meta: `${ask.lines_at_request} → ${ask.wanted_lines ?? "more"}`,
+              at: ask.created_at,
+            }))
+          : [
+              {
+                id: queue.href ?? queue.label,
+                title: queue.label,
+                href: queue.href,
+                tone: queue.failed ? ("warn" as const) : queue.count ? ("danger" as const) : ("default" as const),
+                meta: queue.failed
+                  ? "Could not read"
+                  : queue.count === undefined
+                    ? "…"
+                    : queue.count === 0
+                      ? "None"
+                      : `${queue.count} waiting`,
+              },
+            ],
+      )}
     />
   );
 }
 
 interface AttentionQueue {
   label: string;
-  href: string;
+  /** Null for a queue with no page of its own; its rows link to each client instead. */
+  href: string | null;
   /** `undefined` until the queue answers. Never coalesced to 0: see `AttentionBell`. */
   count: number | undefined;
   failed: boolean;

@@ -7,6 +7,7 @@ import AdminLayout from "@/app/admin/layout";
 import ClientRealmLayout from "@/app/c/[slug]/layout";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import {
@@ -59,6 +60,7 @@ function adminRoutes(over: Partial<Routes> = {}): Routes {
   return {
     [ADMIN_ME_PATH]: ADMIN_ME,
     [HOLDS_PATH]: [],
+    [OPEN_CALL_LINE_REQUESTS_PATH]: [],
     [KYC_REVIEWS_PATH]: [],
     "/v1/admin/tenants": [],
     ...over,
@@ -161,6 +163,20 @@ describe("the admin shell's bell (held accounts and identity checks)", () => {
     expect(screen.getByText("2 waiting")).toBeTruthy();
   });
 
+  it("lists a client asking for more lines with a link to raise them", async () => {
+    renderAdminShell({
+      [OPEN_CALL_LINE_REQUESTS_PATH]: [
+        { tenant_id: "t7", name: "Sri Estates", lines_at_request: 2, wanted_lines: 4, created_at: "2026-11-05T06:30:00Z" },
+      ],
+    });
+
+    const button = await screen.findByLabelText("Waiting on us: 1");
+    act(() => button.click());
+    const row = await screen.findByText("Raise Sri Estates's call lines");
+    expect(row.closest("a")?.getAttribute("href")).toBe("/admin/tenants/t7/numbers?focus=call-lines");
+    expect(screen.getByText("2 → 4")).toBeTruthy();
+  });
+
   it("never asks for identity checks an operator may not review", async () => {
     // No stub for the review queue: a request for it would fail the read and mark "?".
     renderAdminPage(
@@ -170,6 +186,7 @@ describe("the admin shell's bell (held accounts and identity checks)", () => {
       {
         [ADMIN_ME_PATH]: { ...ADMIN_ME, role: "support", permissions: ["org:read"] },
         [HOLDS_PATH]: HELD,
+        [OPEN_CALL_LINE_REQUESTS_PATH]: [],
         "/v1/admin/tenants": [],
       },
     );

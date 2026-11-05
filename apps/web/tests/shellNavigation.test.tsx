@@ -9,6 +9,7 @@ import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { MAIN_CONTENT_ID } from "@/components/ui";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 import { CLIENT_ACCOUNT_PATH } from "@/lib/authn/clientAuthn";
 import { currentNavItem } from "@/lib/nav";
@@ -74,6 +75,7 @@ const ADMIN_ME: AdminMe = {
 const ADMIN_ROUTES: Routes = {
   [ADMIN_ME_PATH]: ADMIN_ME,
   [HOLDS_PATH]: [],
+  [OPEN_CALL_LINE_REQUESTS_PATH]: [],
   [KYC_REVIEWS_PATH]: [],
   "/v1/admin/tenants": [],
   // The breadcrumb's read on a client's pages (the tenant layout shares it).

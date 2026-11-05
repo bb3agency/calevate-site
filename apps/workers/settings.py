@@ -128,6 +128,7 @@ from apps.workers.business_copy import (
 )
 from apps.workers.business_outcomes_draft import draft_business_outcomes
 from apps.workers.business_type import apply_business_type
+from apps.workers.call_line_requests import notify_call_lines_request
 from apps.workers.call_quality_recheck import recheck_call_quality
 from apps.workers.call_timeline import fetch_call_timeline
 from apps.workers.call_translation import (
@@ -614,6 +615,9 @@ FUNCTIONS: list[Any] = [
         # D-890. The client's notice and email and every super admin's alert after a grant
         # or a complimentary conversion, from the outbox (`billing/comp_notices`).
         notify_comp,
+        # Every operator's email when a client asks for more calls at once, from the outbox
+        # (`tenancy/call_line_requests.ask_for_more`).
+        notify_call_lines_request,
         # D-932. The client's email after a KYC review is decided, promised through the
         # outbox by `compliance/kyc_review.decide_kyc_review`.
         notify_kyc_decision,

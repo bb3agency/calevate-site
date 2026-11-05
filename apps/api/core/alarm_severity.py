@@ -782,6 +782,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-890: a grant or a conversion that could not be told to everyone it should reach.
     "comp_notice_no_billing_email": "attention",
     "comp_notice_no_superadmin_email": "attention",
+    # A client asked for more calls at once and no operator has an email address.
+    "call_lines_request_no_operator_email": "attention",
     # D-889: lead-detail suggestions and the rebuild of what an agent asks.
     "lead_suggestions_unavailable": "attention",
     "collect_rebuild_not_delivered": "attention",

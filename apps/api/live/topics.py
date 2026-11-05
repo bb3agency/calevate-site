@@ -153,6 +153,8 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "live_apply_runs": "agents",
     # numbers
     "phone_numbers": "numbers",
+    # A request for more calls at once: the client's tile, its bell and the operators' bell.
+    "call_line_requests": "numbers",
     "phone_number_holds": "numbers",
     "number_holders": "numbers",
     "engine_number_purchases": "numbers",

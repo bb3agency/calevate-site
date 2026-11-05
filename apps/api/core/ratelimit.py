@@ -367,6 +367,9 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/billing/topups/intent", "costly", _m("POST")),
     Rule("/v1/kb/sources", "costly", _m("POST")),
     Rule("/v1/invitations", "costly", _m("POST")),
+    # Each new request emails every operator; the open-request index already makes a repeat
+    # tap a read, so this only has to stop a loop.
+    Rule("/v1/call-lines/requests", "costly", _m("POST")),
     # Accepting an agreement (migration a9d4e70c31b8). `costly` is not about money here —
     # nothing is spent — but about what the profile's own comment says: "no human clicks
     # these 30 times a minute". There are four agreements and each is accepted once, so a

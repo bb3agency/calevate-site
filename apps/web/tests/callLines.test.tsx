@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { CallLinesPanel } from "@/app/admin/tenants/[tenantId]/numbers/CallLinesPanel";
@@ -24,9 +24,19 @@ function lines(over: Partial<CallLines> = {}): CallLines {
     max_lines: 50,
     paid_default: 2,
     trial_default: 1,
+    open_request: null,
     ...over,
   };
 }
+
+const ASKED = {
+  id: "r1",
+  requested_by: "Asha",
+  lines_at_request: 2,
+  wanted_lines: 4,
+  note: "Festival rush",
+  created_at: "2026-11-05T06:30:00Z",
+};
 
 /** Types into the bounded field; it applies the number when focus leaves, as a person's tab does. */
 function enter(value: string) {
@@ -108,6 +118,43 @@ describe("calls at once", () => {
       fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     });
     expect(screen.queryByText("The workspace is busy.")).toBeNull();
+  });
+
+  it("opens at the number asked for when the bell's link brings the operator here", async () => {
+    window.history.pushState({}, "", "/admin/tenants/t1/numbers?focus=call-lines");
+    const { calls } = renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, {
+      [PATH]: lines({ open_request: ASKED }),
+      [`PUT ${PATH}`]: lines({ call_lines: 4, call_lines_chosen: 4, source: "organization" }),
+    });
+    await screen.findByText("Asked for 4 (has 2)");
+    expect(screen.getByText(/Asha.*“Festival rush”/)).toBeTruthy();
+    const box = await screen.findByRole("spinbutton", { name: "Calls at once" });
+    expect((box as HTMLInputElement).value).toBe("4");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({ call_lines: 4 });
+    await waitFor(() => expect(screen.queryByText("Asked for 4 (has 2)")).toBeNull());
+  });
+
+  it("declines with a reason the client will read", async () => {
+    const { calls } = renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, {
+      [PATH]: lines({ open_request: ASKED }),
+      [`POST ${PATH}/requests/r1/decline`]: { ...ASKED, status: "declined" },
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Decline" }));
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Decline the request" });
+    const confirm = within(dialog).getByRole("button", { name: "Decline" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: /Why/ }), { target: { value: "Let's talk first." } });
+    await act(async () => {
+      fireEvent.click(confirm);
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    expect(JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}")).toEqual({ reason: "Let's talk first." });
   });
 
   it("offers no change without the permission", async () => {

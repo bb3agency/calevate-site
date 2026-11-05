@@ -6,6 +6,7 @@ import AdminClientsPage from "@/app/admin/page";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import type { TenantSummary } from "@/lib/api/admin";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 
 import { act } from "@testing-library/react";
@@ -125,6 +126,7 @@ function shell(over: Routes = {}): Routes {
   return {
     [ADMIN_ME_PATH]: OPERATOR,
     [HOLDS_PATH]: [],
+    [OPEN_CALL_LINE_REQUESTS_PATH]: [],
     [KYC_REVIEWS_PATH]: [],
     "/v1/admin/onboarding/unfinished": NO_UNFINISHED,
     ...over,
