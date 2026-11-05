@@ -28,6 +28,8 @@ import {
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { CallInstructions } from "./CallInstructions";
+import { FileContents } from "./FileContents";
 import { ReaderDrawer } from "./ReaderDrawer";
 import { awaitsConfirmation, fileSize, isMachineRead, uploadState, uploadSteps } from "./uploadCopy";
 import { StatusPill } from "@/components/console/statusPill";
@@ -38,7 +40,7 @@ const KIND_ICONS = {
 } as const;
 
 /** One file, photo or web page the account sent, watching itself while it moves. */
-export function UploadRow({ upload }: { upload: KbUpload }) {
+export function UploadRow({ upload, query = "" }: { upload: KbUpload; query?: string }) {
   const session = useClientSession();
   // The row's OWN poll while it is moving, and silence once it is not. `watch.data ?? upload`
   // rather than a manufactured empty: the list's own answer is a real fact about this row,
@@ -58,6 +60,10 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [reading, setReading] = useState(false);
+  /** What is open under the row: what it learned, or its call instructions. */
+  const [panel, setPanel] = useState<"learned" | "instructions" | null>(null);
+  const learned = shown.facts_count;
+  const instructions = shown.call_instructions?.length ?? 0;
 
   const Icon = lookup(KIND_ICONS, shown.source_kind) ?? FileText;
   const size = fileSize(shown.byte_size);
@@ -92,12 +98,44 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
             )}
           </p>
           <p className="mt-1 text-xs text-ink-muted">{state.meaning}</p>
-          {(shown.call_instructions?.length ?? 0) > 0 ? (
+          {learned > 0 || instructions > 0 ? (
             <p className="mt-1 text-xs text-ink-muted">
-              {formatCountOf(shown.call_instructions?.length ?? 0, "call instruction")} kept for
-              call scripts. Open it to use them.
+              {[
+                learned > 0
+                  ? formatCountOf(learned, shown.source_kind === "url" ? "part read" : "thing learned", shown.source_kind === "url" ? "parts read" : "things learned")
+                  : null,
+                instructions > 0 ? formatCountOf(instructions, "call instruction") : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           ) : null}
+          {learned > 0 || instructions > 0 ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {learned > 0 ? (
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  aria-expanded={panel === "learned"}
+                  onClick={() => setPanel((open) => (open === "learned" ? null : "learned"))}
+                >
+                  {panel === "learned" ? "Hide" : shown.source_kind === "url" ? "Show what we read" : "Show what it learned"}
+                </button>
+              ) : null}
+              {instructions > 0 ? (
+                <button
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  aria-expanded={panel === "instructions"}
+                  onClick={() => setPanel((open) => (open === "instructions" ? null : "instructions"))}
+                >
+                  {panel === "instructions" ? "Hide" : "Show call instructions"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {panel === "learned" ? <FileContents upload={shown} query={query} /> : null}
+          {panel === "instructions" ? <CallInstructions upload={shown} expanded /> : null}
 
           {/* The SPECIFIC reason, when the server has one. It is written for a client
               (`kb/routes.py::UploadOut.ingest_detail`: "a sentence to show the client …

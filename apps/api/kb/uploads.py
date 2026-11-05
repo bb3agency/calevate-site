@@ -675,7 +675,8 @@ _LIST_SQL = """
 SELECT u.id, u.source_id, s.name, u.source_kind, u.ingest_status,
        u.ingest_detail, s.status, s.is_active, s.version, u.original_filename,
        u.original_bytes, u.source_url, u.change_detected_at, u.created_at, u.updated_at,
-       u.text_provenance, u.read_state, u.read_detail, u.page_count, u.call_instructions
+       u.text_provenance, u.read_state, u.read_detail, u.page_count, u.call_instructions,
+       (SELECT count(*) FROM kb_documents d WHERE d.source_id = u.source_id) AS facts
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 """
 
@@ -731,6 +732,7 @@ def _row_out(row: Any) -> dict[str, Any]:
         "updated_at": row[14],
         "text_provenance": row[15],
         "call_instructions": list(row[19] or []),
+        "facts_count": int(row[20]),
     }
 
 

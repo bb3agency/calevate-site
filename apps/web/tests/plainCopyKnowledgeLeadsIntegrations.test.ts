@@ -58,6 +58,7 @@ describe("default copy on the knowledge, lead-sources and integrations screens",
   it("says every file and link state in one short line", () => {
     const base: KbUpload = {
       source_id: "s1",
+      facts_count: 0,
       version: 1,
       id: "u1",
       name: "Price list",

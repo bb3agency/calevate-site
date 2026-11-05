@@ -77,6 +77,7 @@ from apps.api.kb.structured_text import (
     Group,
     read_markdown,
     with_title,
+    without_title,
 )
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.retrieval.supermemory_index import refresh_indexed_source
@@ -846,12 +847,14 @@ async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]
     rows = (
         await session.execute(
             text(
-                "SELECT idx, content, gloss, gloss_model FROM kb_documents "
+                "SELECT idx, content, gloss, gloss_model, meta->>'section' FROM kb_documents "
                 "WHERE source_id = :sid ORDER BY idx"
             ),
             {"sid": source_id},
         )
     ).all()
+    # `section` and `body` let a screen print each chunk under its heading once, instead of
+    # the heading line `with_title` put at the top of every chunk for the engine's search.
     # THE GLOSS IS SHOWN AND IT IS SHOWN AS A MACHINE'S WORK. `gloss_model` travels with it
     # so the screen can say WHICH model tier wrote it rather than asserting "machine-generated"
     # as a convention the API merely hopes the client honours. A reviewer who can see it can
@@ -861,6 +864,8 @@ async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]
             "idx": r[0],
             "content": r[1],
             "chars": len(r[1]),
+            "section": r[4],
+            "body": without_title(r[4], r[1]),
             "gloss": r[2],
             # The tier, never the model id (D-679, D-680): this route is the client realm.
             "gloss_model": (

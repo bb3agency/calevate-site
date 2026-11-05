@@ -14689,6 +14689,10 @@
       "ChunkOut": {
         "additionalProperties": false,
         "properties": {
+          "body": {
+            "title": "Body",
+            "type": "string"
+          },
           "chars": {
             "title": "Chars",
             "type": "integer"
@@ -14722,12 +14726,24 @@
           "idx": {
             "title": "Idx",
             "type": "integer"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
           }
         },
         "required": [
           "idx",
           "content",
-          "chars"
+          "chars",
+          "body"
         ],
         "title": "ChunkOut",
         "type": "object"
@@ -61415,6 +61431,11 @@
               }
             ],
             "title": "Created At"
+          },
+          "facts_count": {
+            "default": 0,
+            "title": "Facts Count",
+            "type": "integer"
           },
           "filename": {
             "anyOf": [
