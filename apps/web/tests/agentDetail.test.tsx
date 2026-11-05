@@ -849,12 +849,12 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
   const OPENING =
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
 
-  it("renders the server's opening line verbatim, unquoted", async () => {
+  it("leaves the opening line to the Script tab: the Overview does not show it", async () => {
     await renderClientPage(page, routes());
 
-    const words = await screen.findByText(OPENING);
-    expect(words.textContent).toBe(OPENING);
-    expect(words.getAttribute("lang")).toBe("te-IN");
+    const panel = await waitFor(() => card("What it says at the start of every call"));
+    expect(panel.textContent).not.toContain(OPENING);
+    expect(within(panel).queryByRole("link", { name: /opening line/ })).toBeNull();
   });
 
   it("quotes no fixed notice sentence: the agent words the notices itself", async () => {
@@ -875,14 +875,10 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     );
 
     const panel = await panelOf();
-    await within(panel).findByText(GREETING);
     expect(panel.textContent).not.toContain("FIXED AI SENTENCE");
     expect(panel.textContent).not.toContain("FIXED RECORDING SENTENCE");
     expect(panel.querySelector("blockquote")).toBeNull();
     expect(panel.textContent).not.toContain("“");
-    expect(panel.textContent).toContain(
-      "also mentions, in its own words, that it is an AI assistant and that the call is being recorded.",
-    );
   });
 
   /**
@@ -918,8 +914,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     );
 
     const panel = await waitFor(() => card("What it says at the start of every call"));
-    await within(panel).findByText(OPENING);
-    expect(noticeSwitches()).toHaveLength(2);
+    await waitFor(() => expect(noticeSwitches()).toHaveLength(2));
     expect(panel.textContent).not.toContain(MEMORY);
     expect(panel.textContent).not.toContain("remembers callers");
   });
@@ -1131,48 +1126,6 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).toContain("the agent still says yes");
     // Nothing is switched on, so nothing is said to be mentioned.
     expect(container.textContent).not.toContain("also mentions");
-  });
-
-  it("keeps the opening line when both notices are off: the switches never reach it (D-708)", async () => {
-    const GREETING = "Namaskaram! Sri Clinic, how can I help you today?";
-    const { container } = await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/agent-1": agent({
-          ai_disclosure_enabled: false,
-          recording_notice_enabled: false,
-          opening_line: "",
-          script_opening_line: GREETING,
-          first_words: GREETING,
-        }),
-      }),
-    );
-
-    // What callers hear first is the agent's own greeting, not "nothing".
-    await screen.findByText(GREETING);
-    expect(container.textContent).not.toContain("No opening line yet.");
-    expect(container.textContent).toContain("These switches never change it");
-    expect(screen.getByRole("link", { name: "Edit the opening line" })).toBeTruthy();
-  });
-
-  it("shows the server's first words as sent, then names only the notices switched on", async () => {
-    const GREETING = "How can I help you today?";
-    const { container } = await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/agent-1": agent({
-          script_opening_line: GREETING,
-          first_words: GREETING,
-          recording_notice_enabled: false,
-        }),
-      }),
-    );
-
-    await screen.findByText(GREETING);
-    expect(container.textContent).toContain(
-      "Reception also mentions, in its own words, that it is an AI assistant.",
-    );
-    expect(container.textContent).not.toContain("that the call is being recorded");
   });
 
   it("sends only the switch that moved", async () => {

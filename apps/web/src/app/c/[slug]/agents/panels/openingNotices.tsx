@@ -9,21 +9,19 @@
  * is in one closed disclosure under the block (D-873).
  */
 
-import { PenLine, TriangleAlert } from "lucide-react";
-import Link from "next/link";
-import { useId, useState, type ReactNode } from "react";
+import { TriangleAlert } from "lucide-react";
+import { useId, useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import {
   Disclosure,
   ProblemNotice,
   RestrictionNote,
-  SECONDARY_BUTTON_SM,
   ToggleSwitch,
 } from "@/components/ui";
 import { useSetDisclosure, type Agent, type DisclosureIn } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useClientSession } from "@/lib/api/session";
 import { Term } from "@/lib/glossary";
 
 import {
@@ -76,7 +74,6 @@ export function splitPromise(rule: string): { lead: string; rest: string } {
  * sent, never assembled here (D-861). No switch reaches the opening line (D-708).
  */
 export function OpeningNotices({ agent }: { agent: Agent }) {
-  const { href } = useClientRealm();
   const session = useClientSession();
   const setDisclosure = useSetDisclosure(session, agent.id);
   // The switch's position and the "Saved" line beside the heading are the success; a
@@ -85,7 +82,6 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
   const write = useWriteAccess(session, "org:manage", "switch these notices");
   const locked = setDisclosure.isPending || !write.allowed;
   const opening = agent.script_opening_line.trim();
-  const calling = agent.first_words_when_calling ?? null;
   const promise = splitPromise(agent.truthful_answer_rule);
   const name = agent.name.trim() || "The agent";
   // The switch last turned on, so a refusal for want of room can offer the room that
@@ -171,96 +167,11 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         />
       </div>
 
-      <CallStart
-        agent={agent}
-        name={name}
-        calling={calling}
-        edit={
-          // A button, not a sentence: the opening line is changed on the Script tab.
-          <Link
-            href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=script`)}
-            className={`${SECONDARY_BUTTON_SM} shrink-0 bg-surface`}
-          >
-            <PenLine aria-hidden className="h-4 w-4" />
-            {calling !== null
-              ? "Edit the opening lines"
-              : opening
-                ? "Edit the opening line"
-                : "Write an opening line"}
-          </Link>
-        }
-      />
-
+      {/* The opening line itself lives on the Script tab only (founder, 5 Nov 2026). */}
       <Disclosure variant="inline" headingLevel={4} title="How these work" className="mt-2">
         <NoticeDetails promiseRest={promise.rest} hasOpening={opening !== ""} />
       </Disclosure>
     </section>
-  );
-}
-
-/**
- * How a call starts: the server's opening text as sent, then what the switched-on notices
- * add — described, never written out. The agent words those itself, so a sentence printed
- * here would be one it may never say.
- */
-function CallStart({
-  agent,
-  name,
-  calling,
-  edit,
-}: {
-  agent: Agent;
-  name: string;
-  calling: string | null;
-  edit: ReactNode;
-}) {
-  const mentions = [
-    agent.ai_disclosure_enabled ? "that it is an AI assistant" : null,
-    agent.recording_notice_enabled ? "that the call is being recorded" : null,
-  ].filter((part): part is string => part !== null);
-  return (
-    <div className="mt-4 rounded-lg bg-surface-muted px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <p className="text-meta font-medium text-ink-muted">How a call starts</p>
-        {edit}
-      </div>
-      {calling !== null ? (
-        // A "both" agent opens the calls it places with a line of their own (D-920).
-        <dl className="mt-2 space-y-2">
-          <FirstWords label="When it answers" words={agent.first_words} lang={agent.language_primary} />
-          <FirstWords label="When it calls" words={calling} lang={agent.language_primary} />
-        </dl>
-      ) : (
-        <Words words={agent.first_words} lang={agent.language_primary} className="mt-1" />
-      )}
-      {mentions.length > 0 && (
-        <p className="mt-2 text-meta text-ink-muted">
-          {name} also mentions, in its own words, {mentions.join(" and ")}.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function Words({ words, lang, className = "" }: { words: string; lang: string; className?: string }) {
-  return words.trim() ? (
-    <p lang={lang} className={`text-body text-ink [overflow-wrap:anywhere] ${className}`}>
-      {words}
-    </p>
-  ) : (
-    <p className={`text-body text-ink-muted ${className}`}>No opening line yet.</p>
-  );
-}
-
-/** One of a "both" agent's two first turns, labelled by the call it opens. */
-function FirstWords({ label, words, lang }: { label: string; words: string; lang: string }) {
-  return (
-    <div>
-      <dt className="text-meta text-ink-muted">{label}</dt>
-      <dd>
-        <Words words={words} lang={lang} />
-      </dd>
-    </div>
   );
 }
 
