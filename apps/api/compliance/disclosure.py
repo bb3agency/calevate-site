@@ -204,42 +204,12 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 }
 
 
-#: Sentence three: **"the agent remembers you between calls"** (D-507).
-#:
-#: A THIRD OBLIGATION, and not a third TOGGLE. The two above are switchable because they
-#: follow from facts no agent setting creates — the call IS AI, and whether it is recorded
-#: is the engine's fact — so a client who gives the notice in writing instead may switch
-#: off the spoken form. This one is different in kind: cross-call memory exists ONLY because
-#: `agents.caller_memory_enabled` is on, which is a choice this system records, so the
-#: sentence is bound to that switch instead of getting one of its own. There is no state
-#: in which an agent remembers a caller and does not say so.
-#:
-#: WHY SPOKEN AT ALL, when `compliance/caller_notice.py` already puts it in the client's
-#: written draft: an INBOUND caller has visited no website and agreed to no page. The
-#: written notice reaches the people who came through the client's own funnel, and inbound
-#: is the product. A notice that misses the caller it is about is not a notice.
-#:
-#: Business-agnostic like the recording sentence, and for its reason: the AI sentence has
-#: already named the caller's counterparty.
-#:
-#: SAID WITH THE GOODBYE, NOT IN THE OPENING (D-865, founder, 23 Oct 2026): the prompt tells
-#: the agent to say it once as it closes a call that ends normally
-#: (`calevate_shared.engine.memory_goodbye_rule`); the engine's 200-character first turn had
-#: no room for it beside a Telugu introduction and the recording notice. Since D-969 the
-#: agent says it in its own words and these sentences are no longer quoted.
-#:
-#: Deliberately says WHAT is kept and FOR ROUGHLY HOW LONG in the caller's own vocabulary
-#: — "a short note", not "a distilled fact", and never "an embedding". The period is not
-#: interpolated from `retention_policies`: a spoken sentence that changed when a client
-#: edited a slider would make the agent's opening a moving target nobody reviewed, and the
-#: 180-day ceiling below is a platform maximum rather than a tenant setting.
-#:
-#: WORDED AS WHY, THEN WHAT (D-861): "so I remember it when you call again, I keep a short
-#: note about this call". The founder's Telugu, 23 Oct 2026, replacing "I'll remember a short
-#: note about what you asked", with which a trial call opened before any greeting. Every
-#: line is NEEDS NATIVE-SPEAKER REVIEW (the founder reviews te-IN; the others are drafted to
-#: the same meaning), and the staged ones are heard by no caller until
-#: `agents/languages.STAGED_LANGUAGE_READINESS` records the review.
+#: The memory sentence on file (D-507), which no call says (D-971, founder, 5 Nov 2026:
+#: "Drop it entirely"). The client's own written notice tells callers that a note is kept
+#: (`compliance/caller_notice.py`), and the statement the owner accepts says the agent does
+#: not (`caller_memory.CALLER_MEMORY_ATTESTATIONS` version 3). These sentences only fill
+#: `agents.caller_memory_notice_line`, which stays NOT NULL until its two-step removal
+#: (hard rule 8). Every line is NEEDS NATIVE-SPEAKER REVIEW, as written for D-861.
 CALLER_MEMORY_NOTICE_TEMPLATES: dict[str, str] = {
     "te-IN": "మీరు మళ్ళీ కాల్ చేసినప్పుడు గుర్తుండేలా, ఈ కాల్ గురించి ఒక చిన్న నోట్ ఉంచుకుంటాను.",
     "hi-IN": "आप दोबारा कॉल करें तो याद रहे, इसलिए हम इस कॉल का एक छोटा नोट रखते हैं।",
@@ -342,10 +312,7 @@ def recording_notice_for(*, language: str) -> str:
 
 
 def caller_memory_notice_for(*, language: str) -> str:
-    """The memory sentence a NEW agent starts with. Always non-empty, whether or not the
-    agent's memory switch is on — the same rule `ai_disclosure_for` follows: the sentence
-    is mandatory ON FILE so that turning the switch on can never be the moment somebody
-    discovers there is nothing to say."""
+    """The memory sentence a NEW agent's NOT NULL column is filled with (never said, D-971)."""
     return _rendered(CALLER_MEMORY_NOTICE_TEMPLATES, language, business="")
 
 

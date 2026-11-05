@@ -145,7 +145,12 @@ def _written_problems(line: str, field: str, brief: ScriptBrief) -> list[str]:
     names = (brief.business_name, brief.agent_name)
     return [
         *opening_problems(
-            line, brief.language, names=names, introduced=brief.introduced, where=field
+            line,
+            brief.language,
+            names=names,
+            introduced=brief.introduced,
+            where=field,
+            woven=brief.woven,
         ),
         rewrite_problem(field),
     ]
@@ -290,6 +295,7 @@ async def _opening_repaired(
                 context.language,
                 names=(context.business_name, context.agent_name),
                 introduced=context.introduced,
+                woven=context.woven,
             )
         )
         if line and not problems:

@@ -32,7 +32,7 @@ import pytest
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.agents.publishing import set_caller_memory
 from apps.api.agents.roster import agent_by_id
-from apps.api.agents.service import _load_agent, posture_of
+from apps.api.agents.service import _load_agent
 from apps.api.compliance import caller_memory
 from apps.api.compliance.caller_memory import (
     CALLER_MEMORY_ATTESTATION,
@@ -46,13 +46,11 @@ from calevate_shared.engine import (
     CALLER_MEMORY_GUIDANCE,
     CALLER_MEMORY_SLOT,
     MAX_CALLER_MEMORY_CHARS,
-    MEMORY_GOODBYE_RULE,
     AgentConfig,
     DisclosurePosture,
     ModelConfig,
     compose_engine_prompt,
     compose_opening_line,
-    memory_goodbye_rule,
     render_caller_memory,
 )
 from sqlalchemy import text
@@ -142,14 +140,15 @@ async def test_the_account_attests_once_and_a_second_agent_is_not_asked_again() 
     assert again.enabled is True
 
 
-def test_the_current_statement_says_the_note_is_mentioned_before_the_call_ends() -> None:
-    """Founder, 27 Oct 2026: the agent says the memory sentence as it says goodbye (D-865),
-    so the statement says "before ending each call". Version 1 is kept word for word for
-    the accounts that accepted it."""
-    assert CALLER_MEMORY_ATTESTATION_VERSION == 2 == max(CALLER_MEMORY_ATTESTATIONS)
-    assert CALLER_MEMORY_ATTESTATIONS[2] == CALLER_MEMORY_ATTESTATION
-    assert "before ending each call" in CALLER_MEMORY_ATTESTATION
-    assert "start of every call" not in CALLER_MEMORY_ATTESTATION
+def test_the_current_statement_says_callers_are_not_told_on_the_call() -> None:
+    """D-971 (founder, 5 Nov 2026, "Drop it entirely"): nothing about memory is said on a
+    call, so the statement the owner accepts says their own notice is how callers learn it.
+    Earlier versions are kept word for word for the accounts that accepted them."""
+    assert CALLER_MEMORY_ATTESTATION_VERSION == 3 == max(CALLER_MEMORY_ATTESTATIONS)
+    assert CALLER_MEMORY_ATTESTATIONS[3] == CALLER_MEMORY_ATTESTATION
+    assert "do not tell callers this on the call" in CALLER_MEMORY_ATTESTATION
+    assert "my own notice is how they learn it" in CALLER_MEMORY_ATTESTATION
+    assert "will say so before ending each call" in CALLER_MEMORY_ATTESTATIONS[2]
     assert "will say so at the start of every call" in CALLER_MEMORY_ATTESTATIONS[1]
 
 
@@ -165,18 +164,19 @@ async def test_a_new_acceptance_records_the_current_version() -> None:
 # --- an account on the old statement (D-900) ------------------------------------------
 
 
-async def _on_version_one() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
-    """An account that accepted version 1 and switched its agent on before the change, as
-    migration f5cd440f4e1c left it."""
+async def _on_old_statement(version: int = 2) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """An account that accepted an earlier statement and switched its agent on before the
+    change: version 1 as migration f5cd440f4e1c left it, version 2 as every account that
+    accepted before D-971."""
     tenant_id, agent_id, owner = await _tenant()
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE organizations SET caller_memory_attested_at = now(), "
-                "caller_memory_attested_by = :by, caller_memory_attestation_version = 1 "
+                "caller_memory_attested_by = :by, caller_memory_attestation_version = :v "
                 "WHERE id = :tid"
             ),
-            {"by": owner, "tid": tenant_id},
+            {"by": owner, "tid": tenant_id, "v": version},
         )
         await session.execute(
             text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
@@ -200,12 +200,15 @@ async def _paused_item(tenant_id: uuid.UUID) -> dict[str, object] | None:
     return next((i for i in queue["items"] if i["kind"] == "caller_memory_paused"), None)
 
 
-async def test_an_account_on_the_old_statement_is_asked_and_its_agents_are_paused() -> None:
-    """Version 1 said the note is mentioned "at the start of every call"; agents now say it
-    at the goodbye. Until the owner accepts version 2 the account is treated as one that
-    never accepted: nothing is remembered, and switching memory on asks for the statement.
-    The agent's own switch stays where the owner left it."""
-    tenant_id, agent_id, _owner = await _on_version_one()
+@pytest.mark.parametrize("version", [1, 2])
+async def test_an_account_on_the_old_statement_is_asked_and_its_agents_are_paused(
+    version: int,
+) -> None:
+    """Versions 1 and 2 said the agent mentions the note on the call; since D-971 it says
+    nothing. Until the owner accepts version 3 the account is treated as one that never
+    accepted: nothing is remembered, and switching memory on asks for the statement. The
+    agent's own switch stays where the owner left it."""
+    tenant_id, agent_id, _owner = await _on_old_statement(version)
 
     assert await _remembers(tenant_id, agent_id) == (False, False)
     assert await _column(tenant_id, agent_id) is True
@@ -254,9 +257,9 @@ async def test_an_account_on_the_current_statement_is_not_asked() -> None:
 
 async def test_re_accepting_records_the_new_version_and_resumes_every_agent() -> None:
     """Re-acceptance goes through the same switch, on an agent that is already on. It
-    records version 2 for the account, resumes memory, and walks the account's live agents
-    so the ones the owner left on are republished remembering."""
-    tenant_id, agent_id, owner = await _on_version_one()
+    records the current version for the account, resumes memory, and walks the account's live
+    agents so the ones the owner left on are republished remembering."""
+    tenant_id, agent_id, owner = await _on_old_statement()
 
     again = await set_caller_memory(
         tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner
@@ -287,7 +290,7 @@ async def test_re_accepting_records_the_new_version_and_resumes_every_agent() ->
 
 
 async def test_switching_off_on_the_old_statement_needs_no_acceptance() -> None:
-    tenant_id, agent_id, _owner = await _on_version_one()
+    tenant_id, agent_id, _owner = await _on_old_statement()
     off = await set_caller_memory(
         tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None
     )
@@ -326,34 +329,6 @@ async def test_switching_it_off_needs_no_attestation_and_is_idempotent() -> None
 
 
 # --- what the caller hears -------------------------------------------------------------
-
-
-async def test_the_spoken_notice_arrives_and_leaves_with_the_switch() -> None:
-    """ "Remembers a caller without saying so" is not constructible, nor its opposite. The
-    notice is the prompt's goodbye rule, said in the agent's own words (D-865, D-969)."""
-
-    async def goodbye() -> str:
-        async with tenant_session(tenant_id) as session:
-            agent = await _load_agent(session, tenant_id, agent_id)
-        return memory_goodbye_rule(
-            AgentConfig(
-                tenant_id=str(tenant_id),
-                agent_id=str(agent_id),
-                name="A",
-                direction="inbound",
-                system_prompt="S",
-                opening_line="",
-                caller_memory_enabled=posture_of(agent).caller_memory_enabled,
-            )
-        )
-
-    tenant_id, agent_id, owner = await _tenant()
-    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None)
-    assert await goodbye() == ""
-    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner)
-    assert await goodbye() == MEMORY_GOODBYE_RULE
-    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None)
-    assert await goodbye() == ""
 
 
 def test_the_memory_sentence_never_enters_the_opening_line() -> None:

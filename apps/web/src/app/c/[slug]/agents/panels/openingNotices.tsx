@@ -184,8 +184,9 @@ function NoticeDetails({ promiseRest, hasOpening }: { promiseRest: string; hasOp
         {hasOpening
           ? "The opening line is the agent's own greeting, from its script. "
           : "This agent's script has no opening line yet. "}
-        These switches never change it. With a switch on, the agent adds the notice when it
-        starts the call, in its own words; there is no fixed sentence it reads out.
+        When you switch a notice on or off, Pip rewrites the opening line so the agent says
+        the notice in its own words, or stops saying it. Until that is done, a short set
+        sentence is said right after the opening line, so no call goes out without it.
       </p>
       <p>
         Calls are still recorded — the recording switch only stops the agent announcing it.

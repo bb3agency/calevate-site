@@ -94,6 +94,7 @@ from calevate_shared.engine import (
     introduces_itself,
     said_as_taught,
 )
+from calevate_shared.opening_notices import says_ai
 from calevate_shared.spoken_guard import introduced_opening_problem, without_greeting
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,6 +103,7 @@ from apps.api.agents.engine_limits import refuse_notice_without_room
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import is_published
+from apps.api.agents.opening_notices import queue_opening_notices
 from apps.api.agents.patient_caller import apply_where_default
 from apps.api.agents.service import (
     effective_call_cap,
@@ -499,8 +501,8 @@ class CallerMemoryResult:
 
     agent_id: UUID
     enabled: bool
-    #: The notices said at the start of a call, recomposed. The memory sentence is not among
-    #: them: it is said with the goodbye (D-865), so this does not change with the switch.
+    #: The notices said at the start of a call, recomposed. Nothing about memory is said on a
+    #: call (D-971), so this does not change with the switch.
     opening_line: str
     #: Did the change reach the voice platform? False for an agent it does not hold (a
     #: draft): there is nothing to push to, and the first publish carries it.
@@ -1382,7 +1384,9 @@ def _refuse_introduction_twice(
     if not introduces_itself(ai_notice=ai_line, language=language):
         return
     opening = without_greeting(opening_line_of(body))
-    if not opening:
+    # An opening that says it is an AI is the introduction itself: nothing is said before it
+    # (`join_first_words`, D-971).
+    if not opening or says_ai(opening):
         return
     taught = tuple(said_as_taught(name, body=body, business="") for name in names)
     if introduced_opening_problem("opening_line", opening, names=(*names, *taught)) is None:
@@ -1515,6 +1519,10 @@ async def set_disclosure_posture(
                 await publish_agent(
                     session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False
                 )
+            # The opening line is written again to say, or stop saying, the notices (D-971).
+            # Until then the stored sentences are said beside it, so switching on is never a
+            # call without the notice.
+            await queue_opening_notices(session, tenant_id=tenant_id, agent_id=agent_id)
 
     # Ids, booleans and field NAMES. The sentences themselves are a client's own business
     # copy and stay out of the log (hard rule 6's neighbourhood — they are not PII, but
@@ -1638,10 +1646,10 @@ async def set_caller_memory(
 
     **FAST LANE, AND THE REPUBLISH IS INSIDE THE TRANSACTION**, exactly as
     `set_disclosure_posture` and `set_call_cap`: a live agent whose column moved is
-    re-published before this returns, so the goodbye's memory sentence and the prompt's memory
-    section land on the phone line at the same moment the screen changes. That ordering is the
-    whole compliance guarantee here — a column that said "remembers" while the engine still
-    held a prompt that did not say so is precisely the state D-507 made unconstructible, and
+    re-published before this returns, so the prompt's memory section and the engine's
+    caller-memory setting land on the phone line at the same moment the screen changes. That
+    ordering is the whole guarantee here — a column that said "forgets" while the engine
+    still recalled callers is a state the owner's statement never covered, and
     an engine push after the commit would reintroduce it for the width of one vendor call.
 
     IDEMPOTENT. Re-asserting the state an agent is already in changes nothing, publishes
@@ -1696,8 +1704,8 @@ async def set_caller_memory(
             caller_memory_notice_line=str(row[5]),
             caller_memory_enabled=enabled,
         )
-        # No room check: the memory sentence is said with the goodbye, not in the greeting
-        # (D-865), so switching memory on adds nothing to the first turn.
+        # No room check: nothing about memory is said on a call (D-971), so switching memory
+        # on adds nothing to the first turn.
         #
         # An acceptance of an older statement does not cover memory now (D-900): the account
         # is asked again exactly as one that never accepted.

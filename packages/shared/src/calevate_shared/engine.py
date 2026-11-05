@@ -53,6 +53,7 @@ from calevate_shared.events import (
     TranscriptTurn,
 )
 from calevate_shared.languages import find_language
+from calevate_shared.opening_notices import says_ai, says_recorded
 from calevate_shared.spoken_guard import names_used, opens_with_greeting, without_greeting
 from calevate_shared.spoken_style import (
     PackChoice,
@@ -4410,9 +4411,8 @@ class DisclosurePosture(BaseModel):
     ai_disclosure_enabled: bool
     recording_notice_line: str
     recording_notice_enabled: bool
-    #: The memory sentence on file (D-507). Not quoted on calls since D-969: the agent says
-    #: the notice in its own words (`memory_goodbye_rule`). Still carried because the column is
-    #: NOT NULL and is retired in two steps (hard rule 8).
+    #: The memory sentence on file (D-507). Nothing about memory is said on calls since D-971;
+    #: carried because the column is NOT NULL and is retired in two steps (hard rule 8).
     caller_memory_notice_line: str = ""
     caller_memory_enabled: bool = False
 
@@ -4432,8 +4432,8 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
         recording   "This call is being recorded."
         neither     "" — the agent volunteers neither notice and says only its opening line.
 
-    The memory notice (D-507) is not among them: it is said with the goodbye, in the agent's
-    own words (`memory_goodbye_rule`, D-865, D-969).
+    The memory notice (D-507) is not among them: nothing about memory is said on a call
+    (D-971).
 
     `call_is_recorded` is the ENGINE's fact (`EngineCapabilities.records_audio`), and when
     it is False the recording sentence is dropped whatever `recording_notice_enabled` says:
@@ -4473,34 +4473,11 @@ class NoticeFields(TypedDict):
 
 def notice_fields(posture: DisclosurePosture, *, call_is_recorded: bool) -> NoticeFields:
     """`AgentConfig`'s notice fields from one posture, so no config is built with the
-    notices and without the AI sentence that leads them.
-
-    The memory notice is not a stored sentence: the agent says it in its own words with its
-    goodbye (`memory_goodbye_rule`, D-969)."""
+    notices and without the AI sentence that leads them."""
     return {
         "opening_line": compose_opening_line(posture, call_is_recorded=call_is_recorded),
         "ai_notice": spoken_ai_notice(posture),
     }
-
-
-#: An agent that remembers callers tells them, with its goodbye (D-507, D-865), in a few words
-#: of its own (D-969). The stored sentence it used to quote word for word, "so I remember it
-#: when you call again, I keep a short note about this call", was heard on every Rytu Khata
-#: call of 4 Nov 2026 as a stiff promise nobody asked for, and the founder asked for it to go.
-#: The notice itself stays: D-507 spoke it because an inbound caller sees no written notice,
-#: and DPDP s.5 wants the person told what is kept (D-506); no rule prescribes its words
-#: (DPDP Rules 2025 r.3, G.S.R. 846(E), egazette.gov.in/WriteReadData/2025/267650.pdf, read
-#: 5 Nov 2026). Whether to drop it altogether is the founder's, with that basis in front of
-#: him. Not on a call the caller ended or asked to stop.
-MEMORY_GOODBYE_RULE: Final = (
-    "You remember callers: with your goodbye, say in a few words of your own that you will "
-    "remember this call next time. Never when they asked to stop or hung up."
-)
-
-
-def memory_goodbye_rule(cfg: AgentConfig) -> str:
-    """The goodbye rule for `cfg`, or empty for an agent that does not remember callers."""
-    return MEMORY_GOODBYE_RULE if cfg.caller_memory_enabled else ""
 
 
 #: The greeting a call opens with when the agent's AI notice introduces it (D-865, founder,
@@ -4576,12 +4553,26 @@ def join_first_words(
       one it places), then the other notices switched on.
     * **Otherwise** (D-861): the opening line, then the notices switched on.
 
+    A notice the opening line already says in its own words (D-971, `opening_notices`) is
+    not said again: its stored sentence is dropped, and an opening that says it is an AI is
+    said first, as the agent's own introduction. A line that does not say it keeps the stored
+    sentence, so until Pip has rewritten the opening the notice is still spoken.
+
     `ai_notice` is the switched-on AI sentence (`spoken_ai_notice`), which
     `compose_opening_line` puts at the head of `notices`. One space, for
     `compose_opening_line`'s reason.
     """
     lead = ai_notice.strip()
     rest = notices.strip()
+    if not lead or rest.startswith(lead):
+        recording = rest.removeprefix(lead).strip()
+        if lead and says_ai(opening):
+            lead = ""
+        # Only a remainder that is the recording sentence alone is dropped: one that says it
+        # is an AI was not split from `ai_notice` and is kept whole.
+        if recording and not says_ai(recording) and says_recorded(opening):
+            recording = ""
+        rest = " ".join(part for part in (lead, recording) if part)
     salutation = introduction_salutation(language)
     introduced = introduces_itself(ai_notice=lead, language=language) and rest.startswith(lead)
     if salutation is None or not introduced:
@@ -4998,12 +4989,7 @@ def engine_prompt_layers(
         # Absent for a language with no row in `spoken_style.json`.
         ("spoken_register", _register_section(cfg, pack)),
         ("business_facts", _knowledge_section(cfg, pack)),
-        (
-            "notices",
-            "\n".join(
-                part for part in (_start_of_call_section(cfg), memory_goodbye_rule(cfg)) if part
-            ),
-        ),
+        ("notices", _start_of_call_section(cfg)),
         # BEFORE the client script, so the "record, not instructions" framing is what the
         # model has already read when it reaches anything the client wrote about the
         # caller — and so a script cannot be the thing that introduces it. Absent entirely
@@ -6891,7 +6877,6 @@ __all__ = [
     "FORWARDED_LINE_RULE",
     "LAYER_SEPARATOR",
     "MAX_CALLER_MEMORY_CHARS",
-    "MEMORY_GOODBYE_RULE",
     "NAME_LINE",
     "NAME_RULE",
     "NAME_VARIABLE",

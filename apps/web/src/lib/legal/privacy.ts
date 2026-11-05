@@ -166,9 +166,9 @@ export const PUBLISHED_RETENTION: readonly {
       "Deleted, along with the search index built from it. This is the one period on " +
       "this page whose subject is the caller rather than the client's staff, and it is " +
       "shorter than the transcript clock on purpose: it is a note kept so you do not " +
-      "have to repeat yourself, not a record anybody bought. An assistant that " +
-      "remembers says so at the start of the call, and asking for it to be erased " +
-      "removes it sooner.",
+      "have to repeat yourself, not a record anybody bought. An assistant does not " +
+      "say on the call that it keeps one; the business's own privacy notice tells you, " +
+      "and asking for it to be erased removes it sooner.",
   },
   {
     category: "consent_log",

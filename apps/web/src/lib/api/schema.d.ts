@@ -4116,7 +4116,7 @@ export interface paths {
          * Let an agent remember returning callers, and book call-backs
          * @description Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.
          *
-         *     Off unless you switch it on. Switched on, the agent says as it says goodbye that a short note is kept — that sentence cannot be switched off separately.
+         *     Off unless you switch it on. The agent says nothing about it on calls, so your own privacy notice is how callers learn a short note is kept.
          *
          *     What is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.
          *
@@ -18110,7 +18110,7 @@ export interface components {
             agent_id: string;
             /**
              * Attestation
-             * @default I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so before ending each call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.
+             * @default I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents do not tell callers this on the call, so my own notice is how they learn it, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.
              */
             attestation: string;
             /** Attested At */

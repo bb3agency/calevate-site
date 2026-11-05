@@ -51,6 +51,7 @@ from typing import Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import upgrade_to_v2
+from calevate_shared.opening_notices import opening_max_chars
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -195,6 +196,9 @@ class ReadinessInputs:
     #: An outbound agent's opening line is said on calls it places, so its fix names what a
     #: placed call's opening holds (`call_rules.OPENING_LINE_RULE`).
     places_calls: bool = False
+    #: The longest the opening line may be: more when it says a notice in its own words
+    #: (`opening_notices.opening_max_chars`, D-971).
+    opening_max_chars: int = OPENING_LINE_MAX_CHARS
 
 
 def _state(points: int, maximum: int) -> ComponentState:
@@ -260,7 +264,7 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
             "No opening line yet.",
             ("Write the opening line callers hear first.", f"{base}?section=script"),
         )
-    elif i.opening_chars > OPENING_LINE_MAX_CHARS or not fits:
+    elif i.opening_chars > i.opening_max_chars or not fits:
         add(
             "opening",
             OPENING_TOO_LONG_POINTS,
@@ -424,6 +428,7 @@ async def gather(
         missed_7d=int(facts.missed),
         places_calls=agent.direction == "outbound",
         advice=await advice_for(session, agent),
+        opening_max_chars=opening_max_chars(OPENING_LINE_MAX_CHARS, agent.script_opening_line),
     )
 
 

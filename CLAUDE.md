@@ -200,10 +200,19 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    publish and every drift sweep; no column, config row or client-authored script can
    withdraw it. What an agent VOLUNTEERS at the start of a call is two per-agent toggles
    (D-163): the AI disclosure and the recording notice are separate obligations under
-   separate regimes and are separately switchable, on inbound and outbound alike. Every
+   separate regimes and are separately switchable, on inbound and outbound alike. A
+   notice switched on is said IN THE AGENT'S OWN OPENING LINE, in its own words (D-971,
+   founder, 5 Nov 2026: "When an opening is saved, Pip weaves the notices into that
+   agent's own opening line in its own words, which the engine then speaks"): an opening
+   that does not say it yet is rewritten by `workers/opening_notices`, and until then
+   `engine.join_first_words` says the stored sentence beside it, so no call goes out
+   without the notice. The publish read-back, the drift sweep and the dial gate check the
+   MEANING (`calevate_shared.opening_notices.first_words_disclose`), not fixed words. Every
    agent still HAS both sentences on file — `agents.ai_disclosure_line` /
-   `recording_notice_line` NOT NULL and non-blank — and the dial gate still refuses an
-   agent with no AI sentence. Campaign launch path must call the compliance gate
+   `recording_notice_line` NOT NULL and non-blank, the fallback — and the dial gate still
+   refuses an agent with no AI sentence. Nothing about caller memory is said on a call
+   (D-971); the owner's accepted statement (version 3) says their own notice tells callers.
+   Campaign launch path must call the compliance gate
    (SECURITY-COMPLIANCE.md §3) — never add a bypass "for testing" (use staging fixtures
    instead); DNC additions propagate before next dispatch tick; transcripts default to
    `text_redacted` in every API response — raw text only behind role check + audit_log

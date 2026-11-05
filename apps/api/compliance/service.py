@@ -61,9 +61,12 @@ from datetime import UTC, datetime, time
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.call_script import opening_line_of
 from calevate_shared.calling_window import CALLING_HOURS_RULE as _CALLING_HOURS_RULE
 from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
 from calevate_shared.calling_window import IST
+from calevate_shared.engine import DisclosurePosture, join_first_words, notice_fields
+from calevate_shared.opening_notices import first_words_disclose
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -108,6 +111,7 @@ from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
+from apps.api.engine.capabilities import engine_capabilities
 from apps.api.legal.service import agreements_blocker
 
 log = get_logger(__name__)
@@ -948,6 +952,38 @@ async def person_level_refusal(
     return None
 
 
+#: The dial refused because the agent's first words would not say a notice switched on.
+DISCLOSURE_NOT_SAID_RULE: Final = "disclosure_not_said"
+
+
+def _first_words_disclose(agent: Row[Any]) -> bool:
+    """Do the first words this agent's dial would carry say each notice switched on (D-971)?
+
+    Composed with `join_first_words`, the one composer every dial goes through: the opening
+    line in its own words, else the stored sentence beside it. A guard on that composer rather
+    than a second policy: it fails only if the composer drops a notice."""
+    ai_on, recording_on, recording_line, language, body = agent[4:9]
+    posture = DisclosurePosture(
+        ai_disclosure_line=str(agent[0]),
+        ai_disclosure_enabled=bool(ai_on),
+        recording_notice_line=str(recording_line or ""),
+        recording_notice_enabled=bool(recording_on),
+    )
+    fields = notice_fields(posture, call_is_recorded=engine_capabilities().records_audio)
+    first_words = join_first_words(
+        fields["opening_line"],
+        opening_line_of(body),
+        ai_notice=fields["ai_notice"],
+        language=str(language),
+    )
+    ai_notice = fields["ai_notice"]
+    return first_words_disclose(
+        first_words,
+        ai_notice=ai_notice,
+        recording_notice=fields["opening_line"].removeprefix(ai_notice).strip(),
+    )
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -1030,8 +1066,12 @@ async def check_dispatch(
                 # top of the call — is the tenant's own decision and is deliberately NOT
                 # a dial blocker. Reading the bundled column here would have made the
                 # question un-answerable the moment the two halves stopped sharing it.
-                "SELECT ai_disclosure_line, status, direction, engine_agent_ref FROM agents "
-                "WHERE id = :aid AND tenant_id = :tid AND deleted_at IS NULL"
+                "SELECT a.ai_disclosure_line, a.status, a.direction, a.engine_agent_ref, "
+                "a.ai_disclosure_enabled, a.recording_notice_enabled, a.recording_notice_line, "
+                "a.language_primary, (SELECT pv.body FROM prompt_versions pv "
+                "WHERE pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id)) "
+                "FROM agents a "
+                "WHERE a.id = :aid AND a.tenant_id = :tid AND a.deleted_at IS NULL"
             ),
             {"aid": agent_id, "tid": tenant_id},
         )
@@ -1051,7 +1091,7 @@ async def check_dispatch(
                 "Pick a different agent."
             ),
         )
-    disclosure, status, direction, engine_ref = agent
+    disclosure, status, direction, engine_ref = agent[:4]
     if not disclosure or not str(disclosure).strip():
         # Belt and braces: the column is NOT NULL with a length CHECK, so reaching this
         # means something bypassed the schema. Refuse loudly rather than dial.
@@ -1059,6 +1099,15 @@ async def check_dispatch(
             allowed=False,
             rule="disclosure_missing",
             reason="This agent has no AI disclosure line and may not place calls.",
+        )
+    if not _first_words_disclose(agent):
+        return DispatchDecision(
+            allowed=False,
+            rule=DISCLOSURE_NOT_SAID_RULE,
+            reason=(
+                "This agent's first words do not say the notices switched on, so it may not "
+                "place calls. Put its script live again; if this stays, contact support."
+            ),
         )
     refusal = dial_refusal_for_agent_status(str(status), trial_call=trial_call)
     if refusal is None and trial_call and not engine_ref:

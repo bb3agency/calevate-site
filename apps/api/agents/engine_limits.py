@@ -34,6 +34,7 @@ from calevate_shared.engine import (
     said_as_taught,
     spoken_ai_notice,
 )
+from calevate_shared.opening_notices import says_ai, says_recorded
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompt_size import PromptSize, measure
@@ -99,16 +100,36 @@ def _posture_chars(
     )
 
 
+def unsaid_posture(posture: DisclosurePosture, opening: str) -> DisclosurePosture:
+    """`posture` with each notice `opening` already says switched off: its stored sentence
+    is not added to the greeting (`join_first_words`, D-971), so it takes no room."""
+    return posture.model_copy(
+        update={
+            "ai_disclosure_enabled": posture.ai_disclosure_enabled and not says_ai(opening),
+            "recording_notice_enabled": (
+                posture.recording_notice_enabled and not says_recorded(opening)
+            ),
+        }
+    )
+
+
 def opening_room(
-    engine: VoiceEngine, *, posture: DisclosurePosture, direction: str, language: str
+    engine: VoiceEngine,
+    *,
+    posture: DisclosurePosture,
+    direction: str,
+    language: str,
+    opening: str = "",
 ) -> int | None:
     """How many characters the opening line may have with these notices and still be spoken.
+    With `opening`, a notice it says in its own words takes no room of its own (D-971).
 
     None where nothing limits it: no ceiling, or an engine whose greeting holds the notices
     alone. Negative when the notices by themselves are over."""
     limit = greeting_limit(engine, direction)
     if limit is None or not hosted_agent_limits(engine).greeting_is_first_words:
         return None
+    posture = unsaid_posture(posture, opening)
     # Measured with a one-character line, so the separator between notices and line counts.
     return limit - (_posture_chars(engine, posture, opening="x", language=language) - 1)
 
@@ -139,7 +160,9 @@ def greeting_budget(
 
     def room(switch: str | None = None) -> int | None:
         turned = posture if switch is None else posture.model_copy(update={switch: True})
-        return opening_room(engine, posture=turned, direction=direction, language=language)
+        return opening_room(
+            engine, posture=turned, direction=direction, language=language, opening=opening
+        )
 
     limit = greeting_limit(engine, direction)
     now = room()
@@ -386,6 +409,7 @@ __all__ = [
     "refuse_unpriced_engine",
     "too_long_message",
     "too_long_sentence",
+    "unsaid_posture",
 ]
 
 

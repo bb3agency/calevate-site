@@ -73,10 +73,10 @@ from calevate_shared.engine import (
     HeldVoice,
     VoiceEngine,
     compose_first_utterance,
-    memory_goodbye_rule,
     neutralise_markers,
     quoted_client_words,
 )
+from calevate_shared.opening_notices import first_words_disclose
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -306,7 +306,18 @@ def _greeting_verdict(
         engine, notices=cfg.opening_line, first_words=compose_first_utterance(cfg)
     )
     if expected:
-        return snapshot.carries_greeting_marker(expected)
+        held = snapshot.carries_greeting_marker(expected)
+        if held is not True or not snapshot.greeting_readable:
+            return held
+        # The meaning, not only the text (D-971): an opening that says the notices in its own
+        # words stands in for the stored sentences, so what is checked is that the greeting
+        # the engine holds says each notice switched on.
+        ai_notice = cfg.ai_notice.strip()
+        return first_words_disclose(
+            snapshot.greeting or "",
+            ai_notice=ai_notice,
+            recording_notice=cfg.opening_line.strip().removeprefix(ai_notice).strip(),
+        )
     if not snapshot.greeting_readable:
         return None
     return not (snapshot.greeting or "").strip()
@@ -396,10 +407,6 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # Every prompt, for the floor's reason: it is ours, a `Final`, and a console-added
     # per-language prompt that lacks it is a language in which the agent will recite.
     confidential = snapshot.every_prompt_carries(CONFIDENTIALITY_MARKER)
-    # The memory notice is said with the goodbye, from the prompt (D-865, D-969), so the rule
-    # that asks for it is checked there.
-    goodbye = memory_goodbye_rule(cfg)
-    memory = snapshot.carries_prompt_marker(goodbye) if goodbye else True
     handoff = _handoff_verdict(engine, cfg, snapshot)
     voice = _voice_verdict(engine, cfg, snapshot)
     own_voice = _own_voice_key_verdict(cfg, snapshot)
@@ -424,7 +431,6 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         ("greeting disclosure", disclosure),
         ("truthful-answer rule", truthful),
         ("confidentiality rule", confidential),
-        ("memory notice", memory),
         ("script", prompt),
         ("voice", voice),
         ("voice key setting", own_voice),

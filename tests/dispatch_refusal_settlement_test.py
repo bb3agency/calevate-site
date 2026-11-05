@@ -100,6 +100,7 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "agent_not_live": "the agent is published; the same two doors apply",
     "agent_inbound_only": "the agent is given an outbound direction",
     "disclosure_missing": "the client fills the disclosure sentence in",
+    "disclosure_not_said": "the agent is put live again and its first words say the notices",
     "account_missing": "the organization row becomes visible again",
     "account_suspended": "operations lifts the suspension",
     "account_closed": "the account is reopened; a churned one dials nothing either way",

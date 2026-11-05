@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from calevate_shared.opening_notices import opening_max_chars
+
 from apps.api.agents.script_lint import NAME_FIELD
 from apps.api.agents.turn_checks import claims_done, claims_said_before
 
@@ -171,8 +173,10 @@ def expect_rules() -> str:
 #: 5 Nov 2026), which is why the reason comes before the question.
 OPENING_LINE_RULE: Final = (
     "The opening_line is what the agent says first, in at most "
-    f"{OPENING_LINE_MAX_CHARS} characters, with no list of products, no offer, and no AI or "
-    "recording notice (the platform adds those). For an agent that only answers calls it "
+    f"{OPENING_LINE_MAX_CHARS} characters, with no list of products and no offer. When the "
+    "brief says the opening_line says the AI or recording notice, it says it in a few words "
+    "of its own woven into the line (a few more characters are allowed for it); otherwise it "
+    "says nothing about either. For an agent that only answers calls it "
     "greets, names the business and asks one short question. For an agent that only places "
     f"calls it greets the person by name with {NAME_FIELD} (dropped by itself when the name "
     "is unknown), says in one short sentence who is calling, from which business and why, "
@@ -221,10 +225,11 @@ def said_line_problem(where: str, text: str, *, opening: bool = False) -> str | 
         )
     if claims_said_before(text):
         return f'{where}: says "as I said"; the agent has said nothing before this line.'
-    if opening and len(text.strip()) > OPENING_LINE_MAX_CHARS:
+    most = opening_max_chars(OPENING_LINE_MAX_CHARS, text)
+    if opening and len(text.strip()) > most:
         return (
             f"{where}: {len(text.strip())} characters; keep the opening line to one short "
-            f"greeting and one question, at most {OPENING_LINE_MAX_CHARS} characters."
+            f"greeting and one question, at most {most} characters."
         )
     return None
 

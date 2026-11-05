@@ -71,6 +71,7 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
     keeps_default_temperature,
 )
+from calevate_shared.opening_notices import WovenNotices, woven_notice_problems
 from calevate_shared.spoken_guard import (
     english_problem,
     generation_guidance,
@@ -157,9 +158,10 @@ _SYSTEM_INSTRUCTION = (
     f"Rules, the same ones the agent's tests check: {writer_rules()} Facts live in the "
     "knowledge base, which the agent searches. "
     "quick_facts only restates facts the owner wrote. The example_exchange shows style "
-    "only and contains no fact. Do not write anything about being an AI, about recording, "
-    "about call backs or transfers, or about do-not-call requests: the platform adds those "
-    "rules itself and knows what this account can do. Never write a line or step that "
+    "only and contains no fact. Outside the opening lines, do not write anything about being "
+    "an AI or about recording; nowhere write about call backs or transfers, or about "
+    "do-not-call requests: the platform adds those rules itself and knows what this account "
+    "can do. Never write a line or step that "
     "promises what the brief says the agent can not do, and never an offer, discount, "
     "scheme or urgency; a figure only when the owner's facts give it. "
     f"{OPENING_LINE_RULE} For an agent that "
@@ -218,9 +220,9 @@ EDIT_INSTRUCTION = (
     "call language's script; words the agent says stay in the call language, spoken, with "
     "the English words people use, following the spoken-style guide in the brief (spoken "
     "words, never their formal forms; its number and punctuation rules). What you write "
-    f"keeps the rules the agent's tests check: {writer_rules()} {OPENING_LINE_RULE} Do not "
-    "write about being an AI, recording, call backs, transfers or do-not-call. Return ONLY "
-    "JSON."
+    f"keeps the rules the agent's tests check: {writer_rules()} {OPENING_LINE_RULE} Outside "
+    "the opening lines do not write about being an AI or recording, and nowhere about call "
+    "backs, transfers or do-not-call. Return ONLY JSON."
 )
 
 Parser = Callable[[dict[str, Any]], "CallScript | None"]
@@ -262,6 +264,7 @@ def language_problems(
     names: Sequence[str] = (),
     introduced: bool = False,
     lint: LintContext | None = None,
+    woven: WovenNotices | None = None,
 ) -> list[str]:
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
     script, and a spoken line with a textbook word (`spoken_guard`), a provider's name
@@ -269,7 +272,8 @@ def language_problems(
     rules the practice tests check (`call_rules.said_line_problem`, D-849). The opening line,
     which the engine speaks word for word, must also be in the language's own letters
     (D-861, D-864), apart from `names` (the business's and the agent's), and, when the agent
-    is `introduced` by its AI notice first, must neither greet nor say those names (D-865).
+    is `introduced` by its AI notice first, must neither greet nor say those names (D-865),
+    and with `woven` says the notices switched on in its own words and no other (D-971).
 
     Only the model's own writing is judged: with `before` (an edit), a field whose text the
     script already held is the owner's and is skipped, and a textbook word that appears in
@@ -316,7 +320,10 @@ def language_problems(
                 if path in _OPENING_PATHS and not owners
                 else None,
                 introduced_opening_problem(path, text, names=names)
-                if path in _OPENING_PATHS and introduced and not owners
+                if path in _OPENING_PATHS
+                and introduced
+                and not owners
+                and not (woven is not None and woven.ai)
                 else None,
                 # A line the plans used to teach every business (D-962): the model may have
                 # seen one before, and it is never this business's own.
@@ -326,6 +333,8 @@ def language_problems(
         ]
         if lint is not None and path not in callers and not owners and text.strip():
             problems += spoken_line_problems(path, text, lint)
+        if woven is not None and path in _OPENING_PATHS and not owners and text.strip():
+            problems += woven_notice_problems(path, text, woven)
     return problems
 
 
@@ -339,6 +348,7 @@ def drafted_script(
     introduced: bool = False,
     direction: str = "both",
     lint: LintContext | None = None,
+    woven: WovenNotices | None = None,
 ) -> CallScript:
     """A whole draft (or a conversion) as `_script_from_model_json` reads it, refused with
     the language problems for the one repair when it breaks the language rules. An agent of
@@ -354,6 +364,7 @@ def drafted_script(
         names=names,
         introduced=introduced,
         lint=lint,
+        woven=woven,
     )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
@@ -370,6 +381,7 @@ def edited_script(
     names: Sequence[str] = (),
     introduced: bool = False,
     lint: LintContext | None = None,
+    woven: WovenNotices | None = None,
 ) -> CallScript | None:
     """The model's edited script, validated like any save; None when it is not a valid
     script (the edit is then reported as no draft rather than half applied). A field the
@@ -403,6 +415,7 @@ def edited_script(
         names=names,
         introduced=introduced,
         lint=lint,
+        woven=woven,
     )
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
@@ -527,6 +540,9 @@ class ScriptBrief:
     #: The agent's AI notice introduces it just before the opening line (D-865,
     #: `engine.introduces_itself`): the opening line then neither greets nor says who calls.
     introduced: bool = False
+    #: The notices the agent's switches turn on, which its opening line says in its own words
+    #: (D-971). None where nobody read the switches: the opening is then not judged on them.
+    woven: WovenNotices | None = None
     #: What the agent can do on a call and where its leads come from (D-945). None when
     #: nobody read the account (a conversion), and then no promise is checked against it.
     capabilities: CapabilityManifest | None = None
@@ -558,8 +574,10 @@ class ScriptBrief:
             _DIRECTION_SENTENCES.get(self.direction, _DIRECTION_SENTENCES["inbound"]),
             f"Call language: {self.language}",
         ]
-        if self.introduced:
+        if self.introduced and not (self.woven is not None and self.woven.ai):
             lines.append(INTRODUCED_OPENING_NOTE)
+        if self.woven is not None:
+            lines.append(self.woven.brief_note())
         # The spoken-style guide for the call language (D-744): every swap, the tags and
         # fillers, the number and punctuation rules and example exchanges, so draft,
         # convert and edit all write the founder's reviewed style.
@@ -1344,6 +1362,7 @@ async def draft_script(
             names=names,
             introduced=full.introduced,
             lint=full.lint_context(),
+            woven=full.woven,
         )
     else:
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
@@ -1364,6 +1383,7 @@ async def draft_script(
             introduced=full.introduced,
             direction=full.direction,
             lint=None if converting else full.lint_context(),
+            woven=None if converting else full.woven,
         )
     answer = await ask_json(
         description,
