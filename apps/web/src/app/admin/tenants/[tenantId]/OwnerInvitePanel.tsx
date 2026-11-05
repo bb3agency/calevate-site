@@ -197,7 +197,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
               ) : (
                 pending.data.map((row) => (
                   <div key={row.id} className="flex flex-wrap items-center gap-2 border-y border-line py-2.5 text-meta">
-                    <MonoValue className="text-ink">{row.email}</MonoValue>
+                    <MonoValue className="text-ink [overflow-wrap:anywhere]">{row.email}</MonoValue>
                     <span className="text-ink-muted">
                       {row.role} · expires {formatIST(row.expires_at)}
                     </span>
@@ -287,7 +287,7 @@ export function OwnerInvitePanel({ created }: { created: { id: string; slug: str
               title="Invitation sent"
             >
               <p className="mt-1">
-                The link is on its way to <MonoValue>{sentTo}</MonoValue>. It is not shown
+                The link is on its way to <MonoValue className="[overflow-wrap:anywhere]">{sentTo}</MonoValue>. It is not shown
                 here and cannot be read again. Only a fingerprint of it is stored.
               </p>
               <p className="mt-2 flex items-start gap-2">

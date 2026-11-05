@@ -60,8 +60,9 @@ export function InviteRow({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 basis-56">
           {/* Two invitations to one domain are told apart by the local part, which is the
-              half a truncation eats — so the full address is in the title. */}
-          <p className="truncate text-body font-medium text-ink" title={invite.email}>
+              half a truncation eats — so the address wraps, whole, rather than truncating
+              behind a title a phone cannot hover. */}
+          <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">
             {invite.email}
           </p>
           <p className="mt-0.5 text-meta text-ink-muted">

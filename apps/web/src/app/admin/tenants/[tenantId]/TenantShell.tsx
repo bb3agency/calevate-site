@@ -65,7 +65,7 @@ export function TenantShell({ tenantId, children }: { tenantId: string; children
   return (
     <div className="space-y-8 pb-12">
       <TenantHeader tenant={tenant} />
-      <div className="gap-10 lg:grid lg:grid-cols-[200px_minmax(0,1fr)]">
+      <div className="gap-10 xl:grid xl:grid-cols-[200px_minmax(0,1fr)]">
         <TenantSectionNav tenantId={tenantId} />
         <div className="min-w-0">{children}</div>
       </div>
@@ -160,9 +160,14 @@ function TenantHeader({ tenant }: { tenant: TenantSummary }) {
 }
 
 /**
- * The section menu: a sticky grouped column from `lg`, one scrolling row on a phone. ONE
- * list in both shapes, so each page has exactly one link in the document. Single-page
- * groups show only their item; the group heading would repeat it.
+ * The section menu: a sticky grouped column from `xl`, wrapped rows from `sm`, one
+ * scrolling row on a phone. ONE list in every shape, so each page has exactly one link in
+ * the document. Single-page groups show only their item; the group heading would repeat it.
+ *
+ * The column waits for `xl` because at 1024px it took 240px of the ~705px beside the open
+ * sidebar, and every table under it scrolled sideways on a desktop. Between `sm` and `xl`
+ * the row wraps rather than scrolls: a mouse has no sideways swipe, and the scrollbar is
+ * hidden, so sections past the edge were out of reach.
  *
  * `aria-current="true"` rather than `"page"`: the sidebar's Clients entry already carries
  * `"page"` for every client route, and a document with two "current page" claims answers
@@ -191,30 +196,30 @@ export function TenantSectionNav({ tenantId }: { tenantId: string }) {
   }, [current]);
 
   return (
-    <nav aria-label="Client sections" className="mb-6 lg:sticky lg:top-2 lg:mb-0 lg:self-start">
+    <nav aria-label="Client sections" className="mb-6 xl:sticky xl:top-2 xl:mb-0 xl:self-start">
       <ScrollRegion
         label="Client sections"
-        className="-mx-1 px-1 pb-1 lg:mx-0 lg:overflow-visible lg:p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="-mx-1 px-1 pb-1 sm:overflow-visible xl:mx-0 xl:p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-sm:scroll-shadow-x"
       >
-        <ul className="flex w-max items-center gap-1 lg:w-auto lg:flex-col lg:items-stretch lg:gap-0.5">
+        <ul className="flex w-max items-center gap-1 sm:w-auto sm:flex-wrap xl:flex-col xl:flex-nowrap xl:items-stretch xl:gap-0.5">
           {TENANT_SECTION_GROUPS.map((group, index) => (
             <li
               key={group.label}
-              className={`flex items-center gap-1 lg:block ${
-                index > 0 ? "border-l border-line pl-1 lg:border-l-0 lg:pl-0" : ""
-              } ${group.items.length > 1 ? "lg:py-2" : ""}`}
+              className={`flex max-w-full items-center gap-1 xl:block ${
+                index > 0 ? "border-l border-line pl-1 xl:border-l-0 xl:pl-0" : ""
+              } ${group.items.length > 1 ? "xl:py-2" : ""}`}
             >
               {group.items.length > 1 && (
                 <p
                   id={`tenant-group-${index}`}
-                  className="mb-1 hidden px-3 text-meta font-medium text-ink-faint lg:block"
+                  className="mb-1 hidden px-3 text-meta font-medium text-ink-faint xl:block"
                 >
                   {group.label}
                 </p>
               )}
               <ul
                 aria-labelledby={group.items.length > 1 ? `tenant-group-${index}` : undefined}
-                className="flex items-center gap-1 lg:flex-col lg:items-stretch lg:gap-0.5"
+                className="flex items-center gap-1 sm:flex-wrap xl:flex-col xl:flex-nowrap xl:items-stretch xl:gap-0.5"
               >
                 {group.items.map((section) => {
                   const on = section === current;
@@ -224,10 +229,10 @@ export function TenantSectionNav({ tenantId }: { tenantId: string }) {
                         ref={on ? activeRef : undefined}
                         href={tenantSectionHref(tenantId, section)}
                         aria-current={on ? "true" : undefined}
-                        className={`press flex h-9 items-center whitespace-nowrap rounded-full px-3.5 text-meta font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 lg:rounded-md lg:px-3 lg:text-body ${
+                        className={`press flex h-9 items-center whitespace-nowrap rounded-full px-3.5 text-meta font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 xl:rounded-md xl:px-3 xl:text-body ${
                           on
                             ? "bg-ink/[0.06] text-ink"
-                            : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink lg:font-normal"
+                            : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink xl:font-normal"
                         }`}
                       >
                         {section.label}

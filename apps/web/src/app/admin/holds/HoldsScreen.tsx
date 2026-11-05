@@ -204,7 +204,7 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
         >
           {row.name}
         </Link>
-        <div className="text-meta text-ink-muted">
+        <div className="text-meta text-ink-muted [overflow-wrap:anywhere]">
           /c/{row.slug} · {row.plan_tier}
         </div>
       </div>

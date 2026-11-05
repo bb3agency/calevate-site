@@ -480,7 +480,7 @@ function ClientBlock({ run, search }: { run: ClientRun; search: string }) {
     // week's single list. A card per client would stack a hundred boxes on a busy Monday.
     <div>
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-line bg-ink/[0.025] px-4 py-2">
-        <h4 className="min-w-0 truncate text-body font-semibold text-ink" title={`/c/${run.rows[0]?.tenant_slug ?? ""}`}>
+        <h4 className="min-w-0 text-body font-semibold text-ink [overflow-wrap:anywhere]" title={`/c/${run.rows[0]?.tenant_slug ?? ""}`}>
           {run.name}
         </h4>
         {counts && (
@@ -513,7 +513,7 @@ function SampleRow({ row, search }: { row: QaSample; search: string }) {
         className="group flex items-center gap-3 px-4 py-3 transition-colors duration-(--duration-fast) hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11"
       >
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-body font-medium text-ink">{row.agent_name}</span>
+          <span className="block text-body font-medium text-ink [overflow-wrap:anywhere]">{row.agent_name}</span>
           <span className="mt-0.5 block text-meta text-ink-muted">
             {formatIST(row.started_at)} · {directionLabel(row.direction)} ·{" "}
             {formatDuration(row.duration_s)}

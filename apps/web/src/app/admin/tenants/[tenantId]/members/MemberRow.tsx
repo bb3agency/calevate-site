@@ -83,8 +83,8 @@ export function MemberRow({
         <div className="min-w-0 flex-1 basis-56">
           {/* NOT falling back to the address when the name is null: the address is printed
               beneath anyway, and a fallback that duplicates it reads as two people. */}
-          <p className="text-body font-medium text-ink">{member.name ?? "Unnamed member"}</p>
-          <p className="truncate text-meta text-ink-muted" title={member.email}>
+          <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{member.name ?? "Unnamed member"}</p>
+          <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">
             {member.email}
           </p>
           <p className="mt-0.5 text-meta text-ink-muted">

@@ -265,7 +265,7 @@ function CandidateRow({ voice, checked, onToggle }: { voice: HostedVoice; checke
       />
       {voice.preview_available && <PlayCell voice={voice} />}
       <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer py-1 touch:min-h-11">
-        <span className="block truncate text-body font-medium text-ink">{voice.label}</span>
+        <span className="block text-body font-medium text-ink [overflow-wrap:anywhere]">{voice.label}</span>
         <span className="block text-meta text-ink-muted">
           {meta}
         </span>
