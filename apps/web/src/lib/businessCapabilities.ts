@@ -10,9 +10,14 @@ import { useClientSession } from "@/lib/api/session";
  * profile judged with the account's business copy (`GET /v1/business-copy`).
  *
  * Every judgement is three-valued. `null` is "not judged yet" (no copy has landed, or the
- * read is in flight), and a screen then keeps the behaviour it had before the profile
- * existed: every switch, chip and job stays on offer. Only a judged `false` hides or
- * rewords something, so a business is never shown less than it had because a read was slow.
+ * read is in flight). Two readings, and a screen picks the one its question needs (audit of
+ * 5 Nov 2026, G1-1):
+ * - OFFERED: every switch, chip and job stays on offer until a judged `false` hides it, so a
+ *   business is never shown less than it may do because a read was slow (`quotesPrices`,
+ *   `goAheadLabel`).
+ * - ASSUMED: words that take something for granted ("hot lead", "booking", "prices") only
+ *   for a judged `true`; unknown reads neutral (`leadWords`, `callersWord`).
+ * The server twins are `Capabilities.offered` / `assumed` and `tenancy/caller_words.py`.
  */
 
 export type Applies = boolean | null;
@@ -84,10 +89,6 @@ export function quotesPrices(caps: BusinessCapabilities, priceLabel?: string | n
   return caps.quotesPrices !== false && priceLabel !== null;
 }
 
-/** Whether the business takes bookings or orders at all; unknown counts as yes. */
-export function takesBookingsOrOrders(caps: BusinessCapabilities): boolean {
-  return caps.takesBookings !== false || caps.takesOrders !== false;
-}
 
 /**
  * The switch that lets an agent go ahead on a caller's behalf, named for what this business
@@ -104,7 +105,11 @@ export function goAheadLabel(caps: BusinessCapabilities): string | null {
   return "Take bookings and orders";
 }
 
-/** The platform's starting language when nothing about the business says otherwise (BRD §1). */
+/**
+ * The platform's starting language when nothing about the business says otherwise (BRD §1):
+ * the browser's copy of `calevate_shared.engine.DEFAULT_PRIMARY_LANGUAGE`, the one server
+ * default (G7-1); `businessCapabilities.test.ts` keeps the two equal.
+ */
 export const FALLBACK_LANGUAGE: AgentLanguage = "te-IN";
 
 /**
@@ -132,4 +137,52 @@ export function pluralNoun(noun: string): string {
 /** What the owner calls the people on its calls, plural: the copy's noun, or `fallback`. */
 export function callersWord(caps: BusinessCapabilities, fallback = "callers"): string {
   return caps.callerNoun ? pluralNoun(caps.callerNoun) : fallback;
+}
+
+/**
+ * What a caller books or orders, with its article, once the business is judged to take it:
+ * "a booking", "an order" or "a booking or order"; null while unjudged or when it takes
+ * neither. The web twin of `BusinessFit.offer_noun`.
+ */
+export function offerNoun(caps: BusinessCapabilities): string | null {
+  if (caps.takesBookings === true && caps.takesOrders === true) return "a booking or order";
+  if (caps.takesOrders === true) return "an order";
+  if (caps.takesBookings === true) return "a booking";
+  return null;
+}
+
+/** Whether the copy run has judged what this business does; false shows "still learning". */
+export function capabilitiesJudged(caps: BusinessCapabilities): boolean {
+  return [caps.takesBookings, caps.takesOrders, caps.quotesPrices, caps.hasPremises, caps.sells].every(
+    (value) => value !== null,
+  );
+}
+
+/** The lead ladder's words for this business, lower case, for a sentence. */
+export interface LeadWords {
+  readonly lead: string;
+  readonly leads: string;
+  readonly newLead: string;
+  readonly hotLead: string;
+  readonly hotLeads: string;
+}
+
+/**
+ * "lead" and "hot lead" only for a business judged to sell; otherwise the caller as the
+ * business names them ("interested user", "most interested users"), or "caller" until its copy
+ * names one. The web twin of `tenancy/caller_words.CallerWords`, word for word.
+ */
+export function leadWords(caps: BusinessCapabilities): LeadWords {
+  if (caps.sells === true) {
+    return { lead: "lead", leads: "leads", newLead: "new lead", hotLead: "hot lead", hotLeads: "hot leads" };
+  }
+  const one = caps.callerNoun ?? "caller";
+  const many = pluralNoun(one);
+  return {
+    lead: `interested ${one}`,
+    leads: `interested ${many}`,
+    newLead: `interested ${one}`,
+    hotLead: `most interested ${one}`,
+    hotLeads: `most interested ${many}`,
+  };
 }

@@ -99,11 +99,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.engine_limits import refuse_notice_without_room
+from apps.api.agents.give_callers_time import apply_where_default
 from apps.api.agents.hosted_voices import parse_hosted_voice_id, source_rate_key
 from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import is_published
 from apps.api.agents.opening_notices import queue_opening_notices
-from apps.api.agents.patient_caller import apply_where_default
 from apps.api.agents.service import (
     effective_call_cap,
     publish_agent,
@@ -1560,8 +1560,8 @@ class CallerScreenResult:
     #: The switch was already where it was asked to be: nothing written, nothing audited.
     unchanged: bool
     #: The call settings switching on gave the "Give callers time" values, because the owner
-    #: had left them at Calevate's default (`patient_caller.apply_where_default`).
-    patient_settings: tuple[str, ...] = ()
+    #: had left them at Calevate's default (`give_callers_time.apply_where_default`).
+    give_callers_time_settings: tuple[str, ...] = ()
 
 
 async def set_caller_has_screen(
@@ -1573,8 +1573,8 @@ async def set_caller_has_screen(
     transaction, so a voice-platform refusal rolls the column back and the screen never says
     the agent guides a screen it does not. Idempotent for the same reason as that one.
 
-    Switching on also gives the agent the patient silence settings wherever the owner kept
-    Calevate's default, before the republish, so they reach the line together.
+    Switching on also gives the agent the "Give callers time" silence settings wherever the
+    owner kept Calevate's default, before the republish, so they reach the line together.
     """
     async with tenant_session(tenant_id) as session:
         row = (
@@ -1590,7 +1590,7 @@ async def set_caller_has_screen(
             raise ProblemError.not_found("Agent")
         unchanged = bool(row[0]) == enabled
         on_engine = is_published(row[1], row[2])
-        patient: tuple[str, ...] = ()
+        give_time: tuple[str, ...] = ()
         if not unchanged:
             await session.execute(
                 text(
@@ -1600,7 +1600,9 @@ async def set_caller_has_screen(
                 {"on": enabled, "aid": agent_id},
             )
             if enabled:
-                patient = await apply_where_default(session, tenant_id=tenant_id, agent_id=agent_id)
+                give_time = await apply_where_default(
+                    session, tenant_id=tenant_id, agent_id=agent_id
+                )
             if on_engine:
                 await publish_agent(
                     session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False
@@ -1615,7 +1617,7 @@ async def set_caller_has_screen(
         enabled=enabled,
         engine_synced=synced,
         unchanged=unchanged,
-        patient_settings=patient,
+        give_callers_time_settings=give_time,
     )
 
 

@@ -742,6 +742,13 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "What each client pays per month while the fee is on. A fee already raised keeps "
         "its amount.",
     ),
+    "ai_overage_block_inr": _m(
+        "billing",
+        "prices",
+        "Extra AI help block",
+        "What a client pays from calling credit for one more block of AI help in a month. "
+        "A block already bought keeps its amount.",
+    ),
     "usd_inr_rate": _m(
         "billing",
         "prices",
@@ -1366,6 +1373,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     # ---- units ----------------------------------------------------------------------
     "self_serve_inr_per_min": ControlHint(unit="per minute"),
     "platform_fee_inr": ControlHint(unit="per month"),
+    "ai_overage_block_inr": ControlHint(unit="per block"),
     "usd_inr_rate": ControlHint(unit="per US dollar"),
     "trial_call_max_seconds": ControlHint(kind="duration", unit="seconds"),
     "db_statement_timeout_ms": ControlHint(kind="duration", unit="milliseconds"),
@@ -1460,6 +1468,7 @@ HIGH_RISK: Final[dict[str, str]] = {
     "self_serve_inr_per_min": "Every client is charged this price.",
     "platform_fee_enabled": "Decides whether every client is asked for a monthly fee.",
     "platform_fee_inr": "Every client is asked for this amount each month while the fee is on.",
+    "ai_overage_block_inr": "Every client who buys extra AI help pays this amount.",
     "usd_inr_rate": "Used only if no rate was ever published, or with the override on.",
     "usd_inr_rate_override": "Every dollar cost converts at your manual rate while this is on.",
     "payment_provider": "Clients pay through the provider you choose.",

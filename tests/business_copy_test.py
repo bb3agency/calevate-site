@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from apps.api.agents import starters
+from apps.api.agents.trade_playbooks import NEXT_STEP_TITLE
 from apps.api.billing import rates
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.models import (
@@ -124,6 +125,14 @@ def copy_dict() -> dict[str, Any]:
         "screen_guide": {"suggested": False, "reason": ""},
         # Deep: a test that edits a judgement must not edit the next test's answer.
         **copylib.deepcopy(V4_PROFILE),
+        # Prompt version 5 (G1-3): the ready-made agents' own words.
+        "starter_words": {
+            "answer_name": "Oil counter",
+            "calling_name": "Customer follow-up",
+            "topics": "the oils, prices, pickup or delivery",
+            "capture": "the oil they want, how much, and pickup or delivery",
+            "caution": "Never promise stock without checking.",
+        },
     }
 
 
@@ -164,6 +173,13 @@ def _not_selling() -> dict[str, Any]:
     raw["placeholders"]["booking_job_title"] = ""
     raw["placeholders"]["booking_job_line"] = ""
     raw["caller_noun"] = "farmer"
+    raw["starter_words"] = {
+        "answer_name": "Help desk",
+        "calling_name": "User follow-up",
+        "topics": "what you offer",
+        "capture": "what they need",
+        "caution": "Never promise anything your facts do not say; say the team will confirm.",
+    }
     return raw
 
 
@@ -1005,7 +1021,11 @@ def test_starter_lines_fill_only_empty_example_lines() -> None:
     lines = [f"Line {i} andi" for i in range(len(script.stages))]
     filled = starters.with_example_lines(script, lines)
     assert filled.stages[0].sounds_like == "Owner's own words"
-    assert [s.sounds_like for s in filled.stages[1:]] == lines[1:]
+    # The step that agrees the next step has no line of the business's (D-962).
+    assert [s.sounds_like for s in filled.stages[1:]] == [
+        "" if stage.name == NEXT_STEP_TITLE else line
+        for stage, line in zip(script.stages[1:], lines[1:], strict=True)
+    ]
 
 
 def test_lines_for_another_number_of_steps_or_too_long_are_not_used() -> None:

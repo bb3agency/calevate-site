@@ -755,18 +755,18 @@ Also include:
 - "summary": two sentences, in English, of what the caller wanted and what happened.
   Written in your own words: never copy a transcript line into it.
 - "headline": at most 90 characters, in English: what the caller wanted and how it ended,
-  e.g. "Asked if chilli is in stock; wants a call back today".
+  shaped like "Asked <what they asked>; wants <what they want next>".
 - "next_step": one short English sentence saying what happens next and who does it, or ""
   when nothing is left to do.
 - "next_step_by": who must act on next_step. One of:
     business  the business or its team must do something: call the caller back, send
-              what was promised, answer a question the agent could not, confirm a booking;
+              what was promised, answer a question the agent could not, confirm what was agreed;
     caller    only the caller has something to do (try the app, send a photo, reach out
               if they get stuck); the business just waits;
     nobody    nothing is left to do, and next_step is "".
 - summary, headline and next_step are English words in English grammar whatever language
-  the call was in. The call's language written in Latin letters is not English: "house
-  kavali ani chepparu" must be "They said they want a house".
+  the call was in. The call's language written in Latin letters is not English: translate
+  it, never copy it.
 - "sentiment": one of positive, neutral, negative.
 - "outcome_tag": exactly one of:
     needs_you      the caller needs a person from the business: they asked for one, asked
@@ -778,12 +778,10 @@ Also include:
                    answering machine, or the caller hung up within the first exchange;
     answered       the agent dealt with what the caller wanted and nothing is left open.
 {_goal_section(goal)}{_business_outcome_section(outcomes, goal=goal)}{_OUT_OF_SCOPE_LINE}
-- "callback_requested": true when the caller wants the conversation to continue on another
-  call: they asked to be called back, in any language or script ("call back", "కాల్ బ్యాక్",
-  "malli call cheyyandi", "वापस कॉल", "baad mein call"), said they are busy and to call
-  later, or ended with something they wanted still unfinished and said they would talk
-  again later. False when the caller said they need nothing more, or only that they will
-  get in touch themselves if they ever need help.
+- "callback_requested": true only when the caller asked the BUSINESS to call them: they
+  asked to be called back, in any language or script, or said they are busy and to call
+  later. False when the caller will call or get in touch themselves ("I'll call you"), when
+  they only said they would talk again some time, and when they need nothing more.
 - "requested_callback_date" and "requested_callback_time": when callback_requested is true
   and the caller named a day or a time for it, that day as YYYY-MM-DD worked out from the
   call's date, and that time as 24-hour HH:MM; null for whichever they did not say. A part
@@ -794,13 +792,12 @@ Also include:
 {_unlisted_section(spec) if unlisted else ""}
 WHO SPOKE DECIDES WHAT IS A FACT.
 The transcript is one turn per line, and every line is labelled with the speaker:
-  "agent:"  — our AI receptionist, OUR side of the call.
+  "agent:"  — the business's AI agent, OUR side of the call.
   "caller:" — the human this record is about.
 - Every field above is a fact about the CALLER, so only `caller:` lines are evidence.
 - An `agent:` line is a question, an offer, a menu of options or a read-back, and none
-  of those is an answer. "Mee peru cheppandi" is a question asking for a name; it is
-  not an answer and there is no name in it. "Book cheyala leda cancel cheyala?" is the
-  agent listing options; it is not the caller's intent.
+  of those is an answer. The agent asking for a name has no name in it; the agent listing
+  options is not the caller's intent.
 - The agent repeating a value back does not confirm it. The caller must have said it.
 - A line labelled "agent (the caller spoke over this; they may not have heard it):" was
   probably cut off: do not treat an offer, a price or a promise in it as heard, agreed or
@@ -810,8 +807,8 @@ The transcript is one turn per line, and every line is labelled with the speaker
   words are unmistakable.
 
 A DENIAL IS NOT A CONFIRMATION.
-- "ledu", "vaddu", "kaadu", "avasaram ledu", "nahi", "no", "don't" in answer to a
-  question mean the caller REFUSED that thing.
+- "No", "don't", "not needed", in any language or script, in answer to a question mean
+  the caller REFUSED that thing.
 - For a true/false field a denial is false — never true.
 - A true/false field is false ONLY when the caller said no to that thing. When the call
   never came to it, it is null, not false, even when the field says when it is true.

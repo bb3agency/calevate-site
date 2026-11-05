@@ -15,14 +15,14 @@ import {
   ReaskRow,
 } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
-import { PatientCallerRow } from "@/components/patientCallerRow";
+import { GiveCallersTimeRow } from "@/components/giveCallersTimeRow";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
   inheritLabels,
   openingWaitMs,
-  useAdminApplyPatientCaller,
+  useAdminApplyGiveCallersTime,
   useAdminSetAgentCallHandling,
   useTenantAgentCallHandling,
 } from "@/lib/api/callHandling";
@@ -45,8 +45,8 @@ export function CallHandlingPanel({
   // The row that saved shows pending and the error face on its save bar, with the refusal
   // beside it; the bar closes on success, so the success is a toast.
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Call settings saved" });
-  const patient = useAdminApplyPatientCaller({ tenantId, agentId, slug });
-  const patientFeedback = useActionFeedback(patient, {
+  const giveTime = useAdminApplyGiveCallersTime({ tenantId, agentId, slug });
+  const giveTimeFeedback = useActionFeedback(giveTime, {
     errorDisplay: "inline",
     successToast: "Callers now get time on this agent",
   });
@@ -72,12 +72,12 @@ export function CallHandlingPanel({
       <h3 className="text-heading text-ink">Call handling</h3>
       <RestrictionNote reason={write.reason} />
       <SettingRows className="border-y border-line">
-        <PatientCallerRow
-          preset={data.patient_caller}
+        <GiveCallersTimeRow
+          preset={data.give_callers_time}
           canChange={write.allowed}
-          status={patientFeedback.status}
-          error={patient.error}
-          onApply={() => patient.mutate()}
+          status={giveTimeFeedback.status}
+          error={giveTime.error}
+          onApply={() => giveTime.mutate()}
         />
         <PauseRow
           idPrefix={`admin-${agentId}`}

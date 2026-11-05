@@ -68,6 +68,8 @@ class PromoReportOut(Strict):
     findings: list[FindingOut]
     truncated: bool
     fix: str
+    #: Languages of wording the checker cannot read (English names): read it yourself.
+    not_checked_in: list[str] = Field(default_factory=list, max_length=8)
 
 
 class PurposeOut(Strict):
@@ -118,6 +120,7 @@ def report_out(report: PromoReport) -> PromoReportOut:
         ],
         truncated=report.truncated,
         fix=FIX,
+        not_checked_in=list(report.not_checked_in),
     )
 
 

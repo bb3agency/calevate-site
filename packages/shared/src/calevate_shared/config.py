@@ -1661,6 +1661,12 @@ class Settings(BaseSettings):
     platform_fee_enabled: bool = False
     platform_fee_inr: Decimal | None = Field(default=None, gt=0, le=1_000_000)
 
+    # THE EXTRA BLOCK OF DASHBOARD AI a client may buy once a month from calling credit, in
+    # rupees (`billing/ai_quota`). A client-facing price, so the founder's console setting
+    # rather than a code constant (audit of 5 Nov 2026, G8-1); ₹500 is the figure the founder
+    # set. A block already bought keeps the amount it was bought at (its ledger row).
+    ai_overage_block_inr: Decimal = Field(default=Decimal("500.00"), gt=0, le=100_000)
+
     # HOW OLD A LIST'S CONSENT MAY BE BEFORE A CAMPAIGN OVER IT IS REFUSED, in days.
     #
     # **THE NUMBER IS NOT OURS AND THE CODE SAYS SO WHEREVER IT IS READ.** What is ours is

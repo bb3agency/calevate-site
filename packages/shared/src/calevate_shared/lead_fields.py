@@ -49,10 +49,7 @@ CORE_LEAD_FIELDS: Final[tuple[ExtractionField, ...]] = (
         key="need",
         label="What they want",
         type="text",
-        reason=(
-            "What the caller wants or why they called, in a few words of their own "
-            "(for example 'two kilos of green chilli', 'price of a service', 'reschedule')."
-        ),
+        reason="What the caller wants or why they called, in a few words of their own.",
     ),
     ExtractionField(
         key="preferred_time",

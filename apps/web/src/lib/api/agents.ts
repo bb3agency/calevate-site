@@ -195,7 +195,7 @@ export function useSetCallerScreen(
       Promise.all([
         client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) }),
         client.invalidateQueries({ queryKey: agentKeys.one(session.orgSlug, agentId) }),
-        // Switching on may give the agent the patient silence settings (`patient_settings`).
+        // Switching on may give the agent the "Give callers time" silence settings (`give_callers_time_settings`).
         client.invalidateQueries({ queryKey: callHandlingKeys.agent(session.orgSlug, agentId) }),
         client.invalidateQueries({ queryKey: callerHelpKeys.agent(session.orgSlug, agentId) }),
       ]),

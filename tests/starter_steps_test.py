@@ -21,7 +21,11 @@ from typing import Any
 import pytest
 from apps.api.agents import starter_plans, starters
 from apps.api.agents.starter_plans import PlanStep, clean_plan, plans_to_json, with_focus
-from apps.api.agents.trade_playbooks import VALUE_STEP_TITLE, playbook_guidance
+from apps.api.agents.trade_playbooks import (
+    NEXT_STEP_TITLE,
+    VALUE_STEP_TITLE,
+    playbook_guidance,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.workers import starter_steps as worker
@@ -38,6 +42,16 @@ def _raw(job: str, prefix: str = "Step") -> list[dict[str, str]]:
     return [
         {"title": f"{prefix} {i} of {job.replace('_', ' ')}", "focus": f"focus {i}"}
         for i in range(1, COUNTS[job] + 1)
+    ]
+
+
+def _shown(job: str, prefix: str = "Step") -> list[str]:
+    """The titles a business not yet judged to book sees: its own, except the step that
+    agrees the next step, which keeps the platform's title (G1-1)."""
+    ours = [s.title for s in starters.starter_for("custom", job).steps]
+    return [
+        title if title == NEXT_STEP_TITLE else raw["title"]
+        for title, raw in zip(ours, _raw(job, prefix), strict=True)
     ]
 
 
@@ -66,6 +80,9 @@ def test_only_the_title_and_focus_are_the_businesss() -> None:
     plan = clean_plan(_raw("call_leads"), steps=len(starter.steps))
     mine = starter.planned(plan)
     for ours, theirs, own in zip(starter.steps, mine.steps, plan or (), strict=True):
+        if ours.title == NEXT_STEP_TITLE:
+            assert theirs == ours
+            continue
         assert theirs.title == own.title
         assert theirs.instruction == f"{ours.instruction} For this business: {own.focus}"
         assert theirs.exit_when == ours.exit_when
@@ -80,8 +97,9 @@ def test_the_writer_keeps_the_businesss_titles_and_finds_its_value_step() -> Non
     assert plan is not None
     guidance = playbook_guidance("custom", "outbound", {"call_leads": plan})
     assert "Use these step titles as written" in guidance
-    for step in plan:
-        assert step.title in guidance
+    ours = [s.title for s in starters.starter_for("custom", "call_leads").steps]
+    for step, title in zip(plan, ours, strict=True):
+        assert (step.title in guidance) == (title != NEXT_STEP_TITLE)
     value_index = [s.title for s in starters.starter_for("custom", "call_leads").steps].index(
         VALUE_STEP_TITLE
     )
@@ -177,7 +195,7 @@ async def test_the_preview_shows_the_businesss_steps_once_written() -> None:
     await _write(tenant_id, "Crop")
     code, body = await _starters(token, "?job=call_leads")
     assert code == 200, body
-    assert body["starters"][0]["step_titles"] == [s["title"] for s in _raw("call_leads", "Crop")]
+    assert body["starters"][0]["step_titles"] == _shown("call_leads", "Crop")
     assert body["starters"][0]["steps_written"] is True
 
 
@@ -189,7 +207,7 @@ async def test_a_new_agent_is_made_with_the_steps_the_owner_saw() -> None:
     assert code == 201, body
     row = await _agent_rows(tenant_id, uuid.UUID(body["id"]))
     script = CallScript.model_validate(row[5])
-    assert [s.name for s in script.stages] == [s["title"] for s in _raw("call_leads", "Crop")]
+    assert [s.name for s in script.stages] == _shown("call_leads", "Crop")
     # Still recognised as an unedited starter, so a business-type change can retype it.
     plans = {job: clean_plan(_raw(job, "Crop"), steps=COUNTS[job]) for job in starters.STARTER_JOBS}
     assert (

@@ -2446,9 +2446,10 @@ LOW_BALANCE_ALERT_SET: Final = ActionTool(
 
 
 async def _plan_ai_extra(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
-    from apps.api.billing.ai_quota import AI_OVERAGE_BLOCK_INR, read_ai_quota
+    from apps.api.billing.ai_quota import ai_overage_block_inr, read_ai_quota
 
     del args
+    block = ai_overage_block_inr()
     quota = await read_ai_quota(session, tenant_id=actor.tenant_id)
     if quota.extra_unavailable is not None:
         reasons = {
@@ -2467,10 +2468,10 @@ async def _plan_ai_extra(session: AsyncSession, actor: ToolActor, args: Mapping[
         title="Add more AI help this month",
         summary=f"Add the extra AI help block for {quota.month}, paid from your credit.",
         current=None,
-        proposed=_inr(AI_OVERAGE_BLOCK_INR),
-        cost=f"{_inr(AI_OVERAGE_BLOCK_INR)} from your credit now.",
+        proposed=_inr(block),
+        cost=f"{_inr(block)} from your credit now.",
         reversal="It cannot be refunded once added.",
-        args={"accept_amount_inr": str(AI_OVERAGE_BLOCK_INR)},
+        args={"accept_amount_inr": str(block)},
     )
 
 

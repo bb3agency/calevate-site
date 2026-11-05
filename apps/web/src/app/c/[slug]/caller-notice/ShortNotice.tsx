@@ -6,6 +6,7 @@ import { CopyButton } from "@/components/interior/copy-button";
 import { NOTICE_BAR, NOTICE_BASE, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { useShortNotice, type NoticeLanguage } from "@/lib/api/compliancePack";
 import { type Session } from "@/lib/api/client";
+import { founderLine } from "@/lib/founderLines";
 import { fill, toPlainText, type BlankValues } from "@/lib/noticeDraft/blanks";
 
 import { downloadText } from "./download";
@@ -13,8 +14,8 @@ import { SHORT_NOTICE_COPY as COPY } from "./copy";
 
 const LANGUAGES: { value: NoticeLanguage; label: string }[] = [
   { value: "en", label: "English" },
-  { value: "te", label: "తెలుగు" },
-  { value: "hi", label: "हिन्दी" },
+  { value: "te", label: founderLine("language.endonym.te-IN") },
+  { value: "hi", label: founderLine("language.endonym.hi-IN") },
 ];
 
 /**

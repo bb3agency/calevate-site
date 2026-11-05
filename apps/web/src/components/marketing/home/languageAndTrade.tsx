@@ -3,6 +3,7 @@ import { Reveal } from "@/components/marketing/motion";
 import { Band, Chapter, HOME } from "./band";
 import { VoicePickerMock } from "./mockups/featureMockups";
 import { MockStage } from "./mockups/stage";
+import { founderLine } from "@/lib/founderLines";
 
 /**
  * CHAPTER 4 — your language, your trade. BANDS 07 AND 08, ON THE ONE GROUND THEY SHARE.
@@ -35,8 +36,8 @@ import { MockStage } from "./mockups/stage";
 
 /** The same question, in the three languages the product offers. */
 const SAME_QUESTION: readonly { lang: string; label: string; text: string }[] = [
-  { lang: "te", label: "తెలుగు", text: "రేపు డాక్టర్ గారు ఉంటారా?" },
-  { lang: "hi", label: "हिन्दी", text: "क्या कल डॉक्टर उपलब्ध हैं?" },
+  { lang: "te", label: founderLine("marketing.language_and_trade.0"), text: founderLine("marketing.language_and_trade.1") },
+  { lang: "hi", label: founderLine("marketing.language_and_trade.2"), text: founderLine("marketing.language_and_trade.3") },
   { lang: "en", label: "English", text: "Is the doctor available tomorrow?" },
 ];
 

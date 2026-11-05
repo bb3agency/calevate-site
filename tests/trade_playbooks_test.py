@@ -10,6 +10,7 @@ import pytest
 from apps.api.agents.starters import CATALOGUE, STARTER_JOBS, TRADES, with_example_lines
 from apps.api.agents.trade_playbooks import (
     JOB_SHAPES,
+    NEXT_STEP_TITLE,
     TRADE_WORDS,
     playbook_for,
     playbook_guidance,
@@ -26,7 +27,8 @@ def test_every_trade_and_job_has_a_plan() -> None:
             plan = playbook_for(trade, job, basics)
             assert plan.trade == trade and plan.job == job
             assert 4 <= len(plan.steps) <= 6, (trade, job)
-            assert len(plan.objections) >= 3, (trade, job)
+            # Not judged yet: no price or sale objection (G2-3).
+            assert len(plan.objections) >= 1, (trade, job)
             for step in plan.steps:
                 assert step.title and step.instruction and step.exit_when
                 # English instructions only: no spoken line in any call language (D-962).
@@ -59,7 +61,11 @@ def test_a_business_line_fills_an_empty_step_but_never_a_persons() -> None:
     script = starter.call_script(business="Acme", language="te-IN")
     lines = [f"Acme line {i}" for i in range(len(script.stages))]
     replaced = with_example_lines(script, lines)
-    assert [stage.sounds_like for stage in replaced.stages] == lines
+    # The step that agrees the next step has no line of the business's (D-962).
+    assert [stage.sounds_like for stage in replaced.stages] == [
+        "" if stage.name == NEXT_STEP_TITLE else line
+        for stage, line in zip(script.stages, lines, strict=True)
+    ]
     edited = script.model_copy(
         update={
             "stages": [

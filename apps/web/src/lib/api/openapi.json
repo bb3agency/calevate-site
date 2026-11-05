@@ -2720,6 +2720,9 @@
             "title": "Filler Lines Source",
             "type": "string"
           },
+          "give_callers_time": {
+            "$ref": "#/components/schemas/GiveCallersTimeOut"
+          },
           "nudge_after_seconds": {
             "anyOf": [
               {
@@ -2956,9 +2959,6 @@
             ],
             "title": "Organization Turn Silence Ms"
           },
-          "patient_caller": {
-            "$ref": "#/components/schemas/PatientCallerOut"
-          },
           "reask_after_ms": {
             "anyOf": [
               {
@@ -3056,7 +3056,7 @@
           "organization_opening_wait_ms",
           "organization_reask_after_ms",
           "bounds",
-          "patient_caller"
+          "give_callers_time"
         ],
         "title": "AgentCallHandlingOut",
         "type": "object"
@@ -12544,11 +12544,11 @@
             "title": "Engine Synced",
             "type": "boolean"
           },
-          "patient_settings": {
+          "give_callers_time_settings": {
             "items": {
               "type": "string"
             },
-            "title": "Patient Settings",
+            "title": "Give Callers Time Settings",
             "type": "array"
           }
         },
@@ -13222,7 +13222,7 @@
       },
       "Capabilities": {
         "additionalProperties": false,
-        "description": "What this business does with its callers, judged by the copy run from its own details.\n\ntakes_bookings: callers book a time, slot, visit or meeting. takes_orders: callers order\ngoods for pickup or delivery. quotes_prices: the business tells callers prices.\nhas_premises: callers come to a place (a shop, an office, a site). sells: the business\nsells anything to callers at all (False for a free app helping its registered users, or a\nhelpline). health_business: it gives health or medical care.\n\nTHE UNKNOWN RULE: `applies is None` means \"not judged yet\", and a consumer then behaves\nexactly as it did before this profile existed. Only `applies is False` may withdraw\nanything; never read None as False.",
+        "description": "What this business does with its callers, judged by the copy run from its own details.\n\ntakes_bookings: callers book a time, slot, visit or meeting. takes_orders: callers order\ngoods for pickup or delivery. quotes_prices: the business tells callers prices.\nhas_premises: callers come to a place (a shop, an office, a site). sells: the business\nsells anything to callers at all (False for a free app helping its registered users, or a\nhelpline). health_business: it gives health or medical care.\n\nTHE UNKNOWN RULE: `applies is None` means \"not judged yet\". Never read None as False\nwhere False takes something away (a switch the owner may turn on, a check that keeps a\ncaller safe); never read it as True where True puts words in an agent's or a screen's\nmouth (a booking offered, a price quoted, a sale assumed). `offered` and `assumed` are\nthe two readings.",
         "properties": {
           "has_premises": {
             "$ref": "#/components/schemas/Capability"
@@ -28289,6 +28289,51 @@
         "title": "FxRateOut",
         "type": "object"
       },
+      "GiveCallersTimeOut": {
+        "additionalProperties": false,
+        "description": "The \"Give callers time\" preset (D-907) for this agent: what it sets and whether the\nsettings in force match it.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "call_cap_s": {
+            "title": "Call Cap S",
+            "type": "integer"
+          },
+          "end_after_silence_seconds": {
+            "title": "End After Silence Seconds",
+            "type": "integer"
+          },
+          "nudge_after_seconds": {
+            "title": "Nudge After Seconds",
+            "type": "integer"
+          },
+          "nudge_count": {
+            "title": "Nudge Count",
+            "type": "integer"
+          },
+          "nudge_phrase": {
+            "title": "Nudge Phrase",
+            "type": "string"
+          },
+          "reask_after_ms": {
+            "title": "Reask After Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "nudge_after_seconds",
+          "nudge_count",
+          "nudge_phrase",
+          "end_after_silence_seconds",
+          "reask_after_ms",
+          "call_cap_s"
+        ],
+        "title": "GiveCallersTimeOut",
+        "type": "object"
+      },
       "GlobalEntryOut": {
         "additionalProperties": false,
         "properties": {
@@ -40631,51 +40676,6 @@
         "title": "PasswordChangeOut",
         "type": "object"
       },
-      "PatientCallerOut": {
-        "additionalProperties": false,
-        "description": "The \"Give callers time\" preset (D-907) for this agent: what it sets and whether the\nsettings in force match it.",
-        "properties": {
-          "applied": {
-            "title": "Applied",
-            "type": "boolean"
-          },
-          "call_cap_s": {
-            "title": "Call Cap S",
-            "type": "integer"
-          },
-          "end_after_silence_seconds": {
-            "title": "End After Silence Seconds",
-            "type": "integer"
-          },
-          "nudge_after_seconds": {
-            "title": "Nudge After Seconds",
-            "type": "integer"
-          },
-          "nudge_count": {
-            "title": "Nudge Count",
-            "type": "integer"
-          },
-          "nudge_phrase": {
-            "title": "Nudge Phrase",
-            "type": "string"
-          },
-          "reask_after_ms": {
-            "title": "Reask After Ms",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "applied",
-          "nudge_after_seconds",
-          "nudge_count",
-          "nudge_phrase",
-          "end_after_silence_seconds",
-          "reask_after_ms",
-          "call_cap_s"
-        ],
-        "title": "PatientCallerOut",
-        "type": "object"
-      },
       "PaymentAlarmOut": {
         "additionalProperties": false,
         "properties": {
@@ -43907,6 +43907,14 @@
           "fix": {
             "title": "Fix",
             "type": "string"
+          },
+          "not_checked_in": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Not Checked In",
+            "type": "array"
           },
           "truncated": {
             "title": "Truncated",
@@ -70803,8 +70811,8 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time": {
       "post": {
-        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
-        "operationId": "admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post",
+        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
+        "operationId": "admin_apply_give_callers_time_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post",
         "parameters": [
           {
             "in": "path",
@@ -77062,8 +77070,8 @@
     },
     "/v1/agents/{agent_id}/call-handling/give-callers-time": {
       "post": {
-        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
-        "operationId": "apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post",
+        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
+        "operationId": "apply_give_callers_time_v1_agents__agent_id__call_handling_give_callers_time_post",
         "parameters": [
           {
             "in": "path",
@@ -77368,7 +77376,7 @@
     },
     "/v1/agents/{agent_id}/caller-screen": {
       "patch": {
-        "description": "For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.\n\nSwitching on also gives the agent the \"Give callers time\" silence settings and longest call wherever they are still the default (`patient_settings` names them).\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.",
+        "description": "For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.\n\nSwitching on also gives the agent the \"Give callers time\" silence settings and longest call wherever they are still the default (`give_callers_time_settings` names them).\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.",
         "operationId": "set_caller_screen_route_v1_agents__agent_id__caller_screen_patch",
         "parameters": [
           {

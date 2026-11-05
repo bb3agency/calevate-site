@@ -2,7 +2,7 @@
 
 Two settings exist for that caller: the screen guide (D-906, `caller_has_screen`), which lets
 the agent name what is on the caller's screen and give one step at a time, and "Give callers
-time" (D-907, `agents/patient_caller`), which stops the agent hanging up on a caller who has
+time" (D-907, `agents/give_callers_time`), which stops the agent hanging up on a caller who has
 gone quiet to do what it asked. Whether an agent needs them depends on what THAT agent does:
 an agent that walks callers through installing an app needs both, and another agent of the
 same business that only answers questions needs neither. So the judgement reads the agent,
@@ -107,12 +107,12 @@ _SELECT: Final = (
 
 
 async def _give_time_on(session: AsyncSession, agent_id: UUID) -> bool:
-    # Imported here: `patient_caller` reaches `agents/service`, which reaches the script
+    # Imported here: `give_callers_time` reaches `agents/service`, which reaches the script
     # builder that imports this module to queue a pass.
-    from apps.api.agents import call_handling, patient_caller
+    from apps.api.agents import call_handling, give_callers_time
 
     state = await call_handling.read_agent_call_handling(session, agent_id)
-    return (await patient_caller.read_patient_caller(session, state)).applied
+    return (await give_callers_time.read_give_callers_time(session, state)).applied
 
 
 async def read_state(session: AsyncSession, *, agent_id: UUID) -> CallerHelpState:

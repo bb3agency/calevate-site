@@ -1932,9 +1932,9 @@ export interface paths {
         put?: never;
         /**
          * Set one client agent up for a caller who follows along on their phone
-         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
+         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
          */
-        post: operations["admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post"];
+        post: operations["admin_apply_give_callers_time_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3993,9 +3993,9 @@ export interface paths {
         put?: never;
         /**
          * Set an agent up for a caller who follows along on their phone
-         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
+         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
          */
-        post: operations["apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post"];
+        post: operations["apply_give_callers_time_v1_agents__agent_id__call_handling_give_callers_time_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4144,7 +4144,7 @@ export interface paths {
          * Say whether callers follow this agent's steps on a screen of their own (D-906)
          * @description For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.
          *
-         *     Switching on also gives the agent the "Give callers time" silence settings and longest call wherever they are still the default (`patient_settings` names them).
+         *     Switching on also gives the agent the "Give callers time" silence settings and longest call wherever they are still the default (`give_callers_time_settings` names them).
          *
          *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.
          */
@@ -14937,6 +14937,7 @@ export interface components {
              * @enum {string}
              */
             filler_lines_source: "agent" | "organization" | "platform";
+            give_callers_time: components["schemas"]["GiveCallersTimeOut"];
             /** Nudge After Seconds */
             nudge_after_seconds: number | null;
             /** Nudge After Seconds Effective */
@@ -14997,7 +14998,6 @@ export interface components {
             organization_reask_after_ms: number | null;
             /** Organization Turn Silence Ms */
             organization_turn_silence_ms: number | null;
-            patient_caller: components["schemas"]["PatientCallerOut"];
             /** Reask After Ms */
             reask_after_ms: number | null;
             /** Reask After Ms Effective */
@@ -18204,8 +18204,8 @@ export interface components {
             enabled: boolean;
             /** Engine Synced */
             engine_synced: boolean;
-            /** Patient Settings */
-            patient_settings?: string[];
+            /** Give Callers Time Settings */
+            give_callers_time_settings?: string[];
         };
         /**
          * CallingHoursIn
@@ -18479,9 +18479,11 @@ export interface components {
          *     sells anything to callers at all (False for a free app helping its registered users, or a
          *     helpline). health_business: it gives health or medical care.
          *
-         *     THE UNKNOWN RULE: `applies is None` means "not judged yet", and a consumer then behaves
-         *     exactly as it did before this profile existed. Only `applies is False` may withdraw
-         *     anything; never read None as False.
+         *     THE UNKNOWN RULE: `applies is None` means "not judged yet". Never read None as False
+         *     where False takes something away (a switch the owner may turn on, a check that keeps a
+         *     caller safe); never read it as True where True puts words in an agent's or a screen's
+         *     mouth (a booking offered, a price quoted, a sale assumed). `offered` and `assumed` are
+         *     the two readings.
          */
         Capabilities: {
             has_premises: components["schemas"]["Capability"];
@@ -24134,6 +24136,27 @@ export interface components {
              */
             state: "live" | "stale" | "never_pulled";
         };
+        /**
+         * GiveCallersTimeOut
+         * @description The "Give callers time" preset (D-907) for this agent: what it sets and whether the
+         *     settings in force match it.
+         */
+        GiveCallersTimeOut: {
+            /** Applied */
+            applied: boolean;
+            /** Call Cap S */
+            call_cap_s: number;
+            /** End After Silence Seconds */
+            end_after_silence_seconds: number;
+            /** Nudge After Seconds */
+            nudge_after_seconds: number;
+            /** Nudge Count */
+            nudge_count: number;
+            /** Nudge Phrase */
+            nudge_phrase: string;
+            /** Reask After Ms */
+            reask_after_ms: number;
+        };
         /** GlobalEntryOut */
         GlobalEntryOut: {
             /**
@@ -28796,27 +28819,6 @@ export interface components {
             /** Revoked */
             revoked: number;
         };
-        /**
-         * PatientCallerOut
-         * @description The "Give callers time" preset (D-907) for this agent: what it sets and whether the
-         *     settings in force match it.
-         */
-        PatientCallerOut: {
-            /** Applied */
-            applied: boolean;
-            /** Call Cap S */
-            call_cap_s: number;
-            /** End After Silence Seconds */
-            end_after_silence_seconds: number;
-            /** Nudge After Seconds */
-            nudge_after_seconds: number;
-            /** Nudge Count */
-            nudge_count: number;
-            /** Nudge Phrase */
-            nudge_phrase: string;
-            /** Reask After Ms */
-            reask_after_ms: number;
-        };
         /** PaymentAlarmOut */
         PaymentAlarmOut: {
             /** Code */
@@ -29803,6 +29805,8 @@ export interface components {
             findings: components["schemas"]["FindingOut"][];
             /** Fix */
             fix: string;
+            /** Not Checked In */
+            not_checked_in?: string[];
             /** Truncated */
             truncated: boolean;
             /**
@@ -41294,7 +41298,7 @@ export interface operations {
             };
         };
     };
-    admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post: {
+    admin_apply_give_callers_time_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -45214,7 +45218,7 @@ export interface operations {
             };
         };
     };
-    apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post: {
+    apply_give_callers_time_v1_agents__agent_id__call_handling_give_callers_time_post: {
         parameters: {
             query?: never;
             header?: never;
