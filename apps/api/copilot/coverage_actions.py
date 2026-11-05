@@ -3,7 +3,7 @@
 Each calls the service function its own button's route calls, under the same permission:
 
 * `account_model_tier_set` — AI models screen, `PUT /v1/organization/llm-defaults`.
-* `agent_team_alert_set` — what besides hot leads an agent tells the hot-lead list,
+* `agent_team_alert_set` — which calls an agent tells the owner and the team about,
   `PUT /v1/agents/{id}/team-alert`.
 * `team_alert_contact` — the team addresses, `/v1/team-alerts/contacts/**` (email only: a
   WhatsApp address needs the account's own template set up on the screen).
@@ -196,7 +196,7 @@ def _rule_words(rule: Any, outcomes: Mapping[str, str], fields: Mapping[str, str
     parts += [f"when {fields.get(t.key, t.key)} is {' or '.join(t.values)}" for t in rule.on_fields]
     if rule.in_call:
         parts.append("during the call when the agent decides to")
-    return "; ".join(parts) or "only for hot leads"
+    return "; ".join(parts) or "no call"
 
 
 async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
@@ -227,11 +227,8 @@ async def _plan_alert(session: AsyncSession, actor: ToolActor, args: Mapping[str
     )
     return Plan(
         object_id=str(parsed.agent_id),
-        title="Tell your hot-lead list about callers",
-        summary=(
-            f"Besides hot leads, “{name}” will tell everyone who hears about hot leads: "
-            f"{_rule_words(wanted, outcomes, fields)}."
-        ),
+        title="Choose which calls an agent alerts you about",
+        summary=(f"“{name}” will tell you and your team: {_rule_words(wanted, outcomes, fields)}."),
         current=_rule_words(view.rule, outcomes, fields),
         proposed=_rule_words(wanted, outcomes, fields),
         cost=None,

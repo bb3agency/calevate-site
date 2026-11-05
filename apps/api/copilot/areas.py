@@ -437,9 +437,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "account_model_tier_set", "settings", "AI model tier of agents with none of their own"
     ),
-    AreaEntry(
-        "agent_team_alert_set", "agents", "what besides hot leads it tells the hot-lead list"
-    ),
+    AreaEntry("agent_team_alert_set", "agents", "which calls it tells the owner and team about"),
     AreaEntry("team_alert_contact", "team", "add or remove a team email on the hot-lead list"),
     AreaEntry("knowledge_refresh", "knowledge", "approve a waiting file or link, or read it again"),
     AreaEntry("connection_disconnect", "integrations", "disconnect a connected account"),

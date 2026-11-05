@@ -145,7 +145,7 @@ async def _handover_part(session: AsyncSession, agent_id: UUID) -> list[str]:
 
 
 async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
-    """Who hears about hot leads (D-904): the agent's rule and the keys and ids
+    """Which calls this agent alerts about (D-904): the agent's rule and the keys and ids
     `agent_team_alert_set` and `team_alert_contact` take."""
     from apps.api.team_alerts import service as team_alerts
 
@@ -153,9 +153,10 @@ async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
     rule = view.rule
     addresses = await team_alerts.list_contacts(session)
     return [
-        "The hot-lead list (the owner and every confirmed team address) hears about every hot "
-        "lead, and from this agent also: outcomes "
+        "The alert list (the owner and every confirmed team address) hears from this agent "
+        "about exactly these: outcomes "
         + (", ".join(rule.on_outcomes) or "none")
+        + ("" if view.saved else " (not saved by the owner yet: every positive outcome)")
         + "; answers "
         + ("; ".join(f"{t.key}={'|'.join(t.values)}" for t in rule.on_fields) or "none")
         + f"; during the call {_on(rule.in_call)}"
@@ -163,7 +164,7 @@ async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
         "Outcomes it can watch: "
         + (
             ", ".join(
-                f"{o.label} ({o.key}{', makes the lead hot' if o.hot else ''})"
+                f"{o.label} ({o.key}{', makes the lead hot' if o.goal else ''})"
                 for o in view.outcomes
             )
             or "none"

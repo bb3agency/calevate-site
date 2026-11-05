@@ -1,31 +1,34 @@
 "use client";
 
 /**
- * WHAT THIS AGENT TELLS YOUR HOT-LEAD LIST ABOUT (D-904, D-967).
+ * WHICH CALLS THIS AGENT TELLS YOU AND YOUR TEAM ABOUT (D-904, D-967).
  *
- * Who hears is one list for the account, kept on Settings → Alerts. Here is only when: an
- * outcome that makes a lead hot always counts (shown ticked and fixed), and the owner may add
- * other outcomes, chosen answers, and telling the team during the call. The rule is per agent
- * because each agent has its own outcomes and answers.
+ * Who hears is one list for the account, kept on Settings → Alerts. Here is only when, and it
+ * is exactly what is ticked: no outcome is fixed on, because a business's best outcome is not
+ * always a sale ("App installed") and the owner must be able to switch any of them off. Until
+ * the owner saves, the server sends every positive outcome ticked (`rule.saved` false). The
+ * rule is per agent because each agent has its own outcomes and answers.
  *
  * Writes are the owner's (`org:manage`); the server's refusal is shown in its own words.
  */
 
 import Link from "next/link";
-import { useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
-import { FIELD_HINT, FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
+import { FIELD_LABEL, ProblemNotice, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useSaveTeamAlertRule, useTeamAlertRule, type TeamAlertRule } from "@/lib/api/teamAlerts";
 
-export function TeamAlertsPanel({ agent }: { agent: Pick<Agent, "id"> }) {
+type AlertAgent = Pick<Agent, "id" | "name">;
+
+export function TeamAlertsPanel({ agent }: { agent: AlertAgent }) {
   const { session, href } = useClientRealm();
   const rule = useTeamAlertRule(session, agent.id);
-  const write = useWriteAccess(session, "org:manage", "change who hears about hot leads");
+  const write = useWriteAccess(session, "org:manage", "change which calls you are alerted about");
 
   if (rule.isLoading) return <Skeleton rows={4} />;
   if (rule.error || !rule.data) {
@@ -36,36 +39,87 @@ export function TeamAlertsPanel({ agent }: { agent: Pick<Agent, "id"> }) {
       />
     );
   }
+  const team = rule.data.team_addresses;
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <p className="flex flex-wrap items-center gap-x-3 text-sm text-ink-muted">
         <span>
-          {rule.data.team_addresses === 0
-            ? "You hear about these. No team yet."
-            : `You and ${rule.data.team_addresses} from your team hear about these.`}
+          {team === 0
+            ? "Only you hear these. No one from your team yet."
+            : `You and ${team} from your team hear these.`}
         </span>
         <Link href={href(`/c/${session.orgSlug}/settings/alerts`)} className={TEXT_ACTION}>
           Who hears
         </Link>
       </p>
-      <When agentId={agent.id} rule={rule.data} canWrite={write.allowed} reason={write.reason} />
+      <When agent={agent} rule={rule.data} canWrite={write.allowed} reason={write.reason} />
     </div>
   );
 }
 
+/**
+ * One tick box. The whole row is the label, so the tap target is the row, not the 16px box;
+ * every row has the same height so the list reads as one column, and the box sits on the
+ * first line of text when a label wraps.
+ */
+function Tick({
+  checked,
+  disabled,
+  onChange,
+  children,
+  hint,
+}: {
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+  children: ReactNode;
+  hint?: ReactNode;
+}) {
+  const hintId = useId();
+  return (
+    <div>
+      <label className="flex items-start gap-3 py-1.5 text-sm text-ink touch:min-h-11 touch:py-3">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-line accent-brand-strong touch:-mt-0.5 touch:h-6 touch:w-6"
+          disabled={disabled}
+          checked={checked}
+          aria-describedby={hint ? hintId : undefined}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span className="min-w-0">{children}</span>
+      </label>
+      {hint ? (
+        <p id={hintId} className="-mt-1 max-w-prose pb-1.5 pl-7 text-xs text-ink-muted touch:-mt-2 touch:pl-9">
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function Group({ legend, children }: { legend: ReactNode; children: ReactNode }) {
+  return (
+    <fieldset>
+      <legend className={`${FIELD_LABEL} mb-1`}>{legend}</legend>
+      {children}
+    </fieldset>
+  );
+}
+
 function When({
-  agentId,
+  agent,
   rule,
   canWrite,
   reason,
 }: {
-  agentId: string;
+  agent: AlertAgent;
   rule: TeamAlertRule;
   canWrite: boolean;
   reason: string | null;
 }) {
   const { session } = useClientRealm();
-  const save = useSaveTeamAlertRule(session, agentId);
+  const save = useSaveTeamAlertRule(session, agent.id);
   const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Saved" });
   const [outcomes, setOutcomes] = useState<string[]>(rule.on_outcomes);
   const [fields, setFields] = useState<Record<string, string[]>>(
@@ -73,13 +127,14 @@ function When({
   );
   const [inCall, setInCall] = useState(rule.in_call);
 
-  const toggle = (list: string[], value: string) =>
-    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+  const toggle = (list: string[], value: string, on: boolean) =>
+    on ? [...list.filter((v) => v !== value), value] : list.filter((v) => v !== value);
+  const us = rule.team_addresses === 0 ? "me" : "us";
 
   return (
     <form
       noValidate
-      className="space-y-4"
+      className="space-y-6"
       onSubmit={(event) => {
         event.preventDefault();
         save.mutate({
@@ -91,53 +146,56 @@ function When({
         });
       }}
     >
-      <fieldset className="space-y-1.5">
-        <legend className={FIELD_LABEL}>After a call that ends as</legend>
-        {rule.outcomes.map((o) => (
-          <label key={o.key} className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              disabled={!canWrite || o.hot}
-              checked={o.hot || outcomes.includes(o.key)}
-              onChange={() => setOutcomes(toggle(outcomes, o.key))}
-            />
-            <span>
+      {rule.outcomes.length > 0 ? (
+        <Group legend={`Tell ${us} after a call that ends with`}>
+          {rule.outcomes.map((o) => (
+            <Tick
+              key={o.key}
+              disabled={!canWrite}
+              checked={outcomes.includes(o.key)}
+              onChange={(on) => setOutcomes(toggle(outcomes, o.key, on))}
+            >
               {o.label}
-              {o.hot ? <span className="ml-2 text-meta text-ink-faint">Hot lead, always</span> : null}
-            </span>
-          </label>
-        ))}
-      </fieldset>
+              {o.goal ? <span className="ml-2 text-meta leading-none text-ink-faint">Goal</span> : null}
+            </Tick>
+          ))}
+        </Group>
+      ) : null}
 
       {rule.fields.map((field) => (
-        <fieldset key={field.key} className="space-y-1.5">
-          <legend className={FIELD_LABEL}>After a call where &ldquo;{field.label}&rdquo; is</legend>
+        <Group key={field.key} legend={<>Tell {us} after a call where &ldquo;{field.label}&rdquo; is</>}>
           {field.values.map((value) => (
-            <label key={value} className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
-              <input
-                type="checkbox"
-                className="mt-0.5"
-                disabled={!canWrite}
-                checked={(fields[field.key] ?? []).includes(value)}
-                onChange={() => setFields({ ...fields, [field.key]: toggle(fields[field.key] ?? [], value) })}
-              />
-              <span>{value}</span>
-            </label>
+            <Tick
+              key={value}
+              disabled={!canWrite}
+              checked={(fields[field.key] ?? []).includes(value)}
+              onChange={(on) => setFields({ ...fields, [field.key]: toggle(fields[field.key] ?? [], value, on) })}
+            >
+              {value}
+            </Tick>
           ))}
-        </fieldset>
+        </Group>
       ))}
 
-      <label className="flex items-start gap-2 text-sm text-ink touch:min-h-11 touch:py-2.5">
-        <input type="checkbox" className="mt-0.5" disabled={!canWrite} checked={inCall} onChange={(event) => setInCall(event.target.checked)} />
-        <span>
-          Tell the team during the call, too
-          {inCall && rule.in_call && !rule.in_call_live ? (
-            <span className="block text-meta text-warn">Off until a team address is confirmed.</span>
-          ) : null}
-        </span>
-      </label>
-      <p className={FIELD_HINT}>The agent tells the caller it has done so.</p>
+      <Group legend="During the call">
+        <Tick
+          disabled={!canWrite}
+          checked={inCall}
+          onChange={setInCall}
+          hint={
+            inCall && rule.in_call && !rule.in_call_live ? (
+              <span className="text-warn">Off until someone on your team confirms.</span>
+            ) : (
+              <>
+                {`If ${agent.name} can't help, your team gets the caller's details.`}{" "}
+                {`${agent.name} tells the caller someone will contact them.`}
+              </>
+            )
+          }
+        >
+          Message my team while the caller is on the line
+        </Tick>
+      </Group>
 
       {save.error ? <ProblemNotice error={save.error} /> : null}
       <ActionButton type="submit" variant="primary-sm" status={feedback.status} successLabel="Saved" disabled={!canWrite} title={reason ?? undefined}>

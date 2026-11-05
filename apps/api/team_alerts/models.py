@@ -1,14 +1,15 @@
 """Tables behind "Tell my team" (D-904, migration c4e9a2f7d816).
 
-`team_alert_contacts` — the business's own addresses that hear about hot leads beside the
+`team_alert_contacts` — the business's own addresses that hear about calls beside the
 owner, each verified once by a code mailed to it. Account-wide: every confirmed address hears
 about every alert. Soft-removed (`removed_at`) so the alerts already sent to it keep their
 reference. `is_default` is no longer read (the whole list hears); it stays until a later
 release drops it (hard rule 8).
 
-`team_alert_rules` — per agent, what besides a hot lead the list hears about: chosen business
-outcomes, chosen values of chosen choice fields, and whether the agent may tell the team during
-the call. `contact_id` is no longer read, for the same reason as `is_default`.
+`team_alert_rules` — per agent, what the list hears about: chosen business outcomes, chosen
+values of chosen choice fields, and whether the agent may tell the team during the call. A row
+is the owner's saved choice; an agent with none alerts on its positive outcomes
+(`service.default_rule`). `contact_id` is no longer read, for the same reason as `is_default`.
 
 `team_alerts` — one row per (call, address): the idempotency key and the delivery record. Ids,
 the trigger, the matched reasons (outcome keys and choice values the owner configured, never a
