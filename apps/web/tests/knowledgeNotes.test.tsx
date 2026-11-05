@@ -60,6 +60,7 @@ async function renderNotes(me: Me = OWNER, notes: KbNote[] = [PARKING, DIWALI], 
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
     "/v1/business-profile": businessProfileFixture(),
+    "/v1/agents": [],
     ...over,
   });
 }

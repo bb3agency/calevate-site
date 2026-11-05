@@ -68,6 +68,7 @@ function upload(over: Partial<UploadWire> = {}): UploadWire {
     reaches_agents: true,
     id: UPLOAD_ID,
     source_id: SOURCE_ID,
+    facts_count: 0,
     name: "Price list.docx",
     // A kind whose words always reach the agents; a PDF's depend on the server (D-893 L8).
     source_kind: "docx",
@@ -100,6 +101,7 @@ async function renderKnowledge(
     "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/teach/open": { teaching: null },
     "/v1/business-profile": businessProfileFixture(),
+    "/v1/agents": [],
     "/v1/kb/uploads": uploads,
     // A row still moving is watched on its own path. By default it answers that it has
     // not moved yet; a test about the move overrides it.
@@ -419,11 +421,11 @@ describe("the control the founder could not find", () => {
 
   it("opens the upload even when the account has no agent yet", async () => {
     // What is added now reaches the first agent when it is published, so the door is open
-    // without one — and the screen never asks for the agent list to decide it.
-    const { calls } = await renderKnowledge([]);
+    // without one — and it never waits for the agent list, which only the per-agent
+    // scripts group at the foot of the page reads.
+    await renderKnowledge([], { "/v1/agents": stillLoading() });
     await ready();
     expect(filePicker().disabled).toBe(false);
-    expect(calls.some((c) => c.path === "/v1/agents")).toBe(false);
   });
 
   it("answers an empty address in our words rather than the browser's", async () => {

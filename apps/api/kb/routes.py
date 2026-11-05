@@ -90,6 +90,10 @@ class ChunkOut(Strict):
     idx: int
     content: str
     chars: int
+    #: The heading this chunk sat under in the file, or None.
+    section: str | None = None
+    #: `content` without its leading heading line, for a screen that shows `section` itself.
+    body: str
     #: The MACHINE-WRITTEN English rendering of `content`, or None. NEVER the client's own
     #: words and never what the agent says — it is a retrieval key so that a Tenglish
     #: question (the form Sarvam's Saaras STT returns) can find a Telugu-script chunk at
@@ -254,6 +258,10 @@ class UploadOut(Strict):
     #: the knowledge the agents search, for the owner to use in a call script. Empty for a
     #: file with none, and for one read before these were told apart.
     call_instructions: list[CallInstructionOut] = Field(default_factory=list)
+    #: How many pieces of knowledge were read out of it (`kb_documents`, one per heading
+    #: section of a guide); `GET /sources/{source_id}/preview` lists them. For a link this is
+    #: our copy of the page: the agents read the page itself.
+    facts_count: int = 0
 
 
 class UseInstructionsIn(Strict):

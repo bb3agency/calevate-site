@@ -170,6 +170,16 @@ def with_title(section: str | None, lines: Sequence[str]) -> str:
     return f"{title}\n{body}"
 
 
+def without_title(section: str | None, content: str) -> str:
+    """`with_title` undone: the lines under the title, for a screen that prints the title as
+    a heading of its own. Content that does not start with that title comes back whole."""
+    if not section:
+        return content
+    title = section if section[-1] in ":?.!" else f"{section}:"
+    head, sep, rest = content.partition("\n")
+    return rest if sep and head == title else content
+
+
 # --- detection --------------------------------------------------------------------------
 
 
@@ -496,4 +506,5 @@ __all__ = [
     "looks_like_markdown",
     "read_markdown",
     "with_title",
+    "without_title",
 ]

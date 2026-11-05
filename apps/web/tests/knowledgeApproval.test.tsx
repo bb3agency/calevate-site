@@ -147,8 +147,8 @@ async function renderKnowledge(
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/teach/questions": { items: [], open_count: 0 },
     "/v1/kb/teach/open": { teaching: null },
-    // Nothing offered and no common questions, so an empty account reads as empty.
-    "/v1/business-profile": businessProfileFixture({ services: [], faqs: [] }),
+    // Nothing in the business details, so an empty account reads as empty.
+    "/v1/business-profile": businessProfileFixture({ services: [], faqs: [], hours: [], branches: [] }),
     // The document list (D-534). Empty by default: every assertion in this file is about
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
     // on the screen for the reason `STAFF_CURATION` above records.
@@ -370,10 +370,14 @@ describe("one body of knowledge for the whole business (D-689)", () => {
     expect(container.querySelector("select")).toBeNull();
     expect(container.textContent).not.toContain("Which agent");
     expect(container.textContent).not.toContain("Goes to");
-    // No row is attributed to one agent: every agent answers from every row.
-    expect(container.textContent).not.toContain("Front desk");
-    expect(container.textContent).not.toContain("Outbound reminders");
-    expect(container.textContent).toContain("all agents use them");
+    // No knowledge row is attributed to one agent: every agent answers from every row. The
+    // agents are named once, in the group of their own scripts at the foot of the page.
+    const own = await screen.findByRole("list", { name: "Agents" });
+    expect(own.textContent).toContain("Front desk");
+    const shared = container.cloneNode(true) as HTMLElement;
+    shared.querySelector('[aria-label="Agents"]')?.remove();
+    expect(shared.textContent).not.toContain("Front desk");
+    expect(shared.textContent).not.toContain("Outbound reminders");
   });
 
   it("asks Pip to teach the words, with no agent named (D-821)", async () => {

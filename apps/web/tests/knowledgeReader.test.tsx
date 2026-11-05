@@ -28,6 +28,7 @@ const STAFF: Me = { ...OWNER, role: "staff", permissions: ["agents:read"] };
 const MENU: KbUpload = {
   id: "u1",
   source_id: "s1",
+  facts_count: 0,
   name: "Menu.pdf",
   source_kind: "pdf",
   ingest_status: "processed",
@@ -72,6 +73,7 @@ async function openReader(me: Me = OWNER, over: Routes = {}) {
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
     "/v1/business-profile": businessProfileFixture(),
+    "/v1/agents": [],
     "/v1/kb/uploads/u1/text?page=1": page(1, "Thali costs 180 rupees."),
     "/v1/kb/uploads/u1/text?page=2": page(2, "Open all seven days."),
     ...over,

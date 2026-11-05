@@ -19204,6 +19204,8 @@ export interface components {
         };
         /** ChunkOut */
         ChunkOut: {
+            /** Body */
+            body: string;
             /** Chars */
             chars: number;
             /** Content */
@@ -19214,6 +19216,8 @@ export interface components {
             gloss_model?: string | null;
             /** Idx */
             idx: number;
+            /** Section */
+            section?: string | null;
         };
         /** CityOut */
         CityOut: {
@@ -36537,6 +36541,11 @@ export interface components {
             change_detected_at?: string | null;
             /** Created At */
             created_at?: string | null;
+            /**
+             * Facts Count
+             * @default 0
+             */
+            facts_count: number;
             /** Filename */
             filename?: string | null;
             /**

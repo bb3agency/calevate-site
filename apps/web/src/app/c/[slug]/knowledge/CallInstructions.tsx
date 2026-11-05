@@ -16,27 +16,48 @@ import { useClientSession } from "@/lib/api/session";
  * `agent` names the one agent whose script it goes to (the agent's Training tab); without
  * it, every agent gets the suggestion (the Knowledge page).
  */
-export function CallInstructions({ upload, agent }: { upload: KbUpload; agent?: { id: string; name: string } }) {
+export function CallInstructions({
+  upload,
+  agent,
+  expanded = false,
+}: {
+  upload: KbUpload;
+  agent?: { id: string; name: string };
+  /** Opened from the file's row, which already said how many: the list, then the button. */
+  expanded?: boolean;
+}) {
   const session = useClientSession();
   // A script change is the owner's (`org:manage`, as on the Script page).
   const write = useWriteAccess(session, "org:manage", "change call scripts");
   const items = upload.call_instructions ?? [];
   if (items.length === 0) return null;
   const count = formatCountOf(items.length, "call instruction");
+  const list = (
+    <ul className="divide-y divide-line" aria-label={`Call instructions in ${upload.name}`}>
+      {items.map((item, index) => (
+        <li key={`${index}-${item.section ?? ""}`} className="py-2">
+          {item.section ? <p className="text-meta font-medium text-ink-muted">{item.section}</p> : null}
+          <p className="whitespace-pre-line text-body text-ink [overflow-wrap:anywhere]">{item.text}</p>
+        </li>
+      ))}
+    </ul>
+  );
+  if (expanded) {
+    return (
+      <div className="mt-3 space-y-3">
+        <p className="text-meta text-ink-muted">Not said on calls until they are in a script.</p>
+        <div className="border-y border-line">{list}</div>
+        {write.allowed ? <UseButton upload={upload} agent={agent} /> : null}
+      </div>
+    );
+  }
   return (
     <div className="space-y-3 rounded-lg border border-line p-4">
       <p className="text-body text-ink">
         {count} in {upload.name}. Not used as facts.
       </p>
       <Disclosure variant="inline" headingLevel={4} title="See them">
-        <ul className="divide-y divide-line">
-          {items.map((item, index) => (
-            <li key={`${index}-${item.section ?? ""}`} className="py-2">
-              {item.section ? <p className="text-meta font-medium text-ink-muted">{item.section}</p> : null}
-              <p className="whitespace-pre-line text-body text-ink [overflow-wrap:anywhere]">{item.text}</p>
-            </li>
-          ))}
-        </ul>
+        {list}
       </Disclosure>
       {write.allowed ? <UseButton upload={upload} agent={agent} /> : null}
     </div>

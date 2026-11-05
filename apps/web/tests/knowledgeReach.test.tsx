@@ -30,6 +30,7 @@ function upload(over: Partial<KbUpload> = {}): KbUpload {
   const base: KbUpload = {
     id: "u1",
     source_id: "s1",
+    facts_count: 0,
     name: "Price list.pdf",
     source_kind: "pdf",
     ingest_status: "processed",
@@ -125,8 +126,9 @@ async function renderKnowledge(over: Routes = {}) {
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/knows": { facts: [], facts_state: "none", items: [], pinned_not_yet_on: [] },
     "/v1/kb/teach/open": { teaching: null },
-    // Nothing offered and no common questions, so an empty account reads as empty.
-    "/v1/business-profile": businessProfileFixture({ services: [], faqs: [] }),
+    // Nothing in the business details, so an empty account reads as empty.
+    "/v1/business-profile": businessProfileFixture({ services: [], faqs: [], hours: [], branches: [] }),
+    "/v1/agents": [],
     ...over,
   });
 }

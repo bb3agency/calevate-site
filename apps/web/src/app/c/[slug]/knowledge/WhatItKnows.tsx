@@ -17,9 +17,10 @@ import {
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatCount,
+  formatCountOf,
   type NoticeTone,
 } from "@/components/ui";
-import { useBusinessProfile } from "@/lib/api/businessProfile";
+import { useBusinessProfile, type BusinessProfile } from "@/lib/api/businessProfile";
 import { useKbUploads, type KbUpload, type useKbNotes } from "@/lib/api/kb";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { PRICES_QUESTION } from "@/lib/api/teachQuestions";
@@ -34,6 +35,8 @@ import {
   type PinnedNotYetOn,
 } from "@/lib/api/teach";
 
+import { AgentScripts } from "./AgentScripts";
+import { BusinessBasics, basicsCount, profileBasics } from "./BusinessBasics";
 import { Group, NoMatch } from "./KnowledgeGroup";
 import { NotesList, noteTone } from "./NotesList";
 import { ProfileKnowledge, profileMatchCount } from "./ProfileKnowledge";
@@ -107,14 +110,27 @@ export function WhatItKnows({
   const shownFiles = files.filter(uploadMatches);
   const shownLinks = links.filter(uploadMatches);
   const shownAnyNote = allNotes.some((n) => matches(query, n.name));
-  // What the business offers and its common questions live in the business profile (D-968).
-  const total =
-    pinned.length + other.length + files.length + links.length + notes.length + profileMatchCount(profile.data, "");
+  const tally = knowledgeTally({
+    pinned: pinned.length,
+    facts: knows.data.facts_state === "live" ? other.length : 0,
+    profile: profile.data,
+    files,
+    links,
+    notes: notes.filter((n) => n.state === "in_use").length,
+  });
+  const anything =
+    pinned.length + other.length + files.length + links.length + notes.length + tally.business > 0;
   // "Nothing yet" is said only when every read answered; a read still out is not empty.
   const empty =
-    total === 0 && allNotes.length === 0 && Boolean(uploads.data) && Boolean(notesRead.data) && Boolean(profile.data);
+    !anything && allNotes.length === 0 && Boolean(uploads.data) && Boolean(notesRead.data) && Boolean(profile.data);
   const shown =
-    shownPinned.length + shownOther.length + shownFiles.length + shownLinks.length + (shownAnyNote ? 1 : 0) + profileMatchCount(profile.data, query);
+    shownPinned.length +
+    shownOther.length +
+    shownFiles.length +
+    shownLinks.length +
+    (shownAnyNote ? 1 : 0) +
+    profileMatchCount(profile.data, query) +
+    (profile.data ? profileBasics(profile.data).filter((b) => matches(query, b.label, b.value)).length : 0);
 
   if (empty) {
     // The Add area above is the one way in, so the empty list offers no second form.
@@ -150,12 +166,15 @@ export function WhatItKnows({
 
   return (
     <div className="space-y-10">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <p className="text-meta text-ink-muted">
-            {formatCount(total)} {total === 1 ? "thing" : "things"} · all agents use them
-          </p>
-          <NeedsYouTally tones={[...current.map((u) => uploadState(u).tone), ...notes.map((n) => noteTone(n.state))]} />
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-2">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-body font-medium text-ink">
+              {formatCount(tally.total)} {tally.total === 1 ? "thing" : "things"} your agents know
+            </p>
+            <NeedsYouTally tones={[...current.map((u) => uploadState(u).tone), ...notes.map((n) => noteTone(n.state))]} />
+          </div>
+          <TallyList tally={tally} />
         </div>
         <SearchField
           label="Search what your agents know"
@@ -163,7 +182,7 @@ export function WhatItKnows({
           value={query}
           onValueChange={setQuery}
           placeholder="Search"
-          className="w-full sm:max-w-xs"
+          className="w-full lg:max-w-xs"
         />
       </div>
 
@@ -171,17 +190,24 @@ export function WhatItKnows({
         <NoMatch message="Nothing matches your search." onClear={clearQuery} />
       ) : null}
 
-      <PinnedFacts
-        facts={shownPinned}
-        all={pinned}
-        canWrite={canWrite}
-        filtered={filtered}
-        onClearFilter={clearQuery}
-        notYetOn={knows.data.pinned_not_yet_on}
-      />
+      <div id={ANCHORS.pinned} className="scroll-mt-24">
+        <PinnedFacts
+          facts={shownPinned}
+          all={pinned}
+          canWrite={canWrite}
+          filtered={filtered}
+          onClearFilter={clearQuery}
+          notYetOn={knows.data.pinned_not_yet_on}
+        />
+      </div>
 
-      <ProfileKnowledge query={query} />
+      {/* Everything the business details tell every agent, together (D-968). */}
+      <div id={ANCHORS.business} className="scroll-mt-24 space-y-10">
+        {profile.data ? <BusinessBasics profile={profile.data} query={query} /> : null}
+        <ProfileKnowledge query={query} />
+      </div>
 
+      <div id={ANCHORS.facts} className="scroll-mt-24">
       <Group
         title="Facts and answers"
         count={other.length}
@@ -199,6 +225,7 @@ export function WhatItKnows({
           </ul>
         )}
       </Group>
+      </div>
 
       {uploadsFailed ? (
         <ProblemNotice
@@ -209,7 +236,13 @@ export function WhatItKnows({
         <Skeleton rows={3} label="Loading your files and links" />
       ) : (
         <>
-          <Group title="Files" count={files.length} hidden={filtered && shownFiles.length === 0}>
+          <div id={ANCHORS.files} className="scroll-mt-24">
+          <Group
+            title="Files"
+            count={files.length}
+            hidden={filtered && shownFiles.length === 0}
+            info={<p>Open a file to see what your agents learned from it.</p>}
+          >
             {files.length === 0 ? (
               <p className="text-meta text-ink-muted">Files and photos you send show here.</p>
             ) : (
@@ -220,10 +253,12 @@ export function WhatItKnows({
               </ul>
             )}
           </Group>
+          </div>
 
           {/* Links only once there is one: an empty "Links" group would invite a kind of
               item whose words do not reach the agents yet (D-868). */}
           {links.length > 0 ? (
+            <div id={ANCHORS.links} className="scroll-mt-24">
             <Group title="Links" count={links.length} hidden={filtered && shownLinks.length === 0}>
               <ul className="divide-y divide-line border-y border-line">
                 {shownLinks.map((upload) => (
@@ -231,6 +266,7 @@ export function WhatItKnows({
                 ))}
               </ul>
             </Group>
+            </div>
           ) : null}
         </>
       )}
@@ -238,6 +274,7 @@ export function WhatItKnows({
       {notesRead.isLoading ? (
         <Skeleton rows={2} label="Loading your notes" />
       ) : allNotes.length > 0 ? (
+        <div id={ANCHORS.notes} className="scroll-mt-24">
         <Group
           title="Notes you wrote earlier"
           count={notes.length}
@@ -250,7 +287,10 @@ export function WhatItKnows({
             query={(name) => matches(query, name)}
           />
         </Group>
+        </div>
       ) : null}
+
+      <AgentScripts query={query} />
     </div>
   );
 }
@@ -624,5 +664,98 @@ function FactRow({
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** Where each group sits on the page, for the tally's jump links. */
+export const ANCHORS = {
+  pinned: "knows-pinned",
+  business: "knows-business",
+  facts: "knows-facts",
+  files: "knows-files",
+  links: "knows-links",
+  notes: "knows-notes",
+} as const;
+
+export interface KnowledgeTally {
+  total: number;
+  pinned: number;
+  business: number;
+  facts: number;
+  /** Files in use, and how many things were read out of them. */
+  files: number;
+  learned: number;
+  links: number;
+  notes: number;
+}
+
+/**
+ * HOW MUCH THE AGENTS KNOW, counted where it came from. Only what reaches them counts: a
+ * file, link or note that is waiting, refused or still being read is not known yet (the
+ * tally beside it says so), and facts still on their way are not either. A file counts the
+ * things read out of it (`UploadOut.facts_count`), the same number its row shows; a link
+ * counts once, as its agents read the page itself.
+ */
+export function knowledgeTally({
+  pinned,
+  facts,
+  profile,
+  files,
+  links,
+  notes,
+}: {
+  pinned: number;
+  facts: number;
+  profile: BusinessProfile | undefined;
+  files: KbUpload[];
+  links: KbUpload[];
+  notes: number;
+}): KnowledgeTally {
+  const inUse = (u: KbUpload) => uploadState(u).tone === "ok";
+  const usedFiles = files.filter(inUse);
+  const learned = usedFiles.reduce((sum, u) => sum + u.facts_count, 0);
+  const business = profileMatchCount(profile, "") + basicsCount(profile);
+  const usedLinks = links.filter(inUse).length;
+  return {
+    total: pinned + business + facts + learned + usedLinks + notes,
+    pinned,
+    business,
+    facts,
+    files: usedFiles.length,
+    learned,
+    links: usedLinks,
+    notes,
+  };
+}
+
+/** The tally as jump links, one per source that holds something. */
+function TallyList({ tally }: { tally: KnowledgeTally }) {
+  const entries: { anchor: string; label: string }[] = [];
+  if (tally.business > 0) {
+    entries.push({ anchor: ANCHORS.business, label: `${formatCount(tally.business)} from business details` });
+  }
+  if (tally.pinned > 0) entries.push({ anchor: ANCHORS.pinned, label: `${formatCount(tally.pinned)} pinned` });
+  if (tally.facts > 0) {
+    entries.push({ anchor: ANCHORS.facts, label: formatCountOf(tally.facts, "fact you wrote", "facts you wrote") });
+  }
+  if (tally.files > 0) {
+    entries.push({ anchor: ANCHORS.files, label: `${formatCount(tally.learned)} from ${formatCountOf(tally.files, "file")}` });
+  }
+  if (tally.links > 0) entries.push({ anchor: ANCHORS.links, label: formatCountOf(tally.links, "web page") });
+  if (tally.notes > 0) entries.push({ anchor: ANCHORS.notes, label: formatCountOf(tally.notes, "note") });
+  if (entries.length === 0) return null;
+  return (
+    <ul aria-label="Where it came from" className="flex flex-wrap gap-x-4 gap-y-1">
+      {entries.map((entry) => (
+        <li key={entry.anchor}>
+          <a
+            href={`#${entry.anchor}`}
+            className="text-meta tabular-nums text-ink-muted underline-offset-2 hover:text-ink hover:underline touch:inline-flex touch:min-h-11 touch:items-center"
+          >
+            {entry.label}
+          </a>
+        </li>
+      ))}
+    </ul>
   );
 }
