@@ -3514,6 +3514,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's wallet as the client reads it — the operator's copy
+         * @description Balance, runway, minutes left, trial, and whether outbound is stopped for lack of credit: the answer `GET /v1/billing/wallet` gives the client, for an account named in the path. Reading this writes an `admin.tenant_read` audit row.
+         */
+        get: operations["read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {
         parameters: {
             query?: never;
@@ -21625,16 +21645,20 @@ export interface components {
          * DeadLetterJobOut
          * @description One `job`'s share of the outbox DLQ.
          *
-         *     COUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding
-         *     lead fields and phone numbers; `job` is an ARQ job name — a code identifier — and
-         *     nothing derived from a payload reaches this model. See
-         *     `reliability.service.DeadLetterQueue`, which is where that boundary is enforced.
+         *     Never the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields
+         *     and phone numbers. `last_error` is the most recent failure's error, which is redacted
+         *     when it is written (`reliability.service._stored_error`), so an operator can see why a
+         *     job failed before resending it.
          */
         DeadLetterJobOut: {
             /** Depth */
             depth: number;
             /** Job */
             job: string;
+            /** Label */
+            label: string;
+            /** Last Error */
+            last_error: string | null;
             /**
              * Oldest At
              * Format: date-time
@@ -21670,6 +21694,12 @@ export interface components {
             depth: number;
             /** Oldest At */
             oldest_at: string | null;
+            /** Oldest Pending At */
+            oldest_pending_at: string | null;
+            /** Stalled After Minutes */
+            stalled_after_minutes: number;
+            /** Stalled Pending */
+            stalled_pending: number;
         };
         /** DecideStep */
         DecideStep: {
@@ -44223,6 +44253,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrialSmokeCallOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

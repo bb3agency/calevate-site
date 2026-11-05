@@ -21466,7 +21466,7 @@
       },
       "DeadLetterJobOut": {
         "additionalProperties": false,
-        "description": "One `job`'s share of the outbox DLQ.\n\nCOUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding\nlead fields and phone numbers; `job` is an ARQ job name \u2014 a code identifier \u2014 and\nnothing derived from a payload reaches this model. See\n`reliability.service.DeadLetterQueue`, which is where that boundary is enforced.",
+        "description": "One `job`'s share of the outbox DLQ.\n\nNever the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields\nand phone numbers. `last_error` is the most recent failure's error, which is redacted\nwhen it is written (`reliability.service._stored_error`), so an operator can see why a\njob failed before resending it.",
         "properties": {
           "depth": {
             "title": "Depth",
@@ -21476,6 +21476,21 @@
             "title": "Job",
             "type": "string"
           },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
           "oldest_at": {
             "format": "date-time",
             "title": "Oldest At",
@@ -21484,8 +21499,10 @@
         },
         "required": [
           "job",
+          "label",
           "depth",
-          "oldest_at"
+          "oldest_at",
+          "last_error"
         ],
         "title": "DeadLetterJobOut",
         "type": "object"
@@ -21520,13 +21537,36 @@
               }
             ],
             "title": "Oldest At"
+          },
+          "oldest_pending_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Pending At"
+          },
+          "stalled_after_minutes": {
+            "title": "Stalled After Minutes",
+            "type": "integer"
+          },
+          "stalled_pending": {
+            "title": "Stalled Pending",
+            "type": "integer"
           }
         },
         "required": [
           "depth",
           "oldest_at",
           "by_job",
-          "deferred"
+          "deferred",
+          "stalled_pending",
+          "oldest_pending_at",
+          "stalled_after_minutes"
         ],
         "title": "DeadLetterQueueOut",
         "type": "object"
@@ -75573,6 +75613,47 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/wallet": {
+      "get": {
+        "description": "Balance, runway, minutes left, trial, and whether outbound is stopped for lack of credit: the answer `GET /v1/billing/wallet` gives the client, for an account named in the path. Reading this writes an `admin.tenant_read` audit row.",
+        "operationId": "read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's wallet as the client reads it \u2014 the operator's copy",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
       }
     },
     "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {

@@ -483,6 +483,39 @@ async def test_the_depth_names_the_age_of_the_oldest_dead_letter() -> None:
     assert datetime.fromisoformat(body["oldest_at"]) <= oldest
 
 
+async def test_each_job_names_why_it_failed_and_reads_as_words() -> None:
+    """A7-04: replay was blind. The latest failure's redacted `last_error` rides each job's
+    row, with the job name read as words; the payload still never does."""
+    job = _job_name("why")
+    await _message(job=job, payload={"phone": "+919876543210"})
+    token, _ = await _make_admin()
+
+    entry = _entry((await _read_platform(token)).json(), job)
+
+    assert entry is not None
+    assert entry["last_error"] == "exhausted after 3"
+    assert entry["label"] == job.replace("_", " ").capitalize()
+    assert "+919876543210" not in json.dumps(entry)
+
+
+async def test_a_queue_that_is_not_draining_counts_as_stuck() -> None:
+    """A7-03: a stopped worker fails nothing, so "Stuck messages 0" read healthy while the
+    queue had not moved for weeks. A pending message older than the retry loop can hold one
+    is counted as stalled, and the oldest pending one is named."""
+    from apps.api.ops.outbox_view import STALLED_AFTER
+
+    await _message(job=_job_name("stalled"), status="pending", age_days=2)
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).json()["outbox_dead_letters"]
+
+    assert body["stalled_pending"] >= 1
+    assert body["oldest_pending_at"] is not None
+    age = datetime.now(UTC) - datetime.fromisoformat(body["oldest_pending_at"])
+    assert age >= timedelta(days=2) - timedelta(minutes=1)
+    assert body["stalled_after_minutes"] == int(STALLED_AFTER.total_seconds() // 60)
+
+
 async def test_a_job_with_no_dead_letters_is_absent_rather_than_a_zero_row() -> None:
     """The breakdown is what the queue HOLDS, not a roster of every job that exists.
 

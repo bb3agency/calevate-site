@@ -87,6 +87,8 @@ export function OutboxReplayPanel({
   const [scope, setScope] = useState("");
 
   const sized = queue.status === "read" ? queue.queue : null;
+  // An older server omits the count: no box here, and the status strip marks its zero unknown.
+  const stalled = sized !== null && (sized.stalled_pending ?? 0) > 0;
   const job = scope === "" || scope === EVERY_JOB ? null : scope;
   // Nothing to choose FROM when the queue could not be read, and nothing to choose
   // BETWEEN when it is empty — so in both cases the choice is not withheld and this term
@@ -121,7 +123,9 @@ export function OutboxReplayPanel({
           sized.deferred > 0
           ? `Nothing has failed, so there is nothing to resend. ${formatCount(sized.deferred)} ` +
             "are retrying on their own (shown above)."
-          : "Nothing is stuck, so there is nothing to resend."
+          : stalled
+            ? "Nothing has failed, so there is nothing to resend. The waiting ones are shown above."
+            : "Nothing is stuck, so there is nothing to resend."
         : !scopeChosen
           ? "Choose what to resend first. There is no default."
           : null;
@@ -164,12 +168,27 @@ export function OutboxReplayPanel({
             mid-incident read a green box. `deferred` is the same aggregate's answer to
             "and how many are waiting", so the tone follows the queue's actual health
             rather than the one state this panel happens to act on. */}
-        {sized !== null && sized.depth === 0 && sized.deferred === 0 && (
+        {sized !== null && sized.depth === 0 && sized.deferred === 0 && !stalled && (
           <NoticeBox
             tone="ok"
             title="Nothing is stuck"
           >
             <p>No outbound message has failed. Refreshes every 30 seconds.</p>
+          </NoticeBox>
+        )}
+
+        {/* A stopped worker fails nothing: the queue just stops. Resending acts on failed
+            messages only, so this box says where to look instead. */}
+        {sized !== null && stalled && (
+          <NoticeBox
+            tone="warn"
+            title={`${formatCount(sized.stalled_pending)} messages have not been sent for over ${formatCount(sized.stalled_after_minutes)} minutes`}
+          >
+            <p>
+              Oldest waiting since{" "}
+              <span className="font-semibold">{formatIST(sized.oldest_pending_at)}</span>. The
+              worker may be stopped. Resending does nothing for these.
+            </p>
           </NoticeBox>
         )}
 
@@ -223,8 +242,16 @@ export function OutboxReplayPanel({
               </thead>
               <tbody>
                 {sized.by_job.map((entry) => (
-                  <tr key={entry.job}>
-                    <td className="py-0.5 pr-2 font-mono">{entry.job}</td>
+                  <tr key={entry.job} className="align-top">
+                    <td className="py-0.5 pr-2">
+                      <span className="block text-ink">{entry.label ?? entry.job}</span>
+                      {/* Already redacted when it was stored; the payload is never sent. */}
+                      {entry.last_error ? (
+                        <span className="block break-words text-ink-muted">
+                          Last error: {entry.last_error}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="py-0.5 text-right tabular-nums">
                       {formatCount(entry.depth)}
                     </td>
@@ -311,7 +338,7 @@ export function OutboxReplayPanel({
                 </option>
                 {sized.by_job.map((entry) => (
                   <option key={entry.job} value={entry.job}>
-                    {entry.job} — {formatCount(entry.depth)} stuck
+                    {entry.label ?? entry.job} — {formatCount(entry.depth)} stuck
                   </option>
                 ))}
               </select>
