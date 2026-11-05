@@ -316,6 +316,7 @@ function TechnicalDetails({ field, recessive }: { field: ConfigField; recessive:
   const risky = field.control.risk === "high" && field.control.risk_reason;
   return (
     <div className="space-y-1 text-meta text-ink-muted">
+      {field.details && <p className="max-w-prose break-words">{field.details}</p>}
       <p className="flex flex-wrap items-center gap-x-4 gap-y-0.5">
         <CodeWithCopy term="Setting key" value={field.key} />
         <CodeWithCopy term="Environment variable" value={field.env_var} />

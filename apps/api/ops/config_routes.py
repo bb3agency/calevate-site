@@ -355,6 +355,9 @@ class ConfigFieldOut(BaseModel):
     label: str
     #: One line saying what the setting does.
     description: str
+    #: What an engineer needs and the operator does not decide on, shown under Details; null
+    #: when there is nothing more to say.
+    details: str | None
     #: The `ConfigSectionOut.id` and subsection id this setting is shown under.
     section: str
     subsection: str
@@ -584,6 +587,7 @@ def _out(field: ConfigField, engine: EngineInForce) -> ConfigFieldOut:
         control=_control(field),
         label=meta.label,
         description=meta.description,
+        details=meta.details,
         section=meta.section,
         subsection=meta.subsection,
         engine_scope=scope.sentence if scope else None,

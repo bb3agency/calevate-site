@@ -193,7 +193,38 @@ def test_descriptions_are_one_plain_line() -> None:
         assert meta.label.strip() and meta.description.strip(), key
         assert "\n" not in meta.description, key
         assert meta.description.endswith("."), key
-        assert len(meta.description) <= 160, (key, len(meta.description))
+        # A7-13: one line in the console's description column; the rest goes in `details`.
+        assert len(meta.description) <= catalog.DESCRIPTION_MAX, (key, len(meta.description))
+        assert len(meta.label) <= 60, (key, meta.label)
+
+
+#: Words that mark an internal note, a person or a vendor's field name rather than what the
+#: setting does. Such text belongs in `details` (engineers) or the decision log.
+_INTERNAL_NOTE = re.compile(
+    r"founder|OPERATIONS|gate [A-Z]-\d|\bsince \d|BYOK\)|\(ownRules\)|\(callInstructions\)|"
+    r"E\.164|Test Chat call mode\)"
+)
+
+
+def test_labels_and_descriptions_carry_no_internal_notes() -> None:
+    for key, meta in catalog.FIELD_META.items():
+        assert not _INTERNAL_NOTE.search(meta.label), (key, meta.label)
+        assert not _INTERNAL_NOTE.search(meta.description), (key, meta.description)
+
+
+def test_details_reach_the_console() -> None:
+    """What moved out of a description must still be readable under Details."""
+    field = next(f for f in _fields() if f.key == "thinnest_max_concurrent_calls")
+    out = _out(field, ("thinnest", THINNEST_CAPABILITIES))
+    assert out.details is not None and "VENDOR-STATED" in out.details
+    assert "5 on pay-as-you-go" not in out.description
+
+
+def test_the_plan_row_does_not_repeat_a_workspace_cap() -> None:
+    """A7-11: the description said 3 workspaces on pay-as-you-go while the option said 100.
+    The figures live once, on the options (`PLAN_CUSTOMER_CAPS`)."""
+    meta = catalog.FIELD_META["thinnest_customer_plan"]
+    assert not re.search(r"\d", meta.description), meta.description
 
 
 # --- engine scope -------------------------------------------------------------------

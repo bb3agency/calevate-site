@@ -16351,6 +16351,17 @@
             "title": "Description",
             "type": "string"
           },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
@@ -16484,6 +16495,7 @@
           "control",
           "label",
           "description",
+          "details",
           "section",
           "subsection",
           "engine_scope",

@@ -19691,6 +19691,8 @@ export interface components {
             default: string | boolean | number | null;
             /** Description */
             description: string;
+            /** Details */
+            details: string | null;
             /** Editable */
             editable: boolean;
             /** Engine Scope */
