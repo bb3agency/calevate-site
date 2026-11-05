@@ -1,16 +1,18 @@
 "use client";
 
 /**
- * NEW CAMPAIGN, AS FOUR SHORT STEPS beside a summary of the campaign as it stands: the
- * basics, who to call, when to call, then a review with Change beside every group and one
- * "Create campaign".
+ * NEW CAMPAIGN, AS FOUR SHORT STEPS in one column: what the calls are for, who to call,
+ * when, then a review that reads like the campaign itself with one "Create campaign".
  *
- * Steps let an owner finish one question at a time, and each step is checked before Next,
- * so a missing answer is named on the step that asks it rather than at the bottom of the
- * page. The summary beside them answers "what have I set so far?" without stepping back;
- * the review shows the same summary full width, so the whole campaign is seen before it
- * is created. Both read `campaignSummary.summarize`, so they cannot disagree.
+ * One column, no running summary beside it. The summary rail used to repeat every field as
+ * a label and "Not said" while the owner was still answering, which made the first screen
+ * a wall of empty answers; the review step shows the whole campaign once there is one to
+ * show. Settings that already have the right answer for almost everyone (the kind of call
+ * and the number, the calling rules) are one sentence with Change beside them, so each step
+ * asks only what the owner must decide. The same pattern as the broadcast builders Indian
+ * owners already use (a template or goal first, then the audience, then send now or later).
  *
+ * Each step is checked before Next, so a missing answer is named on the step that asks it.
  * Calls at once are offered only up to the account's call lines (D-773 pace, the lines
  * `GET /v1/call-lines` reports); retries are the client's choice; do-not-call skipping is
  * the platform's and is stated. The compliance check before LAUNCH is unchanged: creating
@@ -23,6 +25,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { TEXT_ACTION } from "@/components/console/section";
 import { WizardSteps } from "@/components/interior/wizard-steps";
 import { ProblemNotice } from "@/components/ui";
+import { canDialOut } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
@@ -32,7 +35,7 @@ import { ConsentProvenanceFields } from "./ConsentProvenance";
 import { LeadPicker } from "./LeadPicker";
 import { ContactEditor } from "./ContactEditor";
 import type { CampaignFormState, ScheduleFormState } from "./campaignForm";
-import { BasicsStep, PaceFields, StartChoice, type ListQuery } from "./NewCampaignSteps";
+import { BasicsStep, CallingRules, StartChoice, type ListQuery } from "./NewCampaignSteps";
 import { SummaryList, headline, summarize, type SummaryInput } from "./campaignSummary";
 
 /**
@@ -50,20 +53,37 @@ export function windowRefusal(start: string, end: string): string | null {
 }
 
 const STEPS = [
-  { id: "basics", label: "The basics", heading: "The basics", lede: "Name it, pick the agent, and say what the calls are for." },
-  { id: "people", label: "Who to call", heading: "Who should we call?", lede: "Add a list, pick from your leads, or both." },
-  { id: "when", label: "When to call", heading: "When should we call?", lede: "Choose when it starts. The calling rules are already set." },
-  { id: "review", label: "Review", heading: "Check it, then create it", lede: "Saved as a draft. Nothing is called yet." },
+  {
+    id: "purpose",
+    label: "What it's for",
+    heading: "What are these calls for?",
+    lede: "Choose who calls, and what a good call should end with.",
+  },
+  { id: "people", label: "Who to call", heading: "Who should we call?", lede: "Add your list, pick from your leads, or both." },
+  {
+    id: "when",
+    label: "When",
+    heading: "When should we call?",
+    lede: "Choose how it starts. The calling rules are already set.",
+  },
+  {
+    id: "review",
+    label: "Review",
+    heading: "Check it, then create it",
+    lede: "Saved as a draft. Nobody is called until you launch it.",
+  },
 ] as const;
 
 const REVIEW = STEPS.length - 1;
 
 /** The step's own top: its question, and one line on what it decides. */
-function StepHeader({ index }: { index: number }) {
+function StepHeader({ index, headingId }: { index: number; headingId: string }) {
   const step = STEPS[index]!;
   return (
     <div className="space-y-1">
-      <h3 className="text-title text-ink">{step.heading}</h3>
+      <h3 id={headingId} className="text-title text-ink">
+        {step.heading}
+      </h3>
       <p className="text-body text-ink-muted">{step.lede}</p>
     </div>
   );
@@ -105,7 +125,7 @@ export function NewCampaignFlow({
   concurrencyCap: number | undefined;
   /** The account's lines could not be read. */
   capUnknown: boolean;
-  /** The way to have the assistant fill the steps in, shown at the top of the summary. */
+  /** The way to have the assistant fill the steps in, offered on the first step. */
   assistant: ReactNode;
   /** The draft is being created, or what it carries is being sent. */
   creating: boolean;
@@ -119,19 +139,18 @@ export function NewCampaignFlow({
 }) {
   const { counts, refusal } = form.checked;
   const [step, setStep] = useState(0);
-  const [furthest, setFurthest] = useState(0);
   // Which steps the person has tried to leave. A step's problem shows only after that,
   // and is worked out on every render, so it goes away the moment it is fixed.
   const [tried, setTried] = useState<ReadonlySet<number>>(() => new Set());
   const formRef = useRef<HTMLDivElement>(null);
+  const headingId = useId();
   const markTried = (index: number) => setTried((seen) => new Set(seen).add(index));
 
   /** The first thing stopping step `index` being finished, in the order it asks. */
   function problemAt(index: number): string | null {
     if (index === 0) {
-      if (form.name.trim().length < 2) return "Give this campaign a name.";
       if (!selectedAgentId) return "Choose the agent that makes these calls.";
-      return briefProblem(form);
+      return briefProblem(form) ?? (form.name.trim().length < 2 ? "Give this campaign a name." : null);
     }
     if (index === 1) {
       if (counts.ready === 0 && !form.fromLeads) {
@@ -164,7 +183,6 @@ export function NewCampaignFlow({
   /** A new step starts at its top: on a phone Next sits a long way below it. */
   const goTo = (index: number) => {
     setStep(index);
-    setFurthest((far) => Math.max(far, index));
     const top = formRef.current?.getBoundingClientRect().top;
     if (top !== undefined && top < 0) formRef.current?.scrollIntoView({ block: "start" });
   };
@@ -194,21 +212,21 @@ export function NewCampaignFlow({
     leadsMatching,
     concurrency,
   };
-  const groups = summarize(summaryInput);
-  const sentence = headline(summaryInput);
 
   const content: ReactNode[] = [
-    <BasicsStep
-      key="basics"
-      form={form}
-      agents={agents}
-      agentOptions={agentOptions}
-      selectedAgentId={selectedAgentId}
-      selectedAgent={selectedAgent}
-      hasNoAgents={hasNoAgents}
-      numbers={numbers}
-      templates={templates}
-    />,
+    <div key="purpose" className="space-y-8">
+      <AssistantOffer>{assistant}</AssistantOffer>
+      <BasicsStep
+        form={form}
+        agents={agents}
+        agentOptions={agentOptions}
+        selectedAgentId={selectedAgentId}
+        selectedAgent={selectedAgent}
+        hasNoAgents={hasNoAgents}
+        numbers={numbers}
+        templates={templates}
+      />
+    </div>,
     <div key="people" className="space-y-8">
       <ContactEditor
         entries={form.contacts}
@@ -220,105 +238,101 @@ export function NewCampaignFlow({
     </div>,
     <div key="when" className="space-y-8">
       <StartChoice schedule={schedule} />
-      <PaceFields form={form} cap={concurrencyCap} capUnknown={capUnknown} />
+      <CallingRules form={form} cap={concurrencyCap} capUnknown={capUnknown} concurrency={concurrency} />
     </div>,
-    <div key="review" className="space-y-6">
-      <p className="rounded-card bg-brand-soft px-4 py-3.5 text-heading text-ink dark:bg-brand-strong/20">{sentence}</p>
-      <div className="space-y-6">
-        {groups.map((group) => (
-          <div key={group.step} className="border-t border-line pt-5">
-            <SummaryList group={group} onEdit={() => goTo(group.step)} />
-          </div>
-        ))}
-      </div>
-    </div>,
+    <ReviewCard key="review" input={summaryInput} onEdit={goTo} />,
   ];
 
   const nextLabel = step < REVIEW ? `Next: ${STEPS[step + 1]!.label.toLowerCase()}` : "Next";
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_20rem] xl:gap-10">
-      {/* A `div role="form"` rather than a `<form>`: the leads picker carries the Leads
-          screen's own small forms (a detail filter, naming a saved view), and a form may
-          not sit inside another. Nothing here submits; WizardSteps' buttons drive every
-          step. */}
-      <div ref={formRef} role="form" aria-label="New campaign" className="min-w-0 scroll-mt-6">
-        <WizardSteps
-          steps={STEPS.map((s, index) => ({
-            id: s.id,
-            label: s.label,
-            content:
-              index === step ? (
-                <div className="space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6">
-                  <StepHeader index={index} />
-                  {content[index]}
-                  {problem ? (
-                    <p role="alert" className="text-meta text-danger">
-                      {problem}
-                    </p>
-                  ) : null}
-                  {index === REVIEW && createError != null ? <ProblemNotice error={createError} /> : null}
-                </div>
-              ) : null,
-          }))}
-          index={step}
-          onIndexChange={goTo}
-          canAdvance={canAdvance}
-          onComplete={() => {
-            if (canWrite) onSubmit();
-          }}
-          height="auto"
-          framed={false}
-          showCurrentLabel={false}
-          label="New campaign steps"
-          nextLabel={nextLabel}
-          finishLabel="Create campaign"
-          finishing={creating}
-          finishingLabel="Creating…"
-          advanceDisabled={step === REVIEW && !canWrite}
-          extraActions={
-            <button type="button" className={TEXT_ACTION} onClick={onCancel}>
-              Cancel
-            </button>
-          }
-        />
-      </div>
+    // A `div role="form"` rather than a `<form>`: the leads picker carries the Leads
+    // screen's own small forms (a detail filter, naming a saved view), and a form may not
+    // sit inside another. Nothing here submits; WizardSteps' buttons drive every step.
+    <div ref={formRef} role="form" aria-label="New campaign" className="min-w-0 max-w-3xl scroll-mt-6">
+      <WizardSteps
+        steps={STEPS.map((s, index) => ({
+          id: s.id,
+          label: s.label,
+          content:
+            index === step ? (
+              <section
+                aria-labelledby={headingId}
+                className="space-y-7 sm:rounded-card sm:border sm:border-line sm:bg-surface sm:p-7 sm:shadow-card"
+              >
+                <StepHeader index={index} headingId={headingId} />
+                {content[index]}
+                {problem ? (
+                  <p role="alert" className="text-meta text-danger">
+                    {problem}
+                  </p>
+                ) : null}
+                {index === REVIEW && createError != null ? <ProblemNotice error={createError} /> : null}
+              </section>
+            ) : null,
+        }))}
+        index={step}
+        onIndexChange={goTo}
+        canAdvance={canAdvance}
+        onComplete={() => {
+          if (canWrite) onSubmit();
+        }}
+        height="auto"
+        framed={false}
+        showCurrentLabel={false}
+        label="New campaign steps"
+        nextLabel={nextLabel}
+        finishLabel="Create campaign"
+        finishing={creating}
+        finishingLabel="Creating…"
+        advanceDisabled={step === REVIEW && !canWrite}
+        extraActions={
+          <button type="button" className={TEXT_ACTION} onClick={onCancel}>
+            Cancel
+          </button>
+        }
+      />
+    </div>
+  );
+}
 
-      <aside aria-label="Campaign summary" className="min-w-0 space-y-4 lg:sticky lg:top-6">
-        {/* The review step IS the summary, full width; beside it the card would repeat it. */}
-        {step < REVIEW && (
-          <section className="hidden overflow-hidden rounded-card border border-line bg-surface shadow-card lg:block">
-            <div className="border-b border-line bg-surface-muted px-4 py-4">
-              <h3 className={`break-words text-heading ${form.name.trim() ? "text-ink" : "text-ink-faint"}`}>
-                {form.name.trim() || "Untitled campaign"}
-              </h3>
-              <p aria-live="polite" className="mt-1 text-meta text-ink-muted">
-                {sentence}
-              </p>
-            </div>
-            <div className="space-y-5 px-4 py-4">
-              {groups.map((group) => (
-                <SummaryList
-                  key={group.step}
-                  compact
-                  group={group}
-                  onEdit={group.step <= furthest && group.step !== step ? () => goTo(group.step) : undefined}
-                />
-              ))}
-            </div>
-            <p className="border-t border-line px-4 py-3 text-meta text-ink-muted">
-              Saved as a draft. Nothing is called until you launch.
-            </p>
-          </section>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-dashed border-line px-4 py-3 lg:block lg:space-y-3">
-          <p className="min-w-0 text-meta text-ink-muted">
-            <span className="block">Rather say it in a sentence?</span>
-            <span className="block">{ASSISTANT_NAME} fills in the steps. You check them.</span>
+/** The assistant as the other way in, one quiet line above the first question. */
+function AssistantOffer({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 rounded-card border border-dashed border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="min-w-0 text-meta text-ink-muted">
+        Rather say it in a sentence? {ASSISTANT_NAME} can fill this in.
+      </p>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * THE REVIEW, shaped like the campaign it creates: its name, one sentence of what will
+ * happen, then each part with Change. Its sentences are the ones the steps show
+ * (`campaignSummary.summarize`), so the review cannot disagree with what is sent.
+ */
+function ReviewCard({ input, onEdit }: { input: SummaryInput; onEdit: (step: number) => void }) {
+  const groups = summarize(input);
+  return (
+    <div className="space-y-5">
+      <div className="rounded-card bg-brand-soft/60 px-4 py-4 sm:px-5">
+        <p className="break-words text-heading text-ink">{input.form.name.trim()}</p>
+        <p aria-live="polite" className="mt-1 text-body text-ink-muted">
+          {headline(input)}
+        </p>
+        {input.agent && !canDialOut(input.agent) ? (
+          <p className="mt-2 text-meta text-ink">
+            This agent can&rsquo;t call out yet. Launch waits until it can.
           </p>
-          {assistant}
+        ) : null}
+      </div>
+      {groups.map((group) => (
+        <div key={group.step} className="border-t border-line pt-5">
+          <SummaryList group={group} onEdit={() => onEdit(group.step)} />
         </div>
-      </aside>
+      ))}
     </div>
   );
 }

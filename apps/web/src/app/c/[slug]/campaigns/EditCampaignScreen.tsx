@@ -169,7 +169,7 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
           if (write.allowed) save();
         }}
       >
-        <EditPanel title="The basics">
+        <EditPanel title="What it's for">
           <BasicsStep
             form={form}
             agents={agents}
@@ -180,9 +180,10 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
             numbers={numbers}
             templates={templates}
             showTemplate={false}
+            placementOpen
           />
         </EditPanel>
-        <EditPanel title="How it calls">
+        <EditPanel title="Calling rules">
           <PaceFields form={form} cap={cap} capUnknown={Boolean(callLines.error)} />
         </EditPanel>
         {/* Save stays in reach on a long form: the bar sticks to the bottom of the view. */}

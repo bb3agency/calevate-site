@@ -7,7 +7,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { todayIST } from "@/components/arc/ist-dates";
 import { ChoiceCards } from "@/components/console/choiceCards";
 import { FieldMessage } from "@/components/formValidation";
-import { FIELD_LABEL, ProblemNotice, RestrictionNote } from "@/components/ui";
+import { ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import {
@@ -59,7 +59,7 @@ export function ConsentProvenanceFields({
       <div>
         <ChoiceCards
           legend="Where did this list come from?"
-          legendClassName={FIELD_LABEL}
+          legendClassName="block text-body font-medium text-ink"
           description={
             <>
               This goes on the record. Pick the true one.{" "}

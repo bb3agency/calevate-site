@@ -425,7 +425,7 @@ function ContactTable({
         </caption>
         <thead>
           <tr className="border-b border-line bg-surface-muted text-xs text-ink-faint">
-            <th scope="col" className="px-3 py-2 font-medium">Phone</th>
+            <th scope="col" className="w-40 px-3 py-2 font-medium sm:w-auto">Phone</th>
             <th scope="col" className="hidden px-3 py-2 font-medium sm:table-cell">Name</th>
             {variables.map((key) => (
               <th key={key} scope="col" className="hidden px-3 py-2 font-medium [overflow-wrap:anywhere] md:table-cell">

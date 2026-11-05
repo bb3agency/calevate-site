@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { CalendarClock, CalendarDays, Hand, ShieldCheck } from "lucide-react";
-import type { ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { NumberField } from "@/components/arc/number-field";
 import { ChoiceCards } from "@/components/console/choiceCards";
 import { SegmentedControl } from "@/components/interior/segmented-control";
+import { TEXT_ACTION } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, SECONDARY_BUTTON_SM, Skeleton, formatPhone } from "@/components/ui";
-import { canDialOut } from "@/lib/agentState";
+import { LANGUAGE_NAMES, canDialOut } from "@/lib/agentState";
+import { lookup } from "@/lib/lookup";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { useClientRealm } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
@@ -61,11 +63,6 @@ export function describeRetry(retry: { max_attempts: number; gaps_minutes?: numb
   return `${retry.max_attempts} tries, ${(retry.gaps_minutes ?? []).map(gapWords).join(" then ")} apart`;
 }
 
-/** Calling hours in one line, the platform window when none is set. */
-export function describeHours(form: Pick<CampaignFormState, "restrictHours" | "windowStart" | "windowEnd">): string {
-  return form.restrictHours ? `${form.windowStart || "…"} – ${form.windowEnd || "…"} IST` : "9am – 9pm IST";
-}
-
 /**
  * A group of related fields inside a step, titled by what it decides. Proximity does the
  * grouping; the rule between groups is the only container, so a step reads as one form
@@ -78,6 +75,173 @@ export function FieldGroup({ title, children }: { title: string; children: React
       {children}
     </div>
   );
+}
+
+/**
+ * SETTINGS THAT ALREADY HAVE AN ANSWER, said as one sentence with "Change" beside it. The
+ * owner reads what will happen and moves on; the controls open only for someone who wants
+ * a different answer. Nothing that changes the outcome is hidden: the sentence states every
+ * value the controls hold.
+ */
+export function SettledSettings({
+  title,
+  summary,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  summary: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const panelId = useId();
+  return (
+    <section aria-label={title} className="rounded-card bg-surface-muted px-4 py-3.5 sm:px-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h4 className="text-body font-semibold text-ink">{title}</h4>
+          <p aria-live="polite" className="mt-0.5 text-meta text-ink-muted">
+            {summary}
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={open ? panelId : undefined}
+          aria-label={open ? `Close ${title.toLowerCase()}` : `Change ${title.toLowerCase()}`}
+          onClick={() => setOpen(!open)}
+          className={`${TEXT_ACTION} shrink-0 touch:min-h-11`}
+        >
+          {open ? "Done" : "Change"}
+        </button>
+      </div>
+      {open && (
+        <div id={panelId} className="settings-enter mt-4 space-y-5 border-t border-line pt-4">
+          {children}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Whether the agent can place these calls, in the owner's words. */
+function agentReadiness(agent: Agent): string {
+  if (canDialOut(agent)) return "Ready to call";
+  if (agent.direction === "inbound") return "Answers calls only";
+  return "Not calling yet";
+}
+
+/**
+ * WHO MAKES THE CALLS, as the agents themselves rather than a dropdown: an owner knows
+ * their agent by name, and a card can say whether it is ready without the "not able to
+ * call out yet" suffix a select option had to carry.
+ */
+function AgentChoice({
+  form,
+  agentOptions,
+  selectedAgentId,
+  selectedAgent,
+}: {
+  form: CampaignFormState;
+  agentOptions: Agent[];
+  selectedAgentId: string;
+  selectedAgent: Agent | undefined;
+}) {
+  const { session, href } = useClientRealm();
+  const options = agentOptions.map((agent) => ({
+    value: agent.id,
+    label: agent.name,
+    hint: (
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+        <span>{lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${canDialOut(agent) ? "bg-success" : "bg-warn"}`} />
+          {agentReadiness(agent)}
+        </span>
+      </span>
+    ),
+  }));
+  return (
+    <div className="space-y-2.5">
+      <ChoiceCards
+        legend="Which agent makes these calls"
+        legendClassName="block text-body font-medium text-ink"
+        name="campaign-agent"
+        value={selectedAgentId}
+        options={options}
+        onChange={form.setAgentId}
+        columns="sm:grid-cols-2"
+      />
+      {selectedAgent && !canDialOut(selectedAgent) ? (
+        <p className="text-meta text-ink-muted">
+          Build it now. It calls once this agent can call out.{" "}
+          <Link href={href(`/c/${session.orgSlug}/agents/${selectedAgent.id}`)} className={TEXT_ACTION}>
+            Open {selectedAgent.name}
+          </Link>
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * THE NAME, last on the step because it is made from the goal: an owner who picks "Booked
+ * a visit" gets "Booked a visit, 5 Nov" and may keep it. Before there is a goal the
+ * business's own example (D-827, written in the account's language) is offered as one tap,
+ * not as greyed placeholder text that reads like an answer already given.
+ */
+function NameField({ form }: { form: CampaignFormState }) {
+  const id = useId();
+  const eg = useVerticalExamples();
+  const example = eg.campaignName.trim();
+  const offer = form.name.trim() === "" && example !== "" ? example : null;
+  return (
+    <div>
+      <label htmlFor={id} className="block text-body font-medium text-ink">
+        Name
+      </label>
+      <span id={`${id}-hint`} className="mt-0.5 block text-meta text-ink-muted">
+        {form.nameFollowsGoal && form.name.trim() !== ""
+          ? "Made from the goal. Type to change it."
+          : "Only you see it, in your list of campaigns."}
+      </span>
+      <input
+        id={id}
+        value={form.name}
+        onChange={(e) => form.setName(e.target.value)}
+        maxLength={120}
+        aria-describedby={`${id}-hint`}
+        className={`${FIELD} mt-2`}
+      />
+      {offer && (
+        <div className="mt-2.5 flex min-w-0 items-center gap-2">
+          <span aria-hidden className="shrink-0 text-meta text-ink-muted">
+            Or use:
+          </span>
+          <button
+            type="button"
+            onClick={() => form.setName(offer)}
+            aria-label={`Use the name ${offer}`}
+            className="press min-w-0 truncate rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:min-h-11"
+          >
+            {offer}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** "Service calls, from the agent's own number.": the placement as one sentence. */
+export function placementWords(
+  form: Pick<CampaignFormState, "classification" | "numberId" | "templateId">,
+  numbers: CampaignNumber[] | undefined,
+): string {
+  const kind = form.classification === "promotional" ? "Promotional calls" : "Service calls";
+  const number = campaignNumbers(numbers).find((n) => n.id === form.numberId);
+  const from = number ? `from ${formatPhone(number.e164)}` : "from the agent's own number";
+  return `${kind}, ${from}${form.templateId ? ", with your registered template" : ""}.`;
 }
 
 const TRIES = ["1", "2", "3", "4", "5"] as const;
@@ -179,10 +343,11 @@ function ShortChoice<T extends string>({
 }
 
 /**
- * STEP 1, THE BASICS, in three groups: who is calling (name and agent), what the calls are
- * for (why, and what a good call ends with), and how they are sent (kind of call, the
- * number, an optional DLT template). A template is optional since D-692 (outbound needs
- * verified KYC and the no-cold-calls pledge); it is still offered for a client who
+ * STEP 1, WHAT THE CALLS ARE FOR, in the order an owner thinks it: who calls, why, what a
+ * good call ends with, then a name made from that. How the calls go out (the kind of call,
+ * the number, a registered DLT template) has the right answer already for almost everyone,
+ * so it is one sentence with Change beside it. A template is optional since D-692 (outbound
+ * needs verified KYC and the no-cold-calls pledge); it is still offered for a client who
  * registered one.
  */
 export function BasicsStep({
@@ -195,6 +360,7 @@ export function BasicsStep({
   numbers,
   templates,
   showTemplate = true,
+  placementOpen = false,
 }: {
   form: CampaignFormState;
   agents: { data: Agent[] | undefined };
@@ -206,64 +372,47 @@ export function BasicsStep({
   templates: ListQuery<DltTemplate>;
   /** The edit page has no template field: `PATCH` does not change it. */
   showTemplate?: boolean;
+  /** Open on the edit page, where the owner came to change something. */
+  placementOpen?: boolean;
 }) {
   const usable = campaignNumbers(numbers.data);
   const { session, href } = useClientRealm();
   const registration = usePeRegistration(session);
-  const eg = useVerticalExamples();
   const classifications = offeredClassifications(
     registration.data?.calevate_tm_active === true,
     form.classification,
   );
   return (
-    <div className="space-y-6">
-      <FieldGroup title="Who is calling">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="block min-w-0">
-            <span className={FIELD_LABEL}>Name</span>
-            <input
-              value={form.name}
-              onChange={(e) => form.setName(e.target.value)}
-              placeholder={`e.g. ${eg.campaignName}`}
-              className={FIELD}
-            />
-          </label>
-
-          {hasNoAgents && (
-            <div className="space-y-2">
-              <p className="text-sm text-ink">No agent is set up yet.</p>
-              <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
-                Create an agent
-              </Link>
-            </div>
-          )}
-          {/* Only from a list the server sent: an empty picker over a read in flight or
-              failed would read as "you have no agent". */}
-          {Boolean(agents.data) && agentOptions.length > 0 && (
-            <label className="block min-w-0">
-              <span className={FIELD_LABEL}>Which agent makes these calls</span>
-              <select value={selectedAgentId} onChange={(e) => form.setAgentId(e.target.value)} className={FIELD}>
-                {agentOptions.map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
-                    {canDialOut(agent) ? "" : " — not able to call out yet"}
-                  </option>
-                ))}
-              </select>
-              {selectedAgent && !canDialOut(selectedAgent) ? (
-                <span className={FIELD_HINT}>It can&rsquo;t call out yet. You can still build this.</span>
-              ) : null}
-            </label>
-          )}
-          {!agents.data && !hasNoAgents && <Skeleton rows={1} label="Loading your agents" />}
+    <div className="space-y-8">
+      {hasNoAgents && (
+        <div className="space-y-3 rounded-card border border-dashed border-line p-4">
+          <p className="text-body text-ink">No agent is set up yet.</p>
+          <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
+            Create an agent
+          </Link>
         </div>
-      </FieldGroup>
+      )}
+      {/* Only from a list the server sent: an empty picker over a read in flight or failed
+          would read as "you have no agent". */}
+      {Boolean(agents.data) && agentOptions.length > 0 && (
+        <AgentChoice
+          form={form}
+          agentOptions={agentOptions}
+          selectedAgentId={selectedAgentId}
+          selectedAgent={selectedAgent}
+        />
+      )}
+      {!agents.data && !hasNoAgents && <Skeleton rows={2} label="Loading your agents" />}
 
-      <FieldGroup title="What the calls are for">
-        <BriefFields form={form} agentId={selectedAgentId} />
-      </FieldGroup>
+      <BriefFields form={form} agentId={selectedAgentId} />
 
-      <FieldGroup title="How they are placed">
+      <NameField form={form} />
+
+      <SettledSettings
+        title="How the calls go out"
+        summary={placementWords(form, numbers.data)}
+        defaultOpen={placementOpen}
+      >
         {/* The category decides which number series may dial (DATA-MODEL §6). */}
         <ShortChoice
           label="What kind of calls are these?"
@@ -271,47 +420,44 @@ export function BasicsStep({
           options={classifications}
           onChange={form.setClassification}
         />
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="block min-w-0">
-            <span className={FIELD_LABEL}>Calling from</span>
-            <select value={form.numberId} onChange={(e) => form.setNumberId(e.target.value)} className={FIELD}>
-              <option value="">The agent&rsquo;s own number</option>
-              {usable.map((option) => (
+        <label className="block max-w-md">
+          <span className={FIELD_LABEL}>Calling from</span>
+          <select value={form.numberId} onChange={(e) => form.setNumberId(e.target.value)} className={FIELD}>
+            <option value="">The agent&rsquo;s own number</option>
+            {usable.map((option) => (
+              <option key={option.id} value={option.id}>
+                {formatPhone(option.e164)} ({option.series} series)
+              </option>
+            ))}
+          </select>
+          {/* Only from a list the server sent; a failed read is refused at the top. */}
+          {numbers.data && (
+            <span className={FIELD_HINT}>
+              {usable.length === 0
+                ? "No number can make calls yet. The agent's own line is used."
+                : "Any of your numbers. Every agent can call from them."}
+            </span>
+          )}
+        </label>
+        {showTemplate && (
+          <label className="block max-w-md">
+            <span className={FIELD_LABEL}>
+              <Term id="dlt" /> template (optional)
+            </span>
+            <select value={form.templateId} onChange={(e) => form.setTemplateId(e.target.value)} className={FIELD}>
+              <option value="">No template</option>
+              {(templates.data ?? []).map((option) => (
                 <option key={option.id} value={option.id}>
-                  {formatPhone(option.e164)} ({option.series} series)
+                  {option.classification} — {option.status}
                 </option>
               ))}
             </select>
-            {/* Only from a list the server sent; a failed read is refused at the top. */}
-            {numbers.data && (
-              <span className={FIELD_HINT}>
-                {usable.length === 0
-                  ? "No number can make calls yet. The agent's own line is used."
-                  : "Any of your numbers. Every agent can call from them."}
-              </span>
+            {templates.data?.length === 0 && (
+              <span className={FIELD_HINT}>None registered. You don&rsquo;t need one to call.</span>
             )}
           </label>
-          {showTemplate && (
-            <label className="block min-w-0">
-              <span className={FIELD_LABEL}>
-                <Term id="dlt" /> template (optional)
-              </span>
-              <select value={form.templateId} onChange={(e) => form.setTemplateId(e.target.value)} className={FIELD}>
-                <option value="">No template</option>
-                {(templates.data ?? []).map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.classification} — {option.status}
-                  </option>
-                ))}
-              </select>
-              {templates.data?.length === 0 && (
-                <span className={FIELD_HINT}>None registered. Not needed to call.</span>
-              )}
-            </label>
-          )}
-        </div>
-      </FieldGroup>
+        )}
+      </SettledSettings>
     </div>
   );
 }
@@ -455,10 +601,13 @@ export function PaceFields({
   form,
   cap,
   capUnknown,
+  showDnc = true,
 }: {
   form: CampaignFormState;
   cap: number | undefined;
   capUnknown: boolean;
+  /** Off where the note already sits beside the summary of these rules. */
+  showDnc?: boolean;
 }) {
   return (
     <div className="space-y-6">
@@ -500,10 +649,55 @@ export function PaceFields({
         <p className="text-body text-ink">{describeRetry(form.retry)}.</p>
       </FieldGroup>
 
-      <p className="flex items-start gap-2 rounded-card bg-surface-muted px-3 py-2.5 text-meta text-ink">
-        <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-        <span>Numbers on your do-not-call list are always skipped.</span>
-      </p>
+      {showDnc && <DncNote />}
+    </div>
+  );
+}
+
+/** Do-not-call skipping is the platform's on every dial, so it is stated, never offered. */
+function DncNote() {
+  return (
+    <p className="flex items-start gap-2 text-meta text-ink-muted">
+      <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-success" />
+      <span>Numbers on your do-not-call list are always skipped.</span>
+    </p>
+  );
+}
+
+/** "Between 9am and 9pm IST, up to 2 at a time. 3 tries, 30 min then 2 hours apart." */
+export function rulesWords(
+  form: Pick<CampaignFormState, "restrictHours" | "windowStart" | "windowEnd" | "retry">,
+  concurrency: number,
+): string {
+  const hours = form.restrictHours
+    ? `Between ${form.windowStart || "…"} and ${form.windowEnd || "…"} IST`
+    : "Between 9am and 9pm IST";
+  return `${hours}, up to ${concurrency} at a time. ${describeRetry(form.retry)}.`;
+}
+
+/**
+ * THE CALLING RULES on the create page: already answered (the platform's hours, the
+ * account's lines, three tries), so they read as one sentence with Change, and open to the
+ * same controls the edit page shows.
+ */
+export function CallingRules({
+  form,
+  cap,
+  capUnknown,
+  concurrency,
+}: {
+  form: CampaignFormState;
+  cap: number | undefined;
+  capUnknown: boolean;
+  /** The pace that will be sent, already held to the account's lines. */
+  concurrency: number;
+}) {
+  return (
+    <div className="space-y-3">
+      <SettledSettings title="Calling rules" summary={rulesWords(form, concurrency)}>
+        <PaceFields form={form} cap={cap} capUnknown={capUnknown} showDnc={false} />
+      </SettledSettings>
+      <DncNote />
     </div>
   );
 }
