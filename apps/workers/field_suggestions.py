@@ -105,7 +105,10 @@ SYSTEM_PROMPT: Final = (
     "at all. Never remove one because it is sold out or rare: the details record what "
     "callers want, which is worth knowing even when the business cannot supply it.\n"
     "- new_field: only when the script asks callers for something no detail records, or "
-    "callers keep giving a detail the business would act on. Never a detail for the "
+    "callers keep giving a detail the business would act on (source script or calls, never "
+    "business or facts alone). It must serve why this agent talks to callers, as its script "
+    "says: an agent that helps people use an app records what they need help with, not what "
+    "they own or grow. Never a detail for the "
     "caller's name, phone number, preferred time, language, notes or what they want: every "
     "lead already records those. Give a label of 2 to 4 plain words, choices when a short "
     f"fixed list fits ({NEW_FIELD_CHOICES[0]} to {NEW_FIELD_CHOICES[1]}) or none for free "
@@ -248,6 +251,11 @@ def _one(
         return None
     values = _choices(item.get("values"))
     if kind == "new_field":
+        # A new detail is a question the agent will ask every caller, so it must serve this
+        # agent's job: something its script asks or callers keep telling it. What the
+        # business is in general ("farmers grow crops") is no reason to ask a support caller.
+        if source not in ("script", "calls"):
+            return None
         return _new_field(item, values, reason, source, inputs, taken)
     if kind not in ("add_choices", "remove_choices"):
         return None
