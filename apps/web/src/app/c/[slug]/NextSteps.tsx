@@ -125,7 +125,7 @@ export function goLiveOffered(guide: GoLive | undefined): boolean {
     guide.current !== "done"
   );
 }
-const GO_LIVE_ORDER: readonly GoLive["current"][] = ["move", "verify", "number", "switch_on"];
+const GO_LIVE_ORDER: readonly GoLive["current"][] = ["verify", "number", "switch_on"];
 
 /** Setup steps whose answers are the "what it knows" the readiness score counts (D-968). */
 const KNOWLEDGE_STEPS: ReadonlySet<string> = new Set(["services", "faqs"]);
@@ -246,7 +246,6 @@ export function NextSteps({
       tone: "info",
       icon: Rocket,
       text: at >= 0 ? HOME.goLiveStepOf(at + 1, GO_LIVE_ORDER.length) : HOME.goLiveTitle,
-      detail: guide!.current === "move" ? HOME.goLiveMoving : undefined,
       to: "/go-live",
       label: HOME.goLiveAction[guide!.current],
     });

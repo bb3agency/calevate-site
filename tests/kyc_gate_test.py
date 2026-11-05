@@ -41,7 +41,6 @@ from tests.conftest import accept_agreements, create_org_with_receptionist
 pytestmark = [pytest.mark.rls]
 
 PATH = "/v1/compliance/kyc"
-PURCHASE_PATH = "/v1/numbers/purchase"
 # A CIN is 21 characters; nothing in the permitted document set is a bare 12 digits.
 CIN = "U74999TG2026PTC123456"
 
@@ -298,70 +297,6 @@ async def test_a_managed_tenant_with_no_kyc_cannot_dial_either() -> None:
         )
 
     assert decision.rule == "kyc_missing"
-
-
-async def test_buying_a_number_is_gated_for_a_managed_tenant_too() -> None:
-    """The identity obligation has no tier test, and that is the half that closes the
-    risk: the DoT business-connection obligation attaches to the connection and has no
-    managed-client exemption. Keying it on `plan_tier` — an admin-settable column — would
-    put a legal control one support ticket away from being switched off.
-
-    WHAT MOVED IS WHICH DOOR IT GUARDS. Verification now gates ACTIVATION rather than the
-    sale: a number may be bought before the holder is verified, and cannot be bound to an
-    agent until they are (`provisioning.assert_holder_verified_for_activation`, refusing
-    `number_not_activated`). Nothing reaches a handset except through
-    `phone_numbers.agent_id`, so the binding is the door that matters. This tenant is
-    therefore refused for the reason every tenant is refused today — the supply is
-    operator-led — and not for an unverified identity."""
-    org = await _tenant("managed")
-    async with _client() as http:
-        response = await http.post(
-            PURCHASE_PATH,
-            headers=await _headers(org),
-            json={"e164": "+911140000001", "direction": "inbound"},
-        )
-
-    assert response.status_code == 422, response.text
-    assert response.json()["type"].rsplit("/", 1)[-1] == "number_purchase_is_operator_led"
-
-
-async def test_a_verified_tenant_is_refused_because_self_serve_is_not_the_shape() -> None:
-    """Past the client-side gate, the answer is still no — for a reason that CHANGED.
-
-    Model A is adopted on the inbound leg (D-537): Calevate does buy numbers now. What it
-    does not do is sell one from this screen, which is the shape the playbook names as
-    unsafe for a proprietor (§19, `:621`) — the supply is operator-led and arranged during
-    onboarding. So this route refuses as it always did, and the machine code moved from
-    `number_provisioning_not_configured` (a deployment capability) to
-    `number_purchase_is_operator_led` (a product decision), because the old one is no
-    longer true and a false refusal is repeated by a client to their own carrier.
-
-    **AND IT DOES NOT DEPEND ON OUR PAPERWORK.** Whether this deployment has recorded a
-    written reseller authorisation is our legal state; answering a client differently
-    depending on it would publish that through the shape of an error. Asserted here so the
-    refusal cannot quietly become capability-dependent later.
-
-    422 rather than 502: `business_rule` in the error ladder. It is not an upstream gap —
-    the platform works — it is a thing this screen does not do.
-    """
-    org = await _tenant("self_serve")
-    await _verify(org)
-
-    async with _client() as http:
-        response = await http.post(
-            PURCHASE_PATH,
-            headers=await _headers(org),
-            json={"e164": "+911140000002", "direction": "inbound"},
-        )
-
-    assert response.status_code == 422, response.text
-    assert response.json()["type"].rsplit("/", 1)[-1] == "number_purchase_is_operator_led", (
-        response.text
-    )
-
-    async with tenant_session(uuid.UUID(str(org["id"]))) as session:
-        count = (await session.execute(text("SELECT count(*) FROM phone_numbers"))).scalar()
-    assert count == 0, "a refused purchase must write nothing"
 
 
 async def test_the_unimplemented_claim_is_a_constant_not_a_comment() -> None:

@@ -173,9 +173,9 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/admin/number-pricing": (
         "the operator's own attested rupee price for a number the carrier supplies — a "
         "PLATFORM fact about our cost and margin, not a view of any client's account, so "
-        "there is no client screen for impersonation to mirror. What a client sees is the "
-        "price on `GET /v1/numbers/available`, which is `org:read` and fully reachable in "
-        "a view-as session"
+        "there is no client screen for impersonation to mirror. A client buys its numbers "
+        "in its own workspace (D-693) and sees no catalogue price of ours, so a view-as "
+        "session has nothing of the client's to look at here"
     ),
     "/v1/ops/kb-orphans": (
         "the VOICE PLATFORM ACCOUNT's own knowledge objects, crossed against every claim "
@@ -235,7 +235,7 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "and the one list that is not about any client at all: it is what OUR vendor "
         "account could buy, priced in the vendor's USD. There is no client-realm "
         "counterpart to be looking at alongside it — the client-realm numbers route is "
-        "`POST /v1/numbers/purchase` and it has no GET — so a view-as session never "
+        "`GET /v1/campaigns/numbers` (what the client holds) — so a view-as session never "
         "reaches this and loses nothing by not reaching it"
     ),
     "/v1/admin/numbers/tenants/{tenant_id}": (

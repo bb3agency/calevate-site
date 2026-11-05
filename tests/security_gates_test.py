@@ -428,7 +428,6 @@ async def test_the_client_step_up_verify_records_the_action_proof() -> None:
     [
         ("POST", "/v1/numbers/own/purchase"),
         ("POST", f"/v1/numbers/own/{uuid.uuid4()}/release"),
-        ("POST", "/v1/numbers/purchase"),
         ("POST", "/v1/integrations/endpoints"),
         ("POST", "/v1/integrations/endpoints/sheets"),
         ("POST", "/v1/integrations/endpoints/leadsquared"),

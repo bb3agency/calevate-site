@@ -13,7 +13,6 @@ import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
 import { useClientRealm } from "@/lib/api/session";
 import { EXISTING_SECTION, FROM_CALEVATE_SECTION } from "@/lib/phoneNumbersSection";
 
-import { BuyNumber } from "./BuyNumber";
 import { CallsAtOnce, ExistingNumberSection, SaveNumber } from "./ExistingNumber";
 import { NumberAssignment } from "./NumberAssignment";
 import { OwnNumbersJourney, ReleaseOwnNumber } from "./OwnNumbers";
@@ -79,7 +78,9 @@ function CalevateNumbers() {
   ) : ownNumbers ? (
     <OwnNumbersJourney status={own.data} />
   ) : (
-    <BuyNumber />
+    // Clients buy in their own workspace (D-693); a deployment without it arranges numbers
+    // with us, and says so rather than offering a purchase it would refuse.
+    <p className="text-body text-ink-muted">Talk to us and we will set up a number for you.</p>
   );
 
   return (

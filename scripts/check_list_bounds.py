@@ -1331,7 +1331,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     "GET /v1/campaigns/numbers": BoundedByConstruction(
         by="the numbers WE provision for a tenant; a client cannot mint one "
-        "(`POST /v1/numbers/purchase` is `org:manage` and provisions through the engine)."
+        "(a client buys its own in its own workspace, D-693, and an operator provisions the rest)."
     ),
     "GET /v1/campaigns/templates": BoundedByConstruction(
         by="DLT templates, which only an operator can file (`POST /v1/admin/tenants/"

@@ -1162,13 +1162,6 @@ _UNMODELLED_SUCCESS: dict[str, str] = {
         "a CSV byte stream, not JSON — see the GET twin. The POST shape exists so a "
         "phone-number `search` travels in a body rather than a query string."
     ),
-    "POST /v1/numbers/purchase": (
-        "there is no success response to model: the handler is `NoReturn` and ends in a "
-        "raise on every path (`kyc_not_verified`, then "
-        "`number_provisioning_not_configured`). The 202 is the status it will answer "
-        "with the day a provisioning adapter lands, and modelling a body for it now "
-        "would publish a shape no caller can ever receive."
-    ),
     "GET /hooks/v1/ingest/meta/{webhook_id}": (
         "Meta's subscription handshake, which must echo `hub.challenge` verbatim as "
         "plain text — a JSON model would break the handshake."

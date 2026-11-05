@@ -1,16 +1,14 @@
-"""Browse, buy and assign a number from the client console — and what still refuses.
+"""The number service behind assignment, and what still refuses.
 
-The flow a verified client walks: see what is available, buy one, choose whether it
-handles inbound, outbound or both, and point it at an agent. Six properties make that a
-product rather than a code path.
+Clients buy numbers in their own business name in their own workspace (D-693), so the
+client routes that browsed and bought through Calevate are retired; the service they
+called stays behind its own gate, and a client still points a number at an agent. Five
+properties.
 
-1. **The legal gate survives all of it.** No written VNO/reseller status is recorded, so
-   every client-facing route refuses today. This is the most important test in the file:
-   a build that can buy a number right now is a defect.
+1. **The legal gate is inside the service.** No written VNO/reseller status is recorded,
+   so the service refuses whatever calls it.
 2. **The money is attested, NUMERIC and in rupees.** A client cannot be quoted a price
    nobody has read, and the figure they are charged is not the vendor's dollar quote.
-3. **A double-clicked purchase buys one number.** The `Idempotency-Key` replays the first
-   answer rather than starting a second monthly rental.
 4. **Hard rule 1.** A neighbour's holder, numbers and prices read back as zero rows.
 5. **Assignment is the activation gate.** An unverified holder's number cannot be bound
    to an agent, and binding is what puts a number on a handset (D-420).
@@ -43,8 +41,6 @@ from tests.conftest import accept_agreements, create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
 
-AVAILABLE_PATH = "/v1/numbers/available"
-PURCHASE_PATH = "/v1/numbers/purchase"
 HOLDER_PATH = "/v1/numbers/holder"
 
 
@@ -247,47 +243,6 @@ async def _agent(tenant_id: uuid.UUID, *, direction: str = "inbound") -> uuid.UU
 # ------------------------------------------- 1. the gate that must survive this work
 
 
-async def test_a_client_cannot_buy_a_number_today() -> None:
-    """**THE MOST IMPORTANT TEST IN THIS FILE.**
-
-    `Settings.number_resale_authorization` is unset: no written VNO/reseller status from a
-    licensed Indian operator exists, and the playbook conditions the whole self-supply
-    shape on one (`docs/legal/LEGAL-OPS-PLAYBOOK.md:621`). The flow below this line is
-    built so that recording that instrument is the only change needed — not so that it can
-    be skipped. A purchase that succeeds here is a defect, not a feature.
-    """
-    org = await _tenant()
-    tenant_id = uuid.UUID(str(org["id"]))
-    await _verify_kyc(tenant_id)
-    await _with_holder(tenant_id)
-    await _attest_price()
-
-    async with _client() as http:
-        response = await http.post(
-            PURCHASE_PATH,
-            headers={**await _headers(org), "Idempotency-Key": uuid.uuid4().hex},
-            json={"e164": "+919876500001", "direction": "both"},
-        )
-
-    assert response.status_code == 422, response.text
-    assert response.json()["type"].rsplit("/", 1)[-1] == "number_purchase_is_operator_led"
-    async with tenant_session(tenant_id) as session:
-        held = (await session.execute(text("SELECT count(*) FROM phone_numbers"))).scalar()
-    assert held == 0, "a refused purchase must write nothing"
-
-
-async def test_browsing_is_refused_too_not_only_the_purchase() -> None:
-    """A catalogue that works beside a buy button that refuses teaches a client the
-    refusal is a glitch. Search spends nothing and is gated anyway — the same reasoning
-    `number_supply` applies to the operator's own search."""
-    org = await _tenant()
-    await _attest_price()
-    async with _client() as http:
-        response = await http.get(AVAILABLE_PATH, headers=await _headers(org))
-    assert response.status_code == 422, response.text
-    assert response.json()["type"].rsplit("/", 1)[-1] == "number_purchase_is_operator_led"
-
-
 async def test_the_service_door_refuses_even_when_a_route_does_not_ask(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -379,51 +334,6 @@ async def test_the_price_a_client_pays_is_the_attested_rupee_figure(authorized: 
     assert row[3] == "standard"
 
 
-# ------------------------------------------------- 3. a double click buys one number
-
-
-async def test_a_repeated_purchase_with_one_key_buys_one_number(authorized: None) -> None:
-    """The vendor's buy endpoint takes NO idempotency key of its own (VERIFIED-VENDOR-DOCS:
-    `bolna-findings/mirror/pages/api-reference/phone-numbers/buy.md:55-76`), so a retry
-    there buys a second number and starts a second monthly rental. The key is ours, and
-    the second request is answered with the first purchase rather than re-run."""
-    await _attest_price()
-    org = await _tenant()
-    tenant_id = uuid.UUID(str(org["id"]))
-    await _with_holder(tenant_id)
-    await _verify_kyc(tenant_id)
-    headers = {**await _headers(org), "Idempotency-Key": uuid.uuid4().hex}
-
-    pattern = _pattern()
-    async with tenant_session(tenant_id) as session:
-        offers = await number_catalog.browse_numbers(session, get_engine(), pattern=pattern)
-    body = {"e164": offers[0].e164, "search_pattern": pattern, "direction": "inbound"}
-
-    async with _client() as http:
-        first = await http.post(PURCHASE_PATH, headers=headers, json=body)
-        second = await http.post(PURCHASE_PATH, headers=headers, json=body)
-
-    assert first.status_code == 201, first.text
-    assert second.status_code == 201, second.text
-    assert first.json() == second.json(), "the replay is the first answer, not a new one"
-    async with tenant_session(tenant_id) as session:
-        held = (await session.execute(text("SELECT count(*) FROM phone_numbers"))).scalar()
-    assert held == 1, "a double click must not start two monthly rentals"
-
-
-async def test_a_purchase_without_an_idempotency_key_is_refused(authorized: None) -> None:
-    """Required, not optional, because the vendor cannot dedupe for us and the cost of a
-    missed dedupe is a second recurring commitment."""
-    await _attest_price()
-    org = await _tenant()
-    async with _client() as http:
-        response = await http.post(
-            PURCHASE_PATH, headers=await _headers(org), json={"e164": "+919876500002"}
-        )
-    assert response.status_code == 400, response.text
-    assert response.json()["type"].rsplit("/", 1)[-1] == "idempotency_key_required"
-
-
 # ------------------------------------------------------- 4. hard rule 1
 
 
@@ -457,34 +367,6 @@ async def test_one_tenant_never_sees_another_tenants_holder_or_numbers(
         response = await http.get(HOLDER_PATH, headers=await _headers(neighbour))
     assert response.status_code == 200, response.text
     assert response.json()["recorded"] is False
-
-
-async def test_the_holder_is_recorded_once_and_cannot_be_changed(authorized: None) -> None:
-    """ "Collected once, then reused for every future number. Can't be changed later" is a
-    unique constraint and an append-only trigger, not a screen's good manners: a holder
-    edited after a number was registered would name an owner the operator's own record
-    does not."""
-    org = await _tenant()
-    tenant_id = uuid.UUID(str(org["id"]))
-    headers = await _headers(org)
-    body = {
-        "holder_type": "individual",
-        "holder_name": "S Raghava",
-        "holder_email": "raghava@example.com",
-    }
-    async with _client() as http:
-        first = await http.post(HOLDER_PATH, headers=headers, json=body)
-        second = await http.post(
-            HOLDER_PATH, headers=headers, json={**body, "holder_name": "Somebody Else"}
-        )
-    assert first.status_code == 201, first.text
-    assert second.status_code == 409, second.text
-    assert second.json()["type"].rsplit("/", 1)[-1] == "number_holder_already_recorded"
-
-    async with tenant_session(tenant_id) as session:
-        holder = await read_holder(session)
-    assert holder is not None
-    assert holder.holder_name == "S Raghava"
 
 
 async def test_a_purchase_without_a_holder_is_refused(authorized: None) -> None:

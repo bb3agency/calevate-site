@@ -3674,23 +3674,8 @@ const CLIENT_SCREENS: Screen[] = [
         status: "not_started",
       },
       "/v1/billing/wallet": { prepaid: true, balance_inr: "2500.00" },
-      "/v1/numbers/available": [
-        {
-          e164: "+918041234500",
-          region: "Karnataka",
-          locality: "Bengaluru",
-          series: "standard",
-          inr_per_month: "499.00",
-        },
-      ],
-      "/v1/numbers/holder": {
-        recorded: false,
-        holder_type: null,
-        holder_name: null,
-        holder_email: null,
-      },
-      // Not a deployment that rents numbers in the client's own account (D-693), so the
-      // older purchase panel above is what renders; `ownNumbers.test.tsx` sweeps the other.
+      // Not a deployment that rents numbers in the client's own account (D-693): the
+      // "talk to us" line renders; `ownNumbers.test.tsx` sweeps the other.
       [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,
     },
   },

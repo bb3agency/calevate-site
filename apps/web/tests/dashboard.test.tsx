@@ -1448,7 +1448,7 @@ describe("next steps", () => {
       }),
     );
     const card = await nextSteps();
-    await waitFor(() => expect(card.textContent).toContain("Go live: step 2 of 4"));
+    await waitFor(() => expect(card.textContent).toContain("Go live: step 1 of 3"));
     // The button names the step it opens, so no line under the row repeats it.
     expect(stepLinks(card)).toEqual([
       { name: "Verify business", href: "/c/acme/go-live", primary: true },

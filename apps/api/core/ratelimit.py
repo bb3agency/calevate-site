@@ -363,7 +363,6 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/first-run/build", "costly", _m("POST")),
     Rule("/v1/copilot/routines/*/run", "costly", _m("POST")),
     Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
-    Rule("/v1/numbers/purchase", "costly", _m("POST")),
     Rule("/v1/billing/topups/intent", "costly", _m("POST")),
     Rule("/v1/kb/sources", "costly", _m("POST")),
     Rule("/v1/invitations", "costly", _m("POST")),

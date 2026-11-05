@@ -48,7 +48,6 @@ export const HOME = {
   goLiveStepOf: (at: number, of: number) => `Go live: step ${at} of ${of}`,
   // The button names the step it opens, so no line under the row repeats it; only the
   // move, which the owner waits on rather than does, says what is happening.
-  goLiveMoving: "Moving your agents",
   goLiveAction: {
     move: "See progress",
     verify: "Verify business",
