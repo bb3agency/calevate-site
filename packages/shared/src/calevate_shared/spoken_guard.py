@@ -27,6 +27,7 @@ import unicodedata
 from collections.abc import Sequence
 from typing import Final, Literal
 
+from calevate_shared.call_script import substitute_variables
 from calevate_shared.spoken_style import (
     caller_guidance,
     pack_facts_rule,
@@ -104,6 +105,9 @@ def latin_words(text: str, tag: str | None, *, names: Sequence[str] = ()) -> lis
     left as written: their spoken forms are not built yet (D-861's open item)."""
     if not tag or tag.split("-")[0].lower() not in OWN_LETTER_LANGUAGES:
         return []
+    # A merge field (`{{lead_name}}`, a list column) is replaced by the dial before anything
+    # is spoken, so its key is never heard; the person's name it holds is a name like `names`.
+    text = substitute_variables(text, {})
     for name in sorted((n.strip() for n in names if n.strip()), key=len, reverse=True):
         text = re.sub(re.escape(name), " ", text, flags=re.IGNORECASE)
     return list(dict.fromkeys(_LATIN_WORD.findall(text)))

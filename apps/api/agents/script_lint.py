@@ -7,7 +7,7 @@ text because a ban-list in a prompt can prime the very words it bans and every p
 character is paid on every reply (`docs/research/reports/Sales call scripts and
 generation.md`, "What the lints check").
 
-Five checks:
+The checks:
 
 * PROMOTIONAL OR URGENCY WORDS, read by the D-943 promo check
   (`compliance.call_purpose.first_finding`): one word list in English, Telugu and Hindi,
@@ -23,6 +23,10 @@ Five checks:
   fact holds.
 * MORE THAN ONE QUESTION in one spoken line.
 * ANOTHER PERSON'S NAME given as the agent's own.
+* A PLACED CALL'S OPENING without the person's name, or asking nothing
+  (`call_rules.OPENING_LINE_RULE`).
+* A STEP THAT GIVES SEVERAL ACTIONS AT ONCE instead of its step-by-step list.
+* A DETAIL TO COLLECT that no step asks (whole script only: it needs the agent's lead details).
 """
 
 from __future__ import annotations
@@ -31,9 +35,22 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
-from calevate_shared.call_script import CallScript
+from calevate_shared.call_script import CallScript, extract_variable_names
+from calevate_shared.engine import NAME_VARIABLE
 
 from apps.api.compliance.call_purpose import Finding, first_finding
+
+#: The merge field the dial fills with the person's name (`call_script.STANDARD_VARIABLES`); a
+#: dial with no name drops it and the gap it leaves (`engine/thinnest._tidy_spoken`), so a line
+#: written with it still reads. Here rather than in `call_rules`, which imports this module.
+NAME_FIELD: Final = f"{{{{{NAME_VARIABLE}}}}}"
+
+#: What an outbound agent's opening line holds, as the brief tells every writer of it.
+PLACED_OPENING_BRIEF: Final = (
+    "Its opening line is said on calls it places: greet the person by name with "
+    f"{NAME_FIELD}, say who is calling and why in one short sentence, then ask only whether "
+    "they can talk now."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +70,9 @@ class CapabilityManifest:
     team_alerts: bool = False
     #: Where this account's leads come from (`leads.source`), most first.
     lead_sources: tuple[str, ...] = ()
+    #: The agent's calling direction (`agents.direction`): an outbound agent's opening line is
+    #: said on calls it places. Empty when unread, and then no opening is judged as one.
+    direction: str = ""
 
     def brief_lines(self) -> str:
         """The manifest as the writer reads it."""
@@ -88,6 +108,10 @@ class CapabilityManifest:
             )
         if self.lead_sources:
             lines.append("Where its leads come from: " + ", ".join(self.lead_sources))
+        if self.direction == "outbound":
+            # Every writer that reads the brief (a whole script, one opening line) is held to
+            # `placed_opening_problem` on this agent's opening, so each is told it here.
+            lines.append(PLACED_OPENING_BRIEF)
         return "\n".join(lines)
 
 
@@ -103,6 +127,9 @@ class LintContext:
     #: False where the D-943 promo warning already shows the promotional wording beside this
     #: lint (the put-live dialog), so the owner reads one promotional warning, not two.
     promo: bool = True
+    #: The labels of the lead details the agent collects (`script_builder.collect_fields`),
+    #: each of which some step should ask.
+    collect: tuple[str, ...] = ()
 
 
 def _promo(text: str, context: LintContext) -> Finding | None:
@@ -217,6 +244,101 @@ def other_persona(text: str, *, agent_name: str, business_name: str) -> str | No
     return None
 
 
+def placed_call_opening(where: str, context: LintContext) -> bool:
+    """Whether the line at `where` is said first on a call the agent places."""
+    if where == "outbound_opening_line":
+        return True
+    return (
+        where == "opening_line"
+        and context.manifest is not None
+        and context.manifest.direction == "outbound"
+    )
+
+
+def placed_opening_problem(where: str, text: str) -> str | None:
+    """What a placed call's opening misses: the person's name, or a question that hands them
+    the turn. Any merge field whose key names a name counts (`{{lead_name}}`, a list's
+    `{{name}}` column, D-905). Whether the question asks if they can talk now is left to the
+    writer's rule: no word list covers every call language."""
+    if not any("name" in key for key in extract_variable_names(text)):
+        return (
+            f"{where}: does not say the person's name; start with {NAME_FIELD}, then who is "
+            "calling and why, then ask if they can talk now."
+        )
+    if question_count(text) == 0:
+        return (
+            f"{where}: asks nothing; end by asking if they can talk now, before any question "
+            "about the business."
+        )
+    return None
+
+
+#: A numbered list ("1. open the app 2. tap ...") inside one step's instruction.
+_NUMBERED_ITEM: Final = re.compile(r"(?:^|\s)(?:\d{1,2}[.)]|step \d{1,2}\b)", re.IGNORECASE)
+#: What a caller does on their own phone. Counted rather than "then": the agent's own sequence
+#: ("read back the time, then close") is one turn of its own and is right as it is.
+_CALLER_ACTION: Final = re.compile(
+    r"\b(?:open|tap|press|click|type|select|choose|scroll|swipe|install|download|enter|"
+    r"go to|log in|sign in)\b",
+    re.IGNORECASE,
+)
+_STAGE_INSTRUCTION: Final = re.compile(r"^stages\.\d+\.instruction$")
+
+
+def stacked_actions(text: str) -> bool:
+    """Whether one instruction gives the caller several things to do on their phone at once:
+    a numbered list, or two or more of those actions."""
+    return len(_NUMBERED_ITEM.findall(text)) >= 2 or len(_CALLER_ACTION.findall(text)) >= 2
+
+
+#: Words of a lead detail's label that say nothing about which detail it is.
+_GENERIC_WORDS: Final = frozenset(
+    {
+        "the", "and", "for", "any", "are", "was", "has", "have", "with", "what", "which",
+        "their", "your", "they", "them", "from", "about", "does", "did", "not", "yes",
+        "caller", "customer", "person", "lead", "details", "detail", "other",
+    }
+)  # fmt: skip
+_WORD: Final = re.compile(r"[A-Za-z]+")
+#: Long enough to tell details apart, short enough that "satisfied" meets "Satisfaction".
+_STEM: Final = 5
+
+
+def _stems(text: str) -> set[str]:
+    return {
+        word.casefold()[:_STEM]
+        for word in _WORD.findall(text)
+        if len(word) >= 3 and word.casefold() not in _GENERIC_WORDS
+    }
+
+
+def unasked_details(script: CallScript, collect: tuple[str, ...]) -> list[str]:
+    """The labels in `collect` that no step asks for, in their order.
+
+    A step asks for a detail when its `collect` names it, or when its name, instruction and
+    step-by-step list carry at least half of the label's words (their first five letters, so
+    word forms meet). A label with no English-letter word cannot be compared with English
+    instructions and is never reported."""
+    steps = [
+        (
+            {c.casefold() for c in stage.collect},
+            _stems(" ".join([stage.name, stage.instruction, *(p.action for p in stage.procedure)])),
+        )
+        for stage in script.stages
+    ]
+    missing: list[str] = []
+    for label in collect:
+        wanted = _stems(label)
+        if not wanted:
+            continue
+        need = (len(wanted) + 1) // 2
+        if not any(
+            label.casefold() in named or len(wanted & said) >= need for named, said in steps
+        ):
+            missing.append(label)
+    return missing
+
+
 def instruction_fields(script: CallScript) -> list[tuple[str, str]]:
     """(path, text) of every field that instructs the in-call model and is never heard.
 
@@ -288,6 +410,13 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
         if text.strip()
         for problem in instruction_problems(path, text, context)
     ]
+    # With no steps there is nowhere to ask; the details list still reaches the call.
+    if script.stages:
+        found += [
+            f'script: no step asks for "{label}"; ask it in the step where the call reaches '
+            "it, as one question."
+            for label in unasked_details(script, context.collect)
+        ]
     return found
 
 
@@ -342,6 +471,10 @@ def spoken_line_problems(where: str, text: str, context: LintContext) -> list[st
         )
     if question_count(text) > 1:
         problems.append(f"{where}: asks {question_count(text)} questions; ask one and wait.")
+    if placed_call_opening(where, context):
+        opening = placed_opening_problem(where, text)
+        if opening:
+            problems.append(opening)
     if context.agent_name.strip():
         other = other_persona(
             text, agent_name=context.agent_name, business_name=context.business_name
@@ -364,21 +497,32 @@ def instruction_problems(where: str, text: str, context: LintContext) -> list[st
         promise = unbacked_promise(text, context.manifest)
         if promise:
             problems.append(f"{where}: has the agent promise {promise}.")
+    if _STAGE_INSTRUCTION.match(where) and stacked_actions(text):
+        problems.append(
+            f"{where}: gives several actions in one go; put each in the step's step-by-step "
+            "list, so the agent says one and waits until it is done."
+        )
     return problems
 
 
 __all__ = [
+    "NAME_FIELD",
+    "PLACED_OPENING_BRIEF",
     "CapabilityManifest",
     "LintContext",
     "caller_paths",
     "instruction_fields",
     "instruction_problems",
     "other_persona",
+    "placed_call_opening",
+    "placed_opening_problem",
     "plain",
     "question_count",
     "script_problems",
     "spoken_fields",
     "spoken_line_problems",
+    "stacked_actions",
+    "unasked_details",
     "unbacked_promise",
     "unknown_figure",
 ]
