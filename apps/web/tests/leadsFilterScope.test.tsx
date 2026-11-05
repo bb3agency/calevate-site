@@ -158,7 +158,7 @@ describe("the empty state belongs to the filters, not to the business", () => {
     expect(container.textContent).not.toContain(
       "Each answered call becomes a lead.",
     );
-    expect(screen.getByText("No leads match these filters")).toBeTruthy();
+    expect(screen.getByText("No people match these filters")).toBeTruthy();
     // And the way out is OFFERED, not merely named (ux-audit F-18).
     expect(
       screen.getByRole("button", { name: "Clear the filters" }),
@@ -265,7 +265,7 @@ describe("the two counts say what they are counts OF", () => {
 
     // The header count is 12 of a narrowed set — "12 leads" beside a filtered table
     // reads as the account total.
-    expect(container.textContent).toContain("leads matching your filters");
+    expect(container.textContent).toContain("people matching your filters");
     // And the six badges beside it are the server's counts over that same narrowed
     // scope (crm/service.py), so they are not "this account" either.
     await waitFor(async () => {
@@ -373,7 +373,7 @@ describe("the call filters (D-893) are server filters on the one lens", () => {
       }),
     );
     // Narrowed by calls, emptied by the filter: never "you have no leads".
-    expect(await screen.findByText("No leads match these filters")).toBeTruthy();
+    expect(await screen.findByText("No people match these filters")).toBeTruthy();
     expect(screen.getByText(/More filters · 3 in use/)).toBeTruthy();
 
     await act(async () => {
@@ -464,10 +464,10 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
 
   it("labels the header count off the same lens", () => {
     const owned: LeadLens = { assigned_to: "u1" };
-    expect(scopeLabel({}, 12)).toBe("leads");
-    expect(scopeLabel({ status: "hot" }, 12)).toBe("hot leads");
-    expect(scopeLabel(owned, 12)).toBe("leads matching your filters");
-    expect(scopeLabel(owned, 1)).toBe("lead matching your filters");
+    expect(scopeLabel({}, 12)).toBe("people");
+    expect(scopeLabel({ status: "hot" }, 12)).toBe("people at Goal reached");
+    expect(scopeLabel(owned, 12)).toBe("people matching your filters");
+    expect(scopeLabel(owned, 1)).toBe("person matching your filters");
   });
 
   it("orders the export refusal the way the button is disabled", () => {

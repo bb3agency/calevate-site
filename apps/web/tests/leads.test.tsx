@@ -606,7 +606,7 @@ describe("the counts come from the server or are not shown", () => {
     expect(stage(/^Contacted/)).not.toMatch(/Contacted0$/);
     // …while the denominator stays the filtered one, and says which filter it obeyed.
     await vi.waitFor(() => {
-      expect(document.body.textContent).toContain("Showing 2 of 2 hot leads");
+      expect(document.body.textContent).toContain("Showing 2 of 2 people at Goal reached");
     });
   });
 
@@ -618,7 +618,7 @@ describe("the counts come from the server or are not shown", () => {
     // filtered page lands.
     await vi.waitFor(async () => {
       expect(await readInfoTip("the CSV export")).toContain(
-        "2 leads: name, full phone",
+        "2 people: name, full phone",
       );
     });
     expect(container.textContent).not.toContain(
@@ -761,7 +761,7 @@ describe("the counts come from the server or are not shown", () => {
     // Awaited rather than read off `container` synchronously: the searched page is a
     // second request, and the sentence is about ITS total.
     await vi.waitFor(async () => {
-      expect(await readInfoTip("the CSV export")).toMatch(/^1 lead: name, full phone/);
+      expect(await readInfoTip("the CSV export")).toMatch(/^1 person: name, full phone/);
     });
     expect(container.textContent).not.toContain("Stage counts cover every lead.");
     // The searched population is still stated — as the search's own count, where it is
@@ -797,7 +797,7 @@ describe("the counts come from the server or are not shown", () => {
     // flight — which is the point of it — so the assertion has to wait for the new
     // answer rather than reading whatever is there the moment the chip is clicked.
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Showing 1 of 1 lead");
+      expect(container.textContent).toContain("Showing 1 of 1 person");
     });
     expect(
       calls.some(

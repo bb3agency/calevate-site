@@ -3,6 +3,7 @@
 import { formatCount } from "@/components/ui";
 import { Pagination } from "@/components/interior/pagination";
 import { type LeadLens, type LeadList } from "@/lib/api/leads";
+import { stageLabel } from "@/lib/goalStage";
 
 import { PAGE_SIZE } from "./leadsTable";
 
@@ -39,7 +40,8 @@ export function LeadsFooter({
             : formatCount(items.length)}
         </span>{" "}
         of {formatCount(total)}
-        {lens.status ? ` ${lens.status}` : ""} {total === 1 ? "lead" : "leads"}
+        {total === 1 ? " person" : " people"}
+        {lens.status ? ` at ${stageLabel(lens.status)}` : ""}
       </p>
       {/* The way past row 100 (ux-audit L1). Numbered pages rather than load-more: a CRM
           table is revisited by position ("they were on page 3"). */}

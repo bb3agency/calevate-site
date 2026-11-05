@@ -124,7 +124,7 @@ export function MoreFilters({
           session={session}
           useSave={useSaveView}
           useRemove={useDeleteView}
-          allLabel="All leads (no view)"
+          allLabel="Everyone (no view)"
           describe={(view) => describeLeadView(view.filters)}
           notice={staleNotice}
           rollingNote={

@@ -50,7 +50,7 @@ from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
 from apps.api.crm.captured import captured_fields, unclear_fields, with_known_name
-from apps.api.crm.lead_definition import BECAME_LEADS_SQL
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL, stage_name
 from apps.api.crm.lens import (
     CALL_AT,
     CallFilters,
@@ -2541,6 +2541,19 @@ MAX_TIMELINE_PAGE = 100
 # stored code rather than to silence: an unrecognised channel is a channel we shipped
 # and forgot to name here, and hiding the row would hide "we tried to tell you".
 _CHANNEL_LABELS = {"email": "email", "whatsapp": "WhatsApp"}
+#: Why a WhatsApp message did not go, in the owner's words, by who it was for: the owner's
+#: own alert, or a follow-up to the person. Any other reason code stays off the screen (a
+#: wire name is not a sentence).
+_NOT_SENT_WORDS: Final[dict[bool, dict[str, str]]] = {
+    False: {
+        "recipient_not_opted_in": "WhatsApp alerts are not turned on for you.",
+        "no_recipient": "There is no number to send it to.",
+    },
+    True: {
+        "recipient_not_opted_in": "This person has not agreed to WhatsApp messages.",
+        "no_recipient": "There is no number to send it to.",
+    },
+}
 
 
 def _code(payload: dict[str, Any], key: str) -> str | None:
@@ -2575,7 +2588,7 @@ def _project_event(
     """
     if event_type == "status_change":
         status = _code(payload, "status")
-        return (f"Moved to {status}" if status else "Status changed", None, None)
+        return (f"Moved to {stage_name(status)}" if status else "Status changed", None, None)
 
     if event_type == "assignment":
         owner = _timeline_uuid(payload, "assigned_to")
@@ -2613,7 +2626,9 @@ def _project_event(
         channel_code = _code(payload, "channel")
         channel = _CHANNEL_LABELS.get(channel_code or "", channel_code or "a message")
         escalation = _code(payload, "kind") == "campaign_escalation"
-        what = "Follow-up message" if escalation else "Hot-lead alert"
+        # "Alert", never "hot-lead alert": `hot` is the platform's stage key, and a
+        # business that sells nothing has no hot leads (founder, 5 Nov 2026).
+        what = "Follow-up message" if escalation else "Alert to you"
         delivered = payload.get("delivered") is True
         if delivered:
             return (f"{what} sent by {channel}", None, _timeline_uuid(payload, "call_id"))
@@ -2622,7 +2637,12 @@ def _project_event(
         reason = _code(payload, "reason")
         return (
             f"{what} not sent by {channel}",
-            f"We could not deliver it{tries}." + (f" ({reason})" if reason else ""),
+            f"We could not deliver it{tries}."
+            + (
+                f" {_NOT_SENT_WORDS[escalation][reason]}"
+                if reason in _NOT_SENT_WORDS[escalation]
+                else ""
+            ),
             _timeline_uuid(payload, "call_id"),
         )
 

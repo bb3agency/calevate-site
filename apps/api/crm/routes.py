@@ -36,7 +36,7 @@ from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmati
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm import export_tickets, lead_search, lens, saved_views, service, translation
 from apps.api.crm.attention import attention_queue
-from apps.api.crm.captured import captured_fields, lead_unlisted
+from apps.api.crm.captured import captured_fields, lead_unlisted, with_known_name
 from apps.api.crm.lead_dial import call_back_check, place_call_back, place_lead_call
 from apps.api.crm.lens import LEAD_ROW_FILTER_FIELDS, LeadRowFilters
 from apps.api.crm.live_calls import MAX_LIVE_IDS, CallLiveOut, read_live_calls
@@ -1471,15 +1471,16 @@ async def get_lead_captured(
     earlier version — so a business moved to new fields still reads its old answers."""
     lead = await service.get_lead(session, lead_id)
     agent_id = await service.lead_agent_id(session, lead_id)
-    return CapturedFieldsOut(
-        fields=await captured_fields(
-            session,
-            agent_id=agent_id,
-            schema_version=lead.schema_version,
-            data=lead.data,
-            unlisted=await lead_unlisted(session, lead_id),
-        )
+    fields = await captured_fields(
+        session,
+        agent_id=agent_id,
+        schema_version=lead.schema_version,
+        data=lead.data,
+        unlisted=await lead_unlisted(session, lead_id),
     )
+    # The lead's own name fills an empty name field, as on the call screen (L3-10): "Name:
+    # Not said" on a lead called Anitha Reddy reads as a gap that is not there.
+    return CapturedFieldsOut(fields=with_known_name(fields, list_name=None, lead_name=lead.name))
 
 
 @router.patch(

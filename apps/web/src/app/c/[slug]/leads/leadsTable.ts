@@ -1,3 +1,4 @@
+import { stageLabel } from "@/lib/goalStage";
 import { leadNextStep, sourceLabel } from "@/lib/leadLabels";
 import { lookup } from "@/lib/lookup";
 import { type Lead, type LeadColumn, type LeadLens } from "@/lib/api/leads";
@@ -63,9 +64,11 @@ export const PAGE_SIZE = 100;
  * over `LeadLens` by type, shared with the empty state and the stage tally.
  */
 export function scopeLabel(lens: LeadLens, total: number): string {
-  const stage = lens.status ? `${lens.status} ` : "";
-  const noun = total === 1 ? "lead" : "leads";
-  return narrowedBeyondStatus(lens) ? `${stage}${noun} matching your filters` : `${stage}${noun}`;
+  // People, not leads: every row is a person called or calling, and a lead is only one who
+  // showed interest (`crm/lead_definition`, L3-01). The stage by its screen name.
+  const stage = lens.status ? ` at ${stageLabel(lens.status)}` : "";
+  const noun = total === 1 ? "person" : "people";
+  return narrowedBeyondStatus(lens) ? `${noun}${stage} matching your filters` : `${noun}${stage}`;
 }
 
 /**

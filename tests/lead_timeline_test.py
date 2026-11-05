@@ -155,11 +155,11 @@ async def test_a_reason_that_is_prose_rather_than_a_code_is_dropped() -> None:
     assert PLANTED_PHONE not in response.text
     assert "Meta rejected" not in response.text
     item = response.json()["items"][0]
-    assert item["title"] == "Hot-lead alert not sent by WhatsApp"
+    assert item["title"] == "Alert to you not sent by WhatsApp"
     assert item["detail"] == "We could not deliver it after 3 attempt(s)."
 
 
-async def test_an_authored_reason_code_is_kept_because_it_is_actionable() -> None:
+async def test_an_authored_reason_code_is_said_in_words_for_its_reader() -> None:
     tenant_id, slug, token = await _make_tenant()
     lead_id = await _the_lead(tenant_id)
     await _event(
@@ -179,7 +179,9 @@ async def test_an_authored_reason_code_is_kept_because_it_is_actionable() -> Non
         response = await http.get(f"/v1/leads/{lead_id}/timeline", headers=_headers(slug, token))
     item = response.json()["items"][0]
     assert item["title"] == "Follow-up message not sent by WhatsApp"
-    assert "recipient_not_opted_in" in item["detail"]
+    # The code turned into words for the person it was meant for, never shown raw.
+    assert "This person has not agreed to WhatsApp messages." in item["detail"]
+    assert "recipient_not_opted_in" not in item["detail"]
 
 
 async def test_the_engine_handle_stays_inside_the_engine_boundary() -> None:
@@ -232,14 +234,14 @@ async def test_the_history_reads_newest_first_and_names_who_did_it() -> None:
     titles = [item["title"] for item in body["items"]]
     # Newest first, and the call — written before the PATCH — is last.
     assert titles[-1] == "Call completed"
-    assert set(titles[:2]) == {"Moved to hot", "Assigned to Priya Nair"}
+    assert set(titles[:2]) == {"Moved to Goal reached", "Assigned to Priya Nair"}
 
     call_line = body["items"][-1]
     assert call_line["actor_kind"] == "system"
     assert call_line["actor_name"] is None
     assert call_line["call_id"] == str(call_id)
 
-    human = next(item for item in body["items"] if item["title"] == "Moved to hot")
+    human = next(item for item in body["items"] if item["title"] == "Moved to Goal reached")
     assert human["actor_kind"] == "member"
     assert human["actor_name"] == "Priya Nair", "'who moved this to won?' is the point"
 
@@ -430,7 +432,7 @@ async def test_a_read_only_impersonating_admin_can_read_the_timeline() -> None:
             ),
         )
     assert response.status_code == 200, response.text
-    assert response.json()["items"][0]["title"] == "Moved to hot"
+    assert response.json()["items"][0]["title"] == "Moved to Goal reached"
 
 
 async def test_the_actor_of_a_colleagues_edit_is_named_for_everyone_on_the_team() -> None:

@@ -429,3 +429,38 @@ describe("the owner control on the lead's own screen", () => {
     );
   });
 });
+
+describe("what was captured about this person (L3-10, L3-11)", () => {
+  it("lists only what was said, folds the rest into one line, and reads a choice key as words", async () => {
+    const field = (key: string, label: string, value: unknown, over: Record<string, unknown> = {}) => ({
+      key,
+      label,
+      type: "text",
+      core: false,
+      current: true,
+      source: "call",
+      value,
+      ...over,
+    });
+    const { container } = await renderClientPage(
+      page(),
+      routes({
+        "/v1/leads/lead-a/captured": {
+          fields: [
+            field("name", "Name", "Ramesh Kumar", { core: true, source: "lead" }),
+            field("need", "What they want", null, { core: true }),
+            field("visit", "Next step", "site_visit", { type: "enum" }),
+            field("budget", "Budget", null, { current: false }),
+          ],
+        },
+      }),
+    );
+    await screen.findByText("Site visit");
+    expect(container.textContent).not.toContain("Not said");
+    expect(container.textContent).not.toContain("site_visit");
+    const unsaid = screen.getByRole("list", { name: "Not mentioned" });
+    expect(unsaid.textContent).toContain("What they want");
+    // A detail no longer asked, with nothing said, is not listed at all.
+    expect(container.textContent).not.toContain("Budget");
+  });
+});

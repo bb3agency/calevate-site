@@ -60,10 +60,16 @@ export function leadNextStep(lead: Pick<Lead, "next_callback_at" | "next_step">)
 export const DEFAULT_LEAD_COLUMNS: readonly string[] = ["name", "need", "next_step", "last_call", "status"];
 
 /** A captured value as words, or `null` when the caller did not say it ("Not said"). */
-export function capturedValue(field: { value?: unknown }): string | null {
+export function capturedValue(field: { value?: unknown; type?: string }): string | null {
   const { value } = field;
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  // A choice stored in its key form ("site_visit") is read as words (L3-11); a choice
+  // written as words is shown as written.
+  if (field.type === "enum" && typeof value === "string" && /^[a-z0-9]+(_[a-z0-9]+)+$/.test(value)) {
+    const words = value.replace(/_/g, " ");
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
   if (Array.isArray(value)) return value.length ? value.map(String).join(", ") : null;
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);

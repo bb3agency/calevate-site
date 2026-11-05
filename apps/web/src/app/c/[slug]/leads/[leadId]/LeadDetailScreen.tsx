@@ -224,7 +224,7 @@ export function LeadDetailScreen({ slug, leadId }: { slug: string; leadId: strin
 
   return (
     <div className="max-w-4xl space-y-8 pb-12">
-      <PageHeader back={{ href: href(`/c/${slug}/leads`), label: "All leads" }} />
+      <PageHeader back={{ href: href(`/c/${slug}/leads`), label: "All people" }} />
 
       {lead.error && <ProblemNotice error={lead.error} onRetry={() => void lead.refetch()} />}
 

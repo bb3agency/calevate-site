@@ -237,7 +237,7 @@ export function BulkActionBar({
       <SelectionBar
         count={count ?? pageSize}
         noun={selection.wholeQuery ? "matching lead" : "lead on this page"}
-        nounPlural={selection.wholeQuery ? "matching leads" : "leads on this page"}
+        nounPlural={selection.wholeQuery ? "matching people" : "people on this page"}
         onClear={onClear}
       >
         <select

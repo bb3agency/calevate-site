@@ -30,6 +30,12 @@ _VERSIONS_SQL: Final = (
 )
 
 
+#: Every agent's schema versions in the account, newest first (RLS scopes it to the tenant).
+_ACCOUNT_VERSIONS_SQL: Final = (
+    "SELECT fields FROM extraction_schemas ORDER BY created_at DESC, version DESC LIMIT 500"
+)
+
+
 def _humanised(key: str) -> str:
     return key.replace("_", " ").strip().capitalize() or key
 
@@ -88,6 +94,15 @@ async def captured_fields(
     for _version, fields in versions:  # newest first: the latest label for a key wins
         for field in fields:
             known.setdefault(field.key, field)
+    # A value captured by ANOTHER of the account's agents (a lead that moved, or one first
+    # met by a different agent) is labelled from that agent's fields before falling back to
+    # the key, which reads to an owner as "Bhk size" (L3-11).
+    orphans = {k for k, v in data.items() if v is not None and k not in listed and k not in known}
+    if orphans:
+        for row in (await session.execute(text(_ACCOUNT_VERSIONS_SQL))).all():
+            for field in business_only(row[0] or []):
+                if field.key in orphans:
+                    known.setdefault(field.key, field)
     for key, value in data.items():
         if key in listed or value is None:
             continue

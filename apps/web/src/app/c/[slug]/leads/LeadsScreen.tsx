@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
-import { FilterChip, LEAD_STAGE_DOT, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
+import { FIELD, FilterChip, LEAD_STAGE_DOT, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
@@ -218,8 +218,8 @@ export function LeadsScreen() {
 
   const exportNote =
     exportTotal === null
-      ? "These leads: name, full phone, then these columns."
-      : `${exportTotal === 1 ? "1 lead" : `${formatCount(exportTotal)} leads`}: name, full phone, then these columns.`;
+      ? "These people: name, full phone, then these columns."
+      : `${exportTotal === 1 ? "1 person" : `${formatCount(exportTotal)} people`}: name, full phone, then these columns.`;
 
   const { moreInUse } = f;
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -276,8 +276,27 @@ export function LeadsScreen() {
               count: leads.data ? formatCount(stageCount(s)) : undefined,
             })),
           ]}
-          className="min-w-0"
+          className="hidden min-w-0 sm:block"
         />
+        {/* L3-12: seven stages do not fit 375px, and a strip scrolled sideways hides the
+            stages a client looks for most. A phone gets the native picker instead, with
+            the same counts; `display: none` keeps only one of the two in the page. */}
+        <label className="flex min-w-0 items-center gap-2 text-meta text-ink-muted sm:hidden">
+          Stage
+          <select
+            value={f.status ?? ""}
+            onChange={(e) => f.setStatus(e.target.value === "" ? undefined : e.target.value)}
+            className={`${FIELD} w-auto min-w-0`}
+          >
+            <option value="">All</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {stageLabel(s)}
+                {leads.data ? ` (${formatCount(stageCount(s))})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="flex flex-wrap items-center gap-3">
           <AskAssistant
             prompt={

@@ -104,7 +104,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
                   onChange: setTicked,
                   // Names the LEAD: a hundred boxes called "select" cannot be told apart.
                   rowLabel: (lead) => `Select ${lead.name ?? lead.phone_e164}`,
-                  allLabel: "Select all leads on this page",
+                  allLabel: "Select all people on this page",
                 }
               : undefined
           }
@@ -121,7 +121,7 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
            over the whole lens), never to the business. */
         <EmptyState
           variant="filtered"
-          message={askTerm ? "No answers match that question" : "No leads match these filters"}
+          message={askTerm ? "No answers match that question" : "No people match these filters"}
           onClear={filtered ? onClearFilters : undefined}
           clearLabel="Clear the filters"
         />
