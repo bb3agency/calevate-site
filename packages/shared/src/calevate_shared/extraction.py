@@ -588,6 +588,12 @@ def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
     raise AssertionError(f"unhandled field type {field.type}")
 
 
+#: The owner's note under a captured phone number that is not an Indian mobile.
+PHONE_NEEDS_REVIEW: Final = (
+    "This doesn't look like an Indian mobile number. Check it before you call."
+)
+
+
 def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> ValidationOutcome:
     """Validate + coerce a model's output against the schema.
 
@@ -613,10 +619,8 @@ def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> Vali
             # a mobile" is worth a human glance before a call. The message names no digits
             # (hard rule 6) — the value is in `data` for the field's owner to read.
             if is_phone_field(field) and not _CANONICAL_MOBILE_RE.match(str(value)):
-                needs_review[field.key] = (
-                    f"{field.label} was captured but is not a standard Indian mobile "
-                    "number — check it before dialling."
-                )
+                # Shown under the field's own label, so it does not name the field again.
+                needs_review[field.key] = PHONE_NEEDS_REVIEW
     return ValidationOutcome(data=data, errors=errors, needs_review=needs_review)
 
 
@@ -756,8 +760,11 @@ Also include:
   Written in your own words: never copy a transcript line into it.
 - "headline": at most 90 characters, in English: what the caller wanted and how it ended,
   shaped like "Asked <what they asked>; wants <what they want next>".
-- "next_step": one short English sentence saying what happens next and who does it, or ""
-  when nothing is left to do.
+- "next_step": one short English sentence, or "" when nothing is left to do. The business
+  owner reads it. When the business must act, write it as an instruction to the owner that
+  starts with the verb ("Answer their question about <what they asked>.", "Call them back
+  tomorrow evening."), never "The business needs to ...". When only the caller must act,
+  say what they will do ("They will get in touch once they have decided.").
 - "next_step_by": who must act on next_step. One of:
     business  the business or its team must do something: call the caller back, send
               what was promised, answer a question the agent could not, confirm what was agreed;
@@ -767,6 +774,10 @@ Also include:
 - summary, headline and next_step are English words in English grammar whatever language
   the call was in. The call's language written in Latin letters is not English: translate
   it, never copy it.
+- In summary, headline, next_step and every reason, call the person "the caller" or
+  "they", never "he", "she", "him", "her", "his" or "hers": a voice or a name does not
+  say how a person wants to be referred to. Use one of those words only when the caller
+  said it of themselves.
 - "sentiment": one of positive, neutral, negative.
 - "outcome_tag": exactly one of:
     needs_you      the caller needs a person from the business: they asked for one, asked
@@ -787,8 +798,8 @@ Also include:
   call's date, and that time as 24-hour HH:MM; null for whichever they did not say. A part
   of the day with no hour stands for its usual hour: morning 10:00, afternoon 15:00,
   evening 18:00. Never invent a day or a time the caller did not give.
-- When callback_requested is true, next_step says the business calls them back and
-  next_step_by is business.
+- When callback_requested is true, next_step is "Call them back", with the day or time
+  they gave, and next_step_by is business.
 {_unlisted_section(spec) if unlisted else ""}
 WHO SPOKE DECIDES WHAT IS A FACT.
 The transcript is one turn per line, and every line is labelled with the speaker:
@@ -799,6 +810,10 @@ The transcript is one turn per line, and every line is labelled with the speaker
   of those is an answer. The agent asking for a name has no name in it; the agent listing
   options is not the caller's intent.
 - The agent repeating a value back does not confirm it. The caller must have said it.
+- The agent explaining what the business, a product or a service is or is for is the
+  BUSINESS's description, never the caller's reason, need, purpose or use. A caller who
+  answers it with "yes", "okay" or "understood" heard it; they did not say it. Fill a
+  field asking why, for what or how they use something only from the caller's own words.
 - A line labelled "agent (the caller spoke over this; they may not have heard it):" was
   probably cut off: do not treat an offer, a price or a promise in it as heard, agreed or
   part of the summary unless the caller responds to it later.
@@ -814,6 +829,10 @@ A DENIAL IS NOT A CONFIRMATION.
   never came to it, it is null, not false, even when the field says when it is true.
 - For every other field a denial means there is no value: use null.
 - A word that appears only inside a refusal is not the answer either.
+- A question the caller pushed back on, or answered with a question of their own ("I only
+  just got it, how would I be using it already?"), was not answered yes. When the
+  pushback says the thing has not happened, a true/false field is false; otherwise every
+  field it asked about is null. The agent's question taking it for granted is not evidence.
 
 ABSENT MEANS NULL.
 - If a value was not stated, use null. NEVER guess, infer, assume or complete a value
@@ -1005,6 +1024,40 @@ def next_step_owner(raw: object) -> NextStepBy | None:
     """The model's `next_step_by` as one of ours, or None when it gave none we offered."""
     word = raw.strip().lower() if isinstance(raw, str) else ""
     return next((v for v in NEXT_STEP_BY if v == word), None)
+
+
+#: "The business needs to ..." and its kin at the start of a next step: the owner reading it
+#: IS the business, so the sentence reads as a report about them rather than a step for them.
+_THIRD_PERSON_STEP_RE: Final = re.compile(
+    r"^\s*(?:the\s+)?(?:business(?:'s)?(?:\s+owner|\s+team)?|owner|team)\s+"
+    r"(?:needs\s+to|need\s+to|should|must|has\s+to|have\s+to|will\s+need\s+to|is\s+to)\s+"
+    r"(?P<rest>\S.*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+_GENDERED_PRONOUN_RE: Final = re.compile(
+    r"\b(?:he|she|him|her|his|hers|himself|herself)\b", re.IGNORECASE
+)
+
+
+def genders_a_person(text: str) -> bool:
+    """Does this English text refer to someone as "he" or "she"? The prompt keeps our own
+    writing to "the caller" and "they" (a call does not say how a person wants to be
+    referred to); this is how a summary written elsewhere is checked against that."""
+    return _GENDERED_PRONOUN_RE.search(text) is not None
+
+
+def owner_step(text: str) -> str:
+    """A next step written as the owner's own instruction: "The business needs to guide the
+    caller ..." becomes "Guide the caller ...". The prompt asks for that form; this keeps a
+    reading that ignored it, and every step stored before it, from reading machine-written
+    (6 Nov 2026 call review). Any other sentence is returned unchanged."""
+    match = _THIRD_PERSON_STEP_RE.match(text)
+    if match is None:
+        return text
+    rest = match.group("rest").strip()
+    return rest[:1].upper() + rest[1:]
 
 
 _ISO_DAY_RE: Final = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -1250,6 +1303,7 @@ __all__ = [
     "MOMENT_LABEL_MAX",
     "NEXT_STEP_BY",
     "OUTCOME_HINTS",
+    "PHONE_NEEDS_REVIEW",
     "UNLISTED_MAX",
     "ExtractionField",
     "ExtractionOutput",
@@ -1275,11 +1329,13 @@ __all__ = [
     "clip_headline",
     "coerce_value",
     "corrected_moment_kind",
+    "genders_a_person",
     "goal_verdict",
     "interest_moments_label",
     "is_phone_field",
     "next_step_owner",
     "numbered_lines",
+    "owner_step",
     "spell_business_name",
     "validate_extraction",
     "withheld_moment_kinds",

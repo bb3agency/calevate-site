@@ -62,8 +62,10 @@ from calevate_shared.extraction import (
     MomentsBrief,
     OutcomeTag,
     clip_headline,
+    genders_a_person,
     goal_verdict,
     next_step_owner,
+    owner_step,
     spell_business_name,
     withheld_moment_kinds,
 )
@@ -2874,14 +2876,26 @@ def _settle_summaries(
     It is returned as `romanised`, the source the language pass writes both from. The
     extraction model's English summary fills the English slot when the engine's is not
     English, under the same test.
+
+    One exception to the precedence: an English engine summary that calls the caller "he" or
+    "she" gives way to our own English summary when that one does not. No prompt of ours
+    reaches the engine's summary, and a gender the caller never stated read as a guess about
+    them on the owner's screen (6 Nov 2026 call review: "guided him ... his Android phone").
+    With no summary of ours to take its place, the engine's still stands: its facts outweigh
+    the pronoun.
     """
     english, local, source = "", stored_local, None
     romanised: tuple[str, str] | None = None
+    neutral_model = (
+        bool(model_summary)
+        and not call_language.reads_as_romanised(model_summary)
+        and not genders_a_person(model_summary)
+    )
     if engine_summary and call_language.has_indic_script(engine_summary):
         local = engine_summary
     elif engine_summary and call_language.reads_as_romanised(engine_summary):
         romanised = (engine_summary, "engine")
-    elif engine_summary:
+    elif engine_summary and not (genders_a_person(engine_summary) and neutral_model):
         english, source = engine_summary, "engine"
     if not english and model_summary:
         if not call_language.reads_as_romanised(model_summary):
@@ -3032,7 +3046,7 @@ async def _record_reading(
         else call_language.headline_from_summary(english)
     )
     next_step_text = extraction.next_step if extraction is not None and answered else ""
-    next_step = redact(next_step_text).text[:300] if next_step_text else None
+    next_step = owner_step(redact(next_step_text).text)[:300] if next_step_text else None
     # The engine's summary is outside any prompt of ours and the name is transliterated by
     # ear, so the business's own spelling is restored on every English line we store.
     business_name = str(row[5]) if row[5] else None

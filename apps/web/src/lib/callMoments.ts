@@ -59,6 +59,14 @@ export function momentLinkSeconds(moment: Pick<CallMoment, "at_ms" | "precision"
   return Math.floor(momentSeekMs(moment) / 1000);
 }
 
+/**
+ * The moments worth drawing: those with words. The server drops a blank one too; this
+ * keeps a screen newer or older than the server from drawing an empty numbered row.
+ */
+export function shownMoments(moments: readonly CallMoment[] | null | undefined): CallMoment[] {
+  return (moments ?? []).filter((moment) => moment.label.trim() !== "");
+}
+
 /** The moments on each transcript turn, for the marker under that turn's bubble. */
 export function momentsByTurn(moments: readonly CallMoment[]): Map<number, CallMoment[]> {
   const byTurn = new Map<number, CallMoment[]>();

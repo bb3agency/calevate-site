@@ -4049,6 +4049,72 @@
       ],
       "expect_outcome": "answered",
       "note": "The agent itself speaks English, so the prompt says so. The site visit was never offered, so it stays empty; sharing options on WhatsApp is the agent's promise, not a callback the caller asked for."
+    },
+    {
+      "id": "en_agent_explanation_is_not_the_callers_need",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "language": "en-IN",
+      "title": "The agent explains the project and the caller only says they understood",
+      "transcript": [
+        "agent: Hello, this is the Skyline Ventures AI assistant. This call is being recorded. You filled in our form last week. Is this a good time?",
+        "caller: Yes, tell me. I don't remember any form.",
+        "agent: Skyline Ventures builds 2BHK and 3BHK flats in Kokapet, ready to move in by next year, from 90 lakhs. Does that make sense?",
+        "caller: Okay, understood.",
+        "agent: Thank you. I will send you the details on WhatsApp."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest",
+        "visit_date"
+      ],
+      "expect_outcome": "answered",
+      "note": "6 Nov 2026 call review: the agent's own description of what the app is for was filed as the caller's 'Purpose of usage'. Size, area, timeline and budget here are all the agent's pitch; 'understood' means the caller heard it, not that any of it is theirs."
+    },
+    {
+      "id": "en_pushed_back_question_is_not_a_yes",
+      "vertical": "real_estate",
+      "scenario": 1,
+      "language": "en-IN",
+      "title": "A question that takes the answer for granted, which the caller pushes back on",
+      "transcript": [
+        "agent: Hello, this is the Skyline Ventures AI assistant. This call is being recorded. You asked about our Kokapet flats.",
+        "caller: Yes, I saw the ad only yesterday.",
+        "agent: Great. You have chosen the 3BHK, right? Which area are you buying in?",
+        "caller: I saw it only yesterday, how would I have chosen already? I will look at the project first and call you if I like it.",
+        "agent: Of course. Thank you for your time."
+      ],
+      "expect": {},
+      "expect_absent": [
+        "name",
+        "intent",
+        "urgency",
+        "party_size",
+        "wants_callback",
+        "callback_number",
+        "callback_time",
+        "number_belongs_to",
+        "budget_lakhs",
+        "preferred_location",
+        "bhk_size",
+        "timeline",
+        "site_visit_interest",
+        "visit_date"
+      ],
+      "expect_outcome": "answered",
+      "note": "6 Nov 2026 call review: asked what they use the app for right after installing it, the caller said 'I only just installed it, how would I be using it already?' and the reading filed 'currently using the app: yes'. A pushback is not a yes: no size and no area, however the agent's question assumed them."
     }
   ]
 }

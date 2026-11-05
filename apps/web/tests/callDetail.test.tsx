@@ -171,17 +171,16 @@ describe("the call detail screen", () => {
             },
           ],
           extraction_needs_review: {
-            callback_number:
-              "Callback number was captured but is not a standard Indian mobile number — check it before dialling.",
+            callback_number: "This doesn't look like an Indian mobile number. Check it before you call.",
           },
         }),
       ),
     );
 
     // The value still shows (it is usable), with the amber advisory beneath it — and the
-    // reason names the field, never a digit of the number (hard rule 6).
+    // reason sits under the field's label, never naming a digit of the number (hard rule 6).
     expect(await screen.findByText("1234567890")).toBeTruthy();
-    const note = screen.getByText(/is not a standard Indian mobile number/);
+    const note = screen.getByText(/doesn't look like an Indian mobile number/);
     expect(note.textContent).not.toMatch(/1234567890/);
   });
 

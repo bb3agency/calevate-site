@@ -6,6 +6,7 @@ import {
   momentSeekMs,
   momentsByTurn,
   parseStartAt,
+  shownMoments,
   turnClock,
   type CallMoment,
 } from "@/lib/callMoments";
@@ -72,5 +73,13 @@ describe("?t= links", () => {
     expect(parseStartAt("soon")).toBeNull();
     expect(parseStartAt("")).toBeNull();
     expect(parseStartAt(undefined)).toBeNull();
+  });
+});
+
+describe("shownMoments", () => {
+  it("drops a moment with no words and keeps the rest in order", () => {
+    const kept = moment({ at_ms: 5_000 });
+    expect(shownMoments([moment({ label: "" }), kept, moment({ label: "   " })])).toEqual([kept]);
+    expect(shownMoments(undefined)).toEqual([]);
   });
 });
