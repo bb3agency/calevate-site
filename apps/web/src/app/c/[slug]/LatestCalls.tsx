@@ -100,9 +100,11 @@ export function LatestCalls({
  * call captured lives on the call's page, not here.
  */
 const ROW =
-  "relative grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 rounded-md px-2 py-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.03] sm:h-[4.875rem] sm:content-center sm:grid-cols-[minmax(0,1fr)_auto_auto]";
+  "relative grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 rounded-md px-2 py-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.03] sm:min-h-[4.875rem] sm:content-center sm:grid-cols-[minmax(0,1fr)_auto_auto]";
 const WHO = "col-start-1 row-start-1 min-w-0";
-const HEADLINE = "hidden sm:col-start-1 sm:row-start-2 sm:block";
+// `sm:line-clamp-1` rather than `sm:block`: a later `display: block` undoes the clamp's
+// `-webkit-box` and a long summary wraps onto a second line.
+const HEADLINE = "hidden min-w-0 sm:col-start-1 sm:row-start-2 sm:line-clamp-1";
 // On a phone the outcome and its marks share the second line; from `sm` the wrapper
 // dissolves and the outcome sits on line one, the marks under it.
 const OUTCOME = "col-start-1 row-start-2 min-w-0 sm:contents";
@@ -149,7 +151,7 @@ function CallRow({
       </div>
       <p
         title={line.text}
-        className={`${HEADLINE} line-clamp-1 text-meta ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}
+        className={`${HEADLINE} text-meta ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}
       >
         {line.text}
       </p>
