@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState, type ComponentType } from "react";
+import { FileUp, Link2, MessageCircleQuestion, MessageSquareText, Tag } from "lucide-react";
 
-import { SegmentedControl } from "@/components/interior/segmented-control";
 import { RestrictionNote } from "@/components/ui";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useClientSession } from "@/lib/api/session";
@@ -13,100 +13,134 @@ import { AddToProfile, offerChoiceLabel, useProfileWrite } from "./ProfileKnowle
 import { TeachBox } from "./TeachBox";
 import { SubmissionConsequence } from "./permissions";
 
-type Mode = "write" | "file" | "link";
-/** What is being written. The first two go into the business profile, their one home. */
-type Kind = "offer" | "question" | "other";
+/** The ways to teach. An offer and a question go into the business profile, their one home. */
+type Way = "say" | "offer" | "question" | "file" | "link";
 
-const MODES: { value: Mode; label: string }[] = [
-  { value: "write", label: "Write it" },
-  { value: "file", label: "File" },
-  { value: "link", label: "Link" },
-];
+const ICONS: Record<Way, ComponentType<{ className?: string; "aria-hidden"?: boolean }>> = {
+  say: MessageSquareText,
+  offer: Tag,
+  question: MessageCircleQuestion,
+  file: FileUp,
+  link: Link2,
+};
 
 /**
- * THE ONE ADD AREA (D-874): a fact or an answer, a file, or a link, in one card at the top
- * of the page, so "where do I add things" has one answer.
+ * TEACH YOUR AGENTS: the one card for telling the agents something, on the knowledge page
+ * and in an agent's Training tab alike, so an owner learns one way to teach (D-874).
  *
- * A segmented switch rather than three stacked forms: each way has its own explanation
- * (what reaches the agents, what does not yet), and three at once is a wall of text on a
- * phone. Writing is first because it is the way that always works and the quickest way to
- * correct one fact.
+ * One row of five choices rather than the two stacked switches it replaced ("Write it /
+ * File / Link", then "Service / Question / Something else" under the first): the nested pair
+ * made the owner choose a channel before saying what they had, and hid two of the five ways
+ * behind the first choice. The owner still says what it is (D-968): an offer or a question
+ * is saved straight into the business profile rather than the words being guessed at.
  *
- * Writing asks what it is first (D-968). Something the business offers and a question with
- * its answer are saved straight into the business profile, the one place both screens read;
- * the owner says which rather than the words being guessed at. Anything else goes to the
- * teach box.
+ * "Type or say it" comes first because it is the way that always works, takes a voice note,
+ * and is where a teaching waiting for review is shown, so that review is never hidden
+ * behind a choice the owner did not make. Every way stays mounted and the others are
+ * hidden, so switching never throws away half-typed words or an upload still sending.
  */
-export function AddArea({ allowed, reason }: { allowed: boolean; reason: string | null }) {
+export function AddArea({
+  allowed,
+  reason,
+  headingLevel = 2,
+}: {
+  allowed: boolean;
+  reason: string | null;
+  /** 3 inside an agent's Training tab, whose tab label is the h2. */
+  headingLevel?: 2 | 3;
+}) {
   const session = useClientSession();
   const profile = useBusinessProfile(session);
   const profileWrite = useProfileWrite();
-  const [mode, setMode] = useState<Mode>("write");
   const teaching = useOpenTeaching(session);
-  // A teaching waiting for its review (or still being sorted) opens on the teach box, so
-  // it is never hidden behind a choice the owner did not make.
   const status = teaching.data?.status;
   const reviewing = status === "ready" || isTeachingBusy(status);
-  const [chosen, setKind] = useState<Kind | null>(null);
-  const kind: Kind = chosen ?? (reviewing ? "other" : "offer");
+  const [chosen, setChosen] = useState<Way>("say");
+  // A teaching Pip sorted (from typed words or a file it read) is reviewed in "Type or say
+  // it", so its arrival brings that way forward once; the owner may still switch away.
+  const arrived = reviewing ? teaching.data?.id : undefined;
+  const [shownFor, setShownFor] = useState<string | undefined>(undefined);
+  if (arrived && arrived !== shownFor) {
+    setShownFor(arrived);
+    setChosen("say");
+  }
+  const way = chosen;
+  const headingId = useId();
+  const Heading = headingLevel === 3 ? "h3" : "h2";
 
-  const kinds: { value: Kind; label: string }[] = [
+  const ways: { value: Way; label: string }[] = [
+    { value: "say", label: "Type or say it" },
     { value: "offer", label: profile.data ? offerChoiceLabel(profile.data.wording) : "What you offer" },
     { value: "question", label: "Question and answer" },
-    { value: "other", label: "Something else" },
+    { value: "file", label: "Photo or file" },
+    { value: "link", label: "Website link" },
   ];
 
   return (
     <section
-      aria-labelledby="kb-add-heading"
-      className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5"
+      aria-labelledby={headingId}
+      className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-6"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h2 id="kb-add-heading" className="text-heading text-ink">
-            Add something
-          </h2>
-        </div>
-        <SegmentedControl
-          label="What are you adding?"
-          options={MODES}
-          value={mode}
-          onValueChange={(next) => setMode(next as Mode)}
-          className="w-full sm:w-72 sm:shrink-0"
-        />
+      <Heading id={headingId} className="text-heading text-ink">
+        Teach your agents
+      </Heading>
+      <p className="mt-1 text-body text-ink-muted">Anything you would tell a new member of staff.</p>
+
+      <div
+        role="radiogroup"
+        aria-label="What do you want to add?"
+        // Two columns on a phone with the always-works way across the top, so five choices
+        // read as a tidy block rather than a ragged wrap; one row from `sm` up.
+        className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap"
+      >
+        {ways.map(({ value, label }) => {
+          const Icon = ICONS[value];
+          const on = way === value;
+          return (
+            <label
+              key={value}
+              className={`press relative flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-medium leading-tight first:col-span-2 sm:rounded-full sm:px-3.5 sm:py-2 transition-colors duration-(--duration-fast) ease-out has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand has-[:focus-visible]:ring-offset-2 touch:min-h-11 ${
+                on
+                  ? "border-brand-strong bg-brand-soft text-brand-strong"
+                  : "border-line bg-surface text-ink hover:bg-ink/[0.04]"
+              }`}
+            >
+              <input
+                type="radio"
+                name={headingId}
+                value={value}
+                checked={on}
+                onChange={() => setChosen(value)}
+                className="sr-only"
+              />
+              <Icon aria-hidden className={`h-4 w-4 shrink-0 ${on ? "text-brand-strong" : "text-ink-muted"}`} />
+              {label}
+            </label>
+          );
+        })}
       </div>
 
-      {/* All three stay mounted and the others are hidden, so switching never throws away
-          half-typed words or an upload that is still sending. */}
-      <div className="mt-4">
-        <div hidden={mode !== "write"} className="space-y-4">
-          <SegmentedControl
-            label="What is it?"
-            options={kinds}
-            value={kind}
-            onValueChange={(next) => setKind(next as Kind)}
-            className="w-full sm:w-auto"
-          />
-          {kind !== "other" ? <RestrictionNote reason={profileWrite.reason} /> : null}
-          <div hidden={kind !== "offer"}>
-            <AddToProfile kind="offer" allowed={profileWrite.allowed} />
-          </div>
-          <div hidden={kind !== "question"}>
-            <AddToProfile kind="question" allowed={profileWrite.allowed} />
-          </div>
-          <div hidden={kind !== "other"}>
-            <TeachBox allowed={allowed} reason={reason} framed={false} />
-          </div>
+      <div className="mt-5">
+        <div hidden={way !== "say"}>
+          <TeachBox allowed={allowed} reason={reason} />
         </div>
-        <div hidden={mode !== "file"}>
+        <div hidden={way !== "offer"} className="space-y-3">
+          <RestrictionNote reason={profileWrite.reason} />
+          <AddToProfile kind="offer" allowed={profileWrite.allowed} />
+        </div>
+        <div hidden={way !== "question"} className="space-y-3">
+          <RestrictionNote reason={profileWrite.reason} />
+          <AddToProfile kind="question" allowed={profileWrite.allowed} />
+        </div>
+        <div hidden={way !== "file"}>
           <AddFile allowed={allowed} />
         </div>
-        <div hidden={mode !== "link"}>
+        <div hidden={way !== "link"}>
           <AddLink allowed={allowed} reason={reason} />
         </div>
       </div>
 
-      <div className="mt-4 border-t border-line pt-3">
+      <div className="mt-5 border-t border-line pt-3">
         <SubmissionConsequence />
       </div>
     </section>

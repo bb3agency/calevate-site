@@ -131,31 +131,31 @@ async function renderKnowledge(over: Routes = {}) {
   });
 }
 
-describe("the one Add area (D-874)", () => {
-  it("opens on writing, and offers a file and a link beside it", async () => {
+describe("the one teach card (D-874)", () => {
+  it("offers every way in one row and opens on typing or saying it", async () => {
     await renderKnowledge();
-    const add = await screen.findByRole("radiogroup", { name: "What are you adding?" });
-    const modes = within(add).getAllByRole("radio").map((r) => r.textContent);
-    expect(modes).toEqual(["Write it", "File", "Link"]);
-    expect(within(add).getByRole("radio", { name: "Write it" }).getAttribute("aria-checked")).toBe("true");
-    // Writing asks what it is (D-968): the first two go into the business profile.
-    const kinds = screen.getByRole("radiogroup", { name: "What is it?" });
-    expect(within(kinds).getAllByRole("radio").map((r) => r.textContent)).toEqual([
+    const ways = await screen.findByRole("radiogroup", { name: "What do you want to add?" });
+    // The owner still says what it is (D-968): an offer and a question go into the profile.
+    expect(within(ways).getAllByRole("radio").map((r) => r.closest("label")?.textContent)).toEqual([
+      "Type or say it",
       "Service and price",
       "Question and answer",
-      "Something else",
+      "Photo or file",
+      "Website link",
     ]);
-    fireEvent.click(within(kinds).getByRole("radio", { name: "Something else" }));
-    expect(screen.getByRole("button", { name: "Let Pip teach it" })).toBeTruthy();
+    expect((within(ways).getByRole("radio", { name: "Type or say it" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: "Teach this" })).toBeTruthy();
+    fireEvent.click(within(ways).getByRole("radio", { name: "Question and answer" }));
+    expect(screen.getByLabelText("What callers ask")).toBeTruthy();
   });
 
   it("says before a PDF or a link is sent what we do with it, and promises nothing the row may deny", async () => {
     await renderKnowledge();
-    fireEvent.click(await screen.findByRole("radio", { name: "File" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Photo or file" }));
     // One short line each by default; the full sentence sits behind the ⓘ beside it.
     expect(screen.getByText("Scanned PDF pages are read too.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "About what you can send" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Website link" }));
     expect(screen.getByText("Your agents read that one page.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "About links" })).toBeTruthy();
     expect(screen.getByRole("button", { name: /save link/i })).toBeTruthy();
@@ -165,8 +165,8 @@ describe("the one Add area (D-874)", () => {
     await renderKnowledge();
     const box = (await screen.findByLabelText("What should your agents know?")) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: "Open 9 to 9." } });
-    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Write it" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Website link" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Type or say it" }));
     expect((screen.getByLabelText("What should your agents know?") as HTMLTextAreaElement).value).toBe(
       "Open 9 to 9.",
     );

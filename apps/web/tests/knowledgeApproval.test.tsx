@@ -155,14 +155,14 @@ async function renderKnowledge(
     "/v1/kb/uploads": [],
     ...over,
   });
-  // The teach box is the Add area's "Something else" (D-968).
-  fireEvent.click(await screen.findByRole("radio", { name: "Something else" }));
+  // The teach box is the teach card's "Type or say it" (D-968).
+  fireEvent.click(await screen.findByRole("radio", { name: "Type or say it" }));
   return page;
 }
 
 /** The teach box's control, found the way a client finds it. */
 function submitButton(): HTMLButtonElement {
-  return screen.getByRole("button", { name: /^let pip teach it$/i }) as HTMLButtonElement;
+  return screen.getByRole("button", { name: /^teach this$/i }) as HTMLButtonElement;
 }
 
 describe("the approval gate as the client sees it", () => {
@@ -479,7 +479,7 @@ describe("what the screen says the agent does with the text", () => {
     // The one file sentence worth pinning positively is the limit, because a client who
     // learns it from a 413 has already spent the upload. It is in the Add area's File view
     // (D-874), beside the upload it limits.
-    fireEvent.click(screen.getByRole("radio", { name: "File" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Photo or file" }));
     expect(container.textContent).toMatch(/20 MB/);
   });
 });
