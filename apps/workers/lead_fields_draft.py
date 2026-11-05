@@ -1,4 +1,4 @@
-"""Draft a custom business's lead fields ONCE, from what the platform knows about it.
+"""Draft a business's lead fields ONCE, from what the platform knows about it.
 
 Founder decision 15 (10 Oct 2026): a business that fits no known type gets its business
 fields drafted by AI from everything known about it at that point — its profile, services,
@@ -39,7 +39,7 @@ from apps.api.agents.extraction_routes import (
     MAX_LABEL_LEN,
     MAX_REASON_LEN,
 )
-from apps.api.agents.lead_fields import business_type_label
+from apps.api.agents.lead_fields import business_type_label, has_standard_set, standard_fields
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_LEAD_FIELDS
 from apps.api.core.errors import ProblemError
@@ -73,12 +73,12 @@ _CORE_LABELS = ", ".join(f.label.lower() for f in CORE_LEAD_FIELDS)
 #: The instruction. Pinned by `tests/lead_fields_test.py`: no repeat of the core, no
 #: invented facts, nothing sensitive, short spoken-business vocabulary.
 SYSTEM_PROMPT: Final = (
-    "You choose the details an AI phone receptionist should write down after each call "
+    "You choose the details an AI phone agent should write down after each call "
     "for one small Indian business. Every call already records: "
     f"{_CORE_LABELS}. Never repeat any of those. "
     f"Propose between 3 and {MAX_DRAFTED_FIELDS} more details that THIS business needs "
-    "to follow up a caller, chosen from what it sells and how it works. "
-    "For each give: label (2 to 4 plain English words, as a column heading a shop owner "
+    "to follow up a caller, chosen from what it does for its callers and how it works. "
+    "For each give: label (2 to 4 plain English words, as a column heading a business owner "
     "understands), type (one of text, number, bool, enum, date), reason (one sentence "
     "telling the note-taker exactly what to listen for in the caller's own words), "
     "required (true for at most one detail, the one every caller gives), and choices "
@@ -260,6 +260,23 @@ async def business_context(tenant_id: UUID, *, include_type: bool = True) -> tup
     return description[:MAX_CONTEXT_CHARS], vertical
 
 
+def seed_lines(vertical: str | None) -> str:
+    """The business type's standard set, offered to the model as a starting point only: a
+    known type's usual details are a fair guess, and this business's own details decide
+    which of them it keeps (two shops of one type rarely need the same ones)."""
+    if not has_standard_set(vertical):
+        return ""
+    fields = ", ".join(
+        f"{f.label} ({f.type})" for f in standard_fields(vertical) if f.key not in CORE_KEYS
+    )
+    if not fields:
+        return ""
+    return (
+        "\nUsual details for this type of business, a starting point to keep, change or "
+        f"drop as THIS business needs: {fields}"
+    )
+
+
 def _drafted_fields(raw: dict[str, Any]) -> list[ExtractionField] | None:
     """`fields_from_model`, or None when nothing usable came back, so the ladder's next leg
     gets its chance."""
@@ -362,11 +379,11 @@ async def draft_lead_fields(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         return "not_queued"
 
     try:
-        description, _vertical = await business_context(tenant_id)
+        description, vertical = await business_context(tenant_id)
         async with tenant_session(tenant_id) as session:
             tenant_leg = await account_assist_leg(session)
         try:
-            answer = await _draft(description, tenant_leg)
+            answer = await _draft(description + seed_lines(vertical), tenant_leg)
         except ProblemError as refused:
             await _fail(tenant_id, await _refused(tenant_id, refused))
             return "failed"

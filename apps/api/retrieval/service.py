@@ -172,6 +172,27 @@ def _with_shadow(session: AsyncSession, served: RetrievalProvider) -> RetrievalP
     return ShadowReadRetriever(served, shadow=shadow, tenants=tenants)
 
 
+async def route_inputs(
+    session: AsyncSession, *, tenant_id: UUID
+) -> tuple[frozenset[str], bool | None]:
+    """What `classify` needs to know about this business: which t0 sections of its compiled
+    facts hold anything (the business profile's), and whether it gives health care."""
+    from apps.api.tenancy.business_copy import capabilities_for
+    from apps.api.tenancy.business_profile import load_profile
+
+    profile = await load_profile(session, tenant_id=tenant_id)
+    sections = {
+        "hours": bool(profile.hours),
+        "location": bool(profile.branches),
+        "staff": bool(profile.staff),
+        "services_pricing": bool(profile.services),
+        "booking": bool(profile.booking_rules and profile.booking_rules.strip()),
+    }
+    caps = await capabilities_for(session, tenant_id)
+    with_content = frozenset(intent for intent, filled in sections.items() if filled)
+    return with_content, caps.health_business.applies
+
+
 async def look_up(
     session: AsyncSession,
     *,
@@ -199,7 +220,8 @@ async def look_up(
     `RetrievalCapabilityAbsentError` by name.
     """
     started = time.perf_counter()
-    decision = classify(question)
+    with_content, health = await route_inputs(session, tenant_id=tenant_id)
+    decision = classify(question, t0_with_content=with_content, health=health)
     if tier is not None:
         # The caller asks for a corpus rather than an answer: Pip's search of everything
         # the client gave us is a t3 search whatever the question looks like, because the

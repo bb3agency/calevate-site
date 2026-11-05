@@ -40,10 +40,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.test_conversations import missing_facts
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
+from apps.api.insights.detection import withheld_topics
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.api.teach import facts as fact_store
 from apps.api.teach.models import MAX_DISMISS_REASON_CHARS, MAX_QUESTION_KEY_CHARS
-from apps.api.tenancy.business_profile import fact_lines, load_profile
+from apps.api.tenancy.business_copy import capabilities_for
+from apps.api.tenancy.business_profile import fact_lines, fact_words, load_profile
 
 #: The worker job that drafts one question's answer (`workers/teach_questions.py`).
 DRAFT_JOB: Final = "draft_teach_question"
@@ -143,8 +145,14 @@ _INPUTS_SQL: Final = (
 )
 
 
-def _gap_question(key: str, label: str, example: str | None) -> str:
-    asked = TOPIC_QUESTIONS.get(key)
+def _gap_question(
+    key: str, label: str, example: str | None, withheld: frozenset[str] = frozenset()
+) -> str:
+    """The question for a gap. A canonical topic this business cannot have (an old gap filed
+    before its capability profile, `detection.withheld_topics`) is asked in the caller's own
+    words: "What do your products cost?" to a business that sells nothing is a wrong
+    question, while what the caller asked is still worth an answer."""
+    asked = None if key in withheld else TOPIC_QUESTIONS.get(key)
     if asked is not None:
         return asked
     return (example or "").strip() or label
@@ -158,12 +166,14 @@ async def _open_questions(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID | None
 ) -> list[Question]:
     rows = (await session.execute(text(_GAPS_SQL), {"aid": agent_id, "limit": MAX_QUESTIONS})).all()
+    caps = await capabilities_for(session, tenant_id)
+    withheld = withheld_topics(caps)
     found: dict[str, Question] = {}
     for r in rows:
         key = str(r.topic_key)
         found[key] = Question(
             key=key,
-            question=_gap_question(key, str(r.label), r.example),
+            question=_gap_question(key, str(r.label), r.example, withheld),
             topic=str(r.label),
             why="callers",
             callers=int(r.calls),
@@ -174,13 +184,17 @@ async def _open_questions(
             example=(r.example or None),
         )
 
+    # The setup questions ask only for what this business has: no price list from one that
+    # quotes none, no address from one callers never visit (`Capabilities`, False only).
     extra: list[Question] = []
-    if "prices" in await missing_facts(session):
+    quotes_prices = (await fact_words(session, tenant_id=tenant_id)).quotes_prices
+    if quotes_prices and "prices" in await missing_facts(session):
         extra.append(_asked("pricing", "Pricing", "practice"))
     profile = await load_profile(session, tenant_id=tenant_id)
     if not profile.hours and not await _covered(session, _HOURS_PATTERN):
         extra.append(_asked("timings", "Opening hours", "setup"))
-    if not profile.branches and not await _covered(session, _ADDRESS_PATTERN):
+    has_premises = caps.has_premises.applies is not False
+    if has_premises and not profile.branches and not await _covered(session, _ADDRESS_PATTERN):
         extra.append(_asked("location", "Location & directions", "setup"))
     settled = await _settled_keys(session, [q.key for q in extra])
     for question in extra:

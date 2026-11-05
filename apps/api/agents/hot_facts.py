@@ -61,7 +61,7 @@ import json
 import math
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal
@@ -313,12 +313,12 @@ async def gather_demand(
 # --- ranking ----------------------------------------------------------------------------
 
 
-def _keys_of(value: str) -> tuple[frozenset[str], frozenset[str]]:
+def _keys_of(value: str, withheld: Collection[str] = ()) -> tuple[frozenset[str], frozenset[str]]:
     from apps.api.insights.detection import topics_in
     from apps.api.retrieval.compiled_facts import tokens
 
     cleaned = _MASKS.sub(" ", value)
-    return tokens(cleaned), topics_in(cleaned)
+    return tokens(cleaned), topics_in(cleaned, withheld)
 
 
 def rank(
@@ -326,6 +326,7 @@ def rank(
     evidence: Sequence[Evidence],
     *,
     known: Iterable[str] = (),
+    withheld: Collection[str] = (),
 ) -> list[_Scored]:
     """Every candidate with its demand score, most wanted first per character.
 
@@ -337,7 +338,7 @@ def rank(
     by_token: dict[str, list[int]] = defaultdict(list)
     by_topic: dict[str, list[int]] = defaultdict(list)
     for i, candidate in enumerate(candidates):
-        toks, topics = _keys_of(f"{candidate.text} {candidate.gloss or ''}")
+        toks, topics = _keys_of(f"{candidate.text} {candidate.gloss or ''}", withheld)
         keyed.append((_Scored(candidate), toks, topics))
         for tok in toks:
             by_token[tok].append(i)
@@ -348,7 +349,7 @@ def rank(
     norm = [math.sqrt(sum(idf[t] for t in toks)) or 1.0 for _s, toks, _p in keyed]
 
     for piece in evidence:
-        toks, topics = _keys_of(piece.words)
+        toks, topics = _keys_of(piece.words, withheld)
         hit: dict[int, float] = defaultdict(float)
         for topic in topics:
             for i in by_topic.get(topic, ()):
@@ -598,7 +599,17 @@ async def recompute_agent(
         evidence, calls_read = await gather_demand(
             session, agent_id=agent_id, now=stamp, script=str(agent[2])
         )
-        ranked = rank(candidates, evidence, known=[i.key for i in stored.items] if stored else ())
+        # The gap detector's topics, less those this business cannot have. Imported here for
+        # the import cycle `gather_candidates` names.
+        from apps.api.insights.detection import withheld_topics
+        from apps.api.tenancy.business_copy import capabilities_for
+
+        ranked = rank(
+            candidates,
+            evidence,
+            known=[i.key for i in stored.items] if stored else (),
+            withheld=withheld_topics(await capabilities_for(session, tenant_id)),
+        )
         budget = await room_for(session, tenant_id=tenant_id, agent_id=agent_id, engine=engine)
         chosen = choose(ranked, budget_chars=budget)
     else:

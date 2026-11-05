@@ -39,6 +39,7 @@ from apps.api.insights.schemas import (
     KnowledgeGapListOut,
     KnowledgeGapOut,
 )
+from apps.api.tenancy.business_copy import capabilities_for
 
 log = get_logger(__name__)
 
@@ -62,7 +63,9 @@ async def record_call_gaps(
     — the pipeline passes `transcript_turns.text_redacted` — so every stored quote is
     redacted by construction (hard rule 6).
     """
-    gaps = detection.detect_gaps(turns)
+    async with tenant_session(tenant_id) as session:
+        withheld = detection.withheld_topics(await capabilities_for(session, tenant_id))
+    gaps = detection.detect_gaps(turns, withheld=withheld)
     async with tenant_session(tenant_id) as session:
         # Topics this call PREVIOUSLY contributed — recomputed too, so a re-drive that no
         # longer detects a topic correctly shrinks its aggregate instead of stranding it.

@@ -631,7 +631,11 @@ async def _verification_status(
     `pledge_blocker` — plus the business profile's go-live list. The assistant explains
     and links; it never uploads a document or accepts the pledge (D-694)."""
     del args
-    from apps.api.tenancy.business_profile import go_live_blockers, load_profile
+    from apps.api.tenancy.business_profile import (
+        account_needs_address,
+        go_live_blockers,
+        load_profile,
+    )
 
     assert context.tenant_id is not None
     kyc = await read_kyc(session, tenant_id=context.tenant_id)
@@ -678,7 +682,10 @@ async def _verification_status(
             "the telephone company; the assistant cannot confirm them."
         )
     profile = await load_profile(session, tenant_id=context.tenant_id)
-    blockers = go_live_blockers(profile)
+    blockers = go_live_blockers(
+        profile,
+        needs_address=await account_needs_address(session, tenant_id=context.tenant_id),
+    )
     lines.append(
         "Business profile: ready for an agent to go live."
         if not blockers

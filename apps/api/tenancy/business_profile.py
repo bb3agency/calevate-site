@@ -231,7 +231,27 @@ def hours_line(hours: dict[str, dict[str, str] | None]) -> str | None:
     return "Hours: " + "; ".join(parts)
 
 
-def fact_lines(profile: Profile) -> list[str]:
+@dataclass(frozen=True, slots=True)
+class FactWords:
+    """How this business names what it offers, for its [T0 FACTS] lines.
+
+    `offer_label` is its own word for one thing it offers ("Service", "Plan", "Feature",
+    `profile_wording.ProfileWording.offer_label`). `quotes_prices=False` drops the price
+    clause: "price on request" told a free app's agent that its features had a price."""
+
+    offer_label: str = "Service"
+    quotes_prices: bool = True
+
+
+#: The business's first language (`business_profiles.languages`, primaries first), for a read
+#: that has a call `c` but no agent language: the platform's default is the last resort,
+#: never the first. A correlated subquery so it rides in the read that needs it.
+BUSINESS_LANGUAGE_SQL: Final = (
+    "(SELECT bp.languages[1] FROM business_profiles bp WHERE bp.tenant_id = c.tenant_id)"
+)
+
+
+def fact_lines(profile: Profile, words: FactWords | None = None) -> list[str]:
     """The business half of [T0 FACTS], header excluded, in PROMPT-GUIDE §2's order:
     hours, address, services and prices, FAQs, staff, booking rules.
 
@@ -239,6 +259,8 @@ def fact_lines(profile: Profile) -> list[str]:
     mints nothing. No contacts and no languages: neither is something the agent says, and
     contact numbers must never reach a prompt.
     """
+    words = words or FactWords()
+    offer = _one_line(words.offer_label).lstrip("[") or "Service"
     lines: list[str] = []
     hours = hours_line(profile.hours)
     if hours:
@@ -246,9 +268,12 @@ def fact_lines(profile: Profile) -> list[str]:
     for branch in profile.branches:
         lines.append(f"Address ({_one_line(branch.label)}): {_one_line(branch.address)}")
     for item in profile.services:
-        price = f" — ₹{item.price_inr}" if item.price_inr else " — price on request"
+        if not words.quotes_prices:
+            price = ""
+        else:
+            price = f" — ₹{item.price_inr}" if item.price_inr else " — price on request"
         notes = f" ({_one_line(item.notes)})" if item.notes else ""
-        lines.append(f"Service: {_one_line(item.name)}{price}{notes}")
+        lines.append(f"{offer}: {_one_line(item.name)}{price}{notes}")
     for faq in profile.faqs:
         lines.append(f"FAQ: {_one_line(faq.question)} — {_one_line(faq.answer)}")
     for person in profile.staff:
@@ -266,8 +291,26 @@ def _one_line(value: str) -> str:
     return " ".join(value.split())
 
 
+async def fact_words(session: AsyncSession, *, tenant_id: UUID) -> FactWords:
+    """This business's `FactWords`: its drafted offer word, and no prices when its wording
+    has no price column or its capability profile says it quotes none. A business with
+    neither judged reads as before ("Service", prices shown)."""
+    from apps.api.tenancy.business_copy import capabilities_for
+    from apps.api.tenancy.profile_wording import stored_wording
+
+    wording = await stored_wording(session, tenant_id=tenant_id)
+    caps = await capabilities_for(session, tenant_id)
+    no_prices = caps.quotes_prices.applies is False or (
+        wording.drafted and wording.price_label is None
+    )
+    return FactWords(offer_label=wording.offer_label, quotes_prices=not no_prices)
+
+
 async def profile_fact_lines(session: AsyncSession, *, tenant_id: UUID) -> list[str]:
-    return fact_lines(await load_profile(session, tenant_id=tenant_id))
+    return fact_lines(
+        await load_profile(session, tenant_id=tenant_id),
+        await fact_words(session, tenant_id=tenant_id),
+    )
 
 
 # ------------------------------------------------------------- what an agent needs
@@ -294,20 +337,26 @@ BLOCKER_STEPS: Final[dict[str, StepId]] = {
 }
 
 
-def required_steps(*, needs_contact: bool) -> list[StepId]:
+def required_steps(*, needs_contact: bool, needs_address: bool = True) -> list[StepId]:
     """The setup steps that must be answered before an agent takes calls, in wizard order."""
     return [
         step
         for code, step in BLOCKER_STEPS.items()
-        if needs_contact or code != "escalation_contact_missing"
+        if (needs_contact or code != "escalation_contact_missing")
+        and (needs_address or code != "branch_missing")
     ]
 
 
-def go_live_blockers(profile: Profile, *, needs_contact: bool = True) -> list[str]:
+def go_live_blockers(
+    profile: Profile, *, needs_contact: bool = True, needs_address: bool = True
+) -> list[str]:
+    """`needs_address=False` for a business judged to have no place callers come to
+    (`account_needs_address`): an app's helpline has no address to read out, and asking for
+    one kept it off the phone."""
     blockers: list[str] = []
     if not profile.hours:
         blockers.append("business_hours_missing")
-    if not profile.branches:
+    if needs_address and not profile.branches:
         blockers.append("branch_missing")
     if not profile.services:
         blockers.append("service_missing")
@@ -333,11 +382,21 @@ async def account_needs_contact(session: AsyncSession) -> bool:
     )
 
 
+async def account_needs_address(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Whether this business must give an address before going live: always, unless its
+    capability profile judged that callers come to no place of its (`has_premises` False).
+    Not yet judged keeps the address required."""
+    from apps.api.tenancy.business_copy import capabilities_for
+
+    return (await capabilities_for(session, tenant_id)).has_premises.applies is not False
+
+
 async def account_go_live_blockers(session: AsyncSession, *, tenant_id: UUID) -> list[str]:
     """`go_live_blockers` for the account as a whole (see `account_needs_contact`)."""
     return go_live_blockers(
         await load_profile(session, tenant_id=tenant_id),
         needs_contact=await account_needs_contact(session),
+        needs_address=await account_needs_address(session, tenant_id=tenant_id),
     )
 
 
@@ -362,7 +421,9 @@ async def assert_ready_to_go_live(
     straight to the setup step that fixes it.
     """
     blockers = go_live_blockers(
-        await load_profile(session, tenant_id=tenant_id), needs_contact=needs_contact
+        await load_profile(session, tenant_id=tenant_id),
+        needs_contact=needs_contact,
+        needs_address=await account_needs_address(session, tenant_id=tenant_id),
     )
     if not blockers:
         return
@@ -398,6 +459,7 @@ def setup_complete(profile: Profile) -> bool:
 __all__ = [
     "BLOCKER_COPY",
     "BLOCKER_STEPS",
+    "BUSINESS_LANGUAGE_SQL",
     "DAYS",
     "FAQ_ANSWER_MAX",
     "FAQ_QUESTION_MAX",
@@ -412,6 +474,7 @@ __all__ = [
     "BusinessContactOut",
     "Contact",
     "DayHours",
+    "FactWords",
     "Faq",
     "Profile",
     "ServiceItem",
@@ -419,9 +482,11 @@ __all__ = [
     "StepId",
     "StepState",
     "account_go_live_blockers",
+    "account_needs_address",
     "account_needs_contact",
     "assert_ready_to_go_live",
     "fact_lines",
+    "fact_words",
     "go_live_blockers",
     "hours_line",
     "load_profile",

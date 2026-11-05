@@ -4,6 +4,12 @@ Filled with what the account already has: its first agent that places calls, its
 approved WhatsApp message, its owner for "give the lead to". Whatever it lacks is listed in
 `needs` and left as the nil id, which `service.problems_of` reports at publish, so a starter
 is always a valid draft and never a silent guess.
+
+THE BRANCHES FOLLOW THE AGENT'S OWN OUTCOMES (D-836). "Qualify new leads" hands over every
+outcome of that agent that moves a lead to interested or hot, whatever it is called, rather
+than the fixed key `interested` a business's own outcomes rarely use. A reminder starter
+exists only when an agent's lead details hold a date to remind about: a reminder keyed on a
+field nobody captures never runs.
 """
 
 from __future__ import annotations
@@ -12,9 +18,11 @@ from dataclasses import dataclass
 from typing import Any, Final, Literal
 from uuid import UUID
 
+from calevate_shared.business_outcomes import BusinessOutcome
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.call_outcomes import outcomes_in_use
 from apps.api.follow_ups import definition as d
 
 NIL: Final = UUID(int=0)
@@ -33,12 +41,55 @@ class Starter:
     needs: list[Need]
 
 
+#: The outcome a lead who said no lands on: the starting set's key, which a drafted list keeps
+#: when it has one.
+NOT_INTERESTED: Final = "not_interested"
+#: A date detail whose label says this is when a payment falls due.
+_PAYMENT_WORDS: Final = ("pay", "due", "instal", "emi")
+
+
+@dataclass(frozen=True, slots=True)
+class DateField:
+    key: str
+    label: str
+
+
 @dataclass(frozen=True, slots=True)
 class _Account:
     agent: UUID | None
     template: UUID | None
     owner: UUID | None
     has_call_new_leads: bool
+    #: The outcomes of the agent the starters call with (the starting set without one).
+    outcomes: tuple[BusinessOutcome, ...] = ()
+    #: The date details the account's agents capture, in agent order.
+    date_fields: tuple[DateField, ...] = ()
+
+
+def interested_keys(outcomes: tuple[BusinessOutcome, ...]) -> list[str]:
+    """The outcome keys that hand a lead to the team: each that moves it to interested or
+    hot, and the voice platform's own `interested` reading, which the decide step also
+    matches (`runner._decide`)."""
+    keys = [o.key for o in outcomes if o.lead_status in ("interested", "hot")]
+    return keys if "interested" in keys else [*keys, "interested"]
+
+
+def _date_fields(rows: list[Any]) -> tuple[DateField, ...]:
+    seen: dict[str, DateField] = {}
+    for (fields,) in rows:
+        for item in fields if isinstance(fields, list) else []:
+            if not isinstance(item, dict) or item.get("type") != "date":
+                continue
+            key, label = item.get("key"), item.get("label")
+            if isinstance(key, str) and isinstance(label, str) and key not in seen:
+                seen[key] = DateField(key=key, label=" ".join(label.split()))
+    return tuple(seen.values())
+
+
+def _payment_field(fields: tuple[DateField, ...]) -> DateField | None:
+    return next(
+        (f for f in fields if any(word in f.label.lower() for word in _PAYMENT_WORDS)), None
+    )
 
 
 async def _first(session: AsyncSession, sql: str) -> UUID | None:
@@ -47,13 +98,31 @@ async def _first(session: AsyncSession, sql: str) -> UUID | None:
 
 
 async def _account(session: AsyncSession) -> _Account:
+    agent = await _first(
+        session,
+        "SELECT id FROM agents WHERE deleted_at IS NULL AND archived_at IS NULL "
+        "AND direction IN ('outbound', 'both') AND engine_agent_ref IS NOT NULL "
+        "ORDER BY created_at LIMIT 1",
+    )
+    raw_outcomes = (
+        await session.execute(
+            text("SELECT business_outcomes FROM agents WHERE id = :aid"), {"aid": agent}
+        )
+    ).scalar()
+    fields = (
+        await session.execute(
+            text(
+                "SELECT es.fields FROM agents a "
+                "JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+                "WHERE a.deleted_at IS NULL AND a.archived_at IS NULL "
+                "ORDER BY a.created_at, a.id LIMIT 50"
+            )
+        )
+    ).all()
     return _Account(
-        agent=await _first(
-            session,
-            "SELECT id FROM agents WHERE deleted_at IS NULL AND archived_at IS NULL "
-            "AND direction IN ('outbound', 'both') AND engine_agent_ref IS NOT NULL "
-            "ORDER BY created_at LIMIT 1",
-        ),
+        agent=agent,
+        outcomes=tuple(outcomes_in_use(raw_outcomes)[0]),
+        date_fields=_date_fields(list(fields)),
         template=await _first(
             session,
             "SELECT id FROM whatsapp_templates WHERE status = 'approved' ORDER BY name LIMIT 1",
@@ -77,17 +146,24 @@ def _steps(raw: list[dict[str, Any]]) -> list[d.AnyStep]:
 
 
 def build(account: _Account) -> list[Starter]:
+    return [
+        *_lead_starters(account),
+        *_reminders(account),
+    ]
+
+
+def _lead_starters(account: _Account) -> list[Starter]:
     agent = str(account.agent or NIL)
     template = str(account.template or NIL)
     owner = str(account.owner or NIL)
     blank = [{"source": "lead_name"}]
 
     def needs(*kinds: Need) -> list[Need]:
-        have: dict[Need, bool] = {
-            "outbound_agent": account.agent is not None,
-            "whatsapp_template": account.template is not None,
-        }
-        return [k for k in kinds if not have[k]]
+        return _needs(account, *kinds)
+
+    decide: dict[str, str] = dict.fromkeys(interested_keys(account.outcomes), "s3")
+    decide["call_back_booked"] = "s5"
+    decide[NOT_INTERESTED] = "s7"
 
     return [
         Starter(
@@ -116,24 +192,17 @@ def build(account: _Account) -> list[Starter]:
                         "agent_id": agent,
                         "next": {"answered": "s2", "not_reached": "s8"},
                     },
-                    {
-                        "id": "s2",
-                        "kind": "decide",
-                        "on": {
-                            "interested": "s3",
-                            "call_back_booked": "s5",
-                            "not_interested": "s7",
-                        },
-                    },
+                    {"id": "s2", "kind": "decide", "on": decide},
                     {"id": "s3", "kind": "assign", "user_id": owner, "next": "s4"},
-                    {"id": "s4", "kind": "tell_team", "why": "An interested lead"},
+                    {"id": "s4", "kind": "tell_team", "why": "An interested lead", "next": "s9"},
                     {"id": "s5", "kind": "wait", "days": 1, "next": "s6"},
                     {"id": "s6", "kind": "call", "agent_id": agent},
                     {"id": "s7", "kind": "set_status", "status": "lost"},
                     {"id": "s8", "kind": "whatsapp", "template_id": template, "values": blank},
+                    {"id": "s9", "kind": "end", "goal": True},
                 ]
             ),
-            settings=d.Settings(goal="interested"),
+            settings=d.Settings(),
             available=True,
             needs=needs("outbound_agent", "whatsapp_template"),
         ),
@@ -158,59 +227,98 @@ def build(account: _Account) -> list[Starter]:
             available=True,
             needs=needs("outbound_agent"),
         ),
-        Starter(
-            key="appointment_reminder",
-            name="Visit reminder",
-            description="The day before a visit, send a reminder; three hours later, call.",
-            trigger=d.LeadDateTrigger(
-                kind="lead_date", field="visit_date", offset_days=-1, at="10:00"
-            ),
-            steps=_steps(
-                [
-                    {
-                        "id": "s1",
-                        "kind": "whatsapp",
-                        "template_id": template,
-                        "values": blank,
-                        "next": {"sent": "s2", "not_sent": "s2"},
-                    },
-                    {"id": "s2", "kind": "wait", "hours": 3, "next": "s3"},
-                    {"id": "s3", "kind": "call", "agent_id": agent},
-                ]
-            ),
-            settings=d.Settings(),
-            available=True,
-            needs=needs("outbound_agent", "whatsapp_template"),
-        ),
-        Starter(
-            key="payment_reminder",
-            name="Payment reminder",
-            description="Two days before a payment is due, send a reminder; a day later, call.",
-            trigger=d.LeadDateTrigger(
-                kind="lead_date", field="due_date", offset_days=-2, at="11:00"
-            ),
-            steps=_steps(
-                [
-                    {
-                        "id": "s1",
-                        "kind": "whatsapp",
-                        "template_id": template,
-                        "values": blank,
-                        "next": {"sent": "s2", "not_sent": "s2"},
-                    },
-                    {"id": "s2", "kind": "wait", "days": 1, "next": "s3"},
-                    {"id": "s3", "kind": "call", "agent_id": agent},
-                ]
-            ),
-            settings=d.Settings(),
-            available=True,
-            needs=needs("outbound_agent", "whatsapp_template"),
-        ),
     ]
+
+
+def _needs(account: _Account, *kinds: Need) -> list[Need]:
+    have: dict[Need, bool] = {
+        "outbound_agent": account.agent is not None,
+        "whatsapp_template": account.template is not None,
+    }
+    return [k for k in kinds if not have[k]]
+
+
+def _reminder(
+    account: _Account, *, key: str, name: str, description: str, field: DateField, **when: Any
+) -> Starter:
+    agent = str(account.agent or NIL)
+    template = str(account.template or NIL)
+    offset, at, wait = when["offset_days"], when["at"], when["wait"]
+    return Starter(
+        key=key,
+        name=name,
+        description=description,
+        trigger=d.LeadDateTrigger(kind="lead_date", field=field.key, offset_days=offset, at=at),
+        steps=_steps(
+            [
+                {
+                    "id": "s1",
+                    "kind": "whatsapp",
+                    "template_id": template,
+                    "values": [{"source": "lead_name"}],
+                    "next": {"sent": "s2", "not_sent": "s2"},
+                },
+                {"id": "s2", "kind": "wait", **wait, "next": "s3"},
+                {"id": "s3", "kind": "call", "agent_id": agent},
+            ]
+        ),
+        settings=d.Settings(),
+        available=True,
+        needs=_needs(account, "outbound_agent", "whatsapp_template"),
+    )
+
+
+def _reminders(account: _Account) -> list[Starter]:
+    """A reminder per kind of date the agents capture: a payment date gets the payment
+    reminder, any other date the reminder before it. None without a date detail."""
+    payment = _payment_field(account.date_fields)
+    other = next((f for f in account.date_fields if f != payment), None)
+    out: list[Starter] = []
+    if other is not None:
+        out.append(
+            _reminder(
+                account,
+                key="appointment_reminder",
+                name=f"{other.label} reminder",
+                description=(
+                    f"The day before the {other.label.lower()}, send a reminder; three hours "
+                    "later, call."
+                ),
+                field=other,
+                offset_days=-1,
+                at="10:00",
+                wait={"hours": 3},
+            )
+        )
+    if payment is not None:
+        out.append(
+            _reminder(
+                account,
+                key="payment_reminder",
+                name="Payment reminder",
+                description=(
+                    f"Two days before the {payment.label.lower()}, send a reminder; a day "
+                    "later, call."
+                ),
+                field=payment,
+                offset_days=-2,
+                at="11:00",
+                wait={"days": 1},
+            )
+        )
+    return out
 
 
 async def for_account(session: AsyncSession) -> list[Starter]:
     return build(await _account(session))
 
 
-__all__ = ["NIL", "Starter", "build", "for_account"]
+__all__ = [
+    "NIL",
+    "NOT_INTERESTED",
+    "DateField",
+    "Starter",
+    "build",
+    "for_account",
+    "interested_keys",
+]

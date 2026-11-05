@@ -83,9 +83,9 @@ def test_a_hint_is_read_however_the_model_spells_it() -> None:
     assert hint_of("wants to buy") is None
 
 
-def test_the_starting_set_names_a_buyer_and_an_interested_caller_and_no_trade() -> None:
+def test_the_starting_set_names_an_interested_caller_and_no_trade() -> None:
     moves = {o.key: o.lead_status for o in STARTING_OUTCOMES}
-    assert moves["wants_to_buy"] == "interested" and moves["interested"] == "interested"
+    assert moves["interested"] == "interested" and "wants_to_buy" not in moves
     words = " ".join(f"{o.label} {o.meaning}" for o in STARTING_OUTCOMES).lower()
     for clinic in ("patient", "doctor", "clinic", "appointment", "symptom"):
         assert clinic not in words
@@ -235,7 +235,7 @@ async def test_a_buying_call_reads_as_the_agents_outcome_and_moves_the_lead(
         {
             "summary": "Asked for 2 kg of dried chilli delivered to Guntur.",
             "outcome_tag": "answered",
-            "business_outcome": "wants_to_buy",
+            "business_outcome": "interested",
             "sentiment": "neutral",
         }
     )
@@ -257,7 +257,7 @@ async def test_a_buying_call_reads_as_the_agents_outcome_and_moves_the_lead(
                 {"c": call_id},
             )
         ).one()
-    assert row[0] == row[5] == "wants_to_buy" and row[1] == "Wants to buy or book"
+    assert row[0] == row[5] == "interested" and row[1] == "Interested"
     assert row[2] == "answered", "the system-fact outcome is kept beside it"
     assert row[3] in ("interested", "hot")
     assert row[4] == "queued"
@@ -283,7 +283,7 @@ async def test_a_buying_call_reads_as_the_agents_outcome_and_moves_the_lead(
     await _run_pipeline(tenant_id, call_id, execution_id)
     assert (
         await _scalar(tenant_id, "SELECT business_outcome FROM calls WHERE id = :c", c=call_id)
-        == "wants_to_buy"
+        == "interested"
     )
     async with untenanted_session() as session:
         again = (

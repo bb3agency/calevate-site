@@ -26,7 +26,7 @@ The definitions matter more than the SQL and are stated here once:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 
 from calevate_shared.events import CallStatus
 from sqlalchemy import text
@@ -64,6 +64,21 @@ IST_HOUR_SQL = f"EXTRACT(HOUR FROM {IST_STARTED_AT_SQL})"
 IST_DAY_SQL = f"{IST_STARTED_AT_SQL}::date"
 IST_TODAY_SQL = f"(now() AT TIME ZONE '{IST_ZONE}')::date"
 
+
+#: A call's outcome group, the business's own outcome label first (D-836) and `{platform}` (a
+#: SQL expression for the platform's word) for a call that has none. Shared by "How calls
+#: ended" and the durations chart, so the two group one call the same way. The label, not
+#: the key: keys are per agent, and an owner reads one "Interested" across agents.
+OUTCOME_GROUP_SQL: Final = "COALESCE(NULLIF(btrim(c.business_outcome_label), ''), {platform})"
+#: Whose word `OUTCOME_GROUP_SQL` picked: 'business' or 'platform'.
+OUTCOME_SOURCE_SQL: Final = (
+    "CASE WHEN NULLIF(btrim(c.business_outcome_label), '') IS NULL "
+    "THEN 'platform' ELSE 'business' END"
+)
+
+#: A call's platform outcome as the "How calls ended" panel counts it: the bare status for a
+#: call never tagged.
+_PLATFORM_OUTCOME: Final = "COALESCE(c.outcome_tag, c.status)"
 
 #: The calls the panel covers. `:until` NULL is "up to now"; `:test` False leaves out
 #: free-trial and paid test calls (D-697, D-859), the owner ringing their own agent.
@@ -131,6 +146,19 @@ async def performance(
             params,
         )
     ).all()
+    # The same calls by the business's own outcome (D-836), the platform's word standing in
+    # for a call that has none: one grouping rule with the durations chart's.
+    group = OUTCOME_GROUP_SQL.format(platform=_PLATFORM_OUTCOME)
+    source = OUTCOME_SOURCE_SQL
+    by_business = (
+        await session.execute(
+            text(
+                f"SELECT {group}, min({source}), count(*) FROM calls c "
+                f"WHERE {_CALLS_IN_WINDOW} GROUP BY 1 ORDER BY 3 DESC, 1"
+            ),
+            params,
+        )
+    ).all()
 
     # 24 buckets, always all 24: a chart that omits silent hours reads as data loss,
     # and the owner is exactly the reader who notices 3am is missing.
@@ -165,6 +193,9 @@ async def performance(
         "outbound": int(funnel_row[3] or 0) if funnel_row else 0,
         "avg_duration_s": int(funnel_row[4]) if funnel_row and funnel_row[4] else None,
         "outcomes": {str(k): int(v) for k, v in outcomes},
+        "business_outcomes": [
+            {"key": str(k), "source": str(src), "calls": int(n)} for k, src, n in by_business
+        ],
         "busiest_hours_ist": [hours[h] for h in range(24)],
     }
 
@@ -177,5 +208,7 @@ __all__ = [
     "IST_STARTED_AT_SQL",
     "IST_TODAY_SQL",
     "IST_ZONE",
+    "OUTCOME_GROUP_SQL",
+    "OUTCOME_SOURCE_SQL",
     "performance",
 ]

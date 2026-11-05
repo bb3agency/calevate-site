@@ -24,6 +24,9 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.insights.detection import withheld_topics
+from apps.api.tenancy.business_copy import capabilities_for
+
 #: How long after the account is created the list shows with no evidence at all.
 FIRST_DAY: Final = timedelta(hours=24)
 #: How far back a call counts as a reason to show the list again.
@@ -107,9 +110,13 @@ async def setup_nudges(
     if dismissed_at is not None and dismissed_at > since:
         since = dismissed_at
     params = {"tid": tenant_id, "since": since}
+    # A gap on a topic this business cannot have (filed before its capability profile) asks
+    # a common question, never for an address or a price list it does not have.
+    withheld = withheld_topics(await capabilities_for(session, tenant_id))
     by_step: dict[str, int] = {}
     for topic, calls in (await session.execute(text(_GAP_CALLS_SQL), params)).all():
-        step = GAP_TOPIC_STEP.get(str(topic), _FALLBACK_STEP)
+        key = str(topic)
+        step = _FALLBACK_STEP if key in withheld else GAP_TOPIC_STEP.get(key, _FALLBACK_STEP)
         by_step[step] = by_step.get(step, 0) + int(calls)
     nudges = [
         Nudge(step=step, message=_gap_message(step, calls), cause="unanswered_questions")

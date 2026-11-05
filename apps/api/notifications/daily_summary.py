@@ -19,7 +19,7 @@ connect; the owner's own test calls left out; leads are the people who became a 
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Final
@@ -36,6 +36,7 @@ from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.errors import ProblemError
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.performance import CONNECTED_SQL
+from apps.api.tenancy.caller_words import CallerWords, caller_words_for
 from apps.workers.redaction import redact
 
 #: Hot leads named in the email.
@@ -65,6 +66,8 @@ class DailySummary:
     spent_inr: Decimal
     per_lead_inr: Decimal | None
     follow_ups_waiting: int
+    #: What this business calls a lead; the platform's words until it is judged.
+    words: CallerWords = field(default_factory=CallerWords)
 
     @property
     def dashboard_url(self) -> str:
@@ -140,6 +143,7 @@ async def build_summary(session: AsyncSession, *, tenant_id: UUID, day: date) ->
         spent_inr=spent,
         per_lead_inr=per_unit(spent, int(leads)),
         follow_ups_waiting=follow_ups,
+        words=await caller_words_for(session, tenant_id),
     )
 
 
@@ -161,29 +165,35 @@ def _count(n: int, word: str) -> str:
 
 
 def email_subject(summary: DailySummary) -> str:
-    return (
-        f"Today: {_count(summary.answered, 'call')} answered, {_count(summary.leads, 'new lead')}"
-    )
+    new_lead = summary.words.new_lead
+    return f"Today: {_count(summary.answered, 'call')} answered, {_count(summary.leads, new_lead)}"
 
 
 def email_lines(summary: DailySummary) -> list[str]:
+    hot = "hot" if summary.words.sells is not False else "most interested"
     return [
         f"{_count(summary.answered, 'call')} answered and {summary.missed} missed today.",
-        f"{_count(summary.leads, 'new lead')}, {summary.hot_leads} of them hot.",
+        f"{_count(summary.leads, summary.words.new_lead)}, {summary.hot_leads} of them {hot}.",
         f"{_count(summary.follow_ups_waiting, 'call-back')} waiting for you.",
     ]
 
 
 def email_facts(summary: DailySummary) -> list[tuple[str, str]]:
+    words = summary.words
     facts = [
         ("Spent today", display_inr(summary.spent_inr)),
         (
-            "Cost per lead today",
-            display_inr(summary.per_lead_inr) if summary.per_lead_inr is not None else "No leads",
+            f"Cost per {words.lead} today",
+            display_inr(summary.per_lead_inr)
+            if summary.per_lead_inr is not None
+            else f"No {words.lead}s",
         ),
     ]
     facts += [
-        ("Hot lead", f"{lead.name or 'Name not captured'} ({lead.phone_masked})")
+        (
+            words.hot_lead.capitalize(),
+            f"{lead.name or 'Name not captured'} ({lead.phone_masked})",
+        )
         for lead in summary.top_hot
     ]
     return facts

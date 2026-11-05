@@ -23,7 +23,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Final
+from typing import Any, Final, cast
 from uuid import UUID
 
 from sqlalchemy import text
@@ -43,6 +43,7 @@ from apps.api.analytics.schemas import (
     HeatmapMetric,
     HeatmapOut,
     MetricKey,
+    OutcomeSource,
     RangeOut,
     SpendWithheld,
     StatsMetricOut,
@@ -57,7 +58,12 @@ from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL
-from apps.api.crm.performance import CONNECTED_SQL, IST_ZONE
+from apps.api.crm.performance import (
+    CONNECTED_SQL,
+    IST_ZONE,
+    OUTCOME_GROUP_SQL,
+    OUTCOME_SOURCE_SQL,
+)
 
 #: A year and a leap day: the longest window a brush chart offers, and the ceiling that
 #: keeps every aggregate here inside one year of one account's rows.
@@ -227,6 +233,12 @@ async def heatmap(
 
 _AGENT_KEY: Final = "c.agent_id::text"
 _OUTCOME_KEY: Final = "COALESCE(c.outcome_tag, 'unread')"
+_GROUP_KEYS: Final[dict[str, str]] = {
+    "agent": _AGENT_KEY,
+    "outcome": _OUTCOME_KEY,
+    "business_outcome": OUTCOME_GROUP_SQL.format(platform=_OUTCOME_KEY),
+}
+_GROUP_SOURCES: Final[dict[str, str]] = {"business_outcome": OUTCOME_SOURCE_SQL}
 
 _DURATIONS_FROM = (
     "FROM calls c WHERE c.status = 'completed' AND c.duration_s IS NOT NULL "
@@ -237,17 +249,19 @@ _DURATIONS_FROM = (
 
 
 def _durations_totals_sql(group_by: str) -> str:
-    key = _AGENT_KEY if group_by == "agent" else _OUTCOME_KEY
+    key = _GROUP_KEYS[group_by]
+    source = _GROUP_SOURCES.get(group_by, "NULL")
     return (
         f"SELECT {key} AS key, count(*) AS n, "
         "percentile_disc(0.5) WITHIN GROUP (ORDER BY c.duration_s) AS median_s, "
-        "percentile_disc(0.9) WITHIN GROUP (ORDER BY c.duration_s) AS p90_s "
+        "percentile_disc(0.9) WITHIN GROUP (ORDER BY c.duration_s) AS p90_s, "
+        f"min({source}) AS source "
         f"{_DURATIONS_FROM} GROUP BY 1 ORDER BY 2 DESC, 1"
     )
 
 
 def _durations_bins_sql(group_by: str) -> str:
-    key = _AGENT_KEY if group_by == "agent" else _OUTCOME_KEY
+    key = _GROUP_KEYS[group_by]
     return (
         f"SELECT {key} AS key, LEAST(c.duration_s / :bin, :last_bin) AS bin, count(*) AS n "
         f"{_DURATIONS_FROM} GROUP BY 1, 2"
@@ -293,6 +307,9 @@ async def durations(
                 counts=per_key[str(r.key)],
                 median_s=int(r.median_s),
                 p90_s=int(r.p90_s),
+                outcome_source=(
+                    None if group_by == "agent" else cast(OutcomeSource, r.source or "platform")
+                ),
             )
             for r in shown
         ],

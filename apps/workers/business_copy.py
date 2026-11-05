@@ -401,6 +401,8 @@ _MAIN_LANGUAGE: Final = (
     "SELECT language_primary FROM agents WHERE deleted_at IS NULL "
     "GROUP BY language_primary ORDER BY count(*) DESC, min(created_at), language_primary LIMIT 1"
 )
+#: Before any agent exists, the business's own first language rather than the platform's.
+_PROFILE_LANGUAGE: Final = "SELECT languages[1] FROM business_profiles WHERE tenant_id = :tid"
 _PINNED: Final = (
     "SELECT question, text FROM kb_facts WHERE pinned AND removed_at IS NULL "
     "ORDER BY position NULLS LAST, created_at, id LIMIT :limit"
@@ -435,7 +437,11 @@ async def gather_inputs(tenant_id: UUID) -> Inputs:
     # words for a shop (D-722).
     owner_words, _ = await business_context(tenant_id, include_type=False)
     async with tenant_session(tenant_id) as session:
-        language = (await session.execute(text(_MAIN_LANGUAGE))).scalar() or STARTER_LANGUAGE
+        language = (
+            (await session.execute(text(_MAIN_LANGUAGE))).scalar()
+            or (await session.execute(text(_PROFILE_LANGUAGE), {"tid": tenant_id})).scalar()
+            or STARTER_LANGUAGE
+        )
         pinned = (await session.execute(text(_PINNED), {"limit": MAX_PINNED_FACTS})).all()
         agents = await agents_with_fields(session)
         gaps = (await session.execute(text(_OPEN_GAPS), {"limit": MAX_GAPS})).all()

@@ -599,21 +599,27 @@ async def read_state(session: AsyncSession) -> CopyState | None:
     )
 
 
-async def capabilities_for(session: AsyncSession, tenant_id: UUID) -> Capabilities:
-    """The account's judged capability profile, or `Capabilities.unknown()` when no run has
-    judged it yet (no copy, a copy from before prompt version 4, or one that no longer reads).
-
-    The one backend door for every consumer. UNKNOWN RULE: a capability whose `applies` is
-    None means "keep today's behaviour"; only False withdraws anything. Filtered on
-    `tenant_id` as well as RLS, so an operator's session scoped to the tenant reads the same.
-    """
+async def copy_for(session: AsyncSession, tenant_id: UUID) -> GeneratedCopy | None:
+    """The account's stored copy, or None before the first run (or for a row a past shape no
+    longer reads). Filtered on `tenant_id` as well as RLS, so an operator's session scoped to
+    the tenant reads the same."""
     raw = (
         await session.execute(
             text("SELECT generated FROM business_copies WHERE tenant_id = :tid"),
             {"tid": tenant_id},
         )
     ).scalar()
-    copy = parse_stored(raw)
+    return parse_stored(raw)
+
+
+async def capabilities_for(session: AsyncSession, tenant_id: UUID) -> Capabilities:
+    """The account's judged capability profile, or `Capabilities.unknown()` when no run has
+    judged it yet (no copy, a copy from before prompt version 4, or one that no longer reads).
+
+    The one backend door for every consumer. UNKNOWN RULE: a capability whose `applies` is
+    None means "keep today's behaviour"; only False withdraws anything.
+    """
+    copy = await copy_for(session, tenant_id)
     if copy is None or copy.capabilities is None:
         return Capabilities.unknown()
     return copy.capabilities
@@ -681,6 +687,7 @@ __all__ = [
     "capabilities_for",
     "capability_problems",
     "claim_is_live",
+    "copy_for",
     "copy_problems",
     "health_allowed",
     "health_words_problem",

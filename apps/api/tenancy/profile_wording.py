@@ -196,6 +196,17 @@ async def maybe_write_profile_wording(session: AsyncSession, *, tenant_id: UUID)
     return known is not None and await _queue(session, tenant_id=tenant_id, known=known)
 
 
+async def stored_wording(session: AsyncSession, *, tenant_id: UUID) -> ProfileWording:
+    """The wording on file, `NEUTRAL` before any draft; a pure read that queues nothing, for
+    the prompt compiler and other server reads (`read_wording` is the screens' read)."""
+    raw = (
+        await session.execute(
+            text("SELECT profile_wording FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+        )
+    ).scalar_one_or_none()
+    return _from_row(raw)[0]
+
+
 async def read_wording(session: AsyncSession, *, tenant_id: UUID) -> ProfileWording:
     """This business's wording, `NEUTRAL` until its draft lands.
 
@@ -226,5 +237,6 @@ __all__ = [
     "clean_wording",
     "maybe_write_profile_wording",
     "read_wording",
+    "stored_wording",
     "wording_to_json",
 ]

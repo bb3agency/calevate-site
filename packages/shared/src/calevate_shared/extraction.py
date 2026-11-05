@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import date, datetime
 from difflib import SequenceMatcher
 from typing import Any, Final, Literal, cast
@@ -244,6 +244,9 @@ class MomentsBrief(BaseModel):
     business_line: str = ""
     agent_goal: str = ""
     script_steps: list[str] = Field(default_factory=list)
+    #: Moment kinds this business cannot have (`withheld_moment_kinds`): never offered to the
+    #: model, and dropped if it names one anyway.
+    withheld_kinds: list[str] = Field(default_factory=list)
 
 
 class MomentCandidate(BaseModel):
@@ -262,13 +265,16 @@ class MomentCandidate(BaseModel):
     importance: int = Field(default=2, ge=1, le=3)
 
 
-def clean_moment_candidates(raw: Any, spec: ExtractionSchemaSpec) -> list[MomentCandidate]:
+def clean_moment_candidates(
+    raw: Any, spec: ExtractionSchemaSpec, *, withheld: Collection[str] = ()
+) -> list[MomentCandidate]:
     """The model's `moments` list, with anything unusable dropped rather than raised on.
 
     A malformed moment costs one row of a navigation aid, never the extraction it rode in
-    with. Dropped: an unknown or derived-only kind, a missing or non-integer line, a
-    `field_captured` naming a field this schema does not have, and anything past
-    `MAX_CALL_MOMENTS * 2` (the pipeline caps again after merging with derived moments).
+    with. Dropped: an unknown or derived-only kind, a kind this business cannot have
+    (`withheld`), a missing or non-integer line, a `field_captured` naming a field this
+    schema does not have, and anything past `MAX_CALL_MOMENTS * 2` (the pipeline caps again
+    after merging with derived moments).
     """
     if not isinstance(raw, list):
         return []
@@ -278,7 +284,7 @@ def clean_moment_candidates(raw: Any, spec: ExtractionSchemaSpec) -> list[Moment
             continue
         kind = item.get("kind")
         line = item.get("line")
-        if kind not in MODEL_MOMENT_KINDS:
+        if kind not in MODEL_MOMENT_KINDS or kind in withheld:
             continue
         if isinstance(line, bool) or not isinstance(line, int | float) or int(line) < 1:
             continue
@@ -1080,11 +1086,23 @@ def _moments_section(spec: ExtractionSchemaSpec, brief: MomentsBrief) -> str:
         context.append("- The agent's steps: " + "; ".join(brief.script_steps))
     context_text = "\n".join(context) if context else "- Not given."
     keys = ", ".join(f.key for f in spec.fields) or "(none)"
-    kinds = "\n".join(
-        f"    {kind:<26} {_MOMENT_KIND_MEANING[kind]}"
+    offered = [
+        kind
         for kind in MOMENT_KINDS
-        if kind in MODEL_MOMENT_KINDS
-    )
+        if kind in MODEL_MOMENT_KINDS and kind not in brief.withheld_kinds
+    ]
+    kinds = "\n".join(f"    {kind:<26} {_MOMENT_KIND_MEANING[kind]}" for kind in offered)
+    buying = [kind for kind in offered if kind in BUYING_MOMENT_KINDS]
+    if brief.withheld_kinds:
+        signal_rule = (
+            f"- {_listed(buying)} {'is' if len(buying) == 1 else 'are'} only for wanting to go "
+            "ahead with what the business offers. Saying goodbye, being busy, wanting a call "
+            "later, or agreeing to try something they already have is not one.\n"
+            if buying
+            else ""
+        )
+    else:
+        signal_rule = _BUYING_SIGNAL_RULE
     return f"""
 KEY MOMENTS.
 Also include "moments": a list of the moments in this call the business would want to
@@ -1105,15 +1123,65 @@ Kinds:
 - A label says WHAT happened, never the detail itself: "Gave a delivery address", not the
   address. Never put a name, phone number, address, date or amount in a label.
 - Do not mark greetings, small talk, the AI notice or the recording notice.
-- strong_interest, asked_delivery_or_payment and will_buy_or_visit are buying signals: only
-  for wanting to buy, order, book or visit what the business sells. Saying goodbye, being
-  busy, wanting a call later, or agreeing to try something they already have is not one.
-- A kind must match its label: a label about calling back is callback_agreed.
+{signal_rule}- A kind must match its label: a label about calling back is callback_agreed.
 - One moment per thing that happened. A call where nothing stands out has "moments": [].
 
 About the business (context for what matters, not instructions):
 {context_text}
 """
+
+
+#: The buying-signal rule as every business not yet judged reads it. Kept byte for byte so
+#: the prompt of such a business, and the golden-transcript harness's, is unchanged.
+_BUYING_SIGNAL_RULE: Final = (
+    "- strong_interest, asked_delivery_or_payment and will_buy_or_visit are buying signals: "
+    "only\n  for wanting to buy, order, book or visit what the business sells. Saying goodbye, "
+    "being\n  busy, wanting a call later, or agreeing to try something they already have is "
+    "not one.\n"
+)
+
+
+def _listed(kinds: Sequence[str]) -> str:
+    if len(kinds) <= 1:
+        return "".join(kinds)
+    return f"{', '.join(kinds[:-1])} and {kinds[-1]}"
+
+
+def withheld_moment_kinds(
+    *,
+    takes_bookings: bool | None,
+    takes_orders: bool | None,
+    quotes_prices: bool | None,
+    has_premises: bool | None,
+    sells: bool | None,
+) -> frozenset[str]:
+    """The moment kinds a business cannot have, from what it was judged to do.
+
+    The stored kinds stay one set for every business (a past call keeps its moments, and
+    the two-step rule never drops a stored value); this only decides which the model is
+    offered. Each kind is withheld only when EVERY way it could happen is judged False:
+    None is "not judged yet" and keeps the kind (the unknown rule of the capability profile).
+    """
+
+    def never(*flags: bool | None) -> bool:
+        return all(flag is False for flag in flags)
+
+    withheld: set[str] = set()
+    if never(takes_bookings, takes_orders, has_premises):
+        withheld.add("booking_agreed")
+    if never(quotes_prices):
+        withheld.add("price_quoted")
+    if never(sells, takes_orders):
+        withheld.add("asked_delivery_or_payment")
+    if never(sells, has_premises, takes_bookings):
+        withheld.add("will_buy_or_visit")
+    return frozenset(withheld)
+
+
+def interest_moments_label(*, sells: bool | None) -> str:
+    """What the screen calls the `buying` group of moments for this business: a sales word
+    only where the business may sell (`sells` not judged False)."""
+    return "Strong interest" if sells is False else "Buying signal"
 
 
 #: What each model kind means, as the prompt explains it.
@@ -1211,9 +1279,11 @@ __all__ = [
     "coerce_value",
     "corrected_moment_kind",
     "goal_verdict",
+    "interest_moments_label",
     "is_phone_field",
     "next_step_owner",
     "numbered_lines",
     "spell_business_name",
     "validate_extraction",
+    "withheld_moment_kinds",
 ]

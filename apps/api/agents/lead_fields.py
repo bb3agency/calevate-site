@@ -1,5 +1,5 @@
 """The lead details a business captures: the fixed core, its business fields, and the one
-AI draft a custom business gets (founder decision 15, 10 Oct 2026).
+AI draft every business gets (founder decision 15, 10 Oct 2026; every type since 5 Nov 2026).
 
 Three sources can fill an agent's business fields, and every one ends as an ordinary
 `extraction_schemas` version written by `extraction_routes.write_schema`, so history and
@@ -8,11 +8,14 @@ Three sources can fill an agent's business fields, and every one ends as an ordi
 * **A known business type's standard set** (`scripts/seed.VERTICAL_TEMPLATES`), at account
   creation, at agent creation, or when an operator moves the account to another type and
   chooses to replace the fields (`replace_business_fields`; never as a side effect of the
-  type change itself).
-* **The AI draft**, for a custom business only: drafted ONCE by a worker
+  type change itself). Since 5 Nov 2026 it is only the starting point and the draft's seed:
+  two businesses of one type rarely need the same details (founder: "make everything that
+  matters dynamic").
+* **The AI draft**, for every business: drafted ONCE by a worker
   (`apps/workers/lead_fields_draft.py`) from the business's own details, kept on
   `lead_field_drafts`, reviewed by the owner field by field (D-821), and the kept fields are
-  written onto every agent that has no business fields yet. It is
+  written onto every agent whose business fields are still empty or still exactly its
+  type's standard set (`untouched`): an owner's own edit is never overwritten (D-715). It is
   never redrafted; `UNIQUE(tenant_id)` makes a second draft unrepresentable.
 * **The client's own edits**, through the per-agent editor, at any time.
 
@@ -118,14 +121,12 @@ async def vertical_of(session: AsyncSession, *, tenant_id: UUID) -> str | None:
 async def starting_business_fields(
     session: AsyncSession, *, tenant_id: UUID, vertical: str | None
 ) -> list[ExtractionField]:
-    """What a NEW agent of this business starts with: its type's standard set, or — for a
-    custom business whose owner kept some of its draft — the kept set. Never a redraft."""
-    if has_standard_set(vertical):
-        return standard_fields(vertical)
+    """What a NEW agent of this business starts with: what its owner kept of its draft, else
+    its type's standard set. Never a redraft."""
     draft = await read_draft(session, tenant_id=tenant_id)
     if draft is not None and draft.status == "done" and draft.reviewed and draft.fields:
         return draft.fields
-    return standard_fields(CUSTOM)
+    return standard_fields(vertical)
 
 
 async def has_business_fields(
@@ -142,21 +143,11 @@ async def has_business_fields(
 async def request_draft(
     session: AsyncSession, *, tenant_id: UUID, requested_by: UUID | None
 ) -> Draft:
-    """Queue the one AI draft for a custom business, in the caller's transaction.
+    """Queue the one AI draft for this business, in the caller's transaction.
 
     Idempotent while a draft is queued or running (the same row is returned). A finished
     draft is never redrafted; a failed one produced nothing and is queued again.
     """
-    vertical = await vertical_of(session, tenant_id=tenant_id)
-    if has_standard_set(vertical):
-        raise ProblemError.business_rule(
-            "lead_fields_draft_not_custom",
-            (
-                f"This business is set up as {business_type_label(vertical)}, which has its "
-                "own standard lead details. Drafting is for businesses set up as "
-                "'Something else'."
-            ),
-        )
     existing = await read_draft(session, tenant_id=tenant_id)
     if existing is not None and existing.status in ("queued", "running"):
         return existing
@@ -199,14 +190,12 @@ async def request_draft(
 async def maybe_request_draft(
     session: AsyncSession, *, tenant_id: UUID, requested_by: UUID | None
 ) -> bool:
-    """Queue the draft the first time a custom business says what it sells.
+    """Queue the draft the first time a business says what it offers.
 
-    Called after a business-profile save. Does nothing for a known type, for a business
-    that already has a draft row in any state, or before any service is on file — a draft
-    made from a name alone would be a guess. Returns whether one was queued.
+    Called after a business-profile save. Does nothing for a business that already has a
+    draft row in any state, or before any service is on file — a draft made from a name
+    alone would be a guess. Returns whether one was queued.
     """
-    if has_standard_set(await vertical_of(session, tenant_id=tenant_id)):
-        return False
     if await read_draft(session, tenant_id=tenant_id) is not None:
         return False
     services = (
@@ -231,9 +220,10 @@ class Reviewed:
 
 async def review_draft(session: AsyncSession, *, tenant_id: UUID, keep: list[str]) -> Reviewed:
     """The owner's review of the finished draft (D-821): the fields whose keys are in `keep`
-    are written onto every agent that has no business fields of its own yet, and become the
-    set a new agent starts with; the rest are dropped. `keep=[]` discards the draft. Once,
-    under a row lock: a second review is refused, and the draft is never redrafted.
+    are written onto every agent whose business fields are empty or still its type's
+    untouched standard set, and become the set a new agent starts with; the rest are
+    dropped. `keep=[]` discards the draft. Once, under a row lock: a second review is
+    refused, and the draft is never redrafted.
     """
     row = (
         await session.execute(
@@ -255,7 +245,12 @@ async def review_draft(session: AsyncSession, *, tenant_id: UUID, keep: list[str
         )
     wanted = set(keep)
     kept = [f for f in business_only(row[1] or []) if f.key in wanted]
-    written = await replace_business_fields(session, fields=kept, only_empty=True) if kept else []
+    seed = standard_fields(await vertical_of(session, tenant_id=tenant_id))
+    written = (
+        await replace_business_fields(session, fields=kept, only_empty=True, untouched=seed)
+        if kept
+        else []
+    )
     await session.execute(
         text(
             "UPDATE lead_field_drafts SET reviewed_at = now(), fields = CAST(:fields AS jsonb), "
@@ -293,12 +288,14 @@ async def replace_business_fields(
     fields: list[ExtractionField],
     agent_ids: list[UUID] | None = None,
     only_empty: bool = False,
+    untouched: list[ExtractionField] | None = None,
 ) -> list[AgentWrite]:
     """Write `fields` as the business fields of this tenant's agents (RLS scopes them).
 
     `agent_ids=None` means every agent that is not deleted. `only_empty` skips an agent
     that already has business fields of its own — how a finished draft lands without
-    overwriting anything a client already chose. Every write is a new schema version;
+    overwriting anything a client already chose — unless they are exactly `untouched`
+    (the set the platform wrote, which nobody chose). Every write is a new schema version;
     earlier versions and the values captured under them are untouched.
     """
     validate_fields(fields)
@@ -313,13 +310,18 @@ async def replace_business_fields(
         agent_id = UUID(str(row[0]))
         if wanted is not None and agent_id not in wanted:
             continue
-        if only_empty and business_only(row[1] or []):
+        own = business_only(row[1] or [])
+        if only_empty and own and not _same_fields(own, untouched):
             continue
         result = await write_schema(session, agent_id=agent_id, fields=fields)
         written.append(
             AgentWrite(agent_id=agent_id, version=result.version, changed=result.changed)
         )
     return written
+
+
+def _same_fields(own: list[ExtractionField], seed: list[ExtractionField] | None) -> bool:
+    return seed is not None and [f.model_dump() for f in own] == [f.model_dump() for f in seed]
 
 
 async def refresh_field_reason(

@@ -39,7 +39,7 @@ from uuid import UUID
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
-from calevate_shared.extraction import spell_business_name
+from calevate_shared.extraction import DEFAULT_EXTRACTION_LANGUAGE, spell_business_name
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,6 +56,7 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.integrations import service as integrations
+from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
 from apps.workers import call_language
 from apps.workers.chat import TokenUsage
 from apps.workers.fleet_walk import WalkBudget, resumed_walk
@@ -251,7 +252,8 @@ async def translate_call(
         row = (
             await session.execute(
                 text(
-                    "SELECT a.language_primary, c.summary, c.summary_local, "
+                    f"SELECT COALESCE(a.language_primary, {BUSINESS_LANGUAGE_SQL}), "
+                    "c.summary, c.summary_local, "
                     "(SELECT o.name FROM organizations o WHERE o.id = c.tenant_id) "
                     "FROM calls c JOIN agents a ON a.id = c.agent_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -271,7 +273,7 @@ async def translate_call(
     if row is None:
         return "missing"
     language = call_language.call_language(
-        [str(t[1]) for t in turn_rows], agent_language=str(row[0] or "te-IN")
+        [str(t[1]) for t in turn_rows], agent_language=str(row[0] or DEFAULT_EXTRACTION_LANGUAGE)
     )
     pending = (
         call_language.untranslated_turns(

@@ -23,11 +23,13 @@ from calevate_shared.calling_window import CALLING_HOURS_RULE, IST
 from calevate_shared.cut_off import likely_cut_off_rows
 from calevate_shared.events import CallInsights, CallStatus, CallTimeline
 from calevate_shared.extraction import (
+    DEFAULT_EXTRACTION_LANGUAGE,
     MOMENT_KINDS,
     ExtractionField,
     OutcomeTag,
     corrected_moment_kind,
     goal_verdict,
+    interest_moments_label,
     is_phone_field,
     next_step_owner,
 )
@@ -87,6 +89,8 @@ from apps.api.db.like import contains_pattern, suffix_pattern
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import session_tenant
 from apps.api.db.transition import transition_status
+from apps.api.tenancy.business_copy import capabilities_for
+from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
 from apps.api.tenancy.core_labels import core_labels
 
 # The SAME pass that produced `text_redacted` — see `redacted_summary`. Imported at
@@ -588,7 +592,8 @@ async def get_call(
                 f"{_CALLBACK_COLUMNS}, "
                 "c.summary_local, c.summary_language, c.summary_source, c.next_step, "
                 "c.callback_requested, c.translation_state, "
-                f"{_LEAD_NAME_COLUMN}, a.language_primary, c.engine_quality, c.engine_call_id, "
+                f"{_LEAD_NAME_COLUMN}, COALESCE(a.language_primary, {BUSINESS_LANGUAGE_SQL}), "
+                "c.engine_quality, c.engine_call_id, "
                 "c.caller_id_hidden, c.forwarding_test_id IS NOT NULL, c.forwarded_to_phone, "
                 "c.business_outcome, c.business_outcome_label, c.not_placed_reason, "
                 "c.follow_up_state, a.business_outcomes, c.engine_timeline, c.insights, "
@@ -596,7 +601,7 @@ async def get_call(
                 "cb.source_execution_id, cb.next_attempt_at, "
                 "c.next_step_by, c.goal_reason, c.goal_reached, "
                 "(SELECT g.goal FROM campaigns g WHERE g.id = c.campaign_id), "
-                f"{_LIST_NAME_COLUMN} "
+                f"{_LIST_NAME_COLUMN}, c.tenant_id "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
                 "WHERE c.id = :cid"
             ),
@@ -747,6 +752,9 @@ async def get_call(
             CallMistakeOut(kind=m.kind, label=m.label, instead=m.instead, turn_idx=m.turn_idx)
             for m in await read_call_mistakes(session, call_id)
         ],
+        interest_moments_label=interest_moments_label(
+            sells=(await capabilities_for(session, row[51])).sells.applies
+        ),
         moments=_moments_out(
             field_backed(
                 extraction[2] if extraction else None,
@@ -768,7 +776,9 @@ async def get_call(
 def _call_language(turns: Sequence[Any], *, agent_language: str | None) -> str:
     """The call's language tag, by `workers/call_language`'s rule. It reads scripts, not
     words, so the raw and the redacted text give the same answer."""
-    return call_language([str(t[2]) for t in turns], agent_language=agent_language or "te-IN")
+    return call_language(
+        [str(t[2]) for t in turns], agent_language=agent_language or DEFAULT_EXTRACTION_LANGUAGE
+    )
 
 
 def _moments_out(stored: Any, *, raw: bool) -> list[CallMomentOut]:

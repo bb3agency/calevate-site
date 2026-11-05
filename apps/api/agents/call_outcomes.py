@@ -20,6 +20,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.business_outcomes import (
+    PAST_STARTING_OUTCOMES,
     STARTING_OUTCOMES,
     BusinessOutcome,
     LeadMove,
@@ -68,13 +69,13 @@ def outcome_lead_move(raw: object, key: str | None) -> LeadMove | None:
 
     Read from the agent's list as it stands, not stored on the call: the call keeps only the
     key and the label it was given. A key the list no longer has is looked up in
-    `STARTING_OUTCOMES`, because a call read before the agent's draft landed carries one of
-    those keys and the draft replaced the list under it. A key on neither list is None, never
-    a guess.
+    `STARTING_OUTCOMES` (and the earlier starting set), because a call read before the
+    agent's draft landed carries one of those keys and the draft replaced the list under it.
+    A key on none of the lists is None, never a guess.
     """
     if not key:
         return None
-    for outcome in (*outcomes_in_use(raw)[0], *STARTING_OUTCOMES):
+    for outcome in (*outcomes_in_use(raw)[0], *STARTING_OUTCOMES, *PAST_STARTING_OUTCOMES):
         if outcome.key == key:
             return outcome.lead_status
     return None

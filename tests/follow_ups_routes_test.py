@@ -249,9 +249,7 @@ async def test_the_starters_are_filled_in_for_the_account() -> None:
             "call_new_leads",
             "qualify_new_leads",
             "missed_call_callback",
-            "appointment_reminder",
-            "payment_reminder",
-        ]
+        ], "no agent captures a date, so no reminder is offered"
         qualify = found[1]
         assert set(qualify["needs"]) == {"outbound_agent", "whatsapp_template"}
         made = await _create(

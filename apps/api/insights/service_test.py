@@ -262,7 +262,7 @@ async def test_two_calls_take_the_aggregate_locks_in_one_order(
     until the retry.
     """
     tenant_id, agent_id = await _tenant()
-    monkeypatch.setattr(detection, "detect_gaps", lambda _turns: _gaps_for(_MANY_TOPICS))
+    monkeypatch.setattr(detection, "detect_gaps", lambda _turns, **_: _gaps_for(_MANY_TOPICS))
     call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
 
     recorded = await _aggregate_lock_order(

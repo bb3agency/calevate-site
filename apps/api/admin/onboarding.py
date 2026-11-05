@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.db.session import tenant_session
 from apps.api.tenancy.business_profile import (
+    account_needs_address,
     account_needs_contact,
     go_live_blockers,
     load_profile,
@@ -73,8 +74,11 @@ async def unfinished_onboardings(directory: AsyncSession) -> list[UnfinishedOnbo
             profile = await load_profile(scoped, tenant_id=tenant_id)
             status = await owner_status(scoped)
             needs_contact = await account_needs_contact(scoped)
+            needs_address = await account_needs_address(scoped, tenant_id=tenant_id)
         owner = status.owner_present
-        blockers = tuple(go_live_blockers(profile, needs_contact=needs_contact))
+        blockers = tuple(
+            go_live_blockers(profile, needs_contact=needs_contact, needs_address=needs_address)
+        )
         if onboarding_finished(owner_present=owner, blockers=blockers):
             continue
         unfinished.append(

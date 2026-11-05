@@ -734,7 +734,7 @@ async def test_an_unsaved_rule_ticks_every_positive_outcome_the_agent_has_now() 
     async with tenant_session(t.tenant_id) as session:
         fresh = await service.read_rule(session, agent_id=t.agent_id)
     assert not fresh.saved
-    assert set(fresh.rule.on_outcomes) == {"wants_to_buy", "interested"}, (
+    assert set(fresh.rule.on_outcomes) == {"interested"}, (
         "a new agent reads the starting set, and its positive outcomes are ticked"
     )
 

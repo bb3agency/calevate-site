@@ -115,7 +115,7 @@ class LeadFieldsOut(_Out):
     standard_fields: list[ExtractionField]
     has_standard_set: bool
     draft: LeadFieldsDraftOut | None
-    #: May a draft be queued now: a custom business with no draft, or a failed one.
+    #: May a draft be queued now: no draft yet, or a failed one. Every business type may.
     can_draft: bool
     agents: list[LeadFieldsAgentOut]
 
@@ -169,7 +169,7 @@ async def _render(session: AsyncSession, *, tenant_id: UUID) -> LeadFieldsOut:
         standard_fields=service.standard_fields(vertical) if standard else [],
         has_standard_set=standard,
         draft=_draft_out(draft),
-        can_draft=not standard and (draft is None or draft.status == "failed"),
+        can_draft=draft is None or draft.status == "failed",
         agents=[
             LeadFieldsAgentOut(
                 id=a["id"],

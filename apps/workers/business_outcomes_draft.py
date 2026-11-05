@@ -54,6 +54,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
+from apps.api.tenancy.business_copy import Capabilities, capabilities_for
 from apps.workers.lead_fields_draft import business_context
 from apps.workers.pipeline import load_moments_brief
 from apps.workers.redaction import redact
@@ -69,24 +70,81 @@ DRAFT_MAX_TOKENS: Final = 1200
 #: The description handed to the model, in characters.
 MAX_CONTEXT_CHARS: Final = 7000
 
-#: The instruction. English: the labels are what the owner reads on English screens.
-SYSTEM_PROMPT: Final = (
+_SYSTEM_OUTCOMES: Final = (
     "You name the ways a phone call can end for one small Indian business, as its owner "
     "would want calls sorted. Another system already records these on its own, so never "
     "propose them: the call was missed, the caller hung up early, a call back was booked, "
     "the call was handed to a person, the caller needs a person from the business. "
-    f"Propose between 3 and {MAX_BUSINESS_OUTCOMES} outcomes for the calls THIS agent "
-    "handles, chosen from what the business sells and what the agent is for. Include one "
-    "for a caller who wants to buy, order or book what this business offers, one for a "
-    "caller who is interested but did not decide, and one for a caller who is not "
-    "interested. For each give: label (2 to 4 plain English words an owner understands, "
+)
+_FORMAT: Final = (
+    "For each give: label (2 to 4 plain English words an owner understands, "
     f"at most {LABEL_MAX} characters), meaning (one sentence, at most {MEANING_MAX} "
-    "characters, saying what the caller said or did), and lead_status: hot only for a "
-    "caller ready to buy now, interested for a caller who wants or is considering what the "
-    "business offers, contacted for everything else. Do not invent products or services "
-    "the description does not mention. Name no company, brand or technology. "
+    "characters, saying what the caller said or did), and lead_status: "
+)
+_RULES: Final = (
+    "Do not invent products or services the description does not mention. "
+    "Name no company, brand or technology. "
     'Return ONLY JSON: {"outcomes": [{"label": str, "meaning": str, "lead_status": str}]}.'
 )
+
+
+def _going_ahead(caps: Capabilities) -> str | None:
+    """How a caller goes ahead with this business, from what it was judged to do; None when
+    it sells nothing. A capability not yet judged keeps its verb (the unknown rule)."""
+    if caps.sells.applies is False:
+        return None
+    verbs = [
+        verb
+        for verb, cap in (
+            ("buy", caps.sells),
+            ("order", caps.takes_orders),
+            ("book", caps.takes_bookings),
+        )
+        if cap.applies is not False
+    ]
+    if len(verbs) == 1:
+        return verbs[0]
+    return f"{', '.join(verbs[:-1])} or {verbs[-1]}"
+
+
+def system_prompt(caps: Capabilities) -> str:
+    """The instruction for one business. English: the labels are what the owner reads.
+
+    The positive outcome is phrased from what the business does with its callers: a shop's
+    is buying, a free app's is what its agent is for. Forcing "wants to buy" on a business
+    that sells nothing taught its owner that every helped caller was a lost sale."""
+    action = _going_ahead(caps)
+    if action is None:
+        aim = (
+            f"Propose between 3 and {MAX_BUSINESS_OUTCOMES} outcomes for the calls THIS agent "
+            "handles, chosen from what the business does for its callers and what the agent "
+            "is for. This business sells nothing to its callers: never propose buying, "
+            "ordering, booking or paying. Include one for a caller who reached what this "
+            "agent is for, named by that goal (for example, got the help they needed), one "
+            "for a caller who still needs help, and one for a caller who is not interested. "
+        )
+        ladder = (
+            "hot only for a caller ready to go ahead now with what the agent is for, "
+            "interested for a caller who wants it or is considering it, contacted for "
+            "everything else. "
+        )
+    else:
+        aim = (
+            f"Propose between 3 and {MAX_BUSINESS_OUTCOMES} outcomes for the calls THIS agent "
+            "handles, chosen from what the business sells and what the agent is for. Include "
+            f"one for a caller who wants to {action} what this business offers, one for a "
+            "caller who is interested but did not decide, and one for a caller who is not "
+            "interested. "
+        )
+        ladder = (
+            f"hot only for a caller ready to {action} now, interested for a caller who wants "
+            "or is considering what the business offers, contacted for everything else. "
+        )
+    return _SYSTEM_OUTCOMES + aim + _FORMAT + ladder + _RULES
+
+
+#: The instruction for a business not judged yet: today's wording.
+SYSTEM_PROMPT: Final = system_prompt(Capabilities.unknown())
 
 _DRAFT_SCHEMA: Final = {
     "type": "object",
@@ -250,10 +308,11 @@ async def _run(tenant_id: UUID, agent_id: UUID, *, name: str, direction: str) ->
     description = await agent_context(tenant_id, agent_id, name=name, direction=direction)
     async with tenant_session(tenant_id) as session:
         tenant_leg = await account_assist_leg(session)
+        caps = await capabilities_for(session, tenant_id)
     try:
         answer: JsonAnswer[list[BusinessOutcome]] = await ask_json(
             description,
-            SYSTEM_PROMPT,
+            system_prompt(caps),
             parse=_drafted,
             azure_format={
                 "type": "json_schema",
@@ -330,4 +389,5 @@ __all__ = [
     "agent_context",
     "draft_business_outcomes",
     "outcomes_from_model",
+    "system_prompt",
 ]
