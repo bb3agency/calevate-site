@@ -49,11 +49,6 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "multi-trade vocabulary that routes a caller's question to the business's own facts",
     ),
     (
-        "apps/api/insights/detection.py",
-        frozenset({"appointment"}),
-        "words that DETECT a booking topic in any trade's calls; the label shown is 'Bookings'",
-    ),
-    (
         "apps/api/agents/fix_guard.py",
         frozenset({"appointment"}),
         "words that DETECT a calendar action in any trade's test notes (a salon or a "
