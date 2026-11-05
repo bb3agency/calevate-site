@@ -404,7 +404,11 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "campaigns",
         "end for good; for now: campaign_pause; draft: campaign_delete",
     ),
-    AreaEntry("campaign_delete", "campaigns", "delete a draft; launched: campaign_archive"),
+    AreaEntry(
+        "campaign_delete",
+        "campaigns",
+        "delete a draft; end it: campaign_stop; put away: campaign_archive",
+    ),
     AreaEntry("campaign_archive", "campaigns", "put any campaign away, everything kept"),
     AreaEntry("campaign_restore", "campaigns", "bring an archived campaign back"),
     AreaEntry(

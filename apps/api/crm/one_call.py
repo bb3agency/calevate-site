@@ -45,6 +45,7 @@ from apps.api.crm.lead_dial import calling_hours_reason, place_call_back, place_
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
+    IdempotencyClaim,
     body_hash,
     claim_idempotency,
     complete_idempotency,
@@ -244,6 +245,23 @@ async def _lead_of_call(session: AsyncSession, call_id: UUID) -> tuple[UUID, UUI
     return UUID(str(row[0])), UUID(str(row[1]))
 
 
+async def _claim(
+    tenant_id: UUID, *, user_id: UUID | None, key: str, request_hash: str
+) -> IdempotencyClaim:
+    """The booking's claim, committed on its own before the work starts so a concurrent
+    repeat of the key is answered from it; the booking and its audit row then share the
+    request's session, one transaction (as `crm/swipe_routes._claim`)."""
+    async with tenant_session(tenant_id) as claim_session:
+        return await claim_idempotency(
+            claim_session,
+            scope=scope_key(tenant_id=tenant_id, user_id=user_id),
+            route=ONE_CALL_SCHEDULE_ROUTE,
+            method="POST",
+            key=key,
+            request_hash=request_hash,
+        )
+
+
 async def _call_later(
     session: AsyncSession,
     *,
@@ -258,15 +276,12 @@ async def _call_later(
     request's transaction, as `POST /v1/leads/{id}/callbacks` does."""
     assert request.at is not None
     swipe.check_schedule_time(request.at, now=datetime.now(UTC))
-    async with tenant_session(tenant_id) as claim_session:
-        claim = await claim_idempotency(
-            claim_session,
-            scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
-            route=ONE_CALL_SCHEDULE_ROUTE,
-            method="POST",
-            key=idempotency_key,
-            request_hash=body_hash(request.model_dump(mode="json")),
-        )
+    claim = await _claim(
+        tenant_id,
+        user_id=principal.user_id,
+        key=idempotency_key,
+        request_hash=body_hash(request.model_dump(mode="json")),
+    )
     if claim.state == "replay" and claim.response_payload:
         return OneCallOut.model_validate(claim.response_payload)
     try:

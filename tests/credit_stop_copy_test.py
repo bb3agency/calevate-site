@@ -227,9 +227,9 @@ WEB_CREDIT_REGIONS: tuple[tuple[str, str, str | None], ...] = (
     # anchors moved out of their `page.tsx` with the copy they name. The guard is re-aimed
     # rather than dropped, exactly as its own failure message instructs.
     (
-        "apps/web/src/app/c/[slug]/leads/CallControl.tsx",
-        'rule === "no_credits"',
-        'rule === "spend_cap"',
+        "apps/web/src/app/c/[slug]/make-a-call/MakeCallScreen.tsx",
+        "function Refusal(",
+        "function Booked(",
     ),
     ("apps/web/src/app/c/[slug]/campaigns/blockerCopy.tsx", "  no_credits: {", "  spend_cap: {"),
     # ⚠ WIDENED TO THE WHOLE FILE (D-577). It used to start at `result.stops_dialling` —
