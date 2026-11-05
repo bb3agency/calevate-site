@@ -147,6 +147,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "copilot_timed_out": "record",
     "copilot_confirm_unavailable": "record",
     "copilot_uploads_unavailable": "record",
+    # A config problem (no Gemini leg) that silently stops every agent's judgement: someone
+    # should look, but no call is affected.
+    "caller_help_unavailable": "attention",
     "copilot_attachments_unavailable": "record",
     "copilot_pdf_unavailable": "record",
     "recording_unavailable": "record",

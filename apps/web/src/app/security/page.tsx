@@ -188,9 +188,8 @@ export default function SecurityPage() {
                 and the account owner accepts the no-cold-calls pledge together with
                 our disclosure of how automated calls are placed and what we keep for
                 each one. Until both are in place every outbound dial is refused.
-                Outbound is still not something a new account switches on alone — the
-                number your calls go out from is arranged with us — but every gate in
-                front of it is one you can see and clear. Answering incoming calls is
+                The number your calls go out from is registered to your business, and
+                every gate in front of outbound calling is one you can see and clear. Answering incoming calls is
                 unaffected by any of it.
               </p>
             </div>
