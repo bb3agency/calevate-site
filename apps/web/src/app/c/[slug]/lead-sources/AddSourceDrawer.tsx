@@ -38,7 +38,9 @@ const KINDS = [
   {
     value: "push",
     label: "Portal or CRM",
-    hint: "IndiaMART, 99acres, MagicBricks, Housing.com, LeadSquared.",
+    // Neutral (G2-9): the portals themselves are the choices inside, so no business is shown
+    // another trade's portals as the example.
+    hint: "A portal or CRM that sends you enquiries.",
   },
 ] as const;
 type Kind = (typeof KINDS)[number]["value"];
