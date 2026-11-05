@@ -320,7 +320,7 @@ export function ContactEditor({
             type="button"
             aria-label="Dismiss"
             onClick={() => setNotice(null)}
-            className="rounded-sm text-ink-faint hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+            className={`press ${QUIET_ICON_BUTTON} -my-1.5`}
           >
             <X aria-hidden className="h-3.5 w-3.5" />
           </button>
@@ -419,7 +419,7 @@ function ContactTable({
   const columns = 4 + variables.length;
   return (
     <div>
-      <table className="w-full table-fixed text-left text-sm">
+      <table className="w-full text-left text-sm">
         <caption id={captionId} className="sr-only">
           Contacts and whether each will be called
         </caption>
@@ -428,12 +428,12 @@ function ContactTable({
             <th scope="col" className="px-3 py-2 font-medium">Phone</th>
             <th scope="col" className="hidden px-3 py-2 font-medium sm:table-cell">Name</th>
             {variables.map((key) => (
-              <th key={key} scope="col" className="hidden truncate px-3 py-2 font-medium md:table-cell">
+              <th key={key} scope="col" className="hidden px-3 py-2 font-medium [overflow-wrap:anywhere] md:table-cell">
                 {key}
               </th>
             ))}
             <th scope="col" className="px-3 py-2 font-medium">Status</th>
-            <th scope="col" className="w-20 px-1 py-2">
+            <th scope="col" className="w-20 px-1 py-2 touch:w-24">
               <span className="sr-only">Edit or remove</span>
             </th>
           </tr>
@@ -456,14 +456,14 @@ function ContactTable({
               </tr>
             ) : (
             <tr key={entry.id}>
-              <td className="truncate px-3 py-2">
+              <td className="px-3 py-2">
                 <MonoValue className="tabular-nums text-ink">
                   {status.kind === "invalid" ? entry.phone || "—" : formatPhone(status.e164)}
                 </MonoValue>
               </td>
-              <td className="hidden truncate px-3 py-2 text-ink-muted sm:table-cell">{entry.name || "—"}</td>
+              <td className="hidden px-3 py-2 text-ink-muted [overflow-wrap:anywhere] sm:table-cell">{entry.name || "—"}</td>
               {variables.map((key) => (
-                <td key={key} className="hidden truncate px-3 py-2 text-ink-muted md:table-cell">
+                <td key={key} className="hidden px-3 py-2 text-ink-muted [overflow-wrap:anywhere] md:table-cell">
                   {entry.vars[key] ?? ""}
                 </td>
               ))}

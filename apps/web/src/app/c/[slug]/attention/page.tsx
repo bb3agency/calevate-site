@@ -8,7 +8,7 @@ import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import { PageHeader } from "@/components/console/pageHeader";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ScrollRegion, Skeleton, formatCount } from "@/components/ui";
+import { ProblemNotice, RestrictionNote, SECONDARY_BUTTON, Skeleton, formatCount } from "@/components/ui";
 import { useAttention, type AttentionKind } from "@/lib/api/attention";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { BELL_ROWS, unseenAttention, useMarkNotificationsSeen, useNotifications } from "@/lib/api/notifications";
@@ -98,17 +98,18 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
           A filter only when there is more than one kind to choose between (D-655). */}
       {kinds.length > 1 && (
         <div role="group" aria-label="Queue summary">
-          <ScrollRegion label="Filter the queue" className="max-w-full">
-            <SegmentedControl
-              label="Show"
-              value={filter}
-              onValueChange={setFilter}
-              options={[
-                { value: ALL, label: "All", count: formatCount(data?.total ?? 0) },
-                ...kinds.map((kind) => ({ value: kind, label: KIND_COPY[kind].label, count: formatCount(countOf(kind)) })),
-              ]}
-            />
-          </ScrollRegion>
+          {/* SegmentedControl is its own scroll region; the edge shadow is the phone's cue
+              that more kinds sit past the edge, since its scrollbar is hidden. */}
+          <SegmentedControl
+            label="Show"
+            value={filter}
+            onValueChange={setFilter}
+            className="scroll-shadow-x"
+            options={[
+              { value: ALL, label: "All", count: formatCount(data?.total ?? 0) },
+              ...kinds.map((kind) => ({ value: kind, label: KIND_COPY[kind].label, count: formatCount(countOf(kind)) })),
+            ]}
+          />
         </div>
       )}
       {kinds.length === 1 && (

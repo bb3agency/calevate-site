@@ -203,7 +203,7 @@ export function CampaignResults({
               <li key={lead.id} className="relative flex items-center justify-between gap-3 py-2.5 touch:py-3">
                 <Link
                   href={href(`/c/${slug}/leads/${lead.id}`)}
-                  className="min-w-0 truncate text-body font-medium text-ink after:absolute after:inset-0 hover:underline focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
+                  className="min-w-0 text-body font-medium text-ink [overflow-wrap:anywhere] after:absolute after:inset-0 hover:underline focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
                 >
                   {lead.name?.trim() || "Unnamed lead"}
                 </Link>

@@ -132,6 +132,7 @@ export function useLeadRowKit({
     return (
       <Link
         href={href(`/c/${session.orgSlug}/calls/${lead.last_call_id}`)}
+        title={words}
         className={`line-clamp-2 rounded-sm hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${warn ? "text-warn" : ""}`}
       >
         {words}
