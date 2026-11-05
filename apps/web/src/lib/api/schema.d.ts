@@ -354,7 +354,7 @@ export interface paths {
         };
         /**
          * Client health overview — accounts about to churn or break, worst first
-         * @description Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT — this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.
+         * @description Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT — this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`. The board is computed by a background job every two minutes; `computed_at` says when. With no fresh board one request computes it and others get a retryable 503 `client_health_computing`.
          */
         get: operations["read_client_health_v1_admin_client_health_get"];
         put?: never;
@@ -19096,6 +19096,20 @@ export interface components {
             tenant_id: string;
             /** Unfiled */
             unfiled: number;
+        };
+        /**
+         * ClientHealthBoardOut
+         * @description The board, and when it was worked out. The worker recomputes it every
+         *     `health.BOARD_REFRESH_S`; one per request was a walk of every tenant per poll.
+         */
+        ClientHealthBoardOut: {
+            /** Accounts */
+            accounts: components["schemas"]["ClientHealthOut"][];
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
         };
         /**
          * ClientHealthOut
@@ -38481,7 +38495,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ClientHealthOut"][];
+                    "application/json": components["schemas"]["ClientHealthBoardOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

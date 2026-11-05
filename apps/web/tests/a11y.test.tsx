@@ -4407,7 +4407,7 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <ClientHealthPage />,
     routes: {
-      "/v1/admin/client-health": [
+      "/v1/admin/client-health": { computed_at: "2026-11-05T04:00:00Z", accounts: [
         {
           tenant_id: "t1",
           name: "Sri Traders",
@@ -4440,7 +4440,7 @@ const ADMIN_SCREENS: Screen[] = [
           spend_used_inr: "900.5000",
           spend_cap_inr: "1000.0000",
         },
-      ],
+      ] },
     },
   },
   {

@@ -24,7 +24,7 @@ import { apiRequest, type GrantSource, type Session } from "./client";
 import {
   CLIENT_HEALTH_PATH,
   CLIENT_HEALTH_QUERY_KEY,
-  type ClientHealth,
+  type ClientHealthBoard,
   type TenantHealth,
 } from "./clientHealth";
 // The wallet's query key only — no session, no request shaper. A tier change decides
@@ -558,15 +558,13 @@ export function useHeldTenants(): UseQueryResult<HeldTenant[]> {
  *
  * **Two minutes, not one.** The hold queue polls at sixty seconds because it is a shared
  * work list two operators race on. This is not: it is a judgement about the last SEVEN
- * DAYS, so nothing on it changes inside a minute, and it is materially more expensive —
- * the server walks each live tenant's own RLS session and `admin/health.py` records the
- * measurement (~6.5ms per account) rather than asserting it is cheap. Polling this as hard
- * as the queue would buy no freshness and cost real database time.
+ * DAYS, so nothing on it changes inside a minute, and a worker recomputes it every two
+ * minutes (`workers/client_health.py`), so polling faster buys no freshness.
  */
-export function useClientHealth(): UseQueryResult<ClientHealth[]> {
+export function useClientHealth(): UseQueryResult<ClientHealthBoard> {
   return useQuery({
     queryKey: CLIENT_HEALTH_QUERY_KEY,
-    queryFn: () => apiRequest<ClientHealth[]>(adminSession(), CLIENT_HEALTH_PATH),
+    queryFn: () => apiRequest<ClientHealthBoard>(adminSession(), CLIENT_HEALTH_PATH),
     refetchInterval: livePoll(120_000),
   });
 }

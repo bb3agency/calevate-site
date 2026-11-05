@@ -14675,6 +14675,30 @@
         "title": "ClientFilingOut",
         "type": "object"
       },
+      "ClientHealthBoardOut": {
+        "additionalProperties": false,
+        "description": "The board, and when it was worked out. The worker recomputes it every\n`health.BOARD_REFRESH_S`; one per request was a walk of every tenant per poll.",
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ClientHealthOut"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "computed_at",
+          "accounts"
+        ],
+        "title": "ClientHealthBoardOut",
+        "type": "object"
+      },
       "ClientHealthOut": {
         "additionalProperties": false,
         "description": "One line of the board. Accounts and their state \u2014 never a person, never a number\nanyone could be dialled on.",
@@ -66238,18 +66262,14 @@
     },
     "/v1/admin/client-health": {
       "get": {
-        "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.",
+        "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`. The board is computed by a background job every two minutes; `computed_at` says when. With no fresh board one request computes it and others get a retryable 503 `client_health_computing`.",
         "operationId": "read_client_health_v1_admin_client_health_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ClientHealthOut"
-                  },
-                  "title": "Response Read Client Health V1 Admin Client Health Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ClientHealthBoardOut"
                 }
               }
             },

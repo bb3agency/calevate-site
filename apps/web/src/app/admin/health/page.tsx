@@ -76,7 +76,7 @@ import { noFill } from "@/lib/copilot/types";
  */
 export default function ClientHealthPage() {
   const board = useClientHealth();
-  const rows = board.data ?? [];
+  const rows = board.data?.accounts ?? [];
   const breaking = rows.filter((row) => row.severity === "stop");
   // An account waiting only on its own client is listed but does not need us.
   const attention = rows.filter(needsUs);
@@ -139,7 +139,8 @@ export default function ClientHealthPage() {
       <PageHeader
         description={
           <>
-            Most broken first. Healthy clients are not listed.{" "}
+            Most broken first. Healthy clients are not listed.
+            {board.data ? ` Worked out ${formatIST(board.data.computed_at)}.` : ""}{" "}
             <InfoTip label="how this board works">
               <p>
                 Every signal is derived from the same rules that refuse the client&apos;s dial,

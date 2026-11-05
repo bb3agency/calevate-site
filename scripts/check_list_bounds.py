@@ -733,6 +733,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`minutes_left` is one row per voice rung (`billing/rates.VoiceTier`, two members), "
         "the only list on the summary."
     ),
+    "GET /v1/admin/tenants/{tenant_id}/wallet": BoundedByConstruction(
+        by="the client wallet summary itself (`GET /v1/billing/wallet`), read for a named "
+        "account: `minutes_left` is one row per voice rung."
+    ),
     "GET /v1/billing/wallet/topups": BoundedByConstruction(
         by=(
             "`billing/wallet.ATTEMPT_LIMIT`, applied inside `read_attempts`. It takes no "

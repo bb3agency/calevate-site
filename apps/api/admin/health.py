@@ -149,18 +149,24 @@ dropped the account at the bottom would be worse than a slow one — the whole p
 "you do not have to know which client to look at". What it does instead is say so:
 `WALK_BUDGET_S` is the point past which the walk is a problem an operator should hear
 about BEFORE a colleague reports a hanging console, and exceeding it logs the account
-count and the elapsed time. The fix when that line appears is the materialized
-`tenant_health` table `admin/service.py::tenant_overview` already names as the escape
-hatch. Building it now would be a cache in front of a query nobody has measured as slow.
+count and the elapsed time.
+
+THE BOARD IS COMPUTED OFF THE REQUEST. At 7.7k accounts a walk per console poll returned a
+500 (pool timeout after 107 s), so `workers/client_health.refresh_client_health` computes it
+every `BOARD_REFRESH_S` into Redis and the route serves that copy with its `computed_at`.
+Redis rather than a table: the board is a derived, disposable view (BACKEND-PATTERNS §4
+keeps Redis to what can be lost), and a lost copy is recomputed by the next tick. The
+per-client summary (`tenant_health` for one account) is still read live.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from time import perf_counter
-from typing import Final, Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -172,7 +178,9 @@ from apps.api.compliance.a2p_filing import filing_alarm_active, filing_status
 from apps.api.compliance.autodialer import enforcement_active
 from apps.api.compliance.service import account_dial_blockers, account_stopped_blocker
 from apps.api.compliance.trial_access import restricting_trial
+from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.redis import get_redis
 from apps.api.db.session import tenant_session
 from apps.api.legal.readiness import a2p_readiness_row
 from apps.workers.pipeline import PIPELINE_STALL_AFTER
@@ -708,7 +716,152 @@ async def read_account(directory: AsyncSession, *, tenant_id: UUID) -> Account |
     )
 
 
+#: Where the worker keeps the last computed board (`workers/client_health.refresh_client_health`).
+BOARD_KEY: Final = "calevate:admin:client_health:v1"
+#: How often the worker recomputes the board. The console polls on the same cadence.
+BOARD_REFRESH_S: Final = 120
+#: A board older than this is not served: the worker has stopped, and an old "nothing
+#: wrong" must not stand in for a current one. Three missed refreshes.
+BOARD_STALE_AFTER: Final = timedelta(seconds=BOARD_REFRESH_S * 3)
+#: Only one request computes the board when it is missing; others are told to try again.
+_BOARD_LOCK: Final = "calevate:admin:client_health:computing"
+_BOARD_LOCK_TTL_S: Final = 300
+
+
+@dataclass(frozen=True, slots=True)
+class Board:
+    rows: list[ClientHealth]
+    computed_at: datetime
+
+
+def _signal_json(signal: HealthSignal) -> dict[str, object]:
+    return {
+        "rule": signal.rule,
+        "severity": signal.severity,
+        "causes": list(signal.causes),
+        "count": signal.count,
+        "waiting_on": signal.waiting_on,
+    }
+
+
+def _row_json(row: ClientHealth) -> dict[str, object]:
+    return {
+        "tenant_id": str(row.tenant_id),
+        "name": row.name,
+        "slug": row.slug,
+        "plan_tier": row.plan_tier,
+        "status": row.status,
+        "severity": row.severity,
+        "signals": [_signal_json(s) for s in row.signals],
+        "volume": {
+            "calls_7d": row.volume.calls_7d,
+            "calls_prev_7d": row.volume.calls_prev_7d,
+            "basis": row.volume.basis,
+            "last_call_at": (
+                None if row.volume.last_call_at is None else row.volume.last_call_at.isoformat()
+            ),
+        },
+        "on_trial": row.on_trial,
+        # Strings, so NUMERIC money never passes through a float (hard rule 7).
+        "spend_used_inr": str(row.spend_used_inr),
+        "spend_cap_inr": None if row.spend_cap_inr is None else str(row.spend_cap_inr),
+    }
+
+
+def _row_of(raw: dict[str, Any]) -> ClientHealth:
+    volume = raw["volume"]
+    return ClientHealth(
+        tenant_id=UUID(raw["tenant_id"]),
+        name=raw["name"],
+        slug=raw["slug"],
+        plan_tier=raw["plan_tier"],
+        status=raw["status"],
+        severity=raw["severity"],
+        signals=tuple(
+            HealthSignal(
+                rule=s["rule"],
+                severity=s["severity"],
+                causes=tuple(s["causes"]),
+                count=s["count"],
+                waiting_on=s["waiting_on"],
+            )
+            for s in raw["signals"]
+        ),
+        volume=CallVolume(
+            calls_7d=int(volume["calls_7d"]),
+            calls_prev_7d=int(volume["calls_prev_7d"]),
+            basis=volume["basis"],
+            last_call_at=(
+                None
+                if volume["last_call_at"] is None
+                else datetime.fromisoformat(volume["last_call_at"])
+            ),
+        ),
+        on_trial=bool(raw["on_trial"]),
+        spend_used_inr=Decimal(raw["spend_used_inr"]),
+        spend_cap_inr=None if raw["spend_cap_inr"] is None else Decimal(raw["spend_cap_inr"]),
+    )
+
+
+async def store_board(board: Board) -> None:
+    payload = {
+        "computed_at": board.computed_at.isoformat(),
+        "rows": [_row_json(row) for row in board.rows],
+    }
+    await get_redis().set(BOARD_KEY, json.dumps(payload), ex=int(BOARD_STALE_AFTER.total_seconds()))
+
+
+async def read_board(*, now: datetime | None = None) -> Board | None:
+    """The last board the worker computed, or None when there is none fresh enough."""
+    raw = await get_redis().get(BOARD_KEY)
+    if raw is None:
+        return None
+    payload = json.loads(raw)
+    computed_at = datetime.fromisoformat(payload["computed_at"])
+    if (now or datetime.now(UTC)) - computed_at > BOARD_STALE_AFTER:
+        return None
+    return Board(rows=[_row_of(row) for row in payload["rows"]], computed_at=computed_at)
+
+
+async def refresh_board(directory: AsyncSession) -> Board:
+    """Compute the board and keep it. The worker calls this on `BOARD_REFRESH_S`."""
+    board = Board(rows=await compute_client_health(directory), computed_at=datetime.now(UTC))
+    await store_board(board)
+    return board
+
+
+async def client_health_board(directory: AsyncSession) -> Board:
+    """The board as the console serves it: the worker's copy, never a walk per request.
+
+    A walk per request was the per-poll cost that returned a 500 at 7.7k accounts. When no
+    fresh copy exists (the worker is stopped or just started), one request computes it under
+    a lock and every other is refused with a retryable problem rather than starting a walk
+    of its own."""
+    board = await read_board()
+    if board is not None:
+        return board
+    redis = get_redis()
+    if not await redis.set(_BOARD_LOCK, "1", nx=True, ex=_BOARD_LOCK_TTL_S):
+        raise ProblemError(
+            kind="transient",
+            code="client_health_computing",
+            title="The health board is being worked out",
+            detail="Another request is computing it now. Try again in a minute.",
+            remediation="Try again in a minute.",
+        )
+    try:
+        return await refresh_board(directory)
+    finally:
+        await redis.delete(_BOARD_LOCK)
+
+
 async def client_health(directory: AsyncSession) -> list[ClientHealth]:
+    """`client_health_board`'s rows: every live account with at least one signal, worst
+    first."""
+    return (await client_health_board(directory)).rows
+
+
+async def compute_client_health(directory: AsyncSession) -> list[ClientHealth]:
     """Every live account with at least one signal, worst first.
 
     `directory` must be an `admin_session()` — the only session that can enumerate
@@ -781,6 +934,9 @@ def _triage_order(row: ClientHealth) -> tuple[int, int, int, str]:
 
 
 __all__ = [
+    "BOARD_KEY",
+    "BOARD_REFRESH_S",
+    "BOARD_STALE_AFTER",
     "CAP_WARN_PCT",
     "CAUSE_OWNER",
     "TREND_BASELINE_MIN",
@@ -788,6 +944,7 @@ __all__ = [
     "WALK_BUDGET_S",
     "WINDOW_DAYS",
     "Account",
+    "Board",
     "CallBasis",
     "CallVolume",
     "ClientHealth",
@@ -796,5 +953,10 @@ __all__ = [
     "Severity",
     "cause_owner",
     "client_health",
+    "client_health_board",
+    "compute_client_health",
+    "read_board",
+    "refresh_board",
+    "store_board",
     "tenant_health",
 ]
