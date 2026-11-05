@@ -420,7 +420,7 @@ export function FlowCanvas({
                   <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-ink/[0.07] px-1 text-[11px] font-semibold tabular-nums text-ink">
                     {i + 1}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-body font-semibold text-ink">
+                  <span title={s.name.trim() || undefined} className="min-w-0 flex-1 truncate text-body font-semibold text-ink">
                     {s.name.trim() || "Untitled step"}
                   </span>
                   {own.length > 0 && <CircleAlert aria-hidden className="h-4 w-4 shrink-0 text-danger" />}
@@ -439,7 +439,7 @@ export function FlowCanvas({
                 <div
                   aria-hidden
                   title="Drag to another step to add a way out"
-                  className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-crosshair touch-none rounded-full border-2 border-surface bg-brand-strong"
+                  className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-crosshair touch-none rounded-full border-2 border-surface bg-brand-strong before:absolute before:-inset-y-3.5 before:-left-2 before:-right-5 before:content-['']"
                   onPointerDown={(e) => {
                     if (e.button !== 0) return;
                     e.stopPropagation();

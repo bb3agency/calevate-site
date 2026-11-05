@@ -208,26 +208,26 @@ function SectionSummary({
   const jumps = s.otherwise !== "" || s.branches.length > 0;
   return (
     <span className="block space-y-1">
-      <span className="flex items-center gap-2">
-        <span className="truncate text-body font-semibold text-ink">{s.name.trim() || "Untitled step"}</span>
-        {s.mode === "say" && <span className="shrink-0 text-meta text-ink-muted">Exact words</span>}
+      <span className="flex items-start gap-2">
+        <span className="min-w-0 break-words text-body font-semibold text-ink">{s.name.trim() || "Untitled step"}</span>
+        {s.mode === "say" && <span className="shrink-0 pt-0.5 text-meta text-ink-muted">Exact words</span>}
       </span>
       <span className="line-clamp-2 block text-meta text-ink-muted">
         {s.instruction.trim() || "Nothing written yet."}
       </span>
       {s.sounds_like.trim() ? (
-        <span className="block truncate text-meta italic text-ink">&ldquo;{s.sounds_like.trim()}&rdquo;</span>
+        <span className="line-clamp-2 block break-words text-meta italic text-ink">&ldquo;{s.sounds_like.trim()}&rdquo;</span>
       ) : null}
       {jumps ? (
-        <span className="block truncate text-meta text-ink-muted">
+        <span className="block break-words text-meta text-ink-muted">
           {s.branches.length ? "Otherwise" : "Then"}: {thenLabel(sections, index, context)}
           {s.branches.length > 0 && ` · ${s.branches.length} other ${s.branches.length === 1 ? "way" : "ways"} out`}
         </span>
       ) : null}
       {issues.length > 0 && (
-        <span className="flex items-center gap-1 text-meta text-danger">
-          <CircleAlert aria-hidden className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{issues[0].message}</span>
+        <span className="flex items-start gap-1 text-meta text-danger">
+          <CircleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{issues[0].message}</span>
         </span>
       )}
     </span>

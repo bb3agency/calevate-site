@@ -212,7 +212,7 @@ function CoreFields({
           </div>
         </form>
       ) : (
-        <ul className="grid grid-cols-2 gap-x-4 gap-y-3 sm:gap-x-8">
+        <ul className="grid grid-cols-1 gap-x-4 gap-y-3 min-[26rem]:grid-cols-2 sm:gap-x-8">
           {fields.map((field) => (
             <li key={field.key} className="flex min-w-0 items-start gap-2">
               <Lock aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-faint" />

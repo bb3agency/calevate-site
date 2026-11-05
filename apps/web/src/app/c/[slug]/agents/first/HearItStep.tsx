@@ -401,7 +401,7 @@ function CallYou({
           ) : null}
           {pledgeOutstanding && pledge.data ? (
             <details className="mt-1">
-              <summary className="inline-flex min-h-8 cursor-pointer items-center rounded-md text-meta font-medium text-brand-strong">
+              <summary className="inline-flex min-h-8 cursor-pointer touch:min-h-11 items-center rounded-md text-meta font-medium text-brand-strong">
                 Read the pledge
               </summary>
               <p className="whitespace-pre-line pb-2 text-meta text-ink-muted">{pledge.data.pledge_text}</p>
