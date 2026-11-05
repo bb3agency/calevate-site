@@ -1,0 +1,13 @@
+{
+  "about": "How a line the agent says word for word is filled on a call we place, with and without the person's name. Read by tests/script_writer_call_review_2026_11_06_test.py (calevate_shared.call_script.fill_spoken_line) and apps/web/tests/spokenName.test.ts (the Script tab preview's fillSpokenLine), so the preview shows exactly what the dial says.",
+  "cases": [
+    {"text": "Hello {{lead_name}} sir, this is Asha from Acme. Can we talk now?", "values": {}, "spoken": "Hello, this is Asha from Acme. Can we talk now?"},
+    {"text": "Hello {{lead_name}} sir, this is Asha.", "values": {"lead_name": "Ravi"}, "spoken": "Hello Ravi sir, this is Asha."},
+    {"text": "Hello {{lead_name}}, this is Asha.", "values": {"lead_name": null}, "spoken": "Hello, this is Asha."},
+    {"text": "{{lead_name}} sir, good morning.", "values": {}, "spoken": "good morning."},
+    {"text": "Hi {{lead_name}}! Asha here.", "values": {"lead_name": "  "}, "spoken": "Hi! Asha here."},
+    {"text": "Your order {{order_id}} is ready, {{lead_name}}.", "values": {}, "spoken": "Your order is ready."},
+    {"text": "Hello {{lead_name}} we are calling about it.", "values": {}, "spoken": "Hello we are calling about it."},
+    {"text": "Hello. {{name}} sir, Asha here.", "values": {}, "spoken": "Hello. Asha here."}
+  ]
+}

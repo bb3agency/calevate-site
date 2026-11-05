@@ -25,8 +25,12 @@ The checks:
 * ANOTHER PERSON'S NAME given as the agent's own.
 * A PLACED CALL'S OPENING without the person's name, or asking nothing
   (`call_rules.OPENING_LINE_RULE`).
+* AN OPENING THAT DOES NOT READ WITHOUT THE PERSON'S NAME (`name_segment_problem`).
 * A STEP THAT GIVES SEVERAL ACTIONS AT ONCE instead of its step-by-step list.
 * A DETAIL TO COLLECT that no step asks (whole script only: it needs the agent's lead details).
+* The call's shape (whole script, `flow_problems`): a step kept with a placeholder for its
+  instruction, a question about using something asked before or right after the caller sets
+  it up, and the same explanation in two steps.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ import re
 from dataclasses import dataclass
 from typing import Final
 
-from calevate_shared.call_script import CallScript, extract_variable_names
+from calevate_shared.call_script import CallScript, ConversationStage, extract_variable_names
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
@@ -43,15 +47,24 @@ from calevate_shared.engine import NAME_VARIABLE
 from apps.api.compliance.call_purpose import Finding, first_finding
 
 #: The merge field the dial fills with the person's name (`call_script.STANDARD_VARIABLES`); a
-#: dial with no name drops it and the gap it leaves (`engine/thinnest._tidy_spoken`), so a line
-#: written with it still reads. Here rather than in `call_rules`, which imports this module.
+#: dial with no name drops it with its title (`call_script.fill_spoken_line`), so a line written
+#: as `name_segment_problem` asks still reads. Here rather than in `call_rules`, which imports
+#: this module.
 NAME_FIELD: Final = f"{{{{{NAME_VARIABLE}}}}}"
+
+#: How the name sits in an opening so the line reads on the many calls placed without one
+#: (`name_segment_problem`), as every writer of an opening is told it.
+NAME_PLACEMENT_RULE: Final = (
+    f"put {NAME_FIELD} right after the greeting, then its title if the language uses one, "
+    "then a comma; on a call with no name the two are left out together, so the rest must "
+    "read without them"
+)
 
 #: What an outbound agent's opening line holds, as the brief tells every writer of it.
 PLACED_OPENING_BRIEF: Final = (
     "Its opening line is said on calls it places: greet the person by name with "
-    f"{NAME_FIELD}, say who is calling and why in one short sentence, then ask only whether "
-    "they can talk now."
+    f"{NAME_FIELD} ({NAME_PLACEMENT_RULE}), say who is calling and why in one short "
+    "sentence, then ask only whether they can talk now."
 )
 
 
@@ -269,6 +282,21 @@ def placed_call_opening(where: str, context: LintContext) -> bool:
     )
 
 
+#: The lines said word for word as the first words of a call.
+_OPENING_FIELDS: Final = frozenset({"opening_line", "outbound_opening_line"})
+
+
+def answered_opening(where: str, context: LintContext) -> bool:
+    """Whether the line at `where` is said first on calls the agent answers, where the
+    calling system fills it: an answering or "both" agent's opening_line. An unread direction
+    counts as placed, the rule that lets a title stand beside the name."""
+    return (
+        where == "opening_line"
+        and context.manifest is not None
+        and context.manifest.direction in ("inbound", "both")
+    )
+
+
 def placed_opening_problem(where: str, text: str) -> str | None:
     """What a placed call's opening misses: the person's name, or a question that hands them
     the turn. Any merge field whose key names a name counts (`{{lead_name}}`, a list's
@@ -424,6 +452,7 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
         if text.strip()
         for problem in instruction_problems(path, text, context)
     ]
+    found += flow_problems(script)
     # With no steps there is nowhere to ask; the details list still reaches the call.
     if script.stages:
         found += [
@@ -489,6 +518,10 @@ def spoken_line_problems(where: str, text: str, context: LintContext) -> list[st
         opening = placed_opening_problem(where, text)
         if opening:
             problems.append(opening)
+    if where in _OPENING_FIELDS:
+        nameless = name_segment_problem(where, text, placed=not answered_opening(where, context))
+        if nameless:
+            problems.append(nameless)
     if context.agent_name.strip():
         other = other_persona(
             text, agent_name=context.agent_name, business_name=context.business_name
@@ -519,19 +552,256 @@ def instruction_problems(where: str, text: str, context: LintContext) -> list[st
     return problems
 
 
+#: A merge field that holds a person's name (`{{lead_name}}`, a list's `{{name}}` column), the
+#: same test `placed_opening_problem` uses.
+_NAME_MERGE_FIELD: Final = re.compile(r"\{\{\s*(\w*name\w*)\s*\}\}")
+#: What may follow the name in a placed call's opening: its title, if the language puts one
+#: after a name, then a break the line can stand on without both (`call_script.
+#: fill_spoken_line` leaves the two out together). Not "?": "is this {{lead_name}}?" has no
+#: question left without the name.
+_PLACED_NAME_TAIL: Final = re.compile(r"(?:[ \t]+[^\s,.!?।{}]+)?[ \t]*[,.!।]")
+#: What must follow it on a call the agent answers: the calling system fills the greeting
+#: there and leaves out only the field, so a word after it would be said alone.
+_ANSWERED_NAME_TAIL: Final = re.compile(r"[ \t]*[,.!।]")
+_CLAUSE_END: Final = re.compile(r"[,.!?।]")
+#: Words before the name in its clause: a greeting ("Hello", "Good morning") is the most a
+#: clause can keep and still read once the name is left out of it.
+_WORDS_BEFORE_NAME: Final = 2
+
+
+def name_segment_problem(where: str, text: str, *, placed: bool) -> str | None:
+    """Whether an opening still reads on a call with no name for the person, or None.
+
+    Placing a call with no name is ordinary (a list of numbers, a test call, a call from a
+    number alone), and the calling system has no "if the name is known" of its own: an
+    unfilled field is left out and the rest spoken (snapshots/2026-10-29/pages/channels/
+    voice-campaigns.md:201-205). On a call we place, the opening is filled by us and the
+    name's title goes with it; on one the agent answers, only the field goes. Language-free:
+    it reads the punctuation around the field, never the words."""
+    for match in _NAME_MERGE_FIELD.finditer(text):
+        tail = (_PLACED_NAME_TAIL if placed else _ANSWERED_NAME_TAIL).match(text, match.end())
+        clause = _CLAUSE_END.split(text[: match.start()])[-1].split()
+        if placed and (tail is None or len(clause) > _WORDS_BEFORE_NAME):
+            return f"{where}: does not read when the name is unknown; {NAME_PLACEMENT_RULE}."
+        if not placed and tail is None:
+            return (
+                f"{where}: on calls it answers only the name is left out when it is unknown, "
+                f"so put a comma straight after {NAME_FIELD}, with no title after it."
+            )
+    return None
+
+
+#: An instruction that only says the step is not wanted, as a model writes it when it means
+#: to drop a step it was told to keep the shape of ("Not needed.", "N/A", "-"). English
+#: only: instructions are written in English (`english_problem`).
+_PLACEHOLDER: Final = re.compile(
+    r"^(?:this )?(?:step )?(?:is )?(?:not (?:needed|used|required|applicable)|"
+    r"no longer (?:needed|used|required)|unused|removed|deleted|delete|remove|skip(?:ped)?|"
+    r"omit(?:ted)?|n ?a|none|nil|tbd|todo|blank|empty)(?: any ?more)?$"
+)
+
+
+def placeholder_instruction(text: str) -> bool:
+    """Whether a step's instruction holds nothing for the agent to do: no letter at all, or
+    only words saying the step is not wanted. A line in another script is never one."""
+    if not any(ch.isalpha() for ch in text):
+        return True
+    if any(ch.isalpha() and not ch.isascii() for ch in text):
+        return False
+    return bool(_PLACEHOLDER.match(" ".join(re.findall(r"[a-z]+", text.casefold()))))
+
+
+def placeholder_problems(script: CallScript) -> list[str]:
+    """A step kept with a placeholder for its instruction. The last step is the close: it is
+    never taken out, so it must say how the call ends."""
+    last = len(script.stages) - 1
+    return [
+        f'stages.{i}.instruction: says only "{stage.instruction.strip()}"; '
+        + (
+            "this is the close, so write how the call ends, with a short thank-you line."
+            if i == last
+            else "take the step out of stages and point the ways to it at the step after "
+            "it, or, if it is for some callers only, write what it does and reach it "
+            "through a way out whose condition says who."
+        )
+        for i, stage in enumerate(script.stages)
+        if placeholder_instruction(stage.instruction)
+    ]
+
+
+def _successors(script: CallScript, index: int) -> set[str]:
+    """The steps the call can go to from step `index`: its ways out, else the next step."""
+    stage = script.stages[index]
+    out = {branch.target for branch in stage.branches}
+    if stage.otherwise:
+        out.add(stage.otherwise)
+    elif index + 1 < len(script.stages):
+        out.add(script.stages[index + 1].id)
+    return out
+
+
+def _reachable(script: CallScript, start: int) -> set[int]:
+    """Every step the call can reach after step `start`."""
+    at = {stage.id: i for i, stage in enumerate(script.stages)}
+    seen: set[int] = set()
+    todo = [start]
+    while todo:
+        for target in _successors(script, todo.pop()):
+            i = at.get(target)
+            if i is not None and i not in seen:
+                seen.add(i)
+                todo.append(i)
+    return seen
+
+
+#: Something the caller sets up during the call. Read in the English instructions only.
+_SETS_UP: Final = re.compile(
+    r"\b(?:install|set(?:ting)? (?:it |them )?up|setup|download|sign(?:ing)? up|register|"
+    r"activat|creat\w* (?:an |a |their |the )?account)",
+    re.IGNORECASE,
+)
+_HELPS: Final = re.compile(r"\b(?:help|guide|walk|show|assist|support|take them through)", re.I)
+#: Asking how the caller uses or likes something, which needs them to have used it.
+_ASKS_EXPERIENCE: Final = re.compile(
+    r"\b(?:satisf\w*|experience with|feedback|suggestions|improvements?|"
+    r"how (?:they|you) (?:like|find|feel about)|purpose of us\w*|"
+    r"what (?:they|you) (?:are )?(?:use|using)\b|(?:use|using) (?:it|the \w+) for\b|"
+    r"how (?:often|much) (?:they|you) use)",
+    re.IGNORECASE,
+)
+
+
+def _stage_text(stage: ConversationStage) -> str:
+    return " ".join([stage.name, stage.instruction, *(p.action for p in stage.procedure)])
+
+
+def _sets_up(stage: ConversationStage) -> bool:
+    text = _stage_text(stage)
+    return bool(_SETS_UP.search(text)) and (bool(stage.procedure) or bool(_HELPS.search(text)))
+
+
+def _asks_experience(stage: ConversationStage) -> bool:
+    return bool(_ASKS_EXPERIENCE.search(f"{stage.name} {stage.instruction}"))
+
+
+def order_problems(script: CallScript) -> list[str]:
+    """A step that asks how the caller uses or likes something, on a path of the call that
+    also helps them set it up: before it, they do not have it yet; right after it, they have
+    not used it. Either way the question cannot be answered on that call (the Rytu Khata
+    call of 6 Nov 2026: "I only just installed it, how would I be using it?")."""
+    setup = [i for i, stage in enumerate(script.stages) if _sets_up(stage)]
+    problems: list[str] = []
+    for i, stage in enumerate(script.stages):
+        if not _asks_experience(stage) or _sets_up(stage):
+            continue
+        reach = _reachable(script, i)
+        before = next((s for s in setup if s in reach), None)
+        after = next((s for s in setup if i in _reachable(script, s)), None)
+        if before is None and after is None:
+            continue
+        when = (
+            f"before step {before + 1} helps them set it up"
+            if before is not None
+            else f"right after step {(after or 0) + 1} helps them set it up"
+        )
+        problems.append(
+            f"stages.{i}.instruction: asks how the caller uses or likes it, and the call can "
+            f"reach it {when}, when they cannot answer it; ask it only on the way for callers "
+            "who already had it, and after setting it up show them the first thing to do."
+        )
+    return problems
+
+
+#: Punctuation stripped from a word's ends: ASCII, the danda, curly quotes and dashes.
+_TOKEN_EDGE: Final = (
+    ".,!?;:\"'()\N{DEVANAGARI DANDA}\N{LEFT SINGLE QUOTATION MARK}"
+    "\N{RIGHT SINGLE QUOTATION MARK}\N{LEFT DOUBLE QUOTATION MARK}"
+    "\N{RIGHT DOUBLE QUOTATION MARK}\N{EN DASH}\N{EM DASH}-"
+)
+#: Words a line needs before two lines can be called the same thing said twice.
+_MIN_REPEAT_WORDS: Final = 5
+#: Share of their words two lines have in common (of all the words either uses).
+_REPEAT_OVERLAP: Final = 0.6
+
+
+def _words(text: str) -> frozenset[str]:
+    plain_text = re.sub(r"\{\{[^}]*\}\}", " ", text)
+    return frozenset(
+        word for token in plain_text.split() if (word := token.strip(_TOKEN_EDGE).casefold())
+    )
+
+
+def _place(path: str) -> str:
+    """Where a path is, in the owner's words ("step 2", "the opening line")."""
+    label = plain(f"{path}: -").removesuffix(": -")
+    return label if label.startswith("Step") else label[0].lower() + label[1:]
+
+
+def repeated_line_problems(script: CallScript) -> list[str]:
+    """A step whose example line says nearly what the opening or an earlier step's line says.
+    Read by shared words, so it works in any language: each thing is explained once, and a
+    caller who asks again hears the next thing, not the same description."""
+    lines = [
+        (path, text)
+        for path, text in (
+            ("opening_line", script.opening_line),
+            ("outbound_opening_line", script.outbound_opening_line),
+            *(
+                (
+                    f"stages.{i}.{'instruction' if s.mode == 'say' else 'sounds_like'}",
+                    s.instruction if s.mode == "say" else s.sounds_like,
+                )
+                for i, s in enumerate(script.stages)
+            ),
+        )
+        if len(_words(text)) >= _MIN_REPEAT_WORDS
+    ]
+    problems: list[str] = []
+    for later, (path, text) in enumerate(lines):
+        words = _words(text)
+        for earlier_path, earlier in lines[:later]:
+            other = _words(earlier)
+            if len(words & other) / len(words | other) >= _REPEAT_OVERLAP:
+                problems.append(
+                    f"{path}: says nearly what {_place(earlier_path)} says; explain each "
+                    "thing in one step, and have this step move the call on (answer what "
+                    "they asked, or the next thing to do)."
+                )
+                break
+    return problems
+
+
+def flow_problems(script: CallScript) -> list[str]:
+    """What the whole call's shape gets wrong: a placeholder step, a question asked before
+    the caller can answer it, the same thing said twice."""
+    return [
+        *placeholder_problems(script),
+        *order_problems(script),
+        *repeated_line_problems(script),
+    ]
+
+
 __all__ = [
     "NAME_FIELD",
+    "NAME_PLACEMENT_RULE",
     "PLACED_OPENING_BRIEF",
     "CapabilityManifest",
     "LintContext",
+    "answered_opening",
     "caller_paths",
+    "flow_problems",
     "instruction_fields",
     "instruction_problems",
+    "name_segment_problem",
+    "order_problems",
     "other_persona",
     "placed_call_opening",
     "placed_opening_problem",
+    "placeholder_instruction",
+    "placeholder_problems",
     "plain",
     "question_count",
+    "repeated_line_problems",
     "script_problems",
     "spoken_fields",
     "spoken_line_problems",

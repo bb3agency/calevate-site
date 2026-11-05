@@ -118,6 +118,18 @@ import { voiceTierLine } from "../../panels/publishing";
 
 const PREVIEW_DELAY_MS = 1500;
 
+/**
+ * What the opening line counts down from: the smaller of what the calling system can speak
+ * after the notices and the platform's own ceiling, which readiness and Pip hold the line to.
+ * Counting from the engine's room alone said "24 characters left" on a 176-character opening
+ * that kept the caller waiting 18 seconds (6 Nov 2026).
+ */
+export function openingRoomOf(
+  budget: { opening_room: number; opening_advised: number } | null | undefined,
+): number | undefined {
+  return budget ? Math.min(budget.opening_room, budget.opening_advised) : undefined;
+}
+
 /** Most owners never open the flow picture, so its code is fetched only when they do. */
 const FlowCanvas = dynamic(() => import("./FlowCanvas").then((m) => m.FlowCanvas), {
   ssr: false,
@@ -186,7 +198,7 @@ export function ScriptBuilder({
           trainingHref={trainingHref}
           agentName={agent.data?.name ?? "This agent"}
           agentOn={agent.data ? agent.data.published && agent.data.status === "live" : false}
-          openingRoom={agent.data?.greeting_budget?.opening_room}
+          openingRoom={openingRoomOf(agent.data?.greeting_budget)}
         />
       ) : null}
     </div>

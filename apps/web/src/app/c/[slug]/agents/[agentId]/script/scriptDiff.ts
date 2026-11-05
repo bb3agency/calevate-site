@@ -47,7 +47,20 @@ export type Change =
   | { id: string; kind: "part"; part: PartKey; label: string; before: string; after: string }
   | { id: string; kind: "section-added"; label: string; after: Section; index: number }
   | { id: string; kind: "section-removed"; label: string; before: Section }
-  | { id: string; kind: "section-changed"; label: string; before: Section; after: Section };
+  | { id: string; kind: "section-changed"; label: string; before: Section; after: Section }
+  /** The steps both scripts have, put in another order: its own row, so a move Pip made is
+   *  seen and kept or not like any other change, never a silent reshuffle. */
+  | { id: typeof ORDER_CHANGE; kind: "order"; label: string; before: string[]; after: string[] };
+
+export const ORDER_CHANGE = "order";
+
+/** A changed step whose only change is its name. */
+export function renamedOnly(change: Change): boolean {
+  if (change.kind !== "section-changed") return false;
+  const { before, after } = change;
+  const same = (s: Section) => sectionText({ ...s, name: "" }, new Map());
+  return before.name.trim() !== after.name.trim() && same(before) === same(after);
+}
 
 export function partText(script: CallScript, key: PartKey): string {
   switch (key) {
@@ -135,6 +148,22 @@ export function diffScripts(before: CallScript, after: CallScript): Change[] {
     if (!matchedBefore.has(b.id)) {
       changes.push({ id: `remove:${b.id}`, kind: "section-removed", label: b.name.trim() || "Step", before: b });
     }
+  }
+  // The steps both have, in each script's order: a step added or removed moves the others'
+  // numbers without moving them, so only the relative order of these counts as a move.
+  const keptOrder = now.flatMap((a) => {
+    const b = matched.get(a.id);
+    return b ? [b.id] : [];
+  });
+  const wasOrder = was.filter((b) => matchedBefore.has(b.id)).map((b) => b.id);
+  if (keptOrder.join("\n") !== wasOrder.join("\n")) {
+    changes.push({
+      id: ORDER_CHANGE,
+      kind: "order",
+      label: "Order of the steps",
+      before: was.map((s) => s.name.trim() || "Step"),
+      after: now.map((s) => s.name.trim() || "Step"),
+    });
   }
   return changes;
 }
@@ -224,6 +253,20 @@ export function applyTraced(
       sections = [...sections.slice(0, at), { ...valueOf(change.after), id, position: null }, ...sections.slice(at)];
     }
   }
+  if (kept.has(ORDER_CHANGE)) {
+    // The proposal's order, for every step that has a place in it; a step it does not have
+    // (a removal left unticked) stays right after the step it followed.
+    const rank = new Map(sectionsOf(proposal).map((s, i) => [s.id, i]));
+    const proposalIdOf = new Map<string, string>(from);
+    for (const [proposalId, existing] of matched) proposalIdOf.set(existing.id, proposalId);
+    let last = -1;
+    const keyed = sections.map((s, i) => {
+      const at = rank.get(proposalIdOf.get(s.id) ?? "");
+      last = at ?? last + 1e-3;
+      return { s, key: at ?? last, i };
+    });
+    sections = keyed.sort((a, b) => a.key - b.key || a.i - b.i).map((k) => k.s);
+  }
   const ids = new Set(sections.map((s) => s.id));
   const keep = (t: string) => {
     if (t === "end" || t === "hand_over" || t === "call_back") return t;
@@ -271,8 +314,12 @@ export function changeSummary(live: CallScript, draft: CallScript): string {
       : c.kind === "section-removed"
         ? `removed "${c.label}"`
         : c.kind === "section-changed"
-          ? `changed "${c.label}"`
-          : `changed ${c.label.toLowerCase()}`,
+          ? renamedOnly(c)
+            ? `renamed "${c.label}" to "${c.after.name.trim()}"`
+            : `changed "${c.label}"`
+          : c.kind === "order"
+            ? "changed the order of the steps"
+            : `changed ${c.label.toLowerCase()}`,
   );
   const line = words.slice(0, 3).join(", ") + (words.length > 3 ? ` and ${words.length - 3} more` : "");
   const sentence = line.charAt(0).toUpperCase() + line.slice(1);

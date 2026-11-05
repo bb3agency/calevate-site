@@ -21,7 +21,7 @@ from typing import Final
 
 from calevate_shared.opening_notices import opening_max_chars
 
-from apps.api.agents.script_lint import NAME_FIELD
+from apps.api.agents.script_lint import NAME_FIELD, NAME_PLACEMENT_RULE
 from apps.api.agents.turn_checks import claims_done, claims_said_before
 
 #: The longest opening line an AI may write. The greeting is spoken on every call, so each
@@ -177,9 +177,11 @@ OPENING_LINE_RULE: Final = (
     "brief says the opening_line says the AI or recording notice, it says it in a few words "
     "of its own woven into the line (a few more characters are allowed for it); otherwise it "
     "says nothing about either. For an agent that only answers calls it "
-    "greets, names the business and asks one short question. For an agent that only places "
-    f"calls it greets the person by name with {NAME_FIELD} (dropped by itself when the name "
-    "is unknown), says in one short sentence who is calling, from which business and why, "
+    "greets, names the business and asks one short question; if it uses "
+    f"{NAME_FIELD} at all, a comma follows it straight away, with no title. For an agent that "
+    f"only places calls it greets the person by name with {NAME_FIELD} "
+    f"({NAME_PLACEMENT_RULE}), says in one short sentence who is calling, from which "
+    "business and why, "
     "then asks only whether they can talk now; the business's own questions wait until they "
     "say yes. When the brief says the agent introduces itself first, the opening_line "
     "neither greets nor names the agent or the business. For an agent that answers calls "
@@ -201,15 +203,41 @@ OPENING_LINE_RULE: Final = (
 #:   "Ask only one question at a time" (docs.vapi.ai/prompting-guide, read 5 Nov 2026).
 #: - Numbers given out a few digits at a time: the caller asked twice to slow down.
 #: - No spoken note-keeping: the founder wants the note kept, not announced.
+#: - Steps in the order their answers become possible, and only questions the caller can
+#:   answer on that call: on the Rytu Khata call of 6 Nov 2026 the agent asked what the app
+#:   was used for before helping install it, and how they liked it seconds after. Voice-agent
+#:   guides ask for a linear script ("The AI follows linear structures much more reliably")
+#:   and "Only ask absolutely necessary questions" (docs.telli.com/prompt-best-practices,
+#:   read 6 Nov 2026). `script_lint.order_problems` checks the English instructions.
+#: - A step's line does what its instruction says: the same script's "explain one feature"
+#:   step had "I'll tell our team, they will help you" as its line, which the in-call model
+#:   copies; the `done` rule above is about orders, not about every question.
+#: - Each thing explained once: the call re-described the app three times and answered "how
+#:   do I use it" with the description (`script_lint.repeated_line_problems`).
+#: - A step that is not wanted is taken out, and a step for some callers is reached through
+#:   a way out: asked to drop two steps, the edit writer kept them as "Not needed."
+#:   (`script_lint.placeholder_problems`).
 SCRIPT_FLOW_RULE: Final = (
     "Every detail to collect is asked in a stage, named in the instruction of the stage "
-    "where the call reaches it, one question a turn, so none is left over at the end. A "
+    "where the call reaches it, one question a turn, so none is left over at the end. "
+    "Stages go in the order the call can reach them: nothing is asked before what it "
+    "depends on has happened, and nothing the caller cannot answer yet is asked at all; "
+    "someone who has only just set something up on this call is not asked how they use or "
+    "like it, so those questions sit on the way for callers who already had it, and after "
+    "setting it up the agent shows the first thing to do. A "
     "stage that walks the caller through doing something puts each action in its "
     "procedure, one action an item, and the agent waits for the caller to say it is done "
     "before the next; never several actions in one instruction followed by asking whether "
-    "they understood. A number the agent gives out is said slowly, a few digits at a time. "
-    "The ending thanks them and says goodbye, with nothing about keeping a note or "
-    "remembering the call."
+    "they understood. Each stage's sounds_like does what that stage's instruction says: a "
+    "stage that explains or answers says the answer from the knowledge and passes to the "
+    "team only what the knowledge does not hold. Each thing is explained in one stage only; "
+    "when the caller asks how to use it, the call moves to the stage that shows the first "
+    "thing to do, never back to the description. A stage meant for some callers only is "
+    "reached through a way out whose condition says who; a stage that is not wanted is "
+    "left out of stages, never kept with a placeholder instruction or an empty line. The "
+    "last stage is the close. A number the agent gives out is said slowly, a few digits "
+    "at a time. The ending thanks them and says goodbye, with nothing about keeping a note "
+    "or remembering the call."
 )
 
 

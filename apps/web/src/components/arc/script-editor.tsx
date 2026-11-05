@@ -38,7 +38,7 @@ import clsx from "clsx";
 import { formatCount } from "@/components/ui";
 
 import { ActionButton, type FeedbackStatus } from "./feedback";
-import { codePoints, fillVariables, toSpokenPlainText, variablesIn } from "./spoken-text";
+import { codePoints, fillVariables, toSpokenPlainText, usesName, variablesIn } from "./spoken-text";
 
 export type ScriptVariableOption = {
   key: string;
@@ -58,6 +58,9 @@ export type ScriptEditorSection = {
   placeholder?: string;
   /** Rows of the text box. */
   rows?: number;
+  /** How the line is said on a call with no name for the person, for a section said word
+   *  for word that may use the name; the preview then shows both. */
+  withoutName?: (text: string) => string;
 };
 
 export type ScriptEditorStrings = {
@@ -70,6 +73,7 @@ export type ScriptEditorStrings = {
   totalLabel: string;
   previewTitle: string;
   previewEmpty: string;
+  withoutName: string;
   save: string;
   saved: string;
   saving: string;
@@ -85,6 +89,7 @@ const DEFAULT_STRINGS: ScriptEditorStrings = {
   totalLabel: "Whole script",
   previewTitle: "How it will sound",
   previewEmpty: "Write a section to hear how it reads.",
+  withoutName: "With no name:",
   save: "Save script",
   saved: "Saved",
   saving: "Saving",
@@ -316,9 +321,15 @@ export function ScriptEditor({
   const total = sections.reduce((sum, s) => sum + codePoints(s.value.trim()), 0);
   const samples = Object.fromEntries(variables.filter((v) => v.sample).map((v) => [v.key, v.sample as string]));
   const spoken = sections
-    .map((s) => s.value.trim())
-    .filter(Boolean)
-    .map((text) => fillVariables(text, samples));
+    .filter((s) => s.value.trim())
+    .map((s) => {
+      const text = s.value.trim();
+      return {
+        id: s.id,
+        line: fillVariables(text, samples),
+        nameless: s.withoutName && usesName(text) ? s.withoutName(text) : null,
+      };
+    });
 
   return (
     // The preview sits beside the boxes only when the EDITOR has room for both (a container
@@ -373,10 +384,15 @@ export function ScriptEditor({
           </div>
           {spoken.length > 0 ? (
             <div className="space-y-2 text-transcript text-ink">
-              {spoken.map((line, i) => (
-                <p key={i} className="whitespace-pre-wrap break-words">
-                  {line}
-                </p>
+              {spoken.map(({ id, line, nameless }) => (
+                <div key={id} className="space-y-1">
+                  <p className="whitespace-pre-wrap break-words">{line}</p>
+                  {nameless !== null && (
+                    <p className="whitespace-pre-wrap break-words text-meta text-ink-muted">
+                      <span className="font-medium">{strings.withoutName}</span> {nameless}
+                    </p>
+                  )}
+                </div>
               ))}
             </div>
           ) : (
