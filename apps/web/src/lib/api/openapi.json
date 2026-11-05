@@ -8351,6 +8351,15 @@
             ],
             "title": "Blocked Rule"
           },
+          "booked_by": {
+            "enum": [
+              "in_call",
+              "after_call",
+              "person"
+            ],
+            "title": "Booked By",
+            "type": "string"
+          },
           "due_at": {
             "format": "date-time",
             "title": "Due At",
@@ -8360,6 +8369,18 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "next_try_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Try At"
           },
           "status": {
             "enum": [
@@ -8373,12 +8394,30 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "time_from": {
+            "anyOf": [
+              {
+                "enum": [
+                  "caller",
+                  "default"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time From"
           }
         },
         "required": [
           "id",
           "due_at",
-          "status"
+          "status",
+          "booked_by",
+          "time_from",
+          "next_try_at"
         ],
         "title": "CallCallbackOut",
         "type": "object"
@@ -8775,6 +8814,16 @@
             "title": "Forwarding Test",
             "type": "boolean"
           },
+          "goal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallGoalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "has_recording": {
             "default": false,
             "title": "Has Recording",
@@ -8872,6 +8921,22 @@
               }
             ],
             "title": "Next Step"
+          },
+          "next_step_by": {
+            "anyOf": [
+              {
+                "enum": [
+                  "business",
+                  "caller",
+                  "nobody"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Step By"
           },
           "not_placed_reason": {
             "anyOf": [
@@ -9040,6 +9105,13 @@
             ],
             "title": "Translation State",
             "type": "string"
+          },
+          "unclear_fields": {
+            "items": {
+              "$ref": "#/components/schemas/UnclearFieldOut"
+            },
+            "title": "Unclear Fields",
+            "type": "array"
           }
         },
         "required": [
@@ -9056,6 +9128,9 @@
           "moments",
           "mistakes",
           "captured",
+          "unclear_fields",
+          "next_step_by",
+          "goal",
           "insights",
           "translation_state",
           "language",
@@ -9282,6 +9357,50 @@
           "changed"
         ],
         "title": "CallFollowUpOut",
+        "type": "object"
+      },
+      "CallGoalOut": {
+        "additionalProperties": false,
+        "description": "How this call did against its campaign's goal, for a call a campaign with a goal\nplaced (its own dial or a call-back of one).",
+        "properties": {
+          "goal": {
+            "title": "Goal",
+            "type": "string"
+          },
+          "reached": {
+            "anyOf": [
+              {
+                "enum": [
+                  "yes",
+                  "no",
+                  "unclear"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reached"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "goal",
+          "reached",
+          "reason"
+        ],
+        "title": "CallGoalOut",
         "type": "object"
       },
       "CallGroupOut": {
@@ -11613,6 +11732,18 @@
             ],
             "title": "Follow Up Number"
           },
+          "opens_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opens At"
+          },
           "reason": {
             "anyOf": [
               {
@@ -12885,6 +13016,16 @@
           },
           "label": {
             "title": "Label",
+            "type": "string"
+          },
+          "source": {
+            "default": "call",
+            "enum": [
+              "call",
+              "list",
+              "lead"
+            ],
+            "title": "Source",
             "type": "string"
           },
           "type": {
@@ -16327,6 +16468,17 @@
               }
             ],
             "title": "Goal Reached"
+          },
+          "goal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Reason"
           },
           "id": {
             "format": "uuid",
@@ -59384,6 +59536,44 @@
           "cost_inr"
         ],
         "title": "UnattributedSpendOut",
+        "type": "object"
+      },
+      "UnclearFieldOut": {
+        "additionalProperties": false,
+        "description": "One detail the caller answered that the reading could not use, and why. Never the\nvalue: the reason is ours, chosen by kind.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "not_a_choice",
+              "not_yes_no",
+              "not_a_number",
+              "phone_in_wrong_place",
+              "too_long",
+              "unreadable"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "kind",
+          "reason"
+        ],
+        "title": "UnclearFieldOut",
         "type": "object"
       },
       "UnconfirmedOut": {

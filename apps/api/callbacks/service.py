@@ -51,7 +51,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.calling_window import IST
@@ -193,6 +193,39 @@ class DueCallback:
 #: (the swipe's "Call back later", D-869). Its agent is told the business arranged the call,
 #: not that the person asked for it — they may not have.
 CLIENT_SCHEDULE_PREFIX: Final = "client-schedule:"
+
+#: `source_execution_id` prefixes of a call-back the post-call reading booked because the
+#: caller asked to talk again and no call-back was booked in the call
+#: (`workers/after_call_callbacks`): at the time they named, or at the default when they
+#: named none. The call page says which.
+AFTER_CALL_PREFIX: Final = "after-call:"
+AFTER_CALL_DEFAULT_PREFIX: Final = "after-call-default:"
+
+#: Who booked a call-back ON a call, read from its key: the call itself (the agent's action,
+#: or a hand-over that reached nobody; both key on the engine's call id), the after-call
+#: reading, or a person in the account.
+CallbackBookedBy = Literal["in_call", "after_call", "person"]
+
+
+def booked_by(source_execution_id: str | None) -> CallbackBookedBy:
+    """Who booked a call-back, from its `source_execution_id`."""
+    key = source_execution_id or ""
+    if key.startswith((AFTER_CALL_PREFIX, AFTER_CALL_DEFAULT_PREFIX)):
+        return "after_call"
+    if key.startswith(CLIENT_SCHEDULE_PREFIX):
+        return "person"
+    return "in_call"
+
+
+def time_from(source_execution_id: str | None) -> Literal["caller", "default"] | None:
+    """For an after-call booking, whether it keeps the time the caller named or the default
+    because they named none; None for any other booking."""
+    key = source_execution_id or ""
+    if key.startswith(AFTER_CALL_DEFAULT_PREFIX):
+        return "default"
+    if key.startswith(AFTER_CALL_PREFIX):
+        return "caller"
+    return None
 
 
 def context_note(requested_at: datetime, note: str | None, *, source: str | None = None) -> str:
@@ -900,6 +933,8 @@ async def get_callback(session: AsyncSession, callback_id: UUID) -> dict[str, An
 
 
 __all__ = [
+    "AFTER_CALL_DEFAULT_PREFIX",
+    "AFTER_CALL_PREFIX",
     "CAMPAIGN_PAUSED_REASON",
     "CAMPAIGN_PAUSED_RULE",
     "CAMPAIGN_STOPPED_REASON",
@@ -912,8 +947,10 @@ __all__ = [
     "STUCK_DIALING_AFTER",
     "TERMINAL_STATUSES",
     "UNATTEMPTED_REASON",
+    "CallbackBookedBy",
     "DueCallback",
     "book",
+    "booked_by",
     "call_off_for_stopped_campaigns",
     "cancel_for_phones",
     "cancel_for_phones_fleet_wide",
@@ -932,4 +969,5 @@ __all__ = [
     "release_resumed",
     "settle",
     "settle_dialled",
+    "time_from",
 ]

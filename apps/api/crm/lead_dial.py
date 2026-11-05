@@ -15,9 +15,16 @@ and the retry the key exists to answer would ring the customer a second time.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from calevate_shared.calling_window import (
+    CALLING_HOURS_RULE,
+    IST,
+    ist_wall_clock,
+    next_window_opening,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -194,9 +201,39 @@ async def call_back_check(
     decision = await check_dispatch(
         session, tenant_id=tenant_id, agent_id=plan.agent_id, phone_e164=plan.phone_e164
     )
-    if not decision.allowed:
-        return CallbackEligibilityOut(eligible=False, reason=decision.reason, rule=decision.rule)
-    return CallbackEligibilityOut(eligible=True, follow_up_number=plan.depth + 1)
+    if decision.allowed:
+        return CallbackEligibilityOut(eligible=True, follow_up_number=plan.depth + 1)
+    if decision.rule == CALLING_HOURS_RULE:
+        # The gate's sentence states the rule; on a call page read after 9 pm it sat under
+        # the call with nothing saying it was about the "Call back now" button, and read as
+        # a call back booked for nothing (4 Nov 2026 call review).
+        now = datetime.now(UTC)
+        opens = next_window_opening(ist_wall_clock(now))
+        return CallbackEligibilityOut(
+            eligible=False,
+            reason=calling_hours_reason(opens, now=now),
+            rule=decision.rule,
+            opens_at=opens.astimezone(UTC),
+        )
+    return CallbackEligibilityOut(eligible=False, reason=decision.reason, rule=decision.rule)
+
+
+def calling_hours_reason(opens: datetime, *, now: datetime) -> str:
+    """Why "Call back now" waits, and until when, as one sentence in IST."""
+    opens_ist = opens.astimezone(IST)
+    day = (
+        "today"
+        if opens_ist.date() == ist_wall_clock(now).date()
+        else "tomorrow"
+        if opens_ist.date() == ist_wall_clock(now).date() + timedelta(days=1)
+        else f"{opens_ist:%A}"
+    )
+    hour = opens_ist.hour % 12 or 12
+    meridiem = "am" if opens_ist.hour < 12 else "pm"
+    return (
+        "Calls can only be placed between 9 am and 9 pm. "
+        f"You can call back from {hour}:{opens_ist:%M} {meridiem} {day}."
+    )
 
 
 async def place_call_back(
@@ -243,9 +280,11 @@ async def place_call_back(
         # press long after calling hours opened or the wallet was topped up. Nothing was
         # dialled, so nothing needs the claim.
         await _release_undialled_claim(tenant_id, claim)
-        return CallbackOut(
-            status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
-        )
+        reason = decision.reason
+        if decision.rule == CALLING_HOURS_RULE:
+            now = datetime.now(UTC)
+            reason = calling_hours_reason(next_window_opening(ist_wall_clock(now)), now=now)
+        return CallbackOut(status="blocked", blocked_reason=reason, blocked_rule=decision.rule)
 
     from apps.api.agents.service import DialUnconfirmedError, dial_was_not_placed, dispatch_call
 
@@ -306,6 +345,7 @@ __all__ = [
     "CALL_BACK_ROUTE",
     "CALL_ROUTE",
     "call_back_check",
+    "calling_hours_reason",
     "place_call_back",
     "place_lead_call",
 ]

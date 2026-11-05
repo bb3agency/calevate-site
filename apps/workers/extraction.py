@@ -100,6 +100,7 @@ import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
@@ -114,18 +115,23 @@ from calevate_shared.engine import (
     keeps_default_temperature,
 )
 from calevate_shared.extraction import (
+    GOAL_REASON_MAX,
     GOAL_VERDICTS,
     MODEL_MOMENT_KINDS,
+    NEXT_STEP_BY,
     OUTCOME_HINTS,
     ExtractionField,
     ExtractionOutput,
     ExtractionSchemaSpec,
     MomentsBrief,
     build_extraction_prompt,
+    callback_clock,
+    callback_day,
     clean_moment_candidates,
     clean_unlisted,
     clip_headline,
     goal_verdict,
+    next_step_owner,
     validate_extraction,
 )
 
@@ -437,6 +443,8 @@ class SarvamExtractor:
     reads_unlisted: Final = True
     #: This runner can judge the call against its campaign's goal (`extract_call`).
     reads_goal: Final = True
+    #: This runner can be told the business's name and the call's date (`extract_call`).
+    reads_setting: Final = True
 
     async def run(
         self,
@@ -448,6 +456,7 @@ class SarvamExtractor:
         outcomes: Sequence[BusinessOutcome] = (),
         unlisted: bool = True,
         goal: str | None = None,
+        setting: CallSetting | None = None,
     ) -> dict[str, Any]:
         # ONE chat client for the whole repository (`workers/chat.py`). The empty-`choices`
         # arm that used to live here — the provider declining to answer, which indexed
@@ -464,6 +473,8 @@ class SarvamExtractor:
             outcomes=outcomes,
             unlisted=unlisted,
             goal=goal,
+            business_name=setting.business_name if setting else None,
+            called_at=setting.called_at if setting else None,
         )
         schema = build_response_schema(
             spec, moments=moments is not None, outcomes=outcomes, unlisted=unlisted, goal=goal
@@ -553,10 +564,15 @@ _FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
     "summary": {"type": "string"},
     "headline": {"type": "string"},
     "next_step": {"type": "string"},
+    "next_step_by": {"type": "string", "enum": list(NEXT_STEP_BY)},
     "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
     "outcome_tag": {"type": "string", "enum": list(OUTCOME_HINTS)},
     "out_of_scope": {"type": "boolean"},
     "callback_requested": {"type": "boolean"},
+    # Nullable: a caller who asked for a call later without naming when gave neither, and
+    # the platform's default slot then decides (`workers/after_call_callbacks`).
+    "requested_callback_date": {"type": ["string", "null"]},
+    "requested_callback_time": {"type": ["string", "null"]},
 }
 
 #: The label the schema travels under. Azure constrains it to `^[a-zA-Z0-9_-]+$`, so it is
@@ -670,15 +686,18 @@ def build_response_schema(
     schema is the part of that number nobody would have thought to add up.
     """
     fixed = {**_FIXED_PROPERTIES, **({"moments": _MOMENTS_PROPERTY} if moments else {})}
+    if goal:
+        # The reason first, then the verdict, then the business outcome that must agree with
+        # it: generation follows property order, so each is written after what decides it.
+        fixed["goal_reason"] = {"type": "string"}
+        # Required and never null: `unclear` is how the model says it cannot tell.
+        fixed["goal_reached"] = {"type": "string", "enum": list(GOAL_VERDICTS)}
     if outcomes:
         # A nullable enum of the agent's own keys: "none of these fits" must stay sayable.
         fixed["business_outcome"] = {
             "type": ["string", "null"],
             "enum": [*(o.key for o in outcomes), None],
         }
-    if goal:
-        # Required and never null: `unclear` is how the model says it cannot tell.
-        fixed["goal_reached"] = {"type": "string", "enum": list(GOAL_VERDICTS)}
     choice_keys = [f.key for f in spec.fields if f.type == "enum" and f.key not in fixed]
     if choice_keys and unlisted:
         # One nullable string per choice field: the caller's words when no choice fits
@@ -2440,6 +2459,7 @@ async def _run(
     outcomes: Sequence[BusinessOutcome] = (),
     unlisted: bool = True,
     goal: str | None = None,
+    setting: CallSetting | None = None,
 ) -> dict[str, Any]:
     """One `run`, with the key-moments brief, the agent's languages, its business outcomes
     and the campaign's goal when the runner reads them, and without the `unlisted` ask when
@@ -2460,6 +2480,8 @@ async def _run(
         context["goal"] = goal
     if not unlisted and getattr(runner, "reads_unlisted", False):
         context["unlisted"] = False
+    if setting is not None and getattr(runner, "reads_setting", False):
+        context["setting"] = setting
     if context:
         return await cast(_ReadsContext, runner).run(spec, transcript, **context)
     return await runner.run(spec, transcript)
@@ -2476,7 +2498,17 @@ class _ReadsContext(Protocol):
         outcomes: Sequence[BusinessOutcome] = (),
         unlisted: bool = True,
         goal: str | None = None,
+        setting: CallSetting | None = None,
     ) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CallSetting:
+    """Facts about the call the reading needs and the transcript does not carry: the
+    business's own spelling of its name, and when the call happened."""
+
+    business_name: str | None = None
+    called_at: datetime | None = None
 
 
 #: What `extract_call` files as a model failure rather than letting it fail the call.
@@ -2523,6 +2555,7 @@ async def extract_call(
     outcomes: Sequence[BusinessOutcome] = (),
     retry_without_unlisted: bool = False,
     goal: str | None = None,
+    setting: CallSetting | None = None,
 ) -> ExtractionOutput:
     """Run one extraction pass and validate it against the schema.
 
@@ -2561,13 +2594,15 @@ async def extract_call(
     async def read(*, unlisted: bool) -> dict[str, Any]:
         if provider is None:
             return await _run(
-                runner, spec, transcript, moments, languages, outcomes, unlisted, goal
+                runner, spec, transcript, moments, languages, outcomes, unlisted, goal, setting
             )
         # The provider-health hook sits HERE, around the whole `run`, and not around each
         # HTTP request: Azure's 400 → `json_object` degrade is two requests and one answer,
         # and only the answer says whether the leg works.
         async with provider_health.watch("extraction", provider, model=runner.model_name):
-            raw = await _run(runner, spec, transcript, moments, languages, outcomes, unlisted, goal)
+            raw = await _run(
+                runner, spec, transcript, moments, languages, outcomes, unlisted, goal, setting
+            )
             if not _is_answer(raw):
                 raise ExtractionUnusableError(runner.model_name)
             return raw
@@ -2624,6 +2659,7 @@ async def extract_call(
         summary=_prose(raw.get("summary"), limit=2000),
         headline=clip_headline(_prose(raw.get("headline"), limit=400)),
         next_step=_prose(raw.get("next_step"), limit=300),
+        next_step_by=next_step_owner(raw.get("next_step_by")),
         sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
         # Unknown is None, never a verdict (first-call review F-4).
         outcome_tag=hint_of(raw.get("outcome_tag")),
@@ -2633,8 +2669,15 @@ async def extract_call(
             if goal and getattr(runner, "reads_goal", False)
             else None
         ),
+        goal_reason=(
+            _prose(raw.get("goal_reason"), limit=GOAL_REASON_MAX)
+            if goal and getattr(runner, "reads_goal", False)
+            else ""
+        ),
         out_of_scope=bool(raw.get("out_of_scope")),
         callback_requested=bool(raw.get("callback_requested")),
+        requested_callback_date=callback_day(raw.get("requested_callback_date")),
+        requested_callback_time=callback_clock(raw.get("requested_callback_time")),
         valid=outcome.valid,
         errors=outcome.errors,
         needs_review=outcome.needs_review,
@@ -2660,6 +2703,7 @@ __all__ = [
     "AssistDeadlineError",
     "AssistResult",
     "AzureOpenAIExtractor",
+    "CallSetting",
     "Extractor",
     "GoogleCompatExtractor",
     "OfflineExtractor",

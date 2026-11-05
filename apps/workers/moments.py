@@ -60,6 +60,18 @@ MAX_MOMENTS: Final = MAX_CALL_MOMENTS
 
 _WHITESPACE = re.compile(r"\s+")
 
+#: The model kinds that are something the CALLER did, and so can only sit on a caller line.
+CALLER_ONLY_KINDS: Final[frozenset[str]] = frozenset(
+    {
+        "asked_for_person",
+        "complaint",
+        "frustrated",
+        "strong_interest",
+        "asked_delivery_or_payment",
+        "will_buy_or_visit",
+    }
+)
+
 
 class Turn(Protocol):
     """The fields a marker needs. Read-only properties so `TranscriptTurn`, whose `speaker`
@@ -266,6 +278,10 @@ def model_moments(
         turn = line_turns[candidate.line - 1]
         if turn.start_ms is None or turn.idx in unheard:
             continue
+        if candidate.kind in CALLER_ONLY_KINDS and turn.speaker != "caller":
+            # What the caller said or felt, pinned on the agent's line, is the agent's own
+            # offer or question read as the caller's answer.
+            continue
         if candidate.kind == "field_captured" and candidate.field:
             label = _field_label(candidate.field, field_labels)
             redacted = label
@@ -355,6 +371,7 @@ def merge_moments(
 
 
 __all__ = [
+    "CALLER_ONLY_KINDS",
     "MAX_MOMENTS",
     "MIN_ANCHOR_CHARS",
     "MomentKind",

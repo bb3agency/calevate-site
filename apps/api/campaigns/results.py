@@ -91,7 +91,7 @@ _OUTCOME_SQL = """
 _LATEST_ANSWERED_SQL = """
     SELECT DISTINCT ON (coalesce(k.to_e164, k.id::text))
            k.to_e164, k.id, k.lead_id, k.outcome_tag, k.sentiment, k.business_outcome,
-           k.business_outcome_label, k.goal_reached
+           k.business_outcome_label, k.goal_reached, k.goal_reason
     FROM calls k
     WHERE k.campaign_id = :cid AND k.status = 'completed'
     ORDER BY coalesce(k.to_e164, k.id::text), coalesce(k.started_at, k.created_at) DESC,
@@ -166,7 +166,7 @@ async def contacts_page(
         await session.execute(
             text(
                 f"SELECT r.id, r.name, r.phone_e164, r.outcome, r.attempts, r.last_attempt_at, "
-                f"r.next_attempt_at, r.last_call_id, r.status, g.goal_reached "
+                f"r.next_attempt_at, r.last_call_id, r.status, g.goal_reached, g.goal_reason "
                 f"FROM ({_OUTCOME_SQL}) r "
                 # The person's verdict is their latest answered call's (D-913), call-backs
                 # included, as the summary counts it.
@@ -194,6 +194,7 @@ async def contacts_page(
                 "next_attempt_at": r[6] if will_retry else None,
                 "call_id": r[7],
                 "goal_reached": r[9],
+                "goal_reason": r[10] if r[9] else None,
             }
         )
     return ContactsPage(items=items, total=total, counts=counts)
