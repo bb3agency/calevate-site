@@ -96,73 +96,6 @@ class Question:
 
 
 @dataclass(frozen=True, slots=True)
-class TradeChoices:
-    """The trade's multiple choice: what kinds of thing it offers."""
-
-    prompt: str
-    options: tuple[str, ...]
-
-
-#: Per business type. A type with no row (and `custom`) is not asked this question: a list of
-#: guesses about a business we know nothing about would be worse than none.
-TRADE_CHOICES: Final[Mapping[str, TradeChoices]] = {
-    "real_estate": TradeChoices(
-        "What do you sell or rent?",
-        ("Apartments", "Villas", "Independent houses", "Plots", "Commercial spaces", "Rentals"),
-    ),
-    "clinic": TradeChoices(
-        "Which kinds of care do you offer?",
-        (
-            "General consultation",
-            "Dental care",
-            "Eye care",
-            "Skin care",
-            "Physiotherapy",
-            "Lab tests",
-        ),
-    ),
-    "insurance": TradeChoices(
-        "Which policies do you offer?",
-        ("Health", "Life", "Motor", "Home", "Travel", "Business"),
-    ),
-    "education": TradeChoices(
-        "What do you teach?",
-        (
-            "School tuition",
-            "Competitive exams",
-            "Spoken English",
-            "Computer courses",
-            "Music and arts",
-            "Study abroad guidance",
-        ),
-    ),
-    "retail": TradeChoices(
-        "What do you sell?",
-        ("Groceries", "Clothing", "Electronics", "Home goods", "Medicines", "Gifts"),
-    ),
-    "local_services": TradeChoices(
-        "Which services do you offer?",
-        ("Salon and beauty", "Repairs", "Cleaning", "Pest control", "Fitness", "Events"),
-    ),
-    "automobile": TradeChoices(
-        "What do you do for vehicles?",
-        (
-            "Servicing",
-            "Repairs",
-            "Spare parts",
-            "New vehicles",
-            "Used vehicles",
-            "Insurance claims",
-        ),
-    ),
-}
-
-
-def trade_choices(vertical_template: str | None) -> TradeChoices | None:
-    return TRADE_CHOICES.get(vertical_template or "")
-
-
-@dataclass(frozen=True, slots=True)
 class QuestionWords:
     """What this business is, for the fixed questions: its own booking step's words and what
     its capability profile says about it. `QuestionWords()` is a business nothing is known
@@ -221,17 +154,11 @@ def fixed_question(
     words = words or QuestionWords()
     booking = TRADES[vertical_of(vertical_template)].booking
     if topic == "trade":
-        choices = trade_choices(vertical_template)
-        if choices is None:
-            return None
-        return Question(
-            question_id,
-            choices.prompt,
-            "Pick all that apply.",
-            "choices",
-            options=choices.options,
-            maps_to="trade",
-        )
+        # Only the model, which read the owner's own description, offers what a business
+        # sells as choices. A menu per business type guessed for every business filed under
+        # it (an app filed as a shop was offered groceries; audit of 5 Nov 2026, G2-5), so
+        # without the model the owner is not asked this, and fills it on the profile.
+        return None
     if topic == "location":
         if words.has_premises is False:
             return None
@@ -467,19 +394,16 @@ __all__ = [
     "PROMPT_MAX",
     "QUESTION_KINDS",
     "TOPIC_KINDS",
-    "TRADE_CHOICES",
     "ProfileTopic",
     "Question",
     "QuestionKind",
     "QuestionWords",
-    "TradeChoices",
     "answered_topics",
     "closed_topics",
     "fallback_questions",
     "fixed_question",
     "question_words",
     "stored_questions",
-    "trade_choices",
     "with_one_thing",
     "written_questions",
 ]

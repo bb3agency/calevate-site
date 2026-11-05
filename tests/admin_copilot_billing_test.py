@@ -435,6 +435,8 @@ async def test_every_platform_tool_is_gated_on_a_permission_no_client_role_holds
         "healer_money_review",
         # D-938: the Rate card panel's read is `platform:config`, as its screen is.
         "admin_rate_card",
+        # A7-19: the ops console's outbox panel is `ops:manage`.
+        "admin_dead_letters",
     }
     for tool in admin_tools.ADMIN_READ_TOOLS:
         assert tool.scope == "platform"

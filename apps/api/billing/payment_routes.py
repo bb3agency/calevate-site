@@ -136,6 +136,7 @@ from apps.api.billing.payments import (
 )
 from apps.api.billing.platform_fee import fee_switch
 from apps.api.billing.rates import (
+    CLIENT_PULSE_SECONDS,
     MONEY_Q,
     PREMIUM_VOICE_TIER,
     PREPAID_TIERS,
@@ -447,6 +448,9 @@ class CreditPacksOut(Strict):
     #: public cache. The lot is stamped when the money is credited, so a bank transfer that
     #: lands later lapses later; null when credit bought now does not expire.
     credit_lapses_on_if_bought_now: date | None = None
+    #: The step a call is billed in, in seconds (`rates.CLIENT_PULSE_SECONDS`), so a page
+    #: states the step the debit uses rather than a copy of it (G8-3).
+    billing_step_seconds: int = int(CLIENT_PULSE_SECONDS)
 
 
 class WebhookAck(Strict):

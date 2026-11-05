@@ -31,7 +31,6 @@ from apps.api.compliance.kyc_documents import (
     request_owner_id_deletion,
 )
 from apps.api.core.errors import ProblemError
-from apps.api.db.session import tenant_session
 from apps.api.reliability.service import enqueue_outbox_once
 
 #: The ARQ name of `workers/kyc_notices.notify_kyc_decision`: the client's email after a
@@ -56,41 +55,43 @@ class WaitingReview:
     submitted_at: datetime | None
 
 
-_DIRECTORY: Final = (
-    "SELECT id, name, slug FROM organizations WHERE deleted_at IS NULL ORDER BY created_at"
+#: One query for every organization's waiting record (migration c7e1a4d9b2f6): the scan
+#: re-scopes `app.tenant_id` to each organization in turn, so each record is read under its
+#: own policy without a session per client.
+_WAITING_SCAN: Final = (
+    "SELECT scanned_tenant_id, status, kyc_path, owner_id_type, digilocker_required, "
+    "submitted_at FROM kyc_waiting_scan()"
 )
-_WAITING: Final = (
-    "SELECT status, kyc_path, owner_id_type, digilocker_required, submitted_at "
-    "FROM kyc_records WHERE tenant_id = :tid AND status IN ('submitted', 'in_review')"
-)
+_NAMES: Final = "SELECT id, name, slug FROM organizations WHERE id = ANY(:ids)"
 
 
 async def waiting_reviews(directory: AsyncSession) -> list[WaitingReview]:
     """Every record waiting for a reviewer, oldest submission first.
 
-    Built the way `admin/holds.held_tenants` is: `directory` is an admin session, whose GUC
-    lists organizations, and each tenant's record is read under its OWN RLS session, so no
-    policy is widened to let an admin session read `kyc_records`. One session per client:
-    the review queue and the overdue-review alarm (`workers/kyc_notices`) share it."""
-    found: list[WaitingReview] = []
-    for org in (await directory.execute(text(_DIRECTORY))).all():
-        tenant_id = UUID(str(org[0]))
-        async with tenant_session(tenant_id) as scoped:
-            row = (await scoped.execute(text(_WAITING), {"tid": tenant_id})).first()
-        if row is None:
-            continue
-        found.append(
-            WaitingReview(
-                tenant_id=tenant_id,
-                name=str(org[1]),
-                slug=str(org[2]),
-                status=str(row[0]),
-                kyc_path=row[1],
-                owner_id_type=row[2],
-                digilocker_required=bool(row[3]),
-                submitted_at=row[4],
-            )
+    `directory` is an admin session, whose GUC lists organizations; each record is read
+    under its OWN tenant's policy inside `kyc_waiting_scan()`, so no policy is widened to let
+    an admin session read `kyc_records`. Two queries, not a session per client (A7-21): the
+    review queue, the admin bell and the overdue-review alarm (`workers/kyc_notices`) share
+    it. The names are a second statement rather than a JOIN, so `organizations` is never
+    read in the statement whose scan re-scopes the tenant GUC."""
+    rows = (await directory.execute(text(_WAITING_SCAN))).all()
+    names = {
+        UUID(str(r[0])): (str(r[1]), str(r[2]))
+        for r in await directory.execute(text(_NAMES), {"ids": [row[0] for row in rows]})
+    }
+    found = [
+        WaitingReview(
+            tenant_id=UUID(str(row[0])),
+            name=names[UUID(str(row[0]))][0],
+            slug=names[UUID(str(row[0]))][1],
+            status=str(row[1]),
+            kyc_path=row[2],
+            owner_id_type=row[3],
+            digilocker_required=bool(row[4]),
+            submitted_at=row[5],
         )
+        for row in rows
+    ]
     found.sort(key=lambda w: (w.submitted_at is None, w.submitted_at or datetime.min))
     return found
 

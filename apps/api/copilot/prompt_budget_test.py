@@ -33,8 +33,10 @@ from apps.api.copilot.schemas import (
 #: reads as flat tools, so it carries the leads and calls lens (~520 tokens) on
 #: `leads_search` and `calls_recent` and the D-893 lanes' reads in full, plus
 #: `agent_known_facts` (D-896, ~100 tokens: measured 10,343 before, 10,449 with it), and the
-#: leads lens's `campaign_id` (D-905, 15 tokens, paid for by shorter lens descriptions: 10,448).
-PREFIX_BUDGET_TOKENS = {"client": 17_500, "admin_account": 10_450, "admin_console": 6_500}
+#: leads lens's `campaign_id` (D-905, 15 tokens, paid for by shorter lens descriptions: 10,448),
+#: and A7-19's call-line request and dead-letter reads with the raise and decline actions
+#: (measured 10,951 on the account surface, 6,672 on the console one).
+PREFIX_BUDGET_TOKENS = {"client": 17_500, "admin_account": 11_000, "admin_console": 6_700}
 
 #: The client tool array alone (PIP-AGENT-PLAN §2a): every read and action of every area.
 TOOL_ARRAY_BUDGET_TOKENS = 12_000

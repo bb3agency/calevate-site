@@ -187,11 +187,19 @@ def test_every_reply_problem_is_either_how_it_sounds_or_a_broken_task() -> None:
 
 
 def test_the_standard_set_carries_the_shape_callers() -> None:
-    keys = [s.key for s in standard_scenarios("te-IN", "outbound")]
+    """For a business judged to sell and quote prices; one not yet judged gets neutral
+    callers, which have English lines only (`business_fit_agents_test`)."""
+    from apps.api.agents.business_fit import BusinessFit
+
+    shop = BusinessFit(
+        takes_bookings=True, takes_orders=True, quotes_prices=True, has_premises=True, sells=True
+    )
+    keys = [s.key for s in standard_scenarios("te-IN", "outbound", shop)]
     assert {"vague_answer", "low_interest", "price_in_words", "goes_quiet"} <= set(keys)
-    vague = next(s for s in standard_scenarios("te-IN", "inbound") if s.key == "vague_answer")
+    inbound = standard_scenarios("te-IN", "inbound", shop)
+    vague = next(s for s in inbound if s.key == "vague_answer")
     assert len(vague.turns) == 2
-    assert sum(len(s.turns) for s in standard_scenarios("te-IN", "outbound")) <= 20
+    assert sum(len(s.turns) for s in standard_scenarios("te-IN", "outbound", shop)) <= 20
 
 
 def test_the_prompt_says_the_turn_and_voice_rules() -> None:

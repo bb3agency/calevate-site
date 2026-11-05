@@ -324,7 +324,6 @@ async def test_missing_prices_are_named_until_a_fact_gives_one(
         assert await missing_facts(session) == []
 
 
-
 def test_a_placed_call_tells_the_person_their_own_details_and_never_restarts() -> None:
     """Founder's Rytu Khata call of 5 Nov 2026: a mid-call hello drew the opening again, not
     remembering signing up drew "we can end the call", and "what name did I register under?"
@@ -335,7 +334,10 @@ def test_a_placed_call_tells_the_person_their_own_details_and_never_restarts() -
     placed = inbound.model_copy(update={"direction": "outbound"})
     prompt = compose_engine_prompt(placed)
     assert CALL_REASON_RULE in prompt and OPENING_CONTINUES_RULE in prompt
-    assert "never restart" in OPENING_CONTINUES_RULE and "Forgot us? Who and why" in OPENING_CONTINUES_RULE
+    assert (
+        "never restart" in OPENING_CONTINUES_RULE
+        and "Forgot us? Who and why" in OPENING_CONTINUES_RULE
+    )
     assert "Say THIS CALL's name, details" in CALL_REASON_RULE
     # An answering agent holds no list details about the caller, so it is not told this.
     assert CALL_REASON_RULE not in compose_engine_prompt(inbound)

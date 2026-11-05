@@ -147,9 +147,7 @@ _CONDITIONAL: Final = re.compile(
 #: Every Indian-language alternative below is the founder's (`call_words.json`); the English
 #: stays here.
 _NEGATED: Final = re.compile(
-    _extend(
-        r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b", "script_lint._NEGATED"
-    ),
+    _extend(r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b", "script_lint._NEGATED"),
     re.IGNORECASE,
 )
 #: Where one clause ends and the next begins. A negation is read only in the promise's own
@@ -164,9 +162,7 @@ _CLAUSE_BREAK: Final = re.compile(
 _WHATSAPP: Final = re.compile(_extend(r"whats\s?app", "script_lint._WHATSAPP"), re.IGNORECASE)
 #: Each verb also in the Latin-letter Telugu and Hindi that scripts are written in as often as
 #: the native scripts ("WhatsApp lo pampistanu", "bhej dunga").
-_SENDS: Final = re.compile(
-    _extend(r"\bsend|\bsent\b|\bshare", "script_lint._SENDS"), re.IGNORECASE
-)
+_SENDS: Final = re.compile(_extend(r"\bsend|\bsent\b|\bshare", "script_lint._SENDS"), re.IGNORECASE)
 _SMS: Final = re.compile(_extend(r"\bsms\b|\btext message", "script_lint._SMS"), re.IGNORECASE)
 _CALL_BACK: Final = re.compile(
     _extend(r"call (?:you )?back|call-back|callback", "script_lint._CALL_BACK"),

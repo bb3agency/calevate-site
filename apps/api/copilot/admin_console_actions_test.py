@@ -63,6 +63,8 @@ def test_the_new_admin_actions_are_appended_and_confirm_only() -> None:
         "healer_retry",
         "healer_resolve",
         "healer_attest_rate",
+        "admin_call_lines_raise",
+        "admin_call_lines_decline",
     ]
     for tool in admin_actions.ADMIN_ACTIONS:
         assert tool.tier == "confirm", tool.name
@@ -77,13 +79,14 @@ def test_a_per_client_action_demands_its_console_routes_confirmation() -> None:
     a KYC review) demanded step-up — so the assistant was a way around the gate."""
     tenant, number = uuid.uuid4(), uuid.uuid4()
     by_name = {tool.name: tool for tool in admin_actions.ADMIN_ACTIONS}
-    expected = {
+    expected: dict[str, tuple[dict[str, Any], str]] = {
         "admin_kyc_review": ({"decision": "approve"}, f"kyc_review:{tenant}:approve"),
         "admin_workspace_provision": ({}, f"provision_workspace:{tenant}"),
         "admin_number_release": (
             {"number_id": str(number)},
             f"release_number:{tenant}:{number}",
         ),
+        "admin_call_lines_raise": ({"call_lines": 4}, f"set_call_lines:{tenant}"),
     }
     for name, (args, confirmation) in expected.items():
         confirm = by_name[name].confirm_action
@@ -273,7 +276,10 @@ async def test_a_clients_kyc_can_be_asked_by_slug_from_any_screen() -> None:
     assert missing.startswith("No client")
 
 
-@pytest.mark.parametrize("name", ["admin_held_accounts", "admin_alerts", "admin_voices"])
+@pytest.mark.parametrize(
+    "name",
+    ["admin_held_accounts", "admin_alerts", "admin_voices", "admin_dead_letters"],
+)
 async def test_each_admin_board_answers_in_a_sentence(name: str) -> None:
     result = await _admin_read(name)
     assert result and "could not be read" not in result, result
@@ -305,4 +311,102 @@ def test_the_admin_reads_are_appended_after_the_first_four() -> None:
         "admin_rate_card",
         # D-934 APPENDS.
         "fleet_chart",
+        # A7-19 APPENDS.
+        "admin_call_line_requests",
+        "admin_dead_letters",
     ]
+
+
+async def _asking_for_lines(tenant_id: UUID) -> UUID:
+    """An open request for more calls at once, as the client's own Ask makes it."""
+    request_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO call_line_requests (id, tenant_id, status, lines_at_request, "
+                "  wanted_lines, created_at, updated_at) "
+                "VALUES (:id, :tid, 'open', 2, 4, now(), now())"
+            ),
+            {"id": request_id, "tid": tenant_id},
+        )
+    return request_id
+
+
+async def test_the_call_line_requests_read_lists_an_asking_client() -> None:
+    """A7-19: the bell's list, through the assistant."""
+    tenant_id, _slug, _client_token = await _make_tenant()
+    await _asking_for_lines(tenant_id)
+    result = await _admin_read("admin_call_line_requests")
+    assert f"[tenant_id {tenant_id}]" in result
+    assert "wants 4" in result
+    assert "admin_call_lines_raise" in result
+
+
+async def test_a_call_line_request_is_declined_through_the_assistant() -> None:
+    """A7-19: the Decline button's write, after a click, on the request the card showed."""
+    token = await _make_admin(role="operator")
+    tenant_id, _slug, _client_token = await _make_tenant()
+    request_id = await _asking_for_lines(tenant_id)
+    with pytest.raises(WriteRefusedError):
+        await admin_actions.plan_admin_action(
+            "admin_call_lines_decline",
+            json.dumps({"reason": "   "}),
+            principal=_admin(token, "operator"),
+            viewing_tenant_id=tenant_id,
+        )
+    proposal = await admin_actions.plan_admin_action(
+        "admin_call_lines_decline",
+        json.dumps({"reason": "Two lines cover your calls for now."}),
+        principal=_admin(token, "operator"),
+        viewing_tenant_id=tenant_id,
+    )
+    assert proposal.proposed == "declined"
+    done = await _confirm(token, proposal, role="operator")
+    assert done.applied is True
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT status, decline_reason FROM call_line_requests WHERE id = :id"),
+                {"id": request_id},
+            )
+        ).first()
+    assert row is not None
+    assert tuple(row) == ("declined", "Two lines cover your calls for now.")
+    with pytest.raises(WriteRefusedError) as again:
+        await admin_actions.plan_admin_action(
+            "admin_call_lines_decline",
+            json.dumps({"reason": "No."}),
+            principal=_admin(token, "operator"),
+            viewing_tenant_id=tenant_id,
+        )
+    assert "no open request" in again.value.reason
+
+
+async def test_raising_call_lines_through_the_assistant_answers_the_request() -> None:
+    """A7-19: the raise takes the panel's confirmation and closes the open request."""
+    token = await _make_admin(role="operator")
+    tenant_id, _slug, _client_token = await _make_tenant()
+    await _asking_for_lines(tenant_id)
+    from apps.api.tenancy.call_lines import read_call_lines
+
+    async with tenant_session(tenant_id) as session:
+        before = (await read_call_lines(session, tenant_id=tenant_id)).lines
+    with pytest.raises(WriteRefusedError):
+        await admin_actions.plan_admin_action(
+            "admin_call_lines_raise",
+            json.dumps({"call_lines": before}),
+            principal=_admin(token, "operator"),
+            viewing_tenant_id=tenant_id,
+        )
+    proposal = await admin_actions.plan_admin_action(
+        "admin_call_lines_raise",
+        json.dumps({"call_lines": before + 1}),
+        principal=_admin(token, "operator"),
+        viewing_tenant_id=tenant_id,
+    )
+    assert proposal.confirm_action == f"set_call_lines:{tenant_id}"
+    done = await _confirm(token, proposal, role="operator")
+    assert done.applied is True
+    async with tenant_session(tenant_id) as session:
+        after = (await read_call_lines(session, tenant_id=tenant_id)).lines
+    assert after == before + 1

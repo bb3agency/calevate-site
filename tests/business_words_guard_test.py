@@ -238,16 +238,15 @@ def test_every_allowance_is_exact() -> None:
 
 
 def test_the_moved_lines_are_in_the_founders_data_file() -> None:
-    from calevate_shared import spoken_lines
-
-    from calevate_shared import call_words
+    from calevate_shared import call_words, spoken_lines
 
     for key in ("handover", "still_there", "disclosure.ai"):
         assert key in spoken_lines.entry_keys()
     assert any(indic(line) for line in spoken_lines.lines("disclosure.ai").values())
     # Words a check listens for are in the one detector file, never beside spoken lines.
+    detectors = call_words.keys()
     for key in ("optout.patterns", "optout.not_now"):
-        assert key in call_words.keys()
+        assert key in detectors
         assert key not in spoken_lines.entry_keys()
 
 

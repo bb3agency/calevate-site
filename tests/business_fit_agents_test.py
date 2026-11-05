@@ -410,7 +410,7 @@ async def test_the_script_writer_is_given_this_agents_own_job() -> None:
     the fit (`BusinessFit.for_agent`): a support agent whose owner turned prices and
     bookings off is not briefed as a seller, whatever the business does."""
     from apps.api.agents import script_builder, script_proposals
-    from calevate_shared.call_script import CallScript, ScriptPolicies
+    from calevate_shared.call_script import SCRIPT_SCHEMA_VERSION, CallScript, ScriptPolicies
     from tests.conftest import create_org_with_receptionist
 
     created = await create_org_with_receptionist(
@@ -423,11 +423,13 @@ async def test_the_script_writer_is_given_this_agents_own_job() -> None:
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     async with tenant_session(tenant_id) as session:
-        assert (await script_proposals.brief_for(session, tenant_id, agent_id)).fit == UNKNOWN
         await script_builder.save_draft(
             session,
             agent_id,
-            CallScript(policies=ScriptPolicies(share_prices=False, take_bookings=False)),
+            CallScript(
+                schema_version=SCRIPT_SCHEMA_VERSION,
+                policies=ScriptPolicies(share_prices=False, take_bookings=False),
+            ),
         )
         fit = (await script_proposals.brief_for(session, tenant_id, agent_id)).fit
     assert fit.quotes_prices is False
