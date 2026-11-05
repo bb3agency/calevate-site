@@ -535,11 +535,13 @@ async def test_the_account_is_read_for_the_manifest_the_facts_and_the_advice(
         advice = await readiness.advice_for(session, agent)
         monkeypatch.setattr(readiness, "calendar_configured", lambda: False)
         without = await readiness.advice_for(session, agent)
-    assert [a.kind for a in advice] == ["calendar", "script"]
+    # The outbound agent's opening is also missing the person's name (`placed_opening_problem`).
+    assert [a.kind for a in advice] == ["calendar", "script", "script"]
     assert advice[0].href == f"/agents/{agent_id}?section=actions"
     assert advice[1].detail is not None and advice[1].detail.startswith("The opening line: ")
     assert "limited offer" in advice[1].detail.lower()
-    assert [a.kind for a in without] == ["script"]
+    assert advice[2].detail is not None and "{{lead_name}}" in advice[2].detail
+    assert [a.kind for a in without] == ["script", "script"]
 
     headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
@@ -554,7 +556,12 @@ async def test_the_account_is_read_for_the_manifest_the_facts_and_the_advice(
         )
         clean = await http.post(
             f"/v1/agents/{agent_id}/script/check",
-            json={"script": _script().model_dump(mode="json")},
+            json={
+                "script": _script(
+                    opening="Hello {{lead_name}}, calling from Acme about your enquiry. "
+                    "Can you talk now?"
+                ).model_dump(mode="json")
+            },
             headers=headers,
         )
     assert checked.status_code == 200, checked.text
