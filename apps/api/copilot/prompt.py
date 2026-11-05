@@ -90,6 +90,9 @@ import re
 from typing import Any, Final
 from xml.sax.saxutils import escape, quoteattr
 
+from calevate_shared.spoken_guard import textbook_note
+from calevate_shared.spoken_style import style_for
+
 from apps.api.copilot.identity import ASSISTANT_NAME
 from apps.api.copilot.sanitize import strip_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotField
@@ -737,6 +740,34 @@ def _render_field(field: CopilotField) -> str:
     return "".join(parts)
 
 
+def render_spoken_styles(payload: CopilotAskIn) -> str:
+    """One `<spoken_style>` per call language of a writable line callers hear: the
+    language's whole textbook-word list with what to say instead (D-832).
+
+    `service.validate_fill` refuses a fill whose spoken line uses one of these words, so the
+    writer is given the same list up front rather than learning it one refusal at a time:
+    on 5 Nov 2026 a whole-script rewrite was refused for two of them. In the screen block
+    rather than the static prompt because only a screen with such a field needs it, and the
+    static prefix must stay the same bytes on every request (module docstring, point 1).
+    """
+    languages = dict.fromkeys(
+        field.spoken_language
+        for field in payload.fields
+        if field.writable and field.spoken_language
+    )
+    blocks: list[str] = []
+    for language in languages:
+        style = style_for(language)
+        if style is None or not style.word_swaps:
+            continue
+        blocks.append(
+            f"<spoken_style language={xml_attr(language)}>Lines callers hear in this language "
+            "never use these textbook words; use what people say instead: "
+            f"{xml_text(textbook_note(style.word_swaps))}</spoken_style>"
+        )
+    return "\n".join(blocks)
+
+
 def render_screen(payload: CopilotAskIn) -> str:
     """The whole SCREEN STATE block: one string, fenced, labelled, XML inside.
 
@@ -744,6 +775,7 @@ def render_screen(payload: CopilotAskIn) -> str:
     the part of the prompt that grows, and a person only ever reads it through a test.
     """
     fields = "\n".join(_render_field(field) for field in payload.fields)
+    spoken = render_spoken_styles(payload)
     facts = "\n".join(
         f"<fact key={xml_attr(fact.key)} label={xml_attr(fact.label)}>{xml_text(fact.value)}</fact>"
         for fact in payload.facts
@@ -762,6 +794,7 @@ def render_screen(payload: CopilotAskIn) -> str:
             f"title={xml_attr(screen.title)} realm={xml_attr(screen.realm)}{keeping}>",
             f"<facts>\n{facts}\n</facts>" if facts else "<facts/>",
             f"<fields>\n{fields}\n</fields>" if fields else "<fields/>",
+            spoken,
             "</screen>",
             SCREEN_CLOSE,
         )

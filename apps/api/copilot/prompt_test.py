@@ -703,6 +703,26 @@ def test_the_screen_says_how_it_keeps_edits_and_which_lines_are_spoken() -> None
     assert "autosave, as a draft at once, live only via live_step (never say press" in system
 
 
+def test_a_writable_spoken_line_brings_its_languages_word_list() -> None:
+    """FAILS IF: Pip writes a line callers hear without the textbook-word list the fill is
+    refused against (5 Nov 2026: a whole-script rewrite refused for two such words)."""
+    from calevate_shared.spoken_style import style_for
+
+    rendered = prompt_module.render_screen(AFTER_KEPT)
+    style = style_for("te-IN")
+    assert style is not None and style.word_swaps
+    assert rendered.count('<spoken_style language="te-IN">') == 1
+    for formal, _spoken in style.word_swaps:
+        assert f"“{formal}”" in rendered
+    assert (
+        rendered.index("</fields>") < rendered.index("<spoken_style") < rendered.index("</screen>")
+    )
+    raw = AFTER_KEPT.model_dump()
+    raw["fields"][0] = {**raw["fields"][0], "writable": False}
+    assert "<spoken_style" not in prompt_module.render_screen(CopilotAskIn.model_validate(raw))
+    assert "<spoken_style" not in prompt_module.render_screen(PAYLOAD)
+
+
 def test_an_instruction_field_says_so() -> None:
     """FAILS IF: Pip is not told which boxes are instructions to the in-call model."""
     raw = AFTER_KEPT.model_dump()

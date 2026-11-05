@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from calevate_shared.spoken_guard import textbook_words
 
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
 from apps.api.copilot.service import UNQUOTED_FILL_REASON, FillRefusedError, validate_fill
@@ -412,3 +413,59 @@ def test_words_of_the_latest_message_carry_the_fill(question: str, because: str)
 def test_part_of_a_word_is_not_a_quote() -> None:
     with pytest.raises(FillRefusedError):
         validate_fill(_asked("fill this"), _call({"field_id": "open", "value": "9"}, because="ill"))
+
+
+# --- the repair of a grounded fill, and the owner's words ------------------------------
+
+
+def test_a_repair_of_a_grounded_fill_needs_no_new_quote() -> None:
+    """FAILS IF: the repair of a fill this run already grounded is refused because its
+    `because` answers our refusal rather than the person (Varsha, 5 Nov 2026)."""
+    payload = _asked("is my script ready now?", EARLIER)
+    items = validate_fill(
+        payload, _call({"field_id": "open", "value": "09:00"}, because="fixed it"), grounded=True
+    )
+    assert items == (CopilotFillItem(field_id="open", value="09:00"),)
+
+
+def test_a_refusal_says_whether_the_call_was_grounded() -> None:
+    with pytest.raises(FillRefusedError) as quoted:
+        validate_fill(PAYLOAD, _call({"field_id": "status", "value": "x"}))
+    assert quoted.value.grounded is True
+    with pytest.raises(FillRefusedError) as unquoted:
+        validate_fill(PAYLOAD, _call({"field_id": "status", "value": "x"}, because="nope"))
+    assert unquoted.value.grounded is False
+
+
+def test_the_owners_copy_names_labels_and_no_ids() -> None:
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(
+            PAYLOAD,
+            _call(
+                {"field_id": "status", "value": "live"},
+                {"field_id": "lang", "value": "hi-IN"},
+                {"field_id": "seats", "value": "twelve"},
+                {"field_id": "agents.status", "value": "live"},
+                because="nope",
+            ),
+        )
+    assert refused.value.plain == (
+        "It did not match what your latest message asked for",
+        "Status cannot be changed here",
+        "Language has no such choice",
+        "Seats needs a number",
+        "One of the fields is not on this screen",
+    )
+    assert not any("`" in line for line in refused.value.plain)
+
+
+def test_the_owners_copy_of_a_textbook_word_names_the_line_and_the_word() -> None:
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(
+            _spoken(), _said({"field_id": "script-opening_line", "value": TEXTBOOK_OPENING})
+        )
+    (line,) = refused.value.plain
+    (formal, _spoken_form), *_ = textbook_words(TEXTBOOK_OPENING, "te-IN")
+    assert line.startswith("Opening line used words callers do not say: ")
+    assert f"“{formal}”" in line
+    assert "script-opening_line" not in line

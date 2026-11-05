@@ -17,6 +17,7 @@ from typing import Any, cast
 import httpx
 import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
+from calevate_shared.spoken_style import style_for
 
 from apps.api.copilot import navigation, script_actions, service, write_tools
 from apps.api.copilot import tools as tools_module
@@ -44,6 +45,8 @@ PAYLOAD = CopilotAskIn.model_validate(
         ],
     }
 )
+#: A screen Pip cannot fill, where a turn's words stream as they arrive (`hold_text`).
+READ_ONLY_PAYLOAD = PAYLOAD.model_copy(update={"fields": [PAYLOAD.fields[1]]})
 
 
 @pytest.fixture
@@ -247,6 +250,83 @@ async def test_a_refused_fill_goes_back_to_the_model_and_the_correction_is_appli
     ]
 
 
+def _script_rewrite() -> tuple[CopilotAskIn, str, str]:
+    """The Varsha shape (5 Nov 2026): a whole-script rewrite on the Script tab, a spoken line
+    first written with a textbook word from the list, then repaired. The word is read from
+    the language's own list, never spelled here."""
+    formal, _spoken = style_for("te-IN").word_swaps[0]  # type: ignore[union-attr]
+    payload = CopilotAskIn.model_validate(
+        {
+            "screen": {"route": "/c/x/agents/{id}", "title": "Agent: script", "realm": "client"},
+            "question": "Rewrite Varsha's whole script in simple spoken Telugu",
+            "fields": [
+                {
+                    "id": "script-opening_line",
+                    "label": "Opening line",
+                    "type": "textarea",
+                    "writable": True,
+                    "spoken_language": "te-IN",
+                }
+            ],
+        }
+    )
+    return payload, f"Hello {formal}?", "Hello?"
+
+
+def _fill(because: str, value: str) -> str:
+    return json.dumps(
+        {"because": because, "items": [{"field_id": "script-opening_line", "value": value}]}
+    )
+
+
+async def test_the_repair_of_a_grounded_fill_is_not_refused_for_its_because(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the repaired call, which answers our refusal rather than the person, is
+    refused for not quoting them although the first call of the run did."""
+    payload, textbook, clean = _script_rewrite()
+    sent = _scripted(
+        monkeypatch,
+        [
+            _turn(
+                content="I have updated Varsha's script.",
+                arguments=_fill("Rewrite Varsha's whole script", textbook),
+            ),
+            _turn(content="Done.", arguments=_fill("fixed the textbook words", clean)),
+        ],
+    )
+    events = await _drain(payload)
+    assert len(sent) == 2
+    assert "`because` stays the words of the person's latest message" in str(sent[1][-1]["content"])
+    assert [e.fill for e in events if e.fill] == [
+        (CopilotFillItem(field_id="script-opening_line", value=clean),)
+    ]
+    # The refused turn's claim never reached the screen; the accepted turn's words did.
+    said = "".join(e.text for e in events if e.text)
+    assert "I have updated" not in said and "Done." in said
+
+
+async def test_a_fill_never_grounded_in_the_run_stays_refused(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload, _textbook, clean = _script_rewrite()
+    _scripted(monkeypatch, [_turn(arguments=_fill("make it warmer", clean)) for _ in range(6)])
+    events = await _drain(payload)
+    assert not [e.fill for e in events if e.fill]
+
+
+async def test_a_refused_fill_is_shown_to_the_owner_by_label_without_ids(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload, textbook, _clean = _script_rewrite()
+    _scripted(monkeypatch, [_turn(arguments=_fill("Rewrite Varsha's whole script", textbook))])
+    events = await _drain(payload)
+    (step,) = [e.step for e in events if e.step is not None]
+    assert step.status == "refused" and step.detail is not None
+    assert step.detail.startswith("Opening line used words callers do not say")
+    assert "script-opening_line" not in step.detail and "`" not in step.detail
+
+
 async def test_the_loop_is_capped_and_says_so_rather_than_spinning(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -274,8 +354,10 @@ async def test_the_loop_is_capped_and_says_so_rather_than_spinning(
     said = "".join(e.text for e in events if e.text)
     assert said.startswith(service.EXHAUSTED_MESSAGE)
     # The reason travels with it: "narrow the request" is unhelpful advice to somebody
-    # whose real problem is that the field is read-only.
-    assert "`status` is not writable" in said
+    # whose real problem is that the field is read-only. In the owner's words: the field's
+    # label, never its id.
+    assert "Status cannot be changed here" in said
+    assert "`" not in said
     assert not [e.fill for e in events if e.fill]
     assert events[-1].spend is not None
 
@@ -388,7 +470,8 @@ async def test_a_consumer_that_stops_early_can_still_meter_the_completed_turns(
         ],
     )
     paid = service.PaidTurns()
-    run = cast(AsyncGenerator[Any, None], service.run_copilot(PAYLOAD, paid=paid))
+    # A screen with nothing to fill, where the second turn's words stream before it ends.
+    run = cast(AsyncGenerator[Any, None], service.run_copilot(READ_ONLY_PAYLOAD, paid=paid))
     async for event in run:
         if event.text is not None:
             break
@@ -919,7 +1002,7 @@ async def test_a_leg_that_dies_after_text_was_shown_still_meters_its_paid_turns(
     monkeypatch.setattr(chat, "stream", _stream)
     events: list[service.CopilotEvent] = []
     with pytest.raises(httpx.ReadError):
-        async for event in service.run_copilot(PAYLOAD):
+        async for event in service.run_copilot(READ_ONLY_PAYLOAD):
             events.append(event)
     spends = [e.spend for e in events if e.spend is not None]
     assert len(spends) == 1
