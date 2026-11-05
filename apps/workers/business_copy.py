@@ -2,7 +2,9 @@
 
 Queued through the outbox (`tenancy/business_copy.queue_generation`) when an account is
 created, when the owner asks Pip to refresh them, when an operator asks, and by the daily
-check (`sweep_business_copies`) for an account whose last look is 15 days old. One run:
+check (`sweep_business_copies`) for an account whose last look is 15 days old or whose copy
+was written under an older `PROMPT_VERSION` (also walked once at worker start after a
+version change, `upgrade_business_copies`). One run:
 
 1. **Claim** the account's row (`running_since`, compare-and-swap), so two runs never
    overlap; a claim older than `CLAIM_TTL` belongs to a run that died.
@@ -59,13 +61,17 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.base import uuid7
-from apps.api.db.session import admin_session, tenant_session
+from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.api.tenancy.business_copy import (
+    BOOKING_JOB_KEYS,
+    CAPABILITY_KEYS,
     CHIP_MAX,
     CLAIM_TTL,
     LINE_MAX,
     MAX_CHIPS,
+    MAX_OBJECTIONS,
+    MAX_PIP_QUESTIONS,
     MAX_QUESTIONS,
     MAX_STEPS,
     MIN_CHIPS,
@@ -80,7 +86,9 @@ from apps.api.tenancy.business_copy import (
     StopReason,
     Trigger,
     copy_problems,
+    health_allowed,
     missing_placeholders,
+    profile_problems,
     screen_guide_problems,
 )
 from apps.api.tenancy.models import BUSINESS_COPY_TRIGGERS
@@ -100,9 +108,11 @@ log = get_logger(__name__)
 #: The ARQ name; `tenancy/business_copy.JOB` is the enqueue side's spelling.
 JOB_NAME: Final = "generate_business_copy"
 
-#: Bumped when the instruction or the shape changes, so the next scheduled check rewrites
-#: copy written under the old one.
-PROMPT_VERSION: Final = 3
+#: Bumped when the instruction or the shape changes. It is part of `inputs_hash` and stored
+#: on the row, so a copy written under an older version is rewritten at once
+#: (`upgrade_business_copies`, queued at worker start) rather than at its next 15-day check.
+#: Version 4: the capability profile, objections, caller noun and Pip questions.
+PROMPT_VERSION: Final = 4
 
 #: The description handed to the model, in characters.
 MAX_INPUT_CHARS: Final = 9000
@@ -134,11 +144,18 @@ PLACEHOLDER_MEANINGS: Final[dict[str, str]] = {
     "extraction_options": "choices for a pick-one detail, comma separated",
     "end_call_rules": "two rules for ending calls, one per line",
     "lead_search": "what a caller asked for, as the owner would search for it",
-    "booking_job_title": "the name of the booking job, 2 to 4 words, like 'Take bookings'",
-    "booking_job_line": "one line saying the agent can check the calendar and book callers",
+    "booking_job_title": (
+        "the name of the job where the agent books callers in or takes their orders, 2 to 4 "
+        "words, like 'Take bookings'; an empty string when callers neither book nor order"
+    ),
+    "booking_job_line": (
+        "one line saying the agent can check the calendar and book callers in or take their "
+        "orders; an empty string when callers neither book nor order"
+    ),
     "teach_note": (
-        "two or three short sentences the owner types to teach the agents: a price, where "
-        "or when they serve, and one thing never to promise"
+        "two or three short sentences the owner types to teach the agents: one fact callers "
+        "ask about (a price only if this business tells callers prices), and one thing never "
+        "to promise"
     ),
     "business_line": "the business in one line, lower case, like 'a family-run bakery in Guntur'",
     "agent_role": "two sentences in the second person telling the agent its role on the phone",
@@ -200,6 +217,21 @@ def answer_schema(starter_counts: dict[str, int]) -> dict[str, object]:
                     "caller_details": _strings(MIN_CHIPS, MAX_CHIPS),
                     "example_questions": _strings(MIN_QUESTIONS, MAX_QUESTIONS),
                     "screen_guide": _object({"suggested": {"type": "boolean"}, "reason": _STR}),
+                    # Each reason before its verdict: JSON is generated left to right.
+                    "capabilities": _object(
+                        dict.fromkeys(
+                            CAPABILITY_KEYS,
+                            _object({"reason": _STR, "applies": {"type": "boolean"}}),
+                        )
+                    ),
+                    "objections": {
+                        "type": "array",
+                        "items": _object({"caller_says": _STR, "how_to_answer": _STR}),
+                        "minItems": 0,
+                        "maxItems": MAX_OBJECTIONS,
+                    },
+                    "caller_noun": _STR,
+                    "pip_questions": _strings(0, MAX_PIP_QUESTIONS),
                 }
             ),
         },
@@ -214,7 +246,9 @@ class Inputs:
     #: The BCP-47 tag of the business's main call language.
     language: str
     vertical: str | None
-    clinic: bool
+    #: The owner's own description of the business (redacted): a medical word it uses may
+    #: appear in the copy whatever the business is judged to be.
+    owner_words: str
     #: Each starter job's steps as (title, instruction), for the account's business type.
     starter_steps: dict[str, tuple[tuple[str, str], ...]]
     inputs_hash: str
@@ -236,11 +270,6 @@ def instruction_for(inputs: Inputs) -> str:
             f"step {i}: {title} ({instruction})" for i, (title, instruction) in enumerate(steps, 1)
         )
         for job, steps in inputs.starter_steps.items()
-    )
-    medical = (
-        "Medical words are fine for this business. "
-        if inputs.clinic
-        else "It is not a medical business, so use no medical or health-care words at all. "
     )
     return (
         "You write the example text one small Indian business sees in its dashboard for an "
@@ -273,12 +302,37 @@ def instruction_for(inputs: Inputs) -> str:
         "time, and false when its callers just talk, ask or book; reason is one short "
         "sentence to the owner saying what their callers do on screen when suggested, and an "
         "empty string when not. "
+        "capabilities: judge what THIS business does with the people who call it, from the "
+        "description only, each with a reason first (one short sentence to the owner naming "
+        "what in the description shows it) and then applies, true or false: takes_bookings, "
+        "callers book a time, slot, visit or meeting; takes_orders, callers order goods for "
+        "pickup or delivery; quotes_prices, the business tells callers its prices; "
+        "has_premises, callers come to a place such as a shop, office or site; sells, the "
+        "business sells products or services to its callers at all, false for a free app "
+        "helping its registered users, a helpline or a charity; health_business, it gives "
+        "health or medical care, such as a pharmacy, a diagnostic lab, physiotherapy, "
+        "veterinary care or a medical practice. When the description does not settle one, "
+        "judge what a business of exactly this kind usually does and say so in the reason. "
+        "Every other field must agree with these judgements: when callers neither book nor "
+        "order, booking_job_title and booking_job_line are empty strings; when the business "
+        "quotes no prices, no example names a price; when it sells nothing, no example "
+        "speaks of buying, orders or sales. "
+        "Use medical or health-care words only when health_business is true or the "
+        "description itself uses them. "
+        f"objections: 0 to {MAX_OBJECTIONS} push-backs this business's callers really raise, "
+        "only ones that fit what it does, none rather than a made-up one; caller_says is how "
+        "a caller says it, short, in the main call language, and how_to_answer is short "
+        "guidance in English. "
+        "caller_noun: what this business calls the people on its calls, one to three plain "
+        "English words, singular, lower case, such as customer, user, member, student, "
+        "farmer or client. "
+        f"pip_questions: 0 to {MAX_PIP_QUESTIONS} short questions the owner of THIS business "
+        "would ask an assistant about its calls, in English. "
         f"Keep short values under {SHORT_MAX} characters, one-line values under {LINE_MAX}, "
         f"prose under {PROSE_MAX}, details under {CHIP_MAX} and questions under "
         f"{QUESTION_MAX}. Only end_call_rules has a line break, between its two rules. "
         "Return ONLY the JSON object.\n"
-        f"Main call language: {language_name}. "
-        + medical
+        f"Main call language: {language_name}."
         + "\nReady-made scripts: "
         + starters
         + "\n"
@@ -290,7 +344,7 @@ def parse_answer(raw: dict[str, Any], *, inputs: Inputs) -> GeneratedCopy:
     """The model's answer as `GeneratedCopy`, or `UnusableAnswerError` naming what to fix,
     which `ask_json` sends back once. Paths and rules only, never the answer's text."""
     try:
-        copy = GeneratedCopy.model_validate(raw)
+        copy = GeneratedCopy.model_validate(_without_empty_booking_job(raw))
     except ValidationError as invalid:
         problems = [
             f"{'.'.join(str(p) for p in error['loc'])}: {error['type']}"
@@ -298,8 +352,11 @@ def parse_answer(raw: dict[str, Any], *, inputs: Inputs) -> GeneratedCopy:
         ]
         raise _unusable(problems) from None
     problems = [f"placeholders.{key}: missing" for key in missing_placeholders(copy.placeholders)]
-    problems += copy_problems(copy, clinic=inputs.clinic, language=inputs.language)
+    problems += copy_problems(
+        copy, health=health_allowed(copy), language=inputs.language, allowed=inputs.owner_words
+    )
     problems += screen_guide_problems(copy)
+    problems += profile_problems(copy)
     for job, count in inputs.starter_counts.items():
         given = len(getattr(copy.starter_lines, job))
         if given != count:
@@ -307,6 +364,20 @@ def parse_answer(raw: dict[str, Any], *, inputs: Inputs) -> GeneratedCopy:
     if problems:
         raise _unusable(problems)
     return copy
+
+
+def _without_empty_booking_job(raw: dict[str, Any]) -> dict[str, Any]:
+    """The strict schema makes every key a string, so "no booking job" arrives as "". It is
+    stored as absent, which is how every screen already reads a key with nothing in it."""
+    placeholders = raw.get("placeholders")
+    if not isinstance(placeholders, dict):
+        return raw
+    kept = {
+        key: value
+        for key, value in placeholders.items()
+        if not (key in BOOKING_JOB_KEYS and isinstance(value, str) and not value.strip())
+    }
+    return {**raw, "placeholders": kept}
 
 
 def _unusable(problems: list[str]) -> UnusableAnswerError:
@@ -359,6 +430,10 @@ def inputs_hash(*, description: str, language: str, vertical: str | None) -> str
 async def gather_inputs(tenant_id: UUID) -> Inputs:
     """Everything the copy is written from, redacted, with its fingerprint."""
     base, vertical = await business_context(tenant_id)
+    # Without the type on file and the agents' names: on an account given a type by default
+    # both were written from that default, and a default "clinic" must not license medical
+    # words for a shop (D-722).
+    owner_words, _ = await business_context(tenant_id, include_type=False)
     async with tenant_session(tenant_id) as session:
         language = (await session.execute(text(_MAIN_LANGUAGE))).scalar() or STARTER_LANGUAGE
         pinned = (await session.execute(text(_PINNED), {"limit": MAX_PINNED_FACTS})).all()
@@ -397,7 +472,7 @@ async def gather_inputs(tenant_id: UUID) -> Inputs:
         description=description,
         language=str(language),
         vertical=vertical,
-        clinic=vertical == "clinic",
+        owner_words=owner_words,
         starter_steps=starter_steps,
         inputs_hash=inputs_hash(description=description, language=str(language), vertical=vertical),
     )
@@ -410,6 +485,8 @@ async def gather_inputs(tenant_id: UUID) -> Inputs:
 class Claim:
     at: datetime
     previous_hash: str | None
+    #: True when the row holds a copy written under an older `PROMPT_VERSION`.
+    behind: bool = False
 
 
 async def _account_open(tenant_id: UUID) -> bool:
@@ -440,12 +517,18 @@ async def claim(tenant_id: UUID, trigger: Trigger, *, now: datetime | None = Non
                     "UPDATE business_copies SET running_since = :at, last_trigger = :trigger, "
                     "last_attempt_at = :at, updated_at = now() "
                     "WHERE running_since IS NULL OR running_since < :stale "
-                    "RETURNING inputs_hash"
+                    "RETURNING inputs_hash, generated IS NOT NULL "
+                    "AND prompt_version IS DISTINCT FROM :version"
                 ),
-                {"at": at, "trigger": trigger, "stale": at - CLAIM_TTL},
+                {
+                    "at": at,
+                    "trigger": trigger,
+                    "stale": at - CLAIM_TTL,
+                    "version": PROMPT_VERSION,
+                },
             )
         ).first()
-    return None if row is None else Claim(at=at, previous_hash=row[0])
+    return None if row is None else Claim(at=at, previous_hash=row[0], behind=bool(row[1]))
 
 
 async def _stop(tenant_id: UUID, held: Claim, reason: StopReason) -> StopReason:
@@ -498,10 +581,12 @@ async def _may_spend(tenant_id: UUID, *, absorbed: bool) -> StopReason | None:
     return None
 
 
-async def _absorbed(tenant_id: UUID, trigger: Trigger) -> bool:
-    """Ours to pay for: an operator's refresh, and a trial account's first generation and the
-    one after its owner's first brief (D-855)."""
-    if trigger == "operator":
+async def _absorbed(tenant_id: UUID, trigger: Trigger, *, behind: bool = False) -> bool:
+    """Ours to pay for: an operator's refresh, a trial account's first generation and the
+    one after its owner's first brief (D-855), and the check that rewrites a copy because
+    OUR prompt changed (`behind`). Nobody on the account asked for that last one, and a
+    used-up allowance would otherwise leave the account on an outdated copy."""
+    if trigger == "operator" or (trigger == "scheduled" and behind):
         return True
     if trigger not in ("signup", "first_run"):
         return False
@@ -537,7 +622,8 @@ async def _store(
                 text(
                     "UPDATE business_copies SET generated = CAST(:generated AS jsonb), "
                     "language = :language, model = :model, inputs_hash = :hash, "
-                    "generated_at = now(), cost_inr = :cost, absorbed = :absorbed, "
+                    "prompt_version = :version, generated_at = now(), cost_inr = :cost, "
+                    "absorbed = :absorbed, "
                     "stop_reason = NULL, running_since = NULL, updated_at = now() "
                     "WHERE running_since = :at RETURNING id"
                 ),
@@ -546,6 +632,7 @@ async def _store(
                     "language": inputs.language,
                     "model": answer.model,
                     "hash": inputs.inputs_hash,
+                    "version": PROMPT_VERSION,
                     "cost": metering.cost_inr,
                     "absorbed": feature == ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
                     "at": held.at,
@@ -559,7 +646,7 @@ async def _run(tenant_id: UUID, trigger: Trigger, held: Claim) -> str:
     inputs = await gather_inputs(tenant_id)
     if trigger == "scheduled" and inputs.inputs_hash == held.previous_hash:
         return await _stop(tenant_id, held, "inputs_unchanged")
-    absorbed = await _absorbed(tenant_id, trigger)
+    absorbed = await _absorbed(tenant_id, trigger, behind=held.behind)
     blocked = await _may_spend(tenant_id, absorbed=absorbed)
     if blocked is not None:
         return await _stop(tenant_id, held, blocked)
@@ -633,14 +720,24 @@ _DIRECTORY: Final = (
 )
 
 
+_ROW_STATE: Final = (
+    "SELECT last_attempt_at, generated IS NOT NULL AND prompt_version IS DISTINCT FROM :version "
+    "FROM business_copies"
+)
+
+
 async def _due(tenant_id: UUID, *, now: datetime) -> bool:
-    """Not a trial (founder: trials get no scheduled refresh), and not looked at for 15 days."""
+    """Due when the copy in use was written under an older prompt (any account, trials too:
+    the rewrite is ours, `_absorbed`), or else when it is not a trial (founder: trials get no
+    scheduled refresh) and was not looked at for 15 days. Once a day at most, by the key."""
     async with tenant_session(tenant_id) as session:
-        if await trial_billing_active(session, tenant_id=tenant_id, at=now):
-            return False
-        row = (await session.execute(text("SELECT last_attempt_at FROM business_copies"))).first()
-        if row is not None and row[0] is not None and row[0] > now - REFRESH_EVERY:
-            return False
+        row = (await session.execute(text(_ROW_STATE), {"version": PROMPT_VERSION})).first()
+        behind = row is not None and bool(row[1])
+        if not behind:
+            if await trial_billing_active(session, tenant_id=tenant_id, at=now):
+                return False
+            if row is not None and row[0] is not None and row[0] > now - REFRESH_EVERY:
+                return False
         await enqueue_outbox_once(
             session,
             job=JOB_NAME,
@@ -651,9 +748,44 @@ async def _due(tenant_id: UUID, *, now: datetime) -> bool:
 
 
 async def sweep_business_copies(ctx: dict[str, Any]) -> str:
-    """Daily: queue the scheduled check for every account whose last look is 15 days old.
-    The run itself decides whether anything changed."""
+    """Daily: queue the scheduled check for every account whose last look is 15 days old or
+    whose copy is behind the prompt. The run itself decides whether anything changed."""
     del ctx
+    return await _walk()
+
+
+#: The outbox job worker start queues once per prompt version.
+UPGRADE_JOB: Final = "upgrade_business_copies"
+
+
+async def upgrade_business_copies(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """The daily walk, run once right after a deploy that changed `PROMPT_VERSION`, so every
+    account's copy (and its capability profile) is rewritten that day rather than within 15.
+    A pass cut short by its budget leaves the rest to the daily walk, which queues a copy
+    that is behind just the same."""
+    del ctx, payload
+    return await _walk()
+
+
+async def queue_upgrade_on_start() -> None:
+    """Queue `upgrade_business_copies` once per prompt version, at worker start. Logged,
+    never raised: the daily walk reaches every copy that is behind anyway."""
+    try:
+        async with untenanted_session() as session:
+            queued = await enqueue_outbox_once(
+                session,
+                job=UPGRADE_JOB,
+                payload={"prompt_version": PROMPT_VERSION},
+                dedupe_key=f"business-copy-upgrade:v{PROMPT_VERSION}",
+            )
+    except Exception:
+        log.exception("business_copy_upgrade_not_queued")
+        return
+    if queued is not None:
+        log.info("business_copy_upgrade_queued", extra={"prompt_version": PROMPT_VERSION})
+
+
+async def _walk() -> str:
     now = datetime.now(UTC)
     async with admin_session() as directory:
         tenant_ids = [UUID(str(r[0])) for r in (await directory.execute(text(_DIRECTORY))).all()]
@@ -688,6 +820,7 @@ __all__ = [
     "JOB_NAME",
     "PLACEHOLDER_MEANINGS",
     "PROMPT_VERSION",
+    "UPGRADE_JOB",
     "Inputs",
     "answer_schema",
     "claim",
@@ -696,5 +829,7 @@ __all__ = [
     "inputs_hash",
     "instruction_for",
     "parse_answer",
+    "queue_upgrade_on_start",
     "sweep_business_copies",
+    "upgrade_business_copies",
 ]

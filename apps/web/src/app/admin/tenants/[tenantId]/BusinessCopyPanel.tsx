@@ -9,13 +9,15 @@ import {
   useAdminBusinessCopy,
   useAdminRefreshBusinessCopy,
   type AdminBusinessCopy,
+  type Capabilities,
+  type Capability,
 } from "@/lib/api/businessCopy";
 import { lookup } from "@/lib/lookup";
 
 const TRIGGER: Record<string, string> = {
   signup: "account created",
   refresh: "the owner asked",
-  scheduled: "15-day check",
+  scheduled: "scheduled check",
   operator: "an operator asked",
 };
 
@@ -68,10 +70,36 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
         {data.stop_reason ? (
           <SettingRow label="Last run" value={data.stop_message ?? data.stop_reason} />
         ) : null}
+        <SettingRow label="Calls its callers" value={data.caller_noun ?? "Not judged yet"} />
+        {CAPABILITY_ROWS.map(([key, label]) => (
+          <SettingRow
+            key={key}
+            label={label}
+            value={capabilityLine(data.capabilities[key])}
+          />
+        ))}
       </SettingRows>
       <ProblemNotice error={refresh.error} />
     </Section>
   );
+}
+
+/** The capability profile (D-827, prompt version 4), read-only: what the screens and the
+ * agents' plans will follow for this client. */
+const CAPABILITY_ROWS: readonly (readonly [keyof Capabilities, string])[] = [
+  ["takes_bookings", "Takes bookings"],
+  ["takes_orders", "Takes orders"],
+  ["quotes_prices", "Tells callers prices"],
+  ["has_premises", "Callers come to a place"],
+  ["sells", "Sells to callers"],
+  ["health_business", "Health business"],
+];
+
+/** Exported for the test. */
+export function capabilityLine(judged: Capability): string {
+  if (judged.applies === null || judged.applies === undefined) return "Not judged yet";
+  const verdict = judged.applies ? "Yes" : "No";
+  return judged.reason ? `${verdict}: ${judged.reason}` : verdict;
 }
 
 /** Exported for the test. */

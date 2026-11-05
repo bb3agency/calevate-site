@@ -474,6 +474,18 @@ export const NO_BUSINESS_COPY = {
   steps: [],
   caller_details: [],
   example_questions: [],
+  // The unknown profile: every capability not yet judged.
+  capabilities: Object.fromEntries(
+    ["takes_bookings", "takes_orders", "quotes_prices", "has_premises", "sells", "health_business"].map(
+      (key) => [key, { reason: "", applies: null }],
+    ),
+  ) as Record<
+    "takes_bookings" | "takes_orders" | "quotes_prices" | "has_premises" | "sells" | "health_business",
+    { reason: string; applies: boolean | null }
+  >,
+  objections: [],
+  caller_noun: null,
+  pip_questions: [],
   language: null,
   generated_at: null,
   refreshing: false,

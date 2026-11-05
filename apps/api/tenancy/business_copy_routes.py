@@ -42,6 +42,17 @@ class BusinessCopyOut(BaseModel):
     #: Whether this business's callers use its app or website on a call; None until a run
     #: has judged it.
     screen_guide: service.ScreenGuide | None = None
+    #: What the business does with its callers. Always present: until a run has judged it,
+    #: every `applies` is null, and a screen then behaves as it did before the profile
+    #: existed (`service.Capabilities`, the unknown rule).
+    capabilities: service.Capabilities
+    #: Push-backs its callers really raise; empty until judged or when there are none.
+    objections: list[service.CallerObjection] = Field(max_length=service.MAX_OBJECTIONS)
+    #: What the business calls the people on its calls (English, singular, lower case);
+    #: None until judged.
+    caller_noun: str | None
+    #: Questions an owner of this business would ask Pip; empty until judged.
+    pip_questions: list[str] = Field(max_length=service.MAX_PIP_QUESTIONS)
     #: The language the example lines are written in (BCP-47).
     language: str | None
     generated_at: datetime | None
@@ -62,6 +73,14 @@ def render(state: service.CopyState | None) -> BusinessCopyOut:
         caller_details=list(copy.caller_details) if copy is not None else [],
         example_questions=list(copy.example_questions) if copy is not None else [],
         screen_guide=copy.screen_guide if copy is not None else None,
+        capabilities=(
+            copy.capabilities
+            if copy is not None and copy.capabilities is not None
+            else service.Capabilities.unknown()
+        ),
+        objections=list(copy.objections or ()) if copy is not None else [],
+        caller_noun=copy.caller_noun if copy is not None else None,
+        pip_questions=list(copy.pip_questions or ()) if copy is not None else [],
         language=state.language if state is not None and copy is not None else None,
         generated_at=state.generated_at if state is not None and copy is not None else None,
         refreshing=state.running if state is not None else False,

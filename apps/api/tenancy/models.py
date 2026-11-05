@@ -791,6 +791,9 @@ class BusinessCopy(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             "inputs_hash IS NULL OR inputs_hash ~ '^[0-9a-f]{64}$'", name="inputs_hash_hex"
         ),
+        CheckConstraint(
+            "prompt_version IS NULL OR prompt_version > 0", name="prompt_version_positive"
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -802,6 +805,10 @@ class BusinessCopy(PKMixin, TimestampMixin, Base):
     model: Mapped[str | None] = mapped_column(Text, nullable=True)
     #: sha256 of what the copy in use was written from (`business_copy.inputs_hash`).
     inputs_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The worker's `PROMPT_VERSION` the copy in use was written under; NULL for a copy from
+    #: before it was recorded (version 3 or older). A copy behind the current version is
+    #: re-judged at once, not 15 days later (`workers/business_copy.upgrade_business_copies`).
+    prompt_version: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: What the run that wrote the copy in use was metered at, and whether it was ours.
     #: Unscaled NUMERIC: the ledger's products carry more places than any fixed scale.

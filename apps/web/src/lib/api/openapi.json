@@ -885,6 +885,20 @@
             "title": "Caller Details",
             "type": "array"
           },
+          "caller_noun": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Noun"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
           "cost_inr": {
             "anyOf": [
               {
@@ -961,6 +975,22 @@
             ],
             "title": "Model"
           },
+          "objections": {
+            "items": {
+              "$ref": "#/components/schemas/CallerObjection"
+            },
+            "maxItems": 3,
+            "title": "Objections",
+            "type": "array"
+          },
+          "pip_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Pip Questions",
+            "type": "array"
+          },
           "placeholders": {
             "anyOf": [
               {
@@ -1029,6 +1059,10 @@
           "steps",
           "caller_details",
           "example_questions",
+          "capabilities",
+          "objections",
+          "caller_noun",
+          "pip_questions",
           "language",
           "generated_at",
           "refreshing",
@@ -7510,6 +7544,20 @@
             "title": "Caller Details",
             "type": "array"
           },
+          "caller_noun": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Noun"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
           "example_questions": {
             "items": {
               "type": "string"
@@ -7540,6 +7588,22 @@
               }
             ],
             "title": "Language"
+          },
+          "objections": {
+            "items": {
+              "$ref": "#/components/schemas/CallerObjection"
+            },
+            "maxItems": 3,
+            "title": "Objections",
+            "type": "array"
+          },
+          "pip_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Pip Questions",
+            "type": "array"
           },
           "placeholders": {
             "anyOf": [
@@ -7609,6 +7673,10 @@
           "steps",
           "caller_details",
           "example_questions",
+          "capabilities",
+          "objections",
+          "caller_noun",
+          "pip_questions",
           "language",
           "generated_at",
           "refreshing",
@@ -12219,6 +12287,30 @@
         "title": "CallerNoticeOut",
         "type": "object"
       },
+      "CallerObjection": {
+        "additionalProperties": false,
+        "description": "A push-back this business's callers really raise, and how the agent should meet it.",
+        "properties": {
+          "caller_says": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Caller Says",
+            "type": "string"
+          },
+          "how_to_answer": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "How To Answer",
+            "type": "string"
+          }
+        },
+        "required": [
+          "caller_says",
+          "how_to_answer"
+        ],
+        "title": "CallerObjection",
+        "type": "object"
+      },
       "CallerScreenIn": {
         "additionalProperties": false,
         "description": "Switch \"caller follows along on a screen\" for one agent (D-906).",
@@ -12924,6 +13016,68 @@
           "y"
         ],
         "title": "CanvasPosition",
+        "type": "object"
+      },
+      "Capabilities": {
+        "additionalProperties": false,
+        "description": "What this business does with its callers, judged by the copy run from its own details.\n\ntakes_bookings: callers book a time, slot, visit or meeting. takes_orders: callers order\ngoods for pickup or delivery. quotes_prices: the business tells callers prices.\nhas_premises: callers come to a place (a shop, an office, a site). sells: the business\nsells anything to callers at all (False for a free app helping its registered users, or a\nhelpline). health_business: it gives health or medical care.\n\nTHE UNKNOWN RULE: `applies is None` means \"not judged yet\", and a consumer then behaves\nexactly as it did before this profile existed. Only `applies is False` may withdraw\nanything; never read None as False.",
+        "properties": {
+          "has_premises": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "health_business": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "quotes_prices": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "sells": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "takes_bookings": {
+            "$ref": "#/components/schemas/Capability"
+          },
+          "takes_orders": {
+            "$ref": "#/components/schemas/Capability"
+          }
+        },
+        "required": [
+          "takes_bookings",
+          "takes_orders",
+          "quotes_prices",
+          "has_premises",
+          "sells",
+          "health_business"
+        ],
+        "title": "Capabilities",
+        "type": "object"
+      },
+      "Capability": {
+        "additionalProperties": false,
+        "description": "One yes/no judgement about what the business does with its callers.\n\n`applies` is None only in the UNKNOWN profile (`Capabilities.unknown`): no run has judged\nthis account yet. A judged answer is always True or False with a reason\n(`capability_problems`). `reason` comes before `applies` so the model writes its grounds\nbefore its verdict: in JSON generated left to right, a reason written after the verdict\ncannot inform it.",
+        "properties": {
+          "applies": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies"
+          },
+          "reason": {
+            "maxLength": 160,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "applies"
+        ],
+        "title": "Capability",
         "type": "object"
       },
       "CapsIn": {
@@ -40965,16 +41119,30 @@
             "title": "Ask On Arrival"
           },
           "booking_job_line": {
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Booking Job Line",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Job Line"
           },
           "booking_job_title": {
-            "maxLength": 40,
-            "minLength": 1,
-            "title": "Booking Job Title",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Booking Job Title"
           },
           "booking_rules": {
             "anyOf": [
@@ -41396,9 +41564,7 @@
           "extraction_label",
           "extraction_options",
           "end_call_rules",
-          "lead_search",
-          "booking_job_title",
-          "booking_job_line"
+          "lead_search"
         ],
         "title": "Placeholders",
         "type": "object"
