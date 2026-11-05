@@ -147,6 +147,7 @@ from apps.workers.caller_memory_distil import (
 )
 from apps.workers.caller_memory_distil import (
     distil_caller_memories,
+    refile_caller_memories,
 )
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.client_actions import run_after_call_actions, run_client_action
@@ -450,8 +451,11 @@ FUNCTIONS: list[Any] = [
         # word (D-962), from the outbox (migration e962a4c1d7b3).
         strip_retired_example_lines,
         # Stored gaps and call mistakes read again after a check was narrowed (D-970),
-        # from the outbox (migration a7d3e9c1f570).
+        # from the outbox (migration a7d3e9c1f570, and again f5a9c3e1d7b2 for L5-05).
         recheck_call_quality,
+        # Notes from outbound calls filed under the person called, not the business's own
+        # number (L5-02), from the outbox (migration f5a9c3e1d7b2).
+        refile_caller_memories,
         # Test conversations against the agent and the auto-improve proposal that follows
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,

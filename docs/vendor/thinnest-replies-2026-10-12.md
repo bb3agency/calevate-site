@@ -2617,6 +2617,29 @@ sudo -u postgres psql -d calevate -c "SELECT c.engine_call_id, c.started_at AT T
 >    reply is still being spoken?
 > 3. Is there a setting to keep the line open for a moment after the last word is played?
 > 4. Can Get Call or `call.completed` tell us who ended a call (agent, platform, caller)?
+> 5. On a later call the same evening (about 20:05 IST), mid-call the person said "Hello."
+>    and the agent's next turn began with the first words of its opening line, as if the
+>    call had just started. Can your platform replay the opening line, or answer a "Hello"
+>    with it, after the call's first turn: on a reconnection, after "Are you still there?",
+>    or through "Wait for the customer to speak first" (on for this agent)? If it can, which
+>    setting controls it?
 >
 > Thanks,
 > Umesh
+
+### 49.1 The opening heard again mid-call (F-7, 5 Nov 2026, about 20:05 IST)
+
+The person said "Hello." mid-call and the agent's next turn began with the opening's first
+words. Our call rules now say a later hello means "you're here; go on, never restart"
+(`OPENING_CONTINUES_RULE`). What the docs say about the engine's own part, and what they do
+not:
+
+- "Wait for the customer to speak first" answers a bare "Hello" with the opening line itself
+  "so it is never greeted twice", but it is described only for the caller's FIRST words
+  (`snapshots/2026-10-29/pages/channels/voice.md:1073-1083`).
+- A COLD hand-off to another agent "greets the caller straight away with its own opening
+  line, as on a new call" (`voice.md:928-929`); this agent hands off to nobody.
+- The unanswered-question re-ask repeats the agent's last QUESTION "in its own words", never
+  "Are you still there?" (`voice.md:829-836`); it is not described as replaying the opening.
+- Nothing in the pinned docs says the platform replays the opening after the first turn, on a
+  reconnection or otherwise, and there is no setting for it. Question 5 above asks.

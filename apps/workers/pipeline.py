@@ -1309,7 +1309,9 @@ async def _owner_insights_stage(
                 gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
                 for turn in snapshot.transcript
             ]
-            with span("pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+            with span(
+                "pipeline.knowledge_gaps", call_id=str(call_id), agent_id=str(agent_id)
+            ) as stage:
                 gap_count = await gap_service.record_call_gaps(
                     tenant_id=tenant_id,
                     agent_id=agent_id,
@@ -1322,7 +1324,9 @@ async def _owner_insights_stage(
         # call, so the same mistake is counted across calls and a fixed one is caught coming
         # back. Kinds and turn indexes only are stored (hard rule 6). Idempotent per call.
         if snapshot.transcript:
-            with span("pipeline.call_mistakes", call_id=str(call_id), agent_id=str(agent_id)) as stage:
+            with span(
+                "pipeline.call_mistakes", call_id=str(call_id), agent_id=str(agent_id)
+            ) as stage:
                 languages = await _agent_languages(tenant_id, agent_id)
                 found = call_mistakes.mistakes_in(
                     snapshot.transcript,
@@ -1331,7 +1335,9 @@ async def _owner_insights_stage(
                     prior_contact=await _prior_contact(
                         tenant_id,
                         call_id,
-                        _party_e164(snapshot.from_e164 if direction == "inbound" else snapshot.to_e164),
+                        _party_e164(
+                            snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
+                        ),
                     ),
                 )
                 await call_mistakes.record_call_mistakes(

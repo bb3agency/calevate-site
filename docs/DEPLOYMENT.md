@@ -808,7 +808,7 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    had run. `up -d` on a healthy container is a no-op, so this costs a correct deploy
    nothing.
 10. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
-   order workers → workers-bulk → api → voice-runtime (§4b), each followed by a health wait of
+   order workers-bulk → workers → api → voice-runtime (§4b), each followed by a health wait of
    **90×2s** on `/healthz` (§10's lesson: 60s was shorter than a migrate-on-boot, which
    trains operators to ignore red deploys). The workers have no HTTP listener, so each swap
    is gated by watching the new container instead: it must stay `running` with
@@ -918,10 +918,18 @@ rather than to claim a rollout mechanism this repo does not have.
 
 What is done about it:
 
-- **Order.** workers and workers-bulk first (no reader waits on them; a job landing in
-  their gap sits in Redis, and the bulk queue has a reader before a new api routes jobs
-  onto it), then api, then **voice-runtime last** — its gap is the only one that costs a
-  call, so it is the shortest-lived and the last thing to happen.
+- **Order.** workers-bulk, then workers (no reader waits on them; a job landing in their
+  gap sits in Redis, and the bulk queue has a reader before a new api routes jobs onto it),
+  then api, then **voice-runtime last** — its gap is the only one that costs a call, so it
+  is the shortest-lived and the last thing to happen. The bulk worker goes FIRST because the
+  new main worker's outbox dispatcher publishes at startup, and an old bulk worker fails a
+  job it lacks as "function not found" with no retry (L5-01, 5 Nov 2026); the dispatcher
+  also holds a bulk job until every live bulk worker advertises it
+  (`core/queue.bulk_jobs_served`). The bulk worker drains for a whole job timeout (330 s
+  grace) so a deploy does not cancel a long document read or walk.
+- **Work a migration queues** carries the migration's revision (`outbox_messages.
+  min_revision`): the old release still running between migrate and swap leaves it for the
+  new workers (L5-04).
 - **Graceful stop.** `stop_grace_period` is 30s for api and voice-runtime (each longer
   than its uvicorn `--timeout-graceful-shutdown`, 25s and 20s, so the drain finishes and
   the lifespan's shutdown hooks still get to run) and 60s for both workers, so in-flight work

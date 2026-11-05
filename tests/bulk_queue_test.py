@@ -21,6 +21,7 @@ from apps.api.core.queue import (
     DEFAULT_QUEUE,
     QUEUES,
     WORKER_JOB_TIMEOUT_S,
+    bulk_jobs_served,
     enqueue,
     get_queue,
     queue_for,
@@ -109,7 +110,11 @@ def test_the_bulk_worker_registers_the_same_objects_as_the_main_one() -> None:
 
 
 #: The attributes the two classes are deliberately different on.
-_DIFFERS = {"functions", "cron_jobs", "timezone", "queue_name", "on_startup"}
+_DIFFERS = {
+    *("functions", "cron_jobs", "timezone", "queue_name", "on_startup", "on_shutdown"),
+    # A whole job timeout for bulk (L5-20); see `test_a_deploy_lets_a_running_bulk_job_finish`.
+    "job_completion_wait",
+}
 
 
 def test_the_bulk_worker_shares_every_other_worker_setting() -> None:
@@ -149,6 +154,41 @@ def test_the_bulk_drain_window_fits_inside_its_grace() -> None:
     grace = _compose_service("workers-bulk")["stop_grace_period"]
     assert grace.endswith("s")
     assert BulkWorkerSettings.job_completion_wait < int(grace[:-1])
+
+
+def test_a_deploy_lets_a_running_bulk_job_finish() -> None:
+    """L5-20: a drain shorter than a job re-queued it with a try spent, and a long walk
+    caught by three deploys ended with no run finished."""
+    assert BulkWorkerSettings.job_completion_wait >= WORKER_JOB_TIMEOUT_S
+
+
+def test_the_deploy_swaps_the_bulk_worker_before_the_main_one() -> None:
+    """L5-01: the new main worker's dispatcher publishes at startup, so the bulk queue's
+    reader must already be the new release."""
+    script = (COMPOSE_PROD.parent / "scripts" / "vps-deploy.sh").read_text(encoding="utf-8")
+    assert "for component in workers-bulk workers api voice-runtime; do" in script
+
+
+async def test_the_bulk_worker_advertises_its_jobs_while_it_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def booted(_service: str) -> str:
+        return "local"
+
+    monkeypatch.setattr(worker_settings, "_boot", booted)
+    redis = await get_queue()
+    ctx: dict[str, Any] = {"redis": redis}
+    await worker_settings.bulk_startup(ctx)
+    try:
+        assert set(await bulk_jobs_served(redis)) >= BULK_JOBS
+    finally:
+        monkeypatch.setattr(worker_settings, "shutdown", _no_shutdown)
+        await worker_settings.bulk_shutdown(ctx)
+    assert "recheck_call_quality" not in await bulk_jobs_served(redis)
+
+
+async def _no_shutdown(_ctx: dict[str, Any]) -> None:
+    return None
 
 
 # ------------------------------------------------------------------------- readiness

@@ -102,7 +102,9 @@ _DEFERRED_RE = re.compile(
     r"(?:send|share|whats\s?app)\s+(?:you\s+)?(?:the\s+|our\s+|all\s+the\s+)?"
     r"(?:prices?|pricing|rates?|cost|details|information|info)\b|"
     r"(?:message|whats\s?app|call|contact|email|reach)\s+us\b|"
-    r"(?:visit|check)\s+(?:our|the)\s+(?:website|page|office|shop)|" + _say("detection.later_by_a_person") + r")(?!\w)",
+    r"(?:visit|check)\s+(?:our|the)\s+(?:website|page|office|shop)|"
+    + _say("detection.later_by_a_person")
+    + r")(?!\w)",
     re.IGNORECASE,
 )
 

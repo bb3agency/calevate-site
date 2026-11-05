@@ -224,7 +224,9 @@ def test_questions_are_still_heard_in_every_shape() -> None:
 
 def test_sending_what_was_asked_for_is_the_answer_not_a_gap() -> None:
     """L5-06: for a business whose answer is a link on WhatsApp, sending it answers."""
-    assert is_gap("How do I install the app?", "Sure, I'll send you the link on WhatsApp now.") is None
+    assert (
+        is_gap("How do I install the app?", "Sure, I'll send you the link on WhatsApp now.") is None
+    )
     assert is_gap("How do I install the app?", "Please message us on WhatsApp.") == (
         "deferred_channel"
     )

@@ -223,9 +223,7 @@ _QUANTITY: Final = re.compile(
     re.IGNORECASE,
 )
 #: How a caller ends an order: "please" in English, "give" or "want" in Telugu and Hindi.
-_ORDER_ENDING: Final = re.compile(
-    _say("turn_checks._ORDER_ENDING"), re.IGNORECASE
-)
+_ORDER_ENDING: Final = re.compile(_say("turn_checks._ORDER_ENDING"), re.IGNORECASE)
 _OR: Final = re.compile(_say("turn_checks._OR"), re.IGNORECASE)
 #: What a caller says when they want more than a short answer.
 _ASKS_DETAIL: Final = re.compile(
@@ -257,9 +255,7 @@ _PUNCTUATION: Final = "\"'“”\u2018\u2019.,!?;:()[]{}।\uff1f…-\u2013—"
 #: Short abbreviations whose full stop does not end a sentence.
 _ABBREVIATION: Final = re.compile(r"\b(?:rs|dr|mr|mrs|ms|no|st|vs|etc|approx)\.$", re.IGNORECASE)
 #: Words that carry no meaning when comparing two questions.
-_FILLER: Final = frozenset(
-    list(_word_list("turn_checks._FILLER"))
-)
+_FILLER: Final = frozenset(_word_list("turn_checks._FILLER"))
 #: The script each language is written in, for the wrong-language rule. Only languages whose
 #: callers write a script of their own: an English or Latin-script reply to a caller who
 #: wrote Telugu letters is unambiguous, where two Latin-script languages are not.
@@ -382,7 +378,7 @@ _UNIT: Final = re.compile(
 #: Telugu number forms that need a noun after them: "ఒక" (a, one) and "అర" (half). The
 #: standalone answers are "ఒకటి" and "అర కేజీ", so a line ending on one of these was cut. A
 #: bare "two" or "రెండు" answering "how many?" is complete, so other numbers are left alone.
-_NEEDS_A_NOUN: Final = frozenset(set(_word_list("turn_checks._NEEDS_A_NOUN")))
+_NEEDS_A_NOUN: Final = frozenset(_word_list("turn_checks._NEEDS_A_NOUN"))
 
 
 def _number_word(word: str) -> str | None:
@@ -393,7 +389,7 @@ def _number_word(word: str) -> str | None:
 
 
 #: Words a caller's line cannot end on unless the turn timer cut it ("మాకు", "to us").
-_DANGLING: Final = frozenset(set(_word_list("turn_checks._DANGLING")))
+_DANGLING: Final = frozenset(_word_list("turn_checks._DANGLING"))
 #: The longest reply that is still only a "go on" ("చెప్పండి అండి", "हाँ जी, बोलिए").
 NUDGE_MAX_WORDS: Final = 4
 #: The longest single question that offers a reading of a broken-off answer ("అంటే ఒక కోటి
@@ -513,7 +509,7 @@ def _formal_problem(reply: str, language: str) -> TurnProblem | None:
 
 #: Words that open a question restating the one before it with options or plainer words
 #: ("ఏ area లో చూస్తున్నారు? అంటే ఏదైనా particular area ఉందా?"): one question, said two ways.
-_RESTATES: Final = frozenset(set(_word_list("turn_checks._RESTATES")))
+_RESTATES: Final = frozenset(_word_list("turn_checks._RESTATES"))
 
 
 #: A question asking leave to say something ("would you like to know the price?"), which costs
@@ -535,11 +531,9 @@ def _restates(question: str) -> bool:
 _ALSO: Final = re.compile(_say("turn_checks._ALSO"), re.IGNORECASE)
 _EN_WH: Final = frozenset({"what", "which", "where", "when", "how", "who", "whom", "why"})
 #: Telugu question words. "ఏ" (which) only as a whole word: ఏరియా starts with the same letter.
-_TE_WH_EXACT: Final = frozenset(set(_word_list("turn_checks._TE_WH_EXACT")))
+_TE_WH_EXACT: Final = frozenset(_word_list("turn_checks._TE_WH_EXACT"))
 _TE_WH_STEMS: Final = _word_list("turn_checks._TE_WH_STEMS")
-_HI_WH: Final = frozenset(
-    set(_word_list("turn_checks._HI_WH"))
-)
+_HI_WH: Final = frozenset(_word_list("turn_checks._HI_WH"))
 
 
 def _asks_wh(clause: str) -> bool:
@@ -810,12 +804,8 @@ _INDIC_BLOCKS: Final[dict[str, tuple[str, str]]] = {
     "ml": ("ഀ", "ൿ"),
 }
 
-_TE_NUMBER: Final = (
-    _say("turn_checks._TE_NUMBER")
-)
-_HI_NUMBER: Final = (
-    _say("turn_checks._HI_NUMBER")
-)
+_TE_NUMBER: Final = _say("turn_checks._TE_NUMBER")
+_HI_NUMBER: Final = _say("turn_checks._HI_NUMBER")
 #: A price in the language's own number words ("ఆరు నూరు రూపాయలు"). A problem only where the
 #: language's `prices` number rule says the English way (`LanguageStyle.native_price_words`):
 #: Telugu's does ("six hundred rupees", as shops in Hyderabad say it, D-744), Hindi's allows
@@ -833,9 +823,7 @@ _NATIVE_PRICE: Final[dict[str, re.Pattern[str]]] = {
 }
 #: Digits beside a unit written in an Indian script ("1 కిలో"), which `_MONEY_DIGITS` (Latin
 #: units only) does not see.
-_DIGIT_UNIT: Final = re.compile(
-    _say("turn_checks._DIGIT_UNIT")
-)
+_DIGIT_UNIT: Final = re.compile(_say("turn_checks._DIGIT_UNIT"))
 
 
 def _foreign_letter(reply: str, language: str) -> str | None:
@@ -872,9 +860,7 @@ def _script_and_number_problems(reply: str, language: str) -> list[TurnProblem]:
     said = in_words or _DIGIT_UNIT.search(reply)
     if said:
         how = (
-            _say("turn_checks._script_and_number_problems")
-            if in_words
-            else "in words, as shops do"
+            _say("turn_checks._script_and_number_problems") if in_words else "in words, as shops do"
         )
         found.append(
             TurnProblem(
@@ -1021,10 +1007,14 @@ _EN_ASKS_TO_BE_TOLD: Final = re.compile(
 _EN_OPENERS: Final = frozenset(
     {"ok", "okay", "so", "and", "but", "then", "well", "oh", "hello", "hi", "sir", "madam"}
 )
-_CLAUSES: Final = re.compile(r"[.,!;:।]+|\s+(?:and|but|so)\s+", re.IGNORECASE)
+#: The Devanagari full stop and the full-width question mark, spelled as code points so no
+#: look-alike character sits in the source.
+_DANDA: Final = chr(0x0964)
+_WIDE_QUESTION: Final = chr(0xFF1F)
+_CLAUSES: Final = re.compile(rf"[.,!;:{_DANDA}]+|\s+(?:and|but|so)\s+", re.IGNORECASE)
 #: A word: a run of anything but space and punctuation, so a Telugu or Devanagari word stays
 #: whole with its vowel signs (which `\w` does not count as word characters).
-_TOKEN: Final = re.compile(r"[^\s,.!?;:\"'()।？]+")
+_TOKEN: Final = re.compile(rf"[^\s,.!?;:\"'(){_DANDA}{_WIDE_QUESTION}]+")
 
 
 def _english_question(clause: str) -> bool:
@@ -1043,11 +1033,13 @@ def _english_question(clause: str) -> bool:
 def asks_question(said: str) -> bool:
     """Whether a line asks something: the one question test for the turn checks and the
     knowledge-gap detector (`insights.detection.caller_asked`)."""
-    if "?" in said or "？" in said:
+    if "?" in said or _WIDE_QUESTION in said:
         return True
     if any(w.lower() in _QUESTION_WORDS for w in _TOKEN.findall(said)):
         return True
     return any(_english_question(clause) for clause in _CLAUSES.split(said))
+
+
 #: Asking for it slower, which wants the same words again at a pace they can follow. The
 #: Telugu and Hindi words are the ones `_PACE_PROMISE` already reads.
 _SLOWER: Final = _say("turn_checks._SLOWER")
@@ -1256,9 +1248,7 @@ _CALLER_DONE: Final = re.compile(
     re.IGNORECASE,
 )
 #: What turns a caller's "done" into its opposite: "not done", "కాలేదు", "नहीं हुआ".
-_CALLER_NOT: Final = re.compile(
-    _say("turn_checks._CALLER_NOT"), re.IGNORECASE
-)
+_CALLER_NOT: Final = re.compile(_say("turn_checks._CALLER_NOT"), re.IGNORECASE)
 
 
 def caller_says_done(said: str) -> bool:
@@ -1279,9 +1269,7 @@ _SAID_BEFORE: Final = re.compile(
     _say("turn_checks._SAID_BEFORE"),
     re.IGNORECASE,
 )
-_PRICE_WORD: Final = re.compile(
-    _say("turn_checks._PRICE_WORD"), re.IGNORECASE
-)
+_PRICE_WORD: Final = re.compile(_say("turn_checks._PRICE_WORD"), re.IGNORECASE)
 
 
 def claims_said_before(text: str) -> bool:
@@ -1370,8 +1358,7 @@ def _stock_opener(replies: Sequence[str]) -> tuple[str, int] | None:
 #: Where a caller could have found the business, each by the spellings a reply uses. Only
 #: places that are not this call: WhatsApp is left out because an agent may rightly offer it.
 _CHANNELS: Final[tuple[re.Pattern[str], ...]] = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in _word_list("turn_checks._CHANNELS")
+    re.compile(pattern, re.IGNORECASE) for pattern in _word_list("turn_checks._CHANNELS")
 )
 #: The caller as the subject: "you", "మీరు", "आपने".
 _YOU: Final = re.compile(_say("turn_checks._YOU"), re.IGNORECASE)
@@ -1847,8 +1834,8 @@ __all__ = [
     "SOUND_KINDS",
     "Exchange",
     "TurnProblem",
-    "asks_to_repeat",
     "asks_question",
+    "asks_to_repeat",
     "caller_asks",
     "caller_says_done",
     "caller_signs_off",
