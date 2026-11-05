@@ -83,11 +83,11 @@ async def queue(
         return False
     if prev[0] == "running" and not prev[1]:
         return False
-    await enqueue(session, slot, tenant_id=tenant_id, agent_id=agent_id)
+    await promise(session, slot, tenant_id=tenant_id, agent_id=agent_id)
     return True
 
 
-async def enqueue(
+async def promise(
     session: AsyncSession, slot: PassSlot, *, tenant_id: UUID, agent_id: UUID
 ) -> None:
     """Promise the pass job with no state change: `queue` decides whether one is due."""
@@ -154,14 +154,14 @@ async def requeue_if_asked(
         )
     ).scalar()
     if again == "queued":
-        await enqueue(session, slot, tenant_id=tenant_id, agent_id=agent_id)
+        await promise(session, slot, tenant_id=tenant_id, agent_id=agent_id)
 
 
 __all__ = [
     "STALE_MINUTES",
     "PassSlot",
     "claim",
-    "enqueue",
+    "promise",
     "finish",
     "queue",
     "queue_first",

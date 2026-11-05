@@ -929,6 +929,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/kb/uploads/{upload_id}/text", {}, {}),
     ("PATCH", "/v1/kb/uploads/{upload_id}", {"name": "Summer prices"}, {}),
     ("POST", "/v1/kb/uploads/{upload_id}/read", {}, {}),
+    # A file's call instructions written into the agents' scripts as a suggestion.
+    ("POST", "/v1/kb/uploads/{upload_id}/call-instructions/use", {}, {}),
     # D-893 L7: a typed note renamed, removed and put back from the knowledge page.
     ("PATCH", "/v1/kb/notes/{note_id}", {"name": "Summer hours"}, {}),
     ("POST", "/v1/kb/notes/{note_id}/remove", {}, {}),

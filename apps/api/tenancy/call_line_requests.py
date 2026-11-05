@@ -305,7 +305,7 @@ async def decline(
         raise ProblemError(
             kind="conflict",
             code="call_lines_request_not_open",
-            title="This request is already answered",
+            title="Someone already answered this",
             detail="Someone raised the lines or declined it first. Reload to see what was done.",
         )
     return _request(row)

@@ -254,6 +254,21 @@ async def _draft(
 _OPENINGS: Final = (("opening_line", False), ("outbound_opening_line", True))
 
 
+def openings_kept(script: CallScript, base: CallScript) -> CallScript:
+    """`script` with any opening line the model left blank put back from `base`.
+
+    A blank opening is never a fix: the agent would open the call with nothing, and the
+    judging below skips a blank line, so without this a suggestion that dropped the opening
+    ("Fix them first" on Put it live) replaced the owner's line with nothing."""
+    restored = {
+        field: kept
+        for field, _placed in _OPENINGS
+        if not str(getattr(script, field)).strip()
+        and (kept := str(getattr(base, field)).strip())
+    }
+    return script.model_copy(update=restored) if restored else script
+
+
 async def _opening_repaired(
     tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal, script: CallScript
 ) -> tuple[CallScript, list[JsonAnswer[str] | ProblemError]]:
@@ -264,9 +279,11 @@ async def _opening_repaired(
     theirs: neither is judged. A repair that gives no line leaves the proposal as drafted, for
     the owner to review. A `written` proposal (D-965) has a "both" agent's opening for the
     calls it places written here, whatever it held."""
+    written = proposal.mode == script_proposals.WRITTEN_MODE
+    if not written:
+        script = openings_kept(script, proposal.base_script)
     if proposal.mode in ("steps", script_proposals.OPENING_MODE):
         return script, []
-    written = proposal.mode == script_proposals.WRITTEN_MODE
     owners = " ".join([proposal.request or "", *proposal.answers.values()])
     judged = [
         (field, placed, line)

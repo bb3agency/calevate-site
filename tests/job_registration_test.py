@@ -202,6 +202,8 @@ def test_the_dynamic_sites_are_the_two_named_drains_and_both_are_still_there() -
         "apps/workers/dispatcher.py::message.job",
         # D-662: the shared inbox claim behind the engine and carrier receivers.
         "apps/voice-runtime/webhook_routes.py::work.job",
+        # The shared agent-pass queue; each slot names its job as a constant.
+        "apps/api/agents/agent_pass.py::slot.job",
     }
     offenders = check_job_wiring.stale_exemptions(
         [site for site in sites if site.key != "apps/workers/dispatcher.py::message.job"]

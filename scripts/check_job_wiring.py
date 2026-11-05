@@ -94,6 +94,9 @@ ENQUEUE_SEAMS: dict[str, int | None] = {
     "job_id_for": 0,
     "enqueue_outbox": None,
     "enqueue_outbox_once": None,
+    # An agent pass names its job once, on its slot (`agents/agent_pass.PassSlot`); the
+    # shared queue then promises `slot.job`, acknowledged below.
+    "PassSlot": 1,
 }
 
 #: Call sites whose job name is not a constant this file can resolve, with the reason.
@@ -117,6 +120,11 @@ DYNAMIC_ENQUEUE_SITES: dict[str, str] = {
         "the shared inbox claim enqueues the job its caller names on `InboxWork`. Every "
         "caller in this file also keys the job with `job_id_for(<module-level constant>, "
         "...)`, which this scan reads, so each name is checked at the site that chooses it"
+    ),
+    "apps/api/agents/agent_pass.py::slot.job": (
+        "the shared agent-pass queue promises the job on the slot it is handed. Every slot "
+        "is built as `PassSlot(<column>, <module-level constant>)`, which this scan reads "
+        "as a seam, so each pass name is checked where its module chooses it"
     ),
 }
 
@@ -492,9 +500,11 @@ def _assert_the_seams_still_look_like_this() -> list[str]:
     import inspect
 
     from apps.api.core.queue import enqueue, job_id_for
+    from apps.api.agents.agent_pass import PassSlot
     from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 
     seams = {
+        "PassSlot": PassSlot,
         "enqueue": enqueue,
         "job_id_for": job_id_for,
         "enqueue_outbox": enqueue_outbox,

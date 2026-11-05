@@ -356,6 +356,9 @@ AREAS: tuple[Area, ...] = (
             # cancels a stranger's call-back, or restores the entry GUC to the wrong
             # value and hands the next read somebody else's rows.
             "apps/api/callbacks/service.py",
+            # Reads the account's own lead-detail names by the tenant GUC when no tenant is
+            # passed; a wrong branch there shows one client another client's labels.
+            "apps/api/tenancy/core_labels.py",
         ),
         why=(
             "the session factory is where the tenant GUC is set and where RLS therefore "

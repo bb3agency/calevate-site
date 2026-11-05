@@ -528,3 +528,15 @@ async def test_pips_proposal_repairs_the_placed_opening_it_wrote(
     assert stored is not None and stored.script is not None
     assert stored.script.outbound_opening_line == PLACED_REPAIRED
     assert [kw["placed"] for kw in asked] == [True], "the answering line it kept is not judged"
+
+
+def test_a_suggestion_that_drops_an_opening_keeps_the_owners() -> None:
+    """"Fix them first" on Put it live once replaced the owner's opening with nothing: the
+    model left it blank and a blank line is never judged."""
+    base = CallScript(opening_line="Hello, this is the shop.", outbound_opening_line="Hello {{lead_name}}.")
+    dropped = CallScript(opening_line="  ", outbound_opening_line="")
+    kept = proposal_worker.openings_kept(dropped, base)
+    assert kept.opening_line == "Hello, this is the shop."
+    assert kept.outbound_opening_line == "Hello {{lead_name}}."
+    rewritten = CallScript(opening_line="Hi there.")
+    assert proposal_worker.openings_kept(rewritten, base).opening_line == "Hi there."
