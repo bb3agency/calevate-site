@@ -56,6 +56,7 @@ export function TranscriptCard({
   playhead,
   onSeek,
   marker,
+  contained = false,
   className = "",
 }: {
   detail: Pick<CallDetail, "status" | "summary_state" | "translation_state" | "language" | "agent_name" | "lead_name">;
@@ -78,6 +79,11 @@ export function TranscriptCard({
   audioLoaded: boolean;
   playhead: number | null;
   onSeek: (ms: number) => void;
+  /**
+   * Inside its own scrolling panel (the call screen from `page-lg`, F-3): the player sticks
+   * to the panel's top rather than to `<main>`'s.
+   */
+  contained?: boolean;
   /** Drawn under a line: the key moments that belong to it. */
   marker?: (turn: Turn) => ReactNode;
   className?: string;
@@ -100,7 +106,11 @@ export function TranscriptCard({
         {player ? (
           // Flush under the shell header: the negative offset cancels <main>'s top padding
           // (`SHELL_MAIN_CLASS`), so no strip of transcript scrolls above the player.
-          <div className="sticky -top-4 z-sticky -mx-1 border-b border-line bg-surface px-1 pb-3 pt-3 lg:-top-8">{player}</div>
+          <div
+            className={`sticky -top-4 z-sticky -mx-1 border-b border-line bg-surface px-1 pb-3 pt-3 ${contained ? "lg:top-0" : "lg:-top-8"}`}
+          >
+            {player}
+          </div>
         ) : noRecording ? (
           <p className="text-meta text-ink-faint">There is no recording of this call.</p>
         ) : null}
@@ -299,7 +309,7 @@ function EnglishUnavailable({
       <p className="text-body text-ink">
         {state === "failed"
           ? "Couldn't prepare the English."
-          : "This call is older than English reviews."}
+          : "English is not available for older calls."}
       </p>
       <p className="text-meta text-ink-muted">
         Complete in {spoken}. English uses a little AI help.
@@ -432,9 +442,14 @@ function useFollowAlong(active: number | null) {
     const find = (idx: number) => list.querySelector<HTMLElement>(`[data-turn="${idx}"]`);
     const next = find(active);
     if (!next || typeof next.scrollIntoView !== "function") return;
+    // In view of whatever scrolls the conversation: its own panel where it has one (F-3),
+    // else the window.
+    const region = list.closest<HTMLElement>("[data-conversation-scroll]");
+    const scrolls = region !== null && /(auto|scroll)/.test(getComputedStyle(region).overflowY);
     const inView = (el: HTMLElement) => {
       const box = el.getBoundingClientRect();
-      return box.bottom > 0 && box.top < window.innerHeight;
+      const frame = scrolls && region ? region.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+      return box.bottom > frame.top && box.top < frame.bottom;
     };
     const prior = before === null ? null : find(before);
     if (prior && !inView(prior)) return;

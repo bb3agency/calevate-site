@@ -22,7 +22,7 @@ import { shortDay, useCallingNumbers, type CallingNumberDeclaration } from "@/li
 import { type CampaignProgress, type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";
 import { useCampaignPurpose, type CampaignPurpose } from "@/lib/api/compliancePack";
 import { useClientRealm } from "@/lib/api/session";
-import { lookup } from "@/lib/lookup";
+import { usePeRegistration } from "@/lib/api/dltRegistration";
 
 import { AtOnceHint } from "./CampaignSettings";
 import { ConsentProvenanceAnswer, listSourceId } from "./ConsentProvenance";
@@ -31,7 +31,7 @@ import { callingHoursText } from "./campaignProgress";
 import { CONSENT_SOURCES } from "./choices";
 import { Why } from "@/components/why";
 import {
-  BLOCKER_COPY,
+  blockerNote,
   OWNER_BADGE,
   PROVENANCE_RULES,
   blockerDestination,
@@ -79,6 +79,7 @@ export function LaunchGate({
   const declaration = useCallingNumbers(session);
   // What kind of call the client's choices make this (D-943): said, never blocking by itself.
   const purpose = useCampaignPurpose(session, campaignId);
+  const promotionalOpen = usePeRegistration(session).data?.calevate_tm_active === true;
 
   // A scheduled campaign has not launched either; the same gate runs when it fires.
   if (status !== "draft" && status !== "scheduled") return null;
@@ -96,7 +97,8 @@ export function LaunchGate({
   };
 
   const items: ChecklistItem[] = blockers.map((blocker) => {
-    const note = lookup(BLOCKER_COPY, blocker.rule);
+    const note = blockerNote(blocker.rule, { promotionalOpen });
+    const why = note?.why ?? (note?.whyFromServer ? blocker.reason : undefined);
     const inPage = blockerInPage(blocker.rule);
     const action =
       inPage === "add-people" ? (
@@ -118,10 +120,10 @@ export function LaunchGate({
         ? { href: at(`/agents/${progress.data.agent_id}`), label: "Open the agent" }
         : blockerDestination(blocker.rule, at, campaignId);
     const detail =
-      note?.owner || note?.why ? (
+      note?.owner || why ? (
         <>
-          {note.owner ? <span className="mr-3">{OWNER_BADGE[note.owner]}</span> : null}
-          {note.why ? <Why inline>{note.why}</Why> : null}
+          {note?.owner ? <span className="mr-3">{OWNER_BADGE[note.owner]}</span> : null}
+          {why ? <Why inline>{why}</Why> : null}
         </>
       ) : undefined;
     return {

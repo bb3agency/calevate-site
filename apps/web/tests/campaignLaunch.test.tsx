@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
+import { campaignPage, detailRoutes, dltRegistrationRoute, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
@@ -175,7 +175,9 @@ describe("the launch panel with blockers outstanding", () => {
     expect(container.querySelectorAll("li")).toHaveLength(3);
     expect(container.textContent).toContain("Add the people to call.");
     expect(container.textContent).toContain("Publish your agent first.");
-    expect(container.textContent).toContain("Accept the no-cold-calls pledge first.");
+    // L3-09: one short line; the server's sentence, which names the state, is behind "Why?".
+    expect(container.textContent).toContain("Accept the no-cold-calls promise.");
+    expect(container.textContent).not.toContain("Accept the no-cold-calls pledge first.");
 
     // Disabled WITH the reasons, never absent. There is exactly one launch control and
     // it cannot be pressed.
@@ -192,6 +194,9 @@ describe("the launch panel with blockers outstanding", () => {
         },
         { rule: "no_contacts", reason: "The campaign has no contacts." },
       ),
+      // Calevate's telemarketer registration is live, so the national check is ours to run.
+      ME,
+      dltRegistrationRoute(true),
     );
 
     // The national do-not-disturb check is OUR task. Without the badge, it
@@ -201,6 +206,15 @@ describe("the launch panel with blockers outstanding", () => {
     expectTextCount(container, "We handle this", 1);
     // `no_contacts` is the client's own, and says so once.
     expectTextCount(container, "You can fix this", 1);
+  });
+
+  it("never promises a national check that cannot be run while promotional calls are unavailable (L3-08)", async () => {
+    const { container } = await openLaunchPanel(
+      check({ rule: "national_dnd_scrub_missing", reason: "No national DND scrub on record." }),
+    );
+    expect(container.textContent).toContain("Promotional calls are not available yet.");
+    expect(container.textContent).not.toContain("We handle this");
+    expect(screen.getByRole("link", { name: "Edit campaign" })).toBeTruthy();
   });
 
   it("renders the server's own reason for a rule this build has never heard of", async () => {

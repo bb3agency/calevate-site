@@ -1,5 +1,6 @@
 import type { NoticeTone } from "@/components/ui";
 import { type CampaignSummary, type PauseReason } from "@/lib/api/campaigns";
+import { lookup } from "@/lib/lookup";
 
 /**
  * WHAT THE GATE REFUSED, IN THE CLIENT'S WORDS, and where each refusal is fixed.
@@ -18,10 +19,43 @@ import { type CampaignSummary, type PauseReason } from "@/lib/api/campaigns";
  * called) stays in it. `why` is the longer reason, shown only behind "Why?" (founder,
  * 28 Oct 2026: short lines and buttons, explanations behind a tap).
  *
- * Rules whose server sentence carries the state (KYC, the pledge, the consent
- * age) have no entry: rule-keyed copy would flatten the state the client needs.
+ * Rules whose server sentence carries the state (KYC, the pledge) get one short line and
+ * keep that sentence whole behind "Why?" (`whyFromServer`), so the state ("submitted",
+ * "rejected") is still there for the client who asks. The consent age has no entry.
  */
-export type BlockerNote = { text: string; why?: string; owner?: "calevate" | "client" };
+export type BlockerNote = {
+  text: string;
+  why?: string;
+  /** "Why?" shows the server's own sentence, which names the state this line cannot. */
+  whyFromServer?: true;
+  owner?: "calevate" | "client";
+};
+
+/**
+ * A promotional campaign's national check while Calevate's telemarketer registration is
+ * not live (D-838): the check can never be run, so "we handle this" would be untrue. The
+ * client's move is to make it a service campaign (`compliance/registration.
+ * PROMOTIONAL_UNAVAILABLE_REASON` says the same on the server).
+ */
+export const PROMOTIONAL_UNAVAILABLE_NOTE: BlockerNote = {
+  text: "Promotional calls are not available yet.",
+  why:
+    "They need a national do-not-disturb check that only a registered telemarketer can run, " +
+    "and that registration is not in place. Make this a service campaign to call your own customers.",
+  owner: "client",
+};
+
+const NATIONAL_CHECK_RULES = ["national_dnd_scrub_missing", "national_dnd_scrub_expired"];
+
+/**
+ * The note for one blocker. `promotionalOpen` is whether Calevate's telemarketer
+ * registration is live (`usePeRegistration().calevate_tm_active`); while it is not, the
+ * national check rules say promotional calls are unavailable instead of "we handle this".
+ */
+export function blockerNote(rule: string, { promotionalOpen }: { promotionalOpen: boolean }): BlockerNote | undefined {
+  if (NATIONAL_CHECK_RULES.includes(rule) && !promotionalOpen) return PROMOTIONAL_UNAVAILABLE_NOTE;
+  return lookup(BLOCKER_COPY, rule);
+}
 
 export const BLOCKER_COPY: Record<string, BlockerNote> = {
   status: { text: "This campaign has already started." },
@@ -133,6 +167,16 @@ export const BLOCKER_COPY: Record<string, BlockerNote> = {
     why: "Nobody on them agreed to hear from you. If that answer was a mistake, correct it below.",
     owner: "client",
   },
+  // L3-09: one line each; the server's sentence, which names the state, is behind "Why?".
+  kyc_missing: { text: "Verify your business first.", whyFromServer: true, owner: "client" },
+  kyc_not_verified: { text: "Your business is not verified yet.", whyFromServer: true, owner: "client" },
+  kyc_digilocker_required: { text: "Verify the owner with DigiLocker.", whyFromServer: true, owner: "client" },
+  outbound_pledge_missing: { text: "Accept the no-cold-calls promise.", whyFromServer: true, owner: "client" },
+  outbound_pledge_outdated: {
+    text: "Accept the updated no-cold-calls promise.",
+    whyFromServer: true,
+    owner: "client",
+  },
   // D-943: an offer in a service call makes the whole call promotional.
   script_promotional: {
     text: "The agent's script talks about offers.",
@@ -168,6 +212,24 @@ export const LIST_PROVENANCE_COPY: Record<
   consent_provenance_missing: { badge: "Needs where the list came from", tone: "warn" },
   consent_source_refused: { badge: "Can't be launched: bought list", tone: "stop" },
 };
+
+/**
+ * A list row's one badge (L3-07). A bought list keeps its own refusal, which no fix on
+ * the campaign's page clears; any other draft the gate holds says how many things its page
+ * lists, from the same gate (`launch_blockers`), so the list never shows a draft as fine
+ * that its page refuses. `launch_blockers` is null on the plain list, which does not run
+ * the gate; the provenance badge stands alone there.
+ */
+export function listBlockerNote(
+  campaign: Pick<CampaignSummary, "consent_provenance_blocker" | "launch_blockers">,
+): { badge: string; tone: NoticeTone } | undefined {
+  if (campaign.consent_provenance_blocker === "consent_source_refused")
+    return LIST_PROVENANCE_COPY.consent_source_refused;
+  const count = campaign.launch_blockers ?? 0;
+  if (count > 0)
+    return { badge: count === 1 ? "Can't launch yet: 1 thing to fix" : `Can't launch yet: ${count} things to fix`, tone: "warn" };
+  return lookup(LIST_PROVENANCE_COPY, campaign.consent_provenance_blocker ?? null);
+}
 
 export const OWNER_BADGE: Record<NonNullable<BlockerNote["owner"]>, string> = {
   calevate: "We handle this",
@@ -211,7 +273,12 @@ export function blockerDestination(
   if (rule.startsWith("number_")) return { href: at("/phone-number"), label: "Open Phone number" };
   if (rule === "agent_not_live" || rule === "agent_inbound_only" || rule === "disclosure_missing")
     return { href: at("/agents"), label: "Open Agents" };
-  if (rule === "agent_archived" || rule === "agent_missing" || rule === "classification_not_campaignable")
+  if (
+    rule === "agent_archived" ||
+    rule === "agent_missing" ||
+    rule === "classification_not_campaignable" ||
+    NATIONAL_CHECK_RULES.includes(rule)
+  )
     return { href: at(`/campaigns/${campaignId}/edit`), label: "Edit campaign" };
   return undefined;
 }

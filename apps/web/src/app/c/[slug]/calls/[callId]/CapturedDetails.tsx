@@ -15,7 +15,9 @@ import { lookup } from "@/lib/lookup";
  * the value.
  */
 export function CapturedDetails({ detail }: { detail: CallDetail }) {
-  const fields = detail.captured;
+  // Read defensively: during a deploy the web can be newer than the API (L3-06).
+  const fields = detail.captured ?? [];
+  const unclearFields = detail.unclear_fields ?? [];
   // A choice the caller answered outside the list is something they said (D-889).
   const said = (field: (typeof fields)[number]) => capturedValue(field) ?? unlistedWords(field);
   const given = fields.filter((field) => said(field) !== null);
@@ -31,7 +33,7 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
   }
   // Fields the agent no longer asks for appear only when this call carried a value for them.
   // An unclear answer was said, so it is listed with its reason below rather than here.
-  const unclear = new Set(detail.unclear_fields.map((field) => field.key));
+  const unclear = new Set(unclearFields.map((field) => field.key));
   const unmentioned = fields.filter((field) => field.current && said(field) === null && !unclear.has(field.key));
   return (
     <Section title="Captured details">
@@ -76,7 +78,7 @@ export function CapturedDetails({ detail }: { detail: CallDetail }) {
           ))}
         </ul>
       )}
-      <Unclear detail={detail} />
+      <Unclear detail={detail} fields={unclearFields} />
     </Section>
   );
 }
@@ -92,16 +94,16 @@ const SOURCE_WORDS: Record<string, string> = {
  * the owner knows which to check rather than "some". With none named, the reading itself
  * failed, which is a different message: nothing below it can be trusted to be complete.
  */
-function Unclear({ detail }: { detail: CallDetail }) {
+function Unclear({ detail, fields }: { detail: CallDetail; fields: CallDetail["unclear_fields"] }) {
   if (detail.extraction_valid) return null;
-  if (!detail.unclear_fields.length) {
+  if (!fields.length) {
     return <p className="mt-3 text-meta text-warn">We couldn&apos;t read this call&apos;s details. Check the chat below.</p>;
   }
   return (
     <div className="mt-3">
       <p className="text-meta font-medium text-warn">Unclear, worth a check:</p>
       <ul className="mt-1 space-y-1 text-meta">
-        {detail.unclear_fields.map((field) => (
+        {fields.map((field) => (
           <li key={field.key}>
             <span className="font-medium text-ink">{field.label}</span>
             <span className="text-ink-muted">: {field.reason}</span>

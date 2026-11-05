@@ -264,9 +264,13 @@ function refusalFor(ready: ContactPayload[]): string | null {
   return null;
 }
 
-/** The sample file: a header, two contacts in the non-dialable demo range, one variable. */
+/**
+ * The sample file: a header, two contacts in the non-dialable demo range, one variable. The
+ * variable is the core lead detail "preferred time" (`calevate_shared.lead_fields`), which
+ * every business has; a booking column assumed bookings (L3-22).
+ */
 export const SAMPLE_CSV = [
-  "phone,name,booking_time",
+  "phone,name,preferred_time",
   "+919900000001,Priya,Tuesday 4pm",
   "+919900000002,Ravi,Wednesday 11am",
 ].join("\r\n");

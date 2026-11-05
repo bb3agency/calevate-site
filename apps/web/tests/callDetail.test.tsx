@@ -658,3 +658,36 @@ describe("what went wrong on this call (D-949)", () => {
     expect(document.activeElement).toBe(line);
   });
 });
+
+describe("the call screen's layout and robustness", () => {
+  it("keeps the conversation readable when the API is older than the web (L3-06)", async () => {
+    // A deploy where the API has not yet learned these fields: the screen used to fall to
+    // "This screen stopped" on `unclear_fields.map`.
+    const old = detail({ extraction_valid: false }) as Partial<CallDetail>;
+    delete old.unclear_fields;
+    delete old.moments;
+    delete old.mistakes;
+    await renderClientPage(page, routes(old));
+    expect(await screen.findByText("My number is [redacted].")).toBeTruthy();
+    expect(screen.getByText("Captured details")).toBeTruthy();
+  });
+
+  it("gives the conversation its own scrolling panel beside the facts, in reading order (F-3)", async () => {
+    const { container } = await renderClientPage(page, routes(detail()));
+    await screen.findByText("My number is [redacted].");
+    const panel = screen.getByRole("region", { name: "Conversation" });
+    // Its own scroll, held in view, from the page's wide breakpoint only: a phone keeps
+    // one page with no scroll inside a scroll.
+    expect(panel.className).toContain("page-lg:sticky");
+    expect(panel.className).toContain("page-lg:overflow-y-auto");
+    expect(panel.className).toContain("page-lg:overscroll-contain");
+    expect(panel.className).not.toMatch(/(^|\s)overflow-y-auto/);
+    expect(panel.tabIndex).toBe(0);
+    // Reading order is unchanged: the verdict and captured details, then the conversation,
+    // then the rest.
+    const order = [...container.querySelectorAll("h2")].map((h) => h.textContent);
+    const at = (title: string) => order.findIndex((t) => t?.startsWith(title));
+    expect(at("Captured details")).toBeGreaterThan(-1);
+    expect(at("Captured details")).toBeLessThan(at("Conversation"));
+  });
+});

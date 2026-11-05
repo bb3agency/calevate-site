@@ -14,6 +14,7 @@ import type { Agent } from "@/lib/api/agents";
 /** What the dialler picker reads from an agent. */
 export type Dialer = Pick<Agent, "id" | "name">;
 import type { Session } from "@/lib/api/client";
+import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { useProposePlan } from "@/lib/copilot/plans";
 
 /**
@@ -40,7 +41,7 @@ const CONSENT = [
 ] as const;
 
 const KINDS = [
-  { value: "service", label: "About something they asked for", hint: "Following up an enquiry or a booking." },
+  { value: "service", label: "About something they asked for", hint: "Following up what they asked about." },
   { value: "promotional", label: "To offer something new", hint: "Needs your promotional calling registration." },
 ] as const;
 
@@ -119,6 +120,10 @@ function CallAgainDialog({
   onPlanned: (planId: string) => void;
 }) {
   const propose = useProposePlan(session);
+  // Promotional is offered only while Calevate's telemarketer registration is live (D-838),
+  // as on the new-campaign screen; the server refuses it otherwise.
+  const promotionalOpen = usePeRegistration(session).data?.calevate_tm_active === true;
+  const kinds = KINDS.filter((k) => k.value !== "promotional" || promotionalOpen);
   const feedback = useActionFeedback(propose, { errorDisplay: "inline" });
   const [agentId, setAgentId] = useState(dialers[0].id);
   const [kind, setKind] = useState<string | null>("service");
@@ -186,7 +191,7 @@ function CallAgainDialog({
         </Field>
         <RadioGroup
           label="What the calls are about"
-          options={KINDS.map((k) => ({ value: k.value, label: k.label, hint: k.hint }))}
+          options={kinds.map((k) => ({ value: k.value, label: k.label, hint: k.hint }))}
           value={kind}
           onChange={setKind}
         />

@@ -3,6 +3,7 @@
 import { Section } from "@/components/console/section";
 import { formatIST } from "@/components/ui";
 import type { CallDetail } from "@/lib/api/client";
+import { UNKNOWN_CAPABILITIES, type BusinessCapabilities } from "@/lib/businessCapabilities";
 
 /**
  * "What it came to": how the call ended, why a no was a no, the objections and problems the
@@ -58,6 +59,28 @@ const STEP_WORDS: Record<NextStep["kind"], string> = {
   hand_to_sales: "Pass to your team",
 };
 
+/**
+ * The sales words above, put in this business's terms (G6-8). A business judged to sell
+ * nothing has no payments to promise, and one with no premises that takes no bookings has
+ * no visits; the reading itself stays, only its name changes. Unjudged keeps the words
+ * (`businessCapabilities` THE UNKNOWN RULE).
+ */
+export function insightWords(caps: BusinessCapabilities): {
+  outcome: Record<Insights["outcome"], string>;
+  step: Record<NextStep["kind"], string>;
+} {
+  const sells = caps.sells !== false;
+  const visits = caps.hasPremises !== false || caps.takesBookings !== false;
+  return {
+    outcome: { ...OUTCOME_WORDS, ...(sells ? {} : { promise_to_pay: "Promised to follow up" }) },
+    step: {
+      ...STEP_WORDS,
+      ...(sells ? {} : { promise_to_pay: "Promise made" }),
+      ...(visits ? {} : { visit: "Meet in person" }),
+    },
+  };
+}
+
 function Notes({ heading, notes }: { heading: string; notes: Note[] }) {
   if (notes.length === 0) return null;
   return (
@@ -75,7 +98,15 @@ function Notes({ heading, notes }: { heading: string; notes: Note[] }) {
   );
 }
 
-export function InsightsCard({ insights }: { insights: Insights }) {
+export function InsightsCard({
+  insights,
+  caps = UNKNOWN_CAPABILITIES,
+}: {
+  insights: Insights;
+  /** What the business does (`useBusinessCapabilities`); unknown keeps the general words. */
+  caps?: BusinessCapabilities;
+}) {
+  const words = insightWords(caps);
   const step = insights.next_step;
   const reason =
     insights.outcome === "not_interested" && insights.no_reason
@@ -85,7 +116,7 @@ export function InsightsCard({ insights }: { insights: Insights }) {
     <Section title="What it came to">
       <div className="mt-1 space-y-4">
         <p className="text-body font-medium text-ink">
-          {OUTCOME_WORDS[insights.outcome]}
+          {words.outcome[insights.outcome]}
           {reason}
         </p>
         <Notes heading="Objections" notes={insights.objections} />
@@ -94,7 +125,7 @@ export function InsightsCard({ insights }: { insights: Insights }) {
           <div>
             <h3 className="text-meta text-ink-muted">Next step</h3>
             <p className="mt-1 text-body text-ink">
-              {STEP_WORDS[step.kind]}
+              {words.step[step.kind]}
               {step.at ? `, ${formatIST(step.at)}` : ""}
               {step.status === "done" ? " · done" : ""}
             </p>

@@ -157,6 +157,7 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [contactsPath(id)]: contactsFixture(),
     [`/v1/campaigns/${id}/results`]: resultsFixture(),
     ...leadPickerRoutes(),
+    ...dltRegistrationRoute(),
     [timelinePath(id)]: {
       window: { days: 366, from_date: "2025-10-25", to_date: "2026-10-24", timezone: "Asia/Kolkata" },
       campaigns: [],

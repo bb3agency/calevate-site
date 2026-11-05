@@ -13121,6 +13121,17 @@
             "title": "Id",
             "type": "string"
           },
+          "launch_blockers": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Launch Blockers"
+          },
           "launched_at": {
             "anyOf": [
               {

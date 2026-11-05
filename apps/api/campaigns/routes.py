@@ -655,6 +655,10 @@ class CampaignSummaryOut(Strict):
         Literal["consent_provenance_missing", "consent_source_refused"] | None
     ) = None
     pause_reason: PauseReason | None = None
+    #: How many things the launch gate names for a draft or scheduled campaign, from the
+    #: gate itself (`service.with_launch_blockers`, L3-07); None past launch, and on the
+    #: plain list (`GET /v1/campaigns`), which does not run the gate.
+    launch_blockers: int | None = None
 
 
 class NumberOut(Strict):
@@ -775,6 +779,7 @@ async def campaign_page(
     rows = await service.list_campaigns(
         session, limit=limit, offset=offset, status=status, search=search
     )
+    rows = await service.with_launch_blockers(session, rows)
     return CampaignPageOut(
         items=[CampaignSummaryOut.model_validate(row) for row in rows],
         total=counts[status] if status else sum(counts.values()),

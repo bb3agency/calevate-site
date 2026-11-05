@@ -149,3 +149,30 @@ async def test_a_campaign_past_the_gate_is_not_flagged_for_something_it_cannot_f
 
     assert rows[0]["status"] == "running"
     assert rows[0]["consent_provenance_blocker"] is None
+
+
+async def test_the_campaigns_screen_counts_every_blocker_its_draft_page_lists() -> None:
+    """L3-07: a draft the launch page refuses for five reasons must not look fine in the
+    list. The count comes from the same gate, and a campaign past launch has none."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        draft = await _draft(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Draft", source=None
+        )
+        running = await _draft(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Out", source=None
+        )
+        await session.execute(
+            text("UPDATE campaigns SET status = 'running', launched_at = now() WHERE id = :cid"),
+            {"cid": running},
+        )
+        rows = await campaigns_service.with_launch_blockers(
+            session, await campaigns_service.list_campaigns(session)
+        )
+        gate = await campaigns_service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=draft
+        )
+    by_id = {row["id"]: row for row in rows}
+    assert len(gate) > 1, "the fixture draft is held by more than its list source"
+    assert by_id[draft]["launch_blockers"] == len(gate)
+    assert by_id[running]["launch_blockers"] is None

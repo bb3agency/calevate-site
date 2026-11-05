@@ -89,10 +89,11 @@ export function CampaignStateNotice({
           {progress.not_calling.map((blocker) => {
             const fix = blockerDestination(blocker.rule, at, campaignId);
             const note = lookup(BLOCKER_COPY, blocker.rule);
+            const why = note?.why ?? (note?.whyFromServer ? blocker.reason : undefined);
             return (
               <li key={blocker.rule} className="space-y-1.5">
                 <p className="text-ink">
-                  {note?.text ?? blocker.reason} {note?.why ? <Why inline>{note.why}</Why> : null}
+                  {note?.text ?? blocker.reason} {why ? <Why inline>{why}</Why> : null}
                 </p>
                 {fix && (
                   // The fix is the one thing to do here, so it is a button, not a link in a sentence.

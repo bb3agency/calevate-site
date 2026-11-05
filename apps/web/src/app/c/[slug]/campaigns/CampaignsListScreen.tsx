@@ -32,10 +32,9 @@ import {
 } from "@/lib/api/campaigns";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
-import { lookup } from "@/lib/lookup";
 
 import { TrialLockNotice } from "../TrialLockNotice";
-import { LIST_PROVENANCE_COPY } from "./blockerCopy";
+import { listBlockerNote } from "./blockerCopy";
 import { CampaignStatusPill } from "./campaignStatus";
 
 const PAGE_SIZE = 25;
@@ -255,7 +254,7 @@ function CampaignRow({
   refusal: string | undefined;
   at: (path: string) => string;
 }) {
-  const note = lookup(LIST_PROVENANCE_COPY, campaign.consent_provenance_blocker ?? null);
+  const note = listBlockerNote(campaign);
   const started = campaign.launched_at;
   return (
     <li
@@ -451,6 +450,7 @@ function rowFix(
   }
   if (campaign.consent_provenance_blocker === "consent_provenance_missing") return { href: detail, label: "Answer" };
   if (campaign.consent_provenance_blocker === "consent_source_refused") return { href: detail, label: "Correct" };
+  if ((campaign.launch_blockers ?? 0) > 0) return { href: detail, label: "See what to fix" };
   return null;
 }
 

@@ -382,7 +382,7 @@ describe("the conversation", () => {
   it("names a call from before English existed, and keeps the action from a role that cannot pay for it", async () => {
     await renderClientPage(page, routes(detail({ translation_state: "unavailable", transcript: TELUGU_ONLY })));
     fireEvent.click(await screen.findByRole("radio", { name: "English" }));
-    expect(screen.getByText("This call is older than English reviews.")).toBeTruthy();
+    expect(screen.getByText("English is not available for older calls.")).toBeTruthy();
     const button = screen.getByRole("button", { name: "Prepare the English" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
   });

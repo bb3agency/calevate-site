@@ -18422,6 +18422,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Launch Blockers */
+            launch_blockers?: number | null;
             /** Launched At */
             launched_at: string | null;
             /** Name */

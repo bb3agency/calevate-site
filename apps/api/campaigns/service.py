@@ -106,6 +106,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.like import contains_pattern
 from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
+from apps.api.db.session import session_tenant
 from apps.api.db.transition import transition_status
 from apps.api.engine.dial_lines import outbound_line_pool
 from apps.api.ingest.service import normalize_phone
@@ -1820,6 +1821,35 @@ async def list_campaigns(
     ]
 
 
+async def with_launch_blockers(
+    session: AsyncSession, rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Each not-yet-launched row with `launch_blockers`: how many things the launch gate
+    names for it (L3-07), from `launch_blockers` itself so the list and the campaign's own
+    page cannot disagree. None for a campaign past launch, which has no gate to pass.
+
+    The gate runs once per draft on the page, which `list_campaigns` declines to do for
+    its own callers (the dashboard and Pip read every campaign). The Campaigns screen
+    pages at most 100, drafts are a small share of them, and a list that shows a draft as
+    fine while its page lists five blockers is the defect this exists to close.
+    """
+    tenant_id = await session_tenant(session)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        count: int | None = None
+        if row["status"] in ("draft", "scheduled"):
+            try:
+                found = await launch_blockers(session, tenant_id=tenant_id, campaign_id=row["id"])
+            except ProblemError:
+                # Its agent row is gone (`_campaign_facts` 404s): the row shows no count and
+                # its own page says why. The list must still load.
+                log.warning("campaign_list_gate_unreadable", extra={"campaign_id": str(row["id"])})
+            else:
+                count = len(found)
+        out.append({**row, "launch_blockers": count})
+    return out
+
+
 def _list_where(params: dict[str, Any], *, status: str | None, search: str | None) -> str:
     """The campaign list's filter, shared by the page and its counts."""
     clauses: list[str] = []
@@ -2065,4 +2095,5 @@ __all__ = [
     "tenant_line_ceiling",
     "validated_retry_policy",
     "validated_window",
+    "with_launch_blockers",
 ]

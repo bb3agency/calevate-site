@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 import { ButtonGroup } from "@/components/arc/button-group";
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -25,6 +25,7 @@ import { noFill } from "@/lib/copilot/types";
 import { MomentTag } from "@/components/calls/MomentTag";
 import { momentsByTurn } from "@/lib/callMoments";
 import { callTitle } from "@/lib/callReview";
+import { useBusinessCapabilities } from "@/lib/businessCapabilities";
 
 import { isLive } from "../callColumns";
 
@@ -38,6 +39,7 @@ import { CallVerdict } from "./CallVerdict";
 import { CapturedDetails } from "./CapturedDetails";
 import { DisclosureNotice } from "./DisclosureNotice";
 import { CallBackAction } from "./CallBackAction";
+import { CardBoundary } from "./CardBoundary";
 import { InsightsCard } from "./InsightsCard";
 import { KeyMomentsCard } from "./KeyMomentsCard";
 import { RecordingCard } from "./RecordingCard";
@@ -83,6 +85,48 @@ import {
  * the call carried the disclosure line every agent is required to have.
  */
 
+
+/**
+ * The conversation's own panel from `page-lg`: held in view under `<main>`'s top padding
+ * (`top-0` sits on the padding edge), and exactly as tall as the room left below it in
+ * `<main>` when the page opens (`--conversation-h`, `useConversationHeight`), so its last
+ * line is on screen without moving the page; the call header above it keeps its place.
+ * Measured rather than `100dvh`-based because banners above the shell header (trial,
+ * announcements) and a wrapping header change that room. `overscroll-contain` stops a
+ * scroll that reaches the panel's end from moving the facts beside it.
+ */
+const CONVERSATION_PANEL_CLASS =
+  "min-w-0 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand " +
+  "page-lg:col-start-1 page-lg:row-span-2 page-lg:row-start-1 page-lg:sticky page-lg:top-0 " +
+  "page-lg:max-h-[var(--conversation-h,calc(100dvh_-_16rem))] page-lg:overflow-y-auto page-lg:overscroll-contain page-lg:pr-3";
+
+/** The panel never shrinks below this, however tall the header above it wraps. */
+const MIN_CONVERSATION_PX = 360;
+/** The space kept under the panel: `<main>`'s bottom padding from `lg` (`lg:py-8`). */
+const BELOW_CONVERSATION_PX = 32;
+
+/**
+ * Sets `--conversation-h` on the panel: `<main>`'s visible height less the panel's distance
+ * from `<main>`'s top with the page unscrolled, less the bottom padding. Re-measured when
+ * `<main>` resizes (a window resize, a banner closing).
+ */
+function useConversationHeight(ref: RefObject<HTMLElement | null>, ready: boolean) {
+  useEffect(() => {
+    const panel = ref.current;
+    const main = panel?.closest("main");
+    if (!panel || !main) return;
+    const publish = () => {
+      const fromTop = panel.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;
+      const room = Math.max(MIN_CONVERSATION_PX, main.clientHeight - fromTop - BELOW_CONVERSATION_PX);
+      panel.style.setProperty("--conversation-h", `${Math.round(room)}px`);
+    };
+    publish();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(publish);
+    observer.observe(main);
+    return () => observer.disconnect();
+  }, [ref, ready]);
+}
 
 export function CallDetailScreen({
   slug,
@@ -163,6 +207,9 @@ export function CallDetailScreen({
   // Shared between the two panels: the player publishes where it is, the transcript
   // reads it to highlight the turn being spoken and writes back when a turn is clicked.
   const playerRef = useRef<CallAudioPlayerHandle>(null);
+  const caps = useBusinessCapabilities();
+  const conversationRef = useRef<HTMLDivElement>(null);
+  useConversationHeight(conversationRef, call.data != null);
   const [playhead, setPlayhead] = useState<number | null>(null);
   const seekToMs = useCallback((ms: number) => playerRef.current?.seekTo(ms / 1000), []);
   const audioLoaded = recording.data != null;
@@ -247,11 +294,11 @@ export function CallDetailScreen({
               label: "Captured fields flagged for review",
               value: String(Object.keys(call.data.extraction_needs_review ?? {}).length),
             },
-            { key: "moments", label: "Marked moments on the timeline", value: String(call.data.moments.length) },
+            { key: "moments", label: "Marked moments on the timeline", value: String((call.data.moments ?? []).length) },
             {
               key: "mistakes",
               label: "Mistakes the agent made on this call (Calevate fixes these)",
-              value: call.data.mistakes.map((m) => m.label).join("; ") || "none",
+              value: (call.data.mistakes ?? []).map((m) => m.label).join("; ") || "none",
             },
           ]
         : []),
@@ -308,7 +355,11 @@ export function CallDetailScreen({
   }
 
   const detail = call.data;
-  const momentsOnTurn = momentsByTurn(detail.moments);
+  // Read defensively: during a deploy the web can be newer than the API, and a list the
+  // server did not send yet must not take the screen down (L3-06).
+  const moments = detail.moments ?? [];
+  const mistakes = detail.mistakes ?? [];
+  const momentsOnTurn = momentsByTurn(moments);
   // The raw view REPLACES the redacted turns only once the raw request has actually
   // answered. While it is in flight, or if it was refused, the redacted turns stay on
   // screen — a transcript that empties itself while someone waits for a permission
@@ -359,35 +410,50 @@ export function CallDetailScreen({
         />
       )}
 
-      <CallVerdict
-        detail={detail}
-        action={
-          <CallBackAction
-            eligibility={eligibility}
-            callback={callback}
-            status={callingBack.status}
-            onCallBack={() => callingBack.run()}
-            write={write}
-            leadHref={leadHref}
-            leadLabel={leadName ? `Open ${leadName}'s lead` : "Open the lead"}
-            bookedShown={detail.callback != null}
+      {/* F-3 (founder, 5 Nov 2026): the facts stay still while only the conversation
+          moves. From `page-lg` the conversation is its own scrolling panel, held in view
+          (sticky) at the height of `<main>`, and the facts sit beside it in the page's
+          flow; scrolling the conversation moves nothing else. The facts column is not the
+          sticky one because that would need every fact in one element ahead of the
+          transcript, changing the reading order a phone and a screen reader get. Below
+          `page-lg` it is one page in the same order, with no scroll inside a scroll. */}
+      <div
+        className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-[minmax(0,1fr)_340px] page-lg:gap-12 page-xl:grid-cols-[minmax(0,1fr)_380px]"
+      >
+        <div className="min-w-0 space-y-8 page-lg:col-start-2 page-lg:row-start-1">
+          <CallVerdict
+            detail={detail}
+            action={
+              <CallBackAction
+                eligibility={eligibility}
+                callback={callback}
+                status={callingBack.status}
+                onCallBack={() => callingBack.run()}
+                write={write}
+                leadHref={leadHref}
+                leadLabel={leadName ? `Open ${leadName}'s lead` : "Open the lead"}
+                bookedShown={detail.callback != null}
+              />
+            }
           />
-        }
-      />
-
-      <DisclosureNotice played={detail.disclosure_played} callId={detail.id} />
-
-      {/* Two columns from `lg`: the conversation is long-form reading and takes the
-          width; captured details, key moments and the second reading sit beside it. In
-          the DOM the captured details come first, so a phone reads them before the
-          transcript, and the rest after it. */}
-      <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-[minmax(0,1fr)_300px] page-lg:gap-12 page-xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="page-lg:col-start-2 page-lg:row-start-1">
-          <CapturedDetails detail={detail} />
+          <DisclosureNotice played={detail.disclosure_played} callId={detail.id} />
+          <CardBoundary name="Captured details">
+            <CapturedDetails detail={detail} />
+          </CardBoundary>
         </div>
 
+        <div
+          ref={conversationRef}
+          data-conversation-scroll
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a region that scrolls must take focus, or no key can scroll it (WCAG 2.1.1)
+          tabIndex={0}
+          role="region"
+          aria-label="Conversation"
+          className={CONVERSATION_PANEL_CLASS}
+        >
+        <CardBoundary name="The conversation">
         <TranscriptCard
-          className="page-lg:col-start-1 page-lg:row-span-2 page-lg:row-start-1"
+          contained
           detail={detail}
           turns={turns}
           view={view}
@@ -414,7 +480,7 @@ export function CallDetailScreen({
                 playerRef={playerRef}
                 onTimeUpdate={setPlayhead}
                 durationS={detail.duration_s ?? null}
-                moments={detail.moments}
+                moments={moments}
                 startAtS={startAtS}
                 download={rawAccess.allowed ? <DownloadRecordingButton session={session} callId={callId} /> : undefined}
               />
@@ -425,25 +491,34 @@ export function CallDetailScreen({
           playhead={playhead}
           onSeek={seekToMs}
         />
+        </CardBoundary>
+        </div>
 
-        <aside aria-label="More about this call" className="space-y-8 page-lg:col-start-2 page-lg:row-start-2">
+        <aside aria-label="More about this call" className="min-w-0 space-y-8 page-lg:col-start-2 page-lg:row-start-2">
           {/* How it went, from the voice platform's own figures: all of it, turn by turn, for
               an operator viewing as the client; the wait for an answer for the client. */}
-          {detail.insights && <InsightsCard insights={detail.insights} />}
-          <CallQualityCard detail={detail} operator={viewAsRequested} />
-          {detail.mistakes.length > 0 && (
-            <CallMistakesCard
-              mistakes={detail.mistakes}
-              turnsOnScreen={new Set(turns.map((turn) => turn.idx))}
-            />
+          {detail.insights && (
+            <CardBoundary name="How the call went">
+              <InsightsCard insights={detail.insights} caps={caps} />
+            </CardBoundary>
           )}
-          {detail.moments.length > 0 && (
-            <KeyMomentsCard
-              moments={detail.moments}
-              playhead={playhead}
-              onPlay={playMomentFrom}
-              canPlay={detail.has_recording}
-            />
+          <CardBoundary name="Call quality">
+            <CallQualityCard detail={detail} operator={viewAsRequested} />
+          </CardBoundary>
+          {mistakes.length > 0 && (
+            <CardBoundary name="Mistakes on this call">
+              <CallMistakesCard mistakes={mistakes} turnsOnScreen={new Set(turns.map((turn) => turn.idx))} />
+            </CardBoundary>
+          )}
+          {moments.length > 0 && (
+            <CardBoundary name="Key moments">
+              <KeyMomentsCard
+                moments={moments}
+                playhead={playhead}
+                onPlay={playMomentFrom}
+                canPlay={detail.has_recording}
+              />
+            </CardBoundary>
           )}
           {detail.status === "completed" && turns.length > 0 && (
             <MakeCallTest callId={callId} canWrite={testWrite.allowed} />
