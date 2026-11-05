@@ -7,8 +7,10 @@ import {
   businessOutcomeAside,
   callOutcome,
   callbackLine,
+  goalLine,
   langAttr,
   needsAttention,
+  nextStepLine,
   outcomeReason,
   outcomeWords,
 } from "@/lib/callReview";
@@ -143,34 +145,52 @@ function EnglishOnItsWay({ state }: { state: CallDetail["translation_state"] }) 
 }
 
 /**
- * What happens next: the step the reading suggests, and the call back booked on this call
- * with its state. A stopped call back carries the server's own sentence for why, word for
+ * How the call did and what happens next: the campaign goal's verdict with its reason, the
+ * next step with whose move it is, and the call back booked on this call said as what
+ * will happen. A stopped call back carries the server's own sentence for why, word for
  * word (a trial account, the do-not-call list, calling hours).
  */
 function NextSteps({ detail }: { detail: CallDetail }) {
+  const goal = goalLine(detail.goal);
+  const step = nextStepLine(detail);
   const callback = detail.callback ? callbackLine(detail.callback) : null;
-  if (!detail.next_step && !callback) return null;
+  if (!goal && !step && !callback) return null;
   return (
     <dl className="max-w-2xl divide-y divide-line border-y border-line">
-      {detail.next_step && (
-        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
-          <dt className="text-body text-ink-muted">Next step</dt>
-          <dd className="text-body text-ink [text-wrap:pretty]">{detail.next_step}</dd>
-        </div>
+      {goal && (
+        <Row term="Goal">
+          <span className="font-medium">{goal.verdict}</span>
+          {goal.reason && <Aside>{goal.reason}</Aside>}
+        </Row>
+      )}
+      {step && (
+        <Row term="Next step">
+          {step.who && <span className="font-medium">{step.who}: </span>}
+          {step.text}
+          {step.note && <Aside>{step.note}</Aside>}
+        </Row>
       )}
       {callback && (
-        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
-          <dt className="text-body text-ink-muted">Call back</dt>
-          <dd className="text-body text-ink">
-            <span className="tabular-nums">{callback.when}</span>
-            <span aria-hidden> · </span>
-            <span className={callback.overdue ? "font-medium text-warn" : ""}>{callback.state}</span>
-            {callback.reason && (
-              <span className="mt-0.5 block text-meta text-ink-muted [text-wrap:pretty]">{callback.reason}</span>
-            )}
-          </dd>
-        </div>
+        <Row term="Call back">
+          <span className={`tabular-nums ${callback.overdue ? "font-medium text-warn" : ""}`}>{callback.state}</span>
+          {callback.why && <Aside>{callback.why}</Aside>}
+          {callback.reason && <Aside>{callback.reason}</Aside>}
+          {callback.nextTry && <Aside>{callback.nextTry}</Aside>}
+        </Row>
       )}
     </dl>
   );
+}
+
+function Row({ term, children }: { term: string; children: ReactNode }) {
+  return (
+    <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 py-3 sm:grid-cols-[9rem_minmax(0,1fr)]">
+      <dt className="text-body text-ink-muted">{term}</dt>
+      <dd className="text-body text-ink [text-wrap:pretty]">{children}</dd>
+    </div>
+  );
+}
+
+function Aside({ children }: { children: ReactNode }) {
+  return <span className="mt-0.5 block text-meta text-ink-muted [text-wrap:pretty]">{children}</span>;
 }

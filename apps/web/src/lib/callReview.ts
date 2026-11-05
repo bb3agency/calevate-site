@@ -11,7 +11,7 @@
  * server sends as a label (`business_outcome_label`) and `outcomeWords` places.
  */
 
-import { formatIST, formatPhone } from "@/components/ui";
+import { formatPhone } from "@/components/ui";
 import type { CallDetail, CallSummary } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
@@ -120,15 +120,25 @@ export function outcomeReason(
   call: Pick<CallDetail, "outcome_tag" | "callback_requested" | "callback" | "summary_state" | "status"> & {
     business_outcome_label?: string | null;
     next_step?: string | null;
+    next_step_by?: CallDetail["next_step_by"];
   },
 ): string {
   if (call.outcome_tag === "needs_you" && call.callback_requested && !call.callback) {
     return "They asked for a call back. None is booked.";
   }
-  // A next step is the reason the call needs a person whenever there is one (D-887): "could
-  // not finish" was wrong for a call that agreed a site visit someone has to confirm.
-  if (call.outcome_tag === "needs_you" && call.next_step?.trim()) {
+  // A next step is the reason the call needs a person whenever it is the business's to
+  // take (D-887). One that waits on the caller is not why the call needs you, and pointing
+  // at it put "Needs you" beside "they will message you" (4 Nov 2026 call review).
+  if (call.outcome_tag === "needs_you" && call.next_step?.trim() && businessActs(call.next_step_by)) {
     return "Something is left to do. See the next step below.";
+  }
+  // "The agent booked it" is the in-call booking; one made after the call, or by a person,
+  // was not the agent's, and saying so is what tells the owner the time may be ours.
+  if (call.outcome_tag === "call_back_booked" && call.callback?.booked_by === "after_call") {
+    return "They asked to talk again later, so a call back is booked.";
+  }
+  if (call.outcome_tag === "call_back_booked" && call.callback?.booked_by === "person") {
+    return "Someone on your team booked a call back.";
   }
   const words = lookup(OUTCOME_WORDS, call.outcome_tag);
   if (words) return words.reason;
@@ -137,6 +147,54 @@ export function outcomeReason(
   if (call.status !== "completed") return "The call ended before anyone spoke.";
   if (call.summary_state === "pending") return "We are still reading this call.";
   return "We could not tell how this call ended.";
+}
+
+/**
+ * Is the next step the business's to take? A call read before the reading named who acts
+ * (`next_step_by` null) keeps the older rule that any written step is the business's.
+ */
+function businessActs(by: CallDetail["next_step_by"] | undefined): boolean {
+  return by == null || by === "business";
+}
+
+/**
+ * The next step with who takes it. The step itself is the reading's sentence and is shown
+ * as written; what this adds is whose move it is, because "Wait for the caller to message
+ * you" under "Needs you" read as a job for the owner (4 Nov 2026 call review). A step for
+ * nobody is not shown: there is nothing to do.
+ */
+export function nextStepLine(
+  call: Pick<CallDetail, "next_step_by"> & { next_step?: string | null },
+): { who: string | null; text: string; note: string | null } | null {
+  const text = call.next_step?.trim();
+  if (!text || call.next_step_by === "nobody") return null;
+  if (call.next_step_by === "caller") return { who: null, text, note: "Up to them. Nothing for you to do." };
+  if (call.next_step_by === "business") return { who: "You", text, note: null };
+  return { who: null, text, note: null };
+}
+
+type Goal = NonNullable<CallDetail["goal"]>;
+
+/** How a call did against its campaign's goal, in the words every screen uses for it. */
+export const GOAL_WORDS: Record<NonNullable<Goal["reached"]>, string> = {
+  yes: "Goal reached",
+  no: "Goal not reached",
+  unclear: "Goal unclear",
+};
+
+/**
+ * The campaign goal's verdict ("Goal reached: App installed successfully") and the
+ * reading's one-line why. Null when the call was not judged against it (not answered, or
+ * read before goals), because "Goal: …" with no verdict reads as a result.
+ */
+export function goalLine(goal: CallDetail["goal"]): { verdict: string; reason: string | null } | null {
+  if (!goal?.reached) return null;
+  const words = lookup(GOAL_WORDS, goal.reached) ?? "Goal";
+  const name = goal.goal.trim();
+  return {
+    verdict: name ? `${words}: ${name}` : words,
+    reason: goal.reason?.trim() || null,
+  };
 }
 
 /**
@@ -259,38 +317,86 @@ export function callOutcome(call: CallOutcomeFields): { words: string; kind: Out
   return { words: known ?? call.status, kind: NOT_CONNECTED.has(call.status) ? "not_connected" : "neutral" };
 }
 
-/** A booked call back that is still waiting after the time it was promised for. */
+/**
+ * A booked call back that is still waiting after the time it will be tried. That is
+ * `next_try_at` when the server sends it: one the calling hours pushed to the morning is
+ * waiting as it should, not late.
+ */
 export function callbackOverdue(callback: Callback | null | undefined, now: Date = new Date()): boolean {
   if (!callback || callback.status !== "scheduled") return false;
-  const due = Date.parse(callback.due_at);
+  const due = Date.parse(callback.next_try_at ?? callback.due_at);
   return Number.isFinite(due) && due < now.getTime();
 }
 
 const CALLBACK_WORDS: Record<Callback["status"], string> = {
-  scheduled: "Waiting",
-  dialing: "Calling now",
+  scheduled: "Booked for",
+  dialing: "Calling them now",
   completed: "Called back",
   cancelled: "Cancelled",
   refused: "Not placed",
-  missed: "Not answered",
+  missed: "Called back, no answer",
   failed: "Could not be placed",
 };
 
+/** Statuses whose line carries the time: when it is due, or when it was tried. */
+const CALLBACK_TIMED = new Set<Callback["status"]>(["scheduled", "completed"]);
+
 /**
- * The booked call back in one line ("10 Oct, 06:03 pm · Waiting") and, when a rule
- * stopped it, the server's own sentence for why. The sentence is never reworded: it is
- * the server's (trial accounts, do-not-call, calling hours).
+ * An instant as a person reads an appointment: "Thu, 6 Nov, 7:00 pm", in IST (D-709). The
+ * weekday is there because "tomorrow" is how an owner thinks about a call back.
+ */
+export function callbackWhen(value: string | null | undefined): string {
+  if (!value) return "—";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "—";
+  return at.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Who booked it, for a call back still to come; the reason an owner trusts the time. */
+function callbackWhy(callback: Callback): string {
+  if (callback.booked_by === "after_call") {
+    return callback.time_from === "default"
+      ? "They asked to talk later but didn't say when."
+      : "They asked to be called at this time.";
+  }
+  if (callback.booked_by === "person") return "Booked by your team.";
+  return "The agent booked it on the call.";
+}
+
+/**
+ * The call back booked on this call, said as what will happen: "Booked for Thu, 6 Nov,
+ * 7:00 pm", who booked it and why, and, while it waits on a rule (calling hours), the
+ * server's sentence for that with when it will next be tried. A refusal's sentence is the
+ * server's and is never reworded (trial accounts, do-not-call); the rule's own name never
+ * shows.
  */
 export function callbackLine(
   callback: Callback,
   now: Date = new Date(),
-): { when: string; state: string; overdue: boolean; reason: string | null } {
+): { state: string; overdue: boolean; why: string | null; reason: string | null; nextTry: string | null } {
   const overdue = callbackOverdue(callback, now);
+  const words = lookup(CALLBACK_WORDS, callback.status) ?? callback.status;
+  const timed = CALLBACK_TIMED.has(callback.status) ? `${words} ${callbackWhen(callback.due_at)}` : words;
+  const waiting = callback.status === "scheduled";
+  // A later try than the booked time is the only news `next_try_at` carries: the hours or
+  // the lines pushed it.
+  const pushed =
+    waiting && callback.next_try_at && Date.parse(callback.next_try_at) - Date.parse(callback.due_at) > 60_000
+      ? callback.next_try_at
+      : null;
   return {
-    when: formatIST(callback.due_at),
-    state: overdue ? "Overdue" : (lookup(CALLBACK_WORDS, callback.status) ?? callback.status),
+    state: overdue ? `${timed} · Overdue` : timed,
     overdue,
+    why: waiting ? callbackWhy(callback) : null,
     reason: callback.blocked_reason ?? null,
+    nextTry: pushed ? `Next try ${callbackWhen(pushed)}` : null,
   };
 }
 

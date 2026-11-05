@@ -2,7 +2,17 @@ import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
-import { OUTCOME_KIND_WORDS, type OutcomeKind, callOutcome, outcomeWords } from "@/lib/callReview";
+import {
+  OUTCOME_KIND_WORDS,
+  type OutcomeKind,
+  callOutcome,
+  callbackLine,
+  callbackWhen,
+  goalLine,
+  nextStepLine,
+  outcomeReason,
+  outcomeWords,
+} from "@/lib/callReview";
 import type { CallDetail, Me } from "@/lib/api/client";
 
 import { NeverAnswers, renderClientPage } from "./harness";
@@ -53,11 +63,14 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     lead_id: "l1",
     extraction: {},
     captured: [
-      { key: "need", label: "What they want", type: "text", core: true, current: true, value: "Green chilli" },
-      { key: "preferred_time", label: "Preferred time", type: "text", core: true, current: true, value: null },
-      { key: "quantity", label: "Quantity", type: "text", core: false, current: true, value: "2 kg" },
+      { key: "need", label: "What they want", type: "text", core: true, current: true, source: "call", value: "Green chilli" },
+      { key: "preferred_time", label: "Preferred time", type: "text", core: true, current: true, source: "call", value: null },
+      { key: "quantity", label: "Quantity", type: "text", core: false, current: true, source: "call", value: "2 kg" },
     ],
     extraction_valid: true,
+    unclear_fields: [],
+    next_step_by: null,
+    goal: null,
     has_recording: false,
     disclosure_played: true,
     moments: [],
@@ -239,6 +252,9 @@ describe("the verdict", () => {
             id: "cb1",
             due_at: "2026-10-10T12:33:00Z",
             status: "refused",
+            booked_by: "in_call",
+            time_from: null,
+            next_try_at: null,
             blocked_reason: reason,
             blocked_rule: "trial_call_back_unavailable",
           },
@@ -391,7 +407,7 @@ describe("the conversation", () => {
           transcript: [],
           summary: null,
           summary_state: "empty",
-          captured: [{ key: "need", label: "What they want", type: "text", core: true, current: true, value: null }],
+          captured: [{ key: "need", label: "What they want", type: "text", core: true, current: true, source: "call", value: null }],
         }),
       ),
     );
@@ -414,13 +430,14 @@ describe("the rest of the screen", () => {
       routes(
         detail({
           captured: [
-            { key: "need", label: "What they want", type: "text", core: true, current: true, value: "A flat" },
+            { key: "need", label: "What they want", type: "text", core: true, current: true, source: "call", value: "A flat" },
             {
               key: "bhk_size",
               label: "BHK",
               type: "enum",
               core: false,
               current: true,
+              source: "call",
               value: null,
               unlisted: "6 BHK",
             },
@@ -439,7 +456,7 @@ describe("the rest of the screen", () => {
       page,
       routes(
         detail({
-          captured: [{ key: "need", label: "What they want", type: "text", core: true, current: true, value: null }],
+          captured: [{ key: "need", label: "What they want", type: "text", core: true, current: true, source: "call", value: null }],
         }),
       ),
     );
@@ -590,5 +607,237 @@ describe("the business's own outcome on the verdict (D-836)", () => {
     const heading = await screen.findByRole("heading", { name: "Needs you" });
     expect(heading.querySelector("[data-kind]")).toBeNull();
     expect(screen.getByText("Wants to buy").querySelector('[data-kind="interested"]')).not.toBeNull();
+  });
+});
+
+describe("what the reading says after the call (4 Nov 2026 call review)", () => {
+  const callback = (over: Partial<NonNullable<CallDetail["callback"]>> = {}): NonNullable<CallDetail["callback"]> => ({
+    id: "cb1",
+    // 7:00 pm IST on Thu 6 Nov 2026.
+    due_at: "2026-11-06T13:30:00Z",
+    status: "scheduled",
+    booked_by: "after_call",
+    time_from: "caller",
+    next_try_at: "2026-11-06T13:30:00Z",
+    ...over,
+  });
+  const NOW = new Date("2026-11-05T10:00:00Z");
+
+  it("says a step that waits on the caller is theirs, and does not call it a job for the owner", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          outcome_tag: "answered",
+          callback: null,
+          next_step: "Wait for them to message on WhatsApp if they get stuck.",
+          next_step_by: "caller",
+        }),
+      ),
+    );
+    expect(await screen.findByText("Wait for them to message on WhatsApp if they get stuck.", { exact: false })).toBeTruthy();
+    expect(screen.getByText("Up to them. Nothing for you to do.")).toBeTruthy();
+    expect(screen.queryByText("Needs you")).toBeNull();
+    expect(screen.queryByText("Something is left to do. See the next step below.")).toBeNull();
+  });
+
+  it("puts the owner on a step the business must take", async () => {
+    await renderClientPage(
+      page,
+      routes(detail({ outcome_tag: "needs_you", callback: null, next_step: "Call them back.", next_step_by: "business" })),
+    );
+    expect(await screen.findByText("Something is left to do. See the next step below.")).toBeTruthy();
+    const step = screen.getByText("Next step").nextElementSibling!;
+    expect(step.textContent).toBe("You: Call them back.");
+  });
+
+  it("shows no step for nobody, and keeps the older rule for a call read before who-acts", () => {
+    expect(nextStepLine({ next_step: "Nothing more.", next_step_by: "nobody" })).toBeNull();
+    expect(nextStepLine({ next_step: "Confirm the visit.", next_step_by: null })).toEqual({
+      who: null,
+      text: "Confirm the visit.",
+      note: null,
+    });
+    const base = { outcome_tag: "needs_you", callback_requested: false, callback: null, summary_state: "ready", status: "completed" } as const;
+    expect(outcomeReason({ ...base, next_step: "Confirm", next_step_by: null })).toBe(
+      "Something is left to do. See the next step below.",
+    );
+    expect(outcomeReason({ ...base, next_step: "Wait", next_step_by: "caller" })).not.toContain("next step");
+  });
+
+  it("shows the campaign goal's verdict with its one-line reason", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          goal: {
+            goal: "App installed successfully",
+            reached: "yes",
+            reason: "They installed it before the call and use it.",
+          },
+        }),
+      ),
+    );
+    expect(await screen.findByText("Goal reached: App installed successfully")).toBeTruthy();
+    expect(screen.getByText("They installed it before the call and use it.")).toBeTruthy();
+  });
+
+  it("shows no goal line for a call not judged against it", () => {
+    expect(goalLine({ goal: "App installed successfully", reached: null, reason: null })).toBeNull();
+    expect(goalLine(null)).toBeNull();
+    expect(goalLine({ goal: "Visit booked", reached: "unclear", reason: null })).toEqual({
+      verdict: "Goal unclear: Visit booked",
+      reason: null,
+    });
+  });
+
+  it("says a call back is booked, for when, and that they asked for that time", () => {
+    const line = callbackLine(callback(), NOW);
+    expect(line.state).toBe(`Booked for ${callbackWhen("2026-11-06T13:30:00Z")}`);
+    expect(line.state).toContain("6 Nov");
+    expect(line.why).toBe("They asked to be called at this time.");
+    expect(line.overdue).toBe(false);
+  });
+
+  it("says who booked it when they named no time, or when the call or the team did", () => {
+    expect(callbackLine(callback({ time_from: "default" }), NOW).why).toBe(
+      "They asked to talk later but didn't say when.",
+    );
+    expect(callbackLine(callback({ booked_by: "in_call", time_from: null }), NOW).why).toBe(
+      "The agent booked it on the call.",
+    );
+    expect(callbackLine(callback({ booked_by: "person", time_from: null }), NOW).why).toBe("Booked by your team.");
+  });
+
+  it("says a call back waiting for calling hours waits, and when it goes out, never late", () => {
+    const reason = "Calling hours had closed, so it waits until they open again (9 am to 9 pm).";
+    const line = callbackLine(
+      callback({
+        due_at: "2026-11-04T16:00:00Z",
+        next_try_at: "2026-11-05T03:30:00Z",
+        blocked_reason: reason,
+        blocked_rule: "calling_hours",
+      }),
+      new Date("2026-11-04T18:00:00Z"),
+    );
+    expect(line.reason).toBe(reason);
+    expect(line.nextTry).toBe(`Next try ${callbackWhen("2026-11-05T03:30:00Z")}`);
+    expect(line.overdue).toBe(false);
+    expect(line.state).not.toContain("Overdue");
+  });
+
+  it("renders the booked call back's lines on the call page without the rule's name", async () => {
+    await renderClientPage(page, routes(detail({ callback: callback({ time_from: "default" }) })));
+    expect(await screen.findByText("They asked to talk later but didn't say when.")).toBeTruthy();
+    expect(screen.getByText(/^Booked for /)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("after_call");
+  });
+
+  it("names each unclear detail with its reason", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          extraction_valid: false,
+          unclear_fields: [
+            {
+              key: "satisfaction",
+              label: "Satisfaction level",
+              kind: "not_a_choice",
+              reason: "What they said is not one of this detail's choices.",
+            },
+          ],
+        }),
+      ),
+    );
+    expect(await screen.findByText("Satisfaction level")).toBeTruthy();
+    expect(screen.getByText(": What they said is not one of this detail's choices.")).toBeTruthy();
+    expect(screen.queryByText("Some details came through unclear.")).toBeNull();
+    expect(document.body.textContent).not.toContain("not_a_choice");
+  });
+
+  it("says plainly when the whole reading failed", async () => {
+    await renderClientPage(page, routes(detail({ extraction_valid: false, unclear_fields: [] })));
+    expect(await screen.findByText("We couldn't read this call's details. Check the chat below.")).toBeTruthy();
+  });
+
+  it("tags a name that came from the campaign list", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          captured: [
+            { key: "caller_name", label: "Caller name", type: "text", core: true, current: true, source: "list", value: "Akshita" },
+            { key: "need", label: "What they want", type: "text", core: true, current: true, source: "call", value: "Help with the app" },
+          ],
+        }),
+      ),
+    );
+    expect(await screen.findByText("From your list")).toBeTruthy();
+    expect(screen.getAllByText(/^From your/)).toHaveLength(1);
+  });
+});
+
+describe("the call back and the details, round two", () => {
+  const booked: NonNullable<CallDetail["callback"]> = {
+    id: "cb1",
+    due_at: "2026-11-05T14:56:00Z",
+    status: "scheduled",
+    booked_by: "after_call",
+    time_from: "default",
+    next_try_at: "2026-11-05T14:56:00Z",
+  };
+
+  it("does not say the agent booked a call back the reading booked after the call", async () => {
+    await renderClientPage(page, routes(detail({ outcome_tag: "call_back_booked", callback: booked })));
+    expect(await screen.findByText("They asked to talk again later, so a call back is booked.")).toBeTruthy();
+    expect(screen.queryByText("The caller asked to be called back, and the agent booked it.")).toBeNull();
+  });
+
+  it("does not repeat the booked call back as a refusal under the action", async () => {
+    const refusal = "A call back is already booked for 05 Nov at 20:26 (IST). It will be placed then.";
+    await renderClientPage(
+      page,
+      routes(detail({ outcome_tag: "call_back_booked", callback: booked }), {
+        "/v1/calls/c1/callback": { eligible: false, reason: refusal, rule: "callback_already_booked" },
+      }),
+    );
+    expect(await screen.findByText(/^Booked for /)).toBeTruthy();
+    expect(screen.queryByText(refusal)).toBeNull();
+  });
+
+  it("says when calling back opens, beside the call back icon", async () => {
+    const reason = "Calls can only be placed between 9 am and 9 pm. You can call back from 9:00 am tomorrow.";
+    await renderClientPage(
+      page,
+      routes(detail({ outcome_tag: "answered", callback: null }), {
+        "/v1/calls/c1/callback": { eligible: false, reason, rule: "calling_hours", opens_at: "2026-11-05T03:30:00Z" },
+      }),
+    );
+    const line = await screen.findByText(reason);
+    expect(line.querySelector("svg")).not.toBeNull();
+  });
+
+  it("lists an unclear detail once, under its reason, not also as not mentioned", async () => {
+    await renderClientPage(
+      page,
+      routes(
+        detail({
+          captured: [
+            { key: "need", label: "What they want", type: "text", core: true, current: true, source: "call", value: "Help" },
+            { key: "satisfaction", label: "Satisfaction level", type: "text", core: false, current: true, source: "call", value: null },
+            { key: "suggestions", label: "Suggestions", type: "text", core: false, current: true, source: "call", value: null },
+          ],
+          extraction_valid: false,
+          unclear_fields: [
+            { key: "satisfaction", label: "Satisfaction level", kind: "unreadable", reason: "Their answer could not be read." },
+          ],
+        }),
+      ),
+    );
+    expect(await screen.findByText("Satisfaction level")).toBeTruthy();
+    const notMentioned = screen.getByRole("list", { name: "Not mentioned" });
+    expect(notMentioned.textContent).toContain("Suggestions");
+    expect(notMentioned.textContent).not.toContain("Satisfaction level");
   });
 });
