@@ -1339,6 +1339,9 @@ APPEND_ONLY_TABLES = [
     # when a reviewed set was published. A change is a new revision, never an edit.
     "spoken_style_revisions",
     "spoken_style_publications",
+    # The founder's edits to the words the call checks listen for (G-C2), for the spoken
+    # style's reason: who changed which list and when. A change is a new revision.
+    "call_word_revisions",
     # A Follow-up's published steps (D-940): a run finishes on the version it started on,
     # which holds only if a version cannot change under it. A change is a new version.
     "follow_up_versions",

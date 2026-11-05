@@ -307,31 +307,41 @@ _PATTERNS: tuple[tuple[str, str, str], ...] = (
     ("unsubscribe", "en", r"\bunsubscribe\b|\bopt me out\b|\bopt out\b"),
 )
 
+
 #: Every other language's patterns are the founder's (`calevate_shared/call_words.json`, entry
 #: `optout.patterns`, G5-2): romanised Telugu and Hindi, the smaller native-script lists
 #: (written from the language rather than from observed STT output, additive, to grow
 #: from the first native-script transcripts), and code-mixed "call చేయకండి", which Indian
 #: STT writes with the English loanword in Latin letters.
-_PATTERNS += tuple(
-    (str(rule), str(language), str(pattern))
-    for language, rules in call_words.table("optout.patterns").items()
-    for rule, pattern in rules
-)
+def _founder_patterns() -> tuple[tuple[str, str, str], ...]:
+    return tuple(
+        (str(rule), str(language), str(pattern))
+        for language, rules in call_words.table("optout.patterns").items()
+        for rule, pattern in rules
+    )
+
+
+def _not_now_pattern() -> str:
+    words = call_words.table("optout.not_now").values()
+    return (
+        r"\b(?:"
+        + "|".join(w["latin"] for w in words)
+        + r")\b|"
+        + "|".join(w["native"] for w in words)
+    )
+
 
 #: "Now" in Telugu and Hindi, in the few words before a match: "ippudu call cheyakandi",
 #: "abhi call mat karo" ask for another time. Not "abhi se" ("from now on"), which is the
 #: opposite.
-_NOT_NOW_WORDS: Final = call_words.table("optout.not_now")
-_NOT_NOW = re.compile(
-    r"\b(?:"
-    + "|".join(w["latin"] for w in _NOT_NOW_WORDS.values())
-    + r")\b|"
-    + "|".join(w["native"] for w in _NOT_NOW_WORDS.values())
-)
+_NOT_NOW: Final = call_words.LivePattern(_not_now_pattern)
 _NOT_NOW_WINDOW = 25
 
-_COMPILED: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple(
-    (rule, language, re.compile(pattern, re.UNICODE)) for rule, language, pattern in _PATTERNS
+_COMPILED: Final[call_words.Live[tuple[tuple[str, str, re.Pattern[str]], ...]]] = call_words.Live(
+    lambda: tuple(
+        (rule, language, re.compile(pattern, re.UNICODE))
+        for rule, language, pattern in (*_PATTERNS, *_founder_patterns())
+    )
 )
 
 # How much of the matched text becomes evidence. A phrase, not a paragraph: the ledger
@@ -357,7 +367,7 @@ def detect_opt_out(turns: Sequence[SpokenTurn]) -> OptOutSignal | None:
         normalized = normalize_utterance(turn.text)
         if not normalized:
             continue
-        for rule, language, pattern in _COMPILED:
+        for rule, language, pattern in _COMPILED():
             found = pattern.search(normalized)
             if found is None:
                 continue

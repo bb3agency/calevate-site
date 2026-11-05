@@ -39,6 +39,7 @@ from datetime import datetime
 from typing import Final, Literal
 from uuid import UUID
 
+from calevate_shared.call_words import Live as _Live
 from calevate_shared.call_words import extend as _extend
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,15 +81,21 @@ TOPIC_QUESTIONS: Final[dict[str, str]] = {
 
 #: Something that reads as opening times in a fact or a document. Postgres regex.
 #: The Indian-language words of both are the founder's (`call_words.json`).
-_HOURS_PATTERN: Final = _extend(
-    r"\m[0-9]{1,2}(:[0-9]{2})?\s*(am|pm)\M|o'?clock|\mopen(s|ing)?\M|\mclosed\M|\mtimings?\M"
-    r"|\mhours\M",
-    "teach_questions._HOURS_PATTERN",
+_HOURS_PATTERN: Final = _Live(
+    lambda: _extend(
+        r"\m[0-9]{1,2}(:[0-9]{2})?\s*(am|pm)\M|o'?clock|\mopen(s|ing)?\M|\mclosed\M|\mtimings?\M"
+        r"|\mhours\M",
+        "teach_questions._HOURS_PATTERN",
+    ),
+    postgres=True,
 )
 #: Something that reads as an address.
-_ADDRESS_PATTERN: Final = _extend(
-    r"\maddress|\mroad\M|\mstreet|nagar\M|\mnear\M|\mopposite\M|\mlocated|\mbranch",
-    "teach_questions._ADDRESS_PATTERN",
+_ADDRESS_PATTERN: Final = _Live(
+    lambda: _extend(
+        r"\maddress|\mroad\M|\mstreet|nagar\M|\mnear\M|\mopposite\M|\mlocated|\mbranch",
+        "teach_questions._ADDRESS_PATTERN",
+    ),
+    postgres=True,
 )
 
 _WHY_ORDER: Final[dict[Why, int]] = {"callers": 0, "practice": 1, "setup": 2}
@@ -204,14 +211,14 @@ async def _open_questions(
     if (
         quotes_prices
         and "prices" in await missing_facts(session)
-        and not await _covered(session, PRICE_PATTERN)
+        and not await _covered(session, PRICE_PATTERN())
     ):
         extra.append(_asked("pricing", "Pricing", "practice"))
     profile = await load_profile(session, tenant_id=tenant_id)
-    if not profile.hours and not await _covered(session, _HOURS_PATTERN):
+    if not profile.hours and not await _covered(session, _HOURS_PATTERN()):
         extra.append(_asked("timings", "Opening hours", "setup"))
     has_premises = caps.has_premises.applies is not False
-    if has_premises and not profile.branches and not await _covered(session, _ADDRESS_PATTERN):
+    if has_premises and not profile.branches and not await _covered(session, _ADDRESS_PATTERN()):
         extra.append(_asked("location", "Location & directions", "setup"))
     settled = await _settled_keys(session, [q.key for q in extra])
     for question in extra:

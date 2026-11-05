@@ -646,6 +646,21 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "POST /v1/ops/spoken-style/{language}/publish",
         )
     },
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "`entries` is one row per key of `calevate_shared/call_words.json`, a file "
+                "shipped with the code; one entry holds at most "
+                "`call_words_routes.MAX_LIST_ITEMS` (500) words, refused beyond it on save; "
+                "`history` is `call_words_store.HISTORY_LIMIT` (20) passed as the SQL LIMIT."
+            )
+        )
+        for route in (
+            "GET /v1/ops/call-words",
+            "GET /v1/ops/call-words/{key}",
+            "PUT /v1/ops/call-words/{key}",
+        )
+    },
     "GET /v1/ops/engine-minute-prices": BoundedByConstruction(
         by=(
             "one row per engine in `billing/engine_minutes.ATTESTED_MINUTE_ENGINES` times "

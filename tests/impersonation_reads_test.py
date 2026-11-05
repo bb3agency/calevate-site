@@ -59,6 +59,11 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "the platform's spoken-style table under the founder's review (D-744): how agents "
         "speak each language, platform-wide, never a client screen"
     ),
+    **dict.fromkeys(
+        ("/v1/ops/call-words", "/v1/ops/call-words/{key}"),
+        "the words the platform's call checks listen for (G-C2), edited by the founder "
+        "on Ops > Call words: platform-wide, never a client screen",
+    ),
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/knowledge": (
         "what one agent holds on the voice platform, including documents we did not send "
         "(D-868): the operator's door for an account they are not impersonating. The client's "

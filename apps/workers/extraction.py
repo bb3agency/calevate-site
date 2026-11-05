@@ -106,6 +106,7 @@ from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 import httpx
 from calevate_shared.business_outcomes import BusinessOutcome, match_outcome
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import say as _say
 from calevate_shared.engine import (
     AZURE_LOCATION,
@@ -1237,24 +1238,28 @@ class OfflineExtractor:
     # below are caught. A fused negation reads as an assertion of whatever else is in
     # the clause — which is why the list carries the standalone words a caller uses to
     # REFUSE or RETRACT, the two cases that put a wrong value in a client's CRM.
-    _NEGATION_RE = re.compile(
-        r"(?<!\w)(?:" + _say("offline_extractor.negation") + r"|no|not|never|"
-        r"don'?t|doesn'?t|didn'?t|won'?t|can'?t|cannot"
-        r")(?!\w)"
-        # The Telugu PROHIBITIVE is a suffix, not a word: "cheyakandi" (do not do it),
-        # "ravaddu" (do not come), "cheyyoddu". Without this, "appointment cancel
-        # cheyakandi" reads as a cancellation — the most expensive false positive in
-        # the clinic vertical.
-        r"|(?<!\w)\w+(?:" + _say("offline_extractor.prohibitive_endings") + r")(?!\w)",
+    _NEGATION_RE = _LivePattern(
+        lambda: (
+            r"(?<!\w)(?:" + _say("offline_extractor.negation") + r"|no|not|never|"
+            r"don'?t|doesn'?t|didn'?t|won'?t|can'?t|cannot"
+            r")(?!\w)"
+            # The Telugu PROHIBITIVE is a suffix, not a word: "cheyakandi" (do not do it),
+            # "ravaddu" (do not come), "cheyyoddu". Without this, "appointment cancel
+            # cheyakandi" reads as a cancellation — the most expensive false positive in
+            # the clinic vertical.
+            r"|(?<!\w)\w+(?:" + _say("offline_extractor.prohibitive_endings") + r")(?!\w)"
+        ),
         re.IGNORECASE,
     )
     # Clause boundaries — NegEx's "termination terms", as punctuation plus the two
     # contrastive conjunctions this product's transcripts actually use.
     # (dashes as escapes: a literal em/en dash in source is a lint-flagged homoglyph)
-    _CLAUSE_SPLIT_RE = re.compile(
-        "[,;.!?\u2026\u2014\u2013]+|\\s+(?:--|"
-        + _say("offline_extractor.but")
-        + "|but|however)\\s+",
+    _CLAUSE_SPLIT_RE = _LivePattern(
+        lambda: (
+            "[,;.!?\u2026\u2014\u2013]+|\\s+(?:--|"
+            + _say("offline_extractor.but")
+            + "|but|however)\\s+"
+        ),
         re.IGNORECASE,
     )
     # "Did my booking get cancelled?" is not a cancellation. A caller who rings to ASK
@@ -1269,10 +1274,12 @@ class OfflineExtractor:
     # fixtures and fail on production audio. Deliberately narrow, too — bare "check" is
     # left out because "I want to check in" is not an enquiry, and a false enquiry
     # DISCARDS a fact the caller really did state.
-    _ASKING_RE = re.compile(
-        r"(?<!\w)(?:"
-        + _say("offline_extractor.asking")
-        + r"|ask\w*|enquir\w*|inquir\w*|wanted to know)(?!\w)",
+    _ASKING_RE = _LivePattern(
+        lambda: (
+            r"(?<!\w)(?:"
+            + _say("offline_extractor.asking")
+            + r"|ask\w*|enquir\w*|inquir\w*|wanted to know)(?!\w)"
+        ),
         re.IGNORECASE,
     )
     # Speaker prefixes as the transcript writes them. Anything unprefixed is treated as

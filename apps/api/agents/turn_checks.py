@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Final, Literal, Protocol
 
+from calevate_shared.call_words import Live as _Live
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import say as _say
 from calevate_shared.call_words import words as _word_list
 from calevate_shared.languages import find_language
@@ -203,7 +205,7 @@ _TIME_PHRASES: Final = (
         re.IGNORECASE,
     ),
     re.compile(r"\b\d{1,2}[:.]\d{2}\s*(?:am|pm|a\.m\.|p\.m\.)?\s+now\b", re.IGNORECASE),
-    re.compile(_say("turn_checks._TIME_PHRASES"), re.IGNORECASE),
+    _LivePattern(lambda: _say("turn_checks._TIME_PHRASES"), re.IGNORECASE),
     re.compile(r"\bcurrent (?:time|date)\b", re.IGNORECASE),
     # An ISO timestamp, or a clock with seconds: nobody says either on the phone.
     re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}"),
@@ -215,39 +217,32 @@ _MONEY_DIGITS: Final = re.compile(
     r"₹|\b(?:rs|inr)\.?\s*\d|\d+(?:[.,]\d+)?\s*(?:rs|inr|kgs?|gms?|g|ml|ltrs?|l|km|hrs?|mins?)\b",
     re.IGNORECASE,
 )
-_LABEL: Final = re.compile(
-    _say("turn_checks._LABEL"),
-    re.IGNORECASE,
-)
+_LABEL: Final = _LivePattern(lambda: _say("turn_checks._LABEL"), re.IGNORECASE)
 #: A measured amount: a number and one of the founder's measures, in any letters ("1 kg",
 #: "half a litre", and their Telugu and Hindi forms).
-_QUANTITY: Final = re.compile(
-    _say("turn_checks._QUANTITY"),
-    re.IGNORECASE,
-)
+_QUANTITY: Final = _LivePattern(lambda: _say("turn_checks._QUANTITY"), re.IGNORECASE)
 #: A count of anything a business deals in, so the check is not a shop's alone (G4-5): a
 #: number in digits or in the words of any call language, then a noun in Latin letters,
 #: which is how callers say most things they ask for ("2 tickets", "two acres", a Telugu
 #: number before "tickets"). A noun in Indian letters is matched only through the founder's
 #: measures above, which no code may add to. Not a wait ("two minutes") or a phone number's
 #: length ("10 digit"), which an agent asks for in its own voice.
-_COUNTED: Final = re.compile(
-    r"(?:^|(?<=\s))(?:\d+(?:\.\d+)?\s*|(?:one|two|three|four|five|six|seven|eight|nine|ten|"
-    rf"{_say('turn_checks._TE_NUMBER')}|{_say('turn_checks._HI_NUMBER')})\s+)"
-    r"(?!(?:minutes?|mins?|seconds?|secs?|moments?|hours?|hrs?|digits?)\b)[A-Za-z]{2,}\b",
+_COUNTED: Final = _LivePattern(
+    lambda: (
+        r"(?:^|(?<=\s))(?:\d+(?:\.\d+)?\s*|(?:one|two|three|four|five|six|seven|eight|nine|ten|"
+        rf"{_say('turn_checks._TE_NUMBER')}|{_say('turn_checks._HI_NUMBER')})\s+)"
+        r"(?!(?:minutes?|mins?|seconds?|secs?|moments?|hours?|hrs?|digits?)\b)[A-Za-z]{2,}\b"
+    ),
     re.IGNORECASE,
 )
 #: The agent speaking to the caller ("your number please"), which an order by the caller
 #: never does.
 _TO_THE_CALLER: Final = re.compile(r"\byou(?:r|rs)?\b", re.IGNORECASE)
 #: How a caller ends an order: "please" in English, "give" or "want" in Telugu and Hindi.
-_ORDER_ENDING: Final = re.compile(_say("turn_checks._ORDER_ENDING"), re.IGNORECASE)
-_OR: Final = re.compile(_say("turn_checks._OR"), re.IGNORECASE)
+_ORDER_ENDING: Final = _LivePattern(lambda: _say("turn_checks._ORDER_ENDING"), re.IGNORECASE)
+_OR: Final = _LivePattern(lambda: _say("turn_checks._OR"), re.IGNORECASE)
 #: What a caller says when they want more than a short answer.
-_ASKS_DETAIL: Final = re.compile(
-    _say("turn_checks._ASKS_DETAIL"),
-    re.IGNORECASE,
-)
+_ASKS_DETAIL: Final = _LivePattern(lambda: _say("turn_checks._ASKS_DETAIL"), re.IGNORECASE)
 #: A sentence that is a question by its words. English: an opening question word. Hindi:
 #: "क्या" at either end. Telugu: a last word with a yes/no ending (ఉందా, కావాలా, చెప్తారా,
 #: సరేనా) in a sentence of three words or more, so a tag on its own ("అవునా") is left alone.
@@ -258,8 +253,8 @@ _EN_QUESTION: Final = re.compile(
     r"shall|should|is|are|am|may)\b",
     re.IGNORECASE,
 )
-_TE_YES_NO_ENDINGS: Final = _word_list("turn_checks._TE_YES_NO_ENDINGS")
-_HI_QUESTION: Final = re.compile(_say("turn_checks._HI_QUESTION"))
+_TE_YES_NO_ENDINGS: Final = _Live(lambda: _word_list("turn_checks._TE_YES_NO_ENDINGS"))
+_HI_QUESTION: Final = _LivePattern(lambda: _say("turn_checks._HI_QUESTION"))
 #: A sentence end, with or without the space after it: a reply the voice platform generated
 #: again after an interruption arrives glued together ("ఎంత కావాలి?మీకు", D-749). A full
 #: stop counts unspaced only before a letter, so "1.5" stays whole.
@@ -273,7 +268,7 @@ _PUNCTUATION: Final = "\"'“”\u2018\u2019.,!?;:()[]{}।\uff1f…-\u2013—"
 #: Short abbreviations whose full stop does not end a sentence.
 _ABBREVIATION: Final = re.compile(r"\b(?:rs|dr|mr|mrs|ms|no|st|vs|etc|approx)\.$", re.IGNORECASE)
 #: Words that carry no meaning when comparing two questions.
-_FILLER: Final = frozenset(_word_list("turn_checks._FILLER"))
+_FILLER: Final = _Live(lambda: frozenset(_word_list("turn_checks._FILLER")))
 #: The script each language is written in, for the wrong-language rule. Only languages whose
 #: callers write a script of their own: an English or Latin-script reply to a caller who
 #: wrote Telugu letters is unambiguous, where two Latin-script languages are not.
@@ -289,14 +284,14 @@ _SCRIPT_OF: Final[dict[str, tuple[str, re.Pattern[str]]]] = {
 #: languages the founder's `call_words.json` lists were written for. A reply in any other
 #: language still gets the symbol, script and number rules, but a question without "?", a
 #: restated question or a formal word in it goes unseen, so a run says so (`word_checks_note`).
-_WORD_LANGUAGES: Final = frozenset({"en", *_word_list("turn_checks.word_languages")})
+_WORD_LANGUAGES: Final = _Live(lambda: frozenset({"en", *_word_list("turn_checks.word_languages")}))
 _LATIN_WORD: Final = re.compile(r"[A-Za-z]{2,}")
 
 
 def word_checks_note(language: str) -> str | None:
     """One plain line for a practice run in a language the word rules do not hear, so a
     clean result is not read as a full check; None when they do."""
-    if not language or language.split("-")[0].lower() in _WORD_LANGUAGES:
+    if not language or language.split("-")[0].lower() in _WORD_LANGUAGES():
         return None
     found = find_language(language)
     name = found.english_name if found is not None else language
@@ -338,11 +333,11 @@ def _reads_as_question(sentence: str) -> bool:
         return False
     if _EN_QUESTION.search(" ".join(words)) or _HI_QUESTION.search(" ".join(words)):
         return True
-    return len(words) >= MIN_COUNTED_WORDS and words[-1].endswith(_TE_YES_NO_ENDINGS)
+    return len(words) >= MIN_COUNTED_WORDS and words[-1].endswith(_TE_YES_NO_ENDINGS())
 
 
 def _content(sentence: str) -> set[str]:
-    return {w for w in _words(sentence) if w not in _FILLER and len(w) > 1}
+    return {w for w in _words(sentence) if w not in _FILLER() and len(w) > 1}
 
 
 def _same_question(a: str, b: str) -> bool:
@@ -403,24 +398,24 @@ def _caller_order(parts: list[str]) -> str | None:
 #: English number words, for the figures a "said before" claim names.
 _EN_NUMBER: Final = "one|two|three|four|five|six|seven|eight|nine|ten|half|hundred|thousand"
 #: Telugu joins "నాకు" and "ఒక" into "నాకొక", so a word ending in "కొక" ends on "ఒక".
-_TE_JOINED_ONE: Final = _say("turn_checks._TE_JOINED_ONE")
+_TE_JOINED_ONE: Final = _Live(lambda: _say("turn_checks._TE_JOINED_ONE"))
 
 
 #: Telugu number forms that need a noun after them: "ఒక" (a, one) and "అర" (half). The
 #: standalone answers are "ఒకటి" and "అర కేజీ", so a line ending on one of these was cut. A
 #: bare "two" or "రెండు" answering "how many?" is complete, so other numbers are left alone.
-_NEEDS_A_NOUN: Final = frozenset(_word_list("turn_checks._NEEDS_A_NOUN"))
+_NEEDS_A_NOUN: Final = _Live(lambda: frozenset(_word_list("turn_checks._NEEDS_A_NOUN")))
 
 
 def _number_word(word: str) -> str | None:
     """The noun-needing number a caller's last word ends on, or None."""
-    if word.endswith(_TE_JOINED_ONE):
+    if word.endswith(_TE_JOINED_ONE()):
         return _say("turn_checks._number_word")
-    return word if word in _NEEDS_A_NOUN else None
+    return word if word in _NEEDS_A_NOUN() else None
 
 
 #: Words a caller's line cannot end on unless the turn timer cut it ("మాకు", "to us").
-_DANGLING: Final = frozenset(_word_list("turn_checks._DANGLING"))
+_DANGLING: Final = _Live(lambda: frozenset(_word_list("turn_checks._DANGLING")))
 #: The longest reply that is still only a "go on" ("చెప్పండి అండి", "हाँ जी, बोलिए").
 NUDGE_MAX_WORDS: Final = 4
 #: The longest single question that offers a reading of a broken-off answer ("అంటే ఒక కోటి
@@ -442,7 +437,7 @@ def _offers_reading(caller_said: str, parts: list[str]) -> bool:
 def broke_off(caller_said: str) -> bool:
     """Does the caller's line stop mid-sentence: on a number ("ఒక") or a dangling "to me"?"""
     said = _words(caller_said)
-    return bool(said) and (_number_word(said[-1]) is not None or said[-1] in _DANGLING)
+    return bool(said) and (_number_word(said[-1]) is not None or said[-1] in _DANGLING())
 
 
 def _finished_cut_line(caller_said: str, reply: str) -> str | None:
@@ -543,36 +538,33 @@ def _formal_problem(reply: str, language: str) -> TurnProblem | None:
 
 #: Words that open a question restating the one before it with options or plainer words
 #: ("ఏ area లో చూస్తున్నారు? అంటే ఏదైనా particular area ఉందా?"): one question, said two ways.
-_RESTATES: Final = frozenset(_word_list("turn_checks._RESTATES"))
+_RESTATES: Final = _Live(lambda: frozenset(_word_list("turn_checks._RESTATES")))
 
 
 #: A question asking leave to say something ("would you like to know the price?"), which costs
 #: the caller a turn: on four calls of 20-22 Oct 2026 the agent asked it instead of the price.
-_ASKS_TO_TELL: Final = re.compile(
-    _say("turn_checks._ASKS_TO_TELL"),
-    re.IGNORECASE,
-)
+_ASKS_TO_TELL: Final = _LivePattern(lambda: _say("turn_checks._ASKS_TO_TELL"), re.IGNORECASE)
 
 
 def _restates(question: str) -> bool:
     words = _words(question)
-    return bool(words) and words[0] in _RESTATES
+    return bool(words) and words[0] in _RESTATES()
 
 
 #: A joiner that adds a second question inside one sentence: "మీరు ఏ ఏరియాలో చూస్తున్నారు,
 #: అలాగే మీ బడ్జెట్ ఎంత?" has one "?" and asks two things (D-910). Only explicit "and"
 #: words, never a bare comma or "or": "పొద్దున వీలవుతుందా, సాయంత్రమా?" is one choice.
-_ALSO: Final = re.compile(_say("turn_checks._ALSO"), re.IGNORECASE)
+_ALSO: Final = _LivePattern(lambda: _say("turn_checks._ALSO"), re.IGNORECASE)
 _EN_WH: Final = frozenset({"what", "which", "where", "when", "how", "who", "whom", "why"})
 #: Telugu question words. "ఏ" (which) only as a whole word: ఏరియా starts with the same letter.
-_TE_WH_EXACT: Final = frozenset(_word_list("turn_checks._TE_WH_EXACT"))
-_TE_WH_STEMS: Final = _word_list("turn_checks._TE_WH_STEMS")
-_HI_WH: Final = frozenset(_word_list("turn_checks._HI_WH"))
+_TE_WH_EXACT: Final = _Live(lambda: frozenset(_word_list("turn_checks._TE_WH_EXACT")))
+_TE_WH_STEMS: Final = _Live(lambda: _word_list("turn_checks._TE_WH_STEMS"))
+_HI_WH: Final = _Live(lambda: frozenset(_word_list("turn_checks._HI_WH")))
 
 
 def _asks_wh(clause: str) -> bool:
     return any(
-        w in _EN_WH or w in _TE_WH_EXACT or w in _HI_WH or w.startswith(_TE_WH_STEMS)
+        w in _EN_WH or w in _TE_WH_EXACT() or w in _HI_WH() or w.startswith(_TE_WH_STEMS())
         for w in _words(clause)
     )
 
@@ -837,8 +829,8 @@ _INDIC_BLOCKS: Final[dict[str, tuple[str, str]]] = {
     "ml": ("ഀ", "ൿ"),
 }
 
-_TE_NUMBER: Final = _say("turn_checks._TE_NUMBER")
-_HI_NUMBER: Final = _say("turn_checks._HI_NUMBER")
+_TE_NUMBER: Final = _Live(lambda: _say("turn_checks._TE_NUMBER"))
+_HI_NUMBER: Final = _Live(lambda: _say("turn_checks._HI_NUMBER"))
 #: A price in the language's own number words ("ఆరు నూరు రూపాయలు"). A problem only where the
 #: language's `prices` number rule says the English way (`LanguageStyle.native_price_words`):
 #: Telugu's does ("six hundred rupees", as shops in Hyderabad say it, D-744), Hindi's allows
@@ -846,17 +838,21 @@ _HI_NUMBER: Final = _say("turn_checks._HI_NUMBER")
 #: Telugu's also catches a big amount in Telugu number words ("రెండు కోట్ల"), which its
 #: `lakhs` rule says the English way, written in Telugu letters ("టూ క్రోర్స్", D-861). A
 #: time in Telugu number words ("రెండు గంటలకు") is how people say a time and is not flagged.
-_NATIVE_PRICE: Final[dict[str, re.Pattern[str]]] = {
-    "te": re.compile(
-        rf"(?:(?:{_TE_NUMBER})\s+)*(?:{_TE_NUMBER})\s*(?:{_say('turn_checks._NATIVE_PRICE.te')})"
+_NATIVE_PRICE: Final[dict[str, _LivePattern]] = {
+    "te": _LivePattern(
+        lambda: (
+            rf"(?:(?:{_TE_NUMBER()})\s+)*(?:{_TE_NUMBER()})\s*(?:{_say('turn_checks._NATIVE_PRICE.te')})"
+        )
     ),
-    "hi": re.compile(
-        rf"(?:(?:{_HI_NUMBER})\s+)*(?:{_HI_NUMBER})\s*(?:{_say('turn_checks._NATIVE_PRICE.hi')})"
+    "hi": _LivePattern(
+        lambda: (
+            rf"(?:(?:{_HI_NUMBER()})\s+)*(?:{_HI_NUMBER()})\s*(?:{_say('turn_checks._NATIVE_PRICE.hi')})"
+        )
     ),
 }
 #: Digits beside a unit written in an Indian script ("1 కిలో"), which `_MONEY_DIGITS` (Latin
 #: units only) does not see.
-_DIGIT_UNIT: Final = re.compile(_say("turn_checks._DIGIT_UNIT"))
+_DIGIT_UNIT: Final = _LivePattern(lambda: _say("turn_checks._DIGIT_UNIT"))
 
 
 def _foreign_letter(reply: str, language: str) -> str | None:
@@ -923,73 +919,47 @@ class Exchange(Protocol):
 #: platform rule asks for (`ACTION_CLAIM_RULE`). "Noted" / "నోట్ చేసుకున్నాను" /
 #: "రాసుకున్నాను" is NOT a claim (founder, 21 Oct 2026): the post-call reading records what
 #: the caller asked for, so saying it was noted is true.
-_CLAIMS_DONE: Final = re.compile(
-    _say("turn_checks._CLAIMS_DONE"),
-    re.IGNORECASE,
-)
+_CLAIMS_DONE: Final = _LivePattern(lambda: _say("turn_checks._CLAIMS_DONE"), re.IGNORECASE)
 #: Tools that only look something up, so they confirm nothing was done.
 _LOOKUP_TOOL: Final = re.compile(r"knowledge|search|lookup|look_up", re.IGNORECASE)
-_PHONE_NUMBER: Final = re.compile(
-    _say("turn_checks._PHONE_NUMBER"),
-    re.IGNORECASE,
-)
-_ASKS_FOR: Final = re.compile(
-    _say("turn_checks._ASKS_FOR"),
-    re.IGNORECASE,
-)
+_PHONE_NUMBER: Final = _LivePattern(lambda: _say("turn_checks._PHONE_NUMBER"), re.IGNORECASE)
+_ASKS_FOR: Final = _LivePattern(lambda: _say("turn_checks._ASKS_FOR"), re.IGNORECASE)
 #: "Shall we use this same number?" is the one question about a number the platform allows.
-_SAME_NUMBER: Final = re.compile(
-    _say("turn_checks._SAME_NUMBER"),
-    re.IGNORECASE,
-)
+_SAME_NUMBER: Final = _LivePattern(lambda: _say("turn_checks._SAME_NUMBER"), re.IGNORECASE)
 #: The caller wants a number other than the one the call is on.
-_OTHER_NUMBER: Final = re.compile(
-    _say("turn_checks._OTHER_NUMBER"),
-    re.IGNORECASE,
-)
+_OTHER_NUMBER: Final = _LivePattern(lambda: _say("turn_checks._OTHER_NUMBER"), re.IGNORECASE)
 #: One digit said as a word: English, English in Telugu letters (how our agents write it,
 #: D-861), Telugu and Hindi. A caller says "తొమ్మిది ఎనిమిది ఏడు ఆరు" as often as "9876".
-_DIGIT_WORDS: Final = frozenset(
-    {
-        *("zero", "oh", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"),
-        *_word_list("turn_checks._DIGIT_WORDS.1"),
-        *_word_list("turn_checks._DIGIT_WORDS.2"),
-        _say("turn_checks._DIGIT_WORDS.3"),
-        *_word_list("turn_checks._DIGIT_WORDS.4"),
-    }
+_DIGIT_WORDS: Final = _Live(
+    lambda: frozenset(
+        {
+            *("zero", "oh", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"),
+            *_word_list("turn_checks._DIGIT_WORDS.1"),
+            *_word_list("turn_checks._DIGIT_WORDS.2"),
+            _say("turn_checks._DIGIT_WORDS.3"),
+            *_word_list("turn_checks._DIGIT_WORDS.4"),
+        }
+    )
 )
 #: A mobile number in India has ten digits.
 MOBILE_DIGITS: Final = 10
 #: A reply asking for the rest of a number in words. A bare "?" is not one: "is this number
 #: right?" after four digits is a question too (D-910).
-_ASKS_FOR_REST: Final = re.compile(
-    _say("turn_checks._ASKS_FOR_REST"),
-    re.IGNORECASE,
-)
+_ASKS_FOR_REST: Final = _LivePattern(lambda: _say("turn_checks._ASKS_FOR_REST"), re.IGNORECASE)
 #: A reply asking whether what it read back is right: what it does with a WHOLE number, and
 #: never with part of one.
-_CONFIRMS: Final = re.compile(
-    _say("turn_checks._CONFIRMS"),
-    re.IGNORECASE,
-)
+_CONFIRMS: Final = _LivePattern(lambda: _say("turn_checks._CONFIRMS"), re.IGNORECASE)
 #: What a reply says when it treats what it was given as complete.
-_WRAPS_UP: Final = re.compile(
-    _say("turn_checks._WRAPS_UP"),
-    re.IGNORECASE,
-)
+_WRAPS_UP: Final = _LivePattern(lambda: _say("turn_checks._WRAPS_UP"), re.IGNORECASE)
 #: Offering more help, "anything else?" in each language our agents speak. Detection only,
 #: never spoken copy; read in a question, so "call if you need anything else." closing a
 #: call is not one.
-_OFFERS_MORE: Final = re.compile(
-    _say("turn_checks._OFFERS_MORE"),
-    re.IGNORECASE,
-)
+_OFFERS_MORE: Final = _LivePattern(lambda: _say("turn_checks._OFFERS_MORE"), re.IGNORECASE)
 #: Within how many replies two offers of more help count as too many (D-959).
 OFFERS_MORE_WINDOW: Final = 3
 #: A caller line that thanks or says they are done, after which offering more is right.
-_CALLER_DONE_WITH_TOPIC: Final = re.compile(
-    _say("turn_checks._CALLER_DONE_WITH_TOPIC"),
-    re.IGNORECASE,
+_CALLER_DONE_WITH_TOPIC: Final = _LivePattern(
+    lambda: _say("turn_checks._CALLER_DONE_WITH_TOPIC"), re.IGNORECASE
 )
 
 
@@ -1000,15 +970,9 @@ def offers_more(reply: str) -> bool:
     )
 
 
-_GOODBYE: Final = re.compile(
-    _say("turn_checks._GOODBYE"),
-    re.IGNORECASE,
-)
+_GOODBYE: Final = _LivePattern(lambda: _say("turn_checks._GOODBYE"), re.IGNORECASE)
 #: A caller line that closes the conversation, after which a goodbye is right.
-_CALLER_CLOSES: Final = re.compile(
-    _say("turn_checks._CALLER_CLOSES"),
-    re.IGNORECASE,
-)
+_CALLER_CLOSES: Final = _LivePattern(lambda: _say("turn_checks._CALLER_CLOSES"), re.IGNORECASE)
 #: WHETHER A LINE ASKS SOMETHING (L5-05, 5 Nov 2026). Matching a question word anywhere made
 #: "I will try when I get time" and "ok I will try what you said" questions, and matching a
 #: Telugu question word as a substring made "somehow" and "somewhere" questions, because
@@ -1018,7 +982,9 @@ _CALLER_CLOSES: Final = re.compile(
 #: which in Telugu and Hindi can sit anywhere in the clause. A Telugu question word with a
 #: case ending fused to it ("how much" + "for") is not seen until the founder lists that
 #: form: missing a question costs one gap, inventing one put a false gap on the owner's list.
-_QUESTION_WORDS: Final = frozenset(w.lower() for w in _word_list("turn_checks.question_words"))
+_QUESTION_WORDS: Final = _Live(
+    lambda: frozenset(w.lower() for w in _word_list("turn_checks.question_words"))
+)
 _EN_INTERROGATIVES: Final = frozenset(
     {"what", "when", "where", "which", "who", "whom", "whose", "why", "how"}
 )
@@ -1068,28 +1034,29 @@ def asks_question(said: str) -> bool:
     knowledge-gap detector (`insights.detection.caller_asked`)."""
     if "?" in said or _WIDE_QUESTION in said:
         return True
-    if any(w.lower() in _QUESTION_WORDS for w in _TOKEN.findall(said)):
+    if any(w.lower() in _QUESTION_WORDS() for w in _TOKEN.findall(said)):
         return True
     return any(_english_question(clause) for clause in _CLAUSES.split(said))
 
 
 #: Asking for it slower, which wants the same words again at a pace they can follow. The
 #: Telugu and Hindi words are the ones `_PACE_PROMISE` already reads.
-_SLOWER: Final = _say("turn_checks._SLOWER")
+_SLOWER: Final = _Live(lambda: _say("turn_checks._SLOWER"))
 #: The caller asking to hear it again: in other words, slower, or because it did not reach
 #: them. Saying it again is then the right answer, not `said_again`.
-_ASKS_REPEAT: Final = re.compile(
-    r"repeat|again|once more|one more time|pardon|come again|"
-    r"(?:didn'?t|did not|couldn'?t|could not|can'?t|cannot) (?:hear|catch|get|follow)|"
-    r"cut off|breaking up|"
-    rf"{_SLOWER}|" + _say("turn_checks._ASKS_REPEAT"),
+_ASKS_REPEAT: Final = _LivePattern(
+    lambda: (
+        r"repeat|again|once more|one more time|pardon|come again|"
+        r"(?:didn'?t|did not|couldn'?t|could not|can'?t|cannot) (?:hear|catch|get|follow)|"
+        r"cut off|breaking up|"
+        rf"{_SLOWER()}|" + _say("turn_checks._ASKS_REPEAT")
+    ),
     re.IGNORECASE,
 )
 #: A caller line that ends the conversation in so many words, whatever else it holds: "nothing
 #: more for now, I'll call you when I'm free" closes although "when" is in it.
-_CALLER_SIGNS_OFF: Final = re.compile(
-    _say("turn_checks._CALLER_SIGNS_OFF"),
-    re.IGNORECASE,
+_CALLER_SIGNS_OFF: Final = _LivePattern(
+    lambda: _say("turn_checks._CALLER_SIGNS_OFF"), re.IGNORECASE
 )
 
 
@@ -1110,9 +1077,8 @@ def caller_asks(said: str) -> bool:
 
 #: Asking whether now suits, which an opening of ours asks itself ("ఇప్పుడు రెండు నిమిషాలు
 #: మాట్లాడొచ్చా?").
-_ASKS_IF_NOW_SUITS: Final = re.compile(
-    _say("turn_checks._ASKS_IF_NOW_SUITS"),
-    re.IGNORECASE,
+_ASKS_IF_NOW_SUITS: Final = _LivePattern(
+    lambda: _say("turn_checks._ASKS_IF_NOW_SUITS"), re.IGNORECASE
 )
 
 
@@ -1135,10 +1101,7 @@ def opened_again(reply: str) -> str | None:
 
 #: A salutation said as a greeting. Narrower than `opens_with_greeting`: "హలో?" mid-call checks
 #: the line is alive, and "నమస్కారం" as a reply's LAST sentence is a goodbye.
-_SALUTATION: Final = re.compile(
-    _say("turn_checks._SALUTATION"),
-    re.IGNORECASE,
-)
+_SALUTATION: Final = _LivePattern(lambda: _say("turn_checks._SALUTATION"), re.IGNORECASE)
 
 
 def greeted_midway(reply: str) -> str | None:
@@ -1174,32 +1137,47 @@ def _reopened(reply: str, opening_questions: Sequence[str]) -> str | None:
 #: A number by its value, as callers and our agents say it: English, English in Telugu and
 #: Hindi letters (how our agents write it, D-861), Telugu and Hindi. "ఒక" and "एक" are left
 #: out because they are also "a": "ఒక రెండు రోజుల్లో" offers no choice of one or two.
-_NUMBER_VALUES: Final[dict[str, int]] = {
-    word: value
-    for words in (
-        ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"),
-        _word_list("turn_checks._NUMBER_VALUES.1"),
-        _word_list("turn_checks._NUMBER_VALUES.2"),
-        _word_list("turn_checks._NUMBER_VALUES.3"),
-        _word_list("turn_checks._NUMBER_VALUES.4"),
+_NUMBER_VALUES: Final[_Live[dict[str, int]]] = _Live(
+    lambda: (
+        {
+            word: value
+            for words in (
+                (
+                    "zero",
+                    "one",
+                    "two",
+                    "three",
+                    "four",
+                    "five",
+                    "six",
+                    "seven",
+                    "eight",
+                    "nine",
+                    "ten",
+                ),
+                _word_list("turn_checks._NUMBER_VALUES.1"),
+                _word_list("turn_checks._NUMBER_VALUES.2"),
+                _word_list("turn_checks._NUMBER_VALUES.3"),
+                _word_list("turn_checks._NUMBER_VALUES.4"),
+            )
+            for value, word in enumerate(words)
+            if word
+        }
+        | {_say("turn_checks._NUMBER_VALUES.5"): 5, _say("turn_checks._NUMBER_VALUES.6"): 5}
     )
-    for value, word in enumerate(words)
-    if word
-} | {_say("turn_checks._NUMBER_VALUES.5"): 5, _say("turn_checks._NUMBER_VALUES.6"): 5}
+)
 _DIGITS: Final = re.compile(r"\d+")
 #: Words that make a choice of numbers a choice of times, which HOW TO SPEAK allows.
-_TIME_WORDS: Final = re.compile(
-    _say("turn_checks._TIME_WORDS"),
-    re.IGNORECASE,
-)
+_TIME_WORDS: Final = _LivePattern(lambda: _say("turn_checks._TIME_WORDS"), re.IGNORECASE)
 #: What joins the options of a choice: "or" in a word, or one ending said twice
 #: ("టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా?", "టూ నా త్రీ నా?").
-_EITHER: Final = re.compile(_say("turn_checks._EITHER"), re.IGNORECASE)
+_EITHER: Final = _LivePattern(lambda: _say("turn_checks._EITHER"), re.IGNORECASE)
 
 
 def _number_values(text: str) -> set[int]:
     values = {int(d) for d in _DIGITS.findall(text)}
-    return values | {_NUMBER_VALUES[w] for w in _words(text) if w in _NUMBER_VALUES}
+    named = _NUMBER_VALUES()
+    return values | {named[w] for w in _words(text) if w in named}
 
 
 def _offered_numbers(question: str) -> set[int]:
@@ -1218,10 +1196,7 @@ def _offered_numbers(question: str) -> set[int]:
 
 #: Promising to talk slower, which the model cannot do: the voice's speed is the agent's
 #: setting (D-884, D-912).
-_PACE_PROMISE: Final = re.compile(
-    _say("turn_checks._PACE_PROMISE"),
-    re.IGNORECASE,
-)
+_PACE_PROMISE: Final = _LivePattern(lambda: _say("turn_checks._PACE_PROMISE"), re.IGNORECASE)
 
 
 #: Words a sentence needs before saying it again counts as `said_again`: "సరే అండి." or
@@ -1276,12 +1251,9 @@ def _asked_again(reply: str, previous_reply: str) -> str | None:
 #: A caller saying they have done something themselves, on their own screen: "done", "it's
 #: saved", "అయింది", "సేవ్ చేశాను", "हो गया" (D-906). The agent's "saved, good" after that
 #: acknowledges the caller's act, which `ACTION_CLAIM_RULE` allows ("or they say they did").
-_CALLER_DONE: Final = re.compile(
-    _say("turn_checks._CALLER_DONE"),
-    re.IGNORECASE,
-)
+_CALLER_DONE: Final = _LivePattern(lambda: _say("turn_checks._CALLER_DONE"), re.IGNORECASE)
 #: What turns a caller's "done" into its opposite: "not done", "కాలేదు", "नहीं हुआ".
-_CALLER_NOT: Final = re.compile(_say("turn_checks._CALLER_NOT"), re.IGNORECASE)
+_CALLER_NOT: Final = _LivePattern(lambda: _say("turn_checks._CALLER_NOT"), re.IGNORECASE)
 
 
 def caller_says_done(said: str) -> bool:
@@ -1298,11 +1270,8 @@ def claims_done(text: str, *, caller_said: str = "") -> bool:
 
 #: The agent saying it already told the caller something: "as I said", "చెప్పాను కదా",
 #: "ముందే చెప్పాను", "मैंने बताया था". The caller's own "మీరు చెప్పినట్టు" (as you said) is not one.
-_SAID_BEFORE: Final = re.compile(
-    _say("turn_checks._SAID_BEFORE"),
-    re.IGNORECASE,
-)
-_PRICE_WORD: Final = re.compile(_say("turn_checks._PRICE_WORD"), re.IGNORECASE)
+_SAID_BEFORE: Final = _LivePattern(lambda: _say("turn_checks._SAID_BEFORE"), re.IGNORECASE)
+_PRICE_WORD: Final = _LivePattern(lambda: _say("turn_checks._PRICE_WORD"), re.IGNORECASE)
 
 
 def claims_said_before(text: str) -> bool:
@@ -1313,7 +1282,7 @@ def claims_said_before(text: str) -> bool:
 def _fact_words(sentence: str) -> set[str]:
     """The words of a sentence that carry a fact a caller could be wrong-footed by: digits,
     number words and price words."""
-    numbers = re.compile(f"(?:{_EN_NUMBER}|{_TE_NUMBER}|{_HI_NUMBER})", re.IGNORECASE)
+    numbers = re.compile(f"(?:{_EN_NUMBER}|{_TE_NUMBER()}|{_HI_NUMBER()})", re.IGNORECASE)
     return {
         w
         for w in _words(sentence)
@@ -1342,7 +1311,8 @@ def _asks_for_number(reply: str) -> bool:
 def _digit_count(text: str) -> int:
     """Digits a caller line gives towards a phone number. Fewer than three is a quantity or
     a time ("2 kg"), not part of a number."""
-    count = sum(ch.isdigit() for ch in text) + sum(w in _DIGIT_WORDS for w in _words(text))
+    digit_words = _DIGIT_WORDS()
+    count = sum(ch.isdigit() for ch in text) + sum(w in digit_words for w in _words(text))
     return count if count >= 3 else 0
 
 
@@ -1390,11 +1360,13 @@ def _stock_opener(replies: Sequence[str]) -> tuple[str, int] | None:
 
 #: Where a caller could have found the business, each by the spellings a reply uses. Only
 #: places that are not this call: WhatsApp is left out because an agent may rightly offer it.
-_CHANNELS: Final[tuple[re.Pattern[str], ...]] = tuple(
-    re.compile(pattern, re.IGNORECASE) for pattern in _word_list("turn_checks._CHANNELS")
+_CHANNELS: Final[_Live[tuple[re.Pattern[str], ...]]] = _Live(
+    lambda: tuple(
+        re.compile(pattern, re.IGNORECASE) for pattern in _word_list("turn_checks._CHANNELS")
+    )
 )
 #: The caller as the subject: "you", "మీరు", "आपने".
-_YOU: Final = re.compile(_say("turn_checks._YOU"), re.IGNORECASE)
+_YOU: Final = _LivePattern(lambda: _say("turn_checks._YOU"), re.IGNORECASE)
 
 
 def _invented_source(reply: str, known: str) -> str | None:
@@ -1405,7 +1377,7 @@ def _invented_source(reply: str, known: str) -> str | None:
     for sentence in sentences(reply):
         if _is_question(sentence) or not _YOU.search(sentence):
             continue
-        for channel in _CHANNELS:
+        for channel in _CHANNELS():
             if channel.search(sentence) and not channel.search(known):
                 return sentence
     return None
@@ -1413,28 +1385,19 @@ def _invented_source(reply: str, known: str) -> str | None:
 
 #: The agent telling the caller about contact before this call: an enquiry they made, a
 #: previous call or conversation, "last time". Detection words, not speech (D-915).
-_CLAIMS_HISTORY: Final = re.compile(
-    _say("turn_checks._CLAIMS_HISTORY"),
-    re.IGNORECASE,
-)
+_CLAIMS_HISTORY: Final = _LivePattern(lambda: _say("turn_checks._CLAIMS_HISTORY"), re.IGNORECASE)
 #: "Earlier you asked": on a call where the caller has asked something, that may be this
 #: call, so it counts only before the caller has asked anything.
-_ASKED_EARLIER: Final = re.compile(
-    _say("turn_checks._ASKED_EARLIER"),
-    re.IGNORECASE,
-)
+_ASKED_EARLIER: Final = _LivePattern(lambda: _say("turn_checks._ASKED_EARLIER"), re.IGNORECASE)
 #: A sentence that asks about contact before rather than claiming it ("did you enquire?").
-_ASKS_ABOUT_IT: Final = re.compile(_say("turn_checks._ASKS_ABOUT_IT"), re.IGNORECASE)
+_ASKS_ABOUT_IT: Final = _LivePattern(lambda: _say("turn_checks._ASKS_ABOUT_IT"), re.IGNORECASE)
 #: An enquiry named in the agent's script or facts: the owner may be saying its callers did
 #: enquire, so a claim of it is the owner's word rather than invented.
-_ENQUIRY_WORDS: Final = re.compile(_say("turn_checks._ENQUIRY_WORDS"), re.IGNORECASE)
+_ENQUIRY_WORDS: Final = _LivePattern(lambda: _say("turn_checks._ENQUIRY_WORDS"), re.IGNORECASE)
 #: Words in the caller's own lines that say there was contact before ("I called last week",
 #: "I already enquired"). Broader than the script's, because a caller line is short and
 #: about this person, and a false mistake costs more than a missed one.
-_CALLER_HISTORY: Final = re.compile(
-    _say("turn_checks._CALLER_HISTORY"),
-    re.IGNORECASE,
-)
+_CALLER_HISTORY: Final = _LivePattern(lambda: _say("turn_checks._CALLER_HISTORY"), re.IGNORECASE)
 
 
 def _false_history(reply: str, *, caller_asked: bool) -> str | None:
@@ -1454,17 +1417,11 @@ def _false_history(reply: str, *, caller_asked: bool) -> str | None:
 # --- D-945: who-then-ask, a known name asked again, promises, weekdays --------------------
 
 #: The caller asking who is calling or why.
-_ASKS_WHO: Final = re.compile(
-    _say("turn_checks._ASKS_WHO"),
-    re.IGNORECASE,
-)
+_ASKS_WHO: Final = _LivePattern(lambda: _say("turn_checks._ASKS_WHO"), re.IGNORECASE)
 #: The caller giving their own name.
-_GIVES_NAME: Final = re.compile(_say("turn_checks._GIVES_NAME"), re.IGNORECASE)
+_GIVES_NAME: Final = _LivePattern(lambda: _say("turn_checks._GIVES_NAME"), re.IGNORECASE)
 #: The agent asking for the caller's name.
-_ASKS_NAME: Final = re.compile(
-    _say("turn_checks._ASKS_NAME"),
-    re.IGNORECASE,
-)
+_ASKS_NAME: Final = _LivePattern(lambda: _say("turn_checks._ASKS_NAME"), re.IGNORECASE)
 
 
 def _stacked_after_who(caller_said: str, reply: str) -> str | None:
@@ -1477,28 +1434,32 @@ def _stacked_after_who(caller_said: str, reply: str) -> str | None:
     return next((s for s in parts if _is_question(s)), None)
 
 
-_WEEKDAYS: Final[tuple[tuple[str, ...], ...]] = (
-    _word_list("turn_checks._WEEKDAYS.1"),
-    _word_list("turn_checks._WEEKDAYS.2"),
-    _word_list("turn_checks._WEEKDAYS.3"),
-    _word_list("turn_checks._WEEKDAYS.4"),
-    _word_list("turn_checks._WEEKDAYS.5"),
-    _word_list("turn_checks._WEEKDAYS.6"),
-    _word_list("turn_checks._WEEKDAYS.7"),
+_WEEKDAYS: Final[_Live[tuple[tuple[str, ...], ...]]] = _Live(
+    lambda: (
+        _word_list("turn_checks._WEEKDAYS.1"),
+        _word_list("turn_checks._WEEKDAYS.2"),
+        _word_list("turn_checks._WEEKDAYS.3"),
+        _word_list("turn_checks._WEEKDAYS.4"),
+        _word_list("turn_checks._WEEKDAYS.5"),
+        _word_list("turn_checks._WEEKDAYS.6"),
+        _word_list("turn_checks._WEEKDAYS.7"),
+    )
 )
-_MONTHS: Final[tuple[tuple[str, ...], ...]] = (
-    _word_list("turn_checks._MONTHS.1"),
-    _word_list("turn_checks._MONTHS.2"),
-    _word_list("turn_checks._MONTHS.3"),
-    _word_list("turn_checks._MONTHS.4"),
-    _word_list("turn_checks._MONTHS.5"),
-    _word_list("turn_checks._MONTHS.6"),
-    _word_list("turn_checks._MONTHS.7"),
-    _word_list("turn_checks._MONTHS.8"),
-    _word_list("turn_checks._MONTHS.9"),
-    _word_list("turn_checks._MONTHS.10"),
-    _word_list("turn_checks._MONTHS.11"),
-    _word_list("turn_checks._MONTHS.12"),
+_MONTHS: Final[_Live[tuple[tuple[str, ...], ...]]] = _Live(
+    lambda: (
+        _word_list("turn_checks._MONTHS.1"),
+        _word_list("turn_checks._MONTHS.2"),
+        _word_list("turn_checks._MONTHS.3"),
+        _word_list("turn_checks._MONTHS.4"),
+        _word_list("turn_checks._MONTHS.5"),
+        _word_list("turn_checks._MONTHS.6"),
+        _word_list("turn_checks._MONTHS.7"),
+        _word_list("turn_checks._MONTHS.8"),
+        _word_list("turn_checks._MONTHS.9"),
+        _word_list("turn_checks._MONTHS.10"),
+        _word_list("turn_checks._MONTHS.11"),
+        _word_list("turn_checks._MONTHS.12"),
+    )
 )
 
 
@@ -1507,19 +1468,34 @@ def _alternation(groups: tuple[tuple[str, ...], ...]) -> str:
     return "|".join(re.escape(name) for name in names)
 
 
-_WEEKDAY_WORD: Final = rf"(?<![A-Za-z])({_alternation(_WEEKDAYS)})(?![A-Za-z])"
-_MONTH_WORD: Final = rf"(?<![A-Za-z])({_alternation(_MONTHS)})(?![A-Za-z.])"
-_DAY_NUMBER: Final = _say("turn_checks._DAY_NUMBER")
-_WEEKDAY_THEN_DATE: Final = re.compile(
-    rf"{_WEEKDAY_WORD}[,\s]+(?:the\s+)?{_DAY_NUMBER}\s*{_MONTH_WORD}", re.IGNORECASE
+def _weekday_word() -> str:
+    return rf"(?<![A-Za-z])({_alternation(_WEEKDAYS())})(?![A-Za-z])"
+
+
+def _month_word() -> str:
+    return rf"(?<![A-Za-z])({_alternation(_MONTHS())})(?![A-Za-z.])"
+
+
+def _day_number() -> str:
+    return _say("turn_checks._DAY_NUMBER")
+
+
+def _tomorrow() -> str:
+    return _say("turn_checks._TOMORROW")
+
+
+_WEEKDAY_THEN_DATE: Final = _LivePattern(
+    lambda: rf"{_weekday_word()}[,\s]+(?:the\s+)?{_day_number()}\s*{_month_word()}",
+    re.IGNORECASE,
 )
-_DATE_THEN_WEEKDAY: Final = re.compile(
-    rf"{_DAY_NUMBER}\s*{_MONTH_WORD}[,\s]+{_WEEKDAY_WORD}", re.IGNORECASE
+_DATE_THEN_WEEKDAY: Final = _LivePattern(
+    lambda: rf"{_day_number()}\s*{_month_word()}[,\s]+{_weekday_word()}", re.IGNORECASE
 )
-_TOMORROW: Final = _say("turn_checks._TOMORROW")
-_TOMORROW_WEEKDAY: Final = re.compile(
-    rf"(?<![A-Za-z])(tomorrow|{_TOMORROW})[,\s]+{_WEEKDAY_WORD}"
-    rf"|{_WEEKDAY_WORD}[,\s]+(tomorrow|{_TOMORROW})",
+_TOMORROW_WEEKDAY: Final = _LivePattern(
+    lambda: (
+        rf"(?<![A-Za-z])(tomorrow|{_tomorrow()})[,\s]+{_weekday_word()}"
+        rf"|{_weekday_word()}[,\s]+(tomorrow|{_tomorrow()})"
+    ),
     re.IGNORECASE,
 )
 
@@ -1551,18 +1527,18 @@ def wrong_weekday(reply: str, today: date) -> str | None:
     read: a date said in number words is left to the judge."""
     for match in _WEEKDAY_THEN_DATE.finditer(reply):
         weekday, day, month = match.group(1), int(match.group(2)), match.group(3)
-        found = _date_near(today, _index_of(month, _MONTHS) + 1, day)
-        if found is not None and found.weekday() != _index_of(weekday, _WEEKDAYS):
+        found = _date_near(today, _index_of(month, _MONTHS()) + 1, day)
+        if found is not None and found.weekday() != _index_of(weekday, _WEEKDAYS()):
             return match.group(0)
     for match in _DATE_THEN_WEEKDAY.finditer(reply):
         day, month, weekday = int(match.group(1)), match.group(2), match.group(3)
-        found = _date_near(today, _index_of(month, _MONTHS) + 1, day)
-        if found is not None and found.weekday() != _index_of(weekday, _WEEKDAYS):
+        found = _date_near(today, _index_of(month, _MONTHS()) + 1, day)
+        if found is not None and found.weekday() != _index_of(weekday, _WEEKDAYS()):
             return match.group(0)
     tomorrow = (today + timedelta(days=1)).weekday()
     for match in _TOMORROW_WEEKDAY.finditer(reply):
         weekday = match.group(2) or match.group(3)
-        if _index_of(weekday, _WEEKDAYS) != tomorrow:
+        if _index_of(weekday, _WEEKDAYS()) != tomorrow:
             return match.group(0)
     return None
 

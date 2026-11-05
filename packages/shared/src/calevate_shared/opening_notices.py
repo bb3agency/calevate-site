@@ -29,17 +29,18 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 
 #: Words that say "AI" in the languages agents speak. The staged languages write "AI" in
 #: Latin letters (`compliance/disclosure.AI_DISCLOSURE_TEMPLATES`), which the first
 #: alternatives match; the Indian-language words are the founder's (`call_words.json`).
-AI_WORDS: Final = re.compile(
-    _extend(r"\bAI\b|\bA\.I\.|artificial", "opening_notices.AI_WORDS"), re.IGNORECASE
+AI_WORDS: Final = _LivePattern(
+    lambda: _extend(r"\bAI\b|\bA\.I\.|artificial", "opening_notices.AI_WORDS"), re.IGNORECASE
 )
 #: Words that say "recorded".
-RECORDING_WORDS: Final = re.compile(
-    _extend("record", "opening_notices.RECORDING_WORDS"), re.IGNORECASE
+RECORDING_WORDS: Final = _LivePattern(
+    lambda: _extend("record", "opening_notices.RECORDING_WORDS"), re.IGNORECASE
 )
 
 

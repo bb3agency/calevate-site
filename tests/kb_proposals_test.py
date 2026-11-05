@@ -507,7 +507,7 @@ def test_the_citable_topic_set_still_matches_the_detector() -> None:
     it is how `warranty` was found missing from the first draft of the set."""
     from apps.api.insights import detection
 
-    canonical = {key for key, _label, _triggers in detection._TOPICS}
+    canonical = {key for key, _label, _triggers in detection._TOPICS()}
     canonical.add("general")  # `_topic`'s honest fallback bucket, not caller-derived.
     assert canonical == proposals.CITABLE_TOPIC_KEYS
 

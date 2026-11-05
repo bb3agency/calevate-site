@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 import httpx
+from calevate_shared.call_words import Live as _Live
 from calevate_shared.call_words import words as _words
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.extraction import clip_headline
@@ -100,7 +101,7 @@ _ENGLISH_WORDS: Final = frozenset((
 ))  # fmt: skip
 #: Telugu and Hindi grammar words as STT and models romanise them. None is an English word,
 #: and nouns are left out on purpose: a code-mixed Indian summary is mostly English nouns.
-_ROMANISED_WORDS: Final = frozenset(_words("call_language._ROMANISED_WORDS"))
+_ROMANISED_WORDS: Final = _Live(lambda: frozenset(_words("call_language._ROMANISED_WORDS")))
 
 
 def reads_as_romanised(text: str) -> bool:
@@ -117,7 +118,8 @@ def reads_as_romanised(text: str) -> bool:
         return False
     words = [w.strip(".,;:!?'\"()").casefold() for w in text.split()]
     english = sum(1 for w in words if w in _ENGLISH_WORDS)
-    romanised = sum(1 for w in words if w in _ROMANISED_WORDS)
+    known = _ROMANISED_WORDS()
+    romanised = sum(1 for w in words if w in known)
     return romanised >= 2 and romanised > english
 
 

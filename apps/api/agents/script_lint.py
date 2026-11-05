@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from calevate_shared.call_script import CallScript, extract_variable_names
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
 
@@ -146,36 +147,48 @@ _CONDITIONAL: Final = re.compile(
 #: The romanised Telugu forms are the negative verb endings ("pampinchalemu", "cheyalenu").
 #: Every Indian-language alternative below is the founder's (`call_words.json`); the English
 #: stays here.
-_NEGATED: Final = re.compile(
-    _extend(r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b", "script_lint._NEGATED"),
+_NEGATED: Final = _LivePattern(
+    lambda: _extend(
+        r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b", "script_lint._NEGATED"
+    ),
     re.IGNORECASE,
 )
 #: Where one clause ends and the next begins. A negation is read only in the promise's own
 #: clause, so "ఇబ్బంది లేదు, WhatsApp lo pampistanu" ("no problem, I'll send it") still
 #: promises the send.
-_CLAUSE_BREAK: Final = re.compile(
-    r"\s*[,;:\N{EN DASH}\N{EM DASH}]\s*|\s+(?:"
-    + _extend("and|but|so", "script_lint._CLAUSE_BREAK")
-    + r")\s+",
+_CLAUSE_BREAK: Final = _LivePattern(
+    lambda: (
+        r"\s*[,;:\N{EN DASH}\N{EM DASH}]\s*|\s+(?:"
+        + _extend("and|but|so", "script_lint._CLAUSE_BREAK")
+        + r")\s+"
+    ),
     re.IGNORECASE,
 )
-_WHATSAPP: Final = re.compile(_extend(r"whats\s?app", "script_lint._WHATSAPP"), re.IGNORECASE)
+_WHATSAPP: Final = _LivePattern(
+    lambda: _extend(r"whats\s?app", "script_lint._WHATSAPP"), re.IGNORECASE
+)
 #: Each verb also in the Latin-letter Telugu and Hindi that scripts are written in as often as
 #: the native scripts ("WhatsApp lo pampistanu", "bhej dunga").
-_SENDS: Final = re.compile(_extend(r"\bsend|\bsent\b|\bshare", "script_lint._SENDS"), re.IGNORECASE)
-_SMS: Final = re.compile(_extend(r"\bsms\b|\btext message", "script_lint._SMS"), re.IGNORECASE)
-_CALL_BACK: Final = re.compile(
-    _extend(r"call (?:you )?back|call-back|callback", "script_lint._CALL_BACK"),
+_SENDS: Final = _LivePattern(
+    lambda: _extend(r"\bsend|\bsent\b|\bshare", "script_lint._SENDS"), re.IGNORECASE
+)
+_SMS: Final = _LivePattern(
+    lambda: _extend(r"\bsms\b|\btext message", "script_lint._SMS"), re.IGNORECASE
+)
+_CALL_BACK: Final = _LivePattern(
+    lambda: _extend(r"call (?:you )?back|call-back|callback", "script_lint._CALL_BACK"),
     re.IGNORECASE,
 )
-_BOOKS: Final = re.compile(
-    _extend(
+_BOOKS: Final = _LivePattern(
+    lambda: _extend(
         r"\b(?:i(?:'ll| will)|let me|we(?:'ll| will)) (?:book|confirm|fix)\b", "script_lint._BOOKS"
     ),
     re.IGNORECASE,
 )
-_HANDS_OVER: Final = re.compile(
-    _extend(r"\b(?:transfer|connect|put) you\b|\bput you through\b", "script_lint._HANDS_OVER"),
+_HANDS_OVER: Final = _LivePattern(
+    lambda: _extend(
+        r"\b(?:transfer|connect|put) you\b|\bput you through\b", "script_lint._HANDS_OVER"
+    ),
     re.IGNORECASE,
 )
 
@@ -188,7 +201,7 @@ def unbacked_promise(text: str, manifest: CapabilityManifest) -> str | None:
             continue
         clauses = [c for c in _CLAUSE_BREAK.split(sentence) if c]
 
-        def promised(verb: re.Pattern[str], clauses: list[str] = clauses) -> bool:
+        def promised(verb: _LivePattern, clauses: list[str] = clauses) -> bool:
             """The verb in a clause that does not itself say it will not happen."""
             return any(verb.search(c) and not _NEGATED.search(c) for c in clauses)
 

@@ -1200,6 +1200,12 @@ class TestRedactionExposure:
             "TemplateValue.text",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
+            # G-C2: a call-word list, platform patterns validated to the shipped shape.
+            "CallWordOut.value",
+            "CallWordOut.shipped",
+            "CallWordDetailOut.value",
+            "CallWordDetailOut.shipped",
+            "RevisionOut.value",
             # D-940: a decide step's branches, short validated identifiers on both sides.
             "DecideStepOut.on",
             # D-591: the `**ids` on an alert episode, redacted at the write by the same

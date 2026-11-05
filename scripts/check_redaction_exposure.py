@@ -390,6 +390,19 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
 # `dict[str, Any]` response fields: the serializer cannot vouch for their contents, so
 # each one is acknowledged here with the reason it is not a redaction bypass.
 ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
+    **dict.fromkeys(
+        (
+            "CallWordOut.value",
+            "CallWordOut.shipped",
+            "CallWordDetailOut.value",
+            "CallWordDetailOut.shipped",
+            "RevisionOut.value",
+        ),
+        "one of the platform's call-word lists (G-C2, Ops > Call words): a table by "
+        "language of patterns from `calevate_shared/call_words.json` or typed by the "
+        "founder, validated to the shipped shape by `call_words.problems` before it is "
+        "stored; platform words a check listens for, no tenant's and no caller's",
+    ),
     "DecideStepOut.on": (
         "a Follow-up decide step's branches (D-940): outcome keys mapped to step ids, "
         "validated by `follow_ups/definition.DecideStep` (both sides pattern-checked short "

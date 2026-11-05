@@ -78,6 +78,7 @@ from apps.api.billing.rates import (
 )
 from apps.api.core.logging import get_logger
 from apps.api.db.session import untenanted_session
+from apps.api.ops.call_words_store import refresh_call_words
 from apps.api.ops.model_pricing import (
     TTS_PROVIDERS,
     AttestedModelPrice,
@@ -329,6 +330,9 @@ async def _poll_forever() -> None:
         # The founder's published spoken style (D-744) rides the same poll for the voice
         # catalogue's reason: one more platform fact both processes serve from memory.
         await refresh_spoken_style()
+        # The founder's edits to the words the call checks listen for (G-C2), for
+        # the same reason.
+        await refresh_call_words()
         await asyncio.sleep(_POLL_INTERVAL_S)
 
 
