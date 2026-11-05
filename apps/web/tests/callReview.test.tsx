@@ -9,6 +9,7 @@ import {
   callbackLine,
   callbackWhen,
   goalLine,
+  goalNames,
   nextStepLine,
   outcomeReason,
   outcomeWords,
@@ -679,7 +680,8 @@ describe("what the reading says after the call (4 Nov 2026 call review)", () => 
         }),
       ),
     );
-    expect(await screen.findByText("Goal reached: App installed successfully")).toBeTruthy();
+    expect(await screen.findByText("Goal reached")).toBeTruthy();
+    expect(screen.getByText("Aim: App installed successfully")).toBeTruthy();
     expect(screen.getByText("They installed it before the call and use it.")).toBeTruthy();
   });
 
@@ -687,9 +689,26 @@ describe("what the reading says after the call (4 Nov 2026 call review)", () => 
     expect(goalLine({ goal: "App installed successfully", reached: null, reason: null })).toBeNull();
     expect(goalLine(null)).toBeNull();
     expect(goalLine({ goal: "Visit booked", reached: "unclear", reason: null })).toEqual({
-      verdict: "Goal unclear: Visit booked",
+      verdict: "Goal unclear",
+      goals: ["Visit booked"],
       reason: null,
     });
+  });
+
+  it("puts each goal on its own line and the reason in its own sentence (F-6)", () => {
+    expect(
+      goalLine({
+        goal: "App installed successfully, Considering App Usage",
+        reached: "no",
+        reason: "The caller was confused about the login",
+      }),
+    ).toEqual({
+      verdict: "Goal not reached",
+      goals: ["App installed successfully", "Considering App Usage"],
+      reason: "The caller was confused about the login.",
+    });
+    // A goal sentence with a comma in it is one goal.
+    expect(goalNames("Call back on Monday, after 5pm")).toEqual(["Call back on Monday, after 5pm"]);
   });
 
   it("says a call back is booked, for when, and that they asked for that time", () => {

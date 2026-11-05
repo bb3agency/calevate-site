@@ -159,8 +159,20 @@ function NextSteps({ detail }: { detail: CallDetail }) {
     <dl className="max-w-2xl divide-y divide-line border-y border-line">
       {goal && (
         <Row term="Goal">
-          <span className="font-medium">{goal.verdict}</span>
-          {goal.reason && <Aside>{goal.reason}</Aside>}
+          <span className="block font-medium">{goal.verdict}</span>
+          {goal.goals.length === 1 ? (
+            <span className="block">Aim: {goal.goals[0]}</span>
+          ) : goal.goals.length > 1 ? (
+            <>
+              <span className="block">Aim, any of:</span>
+              <ul className="list-disc pl-5">
+                {goal.goals.map((name) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+            </>
+          ) : null}
+          {goal.reason && <Aside> {goal.reason}</Aside>}
         </Row>
       )}
       {step && (

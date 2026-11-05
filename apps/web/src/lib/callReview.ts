@@ -184,18 +184,36 @@ export const GOAL_WORDS: Record<NonNullable<Goal["reached"]>, string> = {
 };
 
 /**
- * The campaign goal's verdict ("Goal reached: App installed successfully") and the
- * reading's one-line why. Null when the call was not judged against it (not answered, or
- * read before goals), because "Goal: …" with no verdict reads as a result.
+ * The campaign goal's verdict ("Goal not reached"), the goal(s) it was judged against as
+ * their own lines, and the reading's why as its own sentence (F-6, founder 5 Nov 2026: one
+ * line read "Goal not reached: App installed successfully, Considering App UsageThe caller
+ * was confused…", so two goals read as one and the reason ran on). Null when the call was
+ * not judged against it (not answered, or read before goals), because "Goal: …" with no
+ * verdict reads as a result.
  */
-export function goalLine(goal: CallDetail["goal"]): { verdict: string; reason: string | null } | null {
+export function goalLine(
+  goal: CallDetail["goal"],
+): { verdict: string; goals: string[]; reason: string | null } | null {
   if (!goal?.reached) return null;
-  const words = lookup(GOAL_WORDS, goal.reached) ?? "Goal";
-  const name = goal.goal.trim();
+  const reason = goal.reason?.trim() || null;
   return {
-    verdict: name ? `${words}: ${name}` : words,
-    reason: goal.reason?.trim() || null,
+    verdict: lookup(GOAL_WORDS, goal.reached) ?? "Goal",
+    goals: goalNames(goal.goal),
+    reason: reason && !/[.!?]$/.test(reason) ? `${reason}.` : reason,
   };
+}
+
+/**
+ * The goal text as the goals it names. A campaign's goal is one line the owner typed or
+ * picked; several picked outcomes arrive joined by commas ("App installed successfully,
+ * Considering App Usage"). Split only when every part starts with a capital, as an outcome
+ * name does, so a sentence with a comma in it ("Call back Monday, after 5pm") stays whole.
+ */
+export function goalNames(text: string): string[] {
+  const whole = text.trim();
+  if (!whole) return [];
+  const parts = whole.split(/\s*,\s*/).filter(Boolean);
+  return parts.length > 1 && parts.every((part) => /^\p{Lu}/u.test(part)) ? parts : [whole];
 }
 
 /**
