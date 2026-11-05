@@ -2437,7 +2437,8 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/analytics/stats": ANALYTICS_STATS,
       "/v1/readiness": {
         score: 62,
-        agents: [],
+        // One scored agent, so the readiness meter and its ⓘ in "Next steps" are swept too.
+        agents: [{ agent_id: "agent-1", agent_name: "Reception", score: 62, components: [], fixes: [] }],
         top_fixes: [
           { component: "opening", action: "Write the opening line callers hear first.", href: "/agents/agent-1?section=script", points: 20 },
           { component: "knowledge", action: "Add what your business does to Knowledge.", href: "/knowledge", points: 10 },

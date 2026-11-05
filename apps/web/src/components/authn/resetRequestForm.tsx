@@ -87,6 +87,10 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
           label="Email address"
           type="email"
           autoComplete="username"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          enterKeyHint="send"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           hint="The address you sign in with."

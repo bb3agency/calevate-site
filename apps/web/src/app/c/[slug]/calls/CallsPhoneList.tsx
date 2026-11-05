@@ -71,7 +71,7 @@ export function CallsPhoneList({
               <span className="min-w-0 flex-1">
                 <span className="flex min-w-0 items-center gap-2">
                   {(live ? running : isLive(call)) && <LiveDot />}
-                  <span className="truncate font-medium text-ink">{callTitle(call)}</span>
+                  <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">{callTitle(call)}</span>
                   {running && <LiveMark />}
                   {call.test_call && <TestCallTag />}
                 </span>

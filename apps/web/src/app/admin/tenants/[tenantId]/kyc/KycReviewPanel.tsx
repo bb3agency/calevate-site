@@ -162,7 +162,17 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
           {business && business.kind !== "gst" && (
             <label className="block">
               <span className={FIELD_LABEL}>Registry number checked (CIN, LLPIN or Udyam)</span>
-              <input className={FIELD} value={documentRef} onChange={(event) => setDocumentRef(event.target.value)} />
+              {/* A registry identifier, not a word: a phone keyboard would autocorrect and
+                  lower-case it, and autofill would offer unrelated history. */}
+              <input
+                className={FIELD}
+                value={documentRef}
+                onChange={(event) => setDocumentRef(event.target.value)}
+                autoComplete="off"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+              />
             </label>
           )}
           {documentReview && (

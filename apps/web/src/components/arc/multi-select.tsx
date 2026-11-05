@@ -139,7 +139,7 @@ export function MultiSelect({
                       disabled={option.disabled}
                       onChange={(event) => toggle(option, event.target.checked)}
                     />
-                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                    <span className="min-w-0 flex-1 break-words">{option.label}</span>
                     {option.hint ? <span className="shrink-0 text-xs text-ink-faint">{option.hint}</span> : null}
                   </label>
                 ))}

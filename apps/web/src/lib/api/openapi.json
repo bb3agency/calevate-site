@@ -42364,6 +42364,14 @@
         "additionalProperties": false,
         "description": "Why the checklist is back on the dashboard after the first day, for one step.",
         "properties": {
+          "cause": {
+            "enum": [
+              "unanswered_questions",
+              "needed_a_person"
+            ],
+            "title": "Cause",
+            "type": "string"
+          },
           "message": {
             "title": "Message",
             "type": "string"
@@ -42385,7 +42393,8 @@
         },
         "required": [
           "step",
-          "message"
+          "message",
+          "cause"
         ],
         "title": "ProfileSetupNudgeOut",
         "type": "object"

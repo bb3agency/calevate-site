@@ -162,7 +162,7 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
               options={segmentOptions(data?.status_counts, everything, status)}
               value={status ?? ALL}
               onValueChange={(next) => chooseStatus(initialStatus(next))}
-              className="min-w-0"
+              className="min-w-0 scroll-shadow-x"
             />
             <SearchField
               label="Search campaigns by name"

@@ -162,7 +162,7 @@ function WorkspaceBody({
         <SettingRow label="Status" value={<span className="font-medium">{lookup(WORKSPACE_STATUS, status) ?? status}</span>} />
         <SettingRow
           label="Workspace id"
-          value={data.workspace_id ? <MonoValue>{data.workspace_id}</MonoValue> : "None yet"}
+          value={data.workspace_id ? <MonoValue className="[overflow-wrap:anywhere]">{data.workspace_id}</MonoValue> : "None yet"}
         />
         <SettingRow label="Attempts" value={data.attempts} />
         {data.last_error_code && (

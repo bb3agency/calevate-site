@@ -150,13 +150,13 @@ async def _seed_campaigns(http: httpx.AsyncClient, headers: dict[str, str]) -> l
 async def _seed_sources(http: httpx.AsyncClient, headers: dict[str, str]) -> list[str]:
     listed = _ok(await http.get("/v1/lead-sources", headers=headers), "listing lead sources")
     have = {item["source"] for item in listed["items"]}
-    agents = _ok(await http.get("/v1/agents", headers=headers), "listing agents")
     lines: list[str] = []
     for kind, mapping, extra in DEMO_SOURCES:
         if kind in have:
             lines.append(f"source     {kind} already there")
             continue
-        body = {"source": kind, "mapping": mapping, "agent_id": agents[0]["id"] if agents else None}
+        # No agent here: who calls a source's leads is set by the "Call new leads" follow-up.
+        body: dict[str, object] = {"source": kind, "mapping": mapping}
         body.update(extra)
         _ok(await http.post("/v1/lead-sources", json=body, headers=headers), f"source {kind}")
         lines.append(f"source     {kind} created")

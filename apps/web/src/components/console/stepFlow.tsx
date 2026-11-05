@@ -114,7 +114,7 @@ export function StepFlow({
     >
       <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-6">
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-medium text-ink">{label}</p>
+          <p className="break-words text-[13px] font-medium text-ink">{label}</p>
           <p className="text-[12px] tabular-nums text-ink-muted">
             Step {index + 1} of {all.length}
           </p>

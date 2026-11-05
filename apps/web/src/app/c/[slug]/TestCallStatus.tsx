@@ -164,7 +164,7 @@ export function TestCallFollow({
       <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <div className="min-w-0">
           <dt className={FIELD_LABEL}>Agent</dt>
-          <dd className="mt-1 truncate text-ink">{call.agent_name ?? "Your agent"}</dd>
+          <dd className="mt-1 break-words text-ink">{call.agent_name ?? "Your agent"}</dd>
         </div>
         <div>
           <dt className={FIELD_LABEL}>Placed</dt>
@@ -216,7 +216,7 @@ export function EarlierTestCalls({ calls }: { calls: TestCall[] }) {
         {calls.map((call) => (
           <li key={call.id} className="flex items-center gap-x-4 py-2 text-sm">
             <div className="min-w-0 flex-1">
-              <span className="block truncate text-ink">{call.agent_name ?? "Your agent"}</span>
+              <span className="block break-words text-ink">{call.agent_name ?? "Your agent"}</span>
               <span className="block text-meta text-ink-muted">{formatIST(call.placed_at)}</span>
             </div>
             <span className="text-right text-ink">

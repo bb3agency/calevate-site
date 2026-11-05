@@ -35,14 +35,17 @@ async def manifest_for(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
 ) -> CapabilityManifest:
     """This agent's capability manifest, from its live in-call actions, the account's call
-    backs, its hand-over switch, its team alerts and its leads' sources."""
+    backs, its hand-over switch and calling direction, its team alerts and its leads'
+    sources."""
     tools = await action_service.in_call_tools(session, agent_id=agent_id)
     kinds = {tool.kind for tool in tools}
-    hand_over = (
+    agent = (
         await session.execute(
-            text("SELECT handoff_enabled FROM agents WHERE id = :aid"), {"aid": agent_id}
+            text("SELECT handoff_enabled, direction FROM agents WHERE id = :aid"),
+            {"aid": agent_id},
         )
-    ).scalar()
+    ).first()
+    hand_over, direction = (agent[0], agent[1]) if agent is not None else (False, "")
     sources = (
         await session.execute(
             text(
@@ -59,6 +62,7 @@ async def manifest_for(
         hand_over=bool(hand_over),
         team_alerts=agent_id in await team_alerts.agents_with_rules(session),
         lead_sources=tuple(str(s) for s in sources),
+        direction=str(direction or ""),
     )
 
 
@@ -107,6 +111,9 @@ async def lint_context_for(
         facts=" ".join(await owner_facts(session, tenant_id=tenant_id, agent_id=agent_id)),
         agent_name=str(row[0] or ""),
         business_name=str(row[1] or ""),
+        collect=tuple(
+            field.label for field in await script_builder.collect_fields(session, agent_id)
+        ),
     )
 
 

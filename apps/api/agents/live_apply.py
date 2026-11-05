@@ -271,6 +271,11 @@ def platform_prompt_revision() -> str:
     from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES
 
     parts.append(json.dumps(PLATFORM_AGENT_VALUES, sort_keys=True))
+    # The reply ceiling's code default, which every agent without its own is published with
+    # while the console holds no value: a deploy that moves it republishes.
+    from calevate_shared.engine import REPLY_TOKENS_DEFAULT
+
+    parts.append(f"reply_tokens_default:{REPLY_TOKENS_DEFAULT}")
     # Which agents a platform run converges: widening it (ready agents, D-876) walks the fleet
     # once more, so agents a narrower walk skipped are brought onto this build's text.
     from apps.api.agents.models import PUBLISHED_STATUSES

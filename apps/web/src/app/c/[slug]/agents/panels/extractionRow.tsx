@@ -119,7 +119,7 @@ export function FieldEditorRow({
     return (
       <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-ink">{named}</span>
+          <span className="block break-words text-sm font-medium text-ink">{named}</span>
           <span className="block text-xs text-ink-muted">
             {typeLabel}
             {row.required ? " · Required" : ""}

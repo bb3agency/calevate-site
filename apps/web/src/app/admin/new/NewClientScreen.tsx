@@ -182,6 +182,10 @@ export function NewClientScreen() {
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 placeholder={previewSlug(name) || examplesFor(vertical).orgSlug}
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 className={`${FIELD} font-mono`}
               />
               {valid.error("slug") ??
@@ -252,6 +256,7 @@ export function NewClientScreen() {
                   value={owner.name}
                   maxLength={200}
                   onChange={(e) => ownerField("name")(e.target.value)}
+                  autoComplete="off"
                   className={FIELD}
                 />
               </label>
@@ -265,6 +270,7 @@ export function NewClientScreen() {
                   value={owner.email}
                   onChange={(e) => ownerField("email")(e.target.value)}
                   placeholder="owner@business.com"
+                  autoComplete="off"
                   className={FIELD}
                 />
                 {valid.error("email")}
@@ -276,6 +282,7 @@ export function NewClientScreen() {
                   value={owner.phone}
                   inputMode="tel"
                   placeholder="+919876543210"
+                  autoComplete="off"
                   onChange={(e) => ownerField("phone")(e.target.value)}
                   className={`${FIELD} font-mono`}
                 />

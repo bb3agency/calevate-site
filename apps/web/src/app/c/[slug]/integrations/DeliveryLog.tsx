@@ -11,6 +11,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { CARD } from "@/components/console/dataTable";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
 import type { WriteAccess } from "@/lib/api/hooks";
@@ -97,9 +98,11 @@ export function DeliveryLog({
           onRetry={() => deliveries.refetch()}
         />
       ) : deliveries.data.length ? (
-        <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
-          <table className="w-full min-w-[500px] text-body">
-          <thead>
+        <ScrollRegion label="Delivery log" className="scroll-shadow-x">
+          {/* Stacked rows below `sm` (the DataTable card pattern): a 500px floor in a 360px
+              phone left the result and its resend button off the right edge. */}
+          <table className={`w-full text-body sm:min-w-[500px] ${CARD.table}`}>
+          <thead className={CARD.head}>
             <tr className="text-left text-xs text-ink-faint">
               <th className="pb-2 font-semibold">Event</th>
               <th className="pb-2 font-semibold">Result</th>
@@ -110,15 +113,16 @@ export function DeliveryLog({
               {mayReadPayload && <th className="pb-2 text-right font-semibold">Sent</th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-line">
+          <tbody className={`divide-y divide-line ${CARD.body}`}>
             {deliveries.data.map((delivery) => (
-              <tr key={delivery.id}>
-                <td className="py-2">
+              <tr key={delivery.id} className={`${CARD.row} max-sm:px-0`}>
+                <td className={`py-2 ${CARD.title}`}>
                   <span className="text-meta text-ink">
                     {delivery.event_type ? (eventLabel(delivery.event_type) ?? delivery.event_type) : "—"}
                   </span>
                 </td>
-                <td className="py-2">
+                <td data-label="Result" className={`py-2 ${CARD.field}`}>
+                  <span className="max-sm:flex max-sm:flex-col max-sm:items-end">
                   <StatusPill tone={lookup(STATUS_TONE, delivery.status) ?? "neutral"} className="capitalize">
                     {delivery.status}
                   </StatusPill>
@@ -138,15 +142,16 @@ export function DeliveryLog({
                       {resend.isPending && resend.variables === delivery.id ? "Sending…" : "Send again"}
                     </button>
                   )}
+                  </span>
                 </td>
-                <td className="py-2 tabular-nums text-ink-muted">
+                <td data-label="Tries" className={`py-2 tabular-nums text-ink-muted ${CARD.field}`}>
                   {delivery.attempts}
                 </td>
-                <td className="py-2 text-right text-xs text-ink-faint">
+                <td data-label="When" className={`py-2 text-right text-xs text-ink-faint ${CARD.field}`}>
                   {formatIST(delivery.last_at)}
                 </td>
                 {mayReadPayload && (
-                  <td className="py-2 text-right">
+                  <td data-label="Sent" className={`py-2 text-right ${CARD.field}`}>
                     {delivery.payload_stored ? (
                       <ActionButton
                         variant="secondary-sm"

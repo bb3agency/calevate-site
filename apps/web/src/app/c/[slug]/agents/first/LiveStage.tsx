@@ -156,7 +156,9 @@ export function CallStage({
       <div className="mx-auto flex max-w-md items-center gap-3">
         <div className="flex flex-col items-center gap-1.5">
           <AgentOrb initial={initial} state={orb} size={56} />
-          <span className="max-w-20 truncate text-[12px] text-ink-muted">{name}</span>
+          <span title={name} className="line-clamp-2 max-w-28 break-words text-center text-[12px] text-ink-muted">
+            {name}
+          </span>
         </div>
         <Line phase={phase} />
         <div className="flex flex-col items-center gap-1.5">

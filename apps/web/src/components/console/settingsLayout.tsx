@@ -275,13 +275,13 @@ export function SettingsLayout({
                       }`}
                     >
                       <span className="min-w-0">
-                        <span className="block truncate">{section.label}</span>
+                        <span className={`block ${row ? "whitespace-nowrap" : "break-words"}`}>{section.label}</span>
                         {section.detail && !row && (
                           // Described, not named: the link's name stays the section's name.
                           <span
                             id={`${param}-${section.id}-detail`}
                             aria-hidden
-                            className="hidden truncate text-[12px] font-normal text-ink-faint lg:block"
+                            className="hidden break-words text-[12px] font-normal text-ink-faint lg:block"
                           >
                             {section.detail}
                           </span>

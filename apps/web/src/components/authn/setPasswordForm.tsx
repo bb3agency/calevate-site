@@ -180,6 +180,7 @@ export function SetPasswordForm<T>({
           <AuthField
             label="Your name (optional)"
             autoComplete="name"
+            autoCapitalize="words"
             maxLength={200}
             value={name}
             onChange={(event) => setName(event.target.value)}

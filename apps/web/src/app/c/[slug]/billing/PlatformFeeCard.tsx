@@ -249,7 +249,7 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
             <thead>
               <tr className="text-meta text-ink-muted">
                 <th scope="col" className="py-1 font-medium">Month</th>
-                <th scope="col" className="py-1 font-medium">Amount</th>
+                <th scope="col" className="py-1 pr-3 text-right font-medium">Amount</th>
                 <th scope="col" className="py-1 font-medium">Status</th>
               </tr>
             </thead>
@@ -257,7 +257,9 @@ function FeeBody({ session, fee }: { session: Session; fee: PlatformFee }) {
               {fee.charges.map((charge) => (
                 <tr key={charge.id} className="border-t border-line">
                   <td className="py-2">{feeMonth(charge.period)}</td>
-                  <td className="py-2">{formatPayableINR(charge.amount_inr)}</td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums">
+                    {formatPayableINR(charge.amount_inr)}
+                  </td>
                   <td className="py-2">{feeStatusCopy(charge.status).label}</td>
                 </tr>
               ))}

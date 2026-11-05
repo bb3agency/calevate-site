@@ -474,7 +474,7 @@ function Editor({
           )}
         </div>
       ) : showCanvas ? (
-        <div className={sidePanel ? "grid gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]" : ""}>
+        <div className={sidePanel ? "grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_380px]" : ""}>
           <div className="min-w-0">
             <FlowCanvas
               sections={sections}
@@ -642,7 +642,7 @@ function Editor({
 
       {/* The steps and the Pip panel side by side where there is room for both at a
           readable width; one column below that, with the panel under the opening line. */}
-      <div className={twoColumns ? "grid gap-8 xl:grid-cols-[minmax(0,1fr)_340px]" : ""}>
+      <div className={twoColumns ? "grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_340px]" : ""}>
         <div className="min-w-0 space-y-8">
           <div className="max-w-3xl space-y-8">
           <PipProposal

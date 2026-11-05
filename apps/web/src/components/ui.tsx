@@ -132,7 +132,7 @@ export function Fact({
   children: ReactNode;
 }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="flex items-center gap-1.5 text-meta text-ink-muted">
         {icon && (
           <span aria-hidden className="shrink-0 text-brand">
@@ -1336,23 +1336,31 @@ export function NoticeBox({
  * never determine that a container IS scrollable and `scrollable-region-focusable` never
  * fires there. `tests/responsive.test.ts` checks it from the class strings instead, which
  * is a check that can actually fail.
+ *
+ * The edge shadow (`scroll-shadow-x`, globals.css) is on by default: on a phone, where a
+ * swipe is the only way to find a column past the right edge, a table cut cleanly at a
+ * column boundary reads as complete. The shadow shows only on a side with more to scroll,
+ * so a table that fits shows none. `edgeCue={false}` is for a region drawn on a ground
+ * other than `--surface`, where the shadow's cover gradient would show as a pale band.
  */
 export function ScrollRegion({
   label,
   className,
   style,
+  edgeCue = true,
   children,
 }: {
   label: string;
   className?: string;
   style?: CSSProperties;
+  edgeCue?: boolean;
   children: ReactNode;
 }) {
   return (
     <div
       role="region"
       aria-label={label}
-      className={clsx("overflow-x-auto", className)}
+      className={clsx("overflow-x-auto", edgeCue && "scroll-shadow-x", className)}
       style={style}
       // The one place a non-interactive element must take focus — see above. The lint
       // rule's default allowed-roles list knows only `tabpanel` and predates the WAI

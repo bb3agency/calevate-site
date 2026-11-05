@@ -377,7 +377,7 @@ function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (
       <div className="overflow-hidden rounded-card border border-line bg-surface">
         <div
           aria-hidden
-          className="grid grid-cols-[minmax(0,1fr)_8.5rem_2.75rem] gap-2 border-b border-line bg-surface-muted px-3 py-1.5 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
+          className="grid grid-cols-[minmax(0,1fr)_7rem_2.75rem] gap-2 border-b border-line bg-surface-muted px-3 py-1.5 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
         >
           <span className={FIELD_LABEL}>What you offer</span>
           <span className={FIELD_LABEL}>Price</span>
@@ -386,7 +386,7 @@ function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (
           {rows.map((row, index) => (
             <li
               key={index}
-              className="grid grid-cols-[minmax(0,1fr)_8.5rem_2.75rem] items-center gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
+              className="grid grid-cols-[minmax(0,1fr)_7rem_2.75rem] items-center gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
             >
               <label htmlFor={`${base}-name-${index}`} className="sr-only">
                 Service {index + 1}

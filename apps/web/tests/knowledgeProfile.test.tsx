@@ -97,8 +97,8 @@ describe("the business profile on What your agents know", () => {
       services: [],
     });
     await renderKnowledge(free);
-    expect(await screen.findByRole("radio", { name: "Course" })).toBeTruthy();
-    expect(await screen.findByLabelText("Course")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("radio", { name: "Course" }));
+    expect(await screen.findByRole("textbox", { name: "Course" })).toBeTruthy();
     expect(screen.queryByLabelText(/₹/)).toBeNull();
   });
 

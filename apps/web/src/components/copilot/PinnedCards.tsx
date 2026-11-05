@@ -119,7 +119,7 @@ function PinnedCard({
             onSave={(title) => renameFeedback.run({ id: pin.id, title })}
           />
         ) : (
-          <h3 className="text-body font-semibold text-ink">{pin.title}</h3>
+          <h3 className="min-w-0 text-body font-semibold text-ink [overflow-wrap:anywhere]">{pin.title}</h3>
         )}
         {canEdit ? (
           <div className="flex shrink-0 gap-1">

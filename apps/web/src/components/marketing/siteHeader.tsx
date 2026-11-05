@@ -24,8 +24,9 @@
  * hand-built version would be a second answer to a question this repo has already
  * answered (CLAUDE.md, "one way per problem"), plus its own focus handling to get wrong.
  *
- * It is a DISCLOSURE, not a modal: it does not trap focus and does not close on Escape,
- * which is correct for a menu that pushes the page rather than covering it.
+ * It is a DISCLOSURE, not a modal: it does not trap focus or lock the page's scroll.
+ * `MenuDisclosure` adds Escape, tap-outside and close-on-follow once its script loads;
+ * without it the element still opens and closes.
  *
  * ## The links are ROUTES, and only because the routes now exist
  *
@@ -46,6 +47,7 @@ import {
   MarketingAccountProvider,
 } from "@/components/authn/marketingAccountNav";
 import { BrandHeaderMark } from "@/components/brand";
+import { MenuDisclosure } from "@/components/marketing/menuDisclosure";
 import { PUBLIC_ROUTES } from "@/lib/site";
 
 /**
@@ -120,7 +122,7 @@ export function SiteHeader() {
 
             {/* The menu, below `xl`. `relative` on the wrapper so the panel hangs off the
                 header rather than off the page. */}
-            <details className="group relative xl:hidden">
+            <MenuDisclosure className="group relative xl:hidden">
               <summary
                 className="press flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md text-ink-muted hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:h-11 touch:w-11 [&::-webkit-details-marker]:hidden dark:hover:bg-white/5"
                 aria-label="Menu"
@@ -129,10 +131,13 @@ export function SiteHeader() {
               </summary>
               {/* `right-0` and a fixed width: anchored to the button, never wider than the
                   narrowest phone this page is designed for. `mk-menu-panel` scales it in from
-                  that corner (globals.css). */}
+                  that corner (globals.css). The header is sticky, so scrolling the page
+                  never reaches the panel's foot: on a phone held sideways (about 360px tall)
+                  its nine rows would run off the screen, so it caps at the visible height
+                  below the header and scrolls itself. */}
               <nav
                 aria-label="Pages menu"
-                className="mk-menu-panel absolute right-0 z-dropdown mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-raised"
+                className="mk-menu-panel absolute right-0 z-dropdown mt-2 max-h-[calc(100dvh-5rem)] w-60 overflow-y-auto overscroll-contain rounded-xl border border-line bg-surface p-2 shadow-raised"
               >
                 <ul>
                   {NAV_ROUTES.map((item) => (
@@ -149,7 +154,7 @@ export function SiteHeader() {
                   <MarketingAccountMenuItem className={MENU_LINK} />
                 </div>
               </nav>
-            </details>
+            </MenuDisclosure>
           </div>
         </MarketingAccountProvider>
       </div>

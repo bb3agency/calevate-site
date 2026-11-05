@@ -99,7 +99,7 @@ export function ScriptToolbar({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="flex min-w-0 flex-1 basis-60 items-center gap-2">
           <StatusPill tone={live.tone}>{live.text}</StatusPill>
-          <p role="status" className={`truncate text-meta ${warn ? "text-warn" : "text-ink-muted"}`}>
+          <p role="status" className={`min-w-0 break-words text-meta ${warn ? "text-warn" : "text-ink-muted"}`}>
             {saveLine(save)}
           </p>
         </div>

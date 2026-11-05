@@ -33,7 +33,7 @@ export function WhyTip({
     <Popover
       label={about}
       align={align}
-      className="w-72"
+      className="w-72 max-w-[calc(100vw-2rem)]"
       trigger={
         <button
           type="button"

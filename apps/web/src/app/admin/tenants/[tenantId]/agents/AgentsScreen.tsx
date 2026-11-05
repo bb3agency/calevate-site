@@ -66,7 +66,7 @@ export function AgentsScreen({ tenantId }: { tenantId: string }) {
               >
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="truncate text-body font-medium text-ink">{agent.name}</span>
+                    <span className="min-w-0 text-body font-medium text-ink [overflow-wrap:anywhere]">{agent.name}</span>
                     <StatusPill tone={lookup(AGENT_STATUS_TONE, agent.status) ?? "neutral"}>
                       {sentenceCase(agent.status)}
                     </StatusPill>

@@ -95,7 +95,7 @@ export function DltRegistrationPanel({ tenantId, write }: { tenantId: string; wr
             {record.data.pe_id && (
               <>
                 , <Term id="pe" term="PE" audience="operator" /> id{" "}
-                <MonoValue>{record.data.pe_id}</MonoValue>
+                <MonoValue className="[overflow-wrap:anywhere]">{record.data.pe_id}</MonoValue>
               </>
             )}
             .

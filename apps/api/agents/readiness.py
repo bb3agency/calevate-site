@@ -164,6 +164,14 @@ class AccountReadinessOut(BaseModel):
 MAX_ACCOUNT_FIXES: Final = 5
 
 
+#: What a too-long opening line is cut down to, by who hears it first.
+ANSWERED_OPENING_FIX: Final = "Shorten the opening line to a greeting and one question."
+PLACED_OPENING_FIX: Final = (
+    "Shorten the opening line to their name, who is calling and why, and asking if they can "
+    "talk now."
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ReadinessInputs:
     """Everything the score reads, gathered by `gather()`; `score()` is pure over it."""
@@ -183,6 +191,9 @@ class ReadinessInputs:
     missed_7d: int
     #: Not scored (D-945): passed through to `AgentReadinessOut.advice`.
     advice: tuple[ReadinessAdviceOut, ...] = ()
+    #: An outbound agent's opening line is said on calls it places, so its fix names what a
+    #: placed call's opening holds (`call_rules.OPENING_LINE_RULE`).
+    places_calls: bool = False
 
 
 def _state(points: int, maximum: int) -> ComponentState:
@@ -253,7 +264,10 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
             "opening",
             OPENING_TOO_LONG_POINTS,
             f"The opening line is {i.opening_chars} characters, too long to be spoken in full.",
-            ("Shorten the opening line to a greeting and one question.", f"{base}?section=script"),
+            (
+                PLACED_OPENING_FIX if i.places_calls else ANSWERED_OPENING_FIX,
+                f"{base}?section=script",
+            ),
         )
     else:
         add(
@@ -407,6 +421,7 @@ async def gather(
         draft_waiting=bool(facts.draft_waiting),
         out_of_sync=bool(facts.out_of_sync),
         missed_7d=int(facts.missed),
+        places_calls=agent.direction == "outbound",
         advice=await advice_for(session, agent),
     )
 

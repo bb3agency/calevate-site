@@ -11,10 +11,12 @@ const plural = (count: number, one: string, many: string) => (count === 1 ? one 
 export const HOME = {
   nextTitle: "Next steps",
   seeAll: "See all",
+  groupNow: "Needs you now",
+  groupBetter: "Make your agents better",
   hotLeads: (n: number) => `${plural(n, "hot lead", "hot leads")} to call back`,
   hotLeadsAction: "Call back",
   missed: (n: number) => `${plural(n, "missed call", "missed calls")} today`,
-  missedAction: "See calls",
+  missedAction: "See missed calls",
   gaps: (n: number) => `${plural(n, "question", "questions")} not answered`,
   gapsAction: (n: number) => (n === 1 ? "Teach answer" : "Teach answers"),
   gapsFailed: "Couldn't check unanswered questions",
@@ -25,7 +27,7 @@ export const HOME = {
   allClear: "All clear. Nothing needs you.",
   tryAgain: "Try again",
   queue: (n: number) => `${plural(n, "thing needs", "things need")} you`,
-  queueAction: "Review",
+  queueAction: "Review all",
   queueFailed: "Couldn't check your to-do list",
   lineFailed: "Couldn't check your phone lines",
   lineAction: "Check lines",
@@ -35,28 +37,52 @@ export const HOME = {
   meetTitle: "Meet your agent",
   meetSteps: ["Pick its job", "Tell it about you", "Hear it call you"] as const,
   meetStart: "Build my agent",
-  meetContinue: "Continue",
+  meetContinue: "Continue building",
   goLiveTitle: "Go live",
   goLiveStepOf: (at: number, of: number) => `Go live: step ${at} of ${of}`,
-  goLiveContinue: "Continue",
-  goLiveStep: {
-    move: "Moving your agents",
-    verify: "Next: verify your business",
-    number: "Next: choose your number",
-    switch_on: "Next: switch an agent on",
-    done: "",
+  // The button names the step it opens, so no line under the row repeats it; only the
+  // move, which the owner waits on rather than does, says what is happening.
+  goLiveMoving: "Moving your agents",
+  goLiveAction: {
+    move: "See progress",
+    verify: "Verify business",
+    number: "Choose a number",
+    switch_on: "Switch an agent on",
+    done: "Open",
   },
   quietCalls: "No calls this week",
   quietLastWeek: (n: number, shown = String(n)) => `${shown} ${plural(n, "call", "calls")} last week`,
   quietLeads: (n: number, shown = String(n)) => `${shown} new ${plural(n, "lead", "leads")}`,
   quietNoAgent: "No agent yet",
-  readinessScore: (score: number) => `Ready for calls: ${score} of 100`,
-  readinessFix: "Fix",
+  readinessTitle: "Ready for calls",
+  readinessScore: (score: number) => `${score}%`,
+  readinessLeft: (n: number) => `${n} ${plural(n, "fix", "fixes")} to reach 100%`,
+  readinessDone: "Nothing left to fix",
+  readinessHow: "How this is worked out",
+  readinessLoading: "Checking how ready your agents are",
+  // A fix's button names what it does; the server's sentence above it says why.
+  readinessAction: {
+    addKnowledge: "Add details",
+    answerQuestions: "Answer questions",
+    opening: "Edit opening line",
+    live: "Apply changes",
+    missed: "Teach answers",
+  },
   readinessFailed: "Couldn't check how ready your agents are",
-  setupTitle: "Set up your business",
+  forAgent: (name: string) => `For ${name}`,
+  setupTitle: "Finish your business details",
   setupNeeded: "Your agents need this to take calls",
-  setupLeft: (left: number, next: string) => `${left} left. Next: ${next}`,
-  setupAction: "Continue",
+  setupLeft: (left: number, of: number) => `${left} of ${of} steps left`,
+  setupAction: {
+    hours: "Add opening hours",
+    branches: "Add your address",
+    services: "Add what you offer",
+    faqs: "Add common questions",
+    staff: "Add staff names",
+    booking: "Add how to go ahead",
+    contacts: "Add who takes calls",
+    languages: "Choose languages",
+  },
   setupHide: "Hide from dashboard",
   creditStatusStopped: "Calls in and out stopped",
   creditStatusLow: "Running low",
@@ -67,6 +93,12 @@ export const HOME = {
   afterHoursDefault: "Using 9am–9pm",
   afterHoursAdd: "Add your hours",
 } as const;
+
+/** Behind the ⓘ beside the readiness meter, so it may run longer than a default line. */
+export const READINESS_WHY =
+  "The average of your agents' scores. Each agent scores on what it knows, its opening " +
+  "line, whether callers hear its latest version, and questions it could not answer in " +
+  "the last 7 days.";
 
 export const TRIAL = {
   title: "Your free trial",

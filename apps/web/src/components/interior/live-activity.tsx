@@ -331,7 +331,7 @@ export function LiveActivity({
                   {percent}%
                 </span>
               ) : (
-                <span className="max-w-[120px] truncate text-[12px] font-medium text-ink">
+                <span title={activity.title} className="max-w-[120px] truncate text-[12px] font-medium text-ink sm:max-w-[16rem]">
                   {activity.title}
                 </span>
               )}

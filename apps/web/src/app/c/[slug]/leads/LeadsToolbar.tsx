@@ -139,6 +139,7 @@ export function LeadsToolbar({
             // looking at ranked rows with an empty box and no way to explain them.
             onChange={(e) => onAsk(e.target.value)}
             maxLength={2000}
+            enterKeyHint="search"
             aria-label="Find leads by what they asked for"
             placeholder={`What did they ask for? e.g. ${askExample}`}
             className={`${FIELD_INLINE} w-full`}

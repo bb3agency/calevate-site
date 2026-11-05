@@ -120,7 +120,7 @@ export function ScriptParts({
         title={title}
         defaultOpen={openPart === id}
         subtitle={
-          <span className="block truncate text-meta">
+          <span className="line-clamp-2 block break-words text-meta">
             {finish > 0 ? (
               <span className="font-medium text-danger">{plural(finish, "part", "parts")} to finish · </span>
             ) : null}

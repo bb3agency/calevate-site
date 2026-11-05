@@ -1,13 +1,11 @@
 "use client";
 
 import { useCallback, useId, useRef, useState } from "react";
-
+import { Plus } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PipMark } from "@/components/illustration/pip";
 import { SavedTick } from "@/components/console/savedTick";
-import { Section } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
@@ -19,6 +17,7 @@ import {
 import { VoiceButton } from "@/components/voiceButton";
 import { useFormValidation } from "@/components/formValidation";
 import { useAgents } from "@/lib/api/agents";
+import { useBusinessCopy } from "@/lib/api/businessCopy";
 import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
@@ -44,32 +43,35 @@ export const READ_FILE_REQUEST = "Read the photo or file I attach and teach my a
 /** One row of the review, with what the owner decided about it. */
 type ReviewItem = TeachItem & { key: number; keep: boolean };
 
+/** Sentence starters offered before the account's own example has been written: they name
+ *  what is worth teaching without putting a made-up price in the owner's box. */
+const STARTERS = ["Our prices: ", "We are open ", "We serve ", "Never promise "] as const;
+
+/** The account's own example, one tappable sentence each; at most three, so the row stays one glance. */
+export function exampleSentences(note: string | null | undefined): string[] {
+  return (note ?? "")
+    .split(/(?<=[.!?।])\s+/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
 /**
- * THE TEACH BOX: one place to tell the agents something (founder decision 9), asked of Pip
- * since D-821.
+ * THE TEACH BOX: the "Type or say it" way of the teach card (`AddArea`), asked of Pip since
+ * D-821 (founder decision 9).
  *
- * The owner types it or says it here, and "Let Pip teach it" prefills Pip with the words; a
- * photo of a price list or a file is attached in Pip itself, which reads it. Pip sends the
- * words to be sorted into facts (every agent gets them) and rules (how one agent should
- * behave), and they come back HERE for review: nothing is saved until the owner keeps it.
- * A voice note is heard first and its words land in the box, so a misheard price is caught
- * before anything is sorted.
+ * The owner types it or says it, and "Teach this" prefills Pip with the words. Pip sorts
+ * them into facts (every agent gets them) and rules (how one agent should behave), and they
+ * come back HERE for review: nothing is saved until the owner keeps it. A voice note is heard
+ * first and its words land in the box, so a misheard price is caught before anything is
+ * sorted. The examples are buttons that write into the box rather than placeholder text,
+ * because a long grey sentence reads as something already filled in and vanishes on the
+ * first keystroke.
  */
-export function TeachBox({
-  allowed,
-  reason,
-  headingLevel = 2,
-  framed = true,
-}: {
-  allowed: boolean;
-  reason: string | null;
-  /** 3 inside an agent's Training tab, whose tab label is the h2. */
-  headingLevel?: 2 | 3;
-  /** False inside a container that already names the box (the knowledge page's Add area). */
-  framed?: boolean;
-}) {
+export function TeachBox({ allowed, reason }: { allowed: boolean; reason: string | null }) {
   const session = useClientSession();
   const eg = useVerticalExamples();
+  const copy = useBusinessCopy(session);
   const open = useOpenTeaching(session);
   const [words, setWords] = useState("");
   // What the last save did, said beside the box it came back to (REDESIGN-2: saves are
@@ -92,9 +94,26 @@ export function TeachBox({
   );
   const listening = voice.listening;
   const current = open.data ?? null;
+  const locked = !allowed || listening;
+  // Only the account's own written example is offered as sentences; the per-trade fallback
+  // carries a sample price that would read as this business's own.
+  const ownExample = copy.data?.placeholders?.teach_note?.trim() ? eg.teachNote : null;
+  const examples = ownExample ? exampleSentences(ownExample) : [...STARTERS];
+  const addExample = (text: string) => {
+    setWords((now) => {
+      const before = now.trimEnd();
+      return before ? `${before}${ownExample ? " " : "\n"}${text}` : text;
+    });
+    const box = boxRef.current;
+    if (box) {
+      box.focus();
+      // After React writes the value, so the caret lands at the end of the new words.
+      requestAnimationFrame(() => box.setSelectionRange(box.value.length, box.value.length));
+    }
+  };
 
-  const body = (
-    <>
+  return (
+    <div className="space-y-3">
       {current && current.status === "ready" ? (
         <Review
           teaching={current}
@@ -114,22 +133,55 @@ export function TeachBox({
           <label htmlFor={inputId} className="sr-only">
             What should your agents know?
           </label>
-          <textarea
-            {...teachField}
-            required
-            minLength={3}
-            id={inputId}
-            ref={(node) => {
-              teachField.ref(node);
-              boxRef.current = node;
-            }}
-            rows={4}
-            value={words}
-            onChange={(event) => setWords(event.target.value)}
-            disabled={!allowed || listening}
-            placeholder={`For example: ${eg.teachNote}`}
-            className={`${FIELD} mt-0`}
-          />
+          {/* One well holding the words and both ways of putting them there (form-design: the
+              mic belongs to the field it fills, not to the row of actions under it). The
+              well, not the bare textarea, carries the focus and invalid states. */}
+          <div
+            className={`rounded-card border bg-surface transition-[border-color,box-shadow] duration-(--duration-fast) ease-out focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20 ${
+              locked ? "border-line bg-surface-muted" : "border-line"
+            } has-[textarea[aria-invalid=true]]:border-danger`}
+          >
+            <textarea
+              {...teachField}
+              required
+              minLength={3}
+              id={inputId}
+              ref={(node) => {
+                teachField.ref(node);
+                boxRef.current = node;
+              }}
+              rows={4}
+              value={words}
+              onChange={(event) => setWords(event.target.value)}
+              disabled={locked}
+              placeholder="Prices, timings, where you deliver, what never to promise…"
+              className="block min-h-28 max-h-72 w-full resize-none rounded-t-card [field-sizing:content] bg-transparent px-4 pt-3 pb-2 text-body text-ink placeholder:text-ink-faint focus:outline-none disabled:cursor-not-allowed"
+            />
+            <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+              <VoiceButton
+                disabled={locked}
+                onRecorded={(blob) => {
+                  setSaved(null);
+                  voice.record(blob);
+                }}
+                onTypeInstead={() => boxRef.current?.focus()}
+              />
+              {listening ? (
+                <span role="status" className="text-meta text-ink-muted">
+                  <span className="text-shimmer">Listening…</span>
+                </span>
+              ) : null}
+              {saved ? <SavedTick at={saved.at} /> : null}
+              <button
+                type="submit"
+                className={`${PRIMARY_BUTTON} ml-auto`}
+                disabled={locked}
+                title={reason ?? undefined}
+              >
+                Teach this
+              </button>
+            </div>
+          </div>
           {valid.error("teach")}
           {voice.error ? <ProblemNotice error={voice.error} /> : null}
           {voice.failure ? (
@@ -137,55 +189,39 @@ export function TeachBox({
               {voice.failure}
             </p>
           ) : null}
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="submit" className={PRIMARY_BUTTON} disabled={!allowed || listening} title={reason ?? undefined}>
-              Let {ASSISTANT_NAME} teach it
-            </button>
-            <VoiceButton
-              disabled={!allowed || listening}
-              onRecorded={(blob) => {
-                setSaved(null);
-                voice.record(blob);
-              }}
-              onTypeInstead={() => boxRef.current?.focus()}
-            />
-            {listening ? (
-              <span role="status" className="text-meta text-ink-muted">
-                <span className="text-shimmer">Listening…</span>
-              </span>
-            ) : null}
-            {saved ? <SavedTick at={saved.at} /> : null}
-          </div>
-          {saved ? <p className="text-meta text-ink-muted">{saved.note}</p> : null}
-          {/* Unframed, the Add area offers files in its own File view, Pip's reading included. */}
-          {framed ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-3">
-              <p className="text-meta text-ink-muted">Have a photo or file?</p>
-              <AskAssistant label={`Let ${ASSISTANT_NAME} read a photo or file`} prompt={READ_FILE_REQUEST} disabled={!allowed} />
+          {saved ? (
+            <p className="text-meta text-ink-muted">{saved.note}</p>
+          ) : (
+            <p className="text-meta text-ink-muted">
+              {ASSISTANT_NAME} sorts it into facts and rules. You check each one before it is saved.
+            </p>
+          )}
+          {examples.length ? (
+            <div className="space-y-2">
+              <p id={`${inputId}-ideas`} className="text-meta font-medium text-ink-muted">
+                {ownExample ? "Tap an example to start" : "Start with"}
+              </p>
+              <ul aria-labelledby={`${inputId}-ideas`} className="flex flex-wrap gap-2">
+                {examples.map((text) => (
+                  <li key={text} className="min-w-0 max-w-full">
+                    <button
+                      type="button"
+                      disabled={locked}
+                      onClick={() => addExample(text)}
+                      className="press inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1.5 text-left text-meta text-ink [&:not(:disabled)]:hover:border-brand/40 [&:not(:disabled)]:hover:bg-brand-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:text-ink-faint touch:min-h-11"
+                    >
+                      <Plus aria-hidden className="h-3.5 w-3.5 shrink-0 text-brand-strong" />
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{text.trim()}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : null}
         </form>
       )}
       {open.error ? <ProblemNotice error={open.error} onRetry={() => void open.refetch()} /> : null}
-    </>
-  );
-
-  // Unframed inside the knowledge page's Add area, which carries its own heading.
-  if (!framed) return <div className="space-y-3">{body}</div>;
-  return (
-    <Section
-      headingLevel={headingLevel}
-      title="Teach your agents"
-      info={
-        <p>
-          Type it or say it, or attach a photo of a price list or a file in {ASSISTANT_NAME}.{" "}
-          {ASSISTANT_NAME} sorts it into facts, which every agent gets, and rules for how one agent
-          should behave. You check each one here before it is saved.
-        </p>
-      }
-    >
-      {body}
-    </Section>
+    </div>
   );
 }
 
@@ -242,6 +278,10 @@ function Review({
 
   return (
     <div className="space-y-4">
+      <p className="flex items-start gap-2 text-body text-ink">
+        <PipMark size={16} className="mt-0.5 shrink-0" />
+        Check what {ASSISTANT_NAME} found. Nothing is saved until you press Save.
+      </p>
       {teaching.note ? <p className="text-meta text-ink-muted">{teaching.note}</p> : null}
       {items.length === 0 ? (
         <p className="text-sm text-ink-muted">Nothing to keep in that.</p>

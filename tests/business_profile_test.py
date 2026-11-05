@@ -553,4 +553,8 @@ async def test_the_dashboard_list_shows_on_the_first_day_and_after_only_with_a_r
     assert set(reasons) == {"hours", "contacts"}
     assert reasons["hours"].startswith("1 caller asked about your opening hours")
     assert reasons["contacts"].startswith("1 call in the last 14 days needed a person")
+    # The dashboard hides a nudge its unanswered-questions step already covers; it can tell
+    # only by the cause.
+    causes = {n["step"]: n["cause"] for n in missed["nudges"]}
+    assert causes == {"hours": "unanswered_questions", "contacts": "needed_a_person"}
     assert hidden["on_dashboard"] is False, "evidence older than the hide must not bring it back"

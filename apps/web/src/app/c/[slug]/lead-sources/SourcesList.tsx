@@ -47,7 +47,7 @@ function CalledBy({ source }: { source: LeadSource }) {
       : ["Nobody yet", "Choose"];
   return (
     <div className="min-w-0">
-      <p className={`truncate text-body ${caller.called && caller.agent_name ? "text-ink" : "text-warn"}`}>
+      <p className={`text-body [overflow-wrap:anywhere] ${caller.called && caller.agent_name ? "text-ink" : "text-warn"}`}>
         {line}
       </p>
       <Link

@@ -232,7 +232,7 @@ export function Combobox({
                         aria-hidden
                         className={clsx("h-3.5 w-3.5 shrink-0 self-center text-brand-strong", !selected && "invisible")}
                       />
-                      <span className="min-w-0 flex-1 truncate text-ink">{option.label}</span>
+                      <span className="min-w-0 flex-1 break-words text-ink">{option.label}</span>
                       {option.hint && <span className="shrink-0 text-xs text-ink-muted">{option.hint}</span>}
                     </li>
                   );

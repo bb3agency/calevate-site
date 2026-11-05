@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from apps.api.agents.script_lint import NAME_FIELD
 from apps.api.agents.turn_checks import claims_done, claims_said_before
 
 #: The longest opening line an AI may write. The greeting is spoken on every call, so each
@@ -149,8 +150,9 @@ def judge_rules() -> str:
 
 
 def writer_rules() -> str:
-    """The rules as every writer of a script, an edit or a spoken line reads them."""
-    return " ".join(rule.writer for rule in CALL_RULES)
+    """The rules as every writer of a script, an edit or a spoken line reads them: the call
+    rules, then how the steps of a script are laid out."""
+    return " ".join([*(rule.writer for rule in CALL_RULES), SCRIPT_FLOW_RULE])
 
 
 def expect_rules() -> str:
@@ -158,16 +160,52 @@ def expect_rules() -> str:
     return " ".join(rule.expect for rule in CALL_RULES if rule.expect)
 
 
-#: The opening line's own rule, for a writer that writes or edits it.
+#: The opening line's own rule, for a writer that writes or edits it. A placed call opens
+#: with the person's name, who is calling and why, then permission to go on, and only then
+#: the business's question: a cold question to a stranger is what the founder heard as "off"
+#: on the Rytu Khata calls of 4 Nov 2026. Voice and sales guides agree on the order: "Greet
+#: the caller by name. Ask if now is a good time." (docs.synthflow.ai/about-prompting, read
+#: 5 Nov 2026); a permission opener tied to the reason for the call booked 13.9% against
+#: 5.8% without (nooks.ai, "start with a simple question", vendor's own data, read 5 Nov
+#: 2026), while a bare "bad time?" with no reason scored lowest (gong.io, 300M calls, read
+#: 5 Nov 2026), which is why the reason comes before the question.
 OPENING_LINE_RULE: Final = (
-    "The opening_line greets, names the business and asks one short question, in at most "
-    f"{OPENING_LINE_MAX_CHARS} characters: no list of products, no offer, and no AI or "
-    "recording notice (the platform adds those). When the brief says the agent introduces "
-    "itself first, the opening_line neither greets nor names the agent or the business. "
-    "For an agent that answers calls and also places them, outbound_opening_line is what it "
-    "says first on a call it places, under the same rules: who it is, from which business "
-    "and why it is calling, then one short question, never thanks for calling; for any other "
-    "agent leave outbound_opening_line empty."
+    "The opening_line is what the agent says first, in at most "
+    f"{OPENING_LINE_MAX_CHARS} characters, with no list of products, no offer, and no AI or "
+    "recording notice (the platform adds those). For an agent that only answers calls it "
+    "greets, names the business and asks one short question. For an agent that only places "
+    f"calls it greets the person by name with {NAME_FIELD} (dropped by itself when the name "
+    "is unknown), says in one short sentence who is calling, from which business and why, "
+    "then asks only whether they can talk now; the business's own questions wait until they "
+    "say yes. When the brief says the agent introduces itself first, the opening_line "
+    "neither greets nor names the agent or the business. For an agent that answers calls "
+    "and also places them, outbound_opening_line is what it says first on a call it places, "
+    "under the rule for placed calls, never thanks for calling; for any other agent leave "
+    "outbound_opening_line empty."
+)
+
+#: How the steps of a call are laid out, for every writer of a script or an edit. Script
+#: shape, not a reply rule: the judge and the in-call prompt have nothing to check it
+#: against, so it is not a `CallRule`.
+#: - Each detail asked in its own step: the in-call prompt lists the details to collect "when
+#:   it fits", and on the 4 Nov 2026 calls the business's own questions (how satisfied, what
+#:   to add) never fitted; a step that asks is what makes the agent ask.
+#: - One action, then wait: a caller told several actions at once and then asked "did you
+#:   understand?" said so on the same calls. Phone-support practice is one action, what
+#:   they should see, then their confirmation (speakshark.com/blog/english-it-support-
+#:   customer-calls, read 5 Nov 2026); voice-agent guides say "One field at a time" and
+#:   "Ask only one question at a time" (docs.vapi.ai/prompting-guide, read 5 Nov 2026).
+#: - Numbers given out a few digits at a time: the caller asked twice to slow down.
+#: - No spoken note-keeping: the founder wants the note kept, not announced.
+SCRIPT_FLOW_RULE: Final = (
+    "Every detail to collect is asked in a stage, named in the instruction of the stage "
+    "where the call reaches it, one question a turn, so none is left over at the end. A "
+    "stage that walks the caller through doing something puts each action in its "
+    "procedure, one action an item, and the agent waits for the caller to say it is done "
+    "before the next; never several actions in one instruction followed by asking whether "
+    "they understood. A number the agent gives out is said slowly, a few digits at a time. "
+    "The ending thanks them and says goodbye, with nothing about keeping a note or "
+    "remembering the call."
 )
 
 
@@ -195,6 +233,7 @@ __all__ = [
     "CALL_RULES",
     "OPENING_LINE_MAX_CHARS",
     "OPENING_LINE_RULE",
+    "SCRIPT_FLOW_RULE",
     "CallRule",
     "expect_rules",
     "judge_rules",

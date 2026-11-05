@@ -109,7 +109,7 @@ async function renderKnowledge(
     ...over,
   });
   // The Add area opens on writing; its File view holds the upload control (D-874).
-  fireEvent.click(await screen.findByRole("radio", { name: "File" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "Photo or file" }));
   return rendered;
 }
 
@@ -383,7 +383,7 @@ describe("the control the founder could not find", () => {
     });
 
     await ready();
-    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Website link" }));
     fireEvent.change(screen.getByLabelText(/web address/i), {
       target: { value: "http://169.254.169.254/latest" },
     });
@@ -402,7 +402,7 @@ describe("the control the founder could not find", () => {
     });
 
     await ready();
-    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Website link" }));
     // Said before anything is typed: the agents read that one page.
     expect(screen.getByText(/Your agents read that one page/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/web address/i), {
@@ -429,7 +429,7 @@ describe("the control the founder could not find", () => {
   it("answers an empty address in our words rather than the browser's", async () => {
     await renderKnowledge([]);
     await ready();
-    fireEvent.click(screen.getByRole("radio", { name: "Link" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Website link" }));
     fireEvent.click(screen.getByRole("button", { name: /save link/i }));
 
     expect(
@@ -838,7 +838,7 @@ describe("who may add, and what happens to what they add", () => {
   it("tells an owner their own document does not wait for us", async () => {
     const { container } = await renderKnowledge([]);
 
-    await screen.findByText("Add something");
+    await screen.findByRole("heading", { name: "Teach your agents" });
     // D-658: no exception for a photo, and no review for anybody in the account.
     expect(container.textContent).toContain("No approval needed. You never wait for us.");
     expect(container.textContent).not.toContain("read off a photo");
@@ -850,7 +850,7 @@ describe("who may add, and what happens to what they add", () => {
     // than answering 403 after they have chosen a 20 MB file.
     const { container } = await renderKnowledge([], { "/v1/me": STAFF });
 
-    await screen.findByText("Add something");
+    await screen.findByRole("heading", { name: "Teach your agents" });
     expect(filePicker().disabled).toBe(true);
     expect(container.textContent).toContain("No approval needed");
     expect(container.textContent).not.toContain("reviewed before your agents start using it");

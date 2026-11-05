@@ -743,7 +743,7 @@ export function KeyManagementPanel({
               {/* A key ID (a short code identifying the key without revealing it), NOT a
                   counter (D-96). Shown as an ID, because "#1633907231" invites an operator
                   to read it as a version number and conclude a rotation went badly wrong. */}
-              <SettingRow label="Active master key ID" value={<MonoValue>{kek.active_kek_id}</MonoValue>} />
+              <SettingRow label="Active master key ID" value={<MonoValue className="[overflow-wrap:anywhere]">{kek.active_kek_id}</MonoValue>} />
               <SettingRow
                 label="Locked with it"
                 value={`${formatCount(totals.current)} of ${formatCount(totals.total)}`}

@@ -282,12 +282,12 @@ export function callColumns({
       const line = live ? { text: liveLine(live), pending: live.state === "unreported" } : callRowLine(call);
       const named = Boolean(call.lead_name?.trim());
       const rowLink = !opensOf(call) ? (
-        <span className="min-w-16 max-w-full truncate font-medium text-ink">{callTitle(call)}</span>
+        <span className="min-w-16 max-w-full font-medium text-ink [overflow-wrap:anywhere]">{callTitle(call)}</span>
       ) : (
         <Link
           href={callHref(call.id)}
           {...readAhead?.(call.id)}
-          className="min-w-16 max-w-full truncate rounded-sm font-medium text-ink after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
+          className="min-w-16 max-w-full rounded-sm font-medium text-ink [overflow-wrap:anywhere] after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
         >
           {callTitle(call)}
         </Link>
@@ -295,9 +295,9 @@ export function callColumns({
       return (
         <div className="min-w-0">
           {running && <LiveSheen />}
-          {/* The name keeps at least 4rem and the line wraps: with a zero minimum the table
-              sized this column around the number and tags alone, and the name was crushed
-              to one clipped letter. */}
+          {/* The name keeps at least 4rem and wraps rather than cutting: with a zero minimum
+              the table sized this column around the number and tags alone, and the name was
+              crushed to one clipped letter; an ellipsis hid a number the owner rings back. */}
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
             {(live ? running : isLive(call)) && <LiveDot />}
             {compact || !opensOf(call) ? (
@@ -317,7 +317,7 @@ export function callColumns({
           </div>
           <p
             title={line.pending ? undefined : line.text}
-            className={`mt-0.5 truncate text-meta ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}
+            className={`mt-0.5 line-clamp-2 text-meta [overflow-wrap:anywhere] ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}
           >
             {line.text}
           </p>

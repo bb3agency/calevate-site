@@ -41,7 +41,7 @@ export default function KycReviewsPage() {
                 href={`/admin/tenants/${item.tenant_id}/kyc`}
                 className={`flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand sm:px-2 touch:min-h-11 ${ROW_HOVER}`}
               >
-                <span className="text-body font-medium text-ink">{item.name}</span>
+                <span className="min-w-0 text-body font-medium text-ink [overflow-wrap:anywhere]">{item.name}</span>
                 <span className="text-meta text-ink-muted">
                   {item.kyc_path === "digilocker" ? "DigiLocker" : "Document review"}
                   {item.owner_id_type ? ` · ${lookup(ID_TYPE_LABEL, item.owner_id_type) ?? item.owner_id_type}` : ""}

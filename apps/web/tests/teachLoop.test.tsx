@@ -12,9 +12,9 @@ import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launc
 import { businessProfileFixture } from "./businessProfileFixture";
 import { noContent, problem, renderClientPage, type Routes } from "./harness";
 
-/** The teach box is behind the Add area's "Something else" choice (D-968). */
+/** The teach box is the teach card's "Type or say it" way (D-968). */
 async function chooseSomethingElse() {
-  fireEvent.click(await screen.findByRole("radio", { name: "Something else" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "Type or say it" }));
 }
 
 /**
@@ -133,9 +133,9 @@ describe("the teach box", () => {
     fireEvent.change(await screen.findByLabelText("What should your agents know?"), {
       target: { value: "Chilli powder is 120 rupees." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Let Pip teach it" }));
-    // Pip reading a file sits with the other file path, in the Add area's File view.
-    fireEvent.click(screen.getByRole("radio", { name: "File" }));
+    fireEvent.click(screen.getByRole("button", { name: "Teach this" }));
+    // Pip reading a file sits with the other file path, in the card's "Photo or file" way.
+    fireEvent.click(screen.getByRole("radio", { name: "Photo or file" }));
     fireEvent.click(screen.getByRole("button", { name: /^Let Pip read a photo or file: / }));
     expect(asked.map((a) => a.prompt)).toEqual([
       "Teach my agents this: Chilli powder is 120 rupees.",
