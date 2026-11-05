@@ -59,9 +59,10 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 5 Nov 2026: HOW TO SPEAK says "hesitant to go ahead", not "unsure about buying", and the
 #: approved spoken examples carry no delivery or purchase turn, since every business's prompt
 #: carries them.
+#: D-971: the memory goodbye rule is gone; nothing about memory is said on a call.
 PINNED = (
     "e5727734c6f03ba5221cb80f51823b6cfc73ca24ac740b861760e04d2eb638d3",
-    "4277d2211f7b19c093f51013f1a92a32c98ec34ca9da37a55cedbc1d75371cab",
+    "57eaec1dbb4540bedd2b582c012a98f3069530e40452fba3ac480d21a79a561a",
 )
 
 

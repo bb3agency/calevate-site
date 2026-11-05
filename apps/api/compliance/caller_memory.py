@@ -25,12 +25,12 @@ a NOTICE question, and D-506 left it open because the two spoken sentences (SEC-
 §2.1/§2.2, D-163) are about being an AI and being recorded and said nothing about memory.
 D-507 answered it in three parts, and this module carries one of them:
 
-* **The agent SAYS it.** `agents.caller_memory_notice_line` is NOT NULL and non-blank, and
-  `calevate_shared.engine.memory_goodbye_rule` has the agent say it with its goodbye, in
-  its own words since D-969 (D-865; it was the opening's third sentence before) — gated on
-  `caller_memory_enabled` and on NO switch of its own, so "remembers a caller without
-  saying so" is not a constructible state. An inbound caller has visited no website and
-  agreed to no page, which is why the written draft alone could not close this.
+* **The client's own notice says it (D-971, founder, 5 Nov 2026: "Drop it entirely").** The
+  agent said it on the call from D-507 to D-969; nothing about memory is said on a call now.
+  The owner accepts a statement saying so (`CALLER_MEMORY_ATTESTATIONS` version 3), which
+  names their own written notice as how callers learn it, and the generated caller notice
+  (`compliance/caller_notice.py`) describes it there. `agents.caller_memory_notice_line`
+  stays NOT NULL until its two-step removal (hard rule 8) and is read by nothing on a call.
 * **It is REFUSED where a fact would be sensitive personal data** — `SPDI_REFUSED_VERTICALS`
   below, which is this module's share of the decision.
 * **It forgets on its own 180-day clock**, not the transcript's
@@ -296,10 +296,11 @@ def spdi_refuses_memory(vertical_template: str | None) -> bool:
 #:
 #: VERSIONED like the outbound pledge: the account's row keeps the version it accepted
 #: (`organizations.caller_memory_attestation_version`), and a published version is never
-#: edited. Version 2 (founder, 27 Oct 2026): the agent says the memory sentence as it says
-#: goodbye (D-865, `engine.MEMORY_GOODBYE_RULE`), so "at the start of every call" became
-#: "before ending each call".
-CALLER_MEMORY_ATTESTATION_VERSION: Final = 2
+#: edited. Version 2 (founder, 27 Oct 2026): the memory sentence moved to the goodbye (D-865).
+#: Version 3 (founder, 5 Nov 2026, D-971: "Drop it entirely"): nothing about memory is said on
+#: calls, so the client's own written notice is how callers learn it, and the statement says
+#: that is what the owner accepts.
+CALLER_MEMORY_ATTESTATION_VERSION: Final = 3
 CALLER_MEMORY_ATTESTATIONS: Final[dict[int, str]] = {
     1: (
         "I confirm that these calls do not collect health, medical, financial, biometric or "
@@ -309,7 +310,7 @@ CALLER_MEMORY_ATTESTATIONS: Final[dict[int, str]] = {
         "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
         "erased."
     ),
-    CALLER_MEMORY_ATTESTATION_VERSION: (
+    2: (
         "I confirm that these calls do not collect health, medical, financial, biometric or "
         "other sensitive personal data about callers, that my business is the Data Fiduciary "
         "for these callers, and that my own privacy notice tells them we keep a short note of "
@@ -317,13 +318,21 @@ CALLER_MEMORY_ATTESTATIONS: Final[dict[int, str]] = {
         "call, that notes are kept for 180 days, and that a caller may ask for theirs to be "
         "erased."
     ),
+    CALLER_MEMORY_ATTESTATION_VERSION: (
+        "I confirm that these calls do not collect health, medical, financial, biometric or "
+        "other sensitive personal data about callers, that my business is the Data Fiduciary "
+        "for these callers, and that my own privacy notice tells them we keep a short note of "
+        "what they ask about. I understand that my agents do not tell callers this on the "
+        "call, so my own notice is how they learn it, that notes are kept for 180 days, and "
+        "that a caller may ask for theirs to be erased."
+    ),
 }
 CALLER_MEMORY_ATTESTATION: Final = CALLER_MEMORY_ATTESTATIONS[CALLER_MEMORY_ATTESTATION_VERSION]
 
 #: AN ACCEPTANCE OF AN OLDER STATEMENT DOES NOT COVER WHAT AGENTS DO NOW (D-900, founder,
 #: 27 Oct 2026). Until the owner accepts the current one, the account is treated exactly as
-#: one that never accepted: no agent of it remembers callers (no notes written or read, no
-#: memory sentence, the engine told to start every call fresh), and switching memory on asks
+#: one that never accepted: no agent of it remembers callers (no notes written or read, the
+#: engine told to start every call fresh), and switching memory on asks
 #: for the statement. The agents' own switches are left as the owner set them, so accepting
 #: resumes memory on exactly those agents with nothing to remember about which were on.
 #:

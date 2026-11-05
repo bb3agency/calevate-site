@@ -23,7 +23,6 @@ from apps.api.agents import lifecycle, publishing, service
 from apps.api.agents.engine_limits import OPENING_TOO_LONG, refuse_over_engine_limits
 from apps.api.agents.starters import starter_opening
 from apps.api.agents.turn_checks import opened_again
-from apps.api.agents.verification import judge
 from apps.api.compliance.disclosure import (
     ai_disclosure_for,
     caller_memory_notice_for,
@@ -39,12 +38,11 @@ from apps.workers.first_run import greeting_fits
 from apps.workers.script_assist import INTRODUCED_OPENING_NOTE, ScriptBrief, language_problems
 from calevate_shared.call_script import PRONOUNCE_LEAD, CallScript, compile_call_script
 from calevate_shared.engine import (
-    MEMORY_GOODBYE_RULE,
     AgentConfig,
-    AgentSnapshot,
     DisclosurePosture,
     compose_engine_prompt,
     compose_first_utterance,
+    engine_prompt_layers,
     join_first_words,
     notice_fields,
 )
@@ -320,41 +318,15 @@ def test_the_founders_agents_open_as_decided_and_fit_the_greeting() -> None:
         refuse_over_engine_limits(engine, cfg)
 
 
-def test_the_memory_notice_is_said_with_the_goodbye_in_the_agents_own_words() -> None:
-    """D-865 took it out of the opening; D-969 (4 Nov 2026) stopped the stored sentence being
-    quoted: the agent says it in its own words with its goodbye."""
-    engine = FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES)
-    for case, language, *_rest in CASES:
+def test_remembering_callers_adds_nothing_to_what_the_caller_hears() -> None:
+    """D-971 (founder, 5 Nov 2026, "Drop it entirely"): with memory on, the first words and
+    the prompt's notices are exactly those of the same agent with memory off."""
+    for case, _language, *_rest in CASES:
         with_memory = _first_words(case, ai=True, memory=True)
         without = _first_words(case, ai=True)
-        first = compose_first_utterance(with_memory)
-        assert first == compose_first_utterance(without)
-        assert len(first) <= GREETING_LIMIT
-        refuse_over_engine_limits(engine, with_memory)
-        sentence = caller_memory_notice_for(language=language)
-        prompt = compose_engine_prompt(with_memory)
-        assert sentence not in prompt and sentence not in first
-        assert MEMORY_GOODBYE_RULE in prompt
-        assert MEMORY_GOODBYE_RULE not in compose_engine_prompt(without)
-
-
-def test_the_read_back_refuses_a_prompt_without_the_goodbye_rule() -> None:
-    engine = FakeEngine(name="thinnest", capabilities=DICTATED_SPEECH_CAPABILITIES)
-    cfg = _first_words("a_te_calling", ai=True, memory=True)
-    held = AgentSnapshot(
-        engine_agent_ref="ag_1",
-        system_prompt=compose_engine_prompt(cfg),
-        system_prompt_readable=True,
-        greeting=compose_first_utterance(cfg),
-        greeting_readable=True,
-    )
-    assert judge(engine, cfg, held).state != "not_applied"
-    dropped = held.model_copy(
-        update={"system_prompt": compose_engine_prompt(cfg).replace(MEMORY_GOODBYE_RULE, "")}
-    )
-    verdict = judge(engine, cfg, dropped)
-    assert verdict.state == "not_applied"
-    assert "memory notice" in verdict.detail
+        assert compose_first_utterance(with_memory) == compose_first_utterance(without)
+        notices = dict(engine_prompt_layers(with_memory))["notices"]
+        assert notices == dict(engine_prompt_layers(without))["notices"]
 
 
 def test_a_long_business_name_is_refused_naming_it() -> None:

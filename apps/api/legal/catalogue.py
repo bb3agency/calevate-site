@@ -469,6 +469,13 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "caller memories. NOT MATERIAL: the person is told more of what is already "
                 "held.",
             ),
+            Revision(
+                "27",
+                False,
+                "D-971: section 9's caller-memory row says an assistant does not announce on "
+                "the call that it keeps a note, and that the business's own privacy notice "
+                "says so. NOT MATERIAL: nothing new is kept, used or shared.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

@@ -47,7 +47,26 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
    opening, never its answering greeting, with the same notices in the same order
    (`placed_call_first_words`, D-920). The publish read-back and the drift sweep check the
    greeting field for the whole composed text, so a notice is verified where it is said.
-   No toggle adds, removes or replaces the opening line.
+   **Since D-971 (founder, 5 Nov 2026: "When an opening is saved, Pip weaves the notices
+   into that agent's own opening line in its own words, which the engine then speaks") a
+   notice switched on is said IN the opening line.** No Indian rule prescribes the words of
+   either notice (TCCCPR third amendment, 18 Sep 2026; DPDP Rules 2025 r.3; IT Rules
+   amendment G.S.R. 120(E), 10 Feb 2026, "prominently prefixed audio disclosure", no
+   wording). An opening put live, or a switch moved, leaves a line that does not say exactly
+   the notices switched on; `agents/opening_notices.queue_opening_notices` queues
+   `workers/opening_notices`, which has the opening writer rewrite it and puts it live.
+   `join_first_words` drops the stored sentence of each notice the opening already says
+   (`calevate_shared.opening_notices.says_ai` / `says_recorded`, word lists in each live
+   language) and otherwise keeps it beside the line, so until the rewrite the notice is
+   still said in the stored words. The read-back checks the greeting the engine holds for
+   the composed text AND its meaning (`first_words_disclose`); `check_dispatch` refuses a
+   dial whose composed first words would not say a notice switched on
+   (`disclosure_not_said`). The stored sentences stay on the row as that fallback.
+   **Caller memory is not announced (D-971, "Drop it entirely")**: the owner accepts
+   statement version 3, which says the agent does not tell callers on the call and their
+   own notice does; accounts on version 2 are paused until they accept it (D-900), and the
+   generated caller notice (`compliance/caller_notice.py`) says the assistants do not say
+   so on the call.
 1. **AI disclosure** (TRAI/UCC-side): `agents.ai_disclosure_line` is NOT NULL and
    non-blank on every agent, so the sentence always EXISTS and `check_dispatch` refuses a
    dial from an agent without one. Whether it is spoken at the start of the call is
@@ -1326,7 +1345,8 @@ outside the model, that the instruction is in place.
 
 1. **Nothing secret is in the prompt.** The composed prompt (`compose_engine_prompt`)
    carries a role sentence naming the business (`role_sentence`, the first line under the
-   opening `--- PLATFORM RULES ---`), the platform rules, the speaking rules, the opening notices, the client's script,
+   opening `--- PLATFORM RULES ---`), the platform rules, the speaking rules, the first words
+   as already said (the opening line with any notice in it, D-971), the client's script,
    the `[T0 FACTS]` block, the per-call values of its last section, THIS CALL (D-814), and —
    on a memory-enabled agent — notes about the caller on the line (on ThinnestAI the engine
    adds those itself, fenced after our instructions, and our own section is left out). It

@@ -145,8 +145,14 @@ make web-check                # frontend: typecheck + lint + vitest + browser ax
    whether the call is recorded — server-composed, appended to every prompt, verified
    against the engine, unreachable from any column or script. What it VOLUNTEERS at the
    start of a call is two per-agent toggles (D-163: AI disclosure and recording notice
-   are separate obligations under separate regimes); both sentences stay NOT NULL and
-   non-blank on the row, and the dial gate still refuses an agent with no AI sentence.
+   are separate obligations under separate regimes). A notice switched on is said in the
+   agent's own opening line, in its own words (D-971, founder, 5 Nov 2026: "When an opening
+   is saved, Pip weaves the notices into that agent's own opening line in its own words,
+   which the engine then speaks"); until Pip has rewritten the line the stored sentence is
+   said beside it, and the read-back and dial gate check the meaning, not fixed words. Both
+   sentences stay NOT NULL and non-blank on the row as that fallback, and the dial gate
+   still refuses an agent with no AI sentence. Nothing about caller memory is said on calls
+   (D-971).
    Campaign launch always goes through the compliance gate — no test bypasses;
    transcripts serialize as redacted by default; raw text requires role check +
    audit_log write.

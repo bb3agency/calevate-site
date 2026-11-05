@@ -171,6 +171,7 @@ from apps.api.agents.models import (
     number_on_hold_sql,
     series_for_e164,
 )
+from apps.api.agents.opening_notices import queue_opening_notices
 from apps.api.agents.own_model import (
     ensure_own_model_in,
     own_model_for,
@@ -3221,6 +3222,9 @@ async def publish_agent(
             truthful_answer_proven=verdict.truthful_answer_applied is True,
         )
         await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
+        # An opening put live without the notices switched on is rewritten to say them in
+        # its own words (D-971); the stored sentences are said beside it until then.
+        await queue_opening_notices(session, tenant_id=tenant_id, agent_id=agent_id)
     except Exception as exc:
         # One handler for every step after the create: the three engine seams are called
         # with `reclaim=False` so the agent is deleted once, and the steps after them (the

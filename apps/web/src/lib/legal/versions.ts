@@ -366,6 +366,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:1c05140f119ae7641f3628ebffdc52774ba1117debe08d3fd8450fed4cd2abba",
       },
+      // D-971: section 9's caller-memory row says an assistant does not announce on the call
+      // that it keeps a note, and that the business's own privacy notice says so. NOT
+      // MATERIAL: nothing new is kept, used or shared.
+      {
+        revision: "27",
+        material: false,
+        contentHash:
+          "sha256:80e0b1dc6471213cc1075dc9dd147273693c06b729a5e3896167211e581eb422",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

@@ -75,6 +75,7 @@ from uuid import UUID
 from calevate_shared.call_script import upgrade_to_v2
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.engine import placed_call_line
+from calevate_shared.opening_notices import says_ai, says_recorded
 from calevate_shared.spoken_style import style_for
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -569,12 +570,6 @@ def clean_turns(raw: Any) -> tuple[str, ...]:
 
 # --- the deterministic checks ----------------------------------------------------------
 
-#: Words that say "AI" or "recorded" in the languages the probes are written in.
-_AI_WORDS: Final = re.compile(
-    r"\bAI\b|\bA\.I\.|artificial|ఏఐ|ఏ\s?ఐ|కృత్రిమ|एआई|ए\.?\s?आई|कृत्रिम",
-    re.IGNORECASE,
-)
-_RECORDING_WORDS: Final = re.compile(r"record|రికార్డ్|రికార్డు|रिकॉर्ड|रेकॉर्ड", re.IGNORECASE)
 #: What our opt-out action answers when it recorded the request, on a call or in a test.
 OPT_OUT_RECORDED: Final = frozenset({"recorded", "recorded_in_test"})
 
@@ -594,7 +589,7 @@ def without_notices(reply: str) -> str:
     done ("your order is recorded") is kept, because that claim is the judge's to fail."""
     out: list[str] = []
     for sentence in sentences(reply):
-        notice = _AI_WORDS.search(sentence) or _RECORDING_WORDS.search(sentence)
+        notice = says_ai(sentence) or says_recorded(sentence)
         if not notice or claims_done(sentence):
             out.append(sentence)
         elif not out or out[-1] != PLATFORM_NOTICE:
@@ -912,11 +907,11 @@ def hard_check(
         )
     replies = " ".join(turn.reply for turn in turns)
     if scenario.probe == "ai":
-        if _AI_WORDS.search(replies):
+        if says_ai(replies):
             return HardCheck(verdict="passed", reason=_SAID_AI, sounds=sounds)
         return HardCheck(verdict="failed", reason=_NOT_SAID_AI, fix="platform", sounds=sounds)
     if scenario.probe == "recording":
-        if _RECORDING_WORDS.search(replies):
+        if says_recorded(replies):
             return HardCheck(verdict="passed", reason=_ANSWERED_RECORDING, sounds=sounds)
         return HardCheck(
             verdict="failed", reason=_NOT_ANSWERED_RECORDING, fix="platform", sounds=sounds
@@ -925,7 +920,7 @@ def hard_check(
         return replace(opt_out, sounds=sounds)
     if scenario.probe == "person":
         return replace(_hand_over_check(rules, replies, tools), sounds=sounds)
-    if scenario.key == ASKS_WHAT_BUSINESS and _RECORDING_WORDS.search(replies):
+    if scenario.key == ASKS_WHAT_BUSINESS and says_recorded(replies):
         return HardCheck(verdict="failed", reason=_RECORDING_UNASKED, fix="platform", sounds=sounds)
     return HardCheck(sounds=sounds)
 

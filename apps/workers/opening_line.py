@@ -25,6 +25,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Final
 
+from calevate_shared.opening_notices import (
+    WOVEN_AI_CHARS,
+    WOVEN_RECORDING_CHARS,
+    WovenNotices,
+    opening_max_chars,
+    woven_notice_problems,
+)
 from calevate_shared.spoken_guard import (
     INTRODUCED_GREETING_RULE,
     INTRODUCED_NAMES_RULE,
@@ -66,7 +73,9 @@ OPENING_WRITER_INSTRUCTION: Final = (
     "now is a good time to talk, nothing else. Never a line any business could use, never a "
     "list of products, an offer, a discount or a figure the owner's facts do not give, never "
     "that the person enquired, asked or showed interest (only the call's own data may say "
-    "that), and nothing about being an AI or recording (the platform says those). Write it in "
+    "that), and about being an AI or the call being recorded exactly what the rules below "
+    "say, in a few words of its own woven into the line, never a separate stiff sentence. "
+    "Write it in "
     "the call language as people say it on the phone, following the spoken-style guide in the "
     "brief. The brief ends with the rules the line is checked against; a line that breaks "
     'one is not used. Return ONLY JSON: {"opening_line": "..."}.'
@@ -88,10 +97,12 @@ _FORMAT: Final[dict[str, object]] = {
 
 
 def length_problem(where: str, text: str) -> str | None:
+    """Too long, with the room a notice said in the line earns (D-971)."""
     size = len(text.strip())
-    if size <= OPENING_MAX_CHARS:
+    most = opening_max_chars(OPENING_MAX_CHARS, text)
+    if size <= most:
         return None
-    return f"{where}: {size} characters; keep it to at most {OPENING_MAX_CHARS} characters"
+    return f"{where}: {size} characters; keep it to at most {most} characters"
 
 
 def rewrite_problem(where: str) -> str:
@@ -107,15 +118,20 @@ def opening_problems(
     names: Sequence[str] = (),
     introduced: bool = False,
     where: str = OPENING_PATH,
+    woven: WovenNotices | None = None,
 ) -> list[str]:
     """Every rule an opening line breaks, each as the sentence a model is sent to repair it:
-    at most `OPENING_MAX_CHARS`, ending on a question, no textbook word, every word in the
-    language's own letters apart from `names` (D-861, D-864), and placed for what comes
-    before it (D-865): after the agent's introduction (`introduced`) it neither greets nor
-    says `names`; said first, it greets or says who is calling."""
+    at most `OPENING_MAX_CHARS` (plus the room a notice said in it earns), ending on a
+    question, no textbook word, every word in the language's own letters apart from `names`
+    (D-861, D-864), and placed for what comes before it (D-865): after the agent's
+    introduction (`introduced`) it neither greets nor says `names`; said first, it greets or
+    says who is calling. With `woven`, it says the notices switched on in its own words and
+    no other (D-971); an opening that says it is an AI is said first, as the introduction."""
     clean = line.strip()
     if not clean:
         return [f"{where}: is empty; write the line"]
+    introduced = introduced and not (woven is not None and woven.ai)
+    notices = woven_notice_problems(where, clean, woven) if woven is not None else []
     found = (
         length_problem(where, clean),
         question_end_problem(where, clean),
@@ -125,16 +141,26 @@ def opening_problems(
         if introduced
         else unintroduced_opening_problem(where, clean, names=names),
     )
-    return [problem for problem in found if problem]
+    return [*(problem for problem in found if problem), *notices]
 
 
 def opening_rules(
-    language: str | None, *, names: Sequence[str] = (), introduced: bool = False
+    language: str | None,
+    *,
+    names: Sequence[str] = (),
+    introduced: bool = False,
+    woven: WovenNotices | None = None,
 ) -> str:
     """`opening_problems`' rules as the writer is told them, in the same words."""
     kept = [name.strip() for name in names if name.strip()]
+    introduced = introduced and not (woven is not None and woven.ai)
+    most = OPENING_MAX_CHARS
+    if woven is not None:
+        most += (WOVEN_AI_CHARS if woven.ai else 0) + (
+            WOVEN_RECORDING_CHARS if woven.recording else 0
+        )
     rules = [
-        f"at most {OPENING_MAX_CHARS} characters",
+        f"at most {most} characters",
         QUESTION_END_RULE,
         TEXTBOOK_RULE,
     ]
@@ -147,6 +173,8 @@ def opening_rules(
         rules += [f"no greeting: {INTRODUCED_GREETING_RULE}", INTRODUCED_NAMES_RULE]
     else:
         rules.append(UNINTRODUCED_RULE)
+    if woven is not None:
+        rules += woven.rules()
     return "\n".join(f"- {rule}" for rule in rules)
 
 
@@ -160,7 +188,9 @@ def _writer_problems(
         said_line_problem(OPENING_PATH, line),
     )
     return [
-        *opening_problems(line, brief.language, names=names, introduced=brief.introduced),
+        *opening_problems(
+            line, brief.language, names=names, introduced=brief.introduced, woven=brief.woven
+        ),
         *(problem for problem in extra if problem),
         *spoken_line_problems(OPENING_PATH, line, lint),
     ]
@@ -191,7 +221,8 @@ def opening_request(
     )
     return (
         f"{brief.user_message()}\n\nRules for opening_line:\n"
-        f"{opening_rules(brief.language, names=names, introduced=brief.introduced)}\n\n{task}"
+        + opening_rules(brief.language, names=names, introduced=brief.introduced, woven=brief.woven)
+        + f"\n\n{task}"
     )
 
 

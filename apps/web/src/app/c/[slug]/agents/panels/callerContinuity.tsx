@@ -142,24 +142,17 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
         />
         <p className="mt-2 flex items-start gap-2 text-xs text-ink-muted">
           <ShieldCheck aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            {paused
-              ? "Once resumed, it tells callers a note is kept."
-              : agent.caller_memory_enabled
-                ? "It tells callers a note is kept."
-                : "When on, it tells callers a note is kept."}
-          </span>
+          <span>Callers are not told on calls. Your privacy notice says so.</span>
         </p>
         {/* Money stays visible, never only in the disclosure (howItWorks.tsx). */}
         <p className="mt-1 pl-5.5 text-xs text-ink-muted">Notes are charged. They stop at your spending limit.</p>
 
         <HowItWorks
           items={[
-            "It says so in a few words of its own as it says goodbye.",
             "Kept: what they wanted, what happened, and preferences like language, call time or contact.",
             "Never kept: health details, amounts of money, or their exact words.",
             "Used only for that person's calls with you, never shared. Deleted after 180 days, or sooner if asked.",
-            "Saying so goes with this switch; it cannot be turned off on its own.",
+            "Nothing about notes is said on calls. Your privacy notice page writes that sentence for you.",
             "If the statement you confirm changes, memory pauses on every agent until you accept the new one.",
           ]}
         />

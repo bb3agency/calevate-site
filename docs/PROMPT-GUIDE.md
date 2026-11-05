@@ -10,11 +10,14 @@ change, promoted staging→live, rollbackable.
    whether it is an AI, or whether the call is recorded, the agent always answers truthfully
    (`TRUTHFUL_ANSWER_DIRECTIVE`, appended by `compose_engine_prompt`, non-removable). The
    AI disclosure and the recording notice are separate per-agent switches, default OFF:
-   when one is on it is said at the start of the call, in the first turn, right after the
-   opening line (then the memory sentence, when the agent remembers callers). The
-   opening line (`[OPENING]`, the agent's greeting) is the client's and is separate from
-   both notices; no switch adds, removes or replaces it, so do not write an AI or
-   recording notice into it, and do not write a greeting word into a notice.
+   when one is on it is said in the first turn, IN the opening line, in the agent's own
+   words (D-971, founder, 5 Nov 2026: "When an opening is saved, Pip weaves the notices into
+   that agent's own opening line in its own words, which the engine then speaks"). Pip
+   rewrites an opening that does not say the notices switched on, or still says one switched
+   off; until then the stored sentence is said right after the line. A writer of an opening
+   line therefore says a notice only when the brief asks for it, in a few words woven into
+   the line, never as a separate stiff sentence; nothing about caller memory is said on a
+   call (D-971).
 2. **Truth boundary**: never invent prices, availability, medical/legal/financial facts.
    Search the knowledge first (the prompt names the engine's tool); if nothing answers it,
    say so. What the agent then offers is the platform's rule, said once and true to the

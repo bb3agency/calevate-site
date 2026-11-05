@@ -676,22 +676,9 @@ async def test_remembering_callers_puts_a_question_in_front_of_counsel_first() -
     assert "sensitive" in questions[0]
 
 
-async def test_the_spoken_account_includes_the_memory_sentence_and_no_third_toggle() -> None:
-    """D-507(a): the agent SAYS it, so the draft's account of what is spoken must say so.
-
-    The draft's "Being told what you are speaking to" section is what a caller reads to
-    know what they will hear. Until D-507 there was nothing to hear about memory — the
-    draft was the only channel, which is precisely why an INBOUND caller (who has visited
-    no website and agreed to no page) was the hole in it. Now `compose_opening_line`
-    appends `agents.caller_memory_notice_line` third.
-
-    AND IT MUST NOT READ AS A THIRD SWITCH. `ai_disclosure_enabled` and
-    `recording_notice_enabled` are per-agent toggles because both obligations hold whatever
-    this product does; the memory sentence has NO flag of its own, because memory exists
-    only where `caller_memory_enabled` is on. A draft implying a third control would send a
-    client looking for one in a screen that has none — and support would eventually invent
-    an answer.
-    """
+async def test_the_notice_says_callers_are_not_told_about_notes_on_the_call() -> None:
+    """D-971: nothing about memory is said on a call, so the written notice is where a
+    caller learns it and must not claim an announcement."""
     tenant_id, agent_id, _, _ = await _tenant()
     await _publish(tenant_id, agent_id)
     await _remember_callers(tenant_id, agent_id)
@@ -700,12 +687,9 @@ async def test_the_spoken_account_includes_the_memory_sentence_and_no_third_togg
     markdown = draft.markdown  # type: ignore[attr-defined]
     spoken = markdown.split("## What we collect")[0]
 
-    assert (
-        "keep notes about you between calls also say so when they say goodbye at the end of "
-        "the call" in spoken
-    )
+    assert "They do not say so on the call; this notice is where we tell you" in spoken
     assert draft.caller_memory_on[0] in spoken  # type: ignore[attr-defined]
-    assert "there is no separate setting for it" in spoken
+    assert "They do not say so on the call, so this notice is how you are told" in markdown
     # The floor is untouched by the new sentence and still stated unconditionally.
     assert "it will tell you the truth" in markdown
 

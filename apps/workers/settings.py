@@ -294,6 +294,7 @@ from apps.workers.onboarding_completion import (
     SWEEP_SECOND as ONBOARDING_SWEEP_SECOND,
 )
 from apps.workers.onboarding_completion import complete_finished_onboardings
+from apps.workers.opening_notices import weave_opening_notices
 from apps.workers.outbound_webhooks import deliver_outbound_webhook, retry_outbound_deliveries
 from apps.workers.outbox_consumer import consume_outbox_once
 from apps.workers.own_model_key import (
@@ -453,6 +454,9 @@ FUNCTIONS: list[Any] = [
         # The script change Pip was asked for (D-820), from the outbox
         # (`agents/script_proposals.request_proposal`).
         draft_script_proposal,
+        # An opening line written again to say the notices switched on in its own words
+        # (D-971), from the outbox (`agents/opening_notices.queue_opening_notices`).
+        weave_opening_notices,
         # A file added to the knowledge after onboarding suggests a script change to every
         # agent (D-923), from the outbox (`kb_ingest.ingest_kb_source`).
         suggest_scripts_from_document,
