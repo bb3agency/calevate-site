@@ -541,14 +541,28 @@ _GROUP_KEY: Final[dict[CallGroupBy, str]] = {
 
 
 def _groups_sql(by: CallGroupBy) -> str:
+    # A caller with no lead name is named from the campaign list that holds their number:
+    # the people a campaign rang were named by the owner who uploaded the list. Matched on
+    # the number rather than the call's campaign, so a listed person who rings back is named
+    # too. Only the caller grouping reads it, and only for the rows the page shows.
+    listed = (
+        "(SELECT cc.name FROM campaign_contacts cc WHERE cc.phone_e164 = g.party "
+        "AND btrim(cc.name) <> '' ORDER BY cc.created_at DESC LIMIT 1)"
+        if by == "caller"
+        else "NULL"
+    )
     return (
         f"WITH g AS (SELECT {_GROUP_KEY[by]} AS k, count(*) AS calls, "
         f"count(*) FILTER (WHERE {CONNECTED_SQL}) AS answered, max(started_at) AS latest_at, "
+        "(array_agg(id ORDER BY started_at DESC))[1] AS latest_call_id, "
+        "(array_agg(status ORDER BY started_at DESC))[1] AS latest_status, "
         "(array_agg(outcome_tag ORDER BY started_at DESC))[1] AS latest_outcome, "
+        "(array_agg(business_outcome_label ORDER BY started_at DESC))[1] AS latest_business, "
         "(array_agg(lead_id ORDER BY started_at DESC))[1] AS lead_id, "
-        f"right((array_agg({_PARTY} ORDER BY started_at DESC))[1], 2) AS tail "
+        f"(array_agg({_PARTY} ORDER BY started_at DESC))[1] AS party "
         f"FROM calls WHERE {_CALLS_IN_RANGE} GROUP BY 1) "
-        "SELECT k, calls, answered, latest_at, latest_outcome, lead_id, tail "
+        "SELECT k, calls, answered, latest_at, latest_call_id, latest_status, latest_outcome, "
+        f"latest_business, lead_id, right(party, 2) AS tail, {listed} AS listed_name "
         "FROM g WHERE calls >= :min ORDER BY calls DESC, latest_at DESC NULLS LAST, k "
         "LIMIT :limit"
     )
@@ -591,7 +605,8 @@ async def call_groups(
     This is the answer to "who called more than once" and "how many ended in a booking":
     the counts cover every call in the range, and only the rows are paged. A caller is
     the lead the call was filed under, else the other party's number; the number never
-    leaves the query except as its last two digits."""
+    leaves the query except as its last two digits. A caller is named by their lead, else
+    by the campaign list that holds their number."""
     params = {
         **_params(window, agent_id=agent_id, test_calls=test_calls),
         "min": max(1, min_calls),
@@ -609,13 +624,20 @@ async def call_groups(
     groups = [
         CallGroupOut(
             key=str(r.k) if not str(r.k).startswith(("n:", "c:")) else "number",
-            label=labels.get(str(r.lead_id) if by == "caller" else str(r.k)),
+            label=(
+                labels.get(str(r.lead_id)) or r.listed_name
+                if by == "caller"
+                else labels.get(str(r.k))
+            ),
             lead_id=r.lead_id if by == "caller" else None,
             number_tail=(str(r.tail) if r.tail else None) if by == "caller" else None,
             calls=int(r.calls),
             answered=int(r.answered),
             latest_at=r.latest_at,
+            latest_call_id=r.latest_call_id,
+            latest_status=r.latest_status,
             latest_outcome=r.latest_outcome,
+            latest_business_outcome_label=r.latest_business,
         )
         for r in rows
     ]

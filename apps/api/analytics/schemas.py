@@ -186,14 +186,20 @@ class CallGroupOut(Strict):
 
     #: The lead id, `number` (a caller with no lead), the outcome tag or the agent id.
     key: str
-    #: The lead's name, the agent's name, or None.
+    #: The lead's name, else the name a campaign list gives the number; the agent's name;
+    #: or None.
     label: str | None
     lead_id: UUID | None
     number_tail: str | None
     calls: int
     answered: int
     latest_at: datetime | None
+    #: The group's most recent call, so a row with no lead still opens something.
+    latest_call_id: UUID
+    latest_status: str
     latest_outcome: str | None
+    #: The latest call's outcome in the business's own words (D-836), when it has one.
+    latest_business_outcome_label: str | None
 
 
 class CallGroupsOut(Strict):

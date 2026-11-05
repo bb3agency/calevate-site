@@ -16939,8 +16939,17 @@ export interface components {
             label: string | null;
             /** Latest At */
             latest_at: string | null;
+            /** Latest Business Outcome Label */
+            latest_business_outcome_label: string | null;
+            /**
+             * Latest Call Id
+             * Format: uuid
+             */
+            latest_call_id: string;
             /** Latest Outcome */
             latest_outcome: string | null;
+            /** Latest Status */
+            latest_status: string;
             /** Lead Id */
             lead_id: string | null;
             /** Number Tail */

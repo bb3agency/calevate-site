@@ -80,8 +80,8 @@ function groups(over: Partial<CallGroups> = {}): CallGroups {
     repeat_groups: 2,
     min_calls: 2,
     groups: [
-      { key: "l1", label: "Ravi Kumar", lead_id: "0192f0aa-0000-7000-8000-00000000000a", number_tail: "42", calls: 3, answered: 2, latest_at: "2026-10-26T09:30:00Z", latest_outcome: "call_back_booked" },
-      { key: "number", label: null, lead_id: null, number_tail: "07", calls: 2, answered: 0, latest_at: "2026-10-25T05:00:00Z", latest_outcome: "missed" },
+      { key: "l1", label: "Ravi Kumar", lead_id: "0192f0aa-0000-7000-8000-00000000000a", number_tail: "42", calls: 3, answered: 2, latest_at: "2026-10-26T09:30:00Z", latest_call_id: "0192f0aa-0000-7000-8000-0000000000c1", latest_status: "completed", latest_outcome: "call_back_booked", latest_business_outcome_label: null },
+      { key: "number", label: null, lead_id: null, number_tail: "07", calls: 2, answered: 0, latest_at: "2026-10-25T05:00:00Z", latest_call_id: "0192f0aa-0000-7000-8000-0000000000c2", latest_status: "no_answer", latest_outcome: "missed", latest_business_outcome_label: null },
     ],
     ...over,
   };
@@ -327,12 +327,79 @@ describe("the period table and who called (D-893 L7)", () => {
     expect(container.textContent).not.toContain("₹1,240.5");
   });
 
-  it("counts repeat callers over every call and links each to its lead", async () => {
+  it("counts people with repeat calls and links every row: the lead, else the latest call", async () => {
     await renderClientPage(page, routes());
-    await screen.findByText("16 calls. 2 callers called more than once.");
-    const link = screen.getByRole("link", { name: /Ravi Kumar · ends 42/ });
-    expect(link.getAttribute("href")).toBe("/c/acme/leads/0192f0aa-0000-7000-8000-00000000000a");
-    expect(screen.getByText("No lead yet · ends 07")).toBeTruthy();
+    await screen.findByText("16 calls. 2 people had more than one call.");
+    const table = screen.getByRole("table", { name: "Calls by person, most calls first" });
+    const people = within(table).getAllByRole("row").slice(1);
+    // Every row opens something, so no row reads as a link beside one that is not.
+    expect(people.map((row) => within(row).queryByRole("link")?.getAttribute("href"))).toEqual([
+      "/c/acme/leads/0192f0aa-0000-7000-8000-00000000000a",
+      "/c/acme/calls/0192f0aa-0000-7000-8000-0000000000c2",
+    ]);
+    expect(within(table).getByRole("link", { name: "Number ending 07" })).toBeTruthy();
+    expect(table.textContent).not.toMatch(/No lead yet|callers? called/);
+  });
+
+  it("names a person from the campaign list and says how their last call went, not a flag", async () => {
+    const listed = groups({
+      groups: [
+        { ...groups().groups[1], label: "Lakshmi Devi", number_tail: "59", latest_status: "completed", latest_outcome: "needs_you", latest_business_outcome_label: "Wants a site visit" },
+        { ...groups().groups[1], number_tail: "71", latest_call_id: "0192f0aa-0000-7000-8000-0000000000c3" },
+      ],
+    });
+    await renderClientPage(page, routes({ [PATHS.groups]: listed }));
+    const table = await screen.findByRole("table", { name: "Calls by person, most calls first" });
+    const [, lakshmi, unknown] = within(table).getAllByRole("row");
+    expect(within(lakshmi).getByRole("link", { name: "Lakshmi Devi · ends 59" })).toBeTruthy();
+    // "Needs you" asks for a person; the call itself ended with the business's own outcome.
+    expect(lakshmi.textContent).toContain("Wants a site visit");
+    expect(lakshmi.textContent).not.toContain("Needs you");
+    expect(unknown.textContent).toContain("Missed");
+    expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+      "Person",
+      "Calls",
+      "Answered",
+      "Latest call",
+      "How it went",
+    ]);
+  });
+
+  it("never prints a server key where the owner reads an outcome", async () => {
+    const byOutcome = `/v1/analytics/durations?${Q}&group_by=outcome&bin_s=30`;
+    const keyed = durations();
+    await renderClientPage(
+      page,
+      routes({
+        [PATHS.performance]: performance({ outcomes: { needs_you: 4, hung_up_early: 2, call_back_booked: 1, no_answer: 3, completed: 1 } }),
+        [byOutcome]: {
+          ...keyed,
+          group_by: "outcome",
+          groups: ["needs_you", "hung_up_early", "answered", "unread"].map((key) => ({ ...keyed.groups[0], key, label: key })),
+        },
+      }),
+    );
+    const ended = await screen.findByRole("table", { name: "How calls ended" });
+    expect(ended.textContent).toContain("Call-back booked");
+    expect(ended.textContent).toContain("No answer");
+    const length = screen.getByRole("heading", { name: "How long calls last" }).closest("section") as HTMLElement;
+    await act(async () => fireEvent.click(within(length).getByRole("radio", { name: "Outcome" })));
+    const table = await screen.findByRole("table", { name: "Call length by outcome" });
+    expect(within(table).getAllByRole("rowheader").map((cell) => cell.textContent)).toEqual([
+      "Needs you",
+      "Hung up early",
+      "Answered",
+      "Not recorded",
+    ]);
+    expect(within(table).getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+      "Outcome",
+      "Typical length",
+      "Most calls under",
+      "Calls",
+    ]);
+    for (const shown of [ended, table, length]) {
+      expect(shown.textContent).not.toMatch(/[a-z]+_[a-z_]+|\bunread\b|\bcompleted\b/);
+    }
   });
 
   it("says nobody called twice rather than showing an empty table", async () => {
@@ -340,6 +407,6 @@ describe("the period table and who called (D-893 L7)", () => {
       page,
       routes({ [PATHS.groups]: groups({ repeat_groups: 0, groups_total: 0, groups: [] }) }),
     );
-    await screen.findByText("Nobody called more than once in this period.");
+    await screen.findByText("Nobody had more than one call in this period.");
   });
 });

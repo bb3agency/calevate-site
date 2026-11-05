@@ -199,6 +199,56 @@ async def test_repeat_callers_are_counted_over_every_call_without_numbers() -> N
     assert with_tests.repeat_groups == 3
 
 
+async def test_a_caller_with_no_lead_is_named_from_the_campaign_list() -> None:
+    tenant_id, _slug, _token = await _make_tenant()
+    today = _today_ist()
+    async with tenant_session(tenant_id) as session:
+        agent_id = await _agent(session)
+        campaign_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, status, "
+                "created_at, updated_at) VALUES (:id, :tid, :aid, 'Diwali offer', 'service', "
+                "'running', now(), now())"
+            ),
+            {"id": campaign_id, "tid": tenant_id, "aid": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, name, "
+                "status, attempts, created_at, updated_at) VALUES (:i, :t, :c, :p, 'Lakshmi', "
+                "'completed', 1, now(), now())"
+            ),
+            {"i": uuid7(), "t": tenant_id, "c": campaign_id, "p": "+919811144471"},
+        )
+        call_ids: list[uuid.UUID] = []
+        for hour, status in ((10, "no_answer"), (12, "completed")):
+            call_id = await _call(session, tenant_id, agent_id, at=_ist(today, hour), status=status)
+            await session.execute(
+                text(
+                    "UPDATE calls SET direction = 'outbound', to_e164 = '+919811144471', "
+                    "business_outcome = CASE WHEN status = 'completed' THEN 'wants_visit' END, "
+                    "business_outcome_label = CASE WHEN status = 'completed' "
+                    "THEN 'Wants a visit' END WHERE id = :id"
+                ),
+                {"id": call_id},
+            )
+            call_ids.append(call_id)
+        out = await service.call_groups(
+            session,
+            window=service.resolve_window(days=7, to=None),
+            by="caller",
+            agent_id=None,
+            test_calls=False,
+        )
+
+    (person,) = out.groups
+    assert (person.label, person.lead_id, person.number_tail) == ("Lakshmi", None, "71")
+    assert person.latest_call_id == call_ids[-1] and person.latest_status == "completed"
+    assert person.latest_business_outcome_label == "Wants a visit"
+    assert "+919811144471" not in out.model_dump_json()
+
+
 async def test_a_limit_pages_the_rows_but_never_the_counts() -> None:
     tenant_id, _slug, _token = await _make_tenant()
     await _seed_callers(tenant_id)
