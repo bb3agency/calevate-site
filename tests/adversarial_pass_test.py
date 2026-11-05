@@ -750,6 +750,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PATCH", "/v1/campaigns/{campaign_id}", {"name": "idor sweep"}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/stop", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/archive", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/restore", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/duplicate", {"with_unreached": False}, {}),
     (
         "POST",

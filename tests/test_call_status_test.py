@@ -14,6 +14,7 @@ import pytest
 from apps.api.agents import test_call_reads, trial_calls
 from apps.api.campaigns import engine_numbers
 from apps.api.compliance import service as compliance_service
+from apps.api.compliance.trial_access import ist_day_start
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -184,13 +185,15 @@ async def test_todays_test_calls_are_listed_newest_first_and_nothing_else() -> N
     tenant_id, agent_id = await _trial_tenant()
     other_tenant, other_agent = await _trial_tenant()
     now = datetime.now(UTC)
+    # "Today" is the IST day, so every call meant for today is placed after its midnight:
+    # minutes before now reach into yesterday just after 00:00 IST.
+    earliest = max(ist_day_start(now), now - timedelta(minutes=50))
+    step = (now - earliest) / 6
     await _call(tenant_id, agent_id, status="completed", placed=now - timedelta(days=2))
     await _call(tenant_id, agent_id, status="completed", test=False, placed=now)
-    for minutes in (40, 30, 20, 10):
-        await _call(
-            tenant_id, agent_id, status="no_answer", placed=now - timedelta(minutes=minutes)
-        )
-    newest = await _call(tenant_id, agent_id, status="queued", placed=now - timedelta(minutes=1))
+    for n in range(1, 5):
+        await _call(tenant_id, agent_id, status="no_answer", placed=earliest + step * n)
+    newest = await _call(tenant_id, agent_id, status="queued", placed=earliest + step * 5)
     await _call(other_tenant, other_agent, status="completed", placed=now)
 
     headers = await _owner(tenant_id)

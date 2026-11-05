@@ -78,7 +78,10 @@ def test_the_receiver_raises_no_refusal_alert_the_list_has_missed() -> None:
     )
     # `webhook_payload_mismatch` would be a claimed delivery (see the docstring), so
     # anything the receiver raises OUTSIDE the claim and outside this list is a new hole.
-    unlisted = raised - set(integrations.INBOUND_REFUSAL_ALERTS)
+    # `webhook_event_without_job` is raised only under `if claimed and job_id is None`: the
+    # delivery was claimed, so its inbox and forensic rows exist; it is no refusal.
+    assert "if claimed and job_id is None:" in receiver
+    unlisted = raised - set(integrations.INBOUND_REFUSAL_ALERTS) - {"webhook_event_without_job"}
     assert not unlisted, (
         "the receiver raises inbound alert codes that the forensic pointer does not "
         f"name, so an investigation would not know to look for them: {sorted(unlisted)}"

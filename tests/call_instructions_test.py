@@ -199,8 +199,8 @@ def test_every_agent_says_who_it_is_when_asked_then_goes_on() -> None:
         prompt = compose_engine_prompt(_cfg(direction=direction))
         assert shared_engine.OPENING_CONTINUES_RULE in prompt
     assert (
-        "Asked who or why, or the business name said back? Say both in one line, "
-        "once, then stop and wait" in shared_engine.OPENING_CONTINUES_RULE
+        "Asked who or why, or the business name said back? Both in one line, "
+        "once, wait." in shared_engine.OPENING_CONTINUES_RULE
     )
 
 

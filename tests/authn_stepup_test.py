@@ -543,7 +543,11 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # ONE MORE sets up the voice comparison's Sarvam voices
     # (`ops/voice_comparison_routes.py::post_setup`, `set_up_sarvam_voices`, D-946): it makes a
     # workspace on the voice platform and installs one of our credentials there.
-    assert sites == 90, f"found {sites} step-up call sites, expected 90; the census went stale"
+    # TWO MORE archive and delete a client's campaign from the console (F-10,
+    # `campaigns/archive_admin_routes.py`, `archive_confirmation` / `delete_confirmation`,
+    # bound to the campaign): each takes something away from the client and tells them.
+    # Restoring beside them gives back, and takes no gate.
+    assert sites == 92, f"found {sites} step-up call sites, expected 92; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

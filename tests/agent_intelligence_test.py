@@ -287,8 +287,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # what a no, busy or later to the opening's question gets in START OF THE CALL; HOW TO
     # SPEAK and WHAT YOU CAN DO stayed the same size (7,870 before). D-969 reads every number
     # digit by digit, explains one step a turn, books a call back at a day and time, and has a
-    # placed call ask if now suits (7,930 before).
-    assert len(prompt) <= 8_120
+    # placed call ask if now suits (7,930 before). 5 Nov 2026: speech written as native
+    # speakers write it (F-5); a mid-call hello never restarts, "I don't remember you" gets
+    # who and why, and "what do you hold?" gets THIS CALL's name and details (8,120 before).
+    assert len(prompt) <= 8_200
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

@@ -61,7 +61,8 @@ async def test_the_drift_sweep_reports_and_repairs_the_switch() -> None:
 def test_the_console_defaults_to_the_vendor_default_and_republishes_live_agents() -> None:
     assert get_settings().thinnest_early_answers is True
     assert applies_rule("thinnest_early_answers").applies == LIVE_AGENTS
-    assert "billed" in meta_for("thinnest_early_answers").description
+    # The billing note is a detail, under Details since the one-line descriptions (A7-13).
+    assert "billed" in (meta_for("thinnest_early_answers").details or "")
 
 
 async def test_publish_reads_the_console(monkeypatch: pytest.MonkeyPatch) -> None:

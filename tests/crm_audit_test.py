@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -67,7 +68,9 @@ async def _call_row(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
                 "to_e164, status, duration_s, started_at, created_at, updated_at) VALUES "
                 "(:i, :t, :a, :e, 'outbound', '+919876500001', :st, :dur, "
-                "CAST(:started AS timestamptz), now(), now())"
+                # Performance windows calls by `started_at` (L3-20), so an unstated start
+                # is now rather than NULL.
+                "COALESCE(CAST(:started AS timestamptz), now()), now(), now())"
             ),
             {
                 "i": uuid7(),
@@ -113,9 +116,10 @@ async def test_the_ist_histogram_does_not_depend_on_the_database_timezone() -> N
     setting for a Bangalore deployment) than on one set to UTC.
     """
     tenant_id, agent_id = await _org()
-    # 05:30Z is 11:00 IST, exactly.
+    # 05:30Z is 11:00 IST, exactly; yesterday's, so it sits inside the 30-day window.
+    yesterday = (datetime.now(UTC) - timedelta(days=1)).date()
     await _call_row(
-        tenant_id, agent_id, status="completed", duration_s=60, started_at="2026-08-11T05:30:00Z"
+        tenant_id, agent_id, status="completed", duration_s=60, started_at=f"{yesterday}T05:30:00Z"
     )
 
     async with tenant_session(tenant_id) as session:

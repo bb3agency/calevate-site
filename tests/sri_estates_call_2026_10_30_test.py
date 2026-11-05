@@ -122,8 +122,7 @@ def test_the_echo_caller_says_the_accounts_own_name() -> None:
 
 def test_the_name_said_back_is_answered_once() -> None:
     assert (
-        "Asked who or why, or the business name said back? Say both in one line, once, "
-        "then stop and wait."
+        "Asked who or why, or the business name said back? Both in one line, once, wait."
     ) in OPENING_CONTINUES_RULE
     assert OPENING_CONTINUES_RULE in compose_engine_prompt(_anjali())
 

@@ -88,7 +88,7 @@ def test_the_prompt_quotes_the_exact_opening_already_spoken_and_says_to_go_on() 
 def test_who_is_calling_goes_on_to_the_first_question_in_every_direction() -> None:
     # An outbound agent had no who-is-calling rule, and on the call of 28 Oct 2026 it said
     # who and why and asked "can we talk now?" again (D-912).
-    who = "Say both in one line, once, then stop and wait"
+    who = "Both in one line, once, wait."
     assert who in OPENING_CONTINUES_RULE
     assert "good time" not in OPENING_CONTINUES_RULE
     for direction in ("inbound", "outbound", "both"):
@@ -109,8 +109,10 @@ def test_what_the_section_costs() -> None:
     # 498 before D-958, which named a hello said back and the business name again (+40); D-961
     # added the rule that a claim about the person needs THIS CALL (+77); D-965 what a no,
     # busy or later to the opening's question gets (+56). D-969 a placed call whose first turn
-    # did not ask if now suits says the name, who and why and asks it next (+131).
-    assert len(start) - len(spoken) < 812
+    # did not ask if now suits says the name, who and why and asks it next (+131). 5 Nov 2026:
+    # a later hello never restarts, "forgot us?" gets who and why, and "what do you hold?"
+    # gets THIS CALL's name and details (+104).
+    assert len(start) - len(spoken) < 920
 
 
 # --- the turn check -----------------------------------------------------------------------

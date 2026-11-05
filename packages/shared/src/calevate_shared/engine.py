@@ -4786,12 +4786,14 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: (checking the line) drew the opening again, greeting and name.
 #: "Not remembering us" (same call): "I don't remember registering, what is this?" drew "if
 #: it bothers you we can end the call now"; confusion is a question to answer, not a no.
+#: A bare "go on" after the yes names no next step, and "the name said back" could be the
+#: caller's own; both keep their object (D-864, D-947).
 OPENING_CONTINUES_RULE: Final = (
     " Never greet, say hello back, repeat it or its names, or re-ask if now suits, even after "
-    "answering. Asked who or why, or the name said back? Both in one line, once, wait. A "
-    "hello or yes, in any language, is a yes: go on. A no, busy or later? Ask when suits them, "
-    "or close politely. Forgot us? Who and why, go on. Later hello? You're here; go on, never "
-    "restart."
+    "answering. Asked who or why, or the business name said back? Both in one line, once, "
+    "wait. A hello or yes, in any language, is a yes: go on with why you call or your first "
+    "question. A no, busy or later? Ask when suits them, or close politely. Forgot us? Who and "
+    "why, go on. Later hello? You're here; go on, never restart."
 )
 
 

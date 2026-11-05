@@ -804,8 +804,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "billing",
         "prices",
         "Extra AI help block",
-        "What a client pays from calling credit for one more block of AI help in a month. "
-        "A block already bought keeps its amount.",
+        "What a client pays from calling credit for one more block of AI help in a month.",
+        details="A block already bought keeps its amount.",
     ),
     "usd_inr_rate": _m(
         "billing",
