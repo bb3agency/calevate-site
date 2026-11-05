@@ -134,6 +134,10 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
 
   return (
     <form className="space-y-5" onSubmit={onFinish} noValidate>
+      {/* The address typed on the previous step, so a phone's password manager saves the
+          new password against it rather than against no username (Chromium, "Create
+          amazing password forms": a hidden autocomplete="username" field). */}
+      <input type="email" name="username" autoComplete="username" value={email} readOnly hidden />
       <div className="space-y-1.5">
         <h1 className="text-balance text-2xl font-semibold tracking-tight text-ink">
           Check your email
@@ -161,6 +165,7 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
         label="Your name"
         name="name"
         autoComplete="name"
+        autoCapitalize="words"
         maxLength={120}
         value={name}
         onChange={(event) => setName(event.target.value)}
