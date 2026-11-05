@@ -152,7 +152,7 @@ def test_going_on_after_hello_passes_and_only_the_first_reply_is_judged() -> Non
 
 def test_the_hello_caller_is_a_standing_practice_test() -> None:
     cls = next(c for c in CLASSES if c.key == "specimen_hello_after_opening")
-    scenario = scenario_of(cls, "te-IN", "real_estate")
+    scenario = scenario_of(cls, "te-IN")
     assert scenario.turns == ("హలో.",)
     assert "Never greets again" in scenario.expect
     checked = hard_check(

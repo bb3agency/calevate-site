@@ -2,16 +2,18 @@
 
 A production call of 11 Oct 2026 (Raghava Organics, outbound, Telugu) is the specimen
 (`docs/evidence/specimen-call-raghava-2026-10-11.md`): it showed classes that can happen to
-any business in any language, so each class here is a caller written for several business
-types in Telugu, Hindi and English, never a chilli shop's lines. Every test run carries two
-of them, rotating by the run's round key, ahead of the AI-written callers; the hard checks
-(`agents/turn_checks`) fail the shapes a rule can see and the judge reads `expect` for the
-rest.
+any business in any language, so each class here is a caller any business can be practised
+against, never a chilli shop's lines. Every test run carries two of them, rotating by the
+run's round key, ahead of the AI-written callers; the hard checks (`agents/turn_checks`) fail
+the shapes a rule can see and the judge reads `expect` for the rest.
 
-The business words come from a dict keyed by the account's business type; the clinic lines
-sit under the key `"clinic"` and are used only for a clinic (D-722). A business judged to
-sell no goods (`agents/business_fit`) gets the class's `_neutral` lines where it has them,
-never a shop's, and no caller who "already bought it" when it sells nothing at all.
+What each caller SAYS is the founder's, in `calevate_shared/spoken_lines.json` (entries
+`specimen.<class>`), so no Telugu or Hindi is written here. Nothing in it is a trade's: the
+per-type rows ("one kilo of the powder", "a haircut slot") gave a business filed under the
+wrong type another trade's products (A-17). The one line about the business itself is its
+own copy's question (`BusinessFit.example_questions`), filled in for `{question}`. A business
+judged to sell no goods (`agents/business_fit`) gets the class's `.neutral` lines where it has
+them, and no caller who "already bought it" when it sells nothing at all.
 """
 
 from __future__ import annotations
@@ -20,6 +22,8 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
+
+from calevate_shared import spoken_lines
 
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.test_conversations import ASKS_WHAT_BUSINESS, Scenario
@@ -31,8 +35,8 @@ PER_RUN: Final = 2
 Lines = Mapping[str, str]
 
 _DEFAULT: Final = "_default"
-#: The lines for a business that sells no goods. English only: the Telugu and Hindi forms are
-#: the founder's to write (D-915), and `_line` falls back to English until then.
+#: The lines for a business that sells no goods. Mostly English only: the Telugu and Hindi
+#: forms are the founder's to write (D-915), and `_line` falls back to English until then.
 _NEUTRAL: Final = "_neutral"
 #: A caller line that is a question this business's callers ask (its copy's own), filled by
 #: `scenario_of`; said as `_NO_QUESTION` when the copy has none.
@@ -51,7 +55,8 @@ SILENCE: Final = "..."
 class SpecimenClass:
     key: str
     title: str
-    #: Per business type (or `_default`), the caller's turns in each language.
+    #: `_default` and, where the class has them, `_neutral`: the caller's turns in each
+    #: language.
     turns: Mapping[str, tuple[Lines, ...]]
     expect: str
     category: str = "edge"
@@ -59,66 +64,36 @@ class SpecimenClass:
     neutral_title: str = ""
     #: The caller assumes a sale; left out for a business judged to sell nothing.
     assumes_sale: bool = False
+    #: The `_neutral` lines ask the business's own question (`{question}`), so any business
+    #: whose copy names one hears them, not only one that sells no goods.
+    asks_own_question: bool = False
 
 
-def _turns(*lines: Lines) -> tuple[Lines, ...]:
-    return lines
+def _from_file(name: str) -> dict[str, tuple[Lines, ...]]:
+    """A class's turns from the founder's file: `specimen.<name>` and, where present,
+    `specimen.<name>.neutral`. Each entry holds a list of turns per language; a turn missing
+    (null) in a language is said in English, as a language missing altogether is."""
+    keys = {_DEFAULT: f"specimen.{name}", _NEUTRAL: f"specimen.{name}.neutral"}
+    present = set(spoken_lines.entry_keys())
+    turns: dict[str, tuple[Lines, ...]] = {}
+    for variant, key in keys.items():
+        if key not in present:
+            continue
+        by_language = spoken_lines.by_language(key)
+        count = len(by_language["en-IN"])
+        turns[variant] = tuple(
+            {tag: said[i] for tag, said in by_language.items() if said[i]} for i in range(count)
+        )
+    if _DEFAULT not in turns:
+        raise KeyError(f"spoken_lines.json has no entry specimen.{name}")
+    return turns
 
 
 CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_done_without_action",
         title="Wants to go ahead",
-        turns={
-            "retail": _turns(
-                {
-                    "te-IN": "ఒక కేజీ powder కావాలి, delivery చేయండి.",
-                    "hi-IN": "एक किलो पाउडर चाहिए, delivery कर दीजिए।",
-                    "en-IN": "I want one kilo of the powder, please deliver it.",
-                },
-                {
-                    "te-IN": "అవును, order చేయండి.",
-                    "hi-IN": "हाँ, order कर दीजिए।",
-                    "en-IN": "Yes, go ahead and order it.",
-                },
-            ),
-            "local_services": _turns(
-                {
-                    "te-IN": "శనివారం సాయంత్రం haircut కి slot కావాలి.",
-                    "hi-IN": "शनिवार शाम haircut के लिए slot चाहिए।",
-                    "en-IN": "I need a haircut slot on Saturday evening.",
-                },
-                {
-                    "te-IN": "సరే, book చేయండి.",
-                    "hi-IN": "ठीक है, book कर दीजिए।",
-                    "en-IN": "Fine, book it.",
-                },
-            ),
-            "clinic": _turns(
-                {
-                    "te-IN": "రేపు doctor ని చూపించుకోవాలి.",
-                    "hi-IN": "कल doctor को दिखाना है।",
-                    "en-IN": "I want to see the doctor tomorrow.",
-                },
-                {
-                    "te-IN": "సరే, fix చేయండి.",
-                    "hi-IN": "ठीक है, fix कर दीजिए।",
-                    "en-IN": "Okay, fix it.",
-                },
-            ),
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "సరే, మీరు చెప్పింది నాకు కావాలి.",
-                    "hi-IN": "ठीक है, मुझे वो चाहिए।",
-                    "en-IN": "Okay, I want that.",
-                },
-                {
-                    "te-IN": "అవును, ముందుకు వెళ్ళండి.",
-                    "hi-IN": "हाँ, आगे बढ़िए।",
-                    "en-IN": "Yes, go ahead.",
-                },
-            ),
-        },
+        turns=_from_file("done_without_action"),
         expect=(
             "Says honestly what happens next (the team will confirm, or what its connected "
             "action did). Never says an order is placed or confirmed, details saved, a slot "
@@ -129,16 +104,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_number_already_known",
         title="Asks to be sent the details",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "సరే, details పంపండి.",
-                    "hi-IN": "ठीक है, details भेज दीजिए।",
-                    "en-IN": "Okay, send me the details.",
-                },
-                {"te-IN": "సరే.", "hi-IN": "ठीक है।", "en-IN": "Sure."},
-            ),
-        },
+        turns=_from_file("number_already_known"),
         expect=(
             "Does not ask for a phone number: it already has the number this call is on. At "
             "most it asks whether to use this same number, and it never says the details "
@@ -148,16 +114,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_partial_number",
         title="Gives part of another number",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "వేరే నంబర్ కి పంపండి.",
-                    "hi-IN": "दूसरे नंबर पर भेजिए।",
-                    "en-IN": "Please use my other number.",
-                },
-                {"te-IN": "నంబర్ 9876.", "hi-IN": "नंबर 9876.", "en-IN": "It's 9876."},
-            ),
-        },
+        turns=_from_file("partial_number"),
         expect=(
             "Takes the number a few digits at a time and asks for the rest: four digits are "
             "not a mobile number, which has ten. Reads the whole number back digit by digit "
@@ -167,16 +124,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_goodbye_mid_question",
         title="Has a question at the end",
-        turns={
-            _DEFAULT: _turns(
-                {"te-IN": "సరే అండి.", "hi-IN": "ठीक है जी।", "en-IN": "Alright."},
-                {
-                    "te-IN": "మరి ఇందాక నేను చెప్తుంటే ఎందుకు ఆపేశారు?",
-                    "hi-IN": "पर अभी मैं बोल रहा था तो आपने क्यों रोक दिया?",
-                    "en-IN": "But why did you stop me when I was talking just now?",
-                },
-            ),
-        },
+        turns=_from_file("goodbye_mid_question"),
         expect=(
             "Answers the caller's question or complaint and stays on the line. Never says "
             "goodbye or ends the call while the caller is still asking something."
@@ -185,20 +133,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_asks_to_repeat",
         title="Asks to hear it again",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "మీ దగ్గర ఏం ఏం ఉంటాయి?",
-                    "hi-IN": "आपके पास क्या-क्या है?",
-                    "en-IN": "What do you offer?",
-                },
-                {
-                    "te-IN": "ఆ, మళ్ళా చెప్పండి.",
-                    "hi-IN": "हाँ, फिर से बताइए।",
-                    "en-IN": "Sorry, say that again?",
-                },
-            ),
-        },
+        turns=_from_file("asks_to_repeat"),
         expect=(
             "Says it again shorter and simpler, one point and at most one question, rather "
             "than repeating the whole turn word for word."
@@ -207,37 +142,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_fact_not_in_knowledge",
         title="Asks what a product is",
-        turns={
-            "retail": _turns(
-                {
-                    "te-IN": "మీ powder దేనితో చేస్తారు? ఏ మిర్చి వాడతారు?",
-                    "hi-IN": "आपका पाउडर किससे बनता है? कौन सी मिर्च?",
-                    "en-IN": "What is your powder made from? Which chilli?",
-                },
-            ),
-            "local_services": _turns(
-                {
-                    "te-IN": "hair colour కి ఏ products వాడతారు?",
-                    "hi-IN": "hair colour में कौन से products लगाते हैं?",
-                    "en-IN": "Which products do you use for hair colour?",
-                },
-            ),
-            "clinic": _turns(
-                {
-                    "te-IN": "doctor fee లో tests కూడా ఉంటాయా?",
-                    "hi-IN": "doctor की fee में tests भी शामिल हैं?",
-                    "en-IN": "Does the doctor's fee include the tests?",
-                },
-            ),
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "అది ఎలా తయారు చేస్తారు?",
-                    "hi-IN": "वो कैसे बनाते हैं?",
-                    "en-IN": "How is that made?",
-                },
-            ),
-            _NEUTRAL: _turns({"en-IN": QUESTION_SLOT}),
-        },
+        turns=_from_file("fact_not_in_knowledge"),
         expect=(
             "Answers only from the business's facts, saying product names the way the facts "
             "give them, never translated. If the facts do not say, it says it does not have "
@@ -245,30 +150,12 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
         ),
         category="business",
         neutral_title="Asks what its facts may not say",
+        asks_own_question=True,
     ),
     SpecimenClass(
         key="specimen_side_question",
         title="Breaks off with a side question",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "నాకు రెండు కావాలి, Guntur కి.",
-                    "hi-IN": "मुझे दो चाहिए, Guntur में।",
-                    "en-IN": "I need two of them, to Guntur.",
-                },
-                {
-                    "te-IN": "ఆగండి, ఆదివారం కూడా ఇస్తారా?",
-                    "hi-IN": "रुकिए, रविवार को भी देते हैं?",
-                    "en-IN": "Wait, do you do Sundays too?",
-                },
-                {"te-IN": "సరే, తర్వాత?", "hi-IN": "ठीक है, फिर?", "en-IN": "Okay, then?"},
-            ),
-            _NEUTRAL: _turns(
-                {"en-IN": "I'm calling from Guntur, and I need help with one thing."},
-                {"en-IN": "Wait, are you there on Sundays too?"},
-                {"te-IN": "సరే, తర్వాత?", "hi-IN": "ठीक है, फिर?", "en-IN": "Okay, then?"},
-            ),
-        },
+        turns=_from_file("side_question"),
         expect=(
             "Answers the side question, then carries on where it was without asking again "
             "for anything the caller already gave."
@@ -279,25 +166,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_half_answer",
         title="Cuts in mid-answer",
-        turns={
-            "retail": _turns(
-                {
-                    "te-IN": "powder కావాలండి ఒక",
-                    "hi-IN": "powder चाहिए एक",
-                    "en-IN": "I want the powder, one",
-                },
-            ),
-            "real_estate": _turns(
-                {
-                    "te-IN": "budget ఒక",
-                    "hi-IN": "budget एक",
-                    "en-IN": "the budget is around one",
-                },
-            ),
-            _DEFAULT: _turns(
-                {"te-IN": "నాకొక", "hi-IN": "मुझे एक", "en-IN": "I need one"},
-            ),
-        },
+        turns=_from_file("half_answer"),
         expect=(
             'Offers its reading as one short question with a way out ("just one, or more?") and '
             "waits. Never takes a guessed amount as said, never asks a second question in the "
@@ -307,16 +176,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_who_is_calling",
         title="Asks who is calling and why",
-        turns={
-            _DEFAULT: _turns(
-                {"te-IN": "Hello.", "hi-IN": "Hello.", "en-IN": "Hello."},
-                {
-                    "te-IN": "ఎవరు మాట్లాడేది? ఎందుకు call చేశారు?",
-                    "hi-IN": "कौन बोल रहा है? क्यों call किया?",
-                    "en-IN": "Who is this? Why are you calling?",
-                },
-            ),
-        },
+        turns=_from_file("who_is_calling"),
         expect=(
             "Stays in the language it greeted in on the bare hello. Asked who it is, says in "
             "one line that it is the business's AI assistant and what it can help with, then "
@@ -329,15 +189,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key=ASKS_WHAT_BUSINESS,
         title="Asks what business this is",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "అసలు మీది ఏం కంపెనీ అండి? మీరు ఏం చేస్తారు?",
-                    "hi-IN": "आपकी कंपनी कौन सी है? आप लोग क्या करते हैं?",
-                    "en-IN": "What company is this, actually? What do you do?",
-                },
-            ),
-        },
+        turns=_from_file("asks_what_business"),
         expect=(
             "Says in one line which business it is and what it does, then carries on. Says "
             "nothing about the call being recorded, which nobody asked; an AI or recording "
@@ -349,9 +201,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_hello_after_opening",
         title="Answers the opening with only hello",
-        turns={
-            _DEFAULT: _turns({"te-IN": "హలో.", "hi-IN": "हैलो।", "en-IN": "Hello."}),
-        },
+        turns=_from_file("hello_after_opening"),
         expect=(
             "Treats its opening as already said: goes straight on to why it is calling or its "
             "first question, in the language it opened in. Never greets again, never repeats "
@@ -361,15 +211,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_just_whatsapp",
         title="Asks for the details on WhatsApp",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "సరే, అన్నీ WhatsApp లో పెట్టండి.",
-                    "hi-IN": "ठीक है, सब WhatsApp पर भेज दीजिए।",
-                    "en-IN": "Fine, just put it all on WhatsApp.",
-                },
-            ),
-        },
+        turns=_from_file("just_whatsapp"),
         expect=(
             "Says the team will send it to this number, or what its connected action did; "
             "never says it was sent, never asks for the number, and never points them to a "
@@ -379,15 +221,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_already_bought",
         title="Already bought or booked elsewhere",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "నేను already వేరే చోట తీసుకున్నాను.",
-                    "hi-IN": "मैंने already कहीं और से ले लिया।",
-                    "en-IN": "I already got it somewhere else.",
-                },
-            ),
-        },
+        turns=_from_file("already_bought"),
         expect=(
             "Says that is fine, thanks them and closes politely with no second pitch and no "
             "do-not-call talk they did not ask for."
@@ -399,13 +233,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_echoes_business_name",
         title="Only says the business name back",
-        turns={
-            _DEFAULT: _turns(
-                {"te-IN": BUSINESS_SLOT, "hi-IN": BUSINESS_SLOT, "en-IN": BUSINESS_SLOT},
-                {"te-IN": BUSINESS_SLOT, "hi-IN": BUSINESS_SLOT, "en-IN": BUSINESS_SLOT},
-                {"te-IN": BUSINESS_SLOT, "hi-IN": BUSINESS_SLOT, "en-IN": BUSINESS_SLOT},
-            ),
-        },
+        turns=_from_file("echoes_business_name"),
         expect=(
             "Confirms once, in one line, who is calling and why, then waits. When only the "
             "name comes back again it never says a line it already said: it tries once in "
@@ -419,15 +247,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_busy_at_opening",
         title="Says no, busy right now",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "లేదు అండి, ఇప్పుడు busy గా ఉన్నాను.",
-                    "hi-IN": "नहीं जी, अभी busy हूँ।",
-                    "en-IN": "No, I'm busy right now.",
-                },
-            ),
-        },
+        turns=_from_file("busy_at_opening"),
         expect=(
             "Accepts it at once: offers a call back at a time that suits them if it can, or "
             "says the team will try another time, and closes in a line or two. Never asks its "
@@ -437,17 +257,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_ok_mid_steps",
         title="Says OK between steps",
-        turns={
-            _DEFAULT: _turns(
-                {
-                    "te-IN": "ఎలా మొదలుపెట్టాలి? ఒక్కొక్క step చెప్పండి.",
-                    "hi-IN": "शुरू कैसे करूँ? एक-एक step बताइए।",
-                    "en-IN": "How do I get started? Tell me step by step.",
-                },
-                {"te-IN": "సరే.", "hi-IN": "ठीक है।", "en-IN": "OK."},
-                {"te-IN": "సరే.", "hi-IN": "ठीक है।", "en-IN": "OK."},
-            ),
-        },
+        turns=_from_file("ok_mid_steps"),
         expect=(
             "Gives one step at a time and waits. Takes a bare OK as that step done and gives "
             "the next one; never repeats a step, never asks whether they need anything else "
@@ -457,14 +267,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
     SpecimenClass(
         key="specimen_silent",
         title="Stays silent on the line",
-        turns={
-            # The test chat cannot let twenty seconds pass, so a turn with no words stands in
-            # for each silence.
-            _DEFAULT: _turns(
-                {"te-IN": SILENCE, "hi-IN": SILENCE, "en-IN": SILENCE},
-                {"te-IN": SILENCE, "hi-IN": SILENCE, "en-IN": SILENCE},
-            ),
-        },
+        turns=_from_file("silent"),
         expect=(
             "Checks once, briefly, whether the caller is still there. If there is still "
             "nothing, says it will let them go and that they can call back, and closes. Never "
@@ -485,20 +288,16 @@ def _sells_goods(fit: BusinessFit) -> bool:
 def scenario_of(
     cls: SpecimenClass,
     language: str,
-    business_type: str,
     *,
     business_name: str = "",
     fit: BusinessFit = UNKNOWN,
 ) -> Scenario:
-    """One class as a test caller for this business type and language, `{business}` in a
-    line filled with the account's name. A business that sells no goods hears the class's
-    `_neutral` lines where it has them; one that sells nothing never hears its type's."""
-    goods = _sells_goods(fit)
-    turns = (
-        (cls.turns.get(business_type) if fit.assumes_sale else None)
-        or (None if goods else cls.turns.get(_NEUTRAL))
-        or cls.turns[_DEFAULT]
-    )
+    """One class as a test caller in this language, `{business}` in a line filled with the
+    account's name and `{question}` with its copy's first question. A business that sells no
+    goods, or whose copy names a question for a class that asks one, hears the class's
+    `_neutral` lines where it has them."""
+    neutral_fits = not _sells_goods(fit) or (cls.asks_own_question and fit.example_questions)
+    turns = (cls.turns.get(_NEUTRAL) if neutral_fits else None) or cls.turns[_DEFAULT]
     name = " ".join(business_name.split()) or _NO_BUSINESS_NAME
     question = fit.example_questions[0] if fit.example_questions else _NO_QUESTION
     neutral = turns is cls.turns.get(_NEUTRAL)
@@ -521,17 +320,15 @@ def classes_for(fit: BusinessFit = UNKNOWN) -> tuple[SpecimenClass, ...]:
 
 
 def all_specimen_scenarios(
-    language: str, business_type: str, *, business_name: str = "", fit: BusinessFit = UNKNOWN
+    language: str, *, business_name: str = "", fit: BusinessFit = UNKNOWN
 ) -> list[Scenario]:
     return [
-        scenario_of(cls, language, business_type, business_name=business_name, fit=fit)
-        for cls in classes_for(fit)
+        scenario_of(cls, language, business_name=business_name, fit=fit) for cls in classes_for(fit)
     ]
 
 
 def specimen_scenarios(
     language: str,
-    business_type: str,
     *,
     round_key: str,
     count: int = PER_RUN,
@@ -543,10 +340,7 @@ def specimen_scenarios(
     classes = classes_for(fit)
     start = int(hashlib.sha256(round_key.encode()).hexdigest()[:8], 16) % len(classes)
     picked = [classes[(start + i) % len(classes)] for i in range(min(count, len(classes)))]
-    return [
-        scenario_of(cls, language, business_type, business_name=business_name, fit=fit)
-        for cls in picked
-    ]
+    return [scenario_of(cls, language, business_name=business_name, fit=fit) for cls in picked]
 
 
 __all__ = [

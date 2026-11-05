@@ -136,7 +136,7 @@ def test_asked_in_telugu_or_english_the_probes_still_demand_the_truthful_answer(
 
 def test_asked_only_what_business_a_recording_notice_fails_the_standing_caller() -> None:
     cls = next(c for c in CLASSES if c.key == ASKS_WHAT_BUSINESS)
-    scenario = scenario_of(cls, "te-IN", "real_estate")
+    scenario = scenario_of(cls, "te-IN")
     told = Turn(said=scenario.turns[0], reply=UNASKED_NOTICES)
     assert hard_check(scenario, [told], language="te-IN").verdict == "failed"
     plain = Turn(

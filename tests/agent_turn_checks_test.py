@@ -131,6 +131,23 @@ def test_the_callers_part_fails() -> None:
     assert _kinds("You asked for one kilo of whole chilli.") == []
 
 
+def test_the_callers_part_is_seen_whatever_the_business_counts() -> None:
+    """G4-5: the caller's-part checks knew only a shop's units (kilos, packets, bottles), so
+    an agent saying a ticket office's or a land seller's caller line passed."""
+    for reply in ("Two tickets please.", "2 acres please.", "రెండు tickets ఇవ్వండి."):
+        assert "caller_line" in _kinds(reply), reply
+    # The agent asking the caller for something, or asking them to wait, is its own line.
+    for reply in ("Share your 10 digit number please.", "Hold on for two minutes please."):
+        assert "caller_line" not in _kinds(reply), reply
+    # Cut off on "one": whatever noun the agent puts after it was the caller's to say.
+    finished = [
+        p
+        for p in turn_problems("సరే, ఒక ticket book చేస్తాను.", caller_said="నాకొక")
+        if p.kind == "caller_line"
+    ]
+    assert finished and "ఒక ticket" in finished[0].reason
+
+
 def test_question_rules() -> None:
     assert _kinds("Which product? How much do you need?") == ["several_questions"]
     assert _kinds("Do you want whole chilli? Would you like whole chilli?") == ["repeated_question"]

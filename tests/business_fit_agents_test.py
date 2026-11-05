@@ -200,13 +200,13 @@ def test_the_neutral_trade_names_only_what_the_business_does() -> None:
 
 def test_an_unjudged_plan_raises_no_price() -> None:
     """G2-3: a price objection only for a business judged to quote prices."""
-    plan = playbook_for("custom", "call_leads", starters.TRADES["custom"])
+    plan = playbook_for("call_leads", starters.TRADES["custom"])
     assert "Can you just tell me the price?" not in [o for o, _r in plan.objections]
     assert "How much does it cost?" not in [o for o, _r in plan.objections]
-    priced = playbook_for("custom", "call_leads", starters.TRADES["custom"], SHOP)
+    priced = playbook_for("call_leads", starters.TRADES["custom"], SHOP)
     assert "How much does it cost?" in [o for o, _r in priced.objections]
     seller = replace(SHOP, objections=())
-    judged = playbook_for("custom", "call_leads", starters.TRADES["custom"], seller)
+    judged = playbook_for("call_leads", starters.TRADES["custom"], seller)
     assert "Can you just tell me the price?" not in [o for o, _r in judged.objections]
     assert "How much does it cost?" in [o for o, _r in judged.objections]
 
@@ -340,39 +340,36 @@ def test_a_business_that_prices_but_takes_no_orders_gets_a_neutral_price_caller(
 
 
 def test_a_helplines_specimen_callers_carry_no_shop_lines() -> None:
-    for business_type in ("retail", "custom"):
-        callers = specimens.all_specimen_scenarios(
-            "te-IN", business_type, business_name="Rytu Khata", fit=HELPLINE
-        )
-        keys = {s.key for s in callers}
-        assert "specimen_already_bought" not in keys
-        side = next(s for s in callers if s.key == "specimen_side_question")
-        assert "two of them" not in " ".join(side.turns)
-        fact = next(s for s in callers if s.key == "specimen_fact_not_in_knowledge")
-        assert fact.turns == ("How do I add my crop to the app?",)
-        assert fact.title == "Asks what its facts may not say"
-        done = next(s for s in callers if s.key == "specimen_done_without_action")
-        assert "powder" not in " ".join(done.turns)
-    unknown = specimens.all_specimen_scenarios("en-IN", "custom", business_name="Acme")
+    callers = specimens.all_specimen_scenarios("te-IN", business_name="Rytu Khata", fit=HELPLINE)
+    keys = {s.key for s in callers}
+    assert "specimen_already_bought" not in keys
+    side = next(s for s in callers if s.key == "specimen_side_question")
+    assert "two of them" not in " ".join(side.turns)
+    fact = next(s for s in callers if s.key == "specimen_fact_not_in_knowledge")
+    assert fact.turns == ("How do I add my crop to the app?",)
+    assert fact.title == "Asks what its facts may not say"
+    done = next(s for s in callers if s.key == "specimen_done_without_action")
+    assert "powder" not in " ".join(done.turns)
+    unknown = specimens.all_specimen_scenarios("en-IN", business_name="Acme")
     assert "specimen_already_bought" not in {s.key for s in unknown}
     fact = next(
         s
         for s in specimens.all_specimen_scenarios(
-            "en-IN", "custom", fit=replace(HELPLINE, example_questions=())
+            "en-IN", fit=replace(HELPLINE, example_questions=())
         )
         if s.key == "specimen_fact_not_in_knowledge"
     )
     assert fact.turns == ("Can you tell me more about how that works?",)
     picked = specimens.specimen_scenarios(
-        "en-IN", "custom", round_key="r", count=len(specimens.CLASSES), fit=HELPLINE
+        "en-IN", round_key="r", count=len(specimens.CLASSES), fit=HELPLINE
     )
     assert "specimen_already_bought" not in {s.key for s in picked}
-    # A clinic sells: it keeps its own lines and the "already bought" caller.
+    # A clinic sells: it keeps the "already bought" caller, and hears no trade's lines (A-17).
     clinic = replace(SHOP, takes_orders=False)
-    kept = specimens.all_specimen_scenarios("en-IN", "clinic", fit=clinic)
+    kept = specimens.all_specimen_scenarios("en-IN", fit=clinic)
     assert "specimen_already_bought" in {s.key for s in kept}
     assert next(s for s in kept if s.key == "specimen_fact_not_in_knowledge").turns == (
-        "Does the doctor's fee include the tests?",
+        "Can you tell me more about how that works?",
     )
 
 

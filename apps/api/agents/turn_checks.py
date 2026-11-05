@@ -219,10 +219,27 @@ _LABEL: Final = re.compile(
     _say("turn_checks._LABEL"),
     re.IGNORECASE,
 )
+#: A measured amount: a number and one of the founder's measures, in any letters ("1 kg",
+#: "half a litre", and their Telugu and Hindi forms).
 _QUANTITY: Final = re.compile(
     _say("turn_checks._QUANTITY"),
     re.IGNORECASE,
 )
+#: A count of anything a business deals in, so the check is not a shop's alone (G4-5): a
+#: number in digits or in the words of any call language, then a noun in Latin letters,
+#: which is how callers say most things they ask for ("2 tickets", "two acres", a Telugu
+#: number before "tickets"). A noun in Indian letters is matched only through the founder's
+#: measures above, which no code may add to. Not a wait ("two minutes") or a phone number's
+#: length ("10 digit"), which an agent asks for in its own voice.
+_COUNTED: Final = re.compile(
+    r"(?:^|(?<=\s))(?:\d+(?:\.\d+)?\s*|(?:one|two|three|four|five|six|seven|eight|nine|ten|"
+    rf"{_say('turn_checks._TE_NUMBER')}|{_say('turn_checks._HI_NUMBER')})\s+)"
+    r"(?!(?:minutes?|mins?|seconds?|secs?|moments?|hours?|hrs?|digits?)\b)[A-Za-z]{2,}\b",
+    re.IGNORECASE,
+)
+#: The agent speaking to the caller ("your number please"), which an order by the caller
+#: never does.
+_TO_THE_CALLER: Final = re.compile(r"\byou(?:r|rs)?\b", re.IGNORECASE)
 #: How a caller ends an order: "please" in English, "give" or "want" in Telugu and Hindi.
 _ORDER_ENDING: Final = re.compile(_say("turn_checks._ORDER_ENDING"), re.IGNORECASE)
 _OR: Final = re.compile(_say("turn_checks._OR"), re.IGNORECASE)
@@ -372,12 +389,13 @@ def _answered_own_choice(parts: list[str]) -> str | None:
 
 
 def _caller_order(parts: list[str]) -> str | None:
+    """A statement shaped like the caller asking for an amount of something ("two tickets
+    please", "ఒక కిలో ఇవ్వండి"): the agent said the caller's part."""
     for sentence in parts:
-        if (
-            not _is_question(sentence)
-            and _QUANTITY.search(sentence)
-            and _ORDER_ENDING.search(sentence)
-        ):
+        if _is_question(sentence) or not _ORDER_ENDING.search(sentence):
+            continue
+        counted = _COUNTED.search(sentence) and not _TO_THE_CALLER.search(sentence)
+        if counted or _QUANTITY.search(sentence):
             return sentence
     return None
 
@@ -386,11 +404,6 @@ def _caller_order(parts: list[str]) -> str | None:
 _EN_NUMBER: Final = "one|two|three|four|five|six|seven|eight|nine|ten|half|hundred|thousand"
 #: Telugu joins "నాకు" and "ఒక" into "నాకొక", so a word ending in "కొక" ends on "ఒక".
 _TE_JOINED_ONE: Final = _say("turn_checks._TE_JOINED_ONE")
-#: A unit right after the number the agent supplied ("ఒక కేజీ", "one kg").
-_UNIT: Final = re.compile(
-    _say("turn_checks._UNIT"),
-    re.IGNORECASE,
-)
 
 
 #: Telugu number forms that need a noun after them: "ఒక" (a, one) and "అర" (half). The
@@ -434,9 +447,13 @@ def broke_off(caller_said: str) -> bool:
 
 def _finished_cut_line(caller_said: str, reply: str) -> str | None:
     """The caller's line stopped on a number ("నాకొక", cut by the turn timer on the call of 21
-    Oct 2026) and the reply supplied the unit as if they had said it ("ఒక కేజీ"): the agent
-    finished the caller's sentence. The words it supplied, or None. Offering the reading as a
-    question ("ఒక కేజీ కావాలా, ఇంకా ఎక్కువా?") is the right move, not a finished line (D-856)."""
+    Oct 2026) and the reply supplied what it counts as if they had said it ("ఒక కేజీ"): the
+    agent finished the caller's sentence. The words it supplied, or None. Offering the
+    reading as a question ("ఒక కేజీ కావాలా, ఇంకా ఎక్కువా?") is the right move, not a finished
+    line (D-856).
+
+    Any word after the number counts, not a list of units: the number needs a noun, so the
+    noun the agent put there is the caller's, whether a kilo, a ticket or an acre (G4-5)."""
     said = _words(caller_said)
     number = _number_word(said[-1]) if said else None
     if number is None:
@@ -446,7 +463,7 @@ def _finished_cut_line(caller_said: str, reply: str) -> str | None:
             continue
         words = _words(sentence)
         for i, word in enumerate(words[:-1]):
-            if word == number.lower() and _UNIT.match(words[i + 1]):
+            if word == number.lower():
                 return f"{words[i]} {words[i + 1]}"
     return None
 

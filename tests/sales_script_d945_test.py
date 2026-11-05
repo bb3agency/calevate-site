@@ -45,7 +45,6 @@ from apps.api.agents.test_conversations import (
 )
 from apps.api.agents.trade_playbooks import (
     JOB_SHAPES,
-    TRADE_WORDS,
     VALUE_STEP_TITLE,
     playbook_for,
     playbook_guidance,
@@ -316,10 +315,9 @@ def test_the_brief_carries_the_manifest_the_facts_and_the_sixth_answer() -> None
 
 
 def test_calling_plans_say_one_true_fact_then_offer_two_exact_times() -> None:
-    for trade, words in TRADE_WORDS.items():
-        assert words.value_topics, trade
+    for trade in starters.TRADES:
         for job in ("call_leads", "call_new_leads"):
-            plan = playbook_for(trade, job, starters.TRADES[trade], _BOOKS)
+            plan = playbook_for(job, starters.TRADES[trade], _BOOKS)
             titles = [step.title for step in plan.steps]
             value = titles.index(VALUE_STEP_TITLE)
             assert titles[value - 1] == "Find out what they need"
@@ -338,11 +336,12 @@ def test_calling_plans_say_one_true_fact_then_offer_two_exact_times() -> None:
                 "I don't want to talk to a machine.",
             ):
                 assert asked in objections or job == "call_new_leads", (trade, asked)
-        answering = playbook_for(trade, "answer_calls", starters.TRADES[trade])
+        answering = playbook_for("answer_calls", starters.TRADES[trade])
         assert VALUE_STEP_TITLE not in [step.title for step in answering.steps]
     assert set(JOB_SHAPES) >= {"call_leads", "call_new_leads"}
     guide = playbook_guidance("real_estate", "outbound")
-    assert VALUE_STEP_TITLE in guide and "possession date" in guide
+    # The value step looks where the business's own copy says (A-18), not a trade's topics.
+    assert VALUE_STEP_TITLE in guide and "possession date" not in guide
 
 
 # --- the turn checks ---------------------------------------------------------------------

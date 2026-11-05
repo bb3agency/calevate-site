@@ -78,7 +78,7 @@ def test_the_calls_repeated_line_fails_the_test_as_ours_to_fix() -> None:
     assert "said_again" in kinds
     assert "said_again" in JOB_KINDS
     cls = next(c for c in CLASSES if c.key == "specimen_echoes_business_name")
-    checked = hard_check(scenario_of(cls, "te-IN", "real_estate"), list(CALL), language="te-IN")
+    checked = hard_check(scenario_of(cls, "te-IN"), list(CALL), language="te-IN")
     assert checked.verdict == "failed"
     assert checked.fix == "platform"
     assert "a line it had already said on this call" in checked.reason
@@ -111,10 +111,10 @@ def test_a_short_courtesy_twice_is_ordinary_speech() -> None:
 
 def test_the_echo_caller_says_the_accounts_own_name() -> None:
     cls = next(c for c in CLASSES if c.key == "specimen_echoes_business_name")
-    scenario = scenario_of(cls, "te-IN", "real_estate", business_name="Sri  Estates")
+    scenario = scenario_of(cls, "te-IN", business_name="Sri  Estates")
     assert scenario.turns == ("Sri Estates.",) * 3
     assert "never says a line it already said" in scenario.expect
-    assert scenario_of(cls, "en-IN", "retail").turns == ("Hello.",) * 3
+    assert scenario_of(cls, "en-IN").turns == ("Hello.",) * 3
 
 
 # --- the rules ----------------------------------------------------------------------------

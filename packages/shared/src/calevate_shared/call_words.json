@@ -1,5 +1,5 @@
 {
-  "about": "FOUNDER-OWNED. The words the call checks listen for in Indian languages, moved out of code on 5 Nov 2026 unchanged (founder rule: no Telugu or Hindi written in code). Read by calevate_shared/call_words.py. Keys are <module>.<name in that module>: turn_checks = the checks behind 'Mistakes on real calls' (apps/api/agents/turn_checks.py); detection = the 'Questions to answer' detector (apps/api/insights/detection.py); call_language = the test for a summary written in romanised Telugu or Hindi (apps/workers/call_language.py); offline_extractor = the no-network extractor (apps/workers/extraction.py); optout = the do-not-call detector (apps/api/compliance/optout.py), whose two entries are tables by language and have their use written under notes; opening_notices = the AI and recording words (calevate_shared/opening_notices.py); script_lint = the script checks (apps/api/agents/script_lint.py); teach_questions = the opening-hours and address detectors (apps/api/teach/questions.py); test_conversations = the price and put-through detectors of practice runs (apps/api/agents/test_conversations.py). Where a pattern also has English alternatives, the English stays in code and only the Indian-language alternatives are here, so emptying one never switches off the English check. A string value is a regular-expression fragment: alternatives separated by |, (?: ) groups, \\s for a space, \\S* for 'any ending'; English alternatives that sat in the same pattern moved with it. A list value is a list of words. Emptying a value switches that check's words off (it then finds nothing). Every value was written by engineers, not native speakers: each is needs_native_review. Words the founder is asked to supply are listed under 'missing' with what they are for.",
+  "about": "FOUNDER-OWNED. The words the call checks listen for in Indian languages, moved out of code on 5 Nov 2026 unchanged (founder rule: no Telugu or Hindi written in code). Read by calevate_shared/call_words.py. Keys are <module>.<name in that module>: turn_checks = the checks behind 'Mistakes on real calls' (apps/api/agents/turn_checks.py); detection = the 'Questions to answer' detector (apps/api/insights/detection.py); call_language = the test for a summary written in romanised Telugu or Hindi (apps/workers/call_language.py); offline_extractor = the no-network extractor (apps/workers/extraction.py); optout = the do-not-call detector (apps/api/compliance/optout.py), whose two entries are tables by language and have their use written under notes; opening_notices = the AI and recording words (calevate_shared/opening_notices.py); script_lint = the script checks (apps/api/agents/script_lint.py); teach_questions = the opening-hours and address detectors (apps/api/teach/questions.py); test_conversations = the price and put-through detectors of practice runs (apps/api/agents/test_conversations.py); call_purpose = the promotional-wording check that can block a campaign launch (apps/api/compliance/call_purpose.py), whose rules entry is a table keyed '<language> <category> <severity>' with its use written under notes; spoken_guard = the greeting at the start of a line (calevate_shared/spoken_guard.py). Where a pattern also has English alternatives, the English stays in code and only the Indian-language alternatives are here, so emptying one never switches off the English check. A string value is a regular-expression fragment: alternatives separated by |, (?: ) groups, \\s for a space, \\S* for 'any ending'; English alternatives that sat in the same pattern moved with it. A list value is a list of words. Emptying a value switches that check's words off (it then finds nothing). Every value was written by engineers, not native speakers: each is needs_native_review. Words the founder is asked to supply are listed under 'missing' with what they are for.",
   "review": "needs_native_review",
   "missing": {
     "turn_checks.question_words": "Telugu and Hindi question words with an ending joined on, as callers say them (the Telugu for 'how much for', 'to where', 'from when', 'by when'). Only whole bare question words are heard as a question today, so such a question without a '?' is missed (5 Nov 2026, L5-05). Add each form to this list.",
@@ -68,7 +68,6 @@
       "जी"
     ],
     "turn_checks._TE_JOINED_ONE": "కొక",
-    "turn_checks._UNIT": "^(?:kg|kgs|kilo|kilos|g|gm|grams?|litres?|liters?|packets?|packs?|pieces?|dozen|boxes?|bags?|bottles?|కిలో\\S*|కేజీ\\S*|ప్యాకెట్\\S*|लीटर|किलो|पैकेट)$",
     "turn_checks._NEEDS_A_NOUN": [
       "ఒక",
       "అర"
@@ -702,11 +701,104 @@
     "teach_questions._HOURS_PATTERN": "గంటల|సమయం|बजे|खुल",
     "teach_questions._ADDRESS_PATTERN": "చిరునామా|पता",
     "test_conversations.PRICE_PATTERN": "రూపాయ|ధర|रुपय|रुपए|रुपये|कीमत|दाम",
-    "test_conversations._PRETENDS_TO_CONNECT": "(?:కలుపుతున్నాను|కలుపుతాను|కనెక్ట్ చేస్తున్నాను|కనెక్ట్ చేస్తాను|connect చేస్తున్నాను|connect చేస్తాను|ట్రాన్స్ఫర్ చేస్తున్నాను|transfer చేస్తున్నాను|transfer చేస్తాను)|(?:जोड़ रहा|जोड़ रही|कनेक्ट कर रहा|कनेक्ट कर रही|ट्रांसफर कर रहा|ट्रांसफर कर रही)"
+    "test_conversations._PRETENDS_TO_CONNECT": "(?:కలుపుతున్నాను|కలుపుతాను|కనెక్ట్ చేస్తున్నాను|కనెక్ట్ చేస్తాను|connect చేస్తున్నాను|connect చేస్తాను|ట్రాన్స్ఫర్ చేస్తున్నాను|transfer చేస్తున్నాను|transfer చేస్తాను)|(?:जोड़ रहा|जोड़ रही|कनेक्ट कर रहा|कनेक्ट कर रही|ट्रांसफर कर रहा|ट्रांसफर कर रही)",
+    "call_purpose.rules": {
+      "te discount strong": [
+        "డిస్కౌంట్",
+        "తగ్గింపు",
+        "రాయితీ",
+        "క్యాష్‌బ్యాక్",
+        "క్యాష్ బ్యాక్",
+        "కూపన్",
+        "ఆఫర్",
+        "ప్రత్యేక ధర"
+      ],
+      "te urgency strong": [
+        "పరిమిత కాలం",
+        "పరిమిత సమయం",
+        "ఈ రోజు మాత్రమే",
+        "ఈరోజు మాత్రమే",
+        "త్వరపడండి",
+        "చివరి అవకాశం"
+      ],
+      "te urgency soft": [
+        "ఆలస్యం చేయకండి"
+      ],
+      "te buy_now strong": [
+        "ఇప్పుడే కొనండి",
+        "ఇప్పుడే ఆర్డర్ చేయండి"
+      ],
+      "te free_offer strong": [
+        "ఉచిత బహుమతి"
+      ],
+      "te discount soft": [
+        "బెస్ట్ ప్రైస్"
+      ],
+      "te cross_sell soft": [
+        "కొత్త స్కీమ్",
+        "కొత్త ప్లాన్",
+        "కొత్త ప్రాజెక్ట్",
+        "కొత్త ఉత్పత్తి"
+      ],
+      "hi discount strong": [
+        "डिस्काउंट",
+        "कैशबैक",
+        "कूपन",
+        "ऑफर",
+        "ऑफ़र",
+        "विशेष कीमत",
+        "खास कीमत",
+        "स्पेशल प्राइस",
+        "छूट"
+      ],
+      "hi urgency strong": [
+        "सीमित समय",
+        "सीमित अवधि",
+        "सिर्फ आज",
+        "केवल आज",
+        "जल्दी करें",
+        "आखिरी मौका",
+        "मौका न चूकें"
+      ],
+      "hi buy_now strong": [
+        "अभी खरीदें",
+        "अभी ऑर्डर करें"
+      ],
+      "hi free_offer strong": [
+        "मुफ्त उपहार",
+        "मुफ़्त उपहार",
+        "फ्री गिफ्ट"
+      ],
+      "hi discount soft": [
+        "बेस्ट प्राइस"
+      ],
+      "hi cross_sell soft": [
+        "नई स्कीम",
+        "नया प्लान",
+        "नई योजना",
+        "नया प्रोजेक्ट"
+      ]
+    },
+    "call_purpose._FREE_INDIC": "ఉచిత|ఫ్రీ|मुफ्त|मुफ़्त|फ्री",
+    "call_purpose._FREE_INDIC_BENIGN_AFTER": "^\\s*(?:పార్కింగ్|వైఫై|గా|టైం|బహుమతి|पार्किंग|वाईफाई|हैं|हो|है क्या|उपहार|गिफ्ट)",
+    "call_purpose._NEGATION_AFTER_RE": "లేదు|లేవు|ఉండదు|ఉండవు|ఇవ్వము|ఇవ్వం|नहीं",
+    "call_purpose._NEGATION_HI_BEFORE": "नहीं|कोई भी",
+    "call_purpose._INDIC_EVERYDAY_AFTER": {
+      "छूट": "^(?:[ा-ौ]|\\s*(?:ग|जा|गय|गई|गए))",
+      "ఆఫర్": "^[\\s‌]*(?:లెటర్|చేయ|చేస్|చేసి|చెయ్య)",
+      "ऑफर": "^[\\s‌]*(?:लेटर|कर)",
+      "ऑफ़र": "^[\\s‌]*(?:लेटर|कर)"
+    },
+    "call_purpose._INDIC_EVERYDAY_BEFORE": {
+      "छूट": "(?:टैक्स|आयकर|कर|जीएसटी)\\s*$"
+    },
+    "spoken_guard._GREETING_HEAD.greetings": "నమస్కారం|నమస్కారాలు|నమస్తే|హలో|హాయ్|नमस्ते|नमस्कार|हैलो|हेलो",
+    "spoken_guard._GREETING_HEAD.honorifics": "అండి|గారు|जी"
   },
   "notes": {
     "turn_checks.word_languages": "The languages, by two-letter code, whose words the turn_checks lists in this file were written for. English is in code. A practice run in any other language says on its result that word-by-word checks do not cover that language yet. Add a code here only once that language's words are in the turn_checks lists.",
     "optout.patterns": "How a caller says 'do not call me again', per language, as regular expressions over the caller's words (the do-not-call ledger, TRAI). A staged language may not be switched on until it has patterns here (agents/languages readiness). Each entry is [rule id, pattern]; a plain phrase is a valid pattern. English is in code. Precision matters, because a match makes the number undiallable for the client: match the negative form only (Telugu cheyakandi or cheyyoddu, never cheyandi; Hindi mat karo, never karo); a removal verb only ('number teesi pettukondi' is 'note the number down'); and never 'phone band karo', which is 'hang up'. The native-script lists are smaller than the romanised ones, written from the language rather than from observed speech-to-text output, and should grow from the first native-script transcripts. tests/call_optout_test.py holds a negative example for each rule.",
-    "optout.not_now": "'Now' a few words before an opt-out makes it 'not now' (another time), per language: latin is matched as whole words, native as written."
+    "optout.not_now": "'Now' a few words before an opt-out makes it 'not now' (another time), per language: latin is matched as whole words, native as written.",
+    "call_purpose.rules": "Promotional wording in a call script, matched as written inside words (both scripts join endings to a noun). Key: language (te or hi), category (discount, urgency, free_offer, cross_sell, buy_now, claim) and severity (strong blocks a campaign launch; soft only asks the client to check). Keep a word strong only when it is promotional in any sentence: 'do not delay' (te urgency soft) is also 'do not be late', which every appointment reminder says. A word with an everyday sense is told apart by the words after or before it in call_purpose._INDIC_EVERYDAY_AFTER and _BEFORE (Hindi chhoot as 'was missed' or a tax exemption, offer as the verb 'to offer' or a job offer letter). An unknown key fails the build; an emptied list switches that rule off."
   }
 }

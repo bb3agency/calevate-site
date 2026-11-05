@@ -87,7 +87,7 @@ def _cfg(direction: str, *, opening: str = "") -> AgentConfig:
 def test_no_plan_or_starter_tells_the_agent_what_the_person_did() -> None:
     for trade, basics in TRADES.items():
         for job in JOB_SHAPES:
-            plan = playbook_for(trade, job, basics)
+            plan = playbook_for(job, basics)
             for step in plan.steps:
                 assert not _claims(step.instruction), (trade, job, step.title)
             for asked, does in plan.objections:
@@ -98,7 +98,7 @@ def test_no_plan_or_starter_tells_the_agent_what_the_person_did() -> None:
 
 
 def test_where_did_you_get_my_number_is_answered_from_the_call() -> None:
-    plan = playbook_for("custom", "call_leads", TRADES["custom"])
+    plan = playbook_for("call_leads", TRADES["custom"])
     answer = dict(plan.objections)["Where did you get my number?"]
     assert "THIS CALL" in answer
 

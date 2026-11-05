@@ -31,6 +31,8 @@ CHECKED = (
     "apps/api/agents/script_lint.py",
     "apps/api/teach/questions.py",
     "apps/api/agents/test_conversations.py",
+    "apps/api/compliance/call_purpose.py",
+    "packages/shared/src/calevate_shared/spoken_guard.py",
 )
 INDIC = re.compile("[ऀ-ॿఀ-౿]")
 #: Unicode block ends and the danda: how a script or a sentence end is recognised, not words.
@@ -109,3 +111,25 @@ def test_detector_words_live_in_one_file() -> None:
         assert INDIC.search(call_words.say(key))
     assert says_ai("I am an AI assistant")
     assert says_recorded("This call is recorded")
+
+
+def test_the_promo_and_greeting_words_moved_unchanged_and_still_match() -> None:
+    """G4-6: the launch gate's promotional words and the greeting detector read the founder's
+    file, and still see what they saw when the words sat in code."""
+    from apps.api.compliance.call_purpose import first_finding
+    from calevate_shared.spoken_guard import opens_with_greeting, without_greeting
+
+    rules = call_words.table("call_purpose.rules")
+    assert {"te discount strong", "hi discount strong", "te urgency soft"} <= set(rules)
+    for words in rules.values():
+        word = words[0]
+        found = first_finding(f"Today {word} for you")
+        assert found is not None, word
+    # A Hindi "not" after the word negates it.
+    hindi = rules["hi discount strong"][0]
+    negation = call_words.say("call_purpose._NEGATION_HI_BEFORE").split("|")[0]
+    assert first_finding(f"{hindi} {negation}") is None
+    greeting = call_words.say("spoken_guard._GREETING_HEAD.greetings").split("|")[0]
+    honorific = call_words.say("spoken_guard._GREETING_HEAD.honorifics").split("|")[0]
+    assert opens_with_greeting(f"{greeting} {honorific}, what next?")
+    assert without_greeting(f"{greeting} {honorific}, what next?") == "what next?"

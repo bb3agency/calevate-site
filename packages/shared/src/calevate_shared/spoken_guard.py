@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from typing import Final, Literal
 
 from calevate_shared.call_script import substitute_variables
+from calevate_shared.call_words import extend as _extend
 from calevate_shared.spoken_style import (
     caller_guidance,
     pack_facts_rule,
@@ -59,7 +60,7 @@ def _uses_word(text: str, word: str) -> bool:
 
 #: Every Indic script India uses, Devanagari (U+0900) through Malayalam (U+0D7F), except the
 #: danda and double danda (U+0964-5), which are punctuation.
-_INDIC_LETTER: Final = re.compile("[ऀ-ॣ०-ൿ]")
+_INDIC_LETTER: Final = re.compile(f"[{chr(0x0900)}-{chr(0x0963)}{chr(0x0966)}-{chr(0x0D7F)}]")
 
 
 def textbook_words(text: str, tag: str | None) -> list[tuple[str, str]]:
@@ -163,11 +164,15 @@ def question_end_problem(where: str, text: str) -> str | None:
 #: "नमस्ते जी,") and the punctuation after it. One pattern for the practice check that a reply
 #: greeted a second time (`agents/turn_checks.opened_again`, D-864), the writers' check that an
 #: opening said after the agent's introduction does not greet (D-865), and the composer that
-#: drops a greeting the introduction already said (`engine.join_first_words`).
+#: drops a greeting the introduction already said (`engine.join_first_words`). The greetings
+#: and honorifics in Indian letters are the founder's (`call_words.json`).
+_GREETINGS: Final = _extend(
+    r"hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)",
+    "spoken_guard._GREETING_HEAD.greetings",
+)
+_HONORIFICS: Final = _extend("ji|andi|garu|sir|madam", "spoken_guard._GREETING_HEAD.honorifics")
 _GREETING_HEAD: Final = re.compile(
-    r"^\W*(?:hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|"
-    r"నమస్కారం|నమస్కారాలు|నమస్తే|హలో|హాయ్|नमस्ते|नमस्कार|हैलो|हेलो)(?=[\s,.!?।]|$)"
-    r"(?:\s+(?:అండి|గారు|जी|ji|andi|garu|sir|madam)(?=[\s,.!?।]|$))?[\s,.!?।]*",
+    rf"^\W*(?:{_GREETINGS})(?=[\s,.!?।]|$)(?:\s+(?:{_HONORIFICS})(?=[\s,.!?।]|$))?[\s,.!?।]*",
     re.IGNORECASE,
 )
 
