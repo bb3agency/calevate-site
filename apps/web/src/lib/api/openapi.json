@@ -21566,6 +21566,21 @@
         "additionalProperties": false,
         "description": "One `job`'s share of the outbox DLQ.\n\nNever the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields\nand phone numbers. `last_error` is the most recent failure's error, which is redacted\nwhen it is written (`reliability.service._stored_error`), so an operator can see why a\njob failed before resending it.",
         "properties": {
+          "cause": {
+            "anyOf": [
+              {
+                "enum": [
+                  "never_ran",
+                  "earlier_run_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause"
+          },
           "depth": {
             "title": "Depth",
             "type": "integer"
@@ -21600,7 +21615,8 @@
           "label",
           "depth",
           "oldest_at",
-          "last_error"
+          "last_error",
+          "cause"
         ],
         "title": "DeadLetterJobOut",
         "type": "object"
@@ -21622,6 +21638,14 @@
           },
           "depth": {
             "title": "Depth",
+            "type": "integer"
+          },
+          "held_for_bulk_worker": {
+            "title": "Held For Bulk Worker",
+            "type": "integer"
+          },
+          "held_for_release": {
+            "title": "Held For Release",
             "type": "integer"
           },
           "oldest_at": {
@@ -21664,7 +21688,9 @@
           "deferred",
           "stalled_pending",
           "oldest_pending_at",
-          "stalled_after_minutes"
+          "stalled_after_minutes",
+          "held_for_release",
+          "held_for_bulk_worker"
         ],
         "title": "DeadLetterQueueOut",
         "type": "object"

@@ -21684,6 +21684,8 @@ export interface components {
          *     job failed before resending it.
          */
         DeadLetterJobOut: {
+            /** Cause */
+            cause: ("never_ran" | "earlier_run_failed") | null;
             /** Depth */
             depth: number;
             /** Job */
@@ -21725,6 +21727,10 @@ export interface components {
             deferred: number;
             /** Depth */
             depth: number;
+            /** Held For Bulk Worker */
+            held_for_bulk_worker: number;
+            /** Held For Release */
+            held_for_release: number;
             /** Oldest At */
             oldest_at: string | null;
             /** Oldest Pending At */

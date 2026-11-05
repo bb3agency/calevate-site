@@ -526,6 +526,8 @@ function deadLetters(
     stalled_pending: 0,
     oldest_pending_at: null,
     stalled_after_minutes: 27,
+    held_for_release: 0,
+    held_for_bulk_worker: 0,
     oldest_at: "2026-08-04T04:15:00Z",
     by_job: [
       {
@@ -534,13 +536,15 @@ function deadLetters(
         depth: 6,
         oldest_at: "2026-08-04T04:15:00Z",
         last_error: "HTTPStatusError: 502 from the client's endpoint",
+        cause: null,
       },
       {
         job: "send_hot_lead_email",
         label: "Send hot lead email",
         depth: 3,
         oldest_at: "2026-08-11T09:00:00Z",
-        last_error: null,
+        last_error: "published 2026-08-11 14:30 IST; no run succeeded",
+        cause: "never_ran",
       },
     ],
     ...over,
@@ -1505,6 +1509,21 @@ describe("the dead-letter depth, before the click", () => {
     expect(
       screen.getByText("Last error: HTTPStatusError: 502 from the client's endpoint"),
     ).toBeTruthy();
+  });
+
+  it("names a dead letter that never ran, and rows held for a release or the bulk worker (G-C1)", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          outbox_dead_letters: deadLetters({ held_for_release: 4, held_for_bulk_worker: 2 }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+    await screen.findByText("Sent, but no run of it succeeded");
+    expect(container.textContent).toContain("4 messages wait for a newer release");
+    expect(container.textContent).toContain("2 messages wait for the bulk worker");
   });
 
   it("does not call a queue that stopped moving healthy", async () => {

@@ -1,13 +1,16 @@
 """What the ops console needs from the outbox beyond the dead-letter depth.
 
-`reliability.service.read_dead_letter_queue` answers "how many messages failed". Two
-questions it does not answer, and the console painted green because of it:
+`reliability.service.read_dead_letter_queue` answers "how many messages failed". Questions
+it does not answer, and the console painted green or blank because of it:
 
 1. **Is the queue draining at all?** A stopped worker fails nothing: every message stays
    `pending`, the dead-letter depth stays 0, and "Stuck messages 0" read healthy while
    23,844 messages waited a month. A pending message older than the longest the retry loop
    can legitimately hold one (`STALLED_AFTER`) is stuck whether or not it ever failed.
-2. **Why did a job fail?** `last_error` is already redacted at the write
+2. **Is a pending message held on purpose?** The dispatcher leaves a migration-queued row
+   for a release that contains its `min_revision`, and a bulk job for a live bulk worker
+   that runs it (D-972). Those wait for a deploy, not a resend, and the panel says which.
+3. **Why did a job fail?** `last_error` is already redacted at the write
    (`reliability.service._stored_error`), so it may be shown; the payload never is.
 """
 
@@ -15,11 +18,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Final, Literal
 
+from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.health import image_revisions
+from apps.api.core.queue import BULK_JOBS, bulk_jobs_served, get_queue
 from apps.api.reliability.service import (
     OUTBOX_CLAIM_LEASE,
     OUTBOX_MAX_ATTEMPTS,
@@ -32,6 +38,25 @@ STALLED_AFTER: Final = (
     timedelta(seconds=OUTBOX_MAX_ATTEMPTS * OUTBOX_RETRY_BACKOFF_CAP_S) + OUTBOX_CLAIM_LEASE
 )
 
+#: Text the two producers of a "never ran" dead letter write into `last_error`:
+#: `reliability.service.sweep_unconsumed_outbox` and `workers/dispatcher.dispatch_outbox`.
+#: `tests/ops_outbox_replay_test.py` holds both producers to these fragments.
+NO_RUN_SUCCEEDED: Final = "no run succeeded"
+EARLIER_RUN_FAILED: Final = "an earlier run of this message failed"
+
+DeadLetterCause = Literal["never_ran", "earlier_run_failed"]
+
+
+def dead_letter_cause(last_error: str | None) -> DeadLetterCause | None:
+    """Why a dead letter never did its work, when its error says so; else None."""
+    if last_error is None:
+        return None
+    if NO_RUN_SUCCEEDED in last_error:
+        return "never_ran"
+    if EARLIER_RUN_FAILED in last_error:
+        return "earlier_run_failed"
+    return None
+
 
 @dataclass(frozen=True, slots=True)
 class OutboxBacklog:
@@ -39,19 +64,43 @@ class OutboxBacklog:
     stalled: int
     #: The oldest pending message's creation time, or None when nothing is pending.
     oldest_pending_at: datetime | None
+    #: Pending, queued by a migration this release does not contain: waits for a deploy.
+    held_for_release: int
+    #: Pending bulk jobs no live bulk worker runs: waits for the bulk worker.
+    held_for_bulk_worker: int
+
+
+async def _bulk_jobs_held() -> list[str]:
+    """Bulk jobs not every live bulk worker runs, as the dispatcher decides it. An
+    unreachable Redis holds them all, as the dispatcher does."""
+    try:
+        served = await bulk_jobs_served(await get_queue())
+    except (RedisError, OSError):
+        return sorted(BULK_JOBS)
+    return sorted(BULK_JOBS - served)
 
 
 async def read_outbox_backlog(session: AsyncSession) -> OutboxBacklog:
+    revisions = sorted(await image_revisions())
     row = (
         await session.execute(
             text(
                 "SELECT count(*) FILTER (WHERE created_at < now() - :stalled), "
-                "min(created_at) FROM outbox_messages WHERE status = 'pending'"
+                "min(created_at), "
+                "count(*) FILTER (WHERE min_revision IS NOT NULL "
+                "  AND NOT (min_revision = ANY(CAST(:revisions AS text[])))), "
+                "count(*) FILTER (WHERE job = ANY(CAST(:bulk AS text[]))) "
+                "FROM outbox_messages WHERE status = 'pending'"
             ),
-            {"stalled": STALLED_AFTER},
+            {"stalled": STALLED_AFTER, "revisions": revisions, "bulk": await _bulk_jobs_held()},
         )
     ).one()
-    return OutboxBacklog(stalled=int(row[0]), oldest_pending_at=row[1])
+    return OutboxBacklog(
+        stalled=int(row[0]),
+        oldest_pending_at=row[1],
+        held_for_release=int(row[2]),
+        held_for_bulk_worker=int(row[3]),
+    )
 
 
 async def read_dead_letter_errors(session: AsyncSession) -> dict[str, str | None]:
@@ -79,8 +128,12 @@ def job_label(job: str) -> str:
 
 
 __all__ = [
+    "EARLIER_RUN_FAILED",
+    "NO_RUN_SUCCEEDED",
     "STALLED_AFTER",
+    "DeadLetterCause",
     "OutboxBacklog",
+    "dead_letter_cause",
     "job_label",
     "read_dead_letter_errors",
     "read_outbox_backlog",

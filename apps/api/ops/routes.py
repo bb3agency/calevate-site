@@ -142,6 +142,8 @@ from apps.api.ops.copilot_quality import CopilotQualityReport, copilot_quality_r
 from apps.api.ops.copilot_quality import QualityRealm as PipQualityRealm
 from apps.api.ops.outbox_view import (
     STALLED_AFTER,
+    DeadLetterCause,
+    dead_letter_cause,
     job_label,
     read_dead_letter_errors,
     read_outbox_backlog,
@@ -209,6 +211,9 @@ class DeadLetterJobOut(BaseModel):
     depth: int
     oldest_at: datetime
     last_error: str | None
+    #: Why it never did its work, when its error says so: `never_ran` (published, no run
+    #: succeeded) or `earlier_run_failed` (arq still holds a failed run of it).
+    cause: DeadLetterCause | None
 
 
 class DeadLetterQueueOut(BaseModel):
@@ -252,6 +257,10 @@ class DeadLetterQueueOut(BaseModel):
     stalled_pending: int
     oldest_pending_at: datetime | None
     stalled_after_minutes: int
+    # Pending on purpose (D-972): queued by a migration this release predates, or a bulk job
+    # no live bulk worker runs. These wait for a deploy or the bulk worker, not a resend.
+    held_for_release: int
+    held_for_bulk_worker: int
 
 
 class EngineDriftOut(BaseModel):
@@ -658,6 +667,7 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
                     depth=entry.depth,
                     oldest_at=entry.oldest_created_at,
                     last_error=errors.get(entry.job),
+                    cause=dead_letter_cause(errors.get(entry.job)),
                 )
                 for entry in dlq.by_job
             ],
@@ -665,6 +675,8 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
             stalled_pending=backlog.stalled,
             oldest_pending_at=backlog.oldest_pending_at,
             stalled_after_minutes=int(STALLED_AFTER.total_seconds() // 60),
+            held_for_release=backlog.held_for_release,
+            held_for_bulk_worker=backlog.held_for_bulk_worker,
         ),
         engine_drift=EngineDriftOut(
             live_agents=drift.live_agents,

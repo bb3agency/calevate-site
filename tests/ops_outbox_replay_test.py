@@ -709,3 +709,52 @@ async def test_the_scoped_replay_records_which_queue_it_emptied(
         f"a redelivery of unknown scope. Records seen: {[r.getMessage() for r in caplog.records]}"
     )
     assert summaries[0].replayed == 1
+
+
+async def test_a_dead_letter_that_never_ran_says_so() -> None:
+    """G-C1: lane C's sweep dead-letters a published message whose run never succeeded; the
+    panel names that cause rather than leaving a raw error."""
+    from apps.api.ops.outbox_view import NO_RUN_SUCCEEDED
+
+    job = _job_name("neverran")
+    message_id = await _message(job=job)
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE outbox_messages SET last_error = :e WHERE id = :id"),
+            {"e": f"published 2026-11-05 09:00 IST; {NO_RUN_SUCCEEDED}", "id": message_id},
+        )
+    token, _ = await _make_admin()
+
+    entry = _entry((await _read_platform(token)).json(), job)
+
+    assert entry is not None and entry["cause"] == "never_ran"
+
+
+async def test_a_row_held_for_a_newer_release_is_counted_apart() -> None:
+    """G-C1: a migration-queued row waits for the release that contains its revision; that is
+    a deploy to finish, not a message to resend."""
+    message_id = await _message(job=_job_name("heldrev"), status="pending", age_days=0)
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE outbox_messages SET min_revision = 'zz_not_in_this_image' WHERE id = :id"),
+            {"id": message_id},
+        )
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).json()["outbox_dead_letters"]
+
+    assert body["held_for_release"] >= 1
+    assert isinstance(body["held_for_bulk_worker"], int)
+
+
+def test_the_producers_still_write_the_causes_the_panel_reads() -> None:
+    """The panel classifies by text the two producers write; this holds them together."""
+    from pathlib import Path
+
+    from apps.api.ops.outbox_view import EARLIER_RUN_FAILED, NO_RUN_SUCCEEDED
+
+    root = Path(__file__).resolve().parents[1]
+    sweep = (root / "apps/api/reliability/service.py").read_text(encoding="utf-8")
+    dispatcher = (root / "apps/workers/dispatcher.py").read_text(encoding="utf-8")
+    assert NO_RUN_SUCCEEDED in sweep
+    assert EARLIER_RUN_FAILED in dispatcher

@@ -18,7 +18,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
-import { useReplayOutbox } from "@/lib/api/admin";
+import { useReplayOutbox, type DeadLetterQueue } from "@/lib/api/admin";
 
 import type { OpsAccess } from "./opsAccess";
 import type { DeadLetterState } from "./opsSurfaceState";
@@ -26,6 +26,12 @@ import type { DeadLetterState } from "./opsSurfaceState";
 /** `""` = the operator has not chosen yet; `"*"` = every job. Neither can collide with a
  *  real job name, which the API bounds to `^[a-z][a-z0-9_]*$`. */
 const EVERY_JOB = "*";
+
+/** Why a dead letter never did its work (`ops/outbox_view.dead_letter_cause`). */
+const CAUSE_COPY: Record<NonNullable<DeadLetterQueue["by_job"][number]["cause"]>, string> = {
+  never_ran: "Sent, but no run of it succeeded",
+  earlier_run_failed: "An earlier run failed. Resend after an hour",
+};
 
 /**
  * The outbox dead-letter queue: how deep it is, and its one lever —
@@ -192,6 +198,31 @@ export function OutboxReplayPanel({
           </NoticeBox>
         )}
 
+        {/* Held on purpose (D-972): resending moves none of these; a deploy or the bulk
+            worker does. */}
+        {sized !== null && (sized.held_for_release ?? 0) > 0 && (
+          <NoticeBox
+            tone="info"
+            title={`${formatCount(sized.held_for_release)} messages wait for a newer release`}
+          >
+            <p>
+              A migration queued them for code this release does not have. Finish the deploy
+              that queued them. Resending does nothing for these.
+            </p>
+          </NoticeBox>
+        )}
+        {sized !== null && (sized.held_for_bulk_worker ?? 0) > 0 && (
+          <NoticeBox
+            tone="warn"
+            title={`${formatCount(sized.held_for_bulk_worker)} messages wait for the bulk worker`}
+          >
+            <p>
+              No running bulk worker handles these jobs. Start or update the bulk worker.
+              Resending does nothing for these.
+            </p>
+          </NoticeBox>
+        )}
+
         {/* Deferred messages are NOT this panel's lever — replay acts on `failed` rows
             only and would move none of them — so this box states the situation and
             explicitly says not to click, rather than implying the button is the answer. */}
@@ -245,6 +276,9 @@ export function OutboxReplayPanel({
                   <tr key={entry.job} className="align-top">
                     <td className="py-0.5 pr-2">
                       <span className="block text-ink">{entry.label ?? entry.job}</span>
+                      {entry.cause && (
+                        <span className="block font-medium text-warn">{CAUSE_COPY[entry.cause]}</span>
+                      )}
                       {/* Already redacted when it was stored; the payload is never sent. */}
                       {entry.last_error ? (
                         <span className="block break-words text-ink-muted">

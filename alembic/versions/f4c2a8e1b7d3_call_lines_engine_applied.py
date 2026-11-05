@@ -1,7 +1,7 @@
 """organizations: the calls-at-once value the voice platform confirmed, and when
 
 Revision ID: f4c2a8e1b7d3
-Revises: e3b8d1f6a924
+Revises: f5a9c3e1d7b2
 Create Date: 2026-11-05 20:00:00.000000
 
 `organizations.call_lines` is what an operator chose; the client's own ThinnestAI workspace
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "f4c2a8e1b7d3"
-down_revision: str | None = "e3b8d1f6a924"
+down_revision: str | None = "f5a9c3e1d7b2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

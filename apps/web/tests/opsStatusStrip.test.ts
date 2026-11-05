@@ -13,6 +13,8 @@ const QUEUE: DeadLetterQueue = {
   stalled_pending: 0,
   oldest_pending_at: null,
   stalled_after_minutes: 27,
+  held_for_release: 0,
+  held_for_bulk_worker: 0,
 };
 
 const DRIFT: EngineDrift = {
