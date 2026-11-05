@@ -636,6 +636,7 @@ describe("meet your agent", () => {
         opening_room: 60,
         opening_room_with_ai_disclosure: 40,
         opening_room_with_recording_notice: 30,
+        opening_advised: 120,
       },
     });
     const { calls } = await renderClientPage(

@@ -265,10 +265,16 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
             ("Write the opening line callers hear first.", f"{base}?section=script"),
         )
     elif i.opening_chars > i.opening_max_chars or not fits:
+        # Over the engine's room it is cut; over only the platform's ceiling it is spoken in
+        # full but keeps the caller waiting (the 176-character opening of 6 Nov 2026 ran
+        # 18 seconds before the caller could answer).
         add(
             "opening",
             OPENING_TOO_LONG_POINTS,
-            f"The opening line is {i.opening_chars} characters, too long to be spoken in full.",
+            f"The opening line is {i.opening_chars} characters, too long to be spoken in full."
+            if not fits
+            else f"The opening line is {i.opening_chars} characters. Keep it to "
+            f"{i.opening_max_chars}, so callers can answer within seconds.",
             (
                 PLACED_OPENING_FIX if i.places_calls else ANSWERED_OPENING_FIX,
                 f"{base}?section=script",

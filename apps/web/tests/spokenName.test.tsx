@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { openingRoomOf } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
 import { OpeningEditor, withoutNameFor } from "@/app/c/[slug]/agents/[agentId]/script/ScriptSections";
 import { fillSpokenLine } from "@/components/arc/spoken-text";
 import { EMPTY_SCRIPT } from "@/lib/api/script";
@@ -51,5 +52,14 @@ describe("a line said on a call with no name (U-4)", () => {
       />,
     );
     expect(screen.queryByText("With no name:")).toBeNull();
+  });
+});
+
+describe("the opening line's count on the Script tab (U-5)", () => {
+  it("counts down from the platform's ceiling when it is smaller than the engine's room", () => {
+    const budget = { opening_room: 200, opening_advised: 120 };
+    expect(openingRoomOf(budget)).toBe(120);
+    expect(openingRoomOf({ ...budget, opening_room: 90 })).toBe(90);
+    expect(openingRoomOf(null)).toBeUndefined();
   });
 });

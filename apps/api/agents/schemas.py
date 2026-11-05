@@ -45,6 +45,8 @@ class GreetingBudgetOut(BaseModel):
     opening_room: int
     opening_room_with_ai_disclosure: int
     opening_room_with_recording_notice: int
+    #: The platform's own ceiling on the line (`engine_limits.GreetingBudget.opening_advised`).
+    opening_advised: int
 
 
 class AgentOut(BaseModel):

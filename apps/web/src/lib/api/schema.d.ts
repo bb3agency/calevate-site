@@ -24584,6 +24584,8 @@ export interface components {
         GreetingBudgetOut: {
             /** Limit */
             limit: number;
+            /** Opening Advised */
+            opening_advised: number;
             /** Opening Chars */
             opening_chars: number;
             /** Opening Room */

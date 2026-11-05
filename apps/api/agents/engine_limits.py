@@ -35,9 +35,10 @@ from calevate_shared.engine import (
     said_notices,
     spoken_ai_notice,
 )
-from calevate_shared.opening_notices import NONE_SAID, SaidNotices
+from calevate_shared.opening_notices import NONE_SAID, SaidNotices, opening_max_chars
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 from apps.api.agents.prompt_size import PromptSize, measure
 from apps.api.billing.engine_minutes import (
     ATTESTED_MINUTE_ENGINES,
@@ -165,6 +166,11 @@ class GreetingBudget:
     opening_room: int
     opening_room_with_ai_disclosure: int
     opening_room_with_recording_notice: int
+    #: The platform's own ceiling on the line (`call_rules.OPENING_LINE_MAX_CHARS`, plus the
+    #: room a notice woven into it earns), which readiness and every writer hold it to. The
+    #: engine's room is what it CAN speak; this is what keeps the caller's first turn within
+    #: seconds, so a screen counts down from the smaller of the two.
+    opening_advised: int
 
 
 def greeting_budget(
@@ -201,6 +207,7 @@ def greeting_budget(
         opening_room=now,
         opening_room_with_ai_disclosure=room("ai_disclosure_enabled") or 0,
         opening_room_with_recording_notice=room("recording_notice_enabled") or 0,
+        opening_advised=opening_max_chars(OPENING_LINE_MAX_CHARS, opening),
     )
 
 

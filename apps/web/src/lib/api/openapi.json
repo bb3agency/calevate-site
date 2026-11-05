@@ -29221,6 +29221,10 @@
             "title": "Limit",
             "type": "integer"
           },
+          "opening_advised": {
+            "title": "Opening Advised",
+            "type": "integer"
+          },
           "opening_chars": {
             "title": "Opening Chars",
             "type": "integer"
@@ -29243,7 +29247,8 @@
           "opening_chars",
           "opening_room",
           "opening_room_with_ai_disclosure",
-          "opening_room_with_recording_notice"
+          "opening_room_with_recording_notice",
+          "opening_advised"
         ],
         "title": "GreetingBudgetOut",
         "type": "object"
