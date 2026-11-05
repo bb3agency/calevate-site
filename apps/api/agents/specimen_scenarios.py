@@ -9,7 +9,9 @@ of them, rotating by the run's round key, ahead of the AI-written callers; the h
 rest.
 
 The business words come from a dict keyed by the account's business type; the clinic lines
-sit under the key `"clinic"` and are used only for a clinic (D-722).
+sit under the key `"clinic"` and are used only for a clinic (D-722). A business judged to
+sell no goods (`agents/business_fit`) gets the class's `_neutral` lines where it has them,
+never a shop's, and no caller who "already bought it" when it sells nothing at all.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
 
+from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.test_conversations import ASKS_WHAT_BUSINESS, Scenario
 
 #: Callers per run. Two keeps room for the AI-written callers inside the run's message cap.
@@ -28,6 +31,13 @@ PER_RUN: Final = 2
 Lines = Mapping[str, str]
 
 _DEFAULT: Final = "_default"
+#: The lines for a business that sells no goods. English only: the Telugu and Hindi forms are
+#: the founder's to write (D-915), and `_line` falls back to English until then.
+_NEUTRAL: Final = "_neutral"
+#: A caller line that is a question this business's callers ask (its copy's own), filled by
+#: `scenario_of`; said as `_NO_QUESTION` when the copy has none.
+QUESTION_SLOT: Final = "{question}"
+_NO_QUESTION: Final = "Can you tell me more about how that works?"
 
 #: A caller line that is the business's own name, filled per account by `scenario_of`.
 BUSINESS_SLOT: Final = "{business}."
@@ -45,6 +55,10 @@ class SpecimenClass:
     turns: Mapping[str, tuple[Lines, ...]]
     expect: str
     category: str = "edge"
+    #: The title for a business that sells no goods, where `title` names a product.
+    neutral_title: str = ""
+    #: The caller assumes a sale; left out for a business judged to sell nothing.
+    assumes_sale: bool = False
 
 
 def _turns(*lines: Lines) -> tuple[Lines, ...]:
@@ -222,6 +236,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
                     "en-IN": "How is that made?",
                 },
             ),
+            _NEUTRAL: _turns({"en-IN": QUESTION_SLOT}),
         },
         expect=(
             "Answers only from the business's facts, saying product names the way the facts "
@@ -229,6 +244,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             "that detail instead of describing the product itself."
         ),
         category="business",
+        neutral_title="Asks what its facts may not say",
     ),
     SpecimenClass(
         key="specimen_side_question",
@@ -247,10 +263,15 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
                 },
                 {"te-IN": "సరే, తర్వాత?", "hi-IN": "ठीक है, फिर?", "en-IN": "Okay, then?"},
             ),
+            _NEUTRAL: _turns(
+                {"en-IN": "I'm calling from Guntur, and I need help with one thing."},
+                {"en-IN": "Wait, are you there on Sundays too?"},
+                {"te-IN": "సరే, తర్వాత?", "hi-IN": "ठीक है, फिर?", "en-IN": "Okay, then?"},
+            ),
         },
         expect=(
             "Answers the side question, then carries on where it was without asking again "
-            "for the quantity or the place the caller already gave."
+            "for anything the caller already gave."
         ),
     ),
     # The founder's calls of 20-22 Oct 2026 (D-856,
@@ -371,6 +392,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             "Says that is fine, thanks them and closes politely with no second pitch and no "
             "do-not-call talk they did not ask for."
         ),
+        assumes_sale=True,
     ),
     # The Sri Estates call of 30 Oct 2026 (D-947): the caller only said the business name back,
     # four times, and each time the agent said who it was and asked the same question.
@@ -456,28 +478,54 @@ def _line(lines: Lines, language: str) -> str:
     return lines.get(language) or lines["en-IN"]
 
 
+def _sells_goods(fit: BusinessFit) -> bool:
+    return fit.sells is not False and fit.takes_orders is not False
+
+
 def scenario_of(
-    cls: SpecimenClass, language: str, business_type: str, *, business_name: str = ""
+    cls: SpecimenClass,
+    language: str,
+    business_type: str,
+    *,
+    business_name: str = "",
+    fit: BusinessFit = UNKNOWN,
 ) -> Scenario:
     """One class as a test caller for this business type and language, `{business}` in a
-    line filled with the account's name."""
-    turns = cls.turns.get(business_type) or cls.turns[_DEFAULT]
+    line filled with the account's name. A business that sells no goods hears the class's
+    `_neutral` lines where it has them; one that sells nothing never hears its type's."""
+    goods = _sells_goods(fit)
+    turns = (
+        (cls.turns.get(business_type) if fit.sells is not False else None)
+        or (None if goods else cls.turns.get(_NEUTRAL))
+        or cls.turns[_DEFAULT]
+    )
     name = " ".join(business_name.split()) or _NO_BUSINESS_NAME
+    question = fit.example_questions[0] if fit.example_questions else _NO_QUESTION
+    neutral = turns is cls.turns.get(_NEUTRAL)
     return Scenario(
         key=cls.key,
-        title=cls.title,
+        title=cls.neutral_title if neutral and cls.neutral_title else cls.title,
         category=cls.category,
-        turns=tuple(_line(lines, language).replace("{business}", name) for lines in turns),
+        turns=tuple(
+            _line(lines, language).replace("{business}", name).replace(QUESTION_SLOT, question)
+            for lines in turns
+        ),
         expect=cls.expect,
         source="standard",
     )
 
 
+def classes_for(fit: BusinessFit = UNKNOWN) -> tuple[SpecimenClass, ...]:
+    """The classes that fit the business: every one, less a sale's for one selling nothing."""
+    return tuple(cls for cls in CLASSES if not (cls.assumes_sale and fit.sells is False))
+
+
 def all_specimen_scenarios(
-    language: str, business_type: str, *, business_name: str = ""
+    language: str, business_type: str, *, business_name: str = "", fit: BusinessFit = UNKNOWN
 ) -> list[Scenario]:
     return [
-        scenario_of(cls, language, business_type, business_name=business_name) for cls in CLASSES
+        scenario_of(cls, language, business_type, business_name=business_name, fit=fit)
+        for cls in classes_for(fit)
     ]
 
 
@@ -488,13 +536,16 @@ def specimen_scenarios(
     round_key: str,
     count: int = PER_RUN,
     business_name: str = "",
+    fit: BusinessFit = UNKNOWN,
 ) -> list[Scenario]:
     """`count` classes for this run, chosen by the round key so successive runs rotate
-    through every class."""
-    start = int(hashlib.sha256(round_key.encode()).hexdigest()[:8], 16) % len(CLASSES)
-    picked = [CLASSES[(start + i) % len(CLASSES)] for i in range(min(count, len(CLASSES)))]
+    through every class that fits the business."""
+    classes = classes_for(fit)
+    start = int(hashlib.sha256(round_key.encode()).hexdigest()[:8], 16) % len(classes)
+    picked = [classes[(start + i) % len(classes)] for i in range(min(count, len(classes)))]
     return [
-        scenario_of(cls, language, business_type, business_name=business_name) for cls in picked
+        scenario_of(cls, language, business_type, business_name=business_name, fit=fit)
+        for cls in picked
     ]
 
 
@@ -502,9 +553,11 @@ __all__ = [
     "BUSINESS_SLOT",
     "CLASSES",
     "PER_RUN",
+    "QUESTION_SLOT",
     "SILENCE",
     "SpecimenClass",
     "all_specimen_scenarios",
+    "classes_for",
     "scenario_of",
     "specimen_scenarios",
 ]

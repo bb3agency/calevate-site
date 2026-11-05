@@ -26,6 +26,11 @@ it must hold for every business of its type:
 * Trade words only for that trade (the founder's neutral-copy rule, 10 Oct 2026): a clinic
   books appointments, a property office site visits, a coaching centre counselling
   sessions, and "Something else" gets neutral words ("a booking", "your customers").
+* Nothing the business does not do. Each starter is fitted to the business's judged
+  capability profile (`agents/business_fit`): a business that books and orders nothing gets
+  "agree the next step" where the offer was, no price objection when it quotes no prices,
+  its own objections, goal and role where its business copy has them, and its "may do"
+  switches set to match. While the business is unjudged it gets exactly the trade's starter.
 * No vendor names (D-679).
 * Outbound starters follow up and take no for an answer: no pressure, and a request to
   stop calling is recorded with the do-not-call tool. The calling-hours, consent and
@@ -41,6 +46,7 @@ rules above.
 from __future__ import annotations
 
 import contextlib
+import functools
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final, Literal, get_args
@@ -54,6 +60,7 @@ from calevate_shared.call_script import (
     CallScript,
     ConversationStage,
     Objection,
+    ScriptPolicies,
     SpeakingStyle,
     StageBranch,
 )
@@ -63,12 +70,13 @@ from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
 from apps.api.agents.extraction_routes import validate_fields, write_schema
 from apps.api.agents.lead_fields import starting_business_fields
 from apps.api.agents.models import AgentDirection
 from apps.api.agents.script_builder import rewrite_script, save_agent_script
 from apps.api.agents.starter_plans import Plan, stored_plans, with_focus
-from apps.api.agents.trade_playbooks import playbook_for
+from apps.api.agents.trade_playbooks import NEXT_STEP_TITLE, playbook_for
 from apps.api.core.errors import ProblemError
 from apps.api.tenancy.business_copy import read_state as read_business_copy
 
@@ -283,6 +291,49 @@ def vertical_of(vertical_template: str | None) -> str:
     return NEUTRAL_VERTICAL
 
 
+def _either(parts: Sequence[str]) -> str:
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} or {parts[-1]}"
+
+
+def trade_for(vertical: str, fit: BusinessFit = UNKNOWN) -> Trade:
+    """The trade's words for this business. A named trade keeps its own row; the neutral row
+    names only what the business is not judged against, so an unjudged business gets the
+    row exactly as written and a free app's helpline hears nothing of prices, places or
+    delivery dates."""
+    row = TRADES[vertical]
+    if vertical != NEUTRAL_VERTICAL or fit == UNKNOWN:
+        return row
+    prices = fit.sells is not False and fit.quotes_prices is not False
+    visits = fit.has_premises is not False
+    topics = ["what you offer"]
+    if prices:
+        topics.append("prices")
+    if visits:
+        topics += ["timings", "location"]
+    promises = [
+        word
+        for word, applies in (
+            ("a price", prices),
+            ("a delivery date", fit.takes_orders is not False),
+            ("availability", fit.books is not False),
+        )
+        if applies
+    ]
+    caution = (
+        f"Never promise {_either(promises)} without checking; say the team will confirm."
+        if promises
+        else "Never promise anything your facts do not say; say the team will confirm."
+    )
+    return replace(
+        row,
+        receptionist_name=row.receptionist_name if visits else "Help desk",
+        topics=_either(topics),
+        booking=fit.offer_noun or row.booking,
+        capture=row.capture if fit.books is not False else "what they need",
+        caution=caution,
+    )
+
+
 def captured_fields(vertical: str) -> list[dict[str, Any]]:
     """The extraction fields a starter gives the agent: the vertical template's.
 
@@ -324,15 +375,23 @@ class Starter:
     steps: tuple[StarterStep, ...]
     objections: tuple[tuple[str, str], ...]
     ending: str
+    #: The "may do" switches the script starts with (`ScriptPolicies`), from the business's
+    #: judged profile; both on while it is unjudged.
+    share_prices: bool = True
+    take_bookings: bool = True
+    tone: str = "Warm, calm and brief, like a helpful person at the front desk."
 
     def planned(self, plan: Plan | None) -> Starter:
         """This starter with the business's own steps (`agents/starter_plans`): each
         step's title in its words and its focus after the platform's instruction. The
-        instruction and "done when" stay ours."""
+        instruction and "done when" stay ours. A step that replaced the offer keeps its own
+        title: the business's was written for the offer."""
         if plan is None or len(plan) != len(self.steps):
             return self
         steps = tuple(
-            StarterStep(
+            step
+            if step.title == NEXT_STEP_TITLE
+            else StarterStep(
                 title=mine.title,
                 instruction=with_focus(step.instruction, mine.focus),
                 exit_when=step.exit_when,
@@ -362,11 +421,12 @@ class Starter:
             goal=self.goal,
             outbound_purpose=self.outbound_purpose.replace("{business}", business),
             opening_line=self.opening_for(business, language),
-            style=SpeakingStyle(
-                tone="Warm, calm and brief, like a helpful person at the front desk."
-            ),
+            style=SpeakingStyle(tone=self.tone),
             stages=self.sections(),
             objections=[Objection(objection=o, response=r) for o, r in self.objections],
+            policies=ScriptPolicies(
+                share_prices=self.share_prices, take_bookings=self.take_bookings
+            ),
             ending=self.ending,
         )
 
@@ -427,65 +487,108 @@ _CALL_LEADS_ENDING: Final = (
 )
 
 
-def _planned_steps(vertical: str, job: StarterJob, trade: Trade) -> tuple[StarterStep, ...]:
+def _planned_steps(
+    vertical: str, job: StarterJob, trade: Trade, fit: BusinessFit
+) -> tuple[StarterStep, ...]:
     """The starter's steps from the trade's plan (D-856, `trade_playbooks`)."""
     return tuple(
         StarterStep(step.title, step.instruction, step.exit_when)
-        for step in playbook_for(vertical, job, trade).steps
+        for step in playbook_for(vertical, job, trade, fit).steps
     )
 
 
-def _answer_calls(vertical: str, trade: Trade) -> Starter:
+#: A calling starter's goal ends here whatever the business wrote: outbound takes no for an
+#: answer (the starters' rule above).
+_TAKE_NO: Final = "Take no for an answer."
+
+
+def _calling_name(trade: Trade, fit: BusinessFit) -> str:
+    """The calling agent's suggested name, from what the business calls its callers when the
+    copy says, so a free app's list is "User follow-up" rather than a lead or an order."""
+    if fit.caller_noun:
+        return f"{fit.caller_noun[:1].upper()}{fit.caller_noun[1:]} follow-up"
+    return trade.caller_name
+
+
+def _fitted(starter: Starter, fit: BusinessFit) -> Starter:
+    """The switches and tone the business's profile sets; the trade's own while unjudged."""
+    return replace(
+        starter,
+        share_prices=fit.sells is not False and fit.quotes_prices is not False,
+        take_bookings=fit.books is not False,
+        tone=(
+            starter.tone
+            if fit.has_premises is not False
+            else "Warm, calm and brief, like a helpful person on the phone."
+        ),
+    )
+
+
+def _answer_calls(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
+    if fit.call_goal:
+        goal = fit.call_goal
+    elif fit.books is False:
+        goal = (
+            "Understand what each caller needs, answer it from the business's facts, and "
+            "where it fits, agree the next step or take their details for the team."
+        )
+    else:
+        goal = (
+            f"Understand what each caller needs, answer it from the business's facts, and "
+            f"where it fits, arrange {trade.booking} or take their details for the team."
+        )
     return Starter(
         job="answer_calls",
         vertical=vertical,
         name_suggestion=trade.receptionist_name,
         opening_line="Hello, thank you for calling {business}. How can I help you today?",
         business_line="{business}",
-        identity=(
+        identity=fit.agent_role
+        or (
             "You answer the phone for {business}. You are friendly, quick and practical, and "
             f"you help callers with {trade.topics}."
         ),
-        goal=(
-            f"Understand what each caller needs, answer it from the business's facts, and "
-            f"where it fits, arrange {trade.booking} or take their details for the team."
-        ),
+        goal=goal,
         outbound_purpose="",
-        steps=_planned_steps(vertical, "answer_calls", trade),
-        objections=playbook_for(vertical, "answer_calls", trade).objections,
+        steps=_planned_steps(vertical, "answer_calls", trade, fit),
+        objections=playbook_for(vertical, "answer_calls", trade, fit).objections,
         ending=_ENDING,
     )
 
 
-def _call_leads(vertical: str, trade: Trade) -> Starter:
+def _calling_goal(trade: Trade, fit: BusinessFit, lead: str) -> str:
+    if fit.call_goal:
+        return f"{fit.call_goal} {_TAKE_NO}"
+    offer = "agree the next step" if fit.books is False else f"arrange {trade.booking}"
+    return f"{lead} {offer}. {_TAKE_NO}"
+
+
+def _call_leads(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
     return Starter(
         job="call_leads",
         vertical=vertical,
-        name_suggestion=trade.caller_name,
+        name_suggestion=_calling_name(trade, fit),
         opening_line=(
             "Hello, I am calling from {business} to follow up with you. Is this a good time "
             "for a quick chat?"
         ),
         business_line="{business}",
         identity="You place calls for {business}. You are polite, brief and never pushy.",
-        goal=(
-            f"Find out whether they are interested and, if they are, arrange "
-            f"{trade.booking}. Take no for an answer."
-        ),
+        goal=_calling_goal(trade, fit, "Find out whether they are interested and, if they are,"),
         outbound_purpose=_CALLING_PURPOSE,
-        steps=_planned_steps(vertical, "call_leads", trade),
-        objections=playbook_for(vertical, "call_leads", trade).objections,
+        steps=_planned_steps(vertical, "call_leads", trade, fit),
+        objections=playbook_for(vertical, "call_leads", trade, fit).objections,
         ending=_CALL_LEADS_ENDING,
     )
 
 
-def _call_new_leads(vertical: str, trade: Trade) -> Starter:
+def _call_new_leads(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
     """Rings a person minutes after they enquired. The plan keeps the list's step shape, so
     the business copy's example lines fit both (`LINES_OF_JOB`)."""
     return Starter(
         job="call_new_leads",
         vertical=vertical,
-        name_suggestion=trade.caller_name,
+        name_suggestion=_calling_name(trade, fit),
         opening_line=(
             "Hello, I am calling from {business} about the enquiry you just made. Is this a "
             "good time for a quick chat?"
@@ -495,13 +598,10 @@ def _call_new_leads(vertical: str, trade: Trade) -> Starter:
             "You call people within minutes of their enquiry to {business}, while it is "
             "still fresh. You are polite, brief and never pushy."
         ),
-        goal=(
-            f"Help with what they need and, if they are interested, arrange "
-            f"{trade.booking}. Take no for an answer."
-        ),
+        goal=_calling_goal(trade, fit, "Help with what they need and, if they are interested,"),
         outbound_purpose=_CALLING_PURPOSE,
-        steps=_planned_steps(vertical, "call_new_leads", trade),
-        objections=playbook_for(vertical, "call_new_leads", trade).objections,
+        steps=_planned_steps(vertical, "call_new_leads", trade, fit),
+        objections=playbook_for(vertical, "call_new_leads", trade, fit).objections,
         ending=_CALL_LEADS_ENDING,
     )
 
@@ -512,15 +612,24 @@ _BUILDERS: Final = {
     "call_leads": _call_leads,
 }
 
-#: Every starter, keyed by (vertical, job). Built once at import: the catalogue is
-#: constant, and building it here makes a malformed starter an import-time failure.
+
+@functools.lru_cache(maxsize=512)
+def build_starter(vertical: str, job: StarterJob, fit: BusinessFit = UNKNOWN) -> Starter:
+    """The starter for a business type and job, fitted to what the business does. Cached:
+    a fit is a small frozen value, and an account's starters are built on every preview."""
+    trade = trade_for(vertical, fit)
+    return _fitted(_BUILDERS[job](vertical, trade, fit), fit)
+
+
+#: Every starter of an unjudged business, keyed by (vertical, job). Built at import, so a
+#: malformed starter is an import-time failure.
 CATALOGUE: Final[Mapping[tuple[str, StarterJob], Starter]] = {
-    (vertical, job): _BUILDERS[job](vertical, trade)
-    for vertical, trade in TRADES.items()
-    for job in STARTER_JOBS
+    (vertical, job): build_starter(vertical, job) for vertical in TRADES for job in STARTER_JOBS
 }
 
-#: Each job's step count, which a business's written plan must match (`starter_plans`).
+#: Each job's step count: the shape the business's own step titles and example lines are
+#: written for (`starter_plans`, `business_copy.StarterLines`). Fitting a starter to a
+#: business replaces a step, never drops one, so this holds for every business.
 JOB_STEP_COUNTS: Final[Mapping[str, int]] = {
     job: len(CATALOGUE[(next(iter(TRADES)), job)].steps) for job in STARTER_JOBS
 }
@@ -528,8 +637,10 @@ if any(len(s.steps) != JOB_STEP_COUNTS[s.job] for s in CATALOGUE.values()):
     raise RuntimeError("a job's steps differ in count between business types")
 
 
-def starter_for(vertical_template: str | None, job: StarterJob) -> Starter:
-    return CATALOGUE[(vertical_of(vertical_template), job)]
+def starter_for(
+    vertical_template: str | None, job: StarterJob, fit: BusinessFit = UNKNOWN
+) -> Starter:
+    return build_starter(vertical_of(vertical_template), job, fit)
 
 
 def direction_for(job: JobChoice, requested: AgentDirection | None) -> AgentDirection:
@@ -595,13 +706,14 @@ def starter_opening(
     business: str,
     language: str = STARTER_LANGUAGE,
     introduced: bool = False,
+    fit: BusinessFit = UNKNOWN,
 ) -> str:
     """The ready-made script's greeting, from the job `starter_script` takes it from, or with
     `introduced` the form said after the agent's introduction (D-865)."""
     jobs = starter_jobs(job)
     calling_only = "answer_calls" not in jobs and len(jobs) > 1
     source = jobs[-1] if calling_only else jobs[0]
-    starter = CATALOGUE[(vertical_of(vertical_template), source)]
+    starter = build_starter(vertical_of(vertical_template), source, fit)
     return starter.opening_for(business, language, introduced=introduced)
 
 
@@ -612,6 +724,7 @@ def starter_script(
     business: str,
     language: str = STARTER_LANGUAGE,
     plans: Mapping[str, Plan] | None = None,
+    fit: BusinessFit = UNKNOWN,
 ) -> CallScript:
     """The ready-made script for one job, or for the several one agent does (D-863).
 
@@ -624,7 +737,7 @@ def starter_script(
     written = plans or {}
 
     def starter(each: StarterJob) -> Starter:
-        return CATALOGUE[(vertical, each)].planned(written.get(each))
+        return build_starter(vertical, each, fit).planned(written.get(each))
 
     if len(jobs) == 1:
         return starter(jobs[0]).call_script(business=business, language=language)
@@ -705,9 +818,12 @@ async def apply_starter(
     validate_fields(fields)
     await write_schema(session, agent_id=agent_id, fields=fields)
     plans = await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)
+    fit = await business_fit(session, tenant_id)
     script = await _with_business_lines(
         session,
-        starter_script(vertical_template, jobs, business=business, language=language, plans=plans),
+        starter_script(
+            vertical_template, jobs, business=business, language=language, plans=plans, fit=fit
+        ),
         jobs,
         language,
     )
@@ -754,12 +870,14 @@ def with_example_lines(script: CallScript, lines: Sequence[str]) -> CallScript:
     Only a NEW agent's script gets them, and only into an "example line" that is empty:
     nothing a person wrote is there to replace. A line that would push its step past the
     engine's step limit is left out, and lines written for a different number of steps are
-    not used at all."""
+    not used at all. The step that replaced the offer gets none: its line was written for
+    the offer."""
     if len(lines) != len(script.stages):
         return script
     stages: list[ConversationStage] = []
     for stage, line in zip(script.stages, lines, strict=True):
-        if stage.sounds_like.strip() or not line.strip():
+        replaced = stage.name.endswith(NEXT_STEP_TITLE)
+        if stage.sounds_like.strip() or not line.strip() or replaced:
             stages.append(stage)
             continue
         try:
@@ -808,6 +926,7 @@ def starter_vertical_of(
     business: str,
     language: str,
     plan: Plan | None = None,
+    fit: BusinessFit = UNKNOWN,
 ) -> str | None:
     """The business type whose starter wrote `stored`, if nobody has changed its structure.
 
@@ -816,14 +935,15 @@ def starter_vertical_of(
     it. The spoken words (openings, example lines, example call) are written for the business
     and are not compared (D-962). A starter written under an earlier business name or an
     earlier catalogue wording does not match, and is treated as edited. With `plan`, the
-    starter as written with the business's own steps matches too.
+    starter as written with the business's own steps matches too; with `fit`, the starter
+    fitted to the business as it is judged now.
     """
     try:
         script = _canonical(CallScript.model_validate(stored))
     except ValueError:
         return None
     for vertical in TRADES:
-        starter = CATALOGUE[(vertical, job)]
+        starter = build_starter(vertical, job, fit)
         for each in (starter, starter.planned(plan)):
             candidate = each.call_script(business=business, language=language)
             if _canonical(candidate) == script:
@@ -860,13 +980,19 @@ async def replace_unedited_starter(
         return None
     business, language = str(row[3]), str(row[1])
     plans = await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)
+    fit = await business_fit(session, tenant_id)
     found = next(
         (
             (job, vertical)
             for job in JOBS_OF_DIRECTION.get(str(row[0]), ())
             if (
                 vertical := starter_vertical_of(
-                    row[2], job=job, business=business, language=language, plan=plans.get(job)
+                    row[2],
+                    job=job,
+                    business=business,
+                    language=language,
+                    plan=plans.get(job),
+                    fit=fit,
                 )
             )
             is not None
@@ -883,7 +1009,7 @@ async def replace_unedited_starter(
     # The new type's structure, with the openings the agent already has (written for this
     # business, not for its old type) and the business's example lines for the new steps.
     script = (
-        CATALOGUE[(target, job)]
+        build_starter(target, job, fit)
         .planned(plans.get(job))
         .call_script(business=business, language=language)
     )
@@ -920,6 +1046,7 @@ __all__ = [
     "StarterStep",
     "Trade",
     "apply_starter",
+    "build_starter",
     "captured_fields",
     "direction_for",
     "direction_of_jobs",
@@ -930,6 +1057,7 @@ __all__ = [
     "starter_opening",
     "starter_script",
     "starter_vertical_of",
+    "trade_for",
     "vertical_of",
     "with_example_lines",
 ]

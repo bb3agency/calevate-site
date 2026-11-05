@@ -57,6 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions.calendar import calendar_configured
 from apps.api.agents import script_builder
+from apps.api.agents.business_fit import business_fit
 from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 from apps.api.agents.capability_manifest import books_visits, lint_context_for
 from apps.api.agents.reconciliation import DRIFT_STATES_OUT_OF_SYNC
@@ -333,7 +334,7 @@ async def advice_for(session: AsyncSession, agent: AgentOut) -> tuple[ReadinessA
         manifest is not None
         and not manifest.booking_tool
         and calendar_configured()
-        and books_visits(agent.direction, script)
+        and books_visits(agent.direction, script, await business_fit(session, tenant_id))
     ):
         out.append(
             ReadinessAdviceOut(

@@ -80,6 +80,7 @@ from calevate_shared.spoken_guard import (
 )
 from pydantic import ValidationError
 
+from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.call_rules import OPENING_LINE_RULE, said_line_problem, writer_rules
 from apps.api.agents.retired_lines import retired_line_problem
 from apps.api.agents.script_lint import (
@@ -140,9 +141,10 @@ _SYSTEM_INSTRUCTION = (
     "Write instructions (business_line, identity, goal, outbound_purpose, tone, "
     "address_form, stage instructions and exit conditions, objection responses, ending) in "
     "plain English letters, never in the call language's script, even when the call is in "
-    "Telugu or Hindi. identity is one plain-English sentence describing the agent's job, "
-    'for example "Answers calls for the shop: products, prices, orders and delivery", '
-    "never just the business name. Write the words the agent will SAY (opening_line, "
+    "Telugu or Hindi. identity is one plain-English sentence describing the agent's job in "
+    "this business's terms (a shop: \"Answers calls for the shop: products, prices, orders and "
+    'delivery"; an app\'s helpline: "Helps registered users with the app, one step at a '
+    'time"), never just the business name. Write the words the agent will SAY (opening_line, '
     "sounds_like, sample_phrases, example_exchange) in the call language as people really "
     "speak it on the phone, every word in the script that language is normally written in, "
     "the English words they use too (Telugu: ఆర్డర్, డెలివరీ, బుకింగ్; Hindi: ऑर्डर, डिलीवरी), "
@@ -534,6 +536,9 @@ class ScriptBrief:
     #: The business's own steps per job (`agents/starter_plans`), the ones the owner saw
     #: before creating the agent; the writer keeps their titles.
     step_plans: tuple[tuple[str, Plan], ...] = ()
+    #: What the business does with its callers, its objections and its callers' questions
+    #: (`agents/business_fit`), so the plan and the lines fit it rather than a shop.
+    fit: BusinessFit = UNKNOWN
 
     def lint_context(self) -> LintContext:
         """What the draft's lines are checked against (`agents/script_lint`)."""
@@ -569,6 +574,9 @@ class ScriptBrief:
             lines.append("Knowledge documents: " + "; ".join(self.knowledge_titles))
         if self.capabilities is not None:
             lines.append(self.capabilities.brief_lines())
+        about = self.fit.brief_text()
+        if about:
+            lines.append(about)
         if self.facts:
             lines.append("The owner's facts:\n" + "\n".join(f"- {fact}" for fact in self.facts))
         if self.direction != "inbound":
@@ -1343,7 +1351,9 @@ async def draft_script(
         converting = instruction == CONVERT_INSTRUCTION
         if not converting:
             # D-856: a new script starts from the trade's step plan, the starters' skeleton.
-            plan = playbook_guidance(full.business_type, full.direction, dict(full.step_plans))
+            plan = playbook_guidance(
+                full.business_type, full.direction, dict(full.step_plans), full.fit
+            )
             description = f"{description}\n{plan}"
         parse = partial(
             drafted_script,

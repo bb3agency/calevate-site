@@ -29156,6 +29156,29 @@ export interface components {
             woken_by: components["schemas"]["IncidentKindOut"][];
         };
         /**
+         * PoliciesApplicableOut
+         * @description Which of the script's `policies` switches apply to this business, keyed as
+         *     `ScriptPolicies` is, so a screen can hide a switch that cannot matter.
+         */
+        PoliciesApplicableOut: {
+            offer_call_backs: components["schemas"]["PolicyFitOut"];
+            share_prices: components["schemas"]["PolicyFitOut"];
+            take_bookings: components["schemas"]["PolicyFitOut"];
+        };
+        /**
+         * PolicyFitOut
+         * @description Whether one "What it may do" switch applies to this business at all.
+         */
+        PolicyFitOut: {
+            /** Applies */
+            applies: boolean;
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+        };
+        /**
          * PreferenceScrubIn
          * @description One scrub, as an access provider's DLT platform reported it.
          *
@@ -31729,6 +31752,7 @@ export interface components {
             /** Language */
             language: string;
             limits: components["schemas"]["ScriptLimitsOut"];
+            policies_applicable: components["schemas"]["PoliciesApplicableOut"];
             /** Register Name */
             register_name: string | null;
             /** Register Needs Review */

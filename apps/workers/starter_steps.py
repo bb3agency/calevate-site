@@ -27,6 +27,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
 from apps.api.agents.starter_plans import (
     STEP_FOCUS_MAX,
     STEP_TITLE_MAX,
@@ -36,7 +37,14 @@ from apps.api.agents.starter_plans import (
     clean_plan,
     plans_to_json,
 )
-from apps.api.agents.starters import CATALOGUE, JOB_LABEL, STARTER_JOBS, StarterJob, vertical_of
+from apps.api.agents.starters import (
+    CATALOGUE,
+    JOB_LABEL,
+    STARTER_JOBS,
+    StarterJob,
+    build_starter,
+    vertical_of,
+)
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_LEAD_FIELDS
 from apps.api.core.errors import ProblemError
@@ -68,17 +76,18 @@ SYSTEM_PROMPT: Final = (
     f"job. Focus: at most {STEP_FOCUS_MAX} characters, or empty when the step needs none. "
     "Use only what the business says about itself: never invent a product, price, offer, "
     "discount, place, person or time, and never write what the agent says aloud. "
-    "Plain words: no symbols or markdown, and keep the plan's own word for a booking. "
+    "Plain words: no symbols or markdown, and where a step offers a booking or an order, keep "
+    "the plan's own word for it. "
     "Return ONLY JSON with one key per job, each a list of "
     '{"title": str, "focus": str} in step order.'
 )
 
 
-def _jobs_brief(vertical: str | None) -> str:
+def _jobs_brief(vertical: str | None, fit: BusinessFit = UNKNOWN) -> str:
     trade = vertical_of(vertical)
     blocks = []
     for job in STARTER_JOBS:
-        steps = CATALOGUE[(trade, job)].steps
+        steps = build_starter(trade, job, fit).steps
         lines = [f'Job "{job}" ({JOB_LABEL[job]}), {len(steps)} steps:']
         lines += [f"{i}. {s.title}: {s.instruction}" for i, s in enumerate(steps, 1)]
         blocks.append("\n".join(lines))
@@ -177,9 +186,10 @@ async def write_starter_steps(ctx: dict[str, Any], payload: dict[str, Any]) -> s
         description, vertical = await business_context(tenant_id)
         async with tenant_session(tenant_id) as session:
             tenant_leg = await account_assist_leg(session)
+            fit = await business_fit(session, tenant_id)
         try:
             answer = await ask_json(
-                f"{description}\n\nThe plan, job by job:\n{_jobs_brief(vertical)}",
+                f"{description}\n\nThe plan, job by job:\n{_jobs_brief(vertical, fit)}",
                 SYSTEM_PROMPT,
                 parse=lambda raw: plans_from_model(raw, vertical=vertical),
                 azure_format={

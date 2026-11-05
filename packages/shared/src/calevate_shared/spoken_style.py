@@ -840,7 +840,9 @@ def name_check_in(tag: str | None) -> str | None:
 
 
 def _exchanges_for(style: LanguageStyle, business_type: str | None, count: int) -> list[str]:
-    order = [business_type or "", DEFAULT_EXAMPLES, *style.examples]
+    # The business's own type, then the neutral set, and never another trade's: a free app's
+    # script writer shown a shop's "how many kilos?" writes a shop's lines.
+    order = [business_type or "", DEFAULT_EXAMPLES]
     picked: list[str] = []
     for kind in order:
         if kind in style.examples and kind not in picked:

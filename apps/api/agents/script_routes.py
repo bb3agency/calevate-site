@@ -80,6 +80,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hosted_platform import hosted_agent_limits
 from apps.api.reliability.engine_actions import ACTION_NAMES, CALLBACK, CALLBACK_CANCEL, OPT_OUT
+from apps.api.tenancy.business_copy import Capabilities, Capability, capabilities_for
 
 log = get_logger(__name__)
 
@@ -138,6 +139,51 @@ class DraftOut(BaseModel):
     saved_at: datetime
 
 
+class PolicyFitOut(BaseModel):
+    """Whether one "What it may do" switch applies to this business at all."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: False only when the business's profile judged it does not do this (a free app's
+    #: helpline quotes no prices); true while it is unjudged, which keeps today's switch.
+    applies: bool
+    #: The judgement's reason, to the owner, in plain English; empty while unjudged.
+    reason: str = ""
+
+
+class PoliciesApplicableOut(BaseModel):
+    """Which of the script's `policies` switches apply to this business, keyed as
+    `ScriptPolicies` is, so a screen can hide a switch that cannot matter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Always applies: call backs are the platform's, not something the business sells.
+    offer_call_backs: PolicyFitOut
+    #: The business tells callers prices (`capabilities.quotes_prices`, and it sells).
+    share_prices: PolicyFitOut
+    #: Callers book or order (`capabilities.takes_bookings` or `takes_orders`).
+    take_bookings: PolicyFitOut
+
+
+def policies_applicable(caps: Capabilities) -> PoliciesApplicableOut:
+    """Each switch applies unless the profile judged it does not: the unknown rule."""
+
+    def fit(withdrawn: bool, *judged: Capability) -> PolicyFitOut:
+        # The reasons of the judgements that decided it: the False ones when withdrawn,
+        # the True ones when it applies.
+        reasons = (c.reason for c in judged if c.applies is (not withdrawn))
+        return PolicyFitOut(applies=not withdrawn, reason=" ".join(reasons))
+
+    no_sales = caps.sells.applies is False
+    no_prices = no_sales or caps.quotes_prices.applies is False
+    no_offers = caps.takes_bookings.applies is False and caps.takes_orders.applies is False
+    return PoliciesApplicableOut(
+        offer_call_backs=PolicyFitOut(applies=True),
+        share_prices=fit(no_prices, caps.sells if no_sales else caps.quotes_prices),
+        take_bookings=fit(no_offers, caps.takes_bookings, caps.takes_orders),
+    )
+
+
 class ScriptContextOut(BaseModel):
     """What the builder shows beside the script and does not edit there."""
 
@@ -158,6 +204,8 @@ class ScriptContextOut(BaseModel):
     register_needs_review: bool
     business_type: str
     limits: ScriptLimitsOut
+    #: Which "What it may do" switches apply to this business (`policies_applicable`).
+    policies_applicable: PoliciesApplicableOut
 
 
 class ScriptOut(BaseModel):
@@ -331,6 +379,7 @@ async def _context(session: AsyncSession, agent_id: UUID) -> ScriptContextOut:
         register_needs_review=style is not None and style.review == "needs_native_review",
         business_type=str(row[4] or "custom"),
         limits=_limits(),
+        policies_applicable=policies_applicable(await capabilities_for(session, row[3])),
     )
 
 

@@ -208,9 +208,9 @@ def test_the_founder_approved_examples_follow_the_primary_language_register() ->
     never as words to copy; an extra language's are left out for the size budget."""
     body = compile_call_script(V2)
     for tag, agent_says in (
-        ("te-IN", "మీది ఏ ఏరియా అండి?"),
-        ("hi-IN", "ठीक है जी, डिलीवरी। आपका एरिया कौन सा है?"),
-        ("en-IN", "Okay, delivery. Which area are you in?"),
+        ("te-IN", "అలాగే అండి, రేపు. పొద్దున వీలవుతుందా, సాయంత్రమా?"),
+        ("hi-IN", "अच्छा जी, कल। सुबह ठीक रहेगा, या शाम को?"),
+        ("en-IN", "Sure, tomorrow. Morning or evening?"),
     ):
         prompt = compose_engine_prompt(_cfg(body).model_copy(update={"language_primary": tag}))
         line = prompt_example_line(tag)

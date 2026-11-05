@@ -56,9 +56,12 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: The screen switch, off here, adds nothing.
 #: D-969: numbers digit by digit, one step a turn, the call-back time rule, the placed-call
 #: permission rule and the memory notice in the agent's own words.
+#: 5 Nov 2026: HOW TO SPEAK says "hesitant to go ahead", not "unsure about buying", and the
+#: approved spoken examples carry no delivery or purchase turn, since every business's prompt
+#: carries them.
 PINNED = (
-    "e2275da48ea91f832cc26e38d24d1a252e06293a1336652c5e9578f1597552e2",
-    "8ab6312b360da47353eb7996ae7032830f56be5555c7096ec32915d869a0234c",
+    "e5727734c6f03ba5221cb80f51823b6cfc73ca24ac740b861760e04d2eb638d3",
+    "4277d2211f7b19c093f51013f1a92a32c98ec34ca9da37a55cedbc1d75371cab",
 )
 
 

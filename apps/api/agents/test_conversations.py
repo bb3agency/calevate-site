@@ -81,6 +81,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import service as action_service
 from apps.api.agents import handoff, script_builder, trial_results
+from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
 from apps.api.agents.script_lint import CapabilityManifest
 from apps.api.agents.trial_results import OWNERS, Owner, owner_of, result_owner
 from apps.api.agents.turn_checks import (
@@ -372,12 +373,63 @@ _STANDARD_SHAPE: Final[dict[str, tuple[str, tuple[dict[str, str], dict[str, str]
 }
 
 
+#: The neutral callers for a business that takes no orders or quotes no prices, where a
+#: chilli shop's lines would test what the business never does. English only: Telugu and
+#: Hindi forms are the founder's to write (D-915), and `_in` falls back to English until then.
+_NEUTRAL_ASK: Final[dict[str, str]] = {"en-IN": "What can you help me with?"}
+_NEUTRAL_VAGUE: Final[dict[str, str]] = {"en-IN": "Just the usual."}
+_NEUTRAL_PRICE: Final[tuple[dict[str, str], dict[str, str]]] = (
+    {"en-IN": "How much does it cost?"},
+    {"en-IN": "Okay. Is that the full amount?"},
+)
+
+
 def _in(lines: dict[str, str], language: str) -> str:
     return lines.get(language) or lines["en-IN"]
 
 
-def shape_scenarios(language: str) -> list[Scenario]:
-    """The callers in `_STANDARD_SHAPE`, in `language`."""
+def _sells_goods(fit: BusinessFit) -> bool:
+    """Whether a shop's caller (stock, kilos) fits: true until judged otherwise."""
+    return fit.sells is not False and fit.takes_orders is not False
+
+
+def _quotes_prices(fit: BusinessFit) -> bool:
+    return fit.sells is not False and fit.quotes_prices is not False
+
+
+def _first_question(fit: BusinessFit) -> dict[str, str]:
+    """A question this business's callers really ask (its copy's, English), else the neutral
+    ask."""
+    return {"en-IN": fit.example_questions[0]} if fit.example_questions else _NEUTRAL_ASK
+
+
+def _shape_for(
+    fit: BusinessFit,
+) -> dict[str, tuple[str, tuple[dict[str, str], ...], str]]:
+    """`_STANDARD_SHAPE` fitted to the business: each caller keeps its failure shape, a shop's
+    words only for a business that takes orders, and the price caller only for one that
+    quotes prices."""
+    shape: dict[str, tuple[str, tuple[dict[str, str], ...], str]] = dict(_STANDARD_SHAPE)
+    if _sells_goods(fit):
+        return shape
+    title, lines, expect = shape["vague_answer"]
+    shape["vague_answer"] = (title, (_first_question(fit), _NEUTRAL_VAGUE), expect)
+    title, lines, expect = shape["goes_quiet"]
+    shape["goes_quiet"] = (title, (_first_question(fit), lines[1]), expect)
+    if _quotes_prices(fit):
+        shape["price_in_words"] = (
+            "Asks a price",
+            _NEUTRAL_PRICE,
+            "Says the price in words as people say them, never with a rupee sign or digits, "
+            "in everyday spoken words, and asks at most one question.",
+        )
+    else:
+        del shape["price_in_words"]
+    return shape
+
+
+def shape_scenarios(language: str, fit: BusinessFit = UNKNOWN) -> list[Scenario]:
+    """The callers in `_STANDARD_SHAPE`, in `language`, fitted to the business."""
     return [
         Scenario(
             key=key,
@@ -387,7 +439,7 @@ def shape_scenarios(language: str) -> list[Scenario]:
             expect=expect,
             source="standard",
         )
-        for key, (title, lines, expect) in _STANDARD_SHAPE.items()
+        for key, (title, lines, expect) in _shape_for(fit).items()
     ]
 
 
@@ -403,12 +455,11 @@ def probe_scenario(probe: str, language: str) -> Scenario:
     )
 
 
-def standard_scenarios(language: str, direction: str) -> list[Scenario]:
-    """The set that runs when no AI can write one: a product question, the four probes, the
-    four callers that test the shape of a turn and, for an agent that places calls, a
-    caller who is not interested."""
-    out = [
-        Scenario(
+def _business_question(language: str, fit: BusinessFit) -> Scenario:
+    """The product and price question, or for a business that quotes no prices a question
+    its own callers ask."""
+    if _quotes_prices(fit):
+        return Scenario(
             key="asks_about_products",
             title="Asks about products and prices",
             category="business",
@@ -419,9 +470,48 @@ def standard_scenarios(language: str, direction: str) -> list[Scenario]:
                 "the team will confirm it."
             ),
             source="standard",
+        )
+    return Scenario(
+        key="asks_what_callers_ask",
+        title="Asks what your callers ask",
+        category="business",
+        turns=(_in(_first_question(fit), language),),
+        expect=(
+            "Answers from the pinned facts or by looking it up in knowledge, and never makes "
+            "up an answer. When neither has it, it says so plainly and that the team will "
+            "confirm it."
         ),
+        source="standard",
+    )
+
+
+def _objection_scenario(language: str, fit: BusinessFit) -> list[Scenario]:
+    """The first push-back the business's callers really raise, when its copy names one in
+    this agent's language (the caller's words are written in the copy's call language)."""
+    if not fit.objections or fit.language != language:
+        return []
+    said, answer = fit.objections[0]
+    return [
+        Scenario(
+            key="raises_own_objection",
+            title="Pushes back as your callers do",
+            category="objection",
+            turns=(said,),
+            expect=f"Meets it as the business would: {answer}",
+            source="standard",
+        )
+    ]
+
+
+def standard_scenarios(language: str, direction: str, fit: BusinessFit = UNKNOWN) -> list[Scenario]:
+    """The set that runs when no AI can write one: a question about the business, the four
+    probes, the callers that test the shape of a turn, the business's own push-back when its
+    copy names one and, for an agent that places calls, a caller who is not interested."""
+    out = [
+        _business_question(language, fit),
         *(probe_scenario(probe, language) for probe in PROBES),
-        *shape_scenarios(language),
+        *shape_scenarios(language, fit),
+        *_objection_scenario(language, fit),
     ]
     if direction in ("outbound", "both"):
         out.append(
@@ -1003,6 +1093,9 @@ class AgentBrief:
     #: The line a "both" agent opens the calls it places with (`engine.placed_call_line`);
     #: empty for an agent of one direction, whose `opening_line` is its only opening.
     placed_opening: str = ""
+    #: What the business does with its callers (`agents/business_fit`), so practice callers
+    #: ask what its callers ask and never push back on a price it does not quote.
+    fit: BusinessFit = UNKNOWN
 
     def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
         return RuleContext(
@@ -1204,6 +1297,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         hand_over_reason=duty.reason,
         real_calls=await count_real_calls(session, agent_id),
         caller_has_screen=bool(row[8]),
+        fit=await business_fit(session, row[4]),
         placed_opening=(
             placed_call_line(
                 body=row[9],
@@ -1956,7 +2050,11 @@ async def missing_facts(session: AsyncSession) -> list[MissingFact]:
     than after a run that looks like the agent's fault (D-849). Read from the business's
     facts, its published knowledge documents and its profile's priced services, all of
     which every agent of the client carries (D-689; the profile as [T0 FACTS] lines,
-    `tenancy/business_profile.fact_lines`)."""
+    `tenancy/business_profile.fact_lines`). A business judged to quote no prices is never
+    asked for them."""
+    fit = await business_fit(session)
+    if not _quotes_prices(fit):
+        return []
     has_price = (
         await session.execute(
             text(
