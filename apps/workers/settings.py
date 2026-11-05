@@ -73,6 +73,7 @@ from arq.cron import CronJob
 from arq.worker import Function
 from calevate_shared.calling_window import IST
 
+from apps.api.admin.health import BOARD_REFRESH_S as CLIENT_HEALTH_REFRESH_S
 from apps.api.core.alert_admission import close_admission
 from apps.api.core.alerting import alert
 from apps.api.core.fx import fx_scope
@@ -151,6 +152,7 @@ from apps.workers.caller_memory_distil import (
 )
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.client_actions import run_after_call_actions, run_client_action
+from apps.workers.client_health import refresh_client_health
 from apps.workers.comp_notices import notify_comp
 from apps.workers.copilot_jobs import run_copilot_job
 from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
@@ -866,6 +868,19 @@ CRON_JOBS = [
             "under its own WalkBudget"
         ),
         second=set(MAINTENANCE_TICK_SECONDS),
+        run_at_startup=True,
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # A7-16: the admin client-health board, computed here rather than per console poll.
+    # `run_at_startup` so a restarted worker serves a fresh board at once.
+    _cron(
+        traced_job(refresh_client_health),
+        walk=every_tick(
+            "one admin read of the directory, then one tenant_session per live account, "
+            "kept in Redis for the console"
+        ),
+        minute=set(range(0, 60, CLIENT_HEALTH_REFRESH_S // 60)),
+        second={25},
         run_at_startup=True,
         max_tries=WORKER_MAX_TRIES,
     ),

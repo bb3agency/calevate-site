@@ -45,7 +45,7 @@ interface Draft {
  */
 const COPILOT_FIELDS: readonly FlatFieldSpec<keyof Draft & string>[] = [
   { id: "terms-llm-surcharge", key: "llm_model_surcharge_inr", label: "AI model surcharge (₹ / minute)", type: "text", help: "Applies only to a model the client picked. Leave EMPTY unless a number has been decided." },
-  { id: "terms-concurrency", key: "concurrency_ceiling", label: "Concurrent calls", type: "number", help: "Engine capacity for this account." },
+  { id: "terms-concurrency", key: "concurrency_ceiling", label: "Most campaign calls at once", type: "number", help: "Campaign pacing only. Calls at once on Numbers caps it." },
   { id: "terms-cap-spend", key: "hard_cap_spend_inr", label: "Spend ceiling (₹ / month)", type: "text", help: "OUR ceiling. Empty means no ceiling — their dialling is unlimited." },
   { id: "terms-cap-min", key: "hard_cap_minutes", label: "Minute ceiling (/ month)", type: "number", help: "OUR ceiling. Empty means no ceiling." },
   { id: "terms-from", key: "effective_from", label: "In effect from (IST)", type: "date", help: "A local date-time (YYYY-MM-DDTHH:MM) read as Indian Standard Time, never as the viewer's clock. Empty = now." },
@@ -201,7 +201,7 @@ export function TermsForm({
           <Field label="AI model surcharge (₹ / minute)" id="terms-llm-surcharge" hint="Added only for minutes this client's own model choice upgraded, never for the platform default. Leave empty unless a number has been decided.">
             <input id="terms-llm-surcharge" value={draft.llm_model_surcharge_inr} disabled={!write.allowed} onChange={(event) => set("llm_model_surcharge_inr", event.target.value)} inputMode="decimal" className={FIELD} />
           </Field>
-          <Field label="Concurrent calls" id="terms-concurrency" hint="Engine capacity for this account.">
+          <Field label="Most campaign calls at once" id="terms-concurrency" hint="Campaign pacing only. Calls at once on Numbers caps it.">
             <input id="terms-concurrency" value={draft.concurrency_ceiling} disabled={!write.allowed} onChange={(event) => set("concurrency_ceiling", event.target.value)} inputMode="numeric" className={FIELD} {...countProps("concurrency_ceiling")} />
             {countMessage("concurrency_ceiling")}
           </Field>

@@ -203,7 +203,7 @@ function healthy(): Routes {
     // The health summary at the top of the page (redesign #2). Healthy by default; the
     // wallet and the line incidents are not this file's subject, so they stay unanswered.
     [HEALTH_PATH]: HEALTHY,
-    "/v1/billing/wallet": noReply(),
+    [`/v1/admin/tenants/${TENANT}/wallet`]: noReply(),
     "/v1/healer/incidents?days=30&limit=20": noReply(),
     "/v1/calls?limit=5": [],
   };
@@ -604,7 +604,7 @@ describe("the client detail screen", () => {
  */
 describe("the client's health summary", () => {
   it("says nothing is wrong only when the judgement, the line incidents and the calls say so", async () => {
-    render({ "/v1/billing/wallet": prepaidWallet(), "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 } });
+    render({ [`/v1/admin/tenants/${TENANT}/wallet`]: prepaidWallet(), "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 } });
     expect(await screen.findByText("Nothing is wrong with this account right now.")).toBeTruthy();
   });
 
@@ -616,7 +616,7 @@ describe("the client's health summary", () => {
 
   it("does not call a prepaid account healthy when its wallet could not be read", async () => {
     render({
-      "/v1/billing/wallet": problem(503, { title: "Service unavailable", detail: "Down." }),
+      [`/v1/admin/tenants/${TENANT}/wallet`]: problem(503, { title: "Service unavailable", detail: "Down." }),
       "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 },
     });
     expect(await screen.findByText("Credit could not be read")).toBeTruthy();
@@ -625,7 +625,7 @@ describe("the client's health summary", () => {
 
   it("says the recent calls could not be read instead of showing an empty list", async () => {
     render({
-      "/v1/billing/wallet": prepaidWallet(),
+      [`/v1/admin/tenants/${TENANT}/wallet`]: prepaidWallet(),
       "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 },
       "/v1/calls?limit=5": problem(503, { title: "Service unavailable", detail: "Down." }),
     });
@@ -677,7 +677,7 @@ describe("the client's health summary", () => {
   it("shows a healthy trial account as on trial with nothing wrong", async () => {
     render({
       [HEALTH_PATH]: { ...HEALTHY, on_trial: true },
-      "/v1/billing/wallet": prepaidWallet(),
+      [`/v1/admin/tenants/${TENANT}/wallet`]: prepaidWallet(),
       "/v1/healer/incidents?days=30&limit=20": { items: [], open: 0 },
     });
     expect(await screen.findByText("Nothing is wrong with this account right now.")).toBeTruthy();

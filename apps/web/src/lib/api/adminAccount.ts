@@ -30,6 +30,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
 import type { components } from "./schema";
+import type { Wallet } from "./wallet";
 
 type Schemas = components["schemas"];
 
@@ -110,3 +111,20 @@ export const ACTOR_LABELS: Record<ActorType, string> = {
   user: "Someone at this client",
   system: "Automatic",
 };
+
+export function tenantWalletKey(tenantId: string) {
+  return ["admin", "tenant", tenantId, "wallet"] as const;
+}
+
+/**
+ * One client's wallet on the ADMIN session (`GET /v1/admin/tenants/{id}/wallet`). The
+ * client's own wallet route refuses a view-as read, so the overview cannot borrow it.
+ */
+export function useAdminTenantWallet(tenantId: string): UseQueryResult<Wallet> {
+  return useQuery({
+    queryKey: tenantWalletKey(tenantId),
+    queryFn: () =>
+      apiRequest<Wallet>(adminSession(), `/v1/admin/tenants/${tenantId}/wallet`),
+    enabled: Boolean(tenantId),
+  });
+}

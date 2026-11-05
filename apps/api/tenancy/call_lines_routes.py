@@ -3,7 +3,8 @@
     GET  /v1/admin/organizations/{org_id}/call-lines   the value in force, where it comes from,
                                                        and the client's open request
     PUT  /v1/admin/organizations/{org_id}/call-lines   set it, or null for Calevate's default;
-                                                       a raise closes the open request
+                                                       a raise closes the open request once
+                                                       the client's workspace holds it
     POST /v1/admin/organizations/{org_id}/call-lines/requests/{request_id}/decline
                                                        answer a request with "no", and why
     GET  /v1/admin/call-line-requests                  every open request, for the console bell
@@ -34,12 +35,14 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
+from apps.api.engine.dial_lines import engine_concurrency_cap
 from apps.api.tenancy import call_line_requests as requests_
 from apps.api.tenancy.call_line_requests import LineRequest, RequestStatus
 from apps.api.tenancy.call_lines import (
     PAID_CALL_LINES_DEFAULT,
     TRIAL_CALL_LINES_DEFAULT,
     CallLines,
+    EngineState,
     calls_in_progress,
     read_call_lines,
     set_call_lines,
@@ -85,6 +88,18 @@ class CallLinesOut(BaseModel):
     max_lines: int
     paid_default: int
     trial_default: int
+    #: Where the number in force holds (`tenancy/call_lines.EngineState`): `ours` at once,
+    #: `applied` once the client's own workspace read it back, `applying` until then.
+    engine_state: EngineState
+    #: What the client's own workspace last read back, and when; null before a sync.
+    applied_lines: int | None
+    applied_at: datetime | None
+    #: The voice platform account's ceiling on calls at once, shared by every client; null on
+    #: an engine that holds none of ours.
+    account_ceiling: int | None
+    #: Calls at once granted to every other active client, counting a client on the default
+    #: as a paying one (a trial's default is lower), so it is an upper bound.
+    lines_elsewhere_at_most: int
     #: The client's request for more, while it waits on us.
     open_request: CallLineRequestAdminOut | None = None
 
@@ -102,7 +117,27 @@ def call_lines_confirmation(org_id: UUID) -> str:
     return f"set_call_lines:{org_id}"
 
 
-def _out(state: CallLines, open_request: CallLineRequestAdminOut | None) -> CallLinesOut:
+_LINES_ELSEWHERE = text(
+    "SELECT COALESCE(sum(COALESCE(call_lines, :paid_default)), 0) FROM organizations "
+    "WHERE id <> :tid AND deleted_at IS NULL AND status IN ('onboarding', 'active')"
+)
+
+
+async def lines_elsewhere(directory: AsyncSession, *, tenant_id: UUID) -> int:
+    """`CallLinesOut.lines_elsewhere_at_most`, on the admin session: `organizations` is the one
+    table `app.admin` reads across clients, and `call_lines` lives on it."""
+    return int(
+        (
+            await directory.execute(
+                _LINES_ELSEWHERE, {"tid": tenant_id, "paid_default": PAID_CALL_LINES_DEFAULT}
+            )
+        ).scalar_one()
+    )
+
+
+def _out(
+    state: CallLines, open_request: CallLineRequestAdminOut | None, *, elsewhere: int
+) -> CallLinesOut:
     return CallLinesOut(
         call_lines=state.lines,
         call_lines_chosen=state.chosen,
@@ -112,6 +147,11 @@ def _out(state: CallLines, open_request: CallLineRequestAdminOut | None) -> Call
         max_lines=CALL_LINES_MAX,
         paid_default=PAID_CALL_LINES_DEFAULT,
         trial_default=TRIAL_CALL_LINES_DEFAULT,
+        engine_state=state.engine_state,
+        applied_lines=state.applied,
+        applied_at=state.applied_at,
+        account_ceiling=engine_concurrency_cap(),
+        lines_elsewhere_at_most=elsewhere,
         open_request=open_request,
     )
 
@@ -138,7 +178,9 @@ _DESCRIPTION = (
     f"trial; a chosen value is {CALL_LINES_MIN}-{CALL_LINES_MAX}. A paying client's own voice "
     "workspace is capped at it; a free trial's calls are counted by our dial gate, which "
     "refuses one more with `call_lines_busy`. `open_request` is the client's request for "
-    "more, if one waits; raising the lines above what the client had closes it."
+    "more, if one waits; raising the lines above what the client had closes it, at once when "
+    "the cap is ours and once the client's own workspace reads it back otherwise "
+    "(`engine_state`)."
 )
 
 
@@ -149,14 +191,17 @@ _DESCRIPTION = (
     summary="How many calls one client may have at once",
     description=_DESCRIPTION,
 )
-async def admin_get_call_lines(org_id: UUID, request: Request, principal: Operator) -> CallLinesOut:
+async def admin_get_call_lines(
+    org_id: UUID, request: Request, principal: Operator, directory: AdminSession
+) -> CallLinesOut:
+    elsewhere = await lines_elsewhere(directory, tenant_id=org_id)
     async with tenant_session(org_id) as scoped:
         state = await read_call_lines(scoped, tenant_id=org_id)
         open_request = await _admin_request(scoped, tenant_id=org_id)
         await record_admin_tenant_read(
             scoped, request=request, principal=principal, tenant_id=org_id
         )
-    return _out(state, open_request)
+    return _out(state, open_request, elsewhere=elsewhere)
 
 
 @router.put(
@@ -172,9 +217,11 @@ async def admin_set_call_lines(
     request: Request,
     principal: Operator,
     step_up: StepUpGate,
+    directory: AdminSession,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> CallLinesOut:
     step_up.require(x_confirm_action, call_lines_confirmation(org_id))
+    elsewhere = await lines_elsewhere(directory, tenant_id=org_id)
     async with tenant_session(org_id) as scoped:
         state, moved, closed = await set_call_lines(
             scoped, tenant_id=org_id, lines=payload.call_lines, admin_id=principal.user_id
@@ -202,7 +249,7 @@ async def admin_set_call_lines(
                 summary={"lines_granted": closed.lines_granted},
             )
         open_request = await _admin_request(scoped, tenant_id=org_id)
-    return _out(state, open_request)
+    return _out(state, open_request, elsewhere=elsewhere)
 
 
 class DeclineIn(BaseModel):
@@ -347,6 +394,9 @@ class ClientCallLinesOut(BaseModel):
     on_trial: bool
     #: The most an account can have; a request asks for at most this.
     max_lines: int
+    #: True while a change to `call_lines` is sent to the voice platform and not yet confirmed:
+    #: until then the account still has its previous number.
+    being_applied: bool
     #: The open request, or one answered in the last week; null when there is neither.
     request: CallLineRequestOut | None = None
 
@@ -369,6 +419,7 @@ async def get_my_call_lines(principal: ClientReader) -> ClientCallLinesOut:
         in_progress=busy,
         on_trial=state.on_trial,
         max_lines=CALL_LINES_MAX,
+        being_applied=state.engine_state == "applying",
         request=_client_request(latest) if latest is not None else None,
     )
 

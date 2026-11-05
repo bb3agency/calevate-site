@@ -140,6 +140,14 @@ from apps.api.ops.copilot_quality import DEFAULT_WINDOW_DAYS as PIP_DEFAULT_WIND
 from apps.api.ops.copilot_quality import MAX_WINDOW_DAYS as PIP_MAX_WINDOW_DAYS
 from apps.api.ops.copilot_quality import CopilotQualityReport, copilot_quality_report
 from apps.api.ops.copilot_quality import QualityRealm as PipQualityRealm
+from apps.api.ops.outbox_view import (
+    STALLED_AFTER,
+    DeadLetterCause,
+    dead_letter_cause,
+    job_label,
+    read_dead_letter_errors,
+    read_outbox_backlog,
+)
 from apps.api.ops.reply_times import DEFAULT_WINDOW_DAYS as REPLY_DEFAULT_WINDOW_DAYS
 from apps.api.ops.reply_times import MAX_WINDOW_DAYS as REPLY_MAX_WINDOW_DAYS
 from apps.api.ops.reply_times import ReplyTimeReport, reply_time_report
@@ -189,17 +197,23 @@ class TmRegistrationOut(BaseModel):
 class DeadLetterJobOut(BaseModel):
     """One `job`'s share of the outbox DLQ.
 
-    COUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding
-    lead fields and phone numbers; `job` is an ARQ job name — a code identifier — and
-    nothing derived from a payload reaches this model. See
-    `reliability.service.DeadLetterQueue`, which is where that boundary is enforced.
+    Never the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields
+    and phone numbers. `last_error` is the most recent failure's error, which is redacted
+    when it is written (`reliability.service._stored_error`), so an operator can see why a
+    job failed before resending it.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     job: str
+    #: The job name read as words, for the screen.
+    label: str
     depth: int
     oldest_at: datetime
+    last_error: str | None
+    #: Why it never did its work, when its error says so: `never_ran` (published, no run
+    #: succeeded) or `earlier_run_failed` (arq still holds a failed run of it).
+    cause: DeadLetterCause | None
 
 
 class DeadLetterQueueOut(BaseModel):
@@ -237,6 +251,16 @@ class DeadLetterQueueOut(BaseModel):
     # Zero on a healthy idle system; growing during a queue outage, which is the whole
     # window in which the console used to report "no dead letters" and mean it.
     deferred: int
+    # Pending messages older than the longest a healthy retry loop holds one
+    # (`ops.outbox_view.STALLED_AFTER`). A stopped worker fails nothing, so without this a
+    # queue that has not moved in a month read "0 stuck".
+    stalled_pending: int
+    oldest_pending_at: datetime | None
+    stalled_after_minutes: int
+    # Pending on purpose (D-972): queued by a migration this release predates, or a bulk job
+    # no live bulk worker runs. These wait for a deploy or the bulk worker, not a resend.
+    held_for_release: int
+    held_for_bulk_worker: int
 
 
 class EngineDriftOut(BaseModel):
@@ -619,6 +643,8 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
     """
     halt = await read_halt_state(session)
     dlq = await read_dead_letter_queue(session)
+    backlog = await read_outbox_backlog(session)
+    errors = await read_dead_letter_errors(session)
     # Scoped to the CONFIGURED engine, not to every route row: a leftover route from a
     # previous vendor is not something the sweep reads back, so counting it here would
     # report a permanent `never_checked` nothing can ever clear.
@@ -636,11 +662,21 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
             oldest_at=dlq.oldest_created_at,
             by_job=[
                 DeadLetterJobOut(
-                    job=entry.job, depth=entry.depth, oldest_at=entry.oldest_created_at
+                    job=entry.job,
+                    label=job_label(entry.job),
+                    depth=entry.depth,
+                    oldest_at=entry.oldest_created_at,
+                    last_error=errors.get(entry.job),
+                    cause=dead_letter_cause(errors.get(entry.job)),
                 )
                 for entry in dlq.by_job
             ],
             deferred=dlq.deferred,
+            stalled_pending=backlog.stalled,
+            oldest_pending_at=backlog.oldest_pending_at,
+            stalled_after_minutes=int(STALLED_AFTER.total_seconds() // 60),
+            held_for_release=backlog.held_for_release,
+            held_for_bulk_worker=backlog.held_for_bulk_worker,
         ),
         engine_drift=EngineDriftOut(
             live_agents=drift.live_agents,

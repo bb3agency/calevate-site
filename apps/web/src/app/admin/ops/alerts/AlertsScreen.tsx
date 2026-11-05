@@ -302,7 +302,7 @@ function Board({ report }: { report: AlertReport }) {
             rows={report.episodes}
             columns={columns}
             getRowId={episodeId}
-            label={`Every alarm raised in the last ${windowLabel(report.window_days)}, still happening first and loudest first`}
+            label={`Every alarm still happening, then every other alarm in the last ${windowLabel(report.window_days)}, loudest first`}
             partialNote={report.complete ? undefined : "Sorted within the alarms on this page only."}
           />
         </div>

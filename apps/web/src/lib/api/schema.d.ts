@@ -354,7 +354,7 @@ export interface paths {
         };
         /**
          * Client health overview — accounts about to churn or break, worst first
-         * @description Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT — this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.
+         * @description Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT — this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`. The board is computed by a background job every two minutes; `computed_at` says when. With no fresh board one request computes it and others get a retryable 503 `client_health_computing`.
          */
         get: operations["read_client_health_v1_admin_client_health_get"];
         put?: never;
@@ -1461,12 +1461,12 @@ export interface paths {
         };
         /**
          * How many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).
          */
         get: operations["admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get"];
         /**
          * Set how many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).
          */
         put: operations["admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put"];
         post?: never;
@@ -2316,6 +2316,26 @@ export interface paths {
         /** The client's AI-written examples and suggestions */
         get: operations["admin_read_business_copy_v1_admin_tenants__tenant_id__business_copy_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Correct one capability the AI judged for this client, or go back to the AI's
+         * @description Sets what the business does with its callers (for example `takes_bookings`) where the AI judged it wrongly. A regeneration keeps the correction. `applies: null` restores the AI's verdict. Audited.
+         */
+        put: operations["admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3508,6 +3528,26 @@ export interface paths {
          * @description The same gate, line, lend and call as the client's Make a test call, run by an operator for a client on a free trial. Rings a real phone: send an `Idempotency-Key` header, one per attempt.
          */
         post: operations["smoke_trial_call_v1_admin_tenants__tenant_id__trial_test_call_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's wallet as the client reads it — the operator's copy
+         * @description Balance, runway, minutes left, trial, and whether outbound is stopped for lack of credit: the answer `GET /v1/billing/wallet` gives the client, for an account named in the path. Reading this writes an `admin.tenant_read` audit row.
+         */
+        get: operations["read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -14414,6 +14454,10 @@ export interface components {
             /** Caller Noun */
             caller_noun: string | null;
             capabilities: components["schemas"]["Capabilities"];
+            /** Capability Overrides */
+            capability_overrides: {
+                [key: string]: boolean;
+            };
             /** Cost Inr */
             cost_inr: string | null;
             /** Example Questions */
@@ -17382,10 +17426,23 @@ export interface components {
         };
         /** CallLinesOut */
         CallLinesOut: {
+            /** Account Ceiling */
+            account_ceiling: number | null;
+            /** Applied At */
+            applied_at: string | null;
+            /** Applied Lines */
+            applied_lines: number | null;
             /** Call Lines */
             call_lines: number;
             /** Call Lines Chosen */
             call_lines_chosen: number | null;
+            /**
+             * Engine State
+             * @enum {string}
+             */
+            engine_state: "ours" | "applied" | "applying";
+            /** Lines Elsewhere At Most */
+            lines_elsewhere_at_most: number;
             /** Max Lines */
             max_lines: number;
             /** Min Lines */
@@ -18509,6 +18566,11 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** CapabilityOverrideIn */
+        CapabilityOverrideIn: {
+            /** Applies */
+            applies: boolean | null;
+        };
         /**
          * CapsIn
          * @description The whole client-side pair. `null` clears that side (see the module docstring).
@@ -18724,6 +18786,8 @@ export interface components {
             plans: components["schemas"]["CartesiaPlanOut"][];
             /** Refusal Floor Inr Per Min */
             refusal_floor_inr_per_min: string;
+            /** Refusal Usd Inr */
+            refusal_usd_inr: string;
         };
         /** CaseDraftOut */
         CaseDraftOut: {
@@ -19050,6 +19114,8 @@ export interface components {
          *     decision), so the client asks rather than sets.
          */
         ClientCallLinesOut: {
+            /** Being Applied */
+            being_applied: boolean;
             /** Call Lines */
             call_lines: number;
             /** In Progress */
@@ -19083,6 +19149,20 @@ export interface components {
             tenant_id: string;
             /** Unfiled */
             unfiled: number;
+        };
+        /**
+         * ClientHealthBoardOut
+         * @description The board, and when it was worked out. The worker recomputes it every
+         *     `health.BOARD_REFRESH_S`; one per request was a walk of every tenant per poll.
+         */
+        ClientHealthBoardOut: {
+            /** Accounts */
+            accounts: components["schemas"]["ClientHealthOut"][];
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
         };
         /**
          * ClientHealthOut
@@ -19695,6 +19775,8 @@ export interface components {
             default: string | boolean | number | null;
             /** Description */
             description: string;
+            /** Details */
+            details: string | null;
             /** Editable */
             editable: boolean;
             /** Engine Scope */
@@ -21654,16 +21736,22 @@ export interface components {
          * DeadLetterJobOut
          * @description One `job`'s share of the outbox DLQ.
          *
-         *     COUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding
-         *     lead fields and phone numbers; `job` is an ARQ job name — a code identifier — and
-         *     nothing derived from a payload reaches this model. See
-         *     `reliability.service.DeadLetterQueue`, which is where that boundary is enforced.
+         *     Never the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields
+         *     and phone numbers. `last_error` is the most recent failure's error, which is redacted
+         *     when it is written (`reliability.service._stored_error`), so an operator can see why a
+         *     job failed before resending it.
          */
         DeadLetterJobOut: {
+            /** Cause */
+            cause: ("never_ran" | "earlier_run_failed") | null;
             /** Depth */
             depth: number;
             /** Job */
             job: string;
+            /** Label */
+            label: string;
+            /** Last Error */
+            last_error: string | null;
             /**
              * Oldest At
              * Format: date-time
@@ -21697,8 +21785,18 @@ export interface components {
             deferred: number;
             /** Depth */
             depth: number;
+            /** Held For Bulk Worker */
+            held_for_bulk_worker: number;
+            /** Held For Release */
+            held_for_release: number;
             /** Oldest At */
             oldest_at: string | null;
+            /** Oldest Pending At */
+            oldest_pending_at: string | null;
+            /** Stalled After Minutes */
+            stalled_after_minutes: number;
+            /** Stalled Pending */
+            stalled_pending: number;
         };
         /** DecideStep */
         DecideStep: {
@@ -27076,6 +27174,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Not Started */
+            not_started: boolean;
+            /** Not Started After Minutes */
+            not_started_after_minutes: number;
+            /** Reason Labels */
+            reason_labels: string[];
             /** Reasons */
             reasons: string[];
             /** Retrying */
@@ -30621,7 +30725,7 @@ export interface components {
              * Actor
              * @enum {string}
              */
-            actor: "client" | "calevate";
+            actor: "client" | "calevate" | "outside";
             /** Next Step */
             next_step: string;
             /** Reason */
@@ -34427,7 +34531,7 @@ export interface components {
              * Actor
              * @enum {string}
              */
-            actor: "client" | "calevate";
+            actor: "client" | "calevate" | "outside";
             /** Next Step */
             next_step: string;
             /** Reason */
@@ -34536,6 +34640,8 @@ export interface components {
             created_at?: string | null;
             /** Credit Inr */
             credit_inr?: string | null;
+            /** Credit Unpacked Inr */
+            credit_unpacked_inr?: string | null;
             /** Holds */
             holds: string[];
             /**
@@ -38561,7 +38667,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ClientHealthOut"][];
+                    "application/json": components["schemas"]["ClientHealthBoardOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -42108,6 +42214,42 @@ export interface operations {
             };
         };
     };
+    admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapabilityOverrideIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBusinessCopyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     admin_refresh_business_copy_v1_admin_tenants__tenant_id__business_copy_refresh_post: {
         parameters: {
             query?: never;
@@ -44360,6 +44502,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrialSmokeCallOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

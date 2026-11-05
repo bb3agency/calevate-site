@@ -2,12 +2,20 @@
 
 import { useAdminAccess } from "@/app/admin/access";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { Section } from "@/components/console/section";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { ProblemNotice, Skeleton, formatINRExact, formatISTStamp } from "@/components/ui";
+import {
+  FIELD,
+  NoticeBox,
+  ProblemNotice,
+  Skeleton,
+  formatINRExact,
+  formatISTStamp,
+} from "@/components/ui";
 import {
   useAdminBusinessCopy,
   useAdminRefreshBusinessCopy,
+  useAdminSetCapability,
   type AdminBusinessCopy,
   type Capabilities,
   type Capability,
@@ -31,6 +39,8 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
   const refresh = useAdminRefreshBusinessCopy(tenantId);
   const refreshFeedback = useActionFeedback(refresh, { errorDisplay: "inline" });
   const access = useAdminAccess("ops:manage", "write a client's examples again");
+  const tenantWrite = useAdminAccess("admin:tenants", "correct what this business does");
+  const setCapability = useAdminSetCapability(tenantId);
 
   if (copy.isError)
     return (
@@ -47,6 +57,29 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
   const data = copy.data;
   return (
     <Section title="Business examples">
+      {/* Every account is re-judged once when the copy prompt changes; until then no
+          capability is judged, and the rows below would be six unexplained blanks. */}
+      {!data.refreshing && !profileJudged(data) && (
+        <NoticeBox
+          tone="info"
+          role="status"
+          title="Still learning what this business does"
+          action={
+            access.allowed ? (
+              <button
+                type="button"
+                className={TEXT_ACTION}
+                disabled={refresh.isPending}
+                onClick={() => refreshFeedback.run()}
+              >
+                Retry
+              </button>
+            ) : undefined
+          }
+        >
+          Screens use neutral wording until it is worked out.
+        </NoticeBox>
+      )}
       <SettingRows>
         <SettingRow
           label="Last written"
@@ -75,17 +108,63 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
           <SettingRow
             key={key}
             label={label}
-            value={capabilityLine(data.capabilities[key])}
+            value={capabilityLine(data.capabilities?.[key])}
+            hint={lookup(data.capability_overrides ?? {}, key) !== undefined ? "Set by us" : undefined}
+            action={
+              tenantWrite.allowed ? (
+                <CapabilityChoice
+                  label={label}
+                  chosen={lookup(data.capability_overrides ?? {}, key)}
+                  pending={setCapability.isPending}
+                  onChoose={(applies) => setCapability.mutate({ key, applies })}
+                />
+              ) : null
+            }
           />
         ))}
       </SettingRows>
       <ProblemNotice error={refresh.error} />
+      <ProblemNotice error={setCapability.error} />
     </Section>
   );
 }
 
-/** The capability profile (D-827, prompt version 4), read-only: what the screens and the
- * agents' plans will follow for this client. */
+/**
+ * One capability's correction: the AI's judgement, or Yes / No decided by us (A7-08). Saved
+ * at once and audited; a regeneration keeps it, and "AI's judgement" restores the AI's.
+ */
+function CapabilityChoice({
+  label,
+  chosen,
+  pending,
+  onChoose,
+}: {
+  label: string;
+  chosen: boolean | undefined;
+  pending: boolean;
+  onChoose: (applies: boolean | null) => void;
+}) {
+  const value = chosen === undefined ? "ai" : chosen ? "yes" : "no";
+  return (
+    <select
+      aria-label={`${label}: who decides`}
+      className={`${FIELD} w-auto`}
+      value={value}
+      disabled={pending}
+      onChange={(event) => {
+        const next = event.target.value;
+        onChoose(next === "ai" ? null : next === "yes");
+      }}
+    >
+      <option value="ai">AI&apos;s judgement</option>
+      <option value="yes">Yes</option>
+      <option value="no">No</option>
+    </select>
+  );
+}
+
+/** The capability profile (D-827, prompt version 4): what the screens and the agents' plans
+ * follow for this client, each correctable by an operator. */
 const CAPABILITY_ROWS: readonly (readonly [keyof Capabilities, string])[] = [
   ["takes_bookings", "Takes bookings"],
   ["takes_orders", "Takes orders"],
@@ -95,9 +174,18 @@ const CAPABILITY_ROWS: readonly (readonly [keyof Capabilities, string])[] = [
   ["health_business", "Health business"],
 ];
 
+/** Whether any capability has been judged (by the AI or by us). Exported for the test. */
+export function profileJudged(data: AdminBusinessCopy): boolean {
+  return CAPABILITY_ROWS.some(([key]) => {
+    const judged = data.capabilities?.[key];
+    return judged?.applies === true || judged?.applies === false;
+  });
+}
+
 /** Exported for the test. */
-export function capabilityLine(judged: Capability): string {
-  if (judged.applies === null || judged.applies === undefined) return "Not judged yet";
+export function capabilityLine(judged: Capability | null | undefined): string {
+  // An API older than this screen sends no profile at all: that is "not judged", not a crash.
+  if (judged?.applies === null || judged?.applies === undefined) return "Not judged yet";
   const verdict = judged.applies ? "Yes" : "No";
   return judged.reason ? `${verdict}: ${judged.reason}` : verdict;
 }

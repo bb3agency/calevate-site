@@ -233,8 +233,14 @@ async def test_the_job_sends_the_value_to_the_clients_own_workspace(
     assert customers.sent == [(workspace, 2)]
     async with tenant_session(tenant_id) as session:
         await set_call_lines(session, tenant_id=tenant_id, lines=3)
+        # A7-06: saved, and not yet held by the workspace.
+        assert (await read_call_lines(session, tenant_id=tenant_id)).engine_state == "applying"
     await engine_workspaces.sync_engine_call_lines({}, payload)
     assert customers.sent[-1] == (workspace, 3)
+    async with tenant_session(tenant_id) as session:
+        state = await read_call_lines(session, tenant_id=tenant_id)
+    assert state.engine_state == "applied" and state.applied == 3
+    assert state.applied_at is not None
 
 
 async def test_the_sweep_repairs_a_value_changed_in_the_vendors_console(
@@ -243,12 +249,17 @@ async def test_the_sweep_repairs_a_value_changed_in_the_vendors_console(
     tenant_id, _agent, _h = await _tenant()
     workspace = await _with_workspace(tenant_id)
     customers = _Customers(held=2)
+    raised: list[str] = []
     monkeypatch.setattr(engine_workspaces, "thinnest_customers", lambda: customers)
+    monkeypatch.setattr(engine_workspaces, "alert", lambda _stage, code, **_kw: raised.append(code))
     assert await engine_workspaces._call_lines_leg(tenant_id, workspace, repair=True) == "in_step"
     assert customers.sent == []
+    assert raised == []
     customers.held = 10
     assert await engine_workspaces._call_lines_leg(tenant_id, workspace, repair=True) == "repaired"
     assert customers.sent == [(workspace, 2)]
+    # A7-06: drift is an alarm an operator sees, not only a log line.
+    assert raised == ["engine_call_lines_drift"]
 
 
 async def test_a_new_workspace_is_owed_its_call_lines(on_thinnest: None) -> None:

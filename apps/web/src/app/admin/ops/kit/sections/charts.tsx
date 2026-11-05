@@ -121,7 +121,7 @@ export function ChartsSection() {
             orientation="horizontal"
             showValues
             labelColumn="Agent"
-            categories={["Reception (Telugu)", "Follow-up calls", "అపాయింట్‌మెంట్ రిమైండర్"]}
+            categories={["Reception (Telugu)", "Follow-up calls", "Reminder calls"]}
             series={[{ label: "Spent", values: [1840.5, 742, 299.5], display: [formatINRExact("1840.50"), formatINRExact("742.00"), formatINRExact("299.50")] }]}
           />
         </KitDemo>

@@ -6,21 +6,30 @@ The ops console's "Applied to N of M live agents" line reads this, from the run 
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Annotated, Any, Literal
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.live_apply import LiveApplyRunView, held_back_from, recent_runs
+from apps.api.agents.live_apply import LEASE_S, LiveApplyRunView, held_back_from, recent_runs
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.rbac import permission_meta
+from apps.api.ops.config_catalog import FIELD_META, humanise
+from apps.workers.live_apply import RESUME_INTERVAL_S, STALE_AFTER_S
 
 router = APIRouter(prefix="/v1/ops/live-apply", tags=["ops"])
+
+#: The longest a queued run waits with a worker running: one lease, the stale margin, and one
+#: resume sweep. Still queued after that, the worker is not picking it up.
+NOT_STARTED_AFTER: Final = timedelta(seconds=LEASE_S + STALE_AFTER_S + RESUME_INTERVAL_S)
+
+#: What a platform-scope reason reads as when no setting carries that key any more.
+REMOVED_SETTING: Final = "A setting that has since been removed"
 
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 ConfigReader = Annotated[Principal, Depends(requires("platform:config", realm="admin"))]
@@ -52,6 +61,11 @@ class LiveApplyRunOut(BaseModel):
     agent_id: UUID | None
     #: What changed: setting keys, or a source such as `lead_calling`.
     reasons: list[str]
+    #: The same, as the console names them: a setting's label, in `reasons` order.
+    reason_labels: list[str]
+    #: Still queued after `NOT_STARTED_AFTER`: the worker is not picking it up.
+    not_started: bool
+    not_started_after_minutes: int
     #: `pending` (queued), `running`, `done`, or `superseded` (a later save replaced it).
     status: Literal["pending", "running", "done", "superseded"]
     #: Live agents in scope when the walk began; null until it begins.
@@ -88,13 +102,26 @@ def _failure_out(failure: dict[str, Any]) -> LiveApplyFailureOut:
     )
 
 
-def _out(run: LiveApplyRunView) -> LiveApplyRunOut:
+def reason_label(reason: str, *, scope: str) -> str:
+    """A reason as the console names it. A platform run's reasons are setting keys, so one
+    the catalogue no longer holds is a setting that was removed, never a raw key."""
+    meta = FIELD_META.get(reason)
+    if meta is not None:
+        return meta.label
+    return REMOVED_SETTING if scope == "platform" else humanise(reason)
+
+
+def _out(run: LiveApplyRunView, *, now: datetime | None = None) -> LiveApplyRunOut:
+    waited = (now or datetime.now(UTC)) - run.created_at
     return LiveApplyRunOut(
         id=run.id,
         scope=run.scope,
         tenant_id=run.tenant_id,
         agent_id=run.agent_id,
         reasons=run.reasons,
+        reason_labels=[reason_label(reason, scope=run.scope) for reason in run.reasons],
+        not_started=run.status == "pending" and waited > NOT_STARTED_AFTER,
+        not_started_after_minutes=int(NOT_STARTED_AFTER.total_seconds() // 60),
         status=run.status,  # type: ignore[arg-type]
         total=run.total,
         applied=run.applied,

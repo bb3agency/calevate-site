@@ -19,15 +19,19 @@ import { useQuery } from "@tanstack/react-query";
 import { formatINRExact, formatISTInput } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
-import { adminSession, viewAsSession, type TenantSummary } from "@/lib/api/admin";
-import { useTenantReadiness, type TenantReadiness } from "@/lib/api/adminAccount";
+import { adminSession, type TenantSummary } from "@/lib/api/admin";
+import {
+  useAdminTenantWallet,
+  useTenantReadiness,
+  type TenantReadiness,
+} from "@/lib/api/adminAccount";
 import { apiRequest } from "@/lib/api/client";
 import { useAdminBusinessProfile, type AdminBusinessProfile } from "@/lib/api/businessProfile";
 import { useTenantWorkspace, type TenantWorkspace } from "@/lib/api/engineWorkspaces";
 import { useAdminTenantKyc, type AdminKyc } from "@/lib/api/kycReview";
 import { useOwnerStatus, type OwnerStatus } from "@/lib/api/onboarding";
 import { trialKey, trialPath, type TrialStatus } from "@/lib/api/trials";
-import { walletKey, type Wallet } from "@/lib/api/wallet";
+import type { Wallet } from "@/lib/api/wallet";
 import type { CopilotFact } from "@/lib/copilot/types";
 
 /** One read's outcome: its data, or why there is none. */
@@ -214,7 +218,6 @@ export function accountFacts(tenant: TenantSummary, reads: AccountReads): Copilo
  */
 export function useAccountReads(tenant: TenantSummary | undefined): AccountReads {
   const tenantId = tenant?.id ?? "";
-  const slug = tenant?.slug ?? "";
   const kyc = useAdminTenantKyc(tenantId);
   const readiness = useTenantReadiness(tenantId);
   const workspace = useTenantWorkspace(tenantId);
@@ -223,11 +226,7 @@ export function useAccountReads(tenant: TenantSummary | undefined): AccountReads
     queryFn: () => apiRequest<TrialStatus | null>(adminSession(), trialPath(tenantId)),
     enabled: tenantId !== "",
   });
-  const wallet = useQuery({
-    queryKey: walletKey(slug),
-    queryFn: () => apiRequest<Wallet>(viewAsSession(slug), "/v1/billing/wallet"),
-    enabled: slug !== "",
-  });
+  const wallet = useAdminTenantWallet(tenantId);
   const owner = useOwnerStatus(tenantId);
   const profile = useAdminBusinessProfile(tenantId);
   return { kyc, readiness, workspace, trial, wallet, owner, profile };

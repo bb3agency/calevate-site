@@ -1149,6 +1149,15 @@ async def test_campaigns_with_no_current_scrub_are_counted_and_pluralised() -> N
         assert noun.strip() in row.reason and verb in row.reason
 
 
+def test_the_national_scrub_is_nobodys_to_clear_today() -> None:
+    """A7-17: the scrub needs a registered telemarketer and Calevate is not one (D-692), so the
+    row is `outside`, never "ours to clear", and promises no check we cannot make."""
+    row = readiness._row("national_dnd_scrub_missing", "Not scrubbed.")
+    assert row.actor == "outside"
+    assert "telemarketer" not in row.next_step.lower()
+    assert "service campaign" in row.next_step
+
+
 def test_a_suspended_account_has_its_own_row_copy() -> None:
     """`account_suspended` is a rule the dial gate emits; without copy it rendered as the
     unknown-rule fallback, "Something else is blocking outgoing calls"."""

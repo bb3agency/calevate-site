@@ -899,6 +899,13 @@
           "capabilities": {
             "$ref": "#/components/schemas/Capabilities"
           },
+          "capability_overrides": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Capability Overrides",
+            "type": "object"
+          },
           "cost_inr": {
             "anyOf": [
               {
@@ -1072,7 +1079,8 @@
           "cost_inr",
           "absorbed",
           "last_trigger",
-          "last_attempt_at"
+          "last_attempt_at",
+          "capability_overrides"
         ],
         "title": "AdminBusinessCopyOut",
         "type": "object"
@@ -10293,6 +10301,40 @@
       "CallLinesOut": {
         "additionalProperties": false,
         "properties": {
+          "account_ceiling": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Ceiling"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "applied_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied Lines"
+          },
           "call_lines": {
             "title": "Call Lines",
             "type": "integer"
@@ -10307,6 +10349,19 @@
               }
             ],
             "title": "Call Lines Chosen"
+          },
+          "engine_state": {
+            "enum": [
+              "ours",
+              "applied",
+              "applying"
+            ],
+            "title": "Engine State",
+            "type": "string"
+          },
+          "lines_elsewhere_at_most": {
+            "title": "Lines Elsewhere At Most",
+            "type": "integer"
           },
           "max_lines": {
             "title": "Max Lines",
@@ -10355,7 +10410,12 @@
           "min_lines",
           "max_lines",
           "paid_default",
-          "trial_default"
+          "trial_default",
+          "engine_state",
+          "applied_lines",
+          "applied_at",
+          "account_ceiling",
+          "lines_elsewhere_at_most"
         ],
         "title": "CallLinesOut",
         "type": "object"
@@ -13282,6 +13342,27 @@
         "title": "Capability",
         "type": "object"
       },
+      "CapabilityOverrideIn": {
+        "additionalProperties": false,
+        "properties": {
+          "applies": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies"
+          }
+        },
+        "required": [
+          "applies"
+        ],
+        "title": "CapabilityOverrideIn",
+        "type": "object"
+      },
       "CapsIn": {
         "additionalProperties": false,
         "description": "The whole client-side pair. `null` clears that side (see the module docstring).",
@@ -13781,6 +13862,10 @@
           "refusal_floor_inr_per_min": {
             "title": "Refusal Floor Inr Per Min",
             "type": "string"
+          },
+          "refusal_usd_inr": {
+            "title": "Refusal Usd Inr",
+            "type": "string"
           }
         },
         "required": [
@@ -13796,6 +13881,7 @@
           "floor_inr_per_min",
           "best_marginal_cost_inr_per_min",
           "refusal_floor_inr_per_min",
+          "refusal_usd_inr",
           "plan_crossover_call_minutes",
           "plans",
           "ladder"
@@ -14538,6 +14624,10 @@
         "additionalProperties": false,
         "description": "What the client sees of its own lines: the number in force, how many are busy now,\nand its request for more. Choosing the number stays the operator's (a commercial\ndecision), so the client asks rather than sets.",
         "properties": {
+          "being_applied": {
+            "title": "Being Applied",
+            "type": "boolean"
+          },
           "call_lines": {
             "title": "Call Lines",
             "type": "integer"
@@ -14569,7 +14659,8 @@
           "call_lines",
           "in_progress",
           "on_trial",
-          "max_lines"
+          "max_lines",
+          "being_applied"
         ],
         "title": "ClientCallLinesOut",
         "type": "object"
@@ -14617,6 +14708,30 @@
           "unfiled"
         ],
         "title": "ClientFilingOut",
+        "type": "object"
+      },
+      "ClientHealthBoardOut": {
+        "additionalProperties": false,
+        "description": "The board, and when it was worked out. The worker recomputes it every\n`health.BOARD_REFRESH_S`; one per request was a walk of every tenant per poll.",
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ClientHealthOut"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "computed_at",
+          "accounts"
+        ],
+        "title": "ClientHealthBoardOut",
         "type": "object"
       },
       "ClientHealthOut": {
@@ -16357,6 +16472,17 @@
             "title": "Description",
             "type": "string"
           },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
@@ -16490,6 +16616,7 @@
           "control",
           "label",
           "description",
+          "details",
           "section",
           "subsection",
           "engine_scope",
@@ -21477,8 +21604,23 @@
       },
       "DeadLetterJobOut": {
         "additionalProperties": false,
-        "description": "One `job`'s share of the outbox DLQ.\n\nCOUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding\nlead fields and phone numbers; `job` is an ARQ job name \u2014 a code identifier \u2014 and\nnothing derived from a payload reaches this model. See\n`reliability.service.DeadLetterQueue`, which is where that boundary is enforced.",
+        "description": "One `job`'s share of the outbox DLQ.\n\nNever the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields\nand phone numbers. `last_error` is the most recent failure's error, which is redacted\nwhen it is written (`reliability.service._stored_error`), so an operator can see why a\njob failed before resending it.",
         "properties": {
+          "cause": {
+            "anyOf": [
+              {
+                "enum": [
+                  "never_ran",
+                  "earlier_run_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause"
+          },
           "depth": {
             "title": "Depth",
             "type": "integer"
@@ -21486,6 +21628,21 @@
           "job": {
             "title": "Job",
             "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
           },
           "oldest_at": {
             "format": "date-time",
@@ -21495,8 +21652,11 @@
         },
         "required": [
           "job",
+          "label",
           "depth",
-          "oldest_at"
+          "oldest_at",
+          "last_error",
+          "cause"
         ],
         "title": "DeadLetterJobOut",
         "type": "object"
@@ -21520,6 +21680,14 @@
             "title": "Depth",
             "type": "integer"
           },
+          "held_for_bulk_worker": {
+            "title": "Held For Bulk Worker",
+            "type": "integer"
+          },
+          "held_for_release": {
+            "title": "Held For Release",
+            "type": "integer"
+          },
           "oldest_at": {
             "anyOf": [
               {
@@ -21531,13 +21699,38 @@
               }
             ],
             "title": "Oldest At"
+          },
+          "oldest_pending_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Pending At"
+          },
+          "stalled_after_minutes": {
+            "title": "Stalled After Minutes",
+            "type": "integer"
+          },
+          "stalled_pending": {
+            "title": "Stalled Pending",
+            "type": "integer"
           }
         },
         "required": [
           "depth",
           "oldest_at",
           "by_job",
-          "deferred"
+          "deferred",
+          "stalled_pending",
+          "oldest_pending_at",
+          "stalled_after_minutes",
+          "held_for_release",
+          "held_for_bulk_worker"
         ],
         "title": "DeadLetterQueueOut",
         "type": "object"
@@ -36145,6 +36338,21 @@
             "title": "Id",
             "type": "string"
           },
+          "not_started": {
+            "title": "Not Started",
+            "type": "boolean"
+          },
+          "not_started_after_minutes": {
+            "title": "Not Started After Minutes",
+            "type": "integer"
+          },
+          "reason_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Labels",
+            "type": "array"
+          },
           "reasons": {
             "items": {
               "type": "string"
@@ -36217,6 +36425,9 @@
           "tenant_id",
           "agent_id",
           "reasons",
+          "reason_labels",
+          "not_started",
+          "not_started_after_minutes",
           "status",
           "total",
           "applied",
@@ -45945,7 +46156,8 @@
           "actor": {
             "enum": [
               "client",
-              "calevate"
+              "calevate",
+              "outside"
             ],
             "title": "Actor",
             "type": "string"
@@ -55725,7 +55937,8 @@
           "actor": {
             "enum": [
               "client",
-              "calevate"
+              "calevate",
+              "outside"
             ],
             "title": "Actor",
             "type": "string"
@@ -56036,6 +56249,18 @@
               }
             ],
             "title": "Credit Inr"
+          },
+          "credit_unpacked_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Unpacked Inr"
           },
           "holds": {
             "items": {
@@ -66366,18 +66591,14 @@
     },
     "/v1/admin/client-health": {
       "get": {
-        "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.",
+        "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`. The board is computed by a background job every two minutes; `computed_at` says when. With no fresh board one request computes it and others get a retryable 503 `client_health_computing`.",
         "operationId": "read_client_health_v1_admin_client_health_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ClientHealthOut"
-                  },
-                  "title": "Response Read Client Health V1 Admin Client Health Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ClientHealthBoardOut"
                 }
               }
             },
@@ -69311,7 +69532,7 @@
     },
     "/v1/admin/organizations/{org_id}/call-lines": {
       "get": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).",
         "operationId": "admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get",
         "parameters": [
           {
@@ -69350,7 +69571,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "put": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).",
         "operationId": "admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put",
         "parameters": [
           {
@@ -72147,6 +72368,66 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {
+      "put": {
+        "description": "Sets what the business does with its callers (for example `takes_bookings`) where the AI judged it wrongly. A regeneration keeps the correction. `applies: null` restores the AI's verdict. Audited.",
+        "operationId": "admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "capability",
+            "required": true,
+            "schema": {
+              "title": "Capability",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityOverrideIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBusinessCopyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Correct one capability the AI judged for this client, or go back to the AI's",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/business-copy/refresh": {
@@ -75847,6 +76128,47 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/wallet": {
+      "get": {
+        "description": "Balance, runway, minutes left, trial, and whether outbound is stopped for lack of credit: the answer `GET /v1/billing/wallet` gives the client, for an account named in the path. Reading this writes an `admin.tenant_read` audit row.",
+        "operationId": "read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's wallet as the client reads it \u2014 the operator's copy",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
       }
     },
     "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {

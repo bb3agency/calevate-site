@@ -700,7 +700,7 @@ export function adminOverviewSummaryReads(tenantId: string) {
       spend_used_inr: null,
       spend_cap_inr: null,
     },
-    "/v1/billing/wallet": noReply(),
+    [`/v1/admin/tenants/${tenantId}/wallet`]: noReply(),
     "/v1/healer/incidents?days=30&limit=20": noReply(),
     "/v1/calls?limit=5": [],
     ...adminAccountFactReads(tenantId),

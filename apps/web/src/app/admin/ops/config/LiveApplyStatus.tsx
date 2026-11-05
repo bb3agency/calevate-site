@@ -20,23 +20,21 @@ export function LiveApplyStatus() {
 }
 
 export function LiveApplyLine({ run }: { run: LiveApplyRun }) {
-  const moving = run.status === "pending" || run.status === "running";
-  const Icon = moving ? Loader2 : run.failed > 0 ? TriangleAlert : CheckCircle2;
+  // A run the worker never picked up is not "moving": no spinner, and a warning instead.
+  const stalled = run.not_started === true;
+  const moving = !stalled && (run.status === "pending" || run.status === "running");
+  const Icon = moving ? Loader2 : stalled || run.failed > 0 ? TriangleAlert : CheckCircle2;
+  const changed = (run.reason_labels ?? run.reasons).join(", ");
   return (
     <div role="status" className="space-y-1 text-meta">
-      <p className="flex items-center gap-1.5 text-ink">
+      <p className={`flex items-center gap-1.5 ${stalled ? "text-warn" : "text-ink"}`}>
         <Icon
           aria-hidden
-          className={`h-3.5 w-3.5 ${moving ? "animate-spin text-ink-muted" : run.failed > 0 ? "text-warn" : "text-brand"}`}
+          className={`h-3.5 w-3.5 shrink-0 ${moving ? "animate-spin text-ink-muted" : stalled || run.failed > 0 ? "text-warn" : "text-brand"}`}
         />
         <span>
-          {liveApplyLine(run)} Changed: {run.reasons.map((reason, index) => (
-            <span key={reason}>
-              {index > 0 ? ", " : ""}
-              <MonoValue>{reason}</MonoValue>
-            </span>
-          ))}
-          , {formatIST(run.created_at)}. A call in progress finishes first.
+          {liveApplyLine(run)} Changed: {changed}, {formatIST(run.created_at)}.{" "}
+          {stalled ? "Check the background worker." : "A call in progress finishes first."}
         </span>
       </p>
       {run.failures.length > 0 && (

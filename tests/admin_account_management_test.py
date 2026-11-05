@@ -260,6 +260,41 @@ async def test_reading_readiness_is_itself_in_the_ledger() -> None:
     assert rows, "the read was not recorded"
 
 
+async def test_the_operator_reads_a_clients_wallet_without_view_as() -> None:
+    """A7-01: the overview read credit through view-as from a client-realm route that refuses
+    an impersonated read, so credit was never shown. The admin read must be the client's
+    own answer, and it is recorded like every admin read of one client."""
+    from apps.api.billing.wallet_routes import read_wallet_summary
+
+    tenant_id = await _tenant("Wallet Read Traders", slug=f"walr-{uuid.uuid4().hex[:8]}")
+    admin_id, headers = await _operator()
+
+    body = await _get(f"/v1/admin/tenants/{tenant_id}/wallet", headers=headers)
+    own = await read_wallet_summary(
+        Principal(realm="client", user_id=None, tenant_id=tenant_id, role=None)
+    )
+    assert body["tenant_id"] == str(tenant_id)
+    assert body["balance_inr"] == str(own.balance_inr)
+    assert body["outbound_stopped"] == own.outbound_stopped
+    assert body["prepaid"] == own.prepaid
+
+    async with admin_session() as session:
+        recorded = (
+            await session.execute(
+                text(
+                    "SELECT 1 FROM audit_log WHERE tenant_id = :t AND actor_id = :a "
+                    "AND action = 'admin.tenant_read'"
+                ),
+                {"t": tenant_id, "a": admin_id},
+            )
+        ).all()
+    assert recorded, "the wallet read was not recorded"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        missing = await http.get(f"/v1/admin/tenants/{uuid.uuid4()}/wallet", headers=headers)
+    assert missing.status_code == 404, missing.text
+
+
 # ============================================================================
 # 3. The activity trail
 # ============================================================================

@@ -69,20 +69,15 @@ from apps.api.compliance.service import (
 from apps.api.core.loadshed import PlatformStatus
 from apps.api.legal import service as legal_service
 
-#: Whose move it is. Two values and no third: an item is either something this client can
-#: act on or something Calevate must do.
+#: Whose move it is: something this client can act on, something Calevate must do, or
+#: `outside`, which neither can do today.
 #:
-#: THE DLT SPLIT IS THE CASE TO GET RIGHT, and this comment used to get it backwards. It
-#: claimed "waiting on a registrar is still OURS — we hold the DLT login", which is false
-#: and disagreed with the table three screens below it, where `pe_registration_missing` is
-#: `client`. LEGAL-OPS-PLAYBOOK §10.4 (docs/legal/LEGAL-OPS-PLAYBOOK.md:351-362, read 26
-#: Aug 2026) states the real division: the CLIENT signs up as the Principal Entity with
-#: their own PAN/Udyam/GST, registers their own headers and templates, and pastes OUR
-#: TM-ID into their own PE-TM chain; we hold our TM login and accept the chain from it. So
-#: their PE registration and the chain they authorise are theirs, and our telemarketer
-#: registration and the preference scrub we run from our login are ours. Neither party can
-#: do the other's half, which is exactly why the column exists.
-Actor = Literal["client", "calevate"]
+#: `outside` exists for the national preference scrub. It is made by a registered
+#: telemarketer on an access provider's DLT platform, and D-692 records that Calevate does not
+#: register as one; whether promotional calls may go out without one is an open legal
+#: question (docs/ROADMAP.md, D-692). Filing it as `calevate` told an operator it was theirs
+#: to clear, with a button, when no operator can honestly perform the check.
+Actor = Literal["client", "calevate", "outside"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,14 +268,12 @@ ROW_COPY: dict[str, _Copy] = {
         ),
     ),
     "national_dnd_scrub_missing": _Copy(
-        title="Campaigns waiting on a DND scrub",
-        actor="calevate",
+        title="Promotional campaigns are not available yet",
+        actor="outside",
         next_step=(
-            "A promotional campaign dials only after its list is checked against the "
-            "national customer preference register that day. The check is made by a "
-            "registered telemarketer on an access provider's DLT platform, and until one "
-            "is recorded for the list the campaign cannot call. Reminders and updates to "
-            "your own customers can go out as a service campaign."
+            "A promotional campaign needs its list checked against the national do-not-call "
+            "register, and that check is not available yet. Reminders and updates to your "
+            "own customers can go out as a service campaign."
         ),
     ),
 }

@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CallLinesPanel } from "@/app/admin/tenants/[tenantId]/numbers/CallLinesPanel";
+import { CallLinesPanel, limitHint } from "@/app/admin/tenants/[tenantId]/numbers/CallLinesPanel";
 import type { CallLines } from "@/lib/api/callLines";
 
 import { problem, renderAdminPage } from "./harness";
@@ -24,6 +24,11 @@ function lines(over: Partial<CallLines> = {}): CallLines {
     max_lines: 50,
     paid_default: 2,
     trial_default: 1,
+    engine_state: "ours",
+    applied_lines: null,
+    applied_at: null,
+    account_ceiling: 20,
+    lines_elsewhere_at_most: 14,
     open_request: null,
     ...over,
   };
@@ -161,5 +166,39 @@ describe("calls at once", () => {
     renderAdminPage(<CallLinesPanel tenantId="t1" canWrite={false} />, { [PATH]: lines() });
     await screen.findByText("2 calls at once");
     expect(screen.queryByRole("button", { name: "Change" })).toBeNull();
+  });
+
+  it("says when the voice platform does not hold the number yet (A7-06)", async () => {
+    renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, {
+      [PATH]: lines({
+        call_lines: 4,
+        call_lines_chosen: 4,
+        source: "organization",
+        engine_state: "applying",
+        applied_lines: 2,
+        open_request: ASKED,
+      }),
+    });
+    await screen.findByText("Not on the voice platform yet");
+    expect(screen.getByText(/It still holds 2 calls at once/)).toBeTruthy();
+    expect(screen.getByText(/Answered once the voice platform holds the new number/)).toBeTruthy();
+  });
+
+  it("shows a confirmed number as confirmed", async () => {
+    renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, {
+      [PATH]: lines({ engine_state: "applied", applied_lines: 2 }),
+    });
+    await screen.findByText("2 calls at once, confirmed");
+  });
+
+  it("shows the account ceiling beside the limit, and labels the row once (A7-10, A7-25)", async () => {
+    renderAdminPage(<CallLinesPanel tenantId="t1" canWrite />, { [PATH]: lines() });
+    await screen.findByText("20 at once; other clients hold up to 14");
+    expect(screen.getByText("Limit")).toBeTruthy();
+    expect(limitHint(lines())).toContain("At least 6 free on the account.");
+    expect(limitHint(lines({ lines_elsewhere_at_most: 25 }))).toContain(
+      "Other clients may already use the whole account.",
+    );
+    expect(limitHint(lines({ account_ceiling: null }))).not.toContain("account");
   });
 });

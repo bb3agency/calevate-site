@@ -220,6 +220,7 @@ describe("ThinnestAI settings on the configuration screen", () => {
       nullable: false,
       label: "ThinnestAI runs on our own keys (BYOK)",
       description: "Turn on only after all three legs are set up in ThinnestAI.",
+      details: null,
       section: "voice-engine",
       subsection: "thinnest",
       engine_scope: "Used only when the voice engine is ThinnestAI.",

@@ -18,7 +18,7 @@ import {
   formatIST,
 } from "@/components/ui";
 import { TypedConfirmation } from "@/components/typedConfirmation";
-import { useReplayOutbox } from "@/lib/api/admin";
+import { useReplayOutbox, type DeadLetterQueue } from "@/lib/api/admin";
 
 import type { OpsAccess } from "./opsAccess";
 import type { DeadLetterState } from "./opsSurfaceState";
@@ -26,6 +26,12 @@ import type { DeadLetterState } from "./opsSurfaceState";
 /** `""` = the operator has not chosen yet; `"*"` = every job. Neither can collide with a
  *  real job name, which the API bounds to `^[a-z][a-z0-9_]*$`. */
 const EVERY_JOB = "*";
+
+/** Why a dead letter never did its work (`ops/outbox_view.dead_letter_cause`). */
+const CAUSE_COPY: Record<NonNullable<DeadLetterQueue["by_job"][number]["cause"]>, string> = {
+  never_ran: "Sent, but no run of it succeeded",
+  earlier_run_failed: "An earlier run failed. Resend after an hour",
+};
 
 /**
  * The outbox dead-letter queue: how deep it is, and its one lever —
@@ -87,6 +93,8 @@ export function OutboxReplayPanel({
   const [scope, setScope] = useState("");
 
   const sized = queue.status === "read" ? queue.queue : null;
+  // An older server omits the count: no box here, and the status strip marks its zero unknown.
+  const stalled = sized !== null && (sized.stalled_pending ?? 0) > 0;
   const job = scope === "" || scope === EVERY_JOB ? null : scope;
   // Nothing to choose FROM when the queue could not be read, and nothing to choose
   // BETWEEN when it is empty — so in both cases the choice is not withheld and this term
@@ -121,7 +129,9 @@ export function OutboxReplayPanel({
           sized.deferred > 0
           ? `Nothing has failed, so there is nothing to resend. ${formatCount(sized.deferred)} ` +
             "are retrying on their own (shown above)."
-          : "Nothing is stuck, so there is nothing to resend."
+          : stalled
+            ? "Nothing has failed, so there is nothing to resend. The waiting ones are shown above."
+            : "Nothing is stuck, so there is nothing to resend."
         : !scopeChosen
           ? "Choose what to resend first. There is no default."
           : null;
@@ -164,12 +174,52 @@ export function OutboxReplayPanel({
             mid-incident read a green box. `deferred` is the same aggregate's answer to
             "and how many are waiting", so the tone follows the queue's actual health
             rather than the one state this panel happens to act on. */}
-        {sized !== null && sized.depth === 0 && sized.deferred === 0 && (
+        {sized !== null && sized.depth === 0 && sized.deferred === 0 && !stalled && (
           <NoticeBox
             tone="ok"
             title="Nothing is stuck"
           >
             <p>No outbound message has failed. Refreshes every 30 seconds.</p>
+          </NoticeBox>
+        )}
+
+        {/* A stopped worker fails nothing: the queue just stops. Resending acts on failed
+            messages only, so this box says where to look instead. */}
+        {sized !== null && stalled && (
+          <NoticeBox
+            tone="warn"
+            title={`${formatCount(sized.stalled_pending)} messages have not been sent for over ${formatCount(sized.stalled_after_minutes)} minutes`}
+          >
+            <p>
+              Oldest waiting since{" "}
+              <span className="font-semibold">{formatIST(sized.oldest_pending_at)}</span>. The
+              worker may be stopped. Resending does nothing for these.
+            </p>
+          </NoticeBox>
+        )}
+
+        {/* Held on purpose (D-972): resending moves none of these; a deploy or the bulk
+            worker does. */}
+        {sized !== null && (sized.held_for_release ?? 0) > 0 && (
+          <NoticeBox
+            tone="info"
+            title={`${formatCount(sized.held_for_release)} messages wait for a newer release`}
+          >
+            <p>
+              A migration queued them for code this release does not have. Finish the deploy
+              that queued them. Resending does nothing for these.
+            </p>
+          </NoticeBox>
+        )}
+        {sized !== null && (sized.held_for_bulk_worker ?? 0) > 0 && (
+          <NoticeBox
+            tone="warn"
+            title={`${formatCount(sized.held_for_bulk_worker)} messages wait for the bulk worker`}
+          >
+            <p>
+              No running bulk worker handles these jobs. Start or update the bulk worker.
+              Resending does nothing for these.
+            </p>
           </NoticeBox>
         )}
 
@@ -223,8 +273,19 @@ export function OutboxReplayPanel({
               </thead>
               <tbody>
                 {sized.by_job.map((entry) => (
-                  <tr key={entry.job}>
-                    <td className="py-0.5 pr-2 font-mono">{entry.job}</td>
+                  <tr key={entry.job} className="align-top">
+                    <td className="py-0.5 pr-2">
+                      <span className="block text-ink">{entry.label ?? entry.job}</span>
+                      {entry.cause && (
+                        <span className="block font-medium text-warn">{CAUSE_COPY[entry.cause]}</span>
+                      )}
+                      {/* Already redacted when it was stored; the payload is never sent. */}
+                      {entry.last_error ? (
+                        <span className="block break-words text-ink-muted">
+                          Last error: {entry.last_error}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="py-0.5 text-right tabular-nums">
                       {formatCount(entry.depth)}
                     </td>
@@ -311,7 +372,7 @@ export function OutboxReplayPanel({
                 </option>
                 {sized.by_job.map((entry) => (
                   <option key={entry.job} value={entry.job}>
-                    {entry.job} — {formatCount(entry.depth)} stuck
+                    {entry.label ?? entry.job} — {formatCount(entry.depth)} stuck
                   </option>
                 ))}
               </select>

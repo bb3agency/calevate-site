@@ -53,6 +53,21 @@ describe("credit left", () => {
     expect(container.textContent).toContain("Overdrawn:");
   });
 
+  it("names rupees held in no pack, so 0 min beside a balance is not a contradiction (A7-18)", () => {
+    const zero = TIERS.map((tier) => ({ ...tier, minutes: 0 }));
+    const { container } = render(
+      <CreditLeft
+        credit={{
+          plan_tier: "prepaid",
+          credit_inr: "5000.00",
+          minutes_left: zero,
+          credit_unpacked_inr: "5000.00",
+        }}
+      />,
+    );
+    expect(container.textContent).toContain("₹5,000.00 not in a pack yet");
+  });
+
   it("has no minutes line without tiers", () => {
     expect(minutesLine({ plan_tier: "prepaid", credit_inr: "1.00", minutes_left: [] })).toBeNull();
   });

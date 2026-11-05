@@ -592,16 +592,18 @@ class Settings(BaseSettings):
     #: Simultaneous calls the ThinnestAI workspace runs, inbound and outbound together: API
     #: calls "count toward the same concurrency ceiling as calls people make to you"
     #: (`thinnest-findings/mirror/pages/api-reference/place-call.md:333-336`) and a dial over
-    #: it is refused with `429` (`place-call.md:288-291`). 5 is the pay-as-you-go ceiling,
-    #: raised by ThinnestAI on request by email (FOUNDER-RELAYED, 7 Oct 2026); Pro is 10 and
-    #: raised free on request (VENDOR-STATED, ThinnestAI's email of 11 Oct 2026). Set this to
-    #: the figure they confirm for our account, on the day they confirm it. The dial gate
+    #: it is refused with `429` (`place-call.md:288-291`). ThinnestAI set our pay-as-you-go
+    #: account to 20 on 23 Oct 2026 and said "already increased" on 30 Oct with no figure
+    #: (VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md` §28.1, §41). The default
+    #: stays at the published pay-as-you-go 5 so an unset deployment never dials past what
+    #: was granted; an operator sets the confirmed figure in the console. The dial gate
     #: keeps `inbound_reserved_lines` of it free for callers
     #: (`engine/dial_lines.outbound_line_pool`).
     thinnest_max_concurrent_calls: int = Field(default=5, ge=1, le=1000)
     #: Which ThinnestAI plan our developer account is on, as an operator attests it (D-693). It
-    #: sets how many customer workspaces we may hold: 3 on pay-as-you-go, 100 on Pro, 1,000
-    #: on Scale, 10,000 on Enterprise, and a deleted one counts until it is erased
+    #: sets how many customer workspaces we may hold (`engine/thinnest_customers.
+    #: PLAN_CUSTOMER_CAPS` holds the figures, pay-as-you-go raised to 100 on 23 Oct 2026),
+    #: and a deleted one counts until it is erased
     #: (`thinnest-findings/mirror/snapshots/2026-10-08/pages/api-reference/customers.md:
     #: 191-200`). Read for the ops dashboard's headroom and the plan-limit alarm; the vendor's
     #: own 402 is what actually refuses a workspace over the cap.

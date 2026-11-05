@@ -71,7 +71,11 @@ from apps.api.go_live.moves import queue_agent_move
 from apps.api.kb.service import release_test_copy_claims
 from apps.api.reliability.engine_webhooks import retire_agent_webhook
 from apps.api.reliability.service import enqueue_outbox
-from apps.api.tenancy.call_lines import queue_call_lines_sync, read_call_lines
+from apps.api.tenancy.call_lines import (
+    queue_call_lines_sync,
+    read_call_lines,
+    record_engine_call_lines,
+)
 from apps.api.tenancy.engine_retention import queue_retention_sync
 from apps.api.tenancy.engine_workspace import (
     OWED_STATES,
@@ -446,13 +450,31 @@ async def _call_lines_leg(tenant_id: UUID, workspace: str, *, repair: bool) -> s
     if repair:
         held = await customers.read_customer_call_lines(workspace)
         if held == wanted:
+            # Recorded here too, so a value set before the read-back was stored, or one whose
+            # sync was lost, is confirmed by the next sweep.
+            await _record_call_lines(tenant_id, held)
             return "in_step"
-        log.warning(
+        # Only our key reaches a customer workspace, so a different cap there was changed in
+        # the vendor's console or by a sync that never landed. It is set back below; the
+        # alarm is so someone finds out which.
+        alert(
+            "CORE_LOGIC",
             "engine_call_lines_drift",
-            extra={"tenant_id": str(tenant_id), "held": held, "wanted": wanted},
+            detail=(
+                f"a client's own voice workspace held {held} calls at once while we had "
+                f"{wanted}; it was set back. Find out who changed it on the voice platform."
+            ),
+            tenant_id=str(tenant_id),
         )
-    await customers.set_customer_call_lines(workspace, wanted)
+    held = await customers.set_customer_call_lines(workspace, wanted)
+    await _record_call_lines(tenant_id, held)
     return "repaired" if repair else "set"
+
+
+async def _record_call_lines(tenant_id: UUID, held: int) -> None:
+    """The workspace read `held` back: record it, closing a request it answers."""
+    async with tenant_session(tenant_id) as session:
+        await record_engine_call_lines(session, tenant_id=tenant_id, held=held)
 
 
 async def sync_engine_call_lines(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
