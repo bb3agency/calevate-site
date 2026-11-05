@@ -102,9 +102,9 @@ TURN_SILENCE_DEFAULT_MS: Final = 250
 #: On: a finished call that stays open bills every minute until the caller hangs up, and a new
 #: vendor agent starts with it off (D-749).
 END_CALL_ON_FINISH_DEFAULT: Final = True
-#: Ask once after 8 seconds and hang up after 20 seconds of silence (founder decision F9,
-#: 12 Oct 2026).
-NUDGE_AFTER_DEFAULT_S: Final = 8
+#: Ask once and hang up after 20 seconds of silence (founder decision F9, 12 Oct 2026). When to
+#: ask is the console's `thinnest_nudge_after_seconds` (`platform_settings`), not a constant:
+#: the 8 s of F9 asked a caller installing an app "are you there?" twice (founder, 6 Nov 2026).
 NUDGE_COUNT_DEFAULT: Final = 1
 END_AFTER_SILENCE_DEFAULT_S: Final = 20
 #: An unanswered question is asked again after 5 s rather than the platform's 2.5 s (founder,
@@ -200,7 +200,8 @@ AGENT_FIELDS: Final = SETTING_FIELDS
 PLATFORM_SETTINGS: Final = CallSettings(
     turn_silence_ms=TURN_SILENCE_DEFAULT_MS,
     end_call_on_finish=END_CALL_ON_FINISH_DEFAULT,
-    nudge_after_seconds=NUDGE_AFTER_DEFAULT_S,
+    # The console's, filled in by `platform_settings`.
+    nudge_after_seconds=None,
     nudge_count=NUDGE_COUNT_DEFAULT,
     nudge_phrase="",
     end_after_silence_seconds=END_AFTER_SILENCE_DEFAULT_S,
@@ -229,10 +230,12 @@ def platform_turn_silence_ms(own_turn_detection: TurnDetection | None = None) ->
 def platform_settings(own_turn_detection: TurnDetection | None = None) -> CallSettings:
     """Calevate's level as it stands now for an agent whose own turn detection is
     `own_turn_detection` (None follows the console's): the constants, the console's opening
-    wait, and `platform_turn_silence_ms`."""
+    wait and "still there?" wait, and `platform_turn_silence_ms`."""
+    settings = get_settings()
     return replace(
         PLATFORM_SETTINGS,
-        opening_wait_ms=get_settings().thinnest_opening_wait_ms,
+        opening_wait_ms=settings.thinnest_opening_wait_ms,
+        nudge_after_seconds=settings.thinnest_nudge_after_seconds,
         turn_silence_ms=platform_turn_silence_ms(own_turn_detection),
     )
 
@@ -963,7 +966,6 @@ __all__ = [
     "AMBIENCE_VOLUME_DEFAULT_PCT",
     "END_AFTER_SILENCE_DEFAULT_S",
     "END_CALL_ON_FINISH_DEFAULT",
-    "NUDGE_AFTER_DEFAULT_S",
     "NUDGE_COUNT_DEFAULT",
     "ORG_SETTING_COLUMNS",
     "ORG_SETTING_FIELDS",

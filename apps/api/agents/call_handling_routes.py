@@ -39,7 +39,6 @@ from apps.api.agents.call_handling import (
     AMBIENCE_VOLUME_DEFAULT_PCT,
     END_AFTER_SILENCE_DEFAULT_S,
     END_CALL_ON_FINISH_DEFAULT,
-    NUDGE_AFTER_DEFAULT_S,
     NUDGE_COUNT_DEFAULT,
     REASK_AFTER_DEFAULT_MS,
     TURN_SILENCE_DEFAULT_MS,
@@ -146,7 +145,7 @@ def _bounds(own_turn_detection: TurnDetection | None = None) -> CallHandlingBoun
         platform_end_call_on_finish=END_CALL_ON_FINISH_DEFAULT,
         nudge_after_min_s=NUDGE_AFTER_MIN_S,
         nudge_after_max_s=NUDGE_AFTER_MAX_S,
-        platform_nudge_after_seconds=NUDGE_AFTER_DEFAULT_S,
+        platform_nudge_after_seconds=get_settings().thinnest_nudge_after_seconds,
         nudge_count_min=NUDGE_COUNT_MIN,
         nudge_count_max=NUDGE_COUNT_MAX,
         platform_nudge_count=NUDGE_COUNT_DEFAULT,
@@ -532,8 +531,10 @@ _AGENT_DESCRIPTION = (
     "If the caller goes quiet: `nudge_after_seconds` "
     f"({NUDGE_AFTER_MIN_S}-{NUDGE_AFTER_MAX_S}, or 0 for never) is when the agent asks whether "
     f"they are still there, `nudge_count` ({NUDGE_COUNT_MIN}-{NUDGE_COUNT_MAX}) how many times, "
-    f'`nudge_phrase` (up to {NUDGE_PHRASE_MAX_CHARS} characters, "" for the standard question '
-    "in the caller's language) what it says, and `end_after_silence_seconds` "
+    f'`nudge_phrase` (up to {NUDGE_PHRASE_MAX_CHARS} characters, "" for the standard question: '
+    "Calevate's own line in the agent's language for an agent of one language that has one, "
+    "otherwise the voice platform's in the caller's language) what it says, and "
+    "`end_after_silence_seconds` "
     f"({END_AFTER_SILENCE_MIN_S}-{END_AFTER_SILENCE_MAX_S}) when it hangs up. `filler_lines` "
     f"(up to {FILLER_LINES_MAX} of {FILLER_LINE_MAX_CHARS} characters, [] for the standard "
     "ones) are said while the agent looks something up. `ambience` is a background sound "
@@ -551,7 +552,7 @@ _AGENT_DESCRIPTION = (
     f"{REASK_AFTER_STEP_MS}, or 0 for never.\n\n"
     "Each other setting resolves agent, then the account default, then Calevate's "
     f"(`bounds.platform_turn_silence_ms`, {TURN_SILENCE_DEFAULT_MS} ms on most agents, hang-up "
-    f"on, ask once after {NUDGE_AFTER_DEFAULT_S} s, "
+    "on, ask once after `bounds.platform_nudge_after_seconds` (the console's), "
     f"hang up after {END_AFTER_SILENCE_DEFAULT_S} s, standard lines, no sound, ask again "
     f"after {REASK_AFTER_DEFAULT_MS / 1000:g} s); `*_source` "
     "names the level in force.\n\n"

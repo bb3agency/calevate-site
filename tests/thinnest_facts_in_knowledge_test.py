@@ -62,9 +62,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: D-971: the memory goodbye rule is gone; nothing about memory is said on a call.
 #: 5 Nov 2026: speech written as native speakers write it (F-5); a later hello never
 #: restarts, "forgot us?" gets who and why, "what do you hold?" gets THIS CALL's details.
+#: 6 Nov 2026: no greeting in any later turn, a line spoken over comes back in new words, and
+#: a question is answered rather than the last point repeated.
 PINNED = (
-    "ce8c63990139d3189ae964267173154a943d815dae77ea194ef4726f4bfc248d",
-    "b3f87663032a12bfea91247d1b0b8ea5ddf7c104317f3461f4889cdce9910006",
+    "f0368cc3d8e82985072ec1a92feaccb442be80f22e1504ddab206fe10e64747a",
+    "b44ea3f5261fb912eaaea78e4747ef9a1d3de0c265c989130b8283ca62391768",
 )
 
 

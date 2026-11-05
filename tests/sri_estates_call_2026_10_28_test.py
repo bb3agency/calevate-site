@@ -100,7 +100,7 @@ def test_the_prompt_carries_each_fix_and_keeps_the_locked_text() -> None:
         # F3: an answer that fits no option is asked again.
         "Ask one thing again, reworded; never pick for them.",
         # F4: no promise to slow down.
-        "Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter.",
+        "Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter",
         # F5: one line for the close.
         "- Close: what happens next in one line, no recap, then one goodbye",
     ):

@@ -75,8 +75,8 @@ def test_the_notices_are_quoted_as_already_said_and_never_repeated() -> None:
     # The whole opening, quoted as spoken: greeting, then the notices (D-861, D-864).
     assert f'first turn: "{OPENING} {NOTICES}".' in start
     assert (
-        "Never greet, say hello back, repeat it or its names, or re-ask if now suits, even "
-        "after answering" in start
+        "Never greet again in any turn, say hello back, repeat it or its names, or re-ask if "
+        "now suits, even after answering" in start
     )
     prompt = compose_engine_prompt(cfg)
     # The publish read-back scores containment of the notices (`agents/verification`), and a

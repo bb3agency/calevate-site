@@ -3007,6 +3007,13 @@ _REGISTER_BULLET: Final = (
 #:   rule says, for every language at once, that a suffix or particle is written joined to its
 #:   word. It is in English and names no language's words: the founder's native example for a
 #:   language is the `written_form` slot in `spoken_style.json`, quoted after this rule.
+#: From the founder's Rytu Khata call of 6 Nov 2026:
+#: - The caller spoke over "Android or iPhone?" and the next turn asked it again word for word.
+#:   "Go on shorter" said nothing about the words, so the cut-off line came back unchanged;
+#:   "in new words" is what "never repeat a sentence" means for a line the caller did not hear.
+#: - Asked "how do I use the app?", the agent said its explanation of what the app is a second
+#:   time. "Lead with the answer" did not tie the answer to the question; "to it, never your
+#:   last point again" does.
 _WRITTEN_FORM_BULLET: Final = (
     "- Write as native speakers do: a suffix, particle or vowel joins its word.\n"
 )
@@ -3023,7 +3030,8 @@ _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMO
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
     "- Open with a few words and a comma; one or two short sentences, then wait.\n"
-    '- Asked something? Lead with the answer, never "do you want to know". Told something? '
+    '- Asked something? Lead with the answer to it, never your last point again or "do you '
+    'want to know". Told something? '
     "React only if it fits what they said, never the same way twice, often not.\n"
     '- One question a turn, on one thing, last; choices for times ("morning or evening?"), '
     "never for counts or amounts, not even as examples. Never re-ask what they said or repeat a "
@@ -3032,7 +3040,8 @@ VOICE_STYLE_GUIDANCE: Final = (
     "question with a way out; never finish it for them.\n"
     "- Hesitant to go ahead or not interested? Offer once, then close politely. Unsure of an "
     "answer? Explain or offer choices.\n"
-    "- Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter.\n"
+    "- Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter, in new "
+    "words.\n"
     '- Pauses come only at marks: a comma every few words, "?" on every question, else a '
     "full stop. No markdown, "
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
@@ -4372,8 +4381,9 @@ class AgentConfig(BaseModel):
     #: Calevate by `apps/api/agents/call_handling`: ask "are you still there?" after this many
     #: seconds (None: never ask), this many times, in the client's own words (None: the
     #: engine's own, in the caller's language), and hang up after this many seconds of
-    #: silence. Excluded from every dump for `detect_machines`' reason.
-    nudge_after_seconds: int | None = Field(default=8, exclude=True)
+    #: silence. Excluded from every dump for `detect_machines`' reason. The default is the
+    #: console's (`thinnest_nudge_after_seconds`); a publish always sets the resolved value.
+    nudge_after_seconds: int | None = Field(default=15, exclude=True)
     nudge_count: int = Field(default=1, exclude=True)
     nudge_phrase: str | None = Field(default=None, exclude=True)
     end_after_silence_seconds: int | None = Field(default=20, exclude=True)
@@ -4788,12 +4798,17 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: it bothers you we can end the call now"; confusion is a question to answer, not a no.
 #: A bare "go on" after the yes names no next step, and "the name said back" could be the
 #: caller's own; both keep their object (D-864, D-947).
+#: "Never greet again in any turn" (founder's Rytu Khata call of 6 Nov 2026): to "which app?
+#: I don't remember" the agent's next turn opened with a greeting word and then explained, a
+#: second greeting with no restart. "Never greet" read as "do not start over"; the rule now
+#: says the first turn's greeting was the only one in the call. "Never restart" went to pay
+#: for it: "repeat it" already forbids saying the opening again.
 OPENING_CONTINUES_RULE: Final = (
-    " Never greet, say hello back, repeat it or its names, or re-ask if now suits, even after "
-    "answering. Asked who or why, or the business name said back? Both in one line, once, "
-    "wait. A hello or yes, in any language, is a yes: go on with why you call or your first "
-    "question. A no, busy or later? Ask when suits them, or close politely. Forgot us? Who and "
-    "why, go on. Later hello? You're here; go on, never restart."
+    " Never greet again in any turn, say hello back, repeat it or its names, or re-ask if now "
+    "suits, even after answering. Asked who or why, or the business "
+    "name said back? Both in one line, once, wait. A hello or yes, in any language, is a yes: "
+    "go on with why you call or your first question. A no, busy or later? Ask when suits them, "
+    "or close politely. Forgot us? Who and why, go on. Later hello? You're here, go on."
 )
 
 
