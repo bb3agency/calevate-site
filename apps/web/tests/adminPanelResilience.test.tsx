@@ -27,7 +27,7 @@ function Boom(): never {
 
 describe("a client overview panel", () => {
   it("reads a response with no capability profile as not judged", async () => {
-    const { capabilities: _dropped, ...older } = {
+    const { capabilities, ...older } = {
       ...NO_BUSINESS_COPY,
       model: null,
       cost_inr: null,
@@ -42,6 +42,8 @@ describe("a client overview panel", () => {
     expect(await screen.findByText("Takes bookings")).toBeTruthy();
     expect(screen.getAllByText("Not judged yet").length).toBeGreaterThan(0);
     expect(capabilityLine(undefined)).toBe("Not judged yet");
+    // The fixture the field was dropped from did carry one.
+    expect(capabilities).toBeDefined();
   });
 
   it("lets an operator correct a capability, and says when it is set by us (A7-08)", async () => {
@@ -68,6 +70,29 @@ describe("a client overview panel", () => {
     );
     const put = calls.find((c) => c.method === "PUT");
     expect(JSON.parse(put?.body ?? "{}")).toEqual({ applies: false });
+  });
+
+  it("says it is still learning an unjudged business, with a Retry (G-D2)", async () => {
+    const copy = {
+      ...NO_BUSINESS_COPY,
+      model: null,
+      cost_inr: null,
+      absorbed: false,
+      last_trigger: null,
+      last_attempt_at: null,
+      capability_overrides: {},
+    };
+    const path = `/v1/admin/tenants/${TENANT}/business-copy`;
+    const { calls } = renderAdminPage(<BusinessCopyPanel tenantId={TENANT} />, {
+      [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "ops:manage"] },
+      [path]: copy,
+      [`POST ${path}/refresh`]: { ...copy, refreshing: true },
+    });
+    expect(await screen.findByText("Still learning what this business does")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === `${path}/refresh`)).toBe(true),
+    );
   });
 
   it("keeps a crash inside the panel that crashed", () => {

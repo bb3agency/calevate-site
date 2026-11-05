@@ -2,9 +2,16 @@
 
 import { useAdminAccess } from "@/app/admin/access";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { Section } from "@/components/console/section";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { FIELD, ProblemNotice, Skeleton, formatINRExact, formatISTStamp } from "@/components/ui";
+import {
+  FIELD,
+  NoticeBox,
+  ProblemNotice,
+  Skeleton,
+  formatINRExact,
+  formatISTStamp,
+} from "@/components/ui";
 import {
   useAdminBusinessCopy,
   useAdminRefreshBusinessCopy,
@@ -50,6 +57,29 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
   const data = copy.data;
   return (
     <Section title="Business examples">
+      {/* Every account is re-judged once when the copy prompt changes; until then no
+          capability is judged, and the rows below would be six unexplained blanks. */}
+      {!data.refreshing && !profileJudged(data) && (
+        <NoticeBox
+          tone="info"
+          role="status"
+          title="Still learning what this business does"
+          action={
+            access.allowed ? (
+              <button
+                type="button"
+                className={TEXT_ACTION}
+                disabled={refresh.isPending}
+                onClick={() => refreshFeedback.run()}
+              >
+                Retry
+              </button>
+            ) : undefined
+          }
+        >
+          Screens use neutral wording until it is worked out.
+        </NoticeBox>
+      )}
       <SettingRows>
         <SettingRow
           label="Last written"
@@ -79,12 +109,12 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
             key={key}
             label={label}
             value={capabilityLine(data.capabilities?.[key])}
-            hint={key in (data.capability_overrides ?? {}) ? "Set by us" : undefined}
+            hint={lookup(data.capability_overrides ?? {}, key) !== undefined ? "Set by us" : undefined}
             action={
               tenantWrite.allowed ? (
                 <CapabilityChoice
                   label={label}
-                  chosen={data.capability_overrides?.[key]}
+                  chosen={lookup(data.capability_overrides ?? {}, key)}
                   pending={setCapability.isPending}
                   onChoose={(applies) => setCapability.mutate({ key, applies })}
                 />
@@ -143,6 +173,14 @@ const CAPABILITY_ROWS: readonly (readonly [keyof Capabilities, string])[] = [
   ["sells", "Sells to callers"],
   ["health_business", "Health business"],
 ];
+
+/** Whether any capability has been judged (by the AI or by us). Exported for the test. */
+export function profileJudged(data: AdminBusinessCopy): boolean {
+  return CAPABILITY_ROWS.some(([key]) => {
+    const judged = data.capabilities?.[key];
+    return judged?.applies === true || judged?.applies === false;
+  });
+}
 
 /** Exported for the test. */
 export function capabilityLine(judged: Capability | null | undefined): string {
