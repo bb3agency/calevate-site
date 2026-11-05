@@ -696,7 +696,7 @@ async def test_a_call_keeps_the_callers_words_and_the_second_one_brings_a_sugges
 
 def test_a_new_detail_comes_from_the_script_or_callers_never_the_business_alone() -> None:
     """A support agent was offered "Main crops grown" because the business serves farmers."""
-    crops = dict(label="Main crops grown", values=["Paddy", "Chilli"], hint="Which crops.")
+    crops: dict[str, Any] = {"label": "Main crops", "values": ["A", "B"], "hint": "Which."}
     assert _clean(_item("new_field", source="business", **crops)) == []
     assert _clean(_item("new_field", source="facts", **crops)) == []
     assert len(_clean(_item("new_field", source="script", **crops))) == 1

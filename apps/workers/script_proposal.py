@@ -263,8 +263,7 @@ def openings_kept(script: CallScript, base: CallScript) -> CallScript:
     restored = {
         field: kept
         for field, _placed in _OPENINGS
-        if not str(getattr(script, field)).strip()
-        and (kept := str(getattr(base, field)).strip())
+        if not str(getattr(script, field)).strip() and (kept := str(getattr(base, field)).strip())
     }
     return script.model_copy(update=restored) if restored else script
 

@@ -531,7 +531,7 @@ async def test_pips_proposal_repairs_the_placed_opening_it_wrote(
 
 
 def test_a_suggestion_that_drops_an_opening_keeps_the_owners() -> None:
-    """"Fix them first" on Put it live once replaced the owner's opening with nothing: the
+    """ "Fix them first" on Put it live once replaced the owner's opening with nothing: the
     model left it blank and a blank line is never judged."""
     base = CallScript(
         opening_line="Hello, this is the shop.", outbound_opening_line="Hello {{lead_name}}."

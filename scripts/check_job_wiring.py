@@ -499,8 +499,8 @@ def _assert_the_seams_still_look_like_this() -> list[str]:
     """
     import inspect
 
-    from apps.api.core.queue import enqueue, job_id_for
     from apps.api.agents.agent_pass import PassSlot
+    from apps.api.core.queue import enqueue, job_id_for
     from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 
     seams = {
