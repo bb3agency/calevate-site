@@ -148,8 +148,9 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 
 
 #: Characters a guided call (the long script plus step-by-step lists of the size a phone
-#: walk-through takes) must still leave: pinned facts at their ceiling and 2,500 more.
-GUIDED_MARGIN = MAX_PINNED_CHARS + 2_500
+#: walk-through takes) must still leave: pinned facts at their ceiling and 2,400 more (2,500
+#: until F-5, 5 Nov 2026, whose written-form rule is 75 characters of new HOW TO SPEAK text).
+GUIDED_MARGIN = MAX_PINNED_CHARS + 2_400
 
 
 def _guided(job: str) -> CallScript:
@@ -241,8 +242,11 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: then "did you understand?", and "call me later" got no day or time; every number digit by
 #: digit from the first time, one step a turn and the call-back time rule are new text. The
 #: memory goodbye rule went, but this reference agent remembers no one.
-PER_CALL_MAX = 7_638
-PER_CALL_ONE_LANGUAGE_MAX = 6_763
+#: F-5 (5 Nov 2026) RAISED both by 75 (7,713/6,838): on the founder's production Telugu call a
+#: question particle was written as its own word and the voice read it apart, so "write as
+#: native speakers do: a suffix, particle or vowel joins its word" is new text.
+PER_CALL_MAX = 7_713
+PER_CALL_ONE_LANGUAGE_MAX = 6_838
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

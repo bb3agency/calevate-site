@@ -67,6 +67,7 @@ from calevate_shared.spoken_style import (
     register_guidance,
     shipped_pack_choice,
     spelled_address,
+    written_form,
 )
 
 # Domain aliases.
@@ -2998,6 +2999,13 @@ _REGISTER_BULLET: Final = (
 #:   understand?"; the caller asked for it step by step. One step and a wait for "done" was
 #:   only the screen guide's rule (`screen_steps_bullet`), and only while that switch is on;
 #:   it is every agent's now, because any caller can be talked through a task.
+#: - Written form (F-5, founder's production call of 5 Nov 2026): the agent wrote a Telugu
+#:   question particle as its own word after the noun, and the voice read it as a separate
+#:   word and sounded unnatural. A voice reads word boundaries as the text gives them, so the
+#:   rule says, for every language at once, that a suffix or particle is written joined to its
+#:   word. It is in English and names no language's words: the founder's native example for a
+#:   language is the `written_form` slot in `spoken_style.json`, quoted after this rule.
+_WRITTEN_FORM_BULLET: Final = "- Write as native speakers do: a suffix, particle or vowel joins its word.\n"
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 
@@ -3025,6 +3033,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     "full stop. No markdown, "
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"
+    f"{_WRITTEN_FORM_BULLET}"
     f"{_DEFAULT_AMOUNTS}"
     ' A time or amount they said goes back in their words ("six" stays "six").\n'
     '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
@@ -3087,6 +3096,11 @@ def _how_to_speak(pack: PackChoice | None, cfg: AgentConfig | None = None) -> st
     if cfg is not None:
         own_amounts = amounts_rule(cfg.language_primary) or _NEUTRAL_AMOUNTS
         guidance = guidance.replace(_DEFAULT_AMOUNTS, own_amounts)
+        example = written_form(cfg.language_primary)
+        if example:
+            guidance = guidance.replace(
+                _WRITTEN_FORM_BULLET, f'{_WRITTEN_FORM_BULLET[:-1]} Like: "{example}"\n'
+            )
     if pack is not None:
         guidance = guidance.replace(_REGISTER_BULLET, _PACK_REGISTER_BULLET)
     if cfg is not None and cfg.caller_has_screen:
