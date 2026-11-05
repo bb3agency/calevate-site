@@ -11157,11 +11157,17 @@
             "title": "Opening Line",
             "type": "string"
           },
+          "opening_notices": {
+            "$ref": "#/components/schemas/OpeningNotices"
+          },
           "outbound_opening_line": {
             "default": "",
             "maxLength": 1000,
             "title": "Outbound Opening Line",
             "type": "string"
+          },
+          "outbound_opening_notices": {
+            "$ref": "#/components/schemas/OpeningNotices"
           },
           "outbound_purpose": {
             "default": "",
@@ -26324,6 +26330,18 @@
       "FixLinesIn": {
         "additionalProperties": false,
         "properties": {
+          "base_saved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Saved At"
+          },
           "script": {
             "$ref": "#/components/schemas/CallScript"
           }
@@ -26332,6 +26350,124 @@
           "script"
         ],
         "title": "FixLinesIn",
+        "type": "object"
+      },
+      "FixLinesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "base_script": {
+            "$ref": "#/components/schemas/CallScript"
+          },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "documents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "draft_saved_at": {
+            "format": "date-time",
+            "title": "Draft Saved At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "change",
+              "whole",
+              "steps",
+              "knowledge",
+              "opening",
+              "written",
+              "starter"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "drafting",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unplaced": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unplaced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "documents",
+          "status",
+          "request",
+          "base_script",
+          "script",
+          "unplaced",
+          "disclosure",
+          "note",
+          "requested_at",
+          "draft_saved_at"
+        ],
+        "title": "FixLinesOut",
         "type": "object"
       },
       "FlagStateOut": {
@@ -38838,6 +38974,44 @@
         "title": "OpeningLineOut",
         "type": "object"
       },
+      "OpeningNotices": {
+        "additionalProperties": false,
+        "description": "What the notice writer did to one opening line (D-971), kept in the script beside it.\n\n`ai` and `recording` are the exact words of `line` that say each notice, as the writer\nreturned them; they count only while the opening is still `line` (`said_in`). `before` is\nthe line the writer replaced, shown with an Undo; `kept_own` is a line the owner put back\nover the writer's, which is not rewritten again.",
+        "properties": {
+          "ai": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Ai",
+            "type": "string"
+          },
+          "before": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Before",
+            "type": "string"
+          },
+          "kept_own": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Kept Own",
+            "type": "string"
+          },
+          "line": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Line",
+            "type": "string"
+          },
+          "recording": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Recording",
+            "type": "string"
+          }
+        },
+        "title": "OpeningNotices",
+        "type": "object"
+      },
       "OperatorCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -44491,6 +44665,22 @@
         "title": "PushAckOut",
         "type": "object"
       },
+      "PutBackOpeningIn": {
+        "additionalProperties": false,
+        "properties": {
+          "when": {
+            "default": "answers",
+            "enum": [
+              "answers",
+              "calls"
+            ],
+            "title": "When",
+            "type": "string"
+          }
+        },
+        "title": "PutBackOpeningIn",
+        "type": "object"
+      },
       "QaQueueClient": {
         "additionalProperties": false,
         "description": "One client with anything drawn, and where its queue stands \u2014 the client picker's\nrows and the group headers on the queue.",
@@ -47738,6 +47928,35 @@
           "latest_evidence_id"
         ],
         "title": "RestoreIn",
+        "type": "object"
+      },
+      "RestoredOut": {
+        "additionalProperties": false,
+        "properties": {
+          "replaced": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script",
+          "saved_at"
+        ],
+        "title": "RestoredOut",
         "type": "object"
       },
       "RetentionLineOut": {
@@ -78130,7 +78349,7 @@
     },
     "/v1/agents/{agent_id}/script/fix-lines": {
       "post": {
-        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that fixes exactly those lines and changes nothing else; poll `GET .../proposal` until it is `ready`. Refused with `script_has_nothing_to_fix` when the check finds nothing.",
+        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.",
         "operationId": "fix_script_lines_v1_agents__agent_id__script_fix_lines_post",
         "parameters": [
           {
@@ -78159,7 +78378,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScriptProposalOut"
+                  "$ref": "#/components/schemas/FixLinesOut"
                 }
               }
             },
@@ -78306,6 +78525,57 @@
           }
         },
         "summary": "Ask for the opening lines written for this business in the agent's main language",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/opening-line/put-back": {
+      "post": {
+        "description": "The Undo for the notice writer (D-971): the opening line it replaced goes live again and is not rewritten on the next publish; the stored notice sentences are said beside it. Refused when the line has changed since it was rewritten, or while other script changes are waiting to go live.",
+        "operationId": "put_back_opening_line_v1_agents__agent_id__script_opening_line_put_back_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutBackOpeningIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpeningLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back the opening line Pip rewrote to say the notices, and put it live",
         "tags": [
           "agents"
         ],
@@ -79049,7 +79319,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DraftOut"
+                  "$ref": "#/components/schemas/RestoredOut"
                 }
               }
             },

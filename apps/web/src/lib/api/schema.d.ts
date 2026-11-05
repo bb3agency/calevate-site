@@ -4550,7 +4550,7 @@ export interface paths {
         put?: never;
         /**
          * Fix the lines the script check found, before putting it live
-         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that fixes exactly those lines and changes nothing else; poll `GET .../proposal` until it is `ready`. Refused with `script_has_nothing_to_fix` when the check finds nothing.
+         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.
          */
         post: operations["fix_script_lines_v1_agents__agent_id__script_fix_lines_post"];
         delete?: never;
@@ -4613,6 +4613,26 @@ export interface paths {
          * @description Offered after the agent's main language changes (D-838, D-965). Queues a `written` suggestion with the opening lines written for this business in that language; poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches a caller until the line is put live.
          */
         post: operations["rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/opening-line/put-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put back the opening line Pip rewrote to say the notices, and put it live
+         * @description The Undo for the notice writer (D-971): the opening line it replaced goes live again and is not rewritten on the next publish; the stored notice sentences are said beside it. Refused when the line has changed since it was rewritten, or while other script changes are waiting to go live.
+         */
+        post: operations["put_back_opening_line_v1_agents__agent_id__script_opening_line_put_back_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -17706,11 +17726,13 @@ export interface components {
              * @default
              */
             opening_line: string;
+            opening_notices?: components["schemas"]["OpeningNotices"];
             /**
              * Outbound Opening Line
              * @default
              */
             outbound_opening_line: string;
+            outbound_opening_notices?: components["schemas"]["OpeningNotices"];
             /**
              * Outbound Purpose
              * @default
@@ -23529,7 +23551,49 @@ export interface components {
         };
         /** FixLinesIn */
         FixLinesIn: {
+            /** Base Saved At */
+            base_saved_at?: string | null;
             script: components["schemas"]["CallScript"];
+        };
+        /** FixLinesOut */
+        FixLinesOut: {
+            base_script: components["schemas"]["CallScript"];
+            /** Disclosure */
+            disclosure: string | null;
+            /** Documents */
+            documents: string[];
+            /**
+             * Draft Saved At
+             * Format: date-time
+             */
+            draft_saved_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "change" | "whole" | "steps" | "knowledge" | "opening" | "written" | "starter";
+            /** Note */
+            note: string | null;
+            /** Request */
+            request: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            script: components["schemas"]["CallScript"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "drafting" | "ready" | "failed";
+            /** Unplaced */
+            unplaced: string[];
         };
         /** FlagStateOut */
         FlagStateOut: {
@@ -28152,6 +28216,42 @@ export interface components {
              */
             when: "answers" | "calls";
         };
+        /**
+         * OpeningNotices
+         * @description What the notice writer did to one opening line (D-971), kept in the script beside it.
+         *
+         *     `ai` and `recording` are the exact words of `line` that say each notice, as the writer
+         *     returned them; they count only while the opening is still `line` (`said_in`). `before` is
+         *     the line the writer replaced, shown with an Undo; `kept_own` is a line the owner put back
+         *     over the writer's, which is not rewritten again.
+         */
+        OpeningNotices: {
+            /**
+             * Ai
+             * @default
+             */
+            ai: string;
+            /**
+             * Before
+             * @default
+             */
+            before: string;
+            /**
+             * Kept Own
+             * @default
+             */
+            kept_own: string;
+            /**
+             * Line
+             * @default
+             */
+            line: string;
+            /**
+             * Recording
+             * @default
+             */
+            recording: string;
+        };
         /** OperatorCreateIn */
         OperatorCreateIn: {
             /**
@@ -29993,6 +30093,15 @@ export interface components {
             /** Refused */
             refused: number;
         };
+        /** PutBackOpeningIn */
+        PutBackOpeningIn: {
+            /**
+             * When
+             * @default answers
+             * @enum {string}
+             */
+            when: "answers" | "calls";
+        };
         /**
          * QaQueueClient
          * @description One client with anything drawn, and where its queue stands — the client picker's
@@ -31264,6 +31373,16 @@ export interface components {
             latest_evidence_id: string | null;
             /** Note */
             note?: string | null;
+        };
+        /** RestoredOut */
+        RestoredOut: {
+            replaced?: components["schemas"]["CallScript"] | null;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            script: components["schemas"]["CallScript"];
         };
         /** RetentionLineOut */
         RetentionLineOut: {
@@ -46074,7 +46193,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ScriptProposalOut"];
+                    "application/json": components["schemas"]["FixLinesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -46172,6 +46291,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScriptProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_back_opening_line_v1_agents__agent_id__script_opening_line_put_back_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutBackOpeningIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpeningLineOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -46665,7 +46819,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DraftOut"];
+                    "application/json": components["schemas"]["RestoredOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

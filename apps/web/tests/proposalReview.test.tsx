@@ -189,20 +189,19 @@ describe("a suggestion that takes something away (A-04)", () => {
 });
 
 describe("Fix them first, seen before it is used (A-02, A-15)", () => {
-  const proposal = (script: CallScript): ScriptProposal =>
-    ({
-      id: "p1",
-      mode: "change",
-      status: "ready",
-      base_script: CURRENT,
-      script,
-      unplaced: [],
-      documents: [],
-      request: null,
-      disclosure: null,
-      note: null,
-      requested_at: "2026-11-05T10:00:00Z",
-    }) as unknown as ScriptProposal;
+  const proposal = (script: CallScript): ScriptProposal => ({
+    id: "p1",
+    mode: "change",
+    status: "ready",
+    base_script: CURRENT,
+    script,
+    unplaced: [],
+    documents: [],
+    request: null,
+    disclosure: null,
+    note: null,
+    requested_at: "2026-11-05T10:00:00Z",
+  });
 
   it("shows each fixed line before and after, and uses it only on the owner's word", () => {
     const onUse = vi.fn();

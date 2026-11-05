@@ -36,6 +36,10 @@ export function ScriptHistory({
   const restore = useRestoreVersion(session, agentId);
   // The dialog shows a refusal inside itself; the restored draft appears in the editor.
   const putBack = useSaveDraft(session, agentId);
+  useActionFeedback(putBack, {
+    errorTitle: "Your earlier draft could not be put back",
+    successToast: "Your earlier draft is back.",
+  });
   const stored = useScript(session, agentId);
   const restoreFeedback = useActionFeedback(restore, {
     errorDisplay: "inline",
@@ -63,6 +67,7 @@ export function ScriptHistory({
   }
   return (
     <>
+      {putBack.error && <ProblemNotice error={putBack.error} />}
       <ul className="divide-y divide-line border-y border-line">
         {rows.map((row) => (
           <li key={row.version} className="flex items-start justify-between gap-3 py-3">

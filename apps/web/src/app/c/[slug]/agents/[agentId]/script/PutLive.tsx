@@ -116,6 +116,8 @@ function ScriptWarnings({
   const putBack = useSaveDraft(session, agentId);
   const fixFeedback = useActionFeedback(fix, { errorDisplay: "inline" });
   useActionFeedback(keep, { errorDisplay: "inline" });
+  useActionFeedback(clear, { errorTitle: "Pip's fix could not be cleared" });
+  useActionFeedback(putBack, { errorDisplay: "inline", successToast: "Your lines are back in the draft." });
   const [fixing, setFixing] = useState<{ id: string; savedAt: string } | null>(null);
   const [review, setReview] = useState<{ proposal: ScriptProposal; savedAt: string } | null>(null);
   const [undo, setUndo] = useState<{ script: CallScript; savedAt: string } | null>(null);
