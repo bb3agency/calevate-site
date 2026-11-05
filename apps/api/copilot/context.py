@@ -349,7 +349,11 @@ async def read_account_standing(session: AsyncSession, *, tenant_id: UUID) -> Li
     from apps.api.billing.trials import read_trial
     from apps.api.compliance.kyc import read_kyc
     from apps.api.compliance.outbound_pledge import read_pledge
-    from apps.api.tenancy.business_profile import go_live_blockers, load_profile
+    from apps.api.tenancy.business_profile import (
+        account_needs_address,
+        go_live_blockers,
+        load_profile,
+    )
     from apps.api.tenancy.engine_workspace import read_workspace_state
     from apps.api.tenancy.onboarding import owner_status
 
@@ -379,7 +383,12 @@ async def read_account_standing(session: AsyncSession, *, tenant_id: UUID) -> Li
         paid=await has_paid(session, tenant_id=tenant_id),
         workspace=workspace.status,
         owner_joined=owner.owner_present,
-        profile_missing=tuple(go_live_blockers(profile)),
+        profile_missing=tuple(
+            go_live_blockers(
+                profile,
+                needs_address=await account_needs_address(session, tenant_id=tenant_id),
+            )
+        ),
     )
 
 

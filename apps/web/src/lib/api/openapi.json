@@ -8923,6 +8923,10 @@
               }
             ]
           },
+          "interest_moments_label": {
+            "title": "Interest Moments Label",
+            "type": "string"
+          },
           "language": {
             "title": "Language",
             "type": "string"
@@ -9194,6 +9198,7 @@
           "forwarded_to_phone",
           "not_placed_reason",
           "moments",
+          "interest_moments_label",
           "mistakes",
           "captured",
           "unclear_fields",
@@ -22563,6 +22568,21 @@
             "title": "Median S",
             "type": "integer"
           },
+          "outcome_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "business",
+                  "platform"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome Source"
+          },
           "p90_s": {
             "title": "P90 S",
             "type": "integer"
@@ -22597,7 +22617,8 @@
           "group_by": {
             "enum": [
               "agent",
-              "outcome"
+              "outcome",
+              "business_outcome"
             ],
             "title": "Group By",
             "type": "string"
@@ -40822,6 +40843,13 @@
             "title": "Busiest Hours Ist",
             "type": "array"
           },
+          "business_outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceOutcomeOut"
+            },
+            "title": "Business Outcomes",
+            "type": "array"
+          },
           "connect_rate_pct": {
             "anyOf": [
               {
@@ -40876,9 +40904,38 @@
           "outbound",
           "avg_duration_s",
           "outcomes",
+          "business_outcomes",
           "busiest_hours_ist"
         ],
         "title": "PerformanceOut",
+        "type": "object"
+      },
+      "PerformanceOutcomeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "business",
+              "platform"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "source",
+          "calls"
+        ],
+        "title": "PerformanceOutcomeOut",
         "type": "object"
       },
       "PinCardOut": {
@@ -79367,7 +79424,8 @@
               "default": "agent",
               "enum": [
                 "agent",
-                "outcome"
+                "outcome",
+                "business_outcome"
               ],
               "title": "Group By",
               "type": "string"

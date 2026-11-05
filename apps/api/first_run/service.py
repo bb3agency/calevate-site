@@ -52,6 +52,7 @@ from apps.api.first_run.questions import (
     CHOICE_KINDS,
     Question,
     fallback_questions,
+    question_words,
     stored_questions,
     with_one_thing,
 )
@@ -371,7 +372,12 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
         )
     else:
         profile = await load_profile(session, tenant_id=tenant_id)
-        fixed = fallback_questions(profile, await _vertical(session), limit=MAX_QUESTIONS)
+        fixed = fallback_questions(
+            profile,
+            await _vertical(session),
+            limit=MAX_QUESTIONS,
+            words=await question_words(session, tenant_id=tenant_id),
+        )
         await store_questions(
             session,
             run_id=row.id,

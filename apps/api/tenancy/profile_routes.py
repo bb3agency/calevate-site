@@ -158,7 +158,10 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
         raise ProblemError.not_found("Organization")
     kyc = await read_kyc(session, tenant_id=tenant_id)
     needs_contact = await bp.account_needs_contact(session)
-    blockers = bp.go_live_blockers(profile, needs_contact=needs_contact)
+    needs_address = await bp.account_needs_address(session, tenant_id=tenant_id)
+    blockers = bp.go_live_blockers(
+        profile, needs_contact=needs_contact, needs_address=needs_address
+    )
     complete = bp.setup_complete(profile)
     states = {step: bp.step_state(profile, step) for step in PROFILE_STEPS}
     nudges = await setup_nudges(
@@ -209,7 +212,9 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
             ProfileBlockerOut(code=code, step=bp.BLOCKER_STEPS[code], message=bp.BLOCKER_COPY[code])
             for code in blockers
         ],
-        "required_steps": bp.required_steps(needs_contact=needs_contact),
+        "required_steps": bp.required_steps(
+            needs_contact=needs_contact, needs_address=needs_address
+        ),
         "updated_at": profile.updated_at,
         "merge_notes": profile.merge_notes,
     }

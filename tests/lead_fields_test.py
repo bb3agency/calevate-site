@@ -402,21 +402,33 @@ async def test_a_draft_that_cannot_be_stored_charges_nothing(
 
 
 @pytest.mark.rls
-async def test_a_known_business_type_is_never_drafted() -> None:
+async def test_a_known_business_type_is_drafted_from_its_standard_set_as_a_seed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every business is drafted (5 Nov 2026): the type's standard set is the starting point
+    the model is shown, and the kept draft replaces it on an agent nobody edited."""
     tenant_id, token = await _tenant("retail")
-    assert await _business_keys(tenant_id) == [[f["key"] for f in VERTICAL_TEMPLATES["retail"]]]
+    standard = [f["key"] for f in VERTICAL_TEMPLATES["retail"]]
+    assert await _business_keys(tenant_id) == [standard]
     code, body = await _call("GET", "/v1/lead-fields", token)
-    assert body["can_draft"] is False and body["has_standard_set"] is True
-    assert body["business_type_label"] == "Shop, food or produce"
-    with pytest.raises(ProblemError) as refused:
-        await _request(tenant_id)
-    assert refused.value.code == "lead_fields_draft_not_custom"
-    code, body = await _call("POST", "/v1/lead-fields/draft/review", token, {"keep": []})
-    assert code == 422, body
-    async with tenant_session(tenant_id) as session:
-        assert not await lead_fields.maybe_request_draft(
-            session, tenant_id=tenant_id, requested_by=None
+    assert body["can_draft"] is True and body["has_standard_set"] is True
+    seen: list[str] = []
+
+    async def fake_draft(description: str, tenant_leg: object) -> JsonAnswer[list[ExtractionField]]:
+        seen.append(description)
+        return JsonAnswer(
+            value=list(DRAFTED),
+            capability=AssistCapability(available=True, provider="sarvam"),
+            model="sarvam-105b",
         )
+
+    assert await _request(tenant_id) == "queued"
+    monkeypatch.setattr(lead_fields_draft, "_draft", fake_draft)
+    assert await lead_fields_draft.draft_lead_fields({}, {"tenant_id": str(tenant_id)}) == "done"
+    assert "Usual details for this type of business" in seen[0]
+    code, body = await _call("POST", "/v1/lead-fields/draft/review", token, {"keep": ["produce"]})
+    assert code == 200 and body["agents_changed"] == 1, body
+    assert await _business_keys(tenant_id) == [["produce"]]
 
 
 # --- 4. moving a business to new fields ----------------------------------------------------

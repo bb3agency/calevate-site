@@ -2681,7 +2681,11 @@ async def extract_call(
         valid=outcome.valid,
         errors=outcome.errors,
         needs_review=outcome.needs_review,
-        moments=(clean_moment_candidates(raw.get("moments"), spec) if moments is not None else []),
+        moments=(
+            clean_moment_candidates(raw.get("moments"), spec, withheld=moments.withheld_kinds)
+            if moments is not None
+            else []
+        ),
         unlisted=clean_unlisted(spec, raw.get("unlisted"), outcome.data),
     )
 

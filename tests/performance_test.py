@@ -168,3 +168,39 @@ async def test_busiest_hours_bucket_in_ist_not_utc() -> None:
     assert hours[19] == 1
     assert hours[5] == 0, "the UTC shadow of the 11:00 IST calls must be empty"
     assert sum(hours) == 3
+
+
+async def test_calls_group_by_the_business_outcome_with_the_platform_word_as_fallback() -> None:
+    """ "How calls ended" and the durations chart group one call the same way: its business
+    outcome label (D-836), else the platform outcome."""
+    from apps.api.analytics.service import durations, resolve_window
+
+    tenant_id, agent_id = await _tenant()
+    for _ in range(2):
+        await _call(tenant_id, agent_id, status="completed", duration_s=60, outcome="answered")
+    await _call(tenant_id, agent_id, status="completed", duration_s=30, outcome="answered")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET business_outcome = 'got_help', "
+                "business_outcome_label = 'Got what they needed' WHERE duration_s = 60"
+            )
+        )
+        result = await performance(session, days=7)
+        chart = await durations(
+            session,
+            window=resolve_window(days=7, to=None),
+            group_by="business_outcome",
+            bin_s=30,
+            limit=5,
+            agent_id=None,
+            test_calls=True,
+        )
+    assert result["business_outcomes"] == [
+        {"key": "Got what they needed", "source": "business", "calls": 2},
+        {"key": "answered", "source": "platform", "calls": 1},
+    ]
+    assert [(g.key, g.outcome_source, g.calls) for g in chart.groups] == [
+        ("Got what they needed", "business", 2),
+        ("answered", "platform", 1),
+    ]

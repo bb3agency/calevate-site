@@ -60,6 +60,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.team_alerts import service as team_alerts
+from apps.api.tenancy.caller_words import CallerWords, caller_words_for
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
 from apps.workers.redaction import redact
@@ -68,6 +69,21 @@ from apps.workers.whatsapp import enqueue_hot_lead_whatsapp
 log = get_logger(__name__)
 
 HOT_LEAD_SUBJECT = "Hot lead from your AI agent"
+
+
+def hot_lead_subject(words: CallerWords, outcome_label: str | None) -> str:
+    """The alert's subject, in this business's words. The call's own outcome names it when
+    the agent read one ("Wants a site visit: a call your AI agent flagged"); otherwise a
+    business that sells nothing is told about its most interested user, never a "hot lead",
+    and every other business reads `HOT_LEAD_SUBJECT` as before. Headline style, with no
+    article to get wrong in front of the business's own noun ("a user")."""
+    label = _one_line(outcome_label)
+    if label:
+        return f"{label}: a call your AI agent flagged"
+    if words.sells is False:
+        return f"{words.hot_lead.capitalize()} from your AI agent"
+    return HOT_LEAD_SUBJECT
+
 
 # The channel discriminator written into every `lead_events.notification` row this
 # module creates, and the predicate every query here is scoped by.
@@ -107,7 +123,7 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             await session.execute(
                 text(
                     "SELECT l.name, l.phone_e164, l.status, COALESCE(c.summary, c.summary_local), "
-                    "o.billing_email, o.slug "
+                    "o.billing_email, o.slug, c.business_outcome_label "
                     "FROM leads l JOIN calls c ON c.id = :cid "
                     "JOIN organizations o ON o.id = l.tenant_id WHERE l.id = :lid"
                 ),
@@ -119,7 +135,8 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         # `slug` rides along on the SELECT that was already joining `organizations` for
         # the address — the deep link in the body needs it and a second round trip to
         # fetch one column would be one more thing to fail inside the 2-minute SLO.
-        name, phone, status, summary, billing_email, slug = row
+        name, phone, status, summary, billing_email, slug, outcome_label = row
+        words = await caller_words_for(session, tenant_id)
 
         if billing_email and await team_alerts.team_covers(
             session, call_id=call_id, channel=CHANNEL, address=billing_email
@@ -132,7 +149,9 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             return "covered_by_team"
 
         if billing_email:
-            body = _compose(name, phone, status, summary, triggers, slug=slug, lead_id=lead_id)
+            body = _compose(
+                name, phone, status, summary, triggers, slug=slug, lead_id=lead_id, words=words
+            )
             # INSIDE the transaction, DELIBERATELY, and the finding that produced the
             # `to_thread` above recommended moving it out as well. It is not moved, and
             # the reason is the atomicity the next block argues for at length: the
@@ -148,7 +167,9 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             # What it used to cost was the event loop, which is every job in the process.
             # Those are not the same order of problem, and `to_thread` closes the one
             # that is.
-            delivered = await _send_email(billing_email, HOT_LEAD_SUBJECT, body)
+            delivered = await _send_email(
+                billing_email, hot_lead_subject(words, outcome_label), body
+            )
         else:
             # Nothing to attempt: `_send_email` would only report the same thing back.
             delivered = False
@@ -323,6 +344,7 @@ def _compose(
     *,
     slug: str,
     lead_id: UUID,
+    words: CallerWords | None = None,
 ) -> str:
     """THE NUMBER STAYS MASKED HERE, AND D-436 IS THE REASON IT NEEDED RE-DECIDING.
 
@@ -372,8 +394,14 @@ def _compose(
     that says only "a lead was marked hot" is one nobody opens.
     """
     masked = redact(phone).text
+    words = words or CallerWords()
+    opening = (
+        f"Your AI agent flagged this {words.lead} for you."
+        if words.sells is False
+        else "A lead was flagged for you by your AI agent."
+    )
     lines = [
-        "A lead was flagged for you by your AI agent.",
+        opening,
         "",
         f"Name: {_one_line(name) or 'not captured'}",
         f"Phone: {masked}",

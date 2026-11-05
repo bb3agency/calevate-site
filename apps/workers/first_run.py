@@ -102,8 +102,10 @@ from apps.api.first_run.questions import (
     PROMPT_MAX,
     QUESTION_KINDS,
     Question,
-    answered_topics,
+    QuestionWords,
+    closed_topics,
     fallback_questions,
+    question_words,
     written_questions,
 )
 from apps.api.first_run.service import (
@@ -388,7 +390,7 @@ async def _owner_documents(tenant_id: UUID, run_id: UUID) -> tuple[str, dict[str
 # --------------------------------------------------------------------------- ask
 
 
-def _questions_parser(profile: Profile) -> Any:
+def _questions_parser(profile: Profile, words: QuestionWords | None = None) -> Any:
     """The model's questions through the gate; None (no answer) when none survive, so the
     next leg of the ladder gets its chance and the fixed questions come last."""
 
@@ -396,7 +398,7 @@ def _questions_parser(profile: Profile) -> Any:
         written = raw.get("questions")
         if not isinstance(written, list):
             return None
-        return written_questions(written, profile) or None
+        return written_questions(written, profile, words) or None
 
     return parse
 
@@ -458,11 +460,13 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
             return "not_pending"
         vertical = None if row.vertical_template is None else str(row.vertical_template)
         profile = await load_profile(session, tenant_id=tenant_id)
+        words = await question_words(session, tenant_id=tenant_id)
         tenant_leg = await account_assist_leg(session)
         braked = await platform_brake_tripped(session)
-    questions = fallback_questions(profile, vertical, limit=MAX_QUESTIONS)
+    questions = fallback_questions(profile, vertical, limit=MAX_QUESTIONS, words=words)
     disclosure: str | None = None
-    known = ", ".join(sorted(answered_topics(profile))) or "none"
+    # A section this business does not have reads to the model as known, so it is not asked.
+    known = ", ".join(sorted(closed_topics(profile, words))) or "none"
     jobs = "; ".join(_JOB_CONTEXT[job] for job in row.jobs or [] if job in _JOB_CONTEXT)
     documents, _ = await owner_documents(tenant_id, run_id)
     try:
@@ -472,7 +476,7 @@ async def write_first_run_questions(ctx: dict[str, Any], payload: dict[str, Any]
             + f"What the agent does: {jobs or 'not said'}"
             f"\nBusiness profile sections already known: {known}",
             QUESTIONS_INSTRUCTION,
-            parse=_questions_parser(profile),
+            parse=_questions_parser(profile, words),
             azure_format=QUESTIONS_FORMAT,
             tenant_leg=tenant_leg,
             quota_exhausted=braked,

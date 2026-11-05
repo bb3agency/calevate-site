@@ -181,18 +181,6 @@ async def test_confirming_queues_the_one_draft_and_a_second_ask_is_refused() -> 
     assert "already being drafted" in refused.value.reason
 
 
-async def test_a_business_with_standard_details_is_not_drafted() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE organizations SET vertical_template = 'retail' WHERE id = :t"),
-            {"t": tenant_id},
-        )
-    with pytest.raises(WriteRefusedError) as refused:
-        await _propose(tenant_id, token, "lead_fields_draft", {})
-    assert "standard lead details" in refused.value.reason
-
-
 async def test_a_reviewed_draft_is_never_asked_for_again() -> None:
     tenant_id, _slug, token = await _make_tenant()
     async with tenant_session(tenant_id) as session:

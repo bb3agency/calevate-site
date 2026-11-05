@@ -415,6 +415,10 @@ class CallDetailOut(CallSummaryOut):
     #: hides the panel either way, and the distinction that matters to an operator is
     #: NULL-versus-`[]` in the column, which is not a client's question.
     moments: list[CallMomentOut]
+    #: What this business calls the moments in the `buying` category: "Buying signal", or
+    #: "Strong interest" for a business that sells nothing
+    #: (`calevate_shared.extraction.interest_moments_label`).
+    interest_moments_label: str
     #: What the agent got wrong on this call, in call order (D-949). Required for
     #: `moments`' reason.
     mistakes: list[CallMistakeOut]
@@ -1428,6 +1432,13 @@ class PerformanceFunnelOut(Strict):
     qualified: int
 
 
+class PerformanceOutcomeOut(Strict):
+    #: The business outcome's label, or the platform outcome word (`source` says which).
+    key: str
+    source: Literal["business", "platform"]
+    calls: int
+
+
 class PerformanceOut(Strict):
     days: int
     funnel: PerformanceFunnelOut
@@ -1442,6 +1453,9 @@ class PerformanceOut(Strict):
     # VALUES, so this is a map and not the free-form passthrough the redaction
     # guardrail has to be told about.
     outcomes: dict[str, int]
+    #: The same calls by the business's own outcome label, most calls first; a call with no
+    #: business outcome counts under its platform word (`source` "platform").
+    business_outcomes: list[PerformanceOutcomeOut]
     # Always exactly 24 buckets, index = IST hour; silent hours are 0, not absent.
     busiest_hours_ist: list[int]
 

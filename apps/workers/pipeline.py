@@ -56,6 +56,7 @@ from calevate_shared.events import (
     TranscriptTurn,
 )
 from calevate_shared.extraction import (
+    DEFAULT_EXTRACTION_LANGUAGE,
     ExtractionOutput,
     ExtractionSchemaSpec,
     MomentsBrief,
@@ -64,6 +65,7 @@ from calevate_shared.extraction import (
     goal_verdict,
     next_step_owner,
     spell_business_name,
+    withheld_moment_kinds,
 )
 from calevate_shared.lead_fields import with_core
 from sqlalchemy import Numeric, text
@@ -183,6 +185,8 @@ from apps.api.reliability.service import (
     mark_inbox_processed,
 )
 from apps.api.team_alerts import service as team_alerts
+from apps.api.tenancy.business_copy import capabilities_for
+from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
 from apps.api.tenancy.engine_workspace import engine_has_workspaces
 from apps.workers import call_language, call_timeline, storage
 from apps.workers import extraction as extraction_module
@@ -2401,9 +2405,11 @@ async def load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
     unconfirmed account is never assumed to be any type (D-722). The goal and steps come
     from the script the agent is RUNNING (`live_prompt_id`, else the latest saved), read
     defensively from its stored JSON so an older script shape costs the brief a line, never
-    the extraction.
+    the extraction. The moment kinds the business cannot have come from its capability
+    profile (`withheld_moment_kinds`), so a free app's call is never read for a purchase.
     """
     async with tenant_session(tenant_id) as session:
+        caps = await capabilities_for(session, tenant_id)
         row = (
             await session.execute(
                 text(
@@ -2433,7 +2439,15 @@ async def load_moments_brief(tenant_id: UUID, agent_id: UUID) -> MomentsBrief:
             if isinstance(s, dict)
         ]
     goal = _brief_text(script.get("goal"), 300) or _brief_text(script.get("outbound_purpose"), 300)
+    withheld = withheld_moment_kinds(
+        takes_bookings=caps.takes_bookings.applies,
+        takes_orders=caps.takes_orders.applies,
+        quotes_prices=caps.quotes_prices.applies,
+        has_premises=caps.has_premises.applies,
+        sells=caps.sells.applies,
+    )
     return MomentsBrief(
+        withheld_kinds=sorted(withheld),
         business_type=business_type_label(vertical) if vertical else "",
         business_line=_brief_text(script.get("business_line"), 200),
         agent_goal=goal,
@@ -2886,8 +2900,8 @@ async def _record_reading(
         row = (
             await session.execute(
                 text(
-                    "SELECT a.language_primary, c.summary_local, c.translation_state, "
-                    "c.summary, c.summary_source, "
+                    f"SELECT COALESCE(a.language_primary, {BUSINESS_LANGUAGE_SQL}), "
+                    "c.summary_local, c.translation_state, c.summary, c.summary_source, "
                     "(SELECT o.name FROM organizations o WHERE o.id = c.tenant_id) "
                     "FROM calls c JOIN agents a ON a.id = c.agent_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -2906,7 +2920,7 @@ async def _record_reading(
         ).all()
     if row is None:
         raise RuntimeError(f"call {call_id} not found for the call reading")
-    agent_language = str(row[0] or "te-IN")
+    agent_language = str(row[0] or DEFAULT_EXTRACTION_LANGUAGE)
     language = call_language.call_language([t[1] for t in turns], agent_language=agent_language)
     answered = extraction is not None and model_answered(extraction)
     model_failed = extraction is not None and not answered

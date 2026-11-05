@@ -46,15 +46,23 @@ class HeatmapOut(Strict):
     cells: list[HeatmapCellOut]
 
 
-DurationGroupBy = Literal["agent", "outcome"]
+#: `business_outcome` groups by the business's own outcome label (D-836), falling back to
+#: the platform outcome for a call with none (`crm/performance.OUTCOME_GROUP_SQL`).
+DurationGroupBy = Literal["agent", "outcome", "business_outcome"]
+
+#: Whether an outcome group is the business's own outcome or the platform's word.
+OutcomeSource = Literal["business", "platform"]
 
 
 class DurationGroupOut(Strict):
     #: The agent id, or the outcome word (`crm/schemas.CallOutcome`, or `unread` for a call
-    #: the pipeline has not read yet).
+    #: the pipeline has not read yet), or the business's own outcome label.
     key: str
-    #: The agent's name, or the outcome word; the screen owns the wording of outcomes.
+    #: The agent's name, or the outcome word; the screen owns the wording of platform
+    #: outcomes and shows a business outcome's label as it is.
     label: str
+    #: For an outcome group: whose outcome `key` is. None for an agent group.
+    outcome_source: OutcomeSource | None = None
     calls: int
     #: Count of calls per bin, in `bin_edges_s` order; the last bin is "this long or longer".
     counts: list[int]

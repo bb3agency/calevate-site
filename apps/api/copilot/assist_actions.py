@@ -175,15 +175,9 @@ class _NoArgs(BaseModel):
 async def _plan_lead_fields(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
-    """READ ONLY. A business with a standard set, or one already drafted, is refused here
-    with the reason, before any card."""
+    """READ ONLY. A business already drafted is refused here with the reason, before any
+    card."""
     parse_args(_NoArgs, args)
-    vertical = await lead_fields.vertical_of(session, tenant_id=actor.tenant_id)
-    if lead_fields.has_standard_set(vertical):
-        raise WriteRefusedError(
-            "this business has the standard lead details for its type, so there is nothing "
-            "to draft; changes are made on the Lead details screen"
-        )
     draft = await lead_fields.read_draft(session, tenant_id=actor.tenant_id)
     if draft is not None and draft.status in ("queued", "running"):
         raise WriteRefusedError(

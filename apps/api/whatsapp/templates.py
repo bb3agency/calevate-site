@@ -2,8 +2,9 @@
 client's own (D-784).
 
 Every in-call WhatsApp is a template, because we cannot see the client's 24-hour window
-(`actions/whatsapp.py`). On connect, Calevate submits four UTILITY templates in Telugu, Hindi
-and English to the client's account; the client may add their own. Meta reviews each one
+(`actions/whatsapp.py`). On connect, Calevate submits up to four UTILITY templates (those the
+business needs, `standard_for`) in Telugu, Hindi and English to the client's account; the
+client may add their own. Meta reviews each one
 ("can take up to 24 hours", templates/template-review.md, read 15 Oct 2026) and reports the
 outcome on the `message_template_status_update` webhook, which `apply_status_update` records.
 
@@ -34,6 +35,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.business_copy import Capabilities, capabilities_for
 from apps.api.whatsapp import graph
 from apps.api.whatsapp.models import TEMPLATE_CATEGORIES
 
@@ -67,6 +69,14 @@ class StandardTemplate:
     variables: tuple[str, ...]
     examples: tuple[str, ...]
     bodies: dict[str, str]
+    #: The capabilities (`business_copy.Capabilities`) behind this message. It is submitted
+    #: unless EVERY one is judged False: a booking confirmation is noise in the account of a
+    #: business that takes no bookings, and Meta reviews each template we submit.
+    needs: tuple[str, ...] = ()
+
+
+#: The blank that holds the business's own name, in every standard template that has one.
+BUSINESS_NAME_VARIABLE: Final = "Your business name"
 
 
 #: Calevate's standard UTILITY templates. Every body names the business and, where it can,
@@ -78,6 +88,7 @@ STANDARD: Final[tuple[StandardTemplate, ...]] = (
         name="calevate_booking_confirmed",
         variables=("Your business name", "Booking date and time", "Your phone number"),
         examples=("Lakshmi Traders", "Friday 18 October, 4 pm", "+91 98765 43210"),
+        needs=("takes_bookings",),
         bodies={
             "en": (
                 "Your booking with {{1}} is confirmed for {{2}}. To change it, please call "
@@ -119,6 +130,7 @@ STANDARD: Final[tuple[StandardTemplate, ...]] = (
         # (`actions/schema.PaymentMessage.body_values`).
         variables=("What the payment is for", "Amount in rupees", "Payment link"),
         examples=("your order", "1500", "https://rzp.io/l/example"),
+        needs=("sells", "takes_orders"),
         bodies={
             "en": (
                 "Here is the payment link you asked for, for {{1}}. Amount: Rs {{2}}. Pay "
@@ -209,7 +221,8 @@ def check_template(
     if category not in TEMPLATE_CATEGORIES:
         raise template_refusal(
             "whatsapp_template_category",
-            "Choose whether this message is about an order or booking, or is marketing.",
+            "Choose whether this message is about something the person asked for or did with "
+            "you, or is marketing.",
             "Pick Utility or Marketing.",
         )
     stripped = body.strip()
@@ -362,12 +375,38 @@ async def submit(session: AsyncSession, *, template_id: UUID, waba_id: str, toke
     return status
 
 
+def standard_for(caps: Capabilities) -> tuple[StandardTemplate, ...]:
+    """The standard templates this business gets: each whose capabilities are not all judged
+    False (None keeps it, the unknown rule)."""
+    return tuple(
+        template
+        for template in STANDARD
+        if not template.needs
+        or not all(getattr(caps, need).applies is False for need in template.needs)
+    )
+
+
+def _examples(template: StandardTemplate, business_name: str | None) -> tuple[str, ...]:
+    """The examples Meta reviews, with the business's own name where a blank holds it:
+    a reviewer reads the real business, not another trade's."""
+    return tuple(
+        business_name if label == BUSINESS_NAME_VARIABLE and business_name else example
+        for label, example in zip(template.variables, template.examples, strict=True)
+    )
+
+
 async def seed_standard(
     session: AsyncSession, *, tenant_id: UUID, account_id: UUID, waba_id: str, token: str
 ) -> dict[str, int]:
-    """Store and submit every standard template not already on this account."""
+    """Store and submit every standard template this business needs and does not have."""
     counts = {"submitted": 0, "failed": 0, "already": 0}
-    for template in STANDARD:
+    business_name = (
+        await session.execute(
+            text("SELECT name FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+        )
+    ).scalar()
+    for template in standard_for(await capabilities_for(session, tenant_id)):
+        examples = _examples(template, " ".join(str(business_name or "").split()) or None)
         for language in STANDARD_LANGUAGES:
             new_id = await insert_template(
                 session,
@@ -379,7 +418,7 @@ async def seed_standard(
                 body=template.bodies[language],
                 variables=[
                     {"label": label, "example": example}
-                    for label, example in zip(template.variables, template.examples, strict=True)
+                    for label, example in zip(template.variables, examples, strict=True)
                 ],
                 origin="calevate",
                 purpose=template.purpose,
@@ -462,5 +501,6 @@ __all__ = [
     "insert_template",
     "map_meta_status",
     "seed_standard",
+    "standard_for",
     "submit",
 ]

@@ -129,8 +129,44 @@ def match_outcome(raw: object, outcomes: Sequence[BusinessOutcome]) -> BusinessO
 
 
 #: What an agent reads until its own outcomes are drafted, or when the draft could not be
-#: written. Neutral words only: no trade is assumed (D-722).
+#: written. Neutral words only: no trade is assumed (D-722), and nothing assumes the business
+#: sells. A free app helping its registered users has no "wants to buy", so the positive
+#: outcome is interest in what the call was about, and a caller whose need was met is its own
+#: outcome rather than a lost sale. `needs_follow_up` is a system word (`RESERVED_KEYS`), hence
+#: `needs_more_help`.
 STARTING_OUTCOMES: Final[tuple[BusinessOutcome, ...]] = (
+    BusinessOutcome(
+        key="interested",
+        label="Interested",
+        meaning=(
+            "The caller wants what the call was about, or wants to go ahead with it, now or later."
+        ),
+        lead_status="interested",
+    ),
+    BusinessOutcome(
+        key="got_what_they_needed",
+        label="Got what they needed",
+        meaning="The caller's question or need was taken care of on this call.",
+        lead_status="contacted",
+    ),
+    BusinessOutcome(
+        key="needs_more_help",
+        label="Needs more help",
+        meaning="The caller still needs something the agent could not finish on this call.",
+        lead_status="contacted",
+    ),
+    BusinessOutcome(
+        key="not_interested",
+        label="Not interested",
+        meaning="The caller said they do not want what the call was about.",
+        lead_status="contacted",
+    ),
+)
+
+#: The starting set before 5 Nov 2026. A call read under it keeps its key on the call row,
+#: so the lead move of that key is still looked up here (`agents/call_outcomes`); never
+#: offered to the model again.
+PAST_STARTING_OUTCOMES: Final[tuple[BusinessOutcome, ...]] = (
     BusinessOutcome(
         key="wants_to_buy",
         label="Wants to buy or book",
@@ -138,21 +174,9 @@ STARTING_OUTCOMES: Final[tuple[BusinessOutcome, ...]] = (
         lead_status="interested",
     ),
     BusinessOutcome(
-        key="interested",
-        label="Interested",
-        meaning="The caller showed interest but did not decide on this call.",
-        lead_status="interested",
-    ),
-    BusinessOutcome(
         key="asked_for_information",
         label="Asked for information",
         meaning="The caller only wanted information, such as a price, timings or directions.",
-        lead_status="contacted",
-    ),
-    BusinessOutcome(
-        key="not_interested",
-        label="Not interested",
-        meaning="The caller said they do not want what the business offers.",
         lead_status="contacted",
     ),
 )
@@ -164,6 +188,7 @@ __all__ = [
     "LEAD_MOVES",
     "MAX_BUSINESS_OUTCOMES",
     "MEANING_MAX",
+    "PAST_STARTING_OUTCOMES",
     "RESERVED_KEYS",
     "STARTING_OUTCOMES",
     "BusinessOutcome",

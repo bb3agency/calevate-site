@@ -16903,6 +16903,8 @@ export interface components {
              */
             id: string;
             insights: components["schemas"]["CallInsightsOut"] | null;
+            /** Interest Moments Label */
+            interest_moments_label: string;
             /** Language */
             language: string;
             /** Lead Id */
@@ -22082,6 +22084,8 @@ export interface components {
             label: string;
             /** Median S */
             median_s: number;
+            /** Outcome Source */
+            outcome_source?: ("business" | "platform") | null;
             /** P90 S */
             p90_s: number;
         };
@@ -22100,7 +22104,7 @@ export interface components {
              * Group By
              * @enum {string}
              */
-            group_by: "agent" | "outcome";
+            group_by: "agent" | "outcome" | "business_outcome";
             /** Groups */
             groups: components["schemas"]["DurationGroupOut"][];
             /** Other Calls */
@@ -28784,6 +28788,8 @@ export interface components {
             avg_duration_s: number | null;
             /** Busiest Hours Ist */
             busiest_hours_ist: number[];
+            /** Business Outcomes */
+            business_outcomes: components["schemas"]["PerformanceOutcomeOut"][];
             /** Connect Rate Pct */
             connect_rate_pct: number | null;
             /** Days */
@@ -28799,6 +28805,18 @@ export interface components {
             };
             /** Qualify Rate Pct */
             qualify_rate_pct: number | null;
+        };
+        /** PerformanceOutcomeOut */
+        PerformanceOutcomeOut: {
+            /** Calls */
+            calls: number;
+            /** Key */
+            key: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "business" | "platform";
         };
         /**
          * PinCardOut
@@ -46863,7 +46881,7 @@ export interface operations {
                 days?: number;
                 /** @description The last IST day of the range (YYYY-MM-DD). Today when left out. */
                 to?: string | null;
-                group_by?: "agent" | "outcome";
+                group_by?: "agent" | "outcome" | "business_outcome";
                 /** @description Bin width in seconds: 15, 30, 60 or 120. */
                 bin_s?: number;
                 limit?: number;

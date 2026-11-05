@@ -38,6 +38,7 @@ WHAT A DECISION MEANS TO ITS TWO CALLERS, because it is not the same sentence:
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Final
 
@@ -64,6 +65,10 @@ class IntentRule:
     #: WHY this row routes the way it does. Required: a row without a reason is a rule the
     #: next person deletes or, worse, keeps for the wrong reason.
     why: str
+    #: Phrases that mean this row only for a health business ("doctor" is a staff question
+    #: at a clinic and a stranger's word anywhere else). Matched like `phrases` when the
+    #: business is, or may be, one (`classify`'s `health`).
+    health_phrases: tuple[str, ...] = ()
 
 
 #: THE TABLE. Ordered, first match wins.
@@ -172,17 +177,15 @@ ROUTING_TABLE: Final[tuple[IntentRule, ...]] = (
         intent="staff",
         tier="t0",
         phrases=(
-            "doctor",
-            "dentist",
             "consultant",
             "specialist",
             "staff",
             "team",
             "who is",
-            "which doctor",
             "available",
             "in today",
         ),
+        health_phrases=("doctor", "dentist", "which doctor"),
         why=(
             "Staff names are a business-profile answer and are compiled phonetically for "
             "exactly this question (`tenancy/business_profile.py`). A search would return "
@@ -273,13 +276,28 @@ def _matches(question: str, phrase: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(phrase)}(?!\w)", question, re.IGNORECASE) is not None
 
 
-def classify(question: str) -> RouteDecision:
+def classify(
+    question: str,
+    *,
+    t0_with_content: Collection[str] | None = None,
+    health: bool | None = None,
+) -> RouteDecision:
     """Route one question. Pure, deterministic, no I/O, no model, no allocation worth
     measuring — this runs on the in-call path's caller and must never be the reason a
-    budget is missed."""
+    budget is missed.
+
+    `t0_with_content` names the t0 intents whose section of the business's compiled facts
+    holds something (`retrieval.service.route_inputs`); a t0 row whose section is empty is
+    skipped, because "the answer is already in the prompt" is false for a business with no
+    address on file, and the question then falls through to a search. `health=False` skips
+    the health-only phrases. None for either keeps the whole table.
+    """
     words = len(_WORD.findall(question))
     for rule in ROUTING_TABLE:
-        if any(_matches(question, phrase) for phrase in rule.phrases):
+        if rule.tier == "t0" and t0_with_content is not None and rule.intent not in t0_with_content:
+            continue
+        phrases = rule.phrases if health is False else (*rule.phrases, *rule.health_phrases)
+        if any(_matches(question, phrase) for phrase in phrases):
             if rule.tier == "t0" and words > LONG_QUESTION_WORDS:
                 # A long question that happens to contain "price" is not a price question.
                 # Only ever routes UP.

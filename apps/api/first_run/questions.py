@@ -22,6 +22,9 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal, get_args
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.starters import TRADES, vertical_of
 from apps.api.tenancy.business_profile import Profile
@@ -159,10 +162,63 @@ def trade_choices(vertical_template: str | None) -> TradeChoices | None:
     return TRADE_CHOICES.get(vertical_template or "")
 
 
+@dataclass(frozen=True, slots=True)
+class QuestionWords:
+    """What this business is, for the fixed questions: its own booking step's words and what
+    its capability profile says about it. `QuestionWords()` is a business nothing is known
+    about, which is asked today's questions.
+
+    A capability is False only when judged so (`business_copy.Capabilities`); None keeps the
+    question. So a free app that has no premises, takes no bookings and quotes no prices is
+    never asked "Where are you?", "How does someone book?" or for a price.
+    """
+
+    #: The profile's booking step heading and line (`profile_wording.ProfileWording`), once
+    #: drafted for this business; None until then.
+    booking_title: str | None = None
+    booking_hint: str | None = None
+    has_premises: bool | None = None
+    quotes_prices: bool | None = None
+    #: False only when the business neither takes bookings nor takes orders.
+    goes_ahead: bool | None = None
+
+
+async def question_words(session: AsyncSession, *, tenant_id: UUID) -> QuestionWords:
+    from apps.api.tenancy.business_copy import capabilities_for
+    from apps.api.tenancy.profile_wording import stored_wording
+
+    caps = await capabilities_for(session, tenant_id)
+    wording = await stored_wording(session, tenant_id=tenant_id)
+    books, orders = caps.takes_bookings.applies, caps.takes_orders.applies
+    no_prices = caps.quotes_prices.applies is False or (
+        wording.drafted and wording.price_label is None
+    )
+    return QuestionWords(
+        booking_title=wording.booking_title if wording.drafted else None,
+        booking_hint=wording.booking_hint if wording.drafted else None,
+        has_premises=caps.has_premises.applies,
+        quotes_prices=False if no_prices else caps.quotes_prices.applies,
+        goes_ahead=False if books is False and orders is False else None,
+    )
+
+
+def _fits(value: str | None, limit: int) -> str | None:
+    """A drafted line used as a question's text only when it fits the question's cap."""
+    if value is None:
+        return None
+    line = " ".join(value.split())
+    return line if 0 < len(line) <= limit else None
+
+
 def fixed_question(
-    topic: ProfileTopic, vertical_template: str | None, *, question_id: str
+    topic: ProfileTopic,
+    vertical_template: str | None,
+    *,
+    question_id: str,
+    words: QuestionWords | None = None,
 ) -> Question | None:
     """The fixed question for one profile section, or None when it does not apply here."""
+    words = words or QuestionWords()
     booking = TRADES[vertical_of(vertical_template)].booking
     if topic == "trade":
         choices = trade_choices(vertical_template)
@@ -177,6 +233,8 @@ def fixed_question(
             maps_to="trade",
         )
     if topic == "location":
+        if words.has_premises is False:
+            return None
         return Question(
             question_id,
             "Where are you?",
@@ -185,6 +243,14 @@ def fixed_question(
             maps_to="location",
         )
     if topic == "offer":
+        if words.quotes_prices is False:
+            return Question(
+                question_id,
+                "What do you offer?",
+                "A few of your main ones is enough.",
+                "services",
+                maps_to="offer",
+            )
         return Question(
             question_id,
             "What do you offer, and what does it cost?",
@@ -200,10 +266,13 @@ def fixed_question(
             "hours",
             maps_to="hours",
         )
+    if words.goes_ahead is False:
+        return None
     return Question(
         question_id,
-        f"How does someone book {booking}?",
-        "In your own words, for example who confirms it and how soon.",
+        _fits(words.booking_title, PROMPT_MAX) or f"How does someone book {booking}?",
+        _fits(words.booking_hint, HINT_MAX)
+        or "In your own words, for example who confirms it and how soon.",
         "text",
         maps_to="booking",
     )
@@ -226,12 +295,17 @@ def with_one_thing(questions: Sequence[Question]) -> list[Question]:
     return [*(q for q in questions if q.id != ONE_THING.id), ONE_THING]
 
 
-def answered_topics(profile: Profile) -> frozenset[ProfileTopic]:
-    """The profile sections already filled, so they are never asked about again."""
+def answered_topics(
+    profile: Profile, *, quotes_prices: bool | None = None
+) -> frozenset[ProfileTopic]:
+    """The profile sections already filled, so they are never asked about again. What it
+    offers counts as answered without a price for a business that quotes none."""
     done: set[ProfileTopic] = set()
     if profile.branches:
         done.add("location")
-    if any(item.price_inr for item in profile.services):
+    if any(item.price_inr for item in profile.services) or (
+        quotes_prices is False and profile.services
+    ):
         done.add("offer")
     if profile.services:
         done.add("trade")
@@ -242,16 +316,34 @@ def answered_topics(profile: Profile) -> frozenset[ProfileTopic]:
     return frozenset(done)
 
 
+def closed_topics(profile: Profile, words: QuestionWords) -> frozenset[ProfileTopic]:
+    """The sections never asked about: already answered, or not part of this business (no
+    place callers come to, no way to book or order)."""
+    closed = set(answered_topics(profile, quotes_prices=words.quotes_prices))
+    if words.has_premises is False:
+        closed.add("location")
+    if words.goes_ahead is False:
+        closed.add("booking")
+    return frozenset(closed)
+
+
 def fallback_questions(
-    profile: Profile, vertical_template: str | None, *, limit: int
+    profile: Profile,
+    vertical_template: str | None,
+    *,
+    limit: int,
+    words: QuestionWords | None = None,
 ) -> list[Question]:
     """The fixed questions for the profile's empty sections, in order, ids `q1`.. ."""
+    words = words or QuestionWords()
     out: list[Question] = []
-    answered = answered_topics(profile)
+    answered = closed_topics(profile, words)
     for topic in PROFILE_TOPICS:
         if topic in answered or len(out) >= limit:
             continue
-        question = fixed_question(topic, vertical_template, question_id=f"q{len(out) + 1}")
+        question = fixed_question(
+            topic, vertical_template, question_id=f"q{len(out) + 1}", words=words
+        )
         if question is not None:
             out.append(question)
     return out
@@ -309,10 +401,13 @@ def _written_one(
     return Question(question_id, prompt, hint, kind, options=kept, maps_to=maps_to)
 
 
-def written_questions(raw: Sequence[object], profile: Profile) -> list[Question]:
+def written_questions(
+    raw: Sequence[object], profile: Profile, words: QuestionWords | None = None
+) -> list[Question]:
     """The model's questions that pass every rule, in its order, at most `MAX_WRITTEN`, each
-    profile section asked about once. Ids are ours (`q1`..), never the model's."""
-    closed = set(answered_topics(profile))
+    profile section asked about once and none about a section this business does not have.
+    Ids are ours (`q1`..), never the model's."""
+    closed = set(closed_topics(profile, words or QuestionWords()))
     out: list[Question] = []
     for item in raw:
         if len(out) >= MAX_WRITTEN:
@@ -376,10 +471,13 @@ __all__ = [
     "ProfileTopic",
     "Question",
     "QuestionKind",
+    "QuestionWords",
     "TradeChoices",
     "answered_topics",
+    "closed_topics",
     "fallback_questions",
     "fixed_question",
+    "question_words",
     "stored_questions",
     "trade_choices",
     "with_one_thing",

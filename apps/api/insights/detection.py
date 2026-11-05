@@ -41,11 +41,12 @@ comprehension (the same disclosure `moments.py` and `extraction.OfflineExtractor
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
 from apps.api.agents.turn_checks import asks_to_repeat, caller_asks
+from apps.api.tenancy.business_copy import Capabilities
 
 Signal = Literal["dont_know", "deferred_channel", "unanswered_question"]
 
@@ -210,6 +211,36 @@ _TOPICS: Final[tuple[tuple[str, str, tuple[str, ...]], ...]] = (
     ),
 )
 
+#: The canonical topics each capability stands behind. A business judged not to have the
+#: capability (`Capabilities`, False only) does not get the topic: a free app's caller asking
+#: "where do I find the khata?" is not asking for its address, and filing that under
+#: "Location & directions" sent its owner to add an address it does not have. The question
+#: still becomes a gap, in the caller's own words (`_topic`'s phrase fallback).
+_TOPIC_NEEDS: Final[dict[str, tuple[str, ...]]] = {
+    "pricing": ("quotes_prices",),
+    "location": ("has_premises",),
+    "timings": ("has_premises",),
+    "booking": ("takes_bookings", "takes_orders"),
+    "delivery": ("takes_orders",),
+    "availability": ("sells", "takes_orders"),
+    "offers": ("sells",),
+    "refund": ("sells",),
+    "warranty": ("sells",),
+    "payment": ("sells",),
+}
+
+
+def withheld_topics(caps: Capabilities) -> frozenset[str]:
+    """The canonical topics this business cannot be asked about, from its capability
+    profile: a topic goes only when EVERY capability behind it is judged False (None keeps
+    it, the unknown rule)."""
+    return frozenset(
+        topic
+        for topic, needs in _TOPIC_NEEDS.items()
+        if all(getattr(caps, need).applies is False for need in needs)
+    )
+
+
 _STOPWORDS: Final[frozenset[str]] = frozenset(
     {
         "the",
@@ -326,7 +357,7 @@ def _classify(agent_text: str) -> Signal | None:
     return None
 
 
-def _topic(caller_text: str, agent_text: str) -> tuple[str, str]:
+def _topic(caller_text: str, agent_text: str, withheld: Collection[str] = ()) -> tuple[str, str]:
     """(topic_key, label) for a gap. Canonical if a keyword matches, else phrase-derived.
 
     Both texts are searched so a topic named in the agent's own deflection ("I don't have
@@ -337,6 +368,8 @@ def _topic(caller_text: str, agent_text: str) -> tuple[str, str]:
     """
     haystack = f"{caller_text} {agent_text}".lower()
     for key, label, triggers in _TOPICS:
+        if key in withheld:
+            continue
         if any(_contains_word(haystack, trigger) for trigger in triggers):
             return key, label
     words = [w for w in _WORD_RE.findall(caller_text.lower()) if w not in _STOPWORDS and len(w) > 2]
@@ -346,7 +379,7 @@ def _topic(caller_text: str, agent_text: str) -> tuple[str, str]:
     return "q_" + "_".join(picked), " ".join(picked).capitalize()
 
 
-def topics_in(value: str) -> frozenset[str]:
+def topics_in(value: str, withheld: Collection[str] = ()) -> frozenset[str]:
     """Every canonical topic key (`_TOPICS`) whose triggers occur in `value`.
 
     Not `_topic`'s first-match: a fact or a caller's line can be about a price AND a
@@ -357,7 +390,7 @@ def topics_in(value: str) -> frozenset[str]:
     return frozenset(
         key
         for key, _label, triggers in _TOPICS
-        if any(_contains_word(haystack, trigger) for trigger in triggers)
+        if key not in withheld and any(_contains_word(haystack, trigger) for trigger in triggers)
     )
 
 
@@ -369,12 +402,13 @@ def _contains_word(haystack: str, phrase: str) -> bool:
     return re.search(pattern, haystack) is not None
 
 
-def detect_gaps(turns: Sequence[Turn]) -> list[DetectedGap]:
+def detect_gaps(turns: Sequence[Turn], *, withheld: Collection[str] = ()) -> list[DetectedGap]:
     """The gaps in one call, one row per topic, in first-seen order.
 
     For each agent turn that carries a signal, the nearest preceding caller turn (within
     `_LOOKBACK_TURNS`) supplies the question and anchors the topic. A deflection with no
-    caller turn behind it is skipped — see the module docstring's limits.
+    caller turn behind it is skipped — see the module docstring's limits. `withheld` is
+    `withheld_topics` of the business.
     """
     merged: dict[str, DetectedGap] = {}
     for i, turn in enumerate(turns):
@@ -390,7 +424,7 @@ def detect_gaps(turns: Sequence[Turn]) -> list[DetectedGap]:
         signal = is_gap(caller_text, agent_text)
         if signal is None:
             continue
-        key, label = _topic(caller_text, agent_text)
+        key, label = _topic(caller_text, agent_text, withheld)
         existing = merged.get(key)
         if existing is None:
             merged[key] = DetectedGap(
@@ -431,4 +465,5 @@ __all__ = [
     "detect_gaps",
     "is_gap",
     "topics_in",
+    "withheld_topics",
 ]
