@@ -307,12 +307,14 @@ function SignupForm() {
           <span className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
             <ShieldCheck aria-hidden className="h-5 w-5" />
           </span>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink">
+          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink [overflow-wrap:anywhere]">
             {created.name} is set up
           </h1>
           <p className="mt-2 text-body text-ink-muted">
             Your workspace is at{" "}
-            <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
+            {/* A slug runs to 40 monospace characters, wider than a 360px card; without a
+                break point it pushes the page sideways. */}
+            <code className="rounded bg-black/5 px-1 font-mono text-ink [overflow-wrap:anywhere] dark:bg-white/10">
               /c/{created.slug}
             </code>. You are its {created.role}.
           </p>
@@ -459,6 +461,9 @@ function SignupForm() {
                 required
                 minLength={2}
                 maxLength={120}
+                autoComplete="organization"
+                autoCapitalize="words"
+                enterKeyHint="next"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
                 placeholder="Your business name"
@@ -481,6 +486,13 @@ function SignupForm() {
                   {...valid.track("slug", "Choose a web address for your workspace.")}
                   required={mustChooseSlug}
                   minLength={mustChooseSlug ? 3 : undefined}
+                  // A phone keyboard capitalises and "corrects" the first word of a text
+                  // field, which turns a lowercase address into one the server refuses.
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  enterKeyHint="next"
                   value={slug}
                   onChange={(e) => setSlug(e.target.value)}
                   placeholder={previewSlug(businessName) || "your-business"}
@@ -500,7 +512,7 @@ function SignupForm() {
                  collisions, and may hand back a different one. */
               <p className="-mt-3 text-meta text-ink-faint">
                 Your workspace will be at{" "}
-                <code className="font-mono">/c/{derived}</code>, unless that name is taken.
+                <code className="font-mono [overflow-wrap:anywhere]">/c/{derived}</code>, unless that name is taken.
               </p>
             )
           )}
@@ -543,6 +555,11 @@ function SignupForm() {
                 {...props}
                 {...valid.track("billing_email", "Enter the email address for invoices.")}
                 type="email"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="done"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="owner@example.com"
