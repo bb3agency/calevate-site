@@ -711,6 +711,9 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("DELETE", "/v1/team-alerts/contacts/{contact_id}", {}, {}),
     # D-907. Would change a neighbour's agent's silences and raise its longest call.
     ("POST", "/v1/agents/{agent_id}/call-handling/give-callers-time", {}, {}),
+    # Whether a neighbour's agent guides callers on screen, and their owner's "Not now".
+    ("GET", "/v1/agents/{agent_id}/caller-help", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/caller-help/dismiss", {}, {}),
     ("GET", "/v1/callbacks/{callback_id}", {}, {}),
     ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
     ("PATCH", "/v1/callbacks/{callback_id}", {"at": _TOMORROW_NOON_IST}, {}),

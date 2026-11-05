@@ -37,7 +37,14 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import call_handling, lifecycle, publishing, script_builder, voice_tuning
+from apps.api.agents import (
+    call_handling,
+    caller_help,
+    lifecycle,
+    publishing,
+    script_builder,
+    voice_tuning,
+)
 from apps.api.agents import handoff as handoff_service
 from apps.api.agents.call_handling import SETTING_FIELDS
 from apps.api.agents.llm_tiers import (
@@ -1027,13 +1034,15 @@ _SCREEN_WORDS: Final = re.compile(
 
 
 async def screen_guide_hint(session: AsyncSession, agent_id: UUID, context: str) -> str:
-    """A sentence for Pip when `context` (a campaign's name) plus the agent's live script say
-    the calls are screen-guided and the agent's switch is off, or plainly are not and it is
-    on; empty otherwise. Pip asks the owner, then proposes `agent_settings_set`."""
+    """A sentence for Pip when `context` (a campaign's name) plus the agent's own judgement
+    (`agents/caller_help`) say the calls are screen-guided and the agent's switch is off, or
+    plainly are not and it is on; empty otherwise. Pip asks the owner, then proposes
+    `agent_settings_set`."""
     row = (
         await session.execute(
             text(
-                "SELECT a.caller_has_screen, pv.body FROM agents a LEFT JOIN prompt_versions pv "
+                "SELECT a.caller_has_screen, pv.body, a.caller_help "
+                "FROM agents a LEFT JOIN prompt_versions pv "
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -1042,13 +1051,16 @@ async def screen_guide_hint(session: AsyncSession, agent_id: UUID, context: str)
     ).first()
     if row is None:
         return ""
-    # The account's own analysis (business copy) judges the business as a whole; the words
-    # catch a campaign or script that is screen-guided where the business usually is not.
-    state = await business_copy.read_state(session)
-    guide = state.copy.screen_guide if state is not None and state.copy is not None else None
-    guided = bool(_SCREEN_WORDS.search(f"{context}\n{row[1] or ''}")) or (
-        guide is not None and guide.suggested
-    )
+    # The agent's own judgement decides; the business's analysis stands in only for an agent
+    # not judged yet. The words catch a campaign being written now, before a pass has read it.
+    judged = caller_help.parse_stored(row[2])
+    if judged is not None:
+        suggested = judged.screen_guide.suggested
+    else:
+        state = await business_copy.read_state(session)
+        guide = state.copy.screen_guide if state is not None and state.copy is not None else None
+        suggested = guide is not None and guide.suggested
+    guided = bool(_SCREEN_WORDS.search(f"{context}\n{row[1] or ''}")) or suggested
     if guided and not row[0]:
         return (
             " These calls look like they walk people through their phone or computer: ask "

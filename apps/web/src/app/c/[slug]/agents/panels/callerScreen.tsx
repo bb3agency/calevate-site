@@ -5,32 +5,41 @@
  * a website while they hold the phone. Off by default, because an agent talking to someone who
  * sees nothing must not name buttons.
  *
- * Whether to switch it on is suggested from the business itself: its AI-written analysis
- * (`business_copy.screen_guide`) judges whether its callers use its app or website on a
- * call, and the agent's Overview asks the owner (`ScreenGuideSuggestion`).
+ * Whether to switch it on, and "Give callers time" (D-907) with it, is judged per agent from
+ * what that agent does: its script, its small steps and its campaigns (founder, 5 Nov 2026;
+ * `lib/api/callerHelp.ts`). The Overview asks the owner once (`CallerHelpSuggestion`); the
+ * Settings rows say which is suggested for this agent and why.
  */
-
-import { useEffect, useState } from "react";
 
 import { HowItWorks } from "@/components/console/howItWorks";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { NoticeBox, ProblemNotice, ToggleSwitch } from "@/components/ui";
 import { useSetCallerScreen, type Agent } from "@/lib/api/agents";
-import { useBusinessCopy } from "@/lib/api/businessCopy";
+import {
+  useCallerHelp,
+  useDismissCallerHelp,
+  useTurnOnCallerHelp,
+  type CallerHelpItem,
+} from "@/lib/api/callerHelp";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+
+/** "Suggested for Varsha: …", the line a Settings row shows under its name. */
+export function suggestedFor(agentName: string, item: CallerHelpItem | undefined): string | null {
+  return item?.suggested && item.reason ? `Suggested for ${agentName}: ${item.reason}` : null;
+}
 
 export function CallerScreen({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const setScreen = useSetCallerScreen(session, agent.id);
   useActionFeedback(setScreen, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change how this agent guides callers");
-  const guide = useBusinessCopy(session).data?.screen_guide;
+  const suggested = suggestedFor(agent.name, useCallerHelp(session, agent.id).data?.screen_guide);
   return (
     <section>
       <h3 className="text-heading text-ink">Caller follows along on a screen</h3>
       <p className="mt-1 text-body text-ink-muted">
-        {guide?.suggested ? guide.reason : "For callers using your app or website."}
+        {suggested ?? "For callers using your app or website."}
       </p>
       {setScreen.error != null && <ProblemNotice error={setScreen.error} />}
       {(setScreen.data?.patient_settings?.length ?? 0) > 0 && (
@@ -40,7 +49,7 @@ export function CallerScreen({ agent }: { agent: Agent }) {
       )}
       <div className="mt-4">
         <ToggleSwitch
-          label={guide?.suggested ? "Guide callers through their screen (suggested)" : "Guide callers through their screen"}
+          label="Guide callers through their screen"
           checked={agent.caller_has_screen}
           disabled={setScreen.isPending || !write.allowed}
           onChange={(next) => setScreen.mutate({ enabled: next })}
@@ -59,64 +68,83 @@ export function CallerScreen({ agent }: { agent: Agent }) {
   );
 }
 
-/** Per agent, per browser: "Not now" is a convenience, so it lives in this browser only. */
-const dismissKey = (agentId: string) => `calevate:screen-guide-not-now:${agentId}`;
-
 /**
- * The question, asked where the owner looks first: when the business's analysis says its
- * callers use its app or website on a call and this agent's switch is off. One button turns
- * it on; "Not now" hides it in this browser.
+ * The one question on the Overview, asked when this agent's own judgement suggests the screen
+ * guide, "Give callers time", or both, and the owner has neither turned it on nor said "Not
+ * now". One button turns on what is suggested; "Not now" is kept on the server, so it is not
+ * asked again on another device. The reason is the judgement's, drawn from the agent's script;
+ * what each setting does sits behind the ⓘ.
  */
-export function ScreenGuideSuggestion({ agent }: { agent: Agent }) {
+export function CallerHelpSuggestion({ agent }: { agent: Agent }) {
   const session = useClientSession();
-  const guide = useBusinessCopy(session).data?.screen_guide;
-  const setScreen = useSetCallerScreen(session, agent.id);
-  const feedback = useActionFeedback(setScreen, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change how this agent guides callers");
-  const [dismissed, setDismissed] = useState(true);
-  useEffect(() => {
-    try {
-      setDismissed(window.localStorage.getItem(dismissKey(agent.id)) === "1");
-    } catch {
-      setDismissed(false);
-    }
-  }, [agent.id]);
+  const help = useCallerHelp(session, agent.id, { enabled: write.allowed });
+  const turnOn = useTurnOnCallerHelp(session, agent.id);
+  const turnOnFeedback = useActionFeedback(turnOn, { errorDisplay: "inline" });
+  const notNow = useDismissCallerHelp(session, agent.id);
+  const notNowFeedback = useActionFeedback(notNow, { errorDisplay: "inline" });
 
-  if (!guide?.suggested || agent.caller_has_screen || dismissed || !write.allowed) return null;
+  const data = help.data;
+  if (!write.allowed || !data) return null;
+  const screen = data.screen_guide.ask;
+  const time = data.give_time.ask;
+  if (!screen && !time) return null;
+
+  const reason = screen ? data.screen_guide.reason : data.give_time.reason;
+  const label = screen && time ? "Turn both on" : screen ? "Guide them on screen" : "Give them time";
+  const busy = turnOn.isPending || notNow.isPending;
   return (
     <NoticeBox
-      tone="neutral"
-      title="Do your callers use your app or website on the call?"
+      tone="info"
+      title={
+        screen
+          ? `Do ${agent.name}'s callers follow along on their phone?`
+          : `Do ${agent.name}'s callers need time to do what it asks?`
+      }
+      infoLabel="what these settings do"
+      info={
+        <ul className="list-disc space-y-1 pl-4">
+          {screen && (
+            <li>
+              Guide callers on screen: the agent names what to tap and gives one step at a time.
+            </li>
+          )}
+          {time && (
+            <li>
+              Give callers time: it waits while they do it, instead of asking again or hanging
+              up.
+            </li>
+          )}
+          <li>You can change either on the Settings tab.</li>
+        </ul>
+      }
       action={
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-3">
           <ActionButton
             variant="primary-sm"
-            status={feedback.status}
-            onClick={() => feedback.run({ enabled: true })}
+            status={turnOnFeedback.status}
+            disabled={busy}
+            onClick={() => turnOnFeedback.run({ screenGuide: screen, giveTime: time })}
             pendingLabel="Turning on…"
             successLabel="On"
           >
-            Guide them on screen
+            {label}
           </ActionButton>
           <button
             type="button"
-            className="text-meta font-medium text-ink-muted underline underline-offset-2 hover:text-ink"
-            onClick={() => {
-              try {
-                window.localStorage.setItem(dismissKey(agent.id), "1");
-              } catch {
-                // Private window or blocked storage: it just shows again next time.
-              }
-              setDismissed(true);
-            }}
+            disabled={busy}
+            aria-busy={notNow.isPending || undefined}
+            className="text-meta font-medium text-ink-muted underline underline-offset-2 hover:text-ink disabled:opacity-60"
+            onClick={() => notNowFeedback.run()}
           >
             Not now
           </button>
         </div>
       }
     >
-      <p className="mt-1">{guide.reason}</p>
-      {setScreen.error != null && <ProblemNotice error={setScreen.error} />}
+      <p>{reason}</p>
+      {turnOn.error != null && <ProblemNotice error={turnOn.error} />}
+      {notNow.error != null && <ProblemNotice error={notNow.error} />}
     </NoticeBox>
   );
 }

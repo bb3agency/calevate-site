@@ -130,6 +130,7 @@ from apps.workers.call_translation import (
 )
 from apps.workers.call_translation import backfill_call_translations, translate_call_job
 from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
+from apps.workers.caller_help import judge_caller_help
 from apps.workers.caller_memory_distil import (
     DISTIL_MINUTE as CALLER_MEMORY_DISTIL_MINUTE,
 )
@@ -472,6 +473,9 @@ FUNCTIONS: list[Any] = [
         # both from the outbox (`agents/field_suggestions`).
         suggest_lead_details,
         rebuild_collect,
+        # Whether one agent's callers follow along on their phone (founder, 5 Nov 2026),
+        # from the outbox (`agents/caller_help`).
+        judge_caller_help,
         # Pinned facts re-spliced into every agent (founder decision 9).
         recompile_pinned_facts,
         # Each agent's facts known by heart chosen again (D-896), from the outbox

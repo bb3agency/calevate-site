@@ -134,7 +134,13 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import assignment, call_outcomes, field_suggestions, hot_facts
+from apps.api.agents import (
+    assignment,
+    call_outcomes,
+    caller_help,
+    field_suggestions,
+    hot_facts,
+)
 from apps.api.agents import handoff as handoff_module
 from apps.api.agents.call_handling import (
     AGENT_SETTING_COLUMNS,
@@ -3142,6 +3148,8 @@ async def publish_agent(
         await call_outcomes.queue_draft(session, tenant_id=tenant_id, agent_id=agent_id)
         # D-889: the first look at whether its lead details fit the business, once.
         await field_suggestions.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+        # Whether its callers follow along on their phone, for an agent never judged.
+        await caller_help.queue_first_pass(session, tenant_id=tenant_id, agent_id=agent_id)
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

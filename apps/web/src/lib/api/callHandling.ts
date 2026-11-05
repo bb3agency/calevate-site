@@ -60,6 +60,15 @@ export const callHandlingKeys = {
   agents: (org: string) => ["call-handling", org, "agent"] as const,
 };
 
+/**
+ * Whether an agent's callers follow along on their phone (`lib/api/callerHelp.ts`). Spelled
+ * here so the two switches it suggests, `useSetCallerScreen` and `useApplyPatientCaller`,
+ * can refresh it without importing the hooks that read it.
+ */
+export const callerHelpKeys = {
+  agent: (org: string, agentId: string) => ["caller-help", org, agentId] as const,
+};
+
 /** The three pauses offered by name; anything else in range is a custom value. */
 export const PAUSE_PRESETS: readonly { ms: number; label: string; hint: string }[] = [
   { ms: 250, label: "Quick", hint: "Replies as soon as the caller stops." },
@@ -347,6 +356,8 @@ export function useApplyPatientCaller(
         // The agent's longest call, and the roster row.
         client.invalidateQueries({ queryKey: publishingKeys.pending(org, agentId) }),
         client.invalidateQueries({ queryKey: ["agents", org] }),
+        // "Give callers time" is now on, so the Overview stops asking about it.
+        client.invalidateQueries({ queryKey: callerHelpKeys.agent(org, agentId) }),
       ]);
     },
   });

@@ -48,15 +48,26 @@ import {
   type CallHandlingScope,
   type DefaultsRow,
 } from "@/lib/api/callHandling";
+import { useCallerHelp } from "@/lib/api/callerHelp";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+
+import { suggestedFor } from "./callerScreen";
 
 /** Which row the last save came from, so its busy state and refusal show on that row. */
 type Row = DefaultsRow | "opening";
 
-export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
+export function AgentCallHandlingRows({
+  agentId,
+  agentName,
+}: {
+  agentId: string;
+  /** Names the agent in "Suggested for <agent>" on the "Give callers time" row. */
+  agentName?: string;
+}) {
   const session = useClientSession();
   const state = useAgentCallHandling(session, agentId);
+  const help = useCallerHelp(session, agentId);
   const write = useWriteAccess(session, "org:manage", "change how this agent ends its turn and its calls");
   // Read only for a reader who may save for every agent: it counts the agents that change.
   const account = useOrganizationCallHandling(session, { enabled: write.allowed });
@@ -113,6 +124,7 @@ export function AgentCallHandlingRows({ agentId }: { agentId: string }) {
           status={patientFeedback.status}
           error={patient.error}
           onApply={() => patient.mutate()}
+          suggested={suggestedFor(agentName ?? "this agent", help.data?.give_time)}
         />
         <PauseRow
           idPrefix={`agent-${agentId}`}
