@@ -175,7 +175,7 @@ export function pageFixture(items: CampaignSummary[]): CampaignPageOut {
     cancelled: 0,
   };
   for (const item of items) counts[item.status] = (counts[item.status] ?? 0) + 1;
-  return { items, total: items.length, status_counts: counts };
+  return { items, total: items.length, status_counts: counts, archived_total: 0 };
 }
 
 /** The list page's first read, unfiltered. */

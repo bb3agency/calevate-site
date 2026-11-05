@@ -79,7 +79,9 @@ export function LaunchGate({
   const declaration = useCallingNumbers(session);
   // What kind of call the client's choices make this (D-943): said, never blocking by itself.
   const purpose = useCampaignPurpose(session, campaignId);
-  const promotionalOpen = usePeRegistration(session).data?.calevate_tm_active === true;
+  // Unknown (null) until the registration read lands: the rule's own copy stands meanwhile.
+  const registration = usePeRegistration(session).data;
+  const promotionalOpen = registration ? registration.calevate_tm_active === true : null;
 
   // A scheduled campaign has not launched either; the same gate runs when it fires.
   if (status !== "draft" && status !== "scheduled") return null;

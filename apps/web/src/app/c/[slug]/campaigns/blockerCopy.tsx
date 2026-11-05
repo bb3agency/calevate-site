@@ -52,8 +52,11 @@ const NATIONAL_CHECK_RULES = ["national_dnd_scrub_missing", "national_dnd_scrub_
  * registration is live (`usePeRegistration().calevate_tm_active`); while it is not, the
  * national check rules say promotional calls are unavailable instead of "we handle this".
  */
-export function blockerNote(rule: string, { promotionalOpen }: { promotionalOpen: boolean }): BlockerNote | undefined {
-  if (NATIONAL_CHECK_RULES.includes(rule) && !promotionalOpen) return PROMOTIONAL_UNAVAILABLE_NOTE;
+export function blockerNote(
+  rule: string,
+  { promotionalOpen }: { promotionalOpen: boolean | null },
+): BlockerNote | undefined {
+  if (NATIONAL_CHECK_RULES.includes(rule) && promotionalOpen === false) return PROMOTIONAL_UNAVAILABLE_NOTE;
   return lookup(BLOCKER_COPY, rule);
 }
 

@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.plans import IST
+from apps.api.campaigns import archive as campaign_archive
 from apps.api.campaigns import brief, scheduling
 from apps.api.campaigns import controls as campaign_controls
 from apps.api.campaigns import service as campaigns_service
@@ -612,8 +613,8 @@ async def _plan_delete(session: AsyncSession, actor: ToolActor, args: Mapping[st
         object_id=str(parsed.campaign_id),
         title="Delete this draft campaign",
         summary=(
-            f"Delete the draft “{name}” and its list of {contacts} people. If it called "
-            "anyone before, it is kept as stopped instead, so those calls keep their campaign."
+            f"Delete the draft “{name}” and its list of {contacts} people. A draft that "
+            "already called anyone cannot be deleted; archive it instead."
         ),
         current="draft",
         proposed="deleted",
@@ -626,14 +627,14 @@ async def _plan_delete(session: AsyncSession, actor: ToolActor, args: Mapping[st
 async def _execute_delete(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Executed:
-    """`controls.delete_draft` — `DELETE /v1/campaigns/{id}`'s call."""
+    """`campaigns.archive.delete_campaign`, the one delete every door calls (F-10)."""
     del actor
     parsed = parse_args(_IdArgs, args)
-    outcome = await campaign_controls.delete_draft(session, campaign_id=parsed.campaign_id)
+    await campaign_archive.delete_campaign(session, campaign_id=parsed.campaign_id)
     return Executed(
         applied=True,
-        detail="The draft is deleted." if outcome == "deleted" else "It is kept as stopped.",
-        audit_summary={"outcome": outcome, "from": "draft"},
+        detail="The draft is deleted.",
+        audit_summary={"outcome": "deleted", "from": "draft"},
     )
 
 

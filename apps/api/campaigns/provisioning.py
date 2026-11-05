@@ -46,13 +46,11 @@ authorisation; whether the 2020 repeal of OSP registration leaves any obligation
 attaches to us; and what "shall not provide switched telephony" reaches. Gate 47 puts all
 three to the advocate, in those words. None of them is answered by this file.
 
-WHAT THE CLIENT-REALM ROUTES DO TODAY: REFUSE
-----------------------------------------------
-`campaigns/provisioning_routes.py` lets a client browse, buy and assign a number, and
-every one of those refuses while gate 2 is closed — which is today, and every day until
-an operator records the instrument. `self_serve_purchase_refused()` is the one sentence
-they are given for either closed gate, so the shape of an error publishes nothing about
-which of our papers is missing.
+THE CLIENT-REALM ROUTES
+----------------------
+Clients buy numbers in their own workspace (D-693), so `campaigns/provisioning_routes.py`
+only reads the holder and assigns a number to an agent; the browse and buy routes are
+retired. The gates below still guard the service those routes called.
 
 WHY THE HOLDER'S KYC GATES ACTIVATION RATHER THAN THE SALE
 -----------------------------------------------------------
@@ -281,35 +279,6 @@ def provisioning_not_configured(reason: str | None) -> ProblemError:
     )
 
 
-def self_serve_purchase_refused() -> ProblemError:
-    """What a CLIENT asking for a number is told, and why it is still no (D-537).
-
-    The founder adopted an OPERATOR-LED supply, not a self-serve one, and the distinction
-    is the playbook's own: §19 names "we provision the number for self-serve" as the
-    unsafe shape. So this route refuses as it always did — what changed is that the old
-    copy ("Calevate does not sell, rent or provision telephone numbers") is no longer
-    TRUE, and a refusal that is not true teaches a client something they will repeat to
-    their carrier.
-
-    It names the one route forward: a number Calevate provides on its own telephony
-    account, arranged through their account manager. It promises no price and no timeline
-    — neither is a fact this repository holds. No provider is named to a client on any
-    engine: the platform is resold under white label (founder, 6 Oct 2026).
-    """
-    return ProblemError.business_rule(
-        "number_purchase_is_operator_led",
-        (
-            "A phone number cannot be bought from this screen. Numbers are arranged with "
-            "us as part of setting your agent up."
-        ),
-        remediation=(
-            "Talk to us and we will arrange the number. Calevate "
-            "provides it on our own telephony account, so there is no operator account "
-            "for you to open."
-        ),
-    )
-
-
 async def assert_holder_verified_for_activation(session: AsyncSession, *, tenant_id: UUID) -> None:
     """The client-side gate. Tier-blind (module docstring). Raises; writes nothing.
 
@@ -360,5 +329,4 @@ __all__ = [
     "number_purchase_available",
     "number_resale_authorization",
     "provisioning_not_configured",
-    "self_serve_purchase_refused",
 ]

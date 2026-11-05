@@ -785,6 +785,46 @@
         "title": "AdjustmentOut",
         "type": "object"
       },
+      "AdminArchiveIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 280,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "AdminArchiveIn",
+        "type": "object"
+      },
+      "AdminArchiveOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "client_notified": {
+            "title": "Client Notified",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "changed",
+          "status",
+          "client_notified"
+        ],
+        "title": "AdminArchiveOut",
+        "type": "object"
+      },
       "AdminAvailableNumberOut": {
         "additionalProperties": false,
         "description": "A number this client could buy: what the CLIENT pays (the attested rate) and what it\ncosts US (the vendor's monthly rent), the second for the operator only.",
@@ -6261,6 +6301,44 @@
           "engine_synced"
         ],
         "title": "ApplyScriptOut",
+        "type": "object"
+      },
+      "ArchiveCampaignIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 280,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "ArchiveCampaignIn",
+        "type": "object"
+      },
+      "ArchiveCampaignOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "changed",
+          "status"
+        ],
+        "title": "ArchiveCampaignOut",
         "type": "object"
       },
       "AreaQuality": {
@@ -12811,6 +12889,11 @@
       "CampaignPageOut": {
         "additionalProperties": false,
         "properties": {
+          "archived_total": {
+            "default": 0,
+            "title": "Archived Total",
+            "type": "integer"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/CampaignSummaryOut"
@@ -13084,6 +13167,18 @@
         "additionalProperties": false,
         "description": "One row of the campaign list.\n\n`consent_provenance_blocker` is the only DERIVED field here, and it is derived on\npurpose (see `service.list_campaigns` for the full argument): it answers \"what does\nthis row need\" rather than \"what did they answer\", so the list cannot mistake a\npurchased list \u2014 recorded, refused, unfixable \u2014 for an answered one. It is a named\nrule rather than a boolean because the two values have different remedies: the\nclient can clear `consent_provenance_missing` in the provenance form, and nobody can\nclear `consent_source_refused`. The names are the launch gate's own, so the list and\n`/launch-check` explain the same fact with the same words.\n\nNULL means \"nothing to do here\", which covers both an answered draft and every\ncampaign past the point where provenance can still be recorded.",
         "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "classification": {
             "title": "Classification",
             "type": "string"
@@ -21687,13 +21782,10 @@
       },
       "DeleteCampaignOut": {
         "additionalProperties": false,
-        "description": "`deleted` when the draft is gone; `stopped` when it was kept as a stopped campaign\nbecause calls or compliance records already name it.",
+        "description": "`deleted`: the draft is gone. A campaign that already made calls is never deleted\n(409 `campaign_has_history`); it is archived instead (F-10).",
         "properties": {
           "outcome": {
-            "enum": [
-              "deleted",
-              "stopped"
-            ],
+            "const": "deleted",
             "title": "Outcome",
             "type": "string"
           }
@@ -43310,6 +43402,44 @@
           "agent_name": {
             "title": "Agent Name",
             "type": "string"
+          },
+          "archive_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archive Reason"
+          },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "archived_by_realm": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client",
+                  "admin"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived By Realm"
           },
           "calling_hours": {
             "anyOf": [
@@ -71977,6 +72107,160 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}": {
+      "delete": {
+        "description": "Deletes only a draft that never dialled; anything else is refused with `campaign_has_history` (archive it instead). Needs `X-Confirm-Action: delete_campaign:<campaign_id>` and a recent second factor.",
+        "operationId": "admin_delete_v1_admin_tenants__tenant_id__campaigns__campaign_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminArchiveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminArchiveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Delete a client's draft that never made a call, with a reason; the client is told",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/archive": {
+      "post": {
+        "description": "Archives the campaign through the same rules as the client's own button (a running campaign is paused first; its calls, leads and charges are kept) and tells the client in the app, by email and, where the owner opted in, on WhatsApp. Needs `X-Confirm-Action: archive_campaign:<campaign_id>` and a recent second factor.",
+        "operationId": "admin_archive_v1_admin_tenants__tenant_id__campaigns__campaign_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminArchiveIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminArchiveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Archive a client's campaign with a reason; the client is told",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
       "post": {
         "description": "The national half of SEC-COMP \u00a73's DNC bullet. An access provider's DLT platform scrubs a submitted list against the customer preference register and returns a reference, a report and a verdict valid until 23:59:59 IST that day; this records the run and marks the numbers it blocked as `dnc_blocked` on the campaign. Until a current run exists, `launch_blockers` and `dispatch_blockers` refuse promotional campaigns with `national_dnd_scrub_missing` or `national_dnd_scrub_expired`.",
@@ -72048,6 +72332,57 @@
           }
         },
         "summary": "Record a national DND (NCPR) scrub of this campaign's list (step-up, audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/restore": {
+      "post": {
+        "description": "Gives something back, so no step-up and no notice: the client sees it on their list.",
+        "operationId": "admin_restore_v1_admin_tenants__tenant_id__campaigns__campaign_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminArchiveOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Restore a client's archived campaign (paused or draft, never running)",
         "tags": [
           "admin"
         ],
@@ -84334,6 +84669,16 @@
               ],
               "title": "Q"
             }
+          },
+          {
+            "in": "query",
+            "name": "archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Archived",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -84395,6 +84740,7 @@
     },
     "/v1/campaigns/{campaign_id}": {
       "delete": {
+        "description": "Deletes a draft and its list. A campaign that already made a call, or that a compliance record names, is refused with `campaign_has_history`: archive it instead, which keeps its calls, leads and charges.",
         "operationId": "delete_campaign_v1_campaigns__campaign_id__delete",
         "parameters": [
           {
@@ -84426,7 +84772,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Delete a draft (kept as stopped when calls or compliance records name it)",
+        "summary": "Delete a draft that never made a call; anything else is archived instead",
         "tags": [
           "campaigns"
         ],
@@ -84507,6 +84853,64 @@
           }
         },
         "summary": "Rename a campaign in any status, or change a draft's settings: purpose, goal, agent, number, hours, calls at once, retries",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/archive": {
+      "post": {
+        "description": "Archives any campaign. A running one is paused first (a call already ringing finishes) and a scheduled one goes back to draft, so nothing it was going to do happens. Its calls, leads and charges are kept, and Restore brings it back. Idempotent: archiving an archived campaign changes nothing.",
+        "operationId": "archive_v1_campaigns__campaign_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ArchiveCampaignIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveCampaignOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put a campaign away: hidden from the list, never dialled, everything kept",
         "tags": [
           "campaigns"
         ],
@@ -85121,6 +85525,46 @@
           }
         },
         "summary": "Repeat this campaign weekly \u2014 the gate runs on EVERY occurrence",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/restore": {
+      "post": {
+        "operationId": "restore_v1_campaigns__campaign_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArchiveCampaignOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Bring an archived campaign back, paused or as a draft; never running",
         "tags": [
           "campaigns"
         ],

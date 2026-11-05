@@ -27,6 +27,7 @@ from pydantic import AfterValidator, AwareDatetime, Field, StringConstraints
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.campaigns import archive as campaign_archive
 from apps.api.campaigns import (
     brief,
     controls,
@@ -186,10 +187,23 @@ _REQUIRED_ON_EDIT = ("name", "agent_id", "classification", "concurrency", "retry
 
 
 class DeleteCampaignOut(Strict):
-    """`deleted` when the draft is gone; `stopped` when it was kept as a stopped campaign
-    because calls or compliance records already name it."""
+    """`deleted`: the draft is gone. A campaign that already made calls is never deleted
+    (409 `campaign_has_history`); it is archived instead (F-10)."""
 
-    outcome: Literal["deleted", "stopped"]
+    outcome: Literal["deleted"]
+
+
+class ArchiveCampaignIn(Strict):
+    #: Optional for a client; an operator must give one (`archive_admin_routes`).
+    reason: str | None = Field(default=None, max_length=280)
+
+
+class ArchiveCampaignOut(Strict):
+    #: False when it was already archived (or already restored): nothing moved.
+    changed: bool
+    #: The status it holds now: a running campaign is paused when archived, never left
+    #: running, and nothing restores to running.
+    status: str
 
 
 class DuplicateCampaignIn(Strict):
@@ -349,8 +363,11 @@ class OptOutOut(Strict):
 class CampaignPageOut(Strict):
     items: list[CampaignSummaryOut]
     total: int
-    #: Every status's count under the same search, whatever the status filter.
+    #: Every status's count under the same search, whatever the status filter (archived
+    #: campaigns counted only on the archived list).
     status_counts: dict[str, int]
+    #: How many campaigns are archived under the same search: the "Archived" filter (F-10).
+    archived_total: int = 0
 
 
 #: How much per-contact variable text one row may carry, and why there is a number
@@ -560,6 +577,11 @@ class ProgressOut(Strict):
     classification: str
     agent_id: UUID
     agent_name: str
+    #: When it was archived (F-10), by whom (`client` or `admin`) and, when Calevate did it,
+    #: why; all None while it is not archived.
+    archived_at: datetime | None = None
+    archived_by_realm: Literal["client", "admin"] | None = None
+    archive_reason: str | None = None
     #: Why it calls and what a good call ends with; None when nobody has said.
     purpose: str | None
     goal: str | None
@@ -659,6 +681,8 @@ class CampaignSummaryOut(Strict):
     #: gate itself (`service.with_launch_blockers`, L3-07); None past launch, and on the
     #: plain list (`GET /v1/campaigns`), which does not run the gate.
     launch_blockers: int | None = None
+    #: When it was archived (F-10); None on the default list, which never shows archived ones.
+    archived_at: datetime | None = None
 
 
 class NumberOut(Strict):
@@ -770,20 +794,23 @@ async def campaign_page(
     offset: int = Query(0, ge=0),
     status: CampaignStatus | None = None,
     q: str | None = Query(None, max_length=120),
+    #: The archived campaigns instead of the live ones (F-10).
+    archived: bool = False,
     _: Principal = Depends(requires("leads:read")),
 ) -> CampaignPageOut:
     """The Campaigns screen's list. `GET /v1/campaigns` stays the plain newest-first list the
     dashboard and the copilot read; both run `service.list_campaigns`."""
     search = q.strip() if q else None
-    counts = await service.campaign_status_counts(session, search=search)
+    counts = await service.campaign_status_counts(session, search=search, archived=archived)
     rows = await service.list_campaigns(
-        session, limit=limit, offset=offset, status=status, search=search
+        session, limit=limit, offset=offset, status=status, search=search, archived=archived
     )
     rows = await service.with_launch_blockers(session, rows)
     return CampaignPageOut(
         items=[CampaignSummaryOut.model_validate(row) for row in rows],
         total=counts[status] if status else sum(counts.values()),
         status_counts=counts,
+        archived_total=await service.archived_count(session, search=search),
     )
 
 
@@ -1398,7 +1425,12 @@ async def update_campaign(
     "/{campaign_id}",
     response_model=DeleteCampaignOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Delete a draft (kept as stopped when calls or compliance records name it)",
+    summary="Delete a draft that never made a call; anything else is archived instead",
+    description=(
+        "Deletes a draft and its list. A campaign that already made a call, or that a "
+        "compliance record names, is refused with `campaign_has_history`: archive it "
+        "instead, which keeps its calls, leads and charges."
+    ),
 )
 async def delete_campaign(
     campaign_id: UUID,
@@ -1407,18 +1439,91 @@ async def delete_campaign(
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> DeleteCampaignOut:
     assert principal.tenant_id is not None
-    outcome = await controls.delete_draft(session, campaign_id=campaign_id)
+    name = await campaign_archive.delete_campaign(session, campaign_id=campaign_id)
     await write_audit(
         session,
-        action="campaign.deleted" if outcome == "deleted" else "campaign.stopped",
+        action="campaign.deleted",
         actor=principal,
         tenant_id=principal.tenant_id,
         object_type="campaign",
         object_id=str(campaign_id),
         ip=client_request_ip(request),
-        summary={"from": "draft"},
+        summary={"from": "draft", "name": name},
     )
-    return DeleteCampaignOut(outcome=outcome)
+    return DeleteCampaignOut(outcome="deleted")
+
+
+@router.post(
+    "/{campaign_id}/archive",
+    response_model=ArchiveCampaignOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Put a campaign away: hidden from the list, never dialled, everything kept",
+    description=(
+        "Archives any campaign. A running one is paused first (a call already ringing "
+        "finishes) and a scheduled one goes back to draft, so nothing it was going to do "
+        "happens. Its calls, leads and charges are kept, and Restore brings it back. "
+        "Idempotent: archiving an archived campaign changes nothing."
+    ),
+)
+async def archive(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    payload: ArchiveCampaignIn | None = None,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> ArchiveCampaignOut:
+    assert principal.tenant_id is not None
+    result = await campaign_archive.archive_campaign(
+        session,
+        campaign_id=campaign_id,
+        by=principal.user_id,
+        realm="client",
+        reason=payload.reason if payload else None,
+    )
+    if result.changed:
+        await write_audit(
+            session,
+            action="campaign.archived",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={"from": result.status_before, "to": result.status_after, "by": "client"},
+        )
+    return ArchiveCampaignOut(changed=result.changed, status=result.status_after)
+
+
+@router.post(
+    "/{campaign_id}/restore",
+    response_model=ArchiveCampaignOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Bring an archived campaign back, paused or as a draft; never running",
+)
+async def restore(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> ArchiveCampaignOut:
+    assert principal.tenant_id is not None
+    result = await campaign_archive.restore_campaign(session, campaign_id=campaign_id)
+    if result.changed:
+        await write_audit(
+            session,
+            action="campaign.restored",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={
+                "status": result.status_after,
+                "archived_by": str(result.undid[0]) if result.undid[0] else None,
+                "archived_by_realm": result.undid[1],
+            },
+        )
+    return ArchiveCampaignOut(changed=result.changed, status=result.status_after)
 
 
 @router.post(

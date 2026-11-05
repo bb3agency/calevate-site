@@ -393,7 +393,8 @@ _TENANT_BUDGET_SQL = text(
     "       'id', c.id, 'concurrency', c.concurrency, "
     "       'retry_policy', c.retry_policy, 'calling_hours', c.calling_hours"
     "     ) ORDER BY c.created_at, c.id), '[]'::json) "
-    "   FROM campaigns c WHERE c.status = 'running')"
+    # F-10: an archived campaign is never dialled, whatever its status says.
+    "   FROM campaigns c WHERE c.status = 'running' AND c.archived_at IS NULL)"
 )
 
 
@@ -929,7 +930,7 @@ async def _dispatch_for_campaign(
                     "  AND status = 'pending' "
                     "  AND (next_attempt_at IS NULL OR next_attempt_at <= now()) "
                     "  AND EXISTS (SELECT 1 FROM campaigns c WHERE c.id = :cid "
-                    "    AND c.status = 'running') "
+                    "    AND c.status = 'running' AND c.archived_at IS NULL) "
                     "  ORDER BY created_at, id LIMIT :n FOR UPDATE SKIP LOCKED"
                     ") "
                     "UPDATE campaign_contacts c SET status = 'dialing', "

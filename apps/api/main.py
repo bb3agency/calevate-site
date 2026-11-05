@@ -183,6 +183,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.trial_routes import router as trials_admin_router
     from apps.api.billing.wallet_routes import router as wallet_router
     from apps.api.callbacks.routes import router as callbacks_router
+    from apps.api.campaigns.archive_admin_routes import router as campaign_archive_admin_router
     from apps.api.campaigns.engine_number_routes import router as own_numbers_router
     from apps.api.campaigns.number_pricing_routes import (
         router as number_pricing_router,
@@ -509,6 +510,7 @@ def _mount_routers(application: FastAPI) -> None:
     # reason that one is: `/v1/admin/tenants/{tenant_id}` on `admin_router` would swallow
     # any literal segment declared later, and both of these name their tenant in the path.
     application.include_router(tenant_closure_router)
+    application.include_router(campaign_archive_admin_router)
     # D-602. Mounted here for the reason the two above it are: `/v1/admin/tenants/
     # {tenant_id}` lives on `admin_router`, and a router declaring a literal segment after
     # that path parameter must be included AFTER it or the parameterised route swallows

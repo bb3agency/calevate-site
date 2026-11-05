@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Pause, Play, Plus } from "lucide-react";
+import { Archive, ArchiveRestore, Pause, Play, Plus } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { SearchField } from "@/components/arc/search-field";
 import { EmptySketch } from "@/components/console/emptySketch";
 import { EmptyState } from "@/components/console/emptyState";
@@ -26,6 +27,7 @@ import {
 } from "@/components/ui";
 import {
   usePauseCampaign,
+  useArchiveCampaign,
   useCampaignPage,
   type CampaignStatus,
   type CampaignSummary,
@@ -39,6 +41,8 @@ import { CampaignStatusPill } from "./campaignStatus";
 
 const PAGE_SIZE = 25;
 const ALL = "all";
+/** The archived list (F-10), a choice beside the statuses rather than a status. */
+const ARCHIVED = "archived";
 
 /**
  * The status segments. Running and Paused lead because they are the two a person may have
@@ -63,9 +67,22 @@ function segmentOptions(
   counts: Record<string, number> | undefined,
   everything: number,
   chosen: CampaignStatus | undefined,
+  archivedTotal = 0,
+  archivedChosen = false,
 ): SegmentedOption[] {
-  const all: SegmentedOption = { value: ALL, label: "All", count: counts ? formatCount(everything) : undefined };
+  const all: SegmentedOption = {
+    value: ALL,
+    label: "All",
+    // On the archived list the counts are the archived ones, so "All" carries none.
+    count: counts && !archivedChosen ? formatCount(everything) : undefined,
+  };
   if (!counts) return [all];
+  // F-10: archived campaigns are their own list, offered once there is one to show.
+  const shelf: SegmentedOption[] =
+    archivedTotal > 0 || archivedChosen
+      ? [{ value: ARCHIVED, label: "Archived", count: formatCount(archivedTotal) }]
+      : [];
+  if (archivedChosen) return [all, ...shelf];
   return [
     all,
     ...STATUS_FILTERS.filter((f) => (counts[f.value] ?? 0) > 0 || f.value === chosen).map((f) => ({
@@ -74,6 +91,7 @@ function segmentOptions(
       dot: f.dot,
       count: formatCount(counts[f.value] ?? 0),
     })),
+    ...shelf,
   ];
 }
 
@@ -100,12 +118,13 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
     initialStatus(params.get("status")),
   );
   // What is typed, and the settled query the server is asked for (`SearchField.onSearch`).
+  const [archived, setArchived] = useState(() => params.get("archived") === "1");
   const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
-  const campaigns = useCampaignPage(session, { page, pageSize: PAGE_SIZE, status, search });
+  const campaigns = useCampaignPage(session, { page, pageSize: PAGE_SIZE, status, search, archived });
 
   const data = campaigns.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
@@ -113,10 +132,10 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
   const detail = (id: string) => href(`/c/${slug}/campaigns/${id}`);
   const newHref = href(`/c/${slug}/campaigns/new`);
   const at = (path: string) => href(`/c/${slug}${path}`);
-  const filtered = Boolean(status || search);
+  const filtered = Boolean(status || search || archived);
   // Until the first answer arrives nobody knows whether this account has campaigns; after
   // it, an account with none gets the first-run panel and no toolbar over nothing.
-  const firstRun = data !== undefined && everything === 0 && !filtered;
+  const firstRun = data !== undefined && everything === 0 && data.archived_total === 0 && !filtered;
 
   const chooseStatus = (next: CampaignStatus | undefined) => {
     setStatus(next);
@@ -129,6 +148,7 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
   const clearAll = () => {
     setTyped("");
     runSearch("");
+    setArchived(false);
     chooseStatus(undefined);
   };
 
@@ -158,9 +178,12 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <SegmentedControl
               label="Show campaigns by status"
-              options={segmentOptions(data?.status_counts, everything, status)}
-              value={status ?? ALL}
-              onValueChange={(next) => chooseStatus(initialStatus(next))}
+              options={segmentOptions(data?.status_counts, everything, status, data?.archived_total ?? 0, archived)}
+              value={archived ? ARCHIVED : (status ?? ALL)}
+              onValueChange={(next) => {
+                setArchived(next === ARCHIVED);
+                chooseStatus(next === ARCHIVED ? undefined : initialStatus(next));
+              }}
               className="min-w-0 scroll-shadow-x"
             />
             <SearchField
@@ -460,6 +483,74 @@ function rowFix(
  * with the server's reason. A row with neither renders an empty cell so the reach column
  * keeps its place.
  */
+/** Archive a finished campaign from its row (with a one-line confirm), or restore one. */
+function ShelfButton({
+  campaign,
+  canWrite,
+  refusal,
+}: {
+  campaign: CampaignSummary;
+  canWrite: boolean;
+  refusal: string | undefined;
+}) {
+  const { session } = useClientRealm();
+  const shelve = useArchiveCampaign(session, campaign.id);
+  const feedback = useActionFeedback(shelve, {
+    errorDisplay: "inline",
+    successToast: (_out, action) => (action === "archive" ? "Campaign archived" : "Campaign restored"),
+  });
+  const [confirming, setConfirming] = useState(false);
+  const archived = campaign.archived_at != null;
+  if (archived) {
+    return (
+      <ActionButton
+        variant="secondary-sm"
+        title={refusal}
+        disabled={!canWrite}
+        status={feedback.status}
+        successLabel="Restored"
+        onClick={() => feedback.run("restore")}
+        aria-label={`Restore ${campaign.name}`}
+      >
+        <ArchiveRestore aria-hidden className="h-3.5 w-3.5" />
+        Restore
+      </ActionButton>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className={SECONDARY_BUTTON_SM}
+        title={refusal}
+        disabled={!canWrite}
+        onClick={() => setConfirming(true)}
+        aria-label={`Archive ${campaign.name}`}
+      >
+        <Archive aria-hidden className="h-3.5 w-3.5" />
+        Archive
+      </button>
+      {confirming && (
+        <ConfirmDialog
+          title="Archive this campaign?"
+          confirmLabel="Archive"
+          pendingLabel="Archiving"
+          cancelLabel="Keep it"
+          status={feedback.status}
+          error={feedback.error ?? null}
+          onCancel={() => {
+            feedback.reset();
+            setConfirming(false);
+          }}
+          onConfirm={() => shelve.mutate("archive", { onSuccess: () => setConfirming(false) })}
+        >
+          <span className="block">Its calls and results are kept. You can restore it.</span>
+        </ConfirmDialog>
+      )}
+    </>
+  );
+}
+
 function RowActions({
   campaign,
   canWrite,
@@ -479,6 +570,15 @@ function RowActions({
     errorTitle: `Could not change ${campaign.name}`,
   });
   const cell = "relative z-raised flex sm:w-28 sm:justify-end";
+  // F-10: an archived row offers Restore; a finished one offers Archive (the campaign's own
+  // page archives any campaign).
+  if (campaign.archived_at != null || campaign.status === "completed" || campaign.status === "cancelled") {
+    return (
+      <div className={cell}>
+        <ShelfButton campaign={campaign} canWrite={canWrite} refusal={refusal} />
+      </div>
+    );
+  }
   // A pause whose cause must be cleared first is not resumed from the row: its fix is.
   const held = campaign.status === "paused" && HELD_PAUSES.includes(campaign.pause_reason ?? "");
   const fix = rowFix(campaign, at, detail);

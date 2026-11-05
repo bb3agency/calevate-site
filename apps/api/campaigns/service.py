@@ -1252,6 +1252,16 @@ async def launch_blockers(
 
     if facts.status not in ("draft", "scheduled"):
         blockers.append(LaunchBlocker("status", f"Campaign is {facts.status}, not draft."))
+    # F-10: an archived campaign never starts; it is restored first (`campaigns/archive`).
+    if (
+        await session.execute(
+            text("SELECT archived_at IS NOT NULL FROM campaigns WHERE id = :cid"),
+            {"cid": campaign_id},
+        )
+    ).scalar():
+        blockers.append(
+            LaunchBlocker("campaign_archived", "This campaign is archived. Restore it first.")
+        )
     # `agent_missing` / `agent_inbound_only` are the gate's own names for these two —
     # the dispatcher would refuse every single contact with them.
     if facts.agent_deleted:
@@ -1462,7 +1472,7 @@ async def launch_campaign(
         text(
             "UPDATE campaigns SET status = 'running', launched_at = now(), "
             "dnc_scrubbed_at = now(), updated_at = now() "
-            "WHERE id = :cid AND status IN ('draft', 'scheduled')"
+            "WHERE id = :cid AND status IN ('draft', 'scheduled') AND archived_at IS NULL"
         ),
         {"cid": campaign_id},
     )
@@ -1672,7 +1682,9 @@ async def resume_campaigns_after_maintenance(
         await session.execute(
             text(
                 "UPDATE campaigns SET "
-                "status = CASE WHEN status = 'paused' THEN 'running' ELSE status END, "
+                # An archived campaign stays put (F-10): only Restore, then Resume, wakes it.
+                "status = CASE WHEN status = 'paused' AND archived_at IS NULL "
+                "  THEN 'running' ELSE status END, "
                 "paused_by_maintenance_id = NULL, updated_at = now() "
                 "WHERE paused_by_maintenance_id = :wid "
                 "RETURNING id, status = 'running' AS resumed"
@@ -1750,6 +1762,7 @@ async def list_campaigns(
     offset: int = 0,
     status: str | None = None,
     search: str | None = None,
+    archived: bool = False,
 ) -> list[dict[str, Any]]:
     """Newest first, with the two counts the list actually needs — and the one blocker
     the list cannot otherwise see.
@@ -1784,7 +1797,7 @@ async def list_campaigns(
         "limit": limit,
         "offset": offset,
     }
-    where = _list_where(params, status=status, search=search)
+    where = _list_where(params, status=status, search=search, archived=archived)
     rows = (
         await session.execute(
             text(
@@ -1795,7 +1808,7 @@ async def list_campaigns(
                 "    WHEN c.consent_source IS NULL THEN 'consent_provenance_missing' "
                 "    WHEN c.consent_source = ANY(:refused) THEN 'consent_source_refused' "
                 "  END END AS consent_provenance_blocker, "
-                f"  {PAUSE_REASON_SQL} AS pause_reason "
+                f"  {PAUSE_REASON_SQL} AS pause_reason, c.archived_at "
                 "FROM campaigns c LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id "
                 f"{where} "
                 # `id` breaks ties so OFFSET pages are a total order.
@@ -1816,6 +1829,7 @@ async def list_campaigns(
             "connected": int(r[7] or 0),
             "consent_provenance_blocker": r[8],
             "pause_reason": r[9],
+            "archived_at": r[10],
         }
         for r in rows
     ]
@@ -1837,7 +1851,7 @@ async def with_launch_blockers(
     out: list[dict[str, Any]] = []
     for row in rows:
         count: int | None = None
-        if row["status"] in ("draft", "scheduled"):
+        if row["status"] in ("draft", "scheduled") and row.get("archived_at") is None:
             try:
                 found = await launch_blockers(session, tenant_id=tenant_id, campaign_id=row["id"])
             except ProblemError:
@@ -1850,9 +1864,12 @@ async def with_launch_blockers(
     return out
 
 
-def _list_where(params: dict[str, Any], *, status: str | None, search: str | None) -> str:
-    """The campaign list's filter, shared by the page and its counts."""
-    clauses: list[str] = []
+def _list_where(
+    params: dict[str, Any], *, status: str | None, search: str | None, archived: bool = False
+) -> str:
+    """The campaign list's filter, shared by the page and its counts. Archived campaigns
+    (F-10) are their own list: the default list never shows them."""
+    clauses: list[str] = ["c.archived_at IS NOT NULL" if archived else "c.archived_at IS NULL"]
     if status is not None:
         clauses.append("c.status = :status")
         params["status"] = status
@@ -1862,13 +1879,25 @@ def _list_where(params: dict[str, Any], *, status: str | None, search: str | Non
     return f"WHERE {' AND '.join(clauses)}" if clauses else ""
 
 
-async def campaign_status_counts(session: AsyncSession, *, search: str | None) -> dict[str, int]:
+async def archived_count(session: AsyncSession, *, search: str | None) -> int:
+    """How many campaigns are archived, under the same search: the "Archived" filter's count."""
+    params: dict[str, Any] = {}
+    where = _list_where(params, status=None, search=search, archived=True)
+    return int(
+        (await session.execute(text(f"SELECT count(*) FROM campaigns c {where}"), params)).scalar()
+        or 0
+    )
+
+
+async def campaign_status_counts(
+    session: AsyncSession, *, search: str | None, archived: bool = False
+) -> dict[str, int]:
     """How many campaigns are in each status, under the same search as the list.
 
     Never narrowed by the status filter, so every status tab can show its number.
     """
     params: dict[str, Any] = {}
-    where = _list_where(params, status=None, search=search)
+    where = _list_where(params, status=None, search=search, archived=archived)
     rows = (
         await session.execute(
             text(f"SELECT c.status, count(*) FROM campaigns c {where} GROUP BY c.status"), params
@@ -1923,7 +1952,7 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
                 "SELECT c.id, c.name, c.classification, c.agent_id, a.name, c.number_id, "
                 "  c.consent_source, c.consent_collected_at, c.created_at, c.retry_policy, "
                 f"  {PAUSE_REASON_SQL}, c.complaint_reviewed_at, c.tenant_id, a.status, "
-                "  c.purpose, c.goal "
+                "  c.purpose, c.goal, c.archived_at, c.archived_by_realm, c.archive_reason "
                 "FROM campaigns c JOIN agents a ON a.id = c.agent_id WHERE c.id = :cid"
             ),
             {"cid": campaign_id},
@@ -1994,6 +2023,9 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
         "agent_name": about[4],
         "purpose": about[14],
         "goal": about[15],
+        "archived_at": about[16],
+        "archived_by_realm": about[17],
+        "archive_reason": about[18],
         "number_id": about[5],
         "consent_source": about[6],
         "consent_collected_at": about[7],
@@ -2070,6 +2102,7 @@ __all__ = [
     "LaunchBlocker",
     "account_outbound_blockers",
     "add_contacts",
+    "archived_count",
     "assert_agent_still_assignable",
     "campaign_dialable_now",
     "campaign_progress",

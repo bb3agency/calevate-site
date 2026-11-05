@@ -94,6 +94,13 @@ class Campaign(PKMixin, TimestampMixin, Base):
             f"auto_pause_reason IS NULL OR auto_pause_reason IN {AUTO_PAUSE_REASONS!r}",
             name="auto_pause_reason_enum",
         ),
+        # F-10: an archive says who did it, from which realm, and an operator says why.
+        CheckConstraint(
+            "(archived_at IS NULL AND archived_by_realm IS NULL AND archive_reason IS NULL) "
+            "OR (archived_at IS NOT NULL AND archived_by_realm IN ('client', 'admin') "
+            "AND (archived_by_realm = 'client' OR char_length(btrim(archive_reason)) >= 3))",
+            name="archive_complete",
+        ),
         # One trimmed line each, sized so the two fit one call variable (`campaigns/brief`).
         CheckConstraint(
             "purpose IS NULL OR (char_length(purpose) BETWEEN 3 AND 90 "
@@ -168,6 +175,16 @@ class Campaign(PKMixin, TimestampMixin, Base):
     #: Resume is refused until it is set; the spike measurement restarts from it, so the
     #: opt-outs already reviewed do not pause the campaign a second time.
     complaint_reviewed_at: Mapped[datetime | None]
+    #: Put away (F-10): hidden from the default list, never dialled, every call, lead and
+    #: charge it made kept. NULL is "not archived". Restore clears all four.
+    archived_at: Mapped[datetime | None]
+    #: The user (client realm) or operator (admin realm) who archived it; no foreign key,
+    #: because the two realms keep their people in different tables.
+    archived_by: Mapped[UUID | None]
+    archived_by_realm: Mapped[str | None] = mapped_column(String)
+    #: Why, in an operator's words when Calevate archived it (required there); shown to the
+    #: client in the notice.
+    archive_reason: Mapped[str | None] = mapped_column(String)
     # Consent provenance for THIS campaign's contact list (SEC-COMP §3). It sits on the
     # campaign rather than in `consent_ledger` because the ledger answers a different
     # question at a different time: per phone, per call, AFTER the conversation. The

@@ -143,6 +143,7 @@ from apps.workers.caller_memory_distil import (
 from apps.workers.caller_memory_distil import (
     distil_caller_memories,
 )
+from apps.workers.campaign_archive_notice import notify_campaign_archived
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.client_actions import run_after_call_actions, run_client_action
 from apps.workers.comp_notices import notify_comp
@@ -680,6 +681,7 @@ FUNCTIONS: list[Any] = [
         # generator — `tests/job_registration_test.py` is what makes that a failing test
         # rather than a silent one.
         notify_account_closed,
+        notify_campaign_archived,
         # D-544. The client's three maintenance notices — the advance warning, the "we are
         # in it now" and the "it is over" — plus the amendment. Published by the
         # maintenance tick through the OUTBOX in the same transaction as the claim that
@@ -729,6 +731,7 @@ RESULT_WINDOW_S: Final[Mapping[str, int]] = {
     deliver_outbound_webhook.__name__: OUTBOX_RESULT_WINDOW_S,
     recall_dials_for_dnc.__name__: OUTBOX_RESULT_WINDOW_S,
     notify_account_closed.__name__: OUTBOX_RESULT_WINDOW_S,
+    notify_campaign_archived.__name__: OUTBOX_RESULT_WINDOW_S,
 }
 
 

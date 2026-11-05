@@ -142,6 +142,47 @@ describe("the campaign list", () => {
   });
 });
 
+describe("archived campaigns (F-10)", () => {
+  const FINISHED: CampaignSummary = {
+    ...RUNNING,
+    id: "0192f0aa-2222-7000-8000-000000000011",
+    name: "Old reminders",
+    status: "completed",
+  };
+  const SHELVED: CampaignSummary = { ...FINISHED, archived_at: "2026-11-05T10:00:00Z", status: "paused" };
+
+  it("offers an Archived list when there is one, and Restore on its rows", async () => {
+    const rendered = await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: { ...pageFixture([RUNNING]), archived_total: 1 },
+      "/v1/campaigns/page?limit=25&offset=0&archived=true": { ...pageFixture([SHELVED]), archived_total: 1 },
+      [`POST /v1/campaigns/${SHELVED.id}/restore`]: { changed: true, status: "paused" },
+    });
+    const segments = await screen.findByRole("radiogroup", { name: "Show campaigns by status" });
+    fireEvent.click(await within(segments).findByRole("radio", { name: /Archived/ }));
+    const restore = await screen.findByRole("button", { name: "Restore Old reminders" });
+    fireEvent.click(restore);
+    await vi.waitFor(() =>
+      expect(rendered.calls.some((c) => c.method === "POST" && c.path.endsWith("/restore"))).toBe(true),
+    );
+  });
+
+  it("archives a finished campaign from its row only after a one-line confirm", async () => {
+    const rendered = await renderClientPage(listPage(), {
+      "/v1/me": ME,
+      [LIST_PATH]: pageFixture([FINISHED]),
+      [`POST /v1/campaigns/${FINISHED.id}/archive`]: { changed: true, status: "completed" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Archive Old reminders" }));
+    expect(rendered.calls.some((c) => c.path.endsWith("/archive"))).toBe(false);
+    expect(await screen.findByText("Its calls and results are kept. You can restore it.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Archive" }));
+    await vi.waitFor(() =>
+      expect(rendered.calls.some((c) => c.method === "POST" && c.path.endsWith("/archive"))).toBe(true),
+    );
+  });
+});
+
 describe("the first visit", () => {
   it("shows the three steps and one way to start, and no toolbar over nothing", async () => {
     const { container } = await renderClientPage(listPage(), {

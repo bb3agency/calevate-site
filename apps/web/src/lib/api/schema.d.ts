@@ -2438,6 +2438,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a client's draft that never made a call, with a reason; the client is told
+         * @description Deletes only a draft that never dialled; anything else is refused with `campaign_has_history` (archive it instead). Needs `X-Confirm-Action: delete_campaign:<campaign_id>` and a recent second factor.
+         */
+        delete: operations["admin_delete_v1_admin_tenants__tenant_id__campaigns__campaign_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Archive a client's campaign with a reason; the client is told
+         * @description Archives the campaign through the same rules as the client's own button (a running campaign is paused first; its calls, leads and charges are kept) and tells the client in the app, by email and, where the owner opted in, on WhatsApp. Needs `X-Confirm-Action: archive_campaign:<campaign_id>` and a recent second factor.
+         */
+        post: operations["admin_archive_v1_admin_tenants__tenant_id__campaigns__campaign_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         parameters: {
             query?: never;
@@ -2452,6 +2492,26 @@ export interface paths {
          * @description The national half of SEC-COMP §3's DNC bullet. An access provider's DLT platform scrubs a submitted list against the customer preference register and returns a reference, a report and a verdict valid until 23:59:59 IST that day; this records the run and marks the numbers it blocked as `dnc_blocked` on the campaign. Until a current run exists, `launch_blockers` and `dispatch_blockers` refuse promotional campaigns with `national_dnd_scrub_missing` or `national_dnd_scrub_expired`.
          */
         post: operations["record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore a client's archived campaign (paused or draft, never running)
+         * @description Gives something back, so no step-up and no notice: the client sees it on their list.
+         */
+        post: operations["admin_restore_v1_admin_tenants__tenant_id__campaigns__campaign_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7060,7 +7120,10 @@ export interface paths {
         get: operations["progress_v1_campaigns__campaign_id__get"];
         put?: never;
         post?: never;
-        /** Delete a draft (kept as stopped when calls or compliance records name it) */
+        /**
+         * Delete a draft that never made a call; anything else is archived instead
+         * @description Deletes a draft and its list. A campaign that already made a call, or that a compliance record names, is refused with `campaign_has_history`: archive it instead, which keeps its calls, leads and charges.
+         */
         delete: operations["delete_campaign_v1_campaigns__campaign_id__delete"];
         options?: never;
         head?: never;
@@ -7071,6 +7134,26 @@ export interface paths {
          *     an audit answers.
          */
         patch: operations["update_campaign_v1_campaigns__campaign_id__patch"];
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put a campaign away: hidden from the list, never dialled, everything kept
+         * @description Archives any campaign. A running one is paused first (a call already ringing finishes) and a scheduled one goes back to draft, so nothing it was going to do happens. Its calls, leads and charges are kept, and Restore brings it back. Idempotent: archiving an archived campaign changes nothing.
+         */
+        post: operations["archive_v1_campaigns__campaign_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/campaigns/{campaign_id}/complaint-review": {
@@ -7302,6 +7385,23 @@ export interface paths {
          *     version of that question that gets asked after a complaint.
          */
         post: operations["set_recurrence_v1_campaigns__campaign_id__recurrence_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Bring an archived campaign back, paused or as a draft; never running */
+        post: operations["restore_v1_campaigns__campaign_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14315,6 +14415,20 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** AdminArchiveIn */
+        AdminArchiveIn: {
+            /** Reason */
+            reason: string;
+        };
+        /** AdminArchiveOut */
+        AdminArchiveOut: {
+            /** Changed */
+            changed: boolean;
+            /** Client Notified */
+            client_notified: boolean;
+            /** Status */
+            status: string;
+        };
         /**
          * AdminAvailableNumberOut
          * @description A number this client could buy: what the CLIENT pays (the attested rate) and what it
@@ -16043,6 +16157,18 @@ export interface components {
             engine_synced: boolean;
             /** Live Version */
             live_version: number;
+        };
+        /** ArchiveCampaignIn */
+        ArchiveCampaignIn: {
+            /** Reason */
+            reason?: string | null;
+        };
+        /** ArchiveCampaignOut */
+        ArchiveCampaignOut: {
+            /** Changed */
+            changed: boolean;
+            /** Status */
+            status: string;
         };
         /** AreaQuality */
         AreaQuality: {
@@ -18242,6 +18368,11 @@ export interface components {
         };
         /** CampaignPageOut */
         CampaignPageOut: {
+            /**
+             * Archived Total
+             * @default 0
+             */
+            archived_total: number;
             /** Items */
             items: components["schemas"]["CampaignSummaryOut"][];
             /** Status Counts */
@@ -18358,6 +18489,8 @@ export interface components {
          *     campaign past the point where provenance can still be recorded.
          */
         CampaignSummaryOut: {
+            /** Archived At */
+            archived_at?: string | null;
             /** Classification */
             classification: string;
             /** Connected */
@@ -21675,15 +21808,15 @@ export interface components {
         };
         /**
          * DeleteCampaignOut
-         * @description `deleted` when the draft is gone; `stopped` when it was kept as a stopped campaign
-         *     because calls or compliance records already name it.
+         * @description `deleted`: the draft is gone. A campaign that already made calls is never deleted
+         *     (409 `campaign_has_history`); it is archived instead (F-10).
          */
         DeleteCampaignOut: {
             /**
              * Outcome
-             * @enum {string}
+             * @constant
              */
-            outcome: "deleted" | "stopped";
+            outcome: "deleted";
         };
         /** DeleteCloneOut */
         DeleteCloneOut: {
@@ -29517,6 +29650,12 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name: string;
+            /** Archive Reason */
+            archive_reason?: string | null;
+            /** Archived At */
+            archived_at?: string | null;
+            /** Archived By Realm */
+            archived_by_realm?: ("client" | "admin") | null;
             calling_hours?: components["schemas"]["CallingHoursIn"] | null;
             /** Classification */
             classification: string;
@@ -42022,6 +42161,82 @@ export interface operations {
             };
         };
     };
+    admin_delete_v1_admin_tenants__tenant_id__campaigns__campaign_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminArchiveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminArchiveOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_archive_v1_admin_tenants__tenant_id__campaigns__campaign_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminArchiveIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminArchiveOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post: {
         parameters: {
             query?: never;
@@ -42047,6 +42262,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreferenceScrubOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_restore_v1_admin_tenants__tenant_id__campaigns__campaign_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminArchiveOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -50372,6 +50619,7 @@ export interface operations {
                 offset?: number;
                 status?: ("draft" | "scheduled" | "running" | "paused" | "completed" | "cancelled") | null;
                 q?: string | null;
+                archived?: boolean;
             };
             header?: never;
             path?: never;
@@ -50511,6 +50759,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    archive_v1_campaigns__campaign_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ArchiveCampaignIn"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveCampaignOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -50911,6 +51194,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecurrenceSetOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_v1_campaigns__campaign_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArchiveCampaignOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

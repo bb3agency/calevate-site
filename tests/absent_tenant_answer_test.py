@@ -174,6 +174,10 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # An EMPTY body is the ordinary resend — "send it again to the address it has" — and
     # it is the one that reaches the tenant lookup rather than the address validator.
     "POST /v1/admin/tenants/{tenant_id}/invitations/{invitation_id}/resend": {},
+    # F-10: an operator archives, restores or deletes one of a client's campaigns.
+    "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/archive": {"reason": "Census"},
+    "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/restore": None,
+    "DELETE /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}": {"reason": "Census"},
     "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         "provider": "airtel",
         "scrub_ref": "REF-12345",
@@ -358,6 +362,12 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
         # Bound to BOTH the tenant and the days, because days are the only bound a trial
         # has (`start_trial_confirmation`).
         "POST /v1/admin/tenants/{tenant_id}/trial": f"start_trial:{subject}:14",
+        "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/archive": (
+            f"archive_campaign:{ids.get('campaign_id', '')}"
+        ),
+        "DELETE /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}": (
+            f"delete_campaign:{ids.get('campaign_id', '')}"
+        ),
         "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": (
             f"record_preference_scrub:{ids.get('campaign_id', '')}"
         ),

@@ -336,15 +336,18 @@ async def test_a_draft_with_no_history_is_deleted_with_its_contacts() -> None:
     assert await _audits(account.tenant_id, campaign_id) == ["campaign.deleted"]
 
 
-async def test_a_draft_a_call_names_is_kept_as_stopped() -> None:
+async def test_a_draft_a_call_names_is_refused_and_left_for_archiving() -> None:
+    """F-10: a campaign that dialled is never deleted, and no longer quietly cancelled
+    either: the refusal names archiving, and the draft is untouched."""
     account = await _account()
     campaign_id = await _campaign(account)
     await _call(account, campaign_id, status="completed", to="+919876500001")
     async with _client() as client:
         response = await client.delete(f"/v1/campaigns/{campaign_id}", headers=account.headers)
-    assert response.json() == {"outcome": "stopped"}
+    assert response.status_code == 409
+    assert response.json()["type"].endswith("/campaign_has_history")
     row = await _one(account.tenant_id, "SELECT status FROM campaigns WHERE id = :c", c=campaign_id)
-    assert row[0] == "cancelled"
+    assert row[0] == "draft"
 
 
 async def test_only_a_draft_can_be_deleted() -> None:

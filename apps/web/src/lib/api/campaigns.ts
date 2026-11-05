@@ -456,6 +456,8 @@ export interface CampaignPageQuery {
   pageSize: number;
   status?: CampaignStatus;
   search?: string;
+  /** The archived campaigns instead of the live ones (F-10). */
+  archived?: boolean;
 }
 
 export function useCampaignPage(session: Session, query: CampaignPageQuery) {
@@ -464,6 +466,7 @@ export function useCampaignPage(session: Session, query: CampaignPageQuery) {
     offset: (query.page - 1) * query.pageSize,
     status: query.status,
     q: query.search?.trim() || undefined,
+    archived: query.archived ? "true" : undefined,
   };
   return useQuery({
     queryKey: ["campaigns", session.orgSlug, "page", params],
@@ -563,6 +566,21 @@ export function useDeleteCampaign(session: Session, campaignId: string) {
     mutationFn: () =>
       apiRequest<Schemas["DeleteCampaignOut"]>(session, `/v1/campaigns/${campaignId}`, {
         method: "DELETE",
+      }),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
+/**
+ * Put a campaign away, or bring it back (F-10). The server pauses a running one first and
+ * never restores to running; the answer says the status it now holds.
+ */
+export function useArchiveCampaign(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (action: "archive" | "restore") =>
+      apiRequest<Schemas["ArchiveCampaignOut"]>(session, `/v1/campaigns/${campaignId}/${action}`, {
+        method: "POST",
       }),
     onSuccess: () => refreshCampaigns(client, session.orgSlug),
   });

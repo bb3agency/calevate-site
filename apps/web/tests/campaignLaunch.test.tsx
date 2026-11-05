@@ -212,7 +212,7 @@ describe("the launch panel with blockers outstanding", () => {
     const { container } = await openLaunchPanel(
       check({ rule: "national_dnd_scrub_missing", reason: "No national DND scrub on record." }),
     );
-    expect(container.textContent).toContain("Promotional calls are not available yet.");
+    await screen.findByText("Promotional calls are not available yet.");
     expect(container.textContent).not.toContain("We handle this");
     expect(screen.getByRole("link", { name: "Edit campaign" })).toBeTruthy();
   });

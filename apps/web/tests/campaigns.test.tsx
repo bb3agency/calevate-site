@@ -603,6 +603,25 @@ describe("one campaign's page", () => {
     expect(rendered.calls.some((c) => c.method === "DELETE")).toBe(false);
   });
 
+  it("says an operator-archived campaign calls nobody, why, and offers only Restore and a copy (F-10)", async () => {
+    const { container } = await renderClientPage(
+      campaignPage(),
+      detail(
+        progressFixture({
+          status: "paused",
+          launched_at: "2026-10-14T04:30:00Z",
+          archived_at: "2026-11-05T10:00:00Z",
+          archived_by_realm: "admin",
+          archive_reason: "Several people asked not to be called",
+        }),
+      ),
+    );
+    await screen.findByText("Archived. It calls nobody.");
+    expect(container.textContent).toContain("Why: Several people asked not to be called");
+    expect(screen.getAllByRole("button", { name: /Restore/ }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^Resume/ })).toBeNull();
+  });
+
   it("says Not calling, with the reason, for a running campaign the gate refuses", async () => {
     const { container } = await renderClientPage(
       campaignPage(),

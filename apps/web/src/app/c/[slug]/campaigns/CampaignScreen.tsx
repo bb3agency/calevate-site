@@ -9,7 +9,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { Tabs } from "@/components/interior/tabs";
-import { ProblemNotice, RestrictionNote, Skeleton, formatCount, formatPhone } from "@/components/ui";
+import { NoticeBox, ProblemNotice, RestrictionNote, Skeleton, formatCount, formatPhone } from "@/components/ui";
 import {
   useCampaignProgress,
   useCampaignResults,
@@ -233,6 +233,15 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           }
         />
         <RestrictionNote reason={write.reason} />
+
+        {data.archived_at != null && (
+          // F-10: why this campaign calls nobody, and who put it away.
+          <NoticeBox tone="neutral" title="Archived. It calls nobody.">
+            {data.archived_by_realm === "admin"
+              ? `Archived by our team. Why: ${data.archive_reason ?? "not given"}`
+              : "Restore it to use it again."}
+          </NoticeBox>
+        )}
 
         <CampaignStateNotice
           slug={slug}

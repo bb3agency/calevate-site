@@ -215,17 +215,15 @@ async def remove_contacts(
     return rowcount_of(result)
 
 
-async def delete_draft(
-    session: AsyncSession, *, campaign_id: UUID
-) -> Literal["deleted", "stopped"]:
-    """Delete a draft, or keep it as stopped when something else points at it.
+async def delete_draft(session: AsyncSession, *, campaign_id: UUID) -> Literal["deleted"]:
+    """Delete a draft that never dialled; refuse one with a history (`campaign_has_history`).
 
     A draft that never dialled and that no evidence row names is deleted, contacts and all
-    (they cascade). A draft with a history keeps its row and becomes `cancelled`, because
-    deleting it would either orphan its calls (`calls.campaign_id` is no foreign key) or
-    try to null the campaign pointer on an append-only evidence row
-    (`preference_scrub_runs`), which the ledger trigger refuses.
-    That happens to a repeating campaign that ran and was then unscheduled back to draft.
+    (they cascade). A draft with a history (a repeating campaign that ran and was then
+    unscheduled back to draft) cannot be: deleting it would orphan its calls
+    (`calls.campaign_id` is no foreign key) or try to null the campaign pointer on an
+    append-only evidence row (`preference_scrub_runs`), which the ledger trigger refuses.
+    It is archived instead (`campaigns/archive`, F-10).
 
     The row is locked first, so a concurrent launch either finds it gone or waits.
     """
@@ -245,14 +243,13 @@ async def delete_draft(
     if row[0] != "draft":
         raise _not_a_draft(str(row[0]), "deleted")
     if row[1]:
-        await session.execute(
-            text(
-                "UPDATE campaigns SET status = 'cancelled', schedule = NULL, updated_at = now() "
-                "WHERE id = :cid AND status = 'draft'"
-            ),
-            {"cid": campaign_id},
+        # F-10: a draft with a history is never deleted and no longer quietly cancelled
+        # either; it is archived by the person who asked, through `campaigns/archive`.
+        raise ProblemError.conflict(
+            "campaign_has_history",
+            "This campaign has already made calls, so it can't be deleted.",
+            remediation="Archive it instead. Its calls and results are kept.",
         )
-        return "stopped"
     await session.execute(
         text("DELETE FROM campaigns WHERE id = :cid AND status = 'draft'"), {"cid": campaign_id}
     )
@@ -447,7 +444,7 @@ async def assert_resumable(session: AsyncSession, *, tenant_id: UUID, campaign_i
     row = (
         await session.execute(
             text(
-                "SELECT auto_pause_reason, complaint_reviewed_at FROM campaigns "
+                "SELECT auto_pause_reason, complaint_reviewed_at, archived_at FROM campaigns "
                 "WHERE id = :cid FOR UPDATE"
             ),
             {"cid": campaign_id},
@@ -455,7 +452,14 @@ async def assert_resumable(session: AsyncSession, *, tenant_id: UUID, campaign_i
     ).first()
     if row is None:
         raise ProblemError.not_found("Campaign")
-    reason, reviewed_at = row
+    reason, reviewed_at, archived_at = row
+    if archived_at is not None:
+        # F-10: an archived campaign never dials; it is restored first (`campaigns/archive`).
+        raise ProblemError.conflict(
+            "campaign_archived",
+            "This campaign is archived. Restore it first.",
+            remediation="Restore the campaign, then resume it.",
+        )
     if reason == "complaint_spike" and reviewed_at is None:
         raise ProblemError.business_rule(
             "complaint_review_required",
@@ -536,6 +540,7 @@ async def resume_campaigns_after_credit(session: AsyncSession, *, tenant_id: UUI
                 "UPDATE campaigns c SET status = 'running', auto_pause_reason = NULL, "
                 "updated_at = now() "
                 "WHERE c.status = 'paused' AND c.auto_pause_reason = 'out_of_credit' "
+                "AND c.archived_at IS NULL "
                 "AND EXISTS (SELECT 1 FROM agents a WHERE a.id = c.agent_id "
                 "  AND a.status <> 'archived' AND a.deleted_at IS NULL) "
                 "RETURNING c.id"
