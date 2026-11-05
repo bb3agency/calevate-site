@@ -185,7 +185,7 @@ import {
   teamAlertReads,
   VOICE_EFFECTIVE_DEFAULTS,
   VOICE_ORGANIZATION_NONE,
-  PATIENT_CALLER,
+  GIVE_CALLERS_TIME,
   VOICE_OWN_NONE,
   VOICE_SOURCES_PLATFORM,
   clientVoiceTuning,
@@ -240,7 +240,7 @@ const AGENT_CALL_HANDLING = {
   ...VOICE_SOURCES_PLATFORM,
   ...VOICE_ORGANIZATION_NONE,
   bounds: CALL_HANDLING_BOUNDS,
-  patient_caller: PATIENT_CALLER,
+  give_callers_time: GIVE_CALLERS_TIME,
 };
 
 /** An owner: the role that can see the most, and therefore renders the most markup. */

@@ -1378,7 +1378,7 @@ class CallerScreenOut(BaseModel):
     #: The call settings switching on moved to the "Give callers time" values because they
     #: were still Calevate's default (`max_call_duration_s` when the longest call was
     #: raised); empty when nothing moved.
-    patient_settings: list[str] = Field(default_factory=list)
+    give_callers_time_settings: list[str] = Field(default_factory=list)
 
 
 @router.patch(
@@ -1392,7 +1392,8 @@ class CallerScreenOut(BaseModel):
         "until they say it is done, says a step again more shortly when they could not do it, "
         "and spells a web address letter by letter. Off for every agent unless switched on.\n\n"
         'Switching on also gives the agent the "Give callers time" silence settings and '
-        "longest call wherever they are still the default (`patient_settings` names them).\n\n"
+        "longest call wherever they are still the default (`give_callers_time_settings` "
+        "names them).\n\n"
         "Applies immediately: a live agent is re-published to the voice platform in the "
         "same transaction, and if that push fails nothing is saved."
     ),
@@ -1421,14 +1422,14 @@ async def set_caller_screen_route(
             ip=client_request_ip(request),
             summary={
                 "engine_synced": result.engine_synced,
-                "patient_settings": list(result.patient_settings),
+                "give_callers_time_settings": list(result.give_callers_time_settings),
             },
         )
     return CallerScreenOut(
         agent_id=result.agent_id,
         enabled=result.enabled,
         engine_synced=result.engine_synced,
-        patient_settings=list(result.patient_settings),
+        give_callers_time_settings=list(result.give_callers_time_settings),
     )
 
 

@@ -17,7 +17,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.agents import caller_help, patient_caller, script_builder
+from apps.api.agents import caller_help, give_callers_time, script_builder
 from apps.api.billing import rates
 from apps.api.billing.models import (
     ABSORBED_ASSIST_FEATURES,
@@ -367,7 +367,9 @@ async def test_a_setting_turned_on_is_no_longer_asked_about(
     await _save(tenant_id, agent_id, GUIDED)
     assert await _pass(tenant_id, agent_id) == "stored"
     async with tenant_session(tenant_id) as session:
-        await patient_caller.apply_patient_caller(session, tenant_id=tenant_id, agent_id=agent_id)
+        await give_callers_time.apply_give_callers_time(
+            session, tenant_id=tenant_id, agent_id=agent_id
+        )
     body = (await _http("GET", f"/v1/agents/{agent_id}/caller-help", token, slug)).json()
     assert body["give_time"]["on"] and not body["give_time"]["ask"]
     assert body["screen_guide"]["ask"], "the other is still asked about"

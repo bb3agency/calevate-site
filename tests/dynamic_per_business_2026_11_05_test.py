@@ -6,7 +6,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from apps.api.agents import handoff, patient_caller, starters, test_conversations
+from apps.api.agents import give_callers_time, handoff, starters, test_conversations
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.billing import ai_quota
 from apps.api.compliance.call_purpose import ScriptPart, lint, unread_languages
@@ -146,7 +146,7 @@ def test_the_extraction_prompt_names_no_trade() -> None:
         assert word not in lowered, word
     # L5-17: "I'll call you" and "we'll talk again" are not a request to be called back.
     assert "true only when the caller asked the BUSINESS to call them" in prompt
-    assert "(\"I'll call you\")" in prompt
+    assert '("I\'ll call you")' in prompt
     need = next(f for f in CORE_LEAD_FIELDS if f.key == "need")
     assert need.reason == "What the caller wants or why they called, in a few words of their own."
 
@@ -218,7 +218,7 @@ def test_the_extra_ai_block_is_a_console_setting(monkeypatch: pytest.MonkeyPatch
 def test_can_you_see_it_is_only_the_founders() -> None:
     assert set(spoken_lines.drafts("still_there")) == {"hi-IN", "ta-IN", "kn-IN", "ml-IN", "mr-IN"}
     for language in spoken_lines.drafts("still_there"):
-        assert patient_caller.nudge_phrase_for(language, caller_has_screen=True) == ""
+        assert give_callers_time.nudge_phrase_for(language, caller_has_screen=True) == ""
 
 
 # --- PIP-11: textbook words, whatever their case; prefix matching pinned per language -----

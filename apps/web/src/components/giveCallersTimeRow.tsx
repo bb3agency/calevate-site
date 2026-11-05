@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "PATIENT CALLER" (D-907): one row on an agent's call handling that sets it up, in one tap,
+ * "GIVE CALLERS TIME" (D-907): one row on an agent's call handling that sets it up, in one tap,
  * for a caller who follows along on their own phone and goes quiet for long stretches while
  * they do what the agent asked. The server sets the values (`POST .../call-handling/
  * give-callers-time`); this row only shows what they are and whether they are in force, so the
@@ -16,10 +16,10 @@
 import { type FeedbackStatus } from "@/components/arc/feedback";
 import { SettingRow } from "@/components/console/settingRow";
 import { ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
-import { formatSeconds, type PatientCaller } from "@/lib/api/callHandling";
+import { formatSeconds, type GiveCallersTime } from "@/lib/api/callHandling";
 
 /** What the preset does, in the words of the rows it changes. */
-export function patientCallerSteps(preset: PatientCaller): string[] {
+export function giveCallersTimeSteps(preset: GiveCallersTime): string[] {
   const ask = preset.nudge_phrase ? `"${preset.nudge_phrase}"` : "whether they are still there";
   return [
     `Asks ${ask} after ${formatSeconds(preset.nudge_after_seconds)} of quiet, up to ${preset.nudge_count} times.`,
@@ -29,7 +29,7 @@ export function patientCallerSteps(preset: PatientCaller): string[] {
   ];
 }
 
-export function PatientCallerRow({
+export function GiveCallersTimeRow({
   preset,
   canChange,
   status,
@@ -37,7 +37,7 @@ export function PatientCallerRow({
   onApply,
   suggested = null,
 }: {
-  preset: PatientCaller;
+  preset: GiveCallersTime;
   canChange: boolean;
   /** The apply's state, from the caller's `useActionFeedback`. */
   status: FeedbackStatus;
@@ -59,7 +59,7 @@ export function PatientCallerRow({
         info={
           <>
             <ul className="list-disc space-y-1 pl-4">
-              {patientCallerSteps(preset).map((step) => (
+              {giveCallersTimeSteps(preset).map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ul>

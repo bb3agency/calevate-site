@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.agents import patient_caller
+from apps.api.agents import give_callers_time
 from apps.api.agents.call_handling import (
     REASK_AFTER_DEFAULT_MS,
     CallSettings,
@@ -140,37 +140,37 @@ async def test_the_owner_sets_it_for_one_agent_or_all_and_the_live_agent_follows
 def test_only_the_founders_lines_are_asked() -> None:
     """A-12: the lines come from the founder's data file; a language with no line there
     gets none, and the machine drafts are never asked."""
-    assert set(patient_caller.NUDGE_PHRASES) <= set(BUILT_LANGUAGES)
-    assert set(patient_caller.NUDGE_PHRASES) == {"te-IN", "en-IN"}
-    assert patient_caller.nudge_phrase_for("hi-IN", caller_has_screen=True) == ""
-    for phrase in patient_caller.NUDGE_PHRASES.values():
+    assert set(give_callers_time.NUDGE_PHRASES) <= set(BUILT_LANGUAGES)
+    assert set(give_callers_time.NUDGE_PHRASES) == {"te-IN", "en-IN"}
+    assert give_callers_time.nudge_phrase_for("hi-IN", caller_has_screen=True) == ""
+    for phrase in give_callers_time.NUDGE_PHRASES.values():
         assert phrase.strip() == phrase and 0 < len(phrase) <= NUDGE_PHRASE_MAX_CHARS
-    assert patient_caller.nudge_phrase_for("te-IN", caller_has_screen=True) == "కనిపించిందా అండి?"
+    assert give_callers_time.nudge_phrase_for("te-IN", caller_has_screen=True) == "కనిపించిందా అండి?"
     # A language with none asks the platform's own question in the caller's language.
-    assert patient_caller.nudge_phrase_for("xx-IN", caller_has_screen=True) == ""
+    assert give_callers_time.nudge_phrase_for("xx-IN", caller_has_screen=True) == ""
 
 
 def test_can_you_see_it_is_asked_only_of_callers_following_a_screen() -> None:
     """D-915: an agent whose callers have no screen is not set to ask "Can you see it?" in
     any language; the platform's own "are you still there?" stays."""
-    for language in patient_caller.NUDGE_PHRASES:
-        assert patient_caller.nudge_phrase_for(language, caller_has_screen=False) == ""
-    assert patient_caller.preset_changes("te-IN", caller_has_screen=False)["nudge_phrase"] == ""
+    for language in give_callers_time.NUDGE_PHRASES:
+        assert give_callers_time.nudge_phrase_for(language, caller_has_screen=False) == ""
+    assert give_callers_time.preset_changes("te-IN", caller_has_screen=False)["nudge_phrase"] == ""
     assert (
-        patient_caller.preset_changes("te-IN", caller_has_screen=True)["nudge_phrase"]
-        == (patient_caller.NUDGE_PHRASES["te-IN"])
+        give_callers_time.preset_changes("te-IN", caller_has_screen=True)["nudge_phrase"]
+        == (give_callers_time.NUDGE_PHRASES["te-IN"])
     )
 
 
 def test_the_values_are_valid_settings_and_leave_every_question_an_answer_window() -> None:
-    changes = patient_caller.preset_changes("te-IN", caller_has_screen=True)
+    changes = give_callers_time.preset_changes("te-IN", caller_has_screen=True)
     refuse_invalid_settings(CallSettings(**changes))  # type: ignore[arg-type]
     # Counted from the caller's last words, the hang-up comes after every question and its
     # answer window (the platform's floor), whether or not a question restarts the count.
-    floor = patient_caller.NUDGE_AFTER_S * (patient_caller.NUDGE_COUNT + 1)
-    assert floor < patient_caller.END_AFTER_SILENCE_S
-    assert patient_caller.REASK_AFTER_MS == 0
-    assert patient_caller.CALL_CAP_S <= thinnest.CALL_SECONDS_MAX
+    floor = give_callers_time.NUDGE_AFTER_S * (give_callers_time.NUDGE_COUNT + 1)
+    assert floor < give_callers_time.END_AFTER_SILENCE_S
+    assert give_callers_time.REASK_AFTER_MS == 0
+    assert give_callers_time.CALL_CAP_S <= thinnest.CALL_SECONDS_MAX
 
 
 async def test_one_tap_sets_the_agent_and_raises_its_longest_call() -> None:
@@ -179,7 +179,7 @@ async def test_one_tap_sets_the_agent_and_raises_its_longest_call() -> None:
     path = f"/v1/agents/{agent_id}/call-handling"
     async with _client() as client:
         no_screen = (await client.get(path, headers=headers)).json()
-    assert no_screen["patient_caller"]["nudge_phrase"] == ""
+    assert no_screen["give_callers_time"]["nudge_phrase"] == ""
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET caller_has_screen = true WHERE id = :aid"), {"aid": agent_id}
@@ -187,11 +187,11 @@ async def test_one_tap_sets_the_agent_and_raises_its_longest_call() -> None:
     async with _client() as client:
         before = (await client.get(path, headers=headers)).json()
         applied = await client.post(f"{path}/give-callers-time", headers=headers)
-    assert before["patient_caller"]["applied"] is False
-    assert before["patient_caller"]["nudge_phrase"] == "కనిపించిందా అండి?"
+    assert before["give_callers_time"]["applied"] is False
+    assert before["give_callers_time"]["nudge_phrase"] == "కనిపించిందా అండి?"
     assert applied.status_code == 200, applied.text
     body = applied.json()
-    assert body["patient_caller"]["applied"] is True
+    assert body["give_callers_time"]["applied"] is True
     assert (body["nudge_after_seconds"], body["nudge_count"]) == (20, 3)
     assert (body["end_after_silence_seconds"], body["reask_after_ms"]) == (120, 0)
     assert body["nudge_phrase"] == "కనిపించిందా అండి?"
@@ -212,7 +212,7 @@ async def test_one_tap_sets_the_agent_and_raises_its_longest_call() -> None:
                 {"aid": str(agent_id)},
             )
         ).scalar_one()
-    assert cap == patient_caller.CALL_CAP_S
+    assert cap == give_callers_time.CALL_CAP_S
     assert audited == 1
     runs = await _runs(tenant_id)
     assert any("call_handling" in reasons for _scope, _aid, reasons in runs)
@@ -235,7 +235,7 @@ async def test_a_longer_call_is_kept_and_a_tweak_reads_as_not_applied() -> None:
             )
         ).scalar_one()
     assert cap == 1200
-    assert tweaked.json()["patient_caller"]["applied"] is False
+    assert tweaked.json()["give_callers_time"]["applied"] is False
 
 
 async def test_only_the_owner_and_an_operator_apply_it_and_never_across_tenants() -> None:
@@ -261,5 +261,5 @@ async def test_only_the_owner_and_an_operator_apply_it_and_never_across_tenants(
     assert foreign.status_code == 404, foreign.text
     assert by_staff.status_code == 403, by_staff.text
     assert by_operator.status_code == 200, by_operator.text
-    assert by_operator.json()["patient_caller"]["applied"] is True
+    assert by_operator.json()["give_callers_time"]["applied"] is True
     assert missing.status_code == 404, missing.text

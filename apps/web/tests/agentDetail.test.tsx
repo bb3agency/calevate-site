@@ -1021,7 +1021,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
             agent_id: "agent-1",
             enabled: true,
             engine_synced: true,
-            patient_settings: [],
+            give_callers_time_settings: [],
           },
           "POST /v1/agents/agent-1/call-handling/give-callers-time": {},
         }),

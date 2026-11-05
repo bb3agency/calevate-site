@@ -34,7 +34,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import call_handling, caller_help, patient_caller
+from apps.api.agents import call_handling, caller_help, give_callers_time
 from apps.api.agents.call_handling import (
     AMBIENCE_VOLUME_DEFAULT_PCT,
     END_AFTER_SILENCE_DEFAULT_S,
@@ -173,7 +173,7 @@ def _bounds(own_turn_detection: TurnDetection | None = None) -> CallHandlingBoun
     )
 
 
-class PatientCallerOut(BaseModel):
+class GiveCallersTimeOut(BaseModel):
     """The "Give callers time" preset (D-907) for this agent: what it sets and whether the
     settings in force match it."""
 
@@ -254,7 +254,7 @@ class AgentCallHandlingOut(BaseModel):
     organization_opening_wait_ms: int | None
     organization_reask_after_ms: int | None
     bounds: CallHandlingBoundsOut
-    patient_caller: PatientCallerOut
+    give_callers_time: GiveCallersTimeOut
 
 
 class AgentCallHandlingIn(BaseModel):
@@ -432,25 +432,25 @@ def _own(values: CallSettings, prefix: str = "") -> dict[str, object]:
     }
 
 
-def _patient_out(preset: patient_caller.PatientCaller) -> PatientCallerOut:
-    return PatientCallerOut(
+def _give_callers_time_out(preset: give_callers_time.GiveCallersTime) -> GiveCallersTimeOut:
+    return GiveCallersTimeOut(
         applied=preset.applied,
-        nudge_after_seconds=patient_caller.NUDGE_AFTER_S,
-        nudge_count=patient_caller.NUDGE_COUNT,
+        nudge_after_seconds=give_callers_time.NUDGE_AFTER_S,
+        nudge_count=give_callers_time.NUDGE_COUNT,
         nudge_phrase=preset.nudge_phrase,
-        end_after_silence_seconds=patient_caller.END_AFTER_SILENCE_S,
-        reask_after_ms=patient_caller.REASK_AFTER_MS,
+        end_after_silence_seconds=give_callers_time.END_AFTER_SILENCE_S,
+        reask_after_ms=give_callers_time.REASK_AFTER_MS,
         call_cap_s=preset.call_cap_s,
     )
 
 
 async def _agent_response(session: AsyncSession, state: AgentCallHandling) -> AgentCallHandlingOut:
     """The agent's settings and its "Give callers time" preset, read in the same session."""
-    return _agent_out(state, await patient_caller.read_patient_caller(session, state))
+    return _agent_out(state, await give_callers_time.read_give_callers_time(session, state))
 
 
 def _agent_out(
-    state: AgentCallHandling, preset: patient_caller.PatientCaller
+    state: AgentCallHandling, preset: give_callers_time.GiveCallersTime
 ) -> AgentCallHandlingOut:
     sources = state.resolved.sources
     return AgentCallHandlingOut.model_validate(
@@ -468,7 +468,7 @@ def _agent_out(
             "opening_waits_for_caller": state.opening_waits_for_caller,
             **_own(state.organization, "organization_"),
             "bounds": _bounds(state.turn_detection),
-            "patient_caller": _patient_out(preset),
+            "give_callers_time": _give_callers_time_out(preset),
         }
     )
 
@@ -614,18 +614,18 @@ async def set_agent_call_handling(
     return await _agent_response(session, state)
 
 
-_PATIENT_DESCRIPTION = (
+_GIVE_CALLERS_TIME_DESCRIPTION = (
     "One tap for a caller who follows the agent along on their own phone and goes quiet for "
     "long stretches: on this agent alone, ask whether they are still there after "
-    f"{patient_caller.NUDGE_AFTER_S} s, up to {patient_caller.NUDGE_COUNT} times, in the "
-    "agent's main language (`patient_caller.nudge_phrase` on the read), hang up after "
-    f"{patient_caller.END_AFTER_SILENCE_S} s of silence, never repeat an unanswered question on "
-    "a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is "
+    f"{give_callers_time.NUDGE_AFTER_S} s, up to {give_callers_time.NUDGE_COUNT} times, in the "
+    "agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after "
+    f"{give_callers_time.END_AFTER_SILENCE_S} s of silence, never repeat an unanswered question on "
+    "a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is "
     "kept). Each is an ordinary setting afterwards. Applies from the next call."
 )
 
 
-async def _apply_patient_caller(
+async def _apply_give_callers_time(
     session: AsyncSession,
     *,
     tenant_id: UUID,
@@ -634,7 +634,7 @@ async def _apply_patient_caller(
     principal: Principal,
     action: str,
 ) -> AgentCallHandlingOut:
-    result = await patient_caller.apply_patient_caller(
+    result = await give_callers_time.apply_give_callers_time(
         session, tenant_id=tenant_id, agent_id=agent_id
     )
     await write_audit(
@@ -659,13 +659,13 @@ async def _apply_patient_caller(
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("org:manage"),
     summary="Set an agent up for a caller who follows along on their phone",
-    description=_PATIENT_DESCRIPTION,
+    description=_GIVE_CALLERS_TIME_DESCRIPTION,
 )
-async def apply_patient_caller(
+async def apply_give_callers_time(
     agent_id: UUID, session: Session, request: Request, principal: Owner
 ) -> AgentCallHandlingOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    return await _apply_patient_caller(
+    return await _apply_give_callers_time(
         session,
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
@@ -919,13 +919,13 @@ async def admin_set_agent_call_handling(
     response_model=AgentCallHandlingOut,
     openapi_extra=permission_meta("agents:write"),
     summary="Set one client agent up for a caller who follows along on their phone",
-    description=_PATIENT_DESCRIPTION,
+    description=_GIVE_CALLERS_TIME_DESCRIPTION,
 )
-async def admin_apply_patient_caller(
+async def admin_apply_give_callers_time(
     tenant_id: UUID, agent_id: UUID, request: Request, principal: AgentOperator
 ) -> AgentCallHandlingOut:
     async with tenant_session(tenant_id) as scoped:
-        out = await _apply_patient_caller(
+        out = await _apply_give_callers_time(
             scoped,
             tenant_id=tenant_id,
             agent_id=agent_id,
@@ -1085,9 +1085,9 @@ __all__ = [
     "AgentTurnDetectionOut",
     "AllAgentsCallHandlingIn",
     "AllAgentsCallHandlingOut",
+    "GiveCallersTimeOut",
     "OrganizationCallHandlingIn",
     "OrganizationCallHandlingOut",
-    "PatientCallerOut",
     "admin_router",
     "router",
 ]

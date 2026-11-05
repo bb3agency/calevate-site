@@ -104,7 +104,7 @@ def is_applied(resolved: ResolvedSettings, call_cap_s: int) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
-class PatientCaller:
+class GiveCallersTime:
     """The preset as it applies to one agent, and whether its values are in force."""
 
     applied: bool
@@ -118,13 +118,15 @@ _AGENT: Final = (
 )
 
 
-async def read_patient_caller(session: AsyncSession, state: AgentCallHandling) -> PatientCaller:
+async def read_give_callers_time(
+    session: AsyncSession, state: AgentCallHandling
+) -> GiveCallersTime:
     """The preset for the agent whose call settings are `state`. RLS scopes the read."""
     row = (await session.execute(text(_AGENT), {"aid": state.agent_id})).first()
     if row is None:
         raise ProblemError.not_found("Agent")
     cap = effective_call_cap(row[1])
-    return PatientCaller(
+    return GiveCallersTime(
         applied=is_applied(state.resolved, cap),
         nudge_phrase=nudge_phrase_for(str(row[0]), caller_has_screen=bool(row[4])),
         call_cap_s=preset_call_cap_s(),
@@ -132,7 +134,7 @@ async def read_patient_caller(session: AsyncSession, state: AgentCallHandling) -
 
 
 @dataclass(frozen=True, slots=True)
-class PatientCallerApplied:
+class GiveCallersTimeApplied:
     state: AgentCallHandling
     #: The call settings that moved.
     moved: tuple[str, ...]
@@ -141,9 +143,9 @@ class PatientCallerApplied:
     call_cap_after_s: int
 
 
-async def apply_patient_caller(
+async def apply_give_callers_time(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
-) -> PatientCallerApplied:
+) -> GiveCallersTimeApplied:
     """Write the preset on one agent in the caller's transaction.
 
     The call settings go through `set_agent_call_handling`, which locks the row and queues the
@@ -175,7 +177,7 @@ async def apply_patient_caller(
                 session, scope="agent", tenant_id=tenant_id, agent_id=agent_id, reason="call_cap"
             )
     log.info(
-        "agent_patient_caller_applied",
+        "agent_give_callers_time_applied",
         extra={
             "agent_id": str(agent_id),
             "changed": list(moved),
@@ -183,7 +185,7 @@ async def apply_patient_caller(
             "cap_after_s": after,
         },
     )
-    return PatientCallerApplied(
+    return GiveCallersTimeApplied(
         state=state, moved=moved, call_cap_before_s=before, call_cap_after_s=after
     )
 
@@ -228,7 +230,7 @@ async def apply_where_default(
         )
         moved = (*moved, CALL_CAP_FIELD)
     log.info(
-        "agent_patient_caller_defaults_applied",
+        "agent_give_callers_time_defaults_applied",
         extra={"agent_id": str(agent_id), "changed": list(moved)},
     )
     return moved
@@ -242,13 +244,13 @@ __all__ = [
     "NUDGE_COUNT",
     "NUDGE_PHRASES",
     "REASK_AFTER_MS",
-    "PatientCaller",
-    "PatientCallerApplied",
-    "apply_patient_caller",
+    "GiveCallersTime",
+    "GiveCallersTimeApplied",
+    "apply_give_callers_time",
     "apply_where_default",
     "is_applied",
     "nudge_phrase_for",
     "preset_call_cap_s",
     "preset_changes",
-    "read_patient_caller",
+    "read_give_callers_time",
 ]

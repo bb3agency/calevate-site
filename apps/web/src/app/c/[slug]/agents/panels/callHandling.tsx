@@ -32,7 +32,7 @@ import {
   type ScopeOffer,
 } from "@/components/callHandlingRows";
 import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
-import { PatientCallerRow } from "@/components/patientCallerRow";
+import { GiveCallersTimeRow } from "@/components/giveCallersTimeRow";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import {
@@ -41,7 +41,7 @@ import {
   othersWithOwn,
   platformLabels,
   useAgentCallHandling,
-  useApplyPatientCaller,
+  useApplyGiveCallersTime,
   useOrganizationCallHandling,
   useSaveCallHandling,
   type AgentCallHandlingIn,
@@ -79,8 +79,8 @@ export function AgentCallHandlingRows({
       variables.scope === "all" ? "Saved for all your agents" : "Saved for this agent",
   });
   const [row, setRow] = useState<Row | null>(null);
-  const patient = useApplyPatientCaller(session, agentId);
-  const patientFeedback = useActionFeedback(patient, {
+  const giveTime = useApplyGiveCallersTime(session, agentId);
+  const giveTimeFeedback = useActionFeedback(giveTime, {
     errorDisplay: "inline",
     successToast: "This agent now gives callers time",
   });
@@ -118,12 +118,12 @@ export function AgentCallHandlingRows({
     <div className="space-y-2">
       <RestrictionNote reason={write.allowed ? null : write.reason} />
       <SettingRows className="border-y border-line">
-        <PatientCallerRow
-          preset={data.patient_caller}
+        <GiveCallersTimeRow
+          preset={data.give_callers_time}
           canChange={write.allowed}
-          status={patientFeedback.status}
-          error={patient.error}
-          onApply={() => patient.mutate()}
+          status={giveTimeFeedback.status}
+          error={giveTime.error}
+          onApply={() => giveTime.mutate()}
           suggested={suggestedFor(agentName ?? "this agent", help.data?.give_time)}
         />
         <PauseRow
