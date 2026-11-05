@@ -2,6 +2,7 @@
 
     GET /v1/admin/tenants/{tenant_id}/readiness    what stands between them and dialling
     GET /v1/admin/tenants/{tenant_id}/activity     what has been done to this account
+    GET /v1/admin/tenants/{tenant_id}/wallet       their credit, runway and dial verdict
 
 Both are READS and neither invents a fact. The readiness answer is
 `legal.readiness.readiness_rows` — the same composition of the same gate predicates the
@@ -54,6 +55,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
+from apps.api.billing.wallet_routes import WalletOut, read_wallet_summary
 from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
@@ -70,6 +72,9 @@ router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 # and `kyc_routes.py` reached for the same reason.
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 AccountReader = Annotated[Principal, Depends(requires("org:read", realm="admin"))]
+#: The operator's credits page reads the same wallet under `billing:read`; this is the same
+#: money, so it takes the same permission.
+WalletReader = Annotated[Principal, Depends(requires("billing:read", realm="admin"))]
 
 #: The largest page of history one request will build. Bounded because `audit_log` is the
 #: fastest-growing table in this schema and an unbounded trail is a screen that stops
@@ -292,6 +297,38 @@ async def read_tenant_activity(
         limit=limit,
         offset=offset,
     )
+
+
+@router.get(
+    "/{tenant_id}/wallet",
+    response_model=WalletOut,
+    openapi_extra=permission_meta("billing:read"),
+    summary="One client's wallet as the client reads it — the operator's copy",
+    description=(
+        "Balance, runway, minutes left, trial, and whether outbound is stopped for lack of "
+        "credit: the answer `GET /v1/billing/wallet` gives the client, for an account named "
+        "in the path. Reading this writes an `admin.tenant_read` audit row."
+    ),
+)
+async def read_tenant_wallet(
+    tenant_id: UUID,
+    session: AdminSession,
+    request: Request,
+    principal: WalletReader,
+) -> WalletOut:
+    if not await tenant_exists(session, tenant_id):
+        raise ProblemError.not_found("Client")
+    # The client route itself, handed a principal that names only the tenant, so the two
+    # answers cannot drift. Not reached through view-as: that route is client-realm and
+    # refuses an impersonated read, which is right for it and is why the overview could
+    # never show credit.
+    wallet = await read_wallet_summary(
+        Principal(realm="client", user_id=None, tenant_id=tenant_id, role=None)
+    )
+    await record_admin_tenant_read(
+        session, request=request, principal=principal, tenant_id=tenant_id
+    )
+    return wallet
 
 
 __all__ = ["router"]

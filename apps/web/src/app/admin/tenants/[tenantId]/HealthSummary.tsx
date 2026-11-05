@@ -31,7 +31,7 @@ import {
 import { useLineIncidents } from "@/lib/api/healer";
 import { useCalls } from "@/lib/api/hooks";
 import { viewAsHref } from "@/lib/api/session";
-import { useWallet } from "@/lib/api/wallet";
+import { useAdminTenantWallet } from "@/lib/api/adminAccount";
 
 /** How many of the client's calls the summary lists. */
 const RECENT_CALLS = 5;
@@ -45,8 +45,8 @@ const RECENT_CALLS = 5;
  * - what is wrong is `GET /v1/admin/client-health/{id}` — the board's judgement for this
  *   one account, so the two screens cannot disagree — plus the open line incidents the
  *   auto-healer recorded (`/v1/healer/incidents`) and a low or empty wallet;
- * - credit is minutes first, rupees second, from the directory row and the client's own
- *   wallet read (its runway in days);
+ * - credit is minutes first, rupees second, from the directory row and the admin read of
+ *   the client's wallet (its runway in days);
  * - the calls are the client's own call list, read through the view-as session like every
  *   other client-scoped read on this page (D-22).
  *
@@ -60,7 +60,8 @@ const RECENT_CALLS = 5;
 export function HealthSummary({ tenant }: { tenant: TenantSummary }) {
   const health = useTenantHealth(tenant.id);
   const session = viewAsSession(tenant.slug);
-  const wallet = useWallet(session);
+  // The admin read, not the client's wallet route: that one refuses view-as.
+  const wallet = useAdminTenantWallet(tenant.id);
   const incidents = useLineIncidents(session);
   const calls = useCalls(session, { limit: RECENT_CALLS });
 

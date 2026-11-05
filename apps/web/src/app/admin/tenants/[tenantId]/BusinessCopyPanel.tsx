@@ -75,7 +75,7 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
           <SettingRow
             key={key}
             label={label}
-            value={capabilityLine(data.capabilities[key])}
+            value={capabilityLine(data.capabilities?.[key])}
           />
         ))}
       </SettingRows>
@@ -96,8 +96,9 @@ const CAPABILITY_ROWS: readonly (readonly [keyof Capabilities, string])[] = [
 ];
 
 /** Exported for the test. */
-export function capabilityLine(judged: Capability): string {
-  if (judged.applies === null || judged.applies === undefined) return "Not judged yet";
+export function capabilityLine(judged: Capability | null | undefined): string {
+  // An API older than this screen sends no profile at all: that is "not judged", not a crash.
+  if (judged?.applies === null || judged?.applies === undefined) return "Not judged yet";
   const verdict = judged.applies ? "Yes" : "No";
   return judged.reason ? `${verdict}: ${judged.reason}` : verdict;
 }
