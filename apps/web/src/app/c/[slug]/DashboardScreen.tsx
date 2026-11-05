@@ -38,7 +38,7 @@ import { OutcomeSplit } from "./OutcomeSplit";
 import { SentimentSplit } from "./SentimentSplit";
 import { SpendThisMonth } from "./SpendThisMonth";
 import { TrialCallPanel } from "./TrialCallPanel";
-import { NextSteps } from "./NextSteps";
+import { NextSteps, goLiveOffered } from "./NextSteps";
 import { WeekRecap } from "./WeekRecap";
 import { ExistingNumberPrompt } from "@/components/forwarding/ExistingNumberPrompt";
 import { HOME } from "./_ui/copy";
@@ -287,6 +287,27 @@ export function DashboardScreen({ slug }: { slug: string }) {
   }
 
   const data = dashboard.data;
+  const firstAgent =
+    agents.data?.length === 0 && agentAccess.allowed ? { started: firstRunDue && !firstRunUnstarted } : null;
+  // While the account is still being set up the steps ARE the page; afterwards the figures
+  // lead and the steps fold to one line under them (founder, 5 Nov 2026).
+  const settingUp = firstAgent !== null || goLiveOffered(goLive.data);
+  const nextSteps = (
+    <NextSteps
+      data={data}
+      attention={attention}
+      wallet={wallet}
+      gaps={gaps}
+      readiness={readiness}
+      profile={profile.data}
+      guide={goLive.data}
+      firstAgent={firstAgent}
+      canHideSetup={setupAccess.allowed}
+      session={session}
+      href={(path) => href(`/c/${slug}${path}`)}
+      folded={!settingUp}
+    />
+  );
 
   return (
     <div className="space-y-10 pb-12">
@@ -311,26 +332,10 @@ export function DashboardScreen({ slug }: { slug: string }) {
         <TrialCallPanel slug={slug} trial={data.trial} />
       </div>
 
-      {/* FIRST, WHAT TO DO (founder, REDESIGN-2): one ranked list of next steps — the
-          first agent, going live, the business's facts, the queue, hot leads, calls that
-          did not connect, unanswered questions, credit and readiness fixes — before any
-          figure. Each fact on this page is said once: the figures are in "This week",
-          each agent's state in "Your agents". */}
-      <NextSteps
-        data={data}
-        attention={attention}
-        wallet={wallet}
-        gaps={gaps}
-        readiness={readiness}
-        profile={profile.data}
-        guide={goLive.data}
-        firstAgent={
-          agents.data?.length === 0 && agentAccess.allowed ? { started: firstRunDue && !firstRunUnstarted } : null
-        }
-        canHideSetup={setupAccess.allowed}
-        session={session}
-        href={(path) => href(`/c/${slug}${path}`)}
-      />
+      {/* One ranked list of next steps (the first agent, going live, the queue, hot leads,
+          unanswered questions, credit and readiness fixes). It leads only while the account
+          is being set up; each fact on this page is still said once. */}
+      {settingUp ? nextSteps : null}
 
       {/* The charts people kept from the assistant (D-934). Renders nothing until one is
           pinned. */}
@@ -350,6 +355,8 @@ export function DashboardScreen({ slug }: { slug: string }) {
         }}
         href={(path) => href(`/c/${slug}${path}`)}
       />
+
+      {settingUp ? null : nextSteps}
 
       <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-12 page-lg:gap-12">
         <div className="space-y-10 page-lg:col-span-8">

@@ -93,15 +93,21 @@ export function LatestCalls({
  * length, cost, when), so a screen reader and a test meet each once; only its cell moves.
  *
  *   phone   | who ................ when |      sm+ | who        | outcome   | when        |
- *           | outcome ...... len · ₹  |           | headline   | needs you | len · ₹     |
- *                                                  | captured   |           |             |
+ *           | outcome ...... len · ₹  |           | summary    | needs you | len · ₹     |
+ *
+ * Every row is two lines at every width, so the list reads as an even column: the summary
+ * is one line (the whole sentence is on the call's page and in its tooltip), and what the
+ * call captured lives on the call's page, not here.
  */
 const ROW =
-  "relative grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 rounded-md px-2 py-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.03] sm:grid-cols-[minmax(0,1fr)_auto_auto]";
+  "relative grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-1 rounded-md px-2 py-3 transition-colors duration-(--duration-fast) ease-out hover:bg-ink/[0.03] sm:h-[4.875rem] sm:content-center sm:grid-cols-[minmax(0,1fr)_auto_auto]";
 const WHO = "col-start-1 row-start-1 min-w-0";
 const HEADLINE = "hidden sm:col-start-1 sm:row-start-2 sm:block";
-const CAPTURED = "hidden sm:col-start-1 sm:row-start-3 sm:block";
-const OUTCOME = "col-start-1 row-start-2 min-w-0 sm:col-start-2 sm:row-start-1 sm:row-span-2 sm:max-w-56";
+// On a phone the outcome and its marks share the second line; from `sm` the wrapper
+// dissolves and the outcome sits on line one, the marks under it.
+const OUTCOME = "col-start-1 row-start-2 min-w-0 sm:contents";
+const OUTCOME_WORDS = "sm:col-start-2 sm:row-start-1";
+const MARKS = "sm:col-start-2 sm:row-start-2";
 const WHEN = "col-start-2 row-start-1 text-right sm:col-start-3";
 const MEASURES = "col-start-2 row-start-2 text-right sm:col-start-3";
 
@@ -120,7 +126,6 @@ function CallRow({
   const { words, kind } = callOutcome(call);
   const live = isLive(call);
   const named = Boolean(call.lead_name?.trim());
-  const captured = (call.captured_preview ?? []).map((chip) => `${chip.label}: ${chip.value}`).join(" · ");
   const hasCost = call.credits_used_inr !== null && call.credits_used_inr !== undefined;
   return (
     <li className={`${ROW} ${className}`}>
@@ -142,19 +147,23 @@ function CallRow({
         )}
         {call.test_call && <TestCallTag />}
       </div>
-      <p className={`${HEADLINE} break-words text-meta ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}>
+      <p
+        title={line.text}
+        className={`${HEADLINE} line-clamp-1 text-meta ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}
+      >
         {line.text}
       </p>
-      {captured ? <p className={`${CAPTURED} break-words text-meta text-ink-faint`}>{captured}</p> : null}
-      <div className={`${OUTCOME} flex flex-wrap items-center gap-x-2 gap-y-0.5 sm:flex-col sm:items-start`}>
-        <span className="inline-flex min-w-0 items-baseline gap-1.5 text-meta text-ink-muted">
+      <div className={`${OUTCOME} flex flex-wrap items-center gap-x-2`}>
+        <span className={`${OUTCOME_WORDS} inline-flex min-w-0 items-baseline gap-1.5 whitespace-nowrap text-meta text-ink-muted`}>
           <span className="self-center">
             <OutcomeDot kind={kind} />
           </span>
-          <span className="break-words">{words}</span>
+          <span>{words}</span>
         </span>
-        <NeedsYouMark call={call} />
-        <FollowUpMark state={call.follow_up_state} />
+        <span className={`${MARKS} inline-flex items-center gap-x-2 whitespace-nowrap empty:hidden`}>
+          <NeedsYouMark call={call} />
+          <FollowUpMark state={call.follow_up_state} />
+        </span>
       </div>
       <p className={`${WHEN} whitespace-nowrap text-meta tabular-nums text-ink-faint`}>{formatIST(callAt(call))}</p>
       <p className={`${MEASURES} whitespace-nowrap text-meta tabular-nums text-ink-muted`}>

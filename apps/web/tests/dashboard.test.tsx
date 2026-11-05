@@ -286,6 +286,14 @@ const NOT_OWED_GUIDE = {
   live_agents: 0,
 };
 
+/** The dashboard folds Next steps to one line once the account is set up; open it. */
+async function openNextSteps(root: Pick<typeof screen, "findByRole"> = screen): Promise<HTMLElement> {
+  const section = (await root.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
+  const show = within(section).queryByRole("button", { name: "Show" });
+  if (show) fireEvent.click(show);
+  return section;
+}
+
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
@@ -346,7 +354,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
         "/v1/attention": { counts: { lead_blocked: 3 }, items: [], total: 3 },
       }),
     );
-    const steps = (await screen.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
+    const steps = await openNextSteps();
     expect(steps.textContent).toContain("3 things need you");
     expect(within(steps).getByRole("link", { name: "Review all" }).getAttribute("href")).toBe("/c/acme/attention");
     // The queue's full list is Needs attention, one tap from the heading.
@@ -395,6 +403,7 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
     // queries side by side. The comment six lines down already knew the rule; it just
     // was not applied one line up.
     await within(failed.container).findByRole("heading", { name: "This week" });
+    await openNextSteps(within(failed.container));
     expect(failed.container.textContent).toContain(
       "Couldn't check your to-do list",
     );
@@ -481,7 +490,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
     }
   });
 
-  it("shows what each recent call captured and, for an owner, what it cost", async () => {
+  it("shows each recent call's summary on one line and, for an owner, what it cost", async () => {
     const call: CallSummary = {
       id: "c2",
       agent_id: "a1",
@@ -506,9 +515,9 @@ describe("the dashboard renders what the server said, or says it could not", () 
 
     await renderClientPage(page, routes({ "/v1/calls?limit=6": [call] }));
 
-    expect(
-      await screen.findByText("What they want: Two kilos of rice · Preferred time: Saturday"),
-    ).toBeTruthy();
+    // What the call captured is on the call's own page; the row keeps to two lines.
+    expect((await screen.findByText("Asked about rice.")).getAttribute("title")).toBe("Asked about rice.");
+    expect(screen.queryByText(/Two kilos of rice/)).toBeNull();
     const cost = screen.getByText("₹12.5");
     // Named for a screen reader beside the figure, since the list has no column header.
     expect(cost.previousElementSibling?.textContent).toBe("Cost ");
@@ -1043,7 +1052,7 @@ describe("this week", () => {
 
   it("invites an owner with no agent to meet their first one (D-855)", async () => {
     await recap({ "/v1/agents": [] });
-    const steps = (await screen.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
+    const steps = await openNextSteps();
     expect(steps.textContent).toContain("Meet your agent");
     expect(within(steps).getByRole("link", { name: /Build my agent/ }).getAttribute("href")).toBe("/c/acme/agents/first");
   });
@@ -1058,7 +1067,7 @@ describe("this week", () => {
         build: { status: "idle", steps: [], disclosure: null, builds_left: 3 },
       },
     });
-    const steps = (await screen.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
+    const steps = await openNextSteps();
     expect((await within(steps).findByRole("link", { name: /Continue/ })).getAttribute("href")).toBe("/c/acme/agents/first");
     expect(screen.queryByText(/Finish your business details/)).toBeNull();
   });
@@ -1191,7 +1200,7 @@ describe("unanswered questions", () => {
     last_seen_at: "2026-10-22T04:30:00Z",
   };
   const needsYou = async () =>
-    (await screen.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
+    await openNextSteps();
 
   it("counts one agent's open questions and links to its Training tab", async () => {
     await renderClientPage(
@@ -1419,7 +1428,7 @@ describe("proof on the home screen (D-944)", () => {
 describe("next steps", () => {
   const OWNER: Me = { ...ME, permissions: ["calls:read", "leads:read", "org:manage"] };
   const nextSteps = async () =>
-    (await screen.findByRole("heading", { name: "Next steps" })).closest("section") as HTMLElement;
+    await openNextSteps();
   const stepLinks = (card: HTMLElement) =>
     within(card)
       .getAllByRole("link")

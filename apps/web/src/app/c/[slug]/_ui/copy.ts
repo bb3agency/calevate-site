@@ -10,6 +10,10 @@ const plural = (count: number, one: string, many: string) => (count === 1 ? one 
 
 export const HOME = {
   nextTitle: "Next steps",
+  nextSummary: (n: number) => (n === 0 ? "Nothing to do" : `${n} ${plural(n, "thing", "things")} to do`),
+  nextReady: (score: number) => `${score}% ready`,
+  nextShow: "Show",
+  nextHide: "Hide",
   seeAll: "See all",
   groupNow: "Needs you now",
   groupBetter: "Make your agents better",

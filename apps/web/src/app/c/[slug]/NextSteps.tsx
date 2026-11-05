@@ -17,7 +17,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { READINESS_BANDS, type GaugeBand } from "@/components/arc/gauge";
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -176,6 +176,7 @@ export function NextSteps({
   canHideSetup,
   session,
   href,
+  folded = false,
 }: {
   data: Dashboard;
   attention: ReturnType<typeof useAttention>;
@@ -189,7 +190,14 @@ export function NextSteps({
   canHideSetup: boolean;
   session: Session;
   href: (path: string) => string;
+  /**
+   * Once the account is set up the dashboard leads with its figures, so the list starts
+   * folded to one line (how many things, how ready) and opens on a tap. It opens by itself
+   * when calls have stopped, the one step that cannot wait.
+   */
+  folded?: boolean;
 }) {
+  const [opened, setOpened] = useState<boolean | null>(null);
   const steps: Step[] = [];
   const hide = useSetupAction(session);
   // On success the step leaves with the button that hid it, so the toast is the only place
@@ -441,20 +449,52 @@ export function NextSteps({
   // A heading over the only group left says nothing the section title does not.
   const headed = now.length > 0 && better.length > 0;
 
+  const open = !folded || (opened ?? ranked.some((step) => step.rank === "stopped"));
+  const toggle = folded ? (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls="next-steps-list"
+      onClick={() => setOpened(!open)}
+      className={TEXT_ACTION}
+    >
+      {open ? HOME.nextHide : HOME.nextShow}
+    </button>
+  ) : null;
+
+  if (!open) {
+    return (
+      <Section title={HOME.nextTitle} action={toggle}>
+        <p className="-mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-body text-ink-muted">
+          <span>{HOME.nextSummary(ranked.length)}</span>
+          {score !== null ? (
+            <>
+              <span aria-hidden className="text-ink-faint">·</span>
+              <span className="tabular-nums">{HOME.nextReady(Math.round(score))}</span>
+            </>
+          ) : null}
+        </p>
+      </Section>
+    );
+  }
+
   return (
     <Section
       title={HOME.nextTitle}
       action={
-        // Only when the attention queue holds something: it is the full list of problems,
-        // not of these steps, so offering it with an empty queue would contradict this list.
-        attention.data && attention.data.total > 0 ? (
-          <Link href={href("/attention")} className={TEXT_ACTION}>
-            {HOME.seeAll}
-          </Link>
-        ) : undefined
+        <>
+          {/* Only when the attention queue holds something: it is the full list of problems,
+              not of these steps, so offering it with an empty queue would contradict this list. */}
+          {attention.data && attention.data.total > 0 ? (
+            <Link href={href("/attention")} className={TEXT_ACTION}>
+              {HOME.seeAll}
+            </Link>
+          ) : null}
+          {toggle}
+        </>
       }
     >
-      <div className="space-y-5">
+      <div id="next-steps-list" className="space-y-5">
         {score !== null ? (
           <ReadinessMeter score={score} fixesLeft={fixesLeft} />
         ) : readiness.isLoading ? (
