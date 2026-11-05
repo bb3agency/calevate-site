@@ -11,16 +11,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "హలో, మీ దగ్గర ఇది దొరుకుతుందా అండి?"
-          ],
-          [
             "agent",
             "హా, చెప్పండి. ఒక్క సెకండ్ అండి, చూసి చెప్తాను."
-          ],
-          [
-            "agent",
-            "మీకు ఎంత కావాలి?"
           ],
           [
             "caller",
@@ -742,9 +734,8 @@
         "review": "founder_approved",
         "approved_on": "2026-10-27",
         "native_review": "needs_native_review",
-        "note": "In-call examples for the SPOKEN REGISTER section (D-778, D-861): one idea per sentence, a question mark on every question (often two choices), and the caller's own words said back. D-894: a reaction only where it fits, so the first answer asks straight on with no opener, and a time the caller said in English words goes back in those words. Wording founder 27 Oct 2026 (the first and third replaced, the second kept), replacing the 23 Oct set whose every turn opened with a reaction. Every word in the language's own letters; NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style.",
+        "note": "In-call examples for the SPOKEN REGISTER section (D-778, D-861): one idea per sentence, a question mark on every question (often two choices), and the caller's own words said back. D-894: a reaction only where it fits, so the first answer asks straight on with no opener, and a time the caller said in English words goes back in those words. Wording founder 27 Oct 2026 (the first and third replaced, the second kept), replacing the 23 Oct set whose every turn opened with a reaction. Every word in the language's own letters; NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style. Shop-only exchanges (asking for delivery, taking an item) left out on 5 Nov 2026: this line reaches every business's prompt, and many sell nothing.",
         "exchanges": [
-          [["caller", "డెలివరీ కావాలి."], ["agent", "మీది ఏ ఏరియా అండి?"]],
           [["caller", "రేపు కుదురుతుందా?"], ["agent", "అలాగే అండి, రేపు. పొద్దున వీలవుతుందా, సాయంత్రమా?"]],
           [["caller", "సాటర్డే ఈవెనింగ్ సిక్స్ కి వస్తాను."], ["agent", "సాటర్డే ఈవెనింగ్ సిక్స్ కి అండి. మీ పేరు చెప్తారా?"]]
         ]
@@ -844,16 +835,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "हैलो, आपके पास ये मिलेगा क्या?"
-          ],
-          [
             "agent",
             "एक मिनट जी, देख कर बताते हैं।"
-          ],
-          [
-            "agent",
-            "हाँ जी, है। आपको कितना चाहिए?"
           ],
           [
             "caller",
@@ -1201,11 +1184,9 @@
         "review": "founder_approved",
         "approved_on": "2026-10-23",
         "native_review": "needs_native_review",
-        "note": "In-call examples for the SPOKEN REGISTER section (D-778), rewritten 23 Oct 2026 for D-861 to teach punctuation that breathes: a comma after an opener, one idea per sentence, a question mark on every question (often two choices), an occasional exclamation for warmth, and the caller's answer said back before the next question. Written by us, every word in the language's own letters. The founder approved the approach and asked for them on calls (23 Oct 2026); the wording NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style.",
+        "note": "In-call examples for the SPOKEN REGISTER section (D-778), rewritten 23 Oct 2026 for D-861 to teach punctuation that breathes: a comma after an opener, one idea per sentence, a question mark on every question (often two choices), an occasional exclamation for warmth, and the caller's answer said back before the next question. Written by us, every word in the language's own letters. The founder approved the approach and asked for them on calls (23 Oct 2026); the wording NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style. Shop-only exchanges (asking for delivery, taking an item) left out on 5 Nov 2026: this line reaches every business's prompt, and many sell nothing.",
         "exchanges": [
-          [["caller", "मुझे डिलीवरी चाहिए।"], ["agent", "ठीक है जी, डिलीवरी। आपका एरिया कौन सा है?"]],
-          [["caller", "कल हो जाएगा?"], ["agent", "अच्छा जी, कल। सुबह ठीक रहेगा, या शाम को?"]],
-          [["caller", "ठीक है, वही ले लेते हैं।"], ["agent", "बढ़िया जी! आपका नाम बताएँगे?"]]
+          [["caller", "कल हो जाएगा?"], ["agent", "अच्छा जी, कल। सुबह ठीक रहेगा, या शाम को?"]]
         ]
       },
       "candidate_prompt_examples": {
@@ -1302,16 +1283,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "Hi, do you have this in stock?"
-          ],
-          [
             "agent",
             "One moment, let me check."
-          ],
-          [
-            "agent",
-            "Yes, we have it. How much would you need?"
           ],
           [
             "caller",
@@ -1483,11 +1456,9 @@
         "review": "founder_approved",
         "approved_on": "2026-10-23",
         "native_review": "needs_native_review",
-        "note": "In-call examples for the SPOKEN REGISTER section (D-778), rewritten 23 Oct 2026 for D-861 to teach punctuation that breathes: a comma after an opener, one idea per sentence, a question mark on every question (often two choices), an occasional exclamation for warmth, and the caller's answer said back before the next question. Written by us, every word in the language's own letters. The founder approved the approach and asked for them on calls (23 Oct 2026); the wording NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style.",
+        "note": "In-call examples for the SPOKEN REGISTER section (D-778), rewritten 23 Oct 2026 for D-861 to teach punctuation that breathes: a comma after an opener, one idea per sentence, a question mark on every question (often two choices), an occasional exclamation for warmth, and the caller's answer said back before the next question. Written by us, every word in the language's own letters. The founder approved the approach and asked for them on calls (23 Oct 2026); the wording NEEDS NATIVE-SPEAKER REVIEW. Introduced as how a turn sounds, never words to copy, and carrying no fact. Edited here, not on Ops > Spoken style. Shop-only exchanges (asking for delivery, taking an item) left out on 5 Nov 2026: this line reaches every business's prompt, and many sell nothing.",
         "exchanges": [
-          [["caller", "I need it delivered."], ["agent", "Okay, delivery. Which area are you in?"]],
-          [["caller", "Can it be tomorrow?"], ["agent", "Sure, tomorrow. Morning or evening?"]],
-          [["caller", "Okay, I'll take that one."], ["agent", "Great! May I have your name?"]]
+          [["caller", "Can it be tomorrow?"], ["agent", "Sure, tomorrow. Morning or evening?"]]
         ]
       },
       "candidate_prompt_examples": {
@@ -1563,16 +1534,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "ஹலோ, உங்ககிட்ட இது கிடைக்குமா?"
-          ],
-          [
             "agent",
             "ஒரு நிமிஷம்ங்க, பார்த்து சொல்றேன்."
-          ],
-          [
-            "agent",
-            "இருக்குங்க. உங்களுக்கு எவ்வளவு வேணும்?"
           ]
         ]
       },
@@ -1597,16 +1560,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "ಹಲೋ, ನಿಮ್ಮ ಹತ್ರ ಇದು ಸಿಗುತ್ತಾ?"
-          ],
-          [
             "agent",
             "ಒಂದು ನಿಮಿಷ ರೀ, ನೋಡಿ ಹೇಳ್ತೀನಿ."
-          ],
-          [
-            "agent",
-            "ಇದೆ ರೀ. ನಿಮಗೆ ಎಷ್ಟು ಬೇಕು?"
           ]
         ]
       },
@@ -1631,16 +1586,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "ഹലോ, നിങ്ങളുടെ അടുത്ത് ഇത് കിട്ടുമോ?"
-          ],
-          [
             "agent",
             "ഒരു മിനിറ്റ്, നോക്കിയിട്ട് പറയാം."
-          ],
-          [
-            "agent",
-            "ഉണ്ട്. നിങ്ങൾക്ക് എത്ര വേണം?"
           ]
         ]
       },
@@ -1665,16 +1612,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "हॅलो, तुमच्याकडे हे मिळेल का?"
-          ],
-          [
             "agent",
             "एक मिनिट, बघून सांगतो."
-          ],
-          [
-            "agent",
-            "हो, आहे. तुम्हाला किती पाहिजे?"
           ]
         ]
       },
@@ -1699,16 +1638,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "হ্যালো, আপনাদের কাছে এটা পাওয়া যাবে?"
-          ],
-          [
             "agent",
             "এক মিনিট, দেখে বলছি।"
-          ],
-          [
-            "agent",
-            "হ্যাঁ, আছে। আপনার কতটা লাগবে?"
           ]
         ]
       },
@@ -1729,16 +1660,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "હેલો, તમારી પાસે આ મળશે?"
-          ],
-          [
             "agent",
             "એક મિનિટ, જોઈને કહું છું."
-          ],
-          [
-            "agent",
-            "હા, છે. તમારે કેટલું જોઈએ?"
           ]
         ]
       },
@@ -1759,16 +1682,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "ਹੈਲੋ, ਤੁਹਾਡੇ ਕੋਲ ਇਹ ਮਿਲੇਗਾ?"
-          ],
-          [
             "agent",
             "ਇੱਕ ਮਿੰਟ ਜੀ, ਦੇਖ ਕੇ ਦੱਸਦੇ ਹਾਂ।"
-          ],
-          [
-            "agent",
-            "ਹਾਂ ਜੀ, ਹੈ। ਤੁਹਾਨੂੰ ਕਿੰਨਾ ਚਾਹੀਦਾ?"
           ]
         ]
       },
@@ -1789,16 +1704,8 @@
       "examples": {
         "_default": [
           [
-            "caller",
-            "ହେଲୋ, ଆପଣଙ୍କ ପାଖରେ ଏହା ମିଳିବ କି?"
-          ],
-          [
             "agent",
             "ଗୋଟେ ମିନିଟ୍, ଦେଖି କହୁଛି।"
-          ],
-          [
-            "agent",
-            "ହଁ, ଅଛି। ଆପଣଙ୍କୁ କେତେ ଦରକାର?"
           ]
         ]
       },

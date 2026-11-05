@@ -367,12 +367,13 @@ async def new_test_set(
                 brief.business_type,
                 round_key=round_key,
                 business_name=brief.business_name,
+                fit=brief.fit,
             )
             if wrong.keeps(s)
         ],
         standard=[
             s
-            for s in (standard_scenarios(language, brief.direction) if few_calls else [])
+            for s in (standard_scenarios(language, brief.direction, brief.fit) if few_calls else [])
             if s.probe is None and wrong.keeps(s)
         ],
     )

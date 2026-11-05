@@ -28,6 +28,7 @@ from apps.api.actions.calendar import calendar_configured
 from apps.api.agents import call_handling, field_suggestions, script_builder, voice_tuning
 from apps.api.agents import handoff as handoff_service
 from apps.api.agents import lead_fields as lead_fields_service
+from apps.api.agents.business_fit import business_fit
 from apps.api.agents.capability_manifest import books_visits
 from apps.api.agents.llm_tiers import LLM_TIER_LABELS, tier_of_model
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
@@ -218,11 +219,14 @@ async def _calendar_would_help(
         t.kind == "calendar" and t.enabled and t.trigger == "during_call" for t in tools
     ):
         return False
-    direction = (
-        await session.execute(text("SELECT direction FROM agents WHERE id = :a"), {"a": agent_id})
-    ).scalar()
+    row = (
+        await session.execute(
+            text("SELECT direction, tenant_id FROM agents WHERE id = :a"), {"a": agent_id}
+        )
+    ).first()
+    direction, tenant_id = (str(row[0]), row[1]) if row is not None else ("", None)
     script = upgrade_to_v2((await script_builder.load_agent_script(session, agent_id)).script)
-    return books_visits(str(direction), script)
+    return books_visits(direction, script, await business_fit(session, tenant_id))
 
 
 async def _lead_fields_part(

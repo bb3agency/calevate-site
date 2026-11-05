@@ -40,6 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_builder
+from apps.api.agents.business_fit import business_fit
 from apps.api.agents.capability_manifest import manifest_for, owner_facts
 from apps.api.agents.starter_plans import stored_plans
 from apps.api.agents.starters import JOB_STEP_COUNTS
@@ -591,6 +592,7 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
         step_plans=tuple(
             (await stored_plans(session, tenant_id=tenant_id, shapes=JOB_STEP_COUNTS)).items()
         ),
+        fit=await business_fit(session, tenant_id),
     )
 
 

@@ -42513,6 +42513,48 @@
         "title": "PlaybookOut",
         "type": "object"
       },
+      "PoliciesApplicableOut": {
+        "additionalProperties": false,
+        "description": "Which of the script's `policies` switches apply to this business, keyed as\n`ScriptPolicies` is, so a screen can hide a switch that cannot matter.",
+        "properties": {
+          "offer_call_backs": {
+            "$ref": "#/components/schemas/PolicyFitOut"
+          },
+          "share_prices": {
+            "$ref": "#/components/schemas/PolicyFitOut"
+          },
+          "take_bookings": {
+            "$ref": "#/components/schemas/PolicyFitOut"
+          }
+        },
+        "required": [
+          "offer_call_backs",
+          "share_prices",
+          "take_bookings"
+        ],
+        "title": "PoliciesApplicableOut",
+        "type": "object"
+      },
+      "PolicyFitOut": {
+        "additionalProperties": false,
+        "description": "Whether one \"What it may do\" switch applies to this business at all.",
+        "properties": {
+          "applies": {
+            "title": "Applies",
+            "type": "boolean"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "applies"
+        ],
+        "title": "PolicyFitOut",
+        "type": "object"
+      },
       "PreferenceScrubIn": {
         "additionalProperties": false,
         "description": "One scrub, as an access provider's DLT platform reported it.\n\n`submitted_count` is deliberately NOT a field. The count that matters is how many\ncontacts were pending when the run was recorded, and that is something we can read\nrather than something an operator can mistype \u2014 see `record_scrub_run`.",
@@ -49288,6 +49330,9 @@
           "limits": {
             "$ref": "#/components/schemas/ScriptLimitsOut"
           },
+          "policies_applicable": {
+            "$ref": "#/components/schemas/PoliciesApplicableOut"
+          },
           "register_name": {
             "anyOf": [
               {
@@ -49313,7 +49358,8 @@
           "register_name",
           "register_needs_review",
           "business_type",
-          "limits"
+          "limits",
+          "policies_applicable"
         ],
         "title": "ScriptContextOut",
         "type": "object"

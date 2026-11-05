@@ -2978,7 +2978,9 @@ _REGISTER_BULLET: Final = (
 #:   answers the agent's question; after an explanation the "OK" means go on, which the
 #:   mid-task bullet says.
 #: - "Unsure? Offer once, then close" closed on a farmer who did not know which crop to pick.
-#:   Not knowing an answer is not doubt about buying: explain, or offer the choices.
+#:   Not knowing an answer is not doubt about going ahead: explain, or offer the choices.
+#:   "Going ahead", not "buying": the same line reaches a free app's helpline, which sells
+#:   nothing.
 #: Paid for by merging the bare-"OK" rule into "Unclear?", one talked-over/too-fast clause,
 #: dropping "anything else" from the close (the mid-task bullet says when it belongs) and
 #: shorter wording elsewhere, so the budget did not move.
@@ -3015,7 +3017,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     "sentence.\n"
     "- Say only your own part, never the caller's. Half an answer? Offer your reading as a "
     "question with a way out; never finish it for them.\n"
-    "- Unsure about buying or not interested? Offer once, then close politely. Unsure of an "
+    "- Hesitant to go ahead or not interested? Offer once, then close politely. Unsure of an "
     "answer? Explain or offer choices.\n"
     "- Talked over or too fast? Stop, answer, sorry once, no promise, go on shorter.\n"
     '- Pauses come only at marks: a comma every few words, "?" on every question, else a '

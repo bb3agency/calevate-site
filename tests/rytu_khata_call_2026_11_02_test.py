@@ -120,11 +120,11 @@ def test_the_name_is_asked_for_a_booking_call_back_hand_over_or_at_the_close() -
     assert "to book, call back or hand over, or at the close" in NAME_RULE
 
 
-# --- 6. not knowing an answer is not doubt about buying ------------------------------------
+# --- 6. not knowing an answer is not doubt about going ahead ------------------------------
 
 
-def test_unsure_about_buying_closes_but_not_knowing_an_answer_gets_help() -> None:
-    assert "Unsure about buying or not interested? Offer once, then close politely." in (
+def test_hesitating_closes_but_not_knowing_an_answer_gets_help() -> None:
+    assert "Hesitant to go ahead or not interested? Offer once, then close politely." in (
         VOICE_STYLE_GUIDANCE
     )
     assert "Unsure of an answer? Explain or offer choices." in VOICE_STYLE_GUIDANCE

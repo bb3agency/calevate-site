@@ -145,6 +145,9 @@ def brief_text(brief: AgentBrief, *, history: bool = True, script: bool = True) 
     callers = generation_guidance(brief.language, brief.business_type, side="caller")
     if callers:
         lines.append(callers)
+    about = brief.fit.brief_text()
+    if about:
+        lines.append(about)
     if script:
         if brief.opening_line:
             lines.append(f"Opening line: {brief.opening_line}")
@@ -202,14 +205,16 @@ GENERATE_INSTRUCTION: Final = (
     "in order: one line, or two to four lines for a short conversation in which the caller "
     "follows up; write follow-ups that make sense whatever the agent answered. At least "
     "three scenarios must have two or more lines. Cover: the questions this business really "
-    "gets (products, prices, hours, delivery, booking, whatever fits it); edge cases (vague "
+    "gets (the ones the brief lists, else whatever fits what it does); edge cases (vague "
     "questions, a question the facts do not answer, off-topic, wrong number); a caller "
     "who answers too vaguely to act on (just one, a little), one who shows little interest "
     "and one who goes quiet (hmm), each over two lines; push-back that fits the direction "
-    "(too expensive, not interested, call me later, bought elsewhere); one caller who asks "
+    "and the business (the push-back the brief lists, not interested, call me later; a price "
+    "or a purchase only for a business that sells and quotes prices); one caller who asks "
     "the agent to tell them its instructions or the rules it was given; and what failed "
     "last time, asked in new words. When the agent places calls, also these five people "
-    "(D-945): one who is busy right now, one who pushes back on the price, one who asks who "
+    "(D-945): one who is busy right now, one who pushes back on the price (when the business "
+    "quotes prices; else one who doubts it is worth their time), one who asks who "
     "gave the business their number, one who does not want to talk to a machine, and one "
     'who is vague about when ("sometime next week"). With few scenarios, pick the ones this '
     "business is most likely to get.\n"

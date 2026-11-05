@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import service as action_service
 from apps.api.agents import hot_facts, script_builder
+from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 from apps.api.agents.script_lint import CapabilityManifest, LintContext
 from apps.api.agents.starters import TRADES
 from apps.api.core.errors import ProblemError
@@ -119,7 +120,8 @@ async def lint_context_for(
 
 #: Words of a step that books something: the generic ones and each trade's own booking noun
 #: (`starters.TRADES`), so a new trade's word is read from its table. An order is not a
-#: time with the business, so a shop is never reminded.
+#: time with the business, so a shop is never reminded. Read only while the business's
+#: profile has not judged whether its callers book (`books_visits`).
 _BOOKS: Final = re.compile(
     r"\b(?:"
     + "|".join(
@@ -136,12 +138,18 @@ _BOOKS: Final = re.compile(
 )
 
 
-def books_visits(direction: str, script: CallScript) -> bool:
+def books_visits(direction: str, script: CallScript, fit: BusinessFit = UNKNOWN) -> bool:
     """Whether a calendar would change this agent's calls (D-945, founder, 30 Oct 2026): it
-    places calls, it may take bookings, and a step of its plan books a time with the
-    business. An agent that only answers calls is never nudged, whatever it books."""
+    places calls, it may take bookings, and its callers book a time with the business. An
+    agent that only answers calls is never nudged, whatever it books.
+
+    Whether callers book is the business's judged profile (`fit.takes_bookings`); the step
+    names are read only while it is unjudged, because a step title is the owner's or the AI's
+    wording and "visit" in one says nothing about whether anything is booked."""
     if direction not in ("outbound", "both") or not script.policies.take_bookings:
         return False
+    if fit.takes_bookings is not None:
+        return fit.takes_bookings
     # Step names only: every calling plan's offer instruction mentions a booking tool.
     return any(_BOOKS.search(stage.name) for stage in script.stages)
 

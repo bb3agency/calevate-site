@@ -58,6 +58,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle, roster, script_builder, script_proposals, starters
+from apps.api.agents.business_fit import business_fit
 from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 
 # The languages the product sells, imported rather than respelled. `OfferedLanguage` and
@@ -234,6 +235,7 @@ async def list_starters(
         session, tenant_id=principal.tenant_id, vertical=None if org[1] is None else str(org[1])
     )
     jobs = starters.STARTER_JOBS if job is None else (job,)
+    fit = await business_fit(session, principal.tenant_id)
     plans = await stored_plans(
         session, tenant_id=principal.tenant_id, shapes=starters.JOB_STEP_COUNTS
     )
@@ -249,7 +251,7 @@ async def list_starters(
                 steps_written=each.job in plans,
                 captured_details=labels,
             )
-            for each in (starters.starter_for(vertical, j) for j in jobs)
+            for each in (starters.starter_for(vertical, j, fit) for j in jobs)
         ],
     )
 
