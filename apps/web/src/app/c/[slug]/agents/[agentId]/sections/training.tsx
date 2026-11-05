@@ -45,7 +45,7 @@ import { PRACTICE_CALLERS_ANCHOR } from "@/lib/copilot/handoff";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { asText } from "@/lib/copilot/types";
 
-import { TeachBox } from "../../../knowledge/TeachBox";
+import { AddArea } from "../../../knowledge/AddArea";
 import { countsOf, lastRunLine } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
 import { KnownFactsPanel } from "./knownFacts";
@@ -205,7 +205,7 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
           <BookOpen aria-hidden className="h-4 w-4" />
           Open What your agents know
         </Link>
-        <TeachBox allowed={teach.allowed} reason={teach.reason} headingLevel={3} />
+        <AddArea allowed={teach.allowed} reason={teach.reason} headingLevel={3} />
       </div>
     </Disclosure>
   );

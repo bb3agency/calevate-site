@@ -300,22 +300,22 @@ describe("the teach box with too little in it", () => {
 
   it("says what is missing, sends nothing, and puts focus on the box", async () => {
     const page = await renderKnowledge();
-    fireEvent.click(await screen.findByRole("radio", { name: "Something else" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Type or say it" }));
     const box = (await screen.findByLabelText(
       "What should your agents know?",
     )) as HTMLTextAreaElement;
     await waitFor(() =>
       expect(
-        (screen.getByRole("button", { name: /^Let Pip teach it$/ }) as HTMLButtonElement).disabled,
+        (screen.getByRole("button", { name: /^Teach this$/ }) as HTMLButtonElement).disabled,
       ).toBe(false),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Let Pip teach it$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Teach this$/ }));
     expect(await screen.findByText("Write what your agents should know.")).toBeTruthy();
     expect(document.activeElement).toBe(box);
 
     fireEvent.change(box, { target: { value: "ab" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Let Pip teach it$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Teach this$/ }));
     expect(await screen.findByText("Use at least 3 characters.")).toBeTruthy();
     expect(page.calls.some((c) => c.method === "POST")).toBe(false);
   });

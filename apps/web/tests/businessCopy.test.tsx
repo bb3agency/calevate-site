@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { BusinessCopySection, REFRESH_REQUEST, lastRefreshed } from "@/app/c/[slug]/settings/business/BusinessCopySection";
-import { TeachBox } from "@/app/c/[slug]/knowledge/TeachBox";
+import { TeachBox, exampleSentences } from "@/app/c/[slug]/knowledge/TeachBox";
 import { costLine, writtenLine } from "@/app/admin/tenants/[tenantId]/BusinessCopyPanel";
 import type { AdminBusinessCopy, BusinessCopy, GeneratedPlaceholders } from "@/lib/api/businessCopy";
 import { useClientSession } from "@/lib/api/session";
@@ -99,27 +99,56 @@ describe("the teach box's example is the account's own", () => {
   const teachBox = () => screen.getByRole("textbox", { name: "What should your agents know?" });
   const TEACH_READS = { "/v1/me": OWNER_ME, "/v1/kb/teach/open": { teaching: null } };
 
-  it("shows the business's example once its copy lands", async () => {
-    const realEstate: BusinessCopy = {
-      ...LANDED,
-      placeholders: {
-        ...PLACEHOLDERS,
-        teach_note: "Villa plots in Shadnagar start at 45 lakh. Site visits on weekends. Never promise a loan.",
-      },
-    };
+  const realEstate: BusinessCopy = {
+    ...LANDED,
+    placeholders: {
+      ...PLACEHOLDERS,
+      teach_note: "Villa plots in Shadnagar start at 45 lakh. Site visits on weekends. Never promise a loan.",
+    },
+  };
+
+  it("offers the business's own example as sentences to tap, each written into the box", async () => {
     await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": realEstate });
-    await screen.findByRole("textbox", { name: "What should your agents know?" });
-    expect(teachBox().getAttribute("placeholder")).toBe(
-      "For example: Villa plots in Shadnagar start at 45 lakh. Site visits on weekends. Never promise a loan.",
-    );
+    const examples = await screen.findByRole("list", { name: "Tap an example to start" });
+    expect(Array.from(examples.querySelectorAll("button")).map((b) => b.textContent)).toEqual([
+      "Villa plots in Shadnagar start at 45 lakh.",
+      "Site visits on weekends.",
+      "Never promise a loan.",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Villa plots in Shadnagar start at 45 lakh." }));
+    fireEvent.click(screen.getByRole("button", { name: "Never promise a loan." }));
+    expect((teachBox() as HTMLTextAreaElement).value).toBe("Villa plots in Shadnagar start at 45 lakh. Never promise a loan.");
   });
 
-  it("falls back to the neutral example, never a grocery one, for a copy written before the key existed", async () => {
-    await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": LANDED });
+  it("never puts the example in the box's placeholder, so nothing reads as already filled in", async () => {
+    await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": realEstate });
     await screen.findByRole("textbox", { name: "What should your agents know?" });
-    const shown = teachBox().getAttribute("placeholder") ?? "";
-    expect(shown).toBe(`For example: ${examplesFor(null).teachNote}`);
-    expect(shown).not.toMatch(/chilli|deliver/i);
+    const placeholder = teachBox().getAttribute("placeholder") ?? "";
+    expect(placeholder).not.toMatch(/Shadnagar|For example/);
+    // The box's own hint is ours, in English: no script outside Latin.
+    expect(placeholder).toMatch(/^[\x20-\x7E…]+$/);
+  });
+
+  it("offers sentence starters, never the sample price, before the business's own example exists", async () => {
+    await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": LANDED });
+    const examples = await screen.findByRole("list", { name: "Start with" });
+    const shown = examples.textContent ?? "";
+    expect(shown).not.toContain(examplesFor(null).teachNote.split(".")[0]);
+    expect(shown).not.toMatch(/₹|chilli/i);
+    fireEvent.click(screen.getByRole("button", { name: "Our prices:" }));
+    expect((teachBox() as HTMLTextAreaElement).value).toBe("Our prices: ");
+  });
+
+  it("names what happens next and labels the action by it", async () => {
+    await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": LANDED });
+    expect(await screen.findByRole("button", { name: "Teach this" })).toBeTruthy();
+    expect(screen.getByText("Pip sorts it into facts and rules. You check each one before it is saved.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Let Pip/ })).toBeNull();
+  });
+
+  it("splits an example on Devanagari full stops too", () => {
+    expect(exampleSentences("एक। दो। तीन। चार।")).toEqual(["एक।", "दो।", "तीन।"]);
+    expect(exampleSentences(null)).toEqual([]);
   });
 
   it("is the same neutral example for every trade until the copy lands", () => {
