@@ -167,7 +167,8 @@ function personHref(slug: string, group: CallGroup): string {
 /**
  * WHO WAS ON THE CALL, HOW CALLS ENDED, WHICH AGENT TOOK THEM: every call in the period counted per
  * group by the server (`/v1/analytics/call-groups`), never from the page of calls a list
- * happens to hold. Test calls are left out: they are the owner ringing their own agent.
+ * happens to hold. It follows the page's "Include your own test calls" switch through `range`, like
+ * every other panel on the page (L3-16).
  */
 export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
   const session = useClientSession();
@@ -177,7 +178,6 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
   const minCalls = by === "caller" && repeatOnly ? 2 : 1;
   const groups = useCallGroups(session, {
     ...range,
-    testCalls: false,
     by,
     minCalls,
     limit: GROUP_LIMIT,
@@ -214,7 +214,7 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
   return (
     <Section
       title={COPY.groupsTitle}
-      description={COPY.groupsNote}
+      description={range.testCalls === false ? COPY.groupsNote : undefined}
       action={
         <SegmentedControl
           label={COPY.groupsCountBy}

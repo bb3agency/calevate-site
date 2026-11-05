@@ -288,8 +288,8 @@ class AgentStatsOut(BaseModel):
     #: NO DEFAULT, deliberately: a field with one is `outcomes?:` in the generated client,
     #: and every screen then guards a value the server always sends.
     outcomes: dict[str, int]
-    #: LAST ACTIVE. The end of this agent's most recent call, falling back to when the call
-    #: started and then to when we filed it — a queued dial that never rang still says the
+    #: LAST ACTIVE. When this agent's most recent call started (as every call list shows it),
+    #: falling back to when we filed it — a queued dial that never rang still says the
     #: agent was used. NULL means it has never taken a call.
     last_call_at: datetime | None
 
@@ -330,7 +330,9 @@ async def agent_stats(
                 "count(c.id) FILTER (WHERE c.direction = 'inbound'), "
                 "count(c.id) FILTER (WHERE c.direction = 'outbound'), "
                 "count(c.id) FILTER (WHERE c.status = 'completed'), "
-                "max(coalesce(c.ended_at, c.started_at, c.created_at)) "
+                # When the call STARTED, as every call list shows it (L3-18): the end time
+                # put the same call two minutes apart on one screen.
+                "max(coalesce(c.started_at, c.created_at)) "
                 "FROM agents a LEFT JOIN calls c ON c.agent_id = a.id "
                 "WHERE a.deleted_at IS NULL "
                 "GROUP BY a.id, a.status, a.created_at "

@@ -71,7 +71,13 @@ export function CallingCreditTile({
     );
   }
 
-  const state = walletState(wallet.data);
+  // The status word comes from the same fact as the headline (L3-15): a wallet whose
+  // minutes read "No minutes left" is never called healthy, whatever its rupee balance.
+  const tiers = wallet.data.minutes_left;
+  const minutes = Array.isArray(tiers) ? tiers.map((tier) => tier.minutes) : [];
+  const noMinutes = minutes.length > 0 && Math.max(...minutes) === 0;
+  const walletNow = walletState(wallet.data);
+  const state = noMinutes && walletNow === "healthy" ? "low" : walletNow;
   if (state === "not-prepaid") return null;
   const trial = activeTrial(wallet.data);
 

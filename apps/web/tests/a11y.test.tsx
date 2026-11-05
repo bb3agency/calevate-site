@@ -1299,7 +1299,7 @@ function performanceAnalytics(): Routes {
       spent_inr: "1240.50",
       spend_withheld: null,
     },
-    [`/v1/analytics/call-groups?days=30&to=${todayIST()}&test_calls=false&by=caller&min_calls=2&limit=25`]: {
+    [`/v1/analytics/call-groups?days=30&to=${todayIST()}&test_calls=true&by=caller&min_calls=2&limit=25`]: {
       window: ANALYTICS_WINDOW,
       by: "caller",
       calls: 12,

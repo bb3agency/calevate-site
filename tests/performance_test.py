@@ -50,7 +50,8 @@ async def _call(
                 "VALUES (:i, :t, :a, :e, :dir, '+919876500001', :st, :dur, :out, :lead, "
                 # started_at is stored UTC; the IST hour the test asks for is 5:30 ahead.
                 "  CASE WHEN :h IS NULL THEN NULL ELSE "
-                "    date_trunc('day', now()) + make_interval(hours => :h) "
+                "    date_trunc('day', now() - make_interval(days => :ago)) "
+                "      + make_interval(hours => :h) "
                 "      - interval '5 hours 30 minutes' END, "
                 "now() - make_interval(days => :ago), now())"
             ),

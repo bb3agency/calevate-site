@@ -4,7 +4,7 @@ import { DataTable, type DataColumn } from "@/components/console/dataTable";
 import { EmptyState } from "@/components/console/emptyState";
 import { Metric } from "@/components/console/metric";
 import { Section } from "@/components/console/section";
-import { ProblemNotice, Skeleton, formatCount } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatDuration } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import {
   ALL_LANGUAGES,
@@ -15,18 +15,13 @@ import {
   type WeekSpeed,
 } from "@/lib/api/proof";
 
+import { istDayLabel } from "../analyticsFigures";
+
 const WEEKS = 4;
 
-/** "2026-10-26" → "26 Oct", read in UTC so the day is the one the string names. */
-function weekLabel(date: string): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (match === null) return date;
-  const at = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  return at.toLocaleDateString("en-IN", { timeZone: "UTC", day: "numeric", month: "short" });
-}
 
 const COLUMNS: DataColumn<WeekSpeed>[] = [
-  { id: "week", header: "Week of", cell: (row) => weekLabel(row.week_start) },
+  { id: "week", header: "Week of", cell: (row) => istDayLabel(row.week_start) },
   {
     id: "calls",
     header: "Calls",
@@ -57,7 +52,7 @@ const COLUMNS: DataColumn<WeekSpeed>[] = [
     header: "Average call",
     align: "right",
     hideBelow: "md",
-    cell: (row) => (row.average_call_s == null ? "None" : `${Math.round(row.average_call_s)} s`),
+    cell: (row) => (row.average_call_s == null ? "None" : formatDuration(Math.round(row.average_call_s))),
   },
 ];
 
@@ -74,9 +69,11 @@ export function ReplySpeed({ session }: { session: Session }) {
   return (
     <Section
       title="How fast your agent answered"
+      description="Last 4 weeks, not the dates above"
       info={
         <p>
-          From the caller stopping to the agent&apos;s first word. Usual: a typical call.
+          The last four weeks, whatever dates are chosen above. From the caller stopping to
+          the agent&apos;s first word. Usual: a typical call.
           Slow: the slowest call in ten, once enough are timed. Test calls left out.
         </p>
       }
@@ -112,7 +109,7 @@ function ReplySpeedBody({ weeks }: { weeks: WeekSpeed[] }) {
         <Metric
           label="Slow wait this week"
           value={secondsText(current.reply_slow_ms) ?? "Too few calls"}
-          hint="1 call in 10 waited longer"
+          hint={current.reply_slow_ms == null ? undefined : "1 call in 10 waited longer"}
         />
         <Metric
           label="Answered"
@@ -121,7 +118,7 @@ function ReplySpeedBody({ weeks }: { weeks: WeekSpeed[] }) {
         />
         <Metric
           label="Average call"
-          value={current.average_call_s == null ? "None" : `${Math.round(current.average_call_s)} s`}
+          value={current.average_call_s == null ? "None" : formatDuration(Math.round(current.average_call_s))}
         />
       </div>
       {languages.length > 1 && (

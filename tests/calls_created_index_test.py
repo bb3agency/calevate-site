@@ -73,7 +73,9 @@ async def test_the_reads_by_creation_time_use_the_index() -> None:
     captured: list[tuple[str, Any]] = []
 
     def capture(_conn: Any, _cursor: Any, statement: str, params: Any, *_rest: Any) -> None:
-        if "FROM calls" in statement and "created_at >" in statement:
+        if "FROM calls" in statement and (
+            "created_at >" in statement or "started_at >=" in statement
+        ):
             captured.append((statement, params))
 
     sync_engine = get_engine().sync_engine
@@ -100,5 +102,7 @@ async def test_the_reads_by_creation_time_use_the_index() -> None:
             # The qualified-leads count is driven from `leads`, so the planner may reach the
             # calls through `ix_calls_lead_id` (one lookup per lead) instead of the time index;
             # both are index reads. Every other statement starts from `calls` by time.
-            served = (INDEX, "ix_calls_lead_id") if "FROM leads" in statement else (INDEX,)
+            # The Performance tab windows by `started_at` (L3-20), served by its own index.
+            by_time = (INDEX, "ix_calls_tenant_started")
+            served = (*by_time, "ix_calls_lead_id") if "FROM leads" in statement else by_time
             assert any(name in shown for name in served), f"{statement}\n{shown}"

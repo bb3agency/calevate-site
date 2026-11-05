@@ -9,6 +9,7 @@ import { HOME } from "@/app/c/[slug]/_ui/copy";
 import type { Stats } from "@/lib/api/analytics";
 import { UNKNOWN_CAPABILITIES } from "@/lib/businessCapabilities";
 import { OUTCOME_KIND_WORDS } from "@/lib/callReview";
+import { clockRange, clockWords } from "@/lib/clock";
 import { GOAL_STAGE, stageLabel } from "@/lib/goalStage";
 
 const metric = (key: Stats["metrics"][number]["key"], value: string) => ({
@@ -73,6 +74,12 @@ describe("the business's own words (E-HOT, founder 5 Nov 2026)", () => {
 
   it("samples a column every business has, not a booking (L3-22)", () => {
     expect(SAMPLE_CSV.split("\r\n")[0]).toBe("phone,name,preferred_time");
+  });
+
+  it("says a calling window the way every other screen does (L3-23)", () => {
+    expect(clockRange("09:00", "21:00")).toBe("9am to 9pm");
+    expect(clockWords("13:30")).toBe("1:30pm");
+    expect(clockWords("00:00")).toBe("12am");
   });
 
   it("names the Needs you queue item (L3-03)", () => {

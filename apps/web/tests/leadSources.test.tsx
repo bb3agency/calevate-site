@@ -1049,15 +1049,16 @@ describe("who calls a source's new leads", () => {
         }),
       ),
     });
-    await screen.findAllByText("Saved, not called");
+    // A receiving source that nobody calls says so in words (L3-13).
+    await screen.findAllByText("Leads arrive but nobody calls them");
     const links = screen.getAllByRole("link", { name: /^Turn on: who calls leads from/ });
     expect(links[0]?.getAttribute("href")).toContain(`/follow-ups/${FOLLOW_UP_ID}`);
   });
 
   it("asks for an agent when nobody can call", async () => {
     await renderPage({ [SOURCES_PATH]: sourceList(leadSource()) });
-    await screen.findAllByText("Nobody yet");
-    const links = screen.getAllByRole("link", { name: /^Choose: who calls leads from/ });
+    await screen.findAllByText("Leads arrive but nobody calls them");
+    const links = screen.getAllByRole("link", { name: /^Choose an agent: who calls leads from/ });
     expect(links[0]?.getAttribute("href")).toMatch(/\/follow-ups$/);
   });
 });

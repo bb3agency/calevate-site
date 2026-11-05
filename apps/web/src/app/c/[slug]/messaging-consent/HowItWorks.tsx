@@ -24,7 +24,7 @@ export function HowItWorks() {
   return (
     <div className="border-t border-line">
     <p className="pt-3 text-meta text-ink-muted">
-      Opt-ins last {CONSENT_VALIDITY_DAYS} days. Your evidence, not a DLT record.
+      Opt-ins last {CONSENT_VALIDITY_DAYS} days. This is your own record of who agreed.
     </p>
     <Disclosure variant="inline" headingLevel={2} title="How this record works">
       <ul className="max-w-3xl space-y-2.5 text-meta leading-relaxed text-ink-muted">
@@ -55,7 +55,7 @@ export function HowItWorks() {
             is captured here is OUR evidence. Saying so is not a disclaimer: a client
             who believes this screen produces registrar-grade consent will use it to
             answer a regulator, and that is the sentence they will be answering with. */}
-        <Rule title="This is your evidence, not a DLT record.">
+        <Rule title="This is your evidence, not the official consent record.">
           It is what you would produce if a number is challenged — who agreed, when,
           and on what. It is not the consent recorded on{" "}
           <Term id="dlt" />, which

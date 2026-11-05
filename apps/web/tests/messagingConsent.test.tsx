@@ -215,7 +215,7 @@ describe("messaging consent is not consent to be called", () => {
 
     await screen.findByText("How this record works");
     expect(container.textContent).toContain(
-      "This is your evidence, not a DLT record.",
+      "This is your evidence, not the official consent record.",
     );
   });
 });

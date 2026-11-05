@@ -24,6 +24,7 @@ import {
 import type { Agent } from "@/lib/api/agents";
 import type { LeadCalling, LeadCallingInput } from "@/lib/api/leadCalling";
 import { useClientRealm } from "@/lib/api/session";
+import { clockRange, clockWords } from "@/lib/clock";
 
 type Plan = LeadCallingInput;
 type Weekday = NonNullable<Plan["days"]>[number];
@@ -78,7 +79,7 @@ function problemOf(plan: Plan, windowStart: string, windowEnd: string): string |
   const end = plan.hours_end ?? "";
   if (!start || !end) return "Enter both times.";
   if (start < windowStart || end > windowEnd) {
-    return `Use times between ${windowStart} and ${windowEnd}.`;
+    return `Use times between ${clockWords(windowStart)} and ${clockWords(windowEnd)}.`;
   }
   if (start >= end) return "The end time must be after the start time.";
   return null;
@@ -86,7 +87,7 @@ function problemOf(plan: Plan, windowStart: string, windowEnd: string): string |
 
 /**
  * One part of the plan as a folded row whose closed face says what it is set to
- * ("When to call · Straight away · 09:00–19:00"). Five open groups made this card the whole
+ * ("When to call · Straight away · 9am to 7pm"). Five open groups made this card the whole
  * phone screen, burying the lead sources under it (critique-information-density:
  * progressive disclosure). Native `<details>`, so every field stays mounted and a
  * half-made change survives folding.
@@ -216,7 +217,7 @@ export function CallingPlan({
         <div className="-mx-1 divide-y divide-line rounded-card border border-line">
         <Group
           title="When to call"
-          status={`${draft.hours_start ?? ""}–${draft.hours_end ?? ""}`}
+          status={clockRange(draft.hours_start ?? "", draft.hours_end ?? "")}
           hint="Which agent calls, the wait and the tries are in Follow-ups."
           open={problem !== null}
         >
@@ -254,7 +255,7 @@ export function CallingPlan({
               />
             </div>
             <span id="calling-hours-hint" className={problem ? "mt-1 block text-xs text-danger" : FIELD_HINT}>
-              {problem ?? `Between ${windowStart} and ${windowEnd} only.`}
+              {problem ?? `Between ${clockWords(windowStart)} and ${clockWords(windowEnd)} only.`}
             </span>
           </div>
 

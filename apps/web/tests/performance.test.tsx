@@ -51,7 +51,7 @@ const PATHS = {
   timeline: `/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=true`,
   performance: `/v1/performance?days=30&to=${TODAY}`,
   summary: `/v1/analytics/summary?${Q}&bucket=week`,
-  groups: `/v1/analytics/call-groups?days=30&to=${TODAY}&test_calls=false&by=caller&min_calls=2&limit=25`,
+  groups: `/v1/analytics/call-groups?days=30&to=${TODAY}&test_calls=true&by=caller&min_calls=2&limit=25`,
 };
 
 function summary(over: Partial<Summary> = {}): Summary {
@@ -245,6 +245,7 @@ describe("the performance report", () => {
         [`/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=false`]: timeline(),
         [`/v1/performance?days=30&to=${TODAY}&test_calls=false`]: performance(),
         [`/v1/analytics/summary?${without}&bucket=week`]: summary(),
+        [`/v1/analytics/call-groups?${without}&by=caller&min_calls=2&limit=25`]: groups(),
       }),
     );
     const toggle = await screen.findByRole("switch", { name: "Include my test calls" });
@@ -253,6 +254,12 @@ describe("the performance report", () => {
     // The funnel and outcomes leave them out too.
     await waitFor(() =>
       expect(calls.some((call) => call.path === `/v1/performance?days=30&to=${TODAY}&test_calls=false`)).toBe(true),
+    );
+    // …and so does "Who was on the call" (L3-16): one switch, every panel.
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.path === `/v1/analytics/call-groups?${without}&by=caller&min_calls=2&limit=25`),
+      ).toBe(true),
     );
   });
 

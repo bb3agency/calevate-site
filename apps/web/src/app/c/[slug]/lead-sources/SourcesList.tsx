@@ -41,10 +41,10 @@ function CalledBy({ source }: { source: LeadSource }) {
     ? `/c/${session.orgSlug}/follow-ups/${caller.follow_up_id}`
     : `/c/${session.orgSlug}/follow-ups`;
   const [line, action] = !caller.called
-    ? ["Saved, not called", "Turn on"]
+    ? [source.active ? "Leads arrive but nobody calls them" : "Saved, not called", "Turn on"]
     : caller.agent_name
       ? [caller.agent_name, "Change"]
-      : ["Nobody yet", "Choose"];
+      : [source.active ? "Leads arrive but nobody calls them" : "Nobody yet", "Choose an agent"];
   return (
     <div className="min-w-0">
       <p className={`text-body [overflow-wrap:anywhere] ${caller.called && caller.agent_name ? "text-ink" : "text-warn"}`}>
@@ -137,11 +137,16 @@ export function SourcesList({
         <IconTile service={sourceLogo(row.source)} icon={Webhook} />
         <div className="min-w-0">
           <p className="text-body font-medium text-ink">{sourceLabel(row.source)}</p>
-          <p className="text-meta text-ink-faint">
-            <MonoValue>{row.id.slice(-8)}</MonoValue>
-            {/* The fingerprint, never the secret: enough to tell which key we hold. */}
-            {" · "}key ···{row.secret_fingerprint}
-          </p>
+          {/* L3-13: the source id and key fingerprint are for whoever wires the form or
+              the CRM, so they wait behind "Details" rather than sit in every row. */}
+          <details className="text-meta text-ink-faint">
+            <summary className="w-fit cursor-pointer select-none hover:text-ink-muted">Details</summary>
+            <p>
+              Source <MonoValue>{row.id.slice(-8)}</MonoValue>
+              {/* The fingerprint, never the secret: enough to tell which key we hold. */}
+              {" · "}key ···{row.secret_fingerprint}
+            </p>
+          </details>
           {row.previous_secret_expires_at && (
             <p className="mt-0.5 text-meta text-warn">
               Old secret works until {formatIST(row.previous_secret_expires_at)}

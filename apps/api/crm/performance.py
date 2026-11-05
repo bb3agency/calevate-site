@@ -80,10 +80,11 @@ OUTCOME_SOURCE_SQL: Final = (
 #: call never tagged.
 _PLATFORM_OUTCOME: Final = "COALESCE(c.outcome_tag, c.status)"
 
-#: The calls the panel covers. `:until` NULL is "up to now"; `:test` False leaves out
+#: The calls the panel covers, by when they started, as the stats band and the dashboard
+#: window them (L3-20). `:until` NULL is "up to now"; `:test` False leaves out
 #: free-trial and paid test calls (D-697, D-859), the owner ringing their own agent.
 _CALLS_IN_WINDOW = (
-    "created_at >= :since AND (CAST(:until AS timestamptz) IS NULL OR created_at < :until) "
+    "started_at >= :since AND (CAST(:until AS timestamptz) IS NULL OR started_at < :until) "
     "AND (CAST(:test AS boolean) OR NOT (trial_call OR paid_test_call))"
 )
 
@@ -129,7 +130,7 @@ async def performance(
             text(
                 f"SELECT count(*) FROM {BECAME_LEADS_SQL} AS l "
                 # `IN`, not a correlated EXISTS: `calls` has no `lead_id` index, so the
-                # window's calls are read once through `ix_calls_tenant_created`.
+                # window's calls are read once through `ix_calls_tenant_started`.
                 "WHERE l.id IN (SELECT lead_id FROM calls "
                 f"  WHERE {CONNECTED_SQL} AND {_CALLS_IN_WINDOW})"
             ),

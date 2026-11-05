@@ -850,6 +850,24 @@ describe("the calling credit tile", () => {
     expect(tile?.textContent).not.toContain("still get through");
   });
 
+  it("never calls a wallet with no minutes left healthy (L3-15)", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/billing/wallet": wallet({
+          balance_inr: "5000.00",
+          is_low: false,
+          outbound_stopped: false,
+          minutes_left: [{ voice_tier: "clear", label: "Clear", minutes: 0 }],
+        }),
+      }),
+    );
+    const tile = (await screen.findByText("Calling credit left")).parentElement;
+    expect(tile?.textContent).toContain("No minutes left");
+    expect(tile?.textContent).not.toContain("Healthy");
+    expect(tile?.textContent).toContain("Running low");
+  });
+
   it("shows an invoiced account no balance at all", async () => {
     const { container } = await renderClientPage(
       page,

@@ -20,7 +20,8 @@ import { PERFORMANCE_COPY as COPY, funnelTitle } from "./copy";
 /** What each panel's figures mean, behind the panel's ⓘ. */
 export const FUNNEL_NOTE =
   "Answered means someone picked up, even if they hung up early — not voicemail or a missed call. " +
-  "Interested counts people, not calls: three calls to the same person count once.";
+  "Showed interest counts people reached in these dates who are now leads, once each. " +
+  "New leads above counts people who became a lead in these dates, so the two can differ.";
 export const OUTCOMES_NOTE =
   "The tag your agent recorded, or how the call ended when it recorded none.";
 export const HEATMAP_NOTE =
@@ -49,7 +50,7 @@ export function Funnel({ funnel, period }: { funnel: Performance["funnel"]; peri
   const stages = [
     { label: "Calls", count: funnel.calls },
     { label: "Answered", count: funnel.connected },
-    { label: "Interested", count: funnel.qualified },
+    { label: "Showed interest", count: funnel.qualified },
   ];
   return (
     <BarChart
