@@ -42,6 +42,7 @@ from apps.api.billing.engine_minutes import (
     EngineMinutePrice,
     attest_engine_minute_price,
     attested_minute_prices,
+    billed_step_seconds,
     client_rungs,
     cost_with_fee,
 )
@@ -98,6 +99,9 @@ class EngineMinutePriceOut(BaseModel):
     source_note: str | None
     #: Whether a minute on this rate may be sold (hard rule 7's one door).
     billable: bool
+    #: The step the platform bills a call on this rate in, in seconds
+    #: (`engine_minutes.billed_step_seconds`), so the panel states it rather than a copy.
+    billed_in_seconds: int
     #: The client price rung a minute on this rate is sold on ("Clear"), or null when no
     #: client is sold this rate (on ThinnestAI only the band `thinnest_clear_voice_band` names,
     #: Studio by default, and our own-key voice minutes are sold, D-688, D-792; the platform
@@ -197,6 +201,7 @@ def _row(
         attested_at=price.attested_at.isoformat() if price else None,
         source_note=price.source_note if price else None,
         billable=price is not None,
+        billed_in_seconds=billed_step_seconds(engine, rate_key),
         sold_as=_sold_as(engine, rate_key),
     )
 

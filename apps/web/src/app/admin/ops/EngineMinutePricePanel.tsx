@@ -29,6 +29,7 @@ import {
   type EngineMinutePrices,
 } from "@/lib/api/engineMinutePricing";
 import { providerLabel } from "@/lib/api/llmModels";
+import { stepPhrase } from "@/lib/billingStep";
 import { lookup } from "@/lib/lookup";
 
 type Access = { allowed: boolean; reason: string | null };
@@ -63,6 +64,18 @@ export function saleNote(row: EngineMinutePrice): string {
 export function feeSentence(costs: EngineMinutePrices["costs"]): string {
   const fee = costs.find((cost) => cost.subject === "thinnest_topup_fee");
   return fee?.value ? `${fee.value}%` : "no fee recorded, so every minute is metered unpriced";
+}
+
+/**
+ * "Calls are billed in 30-second steps.", from the step the meter bills each rate in
+ * (`billed_in_seconds`), never a typed number (G8-3). The carrier-only fee has its own
+ * block and is left out; null when the call rates disagree, so no one step is claimed.
+ */
+export function stepSentence(rows: readonly EngineMinutePrice[]): string | null {
+  const steps = new Set(rows.filter((row) => row.rate_key !== "carrier").map((row) => row.billed_in_seconds));
+  if (steps.size !== 1) return null;
+  const [step] = steps;
+  return `Calls are billed ${stepPhrase(step ?? null)}.`;
 }
 
 /** The all-in figure beside a posted rate: what a billed minute is metered at. */
@@ -114,6 +127,7 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
 
   const rows = prices.data ? prices.data.prices : null;
   const fees = prices.data ? feeSentence(prices.data.costs) : null;
+  const steps = rows ? stepSentence(rows) : null;
   const platformUnpriced = Boolean(
     rows?.some((row) => row.rate_key === "platform" && !row.billable),
   );
@@ -124,8 +138,8 @@ export function EngineMinutePricePanel({ access }: { access: Access }) {
         <p className="text-body text-ink-muted">
           For a voice platform that reports no cost for a call: the voice platform&apos;s
           posted rate per billed minute, before its wallet top-up fee — we add the fee
-          {fees ? ` (${fees})` : ""}. Calls are billed in 30-second steps. Type the figure
-          from the platform&apos;s price page or your invoice.
+          {fees ? ` (${fees})` : ""}.{steps ? ` ${steps}` : ""} Type the figure from the
+          platform&apos;s price page or your invoice.
         </p>
 
         {prices.isLoading ? (

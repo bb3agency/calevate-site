@@ -50,7 +50,7 @@ from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm.attention import block_remedy
 from apps.api.crm.captured import captured_fields, unclear_fields, with_known_name
-from apps.api.crm.lead_definition import BECAME_LEADS_SQL, stage_name
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL, REAL_CALL_SQL, stage_name
 from apps.api.crm.lens import (
     CALL_AT,
     CallFilters,
@@ -2853,8 +2853,8 @@ WITH days AS (
 ),
 recent AS (
     SELECT status, {IST_DAY_SQL} AS ist_date
-    FROM calls
-    WHERE started_at >= now() - interval '{DASHBOARD_DAYS + 1} days'
+    FROM calls c
+    WHERE started_at >= now() - interval '{DASHBOARD_DAYS + 1} days' AND {REAL_CALL_SQL}
 )
 SELECT d.ist_date, count(r.status) AS total, {_DAILY_CLASS_COUNTS_SQL}
 FROM days d LEFT JOIN recent r ON r.ist_date = d.ist_date
@@ -2866,6 +2866,10 @@ ORDER BY d.ist_date
 async def dashboard(session: AsyncSession) -> DashboardOut:
     """One round trip per tile would be four round trips; these are cheap aggregates
     over an already tenant-scoped view, and the dashboard polls (D-24).
+
+    **Test calls never count here** (`REAL_CALL_SQL`): the owner ringing their own agent is
+    not business, and the stats band and the lead counts on the same screen leave them out
+    by that same predicate, so a sparkline drawn from these rows matches the figure beside it.
 
     **The after-hours tile prefers the client's own hours.** FLOWS §3 specifies the
     `after_hours` flag as derived from the business's hours (the business profile,
@@ -2937,7 +2941,7 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
                 "  ) AS after_hours, "
                 "  count(*) FILTER (WHERE status = ANY(:connected)) AS connected, "
                 "  count(*) FILTER (WHERE status = ANY(:not_connected)) AS not_connected "
-                "FROM calls WHERE started_at >= :since"
+                f"FROM calls c WHERE started_at >= :since AND {REAL_CALL_SQL}"
             ),
             {
                 "since": since_7d,
@@ -2956,7 +2960,10 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     since_14d = since_7d - timedelta(days=7)
     calls_prev = (
         await session.execute(
-            text("SELECT count(*) FROM calls WHERE started_at >= :start AND started_at < :end"),
+            text(
+                "SELECT count(*) FROM calls c WHERE started_at >= :start AND started_at < :end "
+                f"AND {REAL_CALL_SQL}"
+            ),
             {"start": since_14d, "end": since_7d},
         )
     ).scalar_one()
@@ -2964,8 +2971,8 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     sentiment = (
         await session.execute(
             text(
-                "SELECT sentiment, count(*) FROM calls WHERE sentiment IS NOT NULL "
-                "AND started_at >= :since GROUP BY sentiment"
+                "SELECT sentiment, count(*) FROM calls c WHERE sentiment IS NOT NULL "
+                f"AND started_at >= :since AND {REAL_CALL_SQL} GROUP BY sentiment"
             ),
             {"since": since_7d},
         )
@@ -2973,8 +2980,8 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     outcome = (
         await session.execute(
             text(
-                "SELECT outcome_tag, count(*) FROM calls WHERE outcome_tag IS NOT NULL "
-                "AND started_at >= :since GROUP BY outcome_tag"
+                "SELECT outcome_tag, count(*) FROM calls c WHERE outcome_tag IS NOT NULL "
+                f"AND started_at >= :since AND {REAL_CALL_SQL} GROUP BY outcome_tag"
             ),
             {"since": since_7d},
         )

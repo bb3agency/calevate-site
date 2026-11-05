@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/firstRun";
 import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useClientSession } from "@/lib/api/session";
+import { clockRange } from "@/lib/clock";
 import { quotesPrices, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import {
   DAYS,
@@ -479,7 +480,7 @@ function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (
   );
 }
 
-/** "Mon to Sat, 9:00 am to 6:00 pm", from the open days and the two times. */
+/** "Mon to Sat, 9am to 6pm", from the open days and the two times. */
 export function hoursSummary(hours: HoursAnswer): string {
   const open = DAYS.filter((day) => !hours.closed.includes(day.id));
   if (open.length === 0) return "Closed every day";
@@ -498,15 +499,7 @@ export function hoursSummary(hours: HoursAnswer): string {
             run.length > 2 ? `${run[0]!.label} to ${run.at(-1)!.label}` : run.map((day) => day.label).join(", "),
           )
           .join(", ");
-  return `${days}, ${clock(hours.opens)} to ${clock(hours.closes)}`;
-}
-
-function clock(value: string): string {
-  const [h, m] = value.split(":").map(Number);
-  if (h === undefined || Number.isNaN(h)) return value;
-  const suffix = h >= 12 ? "pm" : "am";
-  const hour = h % 12 === 0 ? 12 : h % 12;
-  return `${hour}:${String(m ?? 0).padStart(2, "0")} ${suffix}`;
+  return `${days}, ${clockRange(hours.opens, hours.closes)}`;
 }
 
 function HoursAnswerField({ answer, onChange }: { answer: DraftAnswer; onChange: (answer: DraftAnswer) => void }) {

@@ -337,7 +337,11 @@ class OpenCallLineRequestOut(BaseModel):
 
 
 #: The bell lists every open request; one per client, so the client count bounds it.
-_DIRECTORY = "SELECT id, name FROM organizations WHERE deleted_at IS NULL ORDER BY created_at"
+_OPEN_REQUEST_SCAN = (
+    "SELECT scanned_tenant_id, lines_at_request, wanted_lines, created_at "
+    "FROM open_call_line_request_scan()"
+)
+_NAMES = "SELECT id, name FROM organizations WHERE id = ANY(:ids)"
 
 
 @router.get(
@@ -354,24 +358,27 @@ async def list_open_call_line_requests(
     directory: AdminSession, principal: QueueReader
 ) -> list[OpenCallLineRequestOut]:
     del principal
-    # The directory, then each client's own RLS session: `app.admin` widens `organizations`
-    # and nothing else, so no policy is widened for a work list (`admin/holds.py`).
-    orgs = (await directory.execute(text(_DIRECTORY))).all()
-    waiting: list[OpenCallLineRequestOut] = []
-    for org in orgs:
-        tenant_id = UUID(str(org[0]))
-        async with tenant_session(tenant_id) as scoped:
-            found = await requests_.open_request_for(scoped, tenant_id=tenant_id)
-        if found is not None:
-            waiting.append(
-                OpenCallLineRequestOut(
-                    tenant_id=tenant_id,
-                    name=str(org[1]),
-                    lines_at_request=found.lines_at_request,
-                    wanted_lines=found.wanted_lines,
-                    created_at=found.created_at,
-                )
-            )
+    # `app.admin` widens `organizations` and nothing else, so each client's open request is
+    # read under that client's own policy inside `open_call_line_request_scan()` (migration
+    # f2c6a8d4b1e3): one statement, not a session per client (A7-21). The names are a second
+    # statement rather than a JOIN, so `organizations` is never read in the statement whose
+    # scan re-scopes the tenant GUC.
+    found = (await directory.execute(text(_OPEN_REQUEST_SCAN))).all()
+    names = {
+        UUID(str(r[0])): str(r[1])
+        for r in await directory.execute(text(_NAMES), {"ids": [row[0] for row in found]})
+    }
+    waiting = [
+        OpenCallLineRequestOut(
+            tenant_id=UUID(str(row[0])),
+            name=names[UUID(str(row[0]))],
+            lines_at_request=int(row[1]),
+            wanted_lines=None if row[2] is None else int(row[2]),
+            created_at=row[3],
+        )
+        for row in found
+        if UUID(str(row[0])) in names
+    ]
     waiting.sort(key=lambda w: w.created_at)
     return waiting
 

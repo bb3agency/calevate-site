@@ -18,6 +18,7 @@ import { useState } from "react";
 
 import { ChartFrame, ChartTooltip, usePlotWidth, type ChartStateProps } from "./chart-core";
 import { formatCount } from "@/components/ui";
+import { hourWords } from "@/lib/clock";
 
 export type HeatmapCell = {
   /** 0 = Monday … 6 = Sunday, in IST. */
@@ -44,11 +45,6 @@ export type ActivityHeatmapProps = ChartStateProps & {
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** Five steps of brand over the surface; step 0 is "none", a hairline cell. */
 const STEPS = [0, 22, 45, 70, 100];
-
-function hourLabel(hour: number): string {
-  const h = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h}${hour < 12 ? "am" : "pm"}`;
-}
 
 export function ActivityHeatmap({
   title,
@@ -81,7 +77,7 @@ export function ActivityHeatmap({
       height={190}
       isEmpty={peak === 0}
       table={{
-        columns: ["Day", ...Array.from({ length: 24 }, (_, h) => hourLabel(h))],
+        columns: ["Day", ...Array.from({ length: 24 }, (_, h) => hourWords(h))],
         rows: grid.map((row, d) => [weekdays[d] ?? DAYS[d], ...row]),
       }}
       className={className}
@@ -110,14 +106,14 @@ export function ActivityHeatmap({
           <span />
           {Array.from({ length: 24 }, (_, h) => (
             <span key={h} className="text-center text-[10px] text-ink-faint">
-              {h % 6 === 0 ? hourLabel(h) : ""}
+              {h % 6 === 0 ? hourWords(h) : ""}
             </span>
           ))}
         </div>
         {hover ? (
           <ChartTooltip x={hover.x} y={hover.y} width={width}>
             <span className="font-semibold">
-              {weekdays[hover.d] ?? DAYS[hover.d]} {hourLabel(hover.h)}
+              {weekdays[hover.d] ?? DAYS[hover.d]} {hourWords(hover.h)}
             </span>
             {" · "}
             {formatCount(grid[hover.d][hover.h])} {unit}

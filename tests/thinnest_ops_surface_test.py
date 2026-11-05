@@ -6,7 +6,9 @@ disagree with the debit about what is on sale.
 
 from __future__ import annotations
 
-from apps.api.billing.engine_minutes import ENGINE_RATE_KEYS
+import pytest
+from apps.api.billing import engine_minutes
+from apps.api.billing.engine_minutes import CARRIER_RATE_KEY, ENGINE_RATE_KEYS
 from apps.api.billing.payment_routes import voice_tier_not_offered
 from apps.api.ops.engine_minute_routes import _row
 
@@ -30,6 +32,15 @@ def test_an_unattested_row_is_not_billable_whatever_it_is_sold_as() -> None:
     row = _row("thinnest", "premium", None)
     assert row.billable is False
     assert row.inr_per_min is None
+
+
+def test_each_row_states_the_step_the_meter_bills_it_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The panel's "billed in N-second steps" comes from the meter's own constants, so a
+    changed pulse or carrier block moves the sentence with the debit (G8-3)."""
+    monkeypatch.setitem(engine_minutes.PULSE_SECONDS, "thinnest", 60)
+    monkeypatch.setitem(engine_minutes.CARRIER_BLOCK_SECONDS, "thinnest", 15)
+    assert _row("thinnest", "studio", None).billed_in_seconds == 60
+    assert _row("thinnest", CARRIER_RATE_KEY, None).billed_in_seconds == 15
 
 
 def test_the_rate_card_holds_back_studio_on_thinnest_and_clear_elsewhere() -> None:

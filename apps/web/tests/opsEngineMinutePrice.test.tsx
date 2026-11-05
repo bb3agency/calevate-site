@@ -7,6 +7,7 @@ import {
   costValue,
   feeSentence,
   saleNote,
+  stepSentence,
 } from "@/app/admin/ops/EngineMinutePricePanel";
 import { groupFields } from "@/app/admin/ops/config/configSections";
 import type { ConfigField } from "@/lib/api/opsConfig";
@@ -40,6 +41,7 @@ function row(overrides: Partial<EngineMinutePrice>): EngineMinutePrice {
     attested_at: null,
     source_note: null,
     billable: false,
+    billed_in_seconds: 30,
     sold_as: null,
     topup_fee_percent: "2.36",
     inr_per_min_with_fee: null,
@@ -194,6 +196,27 @@ describe("the top-up fee and the costs beside the minute", () => {
       source_note: "Razorpay settlement, Oct 2026",
     });
     expect(post?.headers["X-Confirm-Action"]).toBe(attestCostConfirmation("razorpay_topup_fee"));
+  });
+});
+
+describe("the billing step", () => {
+  it("is the step the server bills the call rates in, not a typed number", async () => {
+    const sixty = ROWS.map((r) => ({ ...r, billed_in_seconds: 60 }));
+    renderAdminPage(<EngineMinutePricePanel access={ALLOWED} />, {
+      [ENGINE_MINUTE_PRICES_PATH]: {
+        prices: [...sixty, row({ rate_key: "carrier", billed_in_seconds: 15 })],
+        costs: COSTS,
+        as_of: "2026-10-07T06:30:00Z",
+      },
+    });
+    expect(await screen.findByText(/Calls are billed in 60-second steps\./)).toBeTruthy();
+    expect(screen.queryByText(/30-second/)).toBeNull();
+  });
+
+  it("claims no one step when the call rates disagree", () => {
+    expect(stepSentence(ROWS)).toBe("Calls are billed in 30-second steps.");
+    expect(stepSentence([row({}), row({ rate_key: "studio", billed_in_seconds: 60 })])).toBeNull();
+    expect(stepSentence([])).toBeNull();
   });
 });
 

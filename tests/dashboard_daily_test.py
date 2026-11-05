@@ -67,12 +67,17 @@ async def _call(
     *,
     at: datetime,
     status: str,
+    trial_call: bool = False,
+    paid_test_call: bool = False,
+    sentiment: str | None = None,
+    outcome_tag: str | None = None,
 ) -> None:
     await session.execute(
         text(
             "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
-            "started_at, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, 'inbound', "
-            ":status, :at, now(), now())"
+            "started_at, trial_call, paid_test_call, sentiment, outcome_tag, created_at, "
+            "updated_at) VALUES (:id, :tid, :aid, :ecid, 'inbound', :status, :at, :trial, "
+            ":paid_test, :sentiment, :outcome, now(), now())"
         ),
         {
             "id": uuid7(),
@@ -81,6 +86,10 @@ async def _call(
             "ecid": f"d7-{uuid.uuid4().hex}",
             "at": at,
             "status": status,
+            "trial": trial_call,
+            "paid_test": paid_test_call,
+            "sentiment": sentiment,
+            "outcome": outcome_tag,
         },
     )
 
@@ -298,3 +307,41 @@ async def test_the_week_says_how_its_calls_ended_over_the_same_window() -> None:
     assert out.calls_7d == 7
     assert out.calls_connected_7d == 2
     assert out.calls_not_connected_7d == 4
+
+
+async def test_test_calls_count_nowhere_on_the_dashboard() -> None:
+    """A free-trial call and a paid test call are the owner ringing their own agent. The
+    stats band beside the sparkline leaves them out (`REAL_CALL_SQL`), so every figure
+    `dashboard()` returns, the `daily_7d` series included, leaves them out too; otherwise
+    the sparkline rises on a week the band calls quiet."""
+    tenant_id, agent_id = await _tenant()
+    now = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        await _call(session, tenant_id, agent_id, at=now - timedelta(hours=1), status="completed")
+        for flags in ({"trial_call": True}, {"paid_test_call": True}):
+            await _call(
+                session,
+                tenant_id,
+                agent_id,
+                at=now - timedelta(hours=2),
+                status="failed",
+                sentiment="negative",
+                outcome_tag="missed",
+                **flags,
+            )
+            await _call(
+                session,
+                tenant_id,
+                agent_id,
+                at=now - timedelta(days=9),
+                status="completed",
+                **flags,
+            )
+        out = await dashboard(session)
+    assert sum(day.total for day in out.daily_7d) == 1
+    assert sum(day.failed for day in out.daily_7d) == 0
+    assert out.calls_7d == 1
+    assert out.calls_not_connected_7d == 0
+    assert out.calls_prev_7d == 0
+    assert "negative" not in out.sentiment_split
+    assert "missed" not in out.outcome_split

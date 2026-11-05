@@ -240,6 +240,41 @@ async def test_a_raise_closes_the_request_and_the_clients_bell_says_so() -> None
     assert all(r["tenant_id"] != str(tenant_id) for r in listed.json())
 
 
+async def test_the_operators_list_is_one_scan_that_widens_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A7-21: the list opens no session per client. Run from client B's own session,
+    `open_call_line_request_scan` finds B's request and never A's, and leaves B's tenant
+    scope as it found it."""
+    from apps.api.tenancy import call_lines_routes
+
+    a, _agent_a, owner_a = await _tenant()
+    b, _agent_b, owner_b = await _tenant()
+    operator = await _operator()
+
+    def _no_session(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the operators' list opened a tenant session")
+
+    async with _client() as client:
+        await client.post(ASK, headers=owner_a, json={"wanted": 5})
+        await client.post(ASK, headers=owner_b, json={"wanted": 3})
+        monkeypatch.setattr(call_lines_routes, "tenant_session", _no_session)
+        listed = await client.get("/v1/admin/call-line-requests", headers=operator)
+        monkeypatch.undo()
+    assert listed.status_code == 200, listed.text
+    wanted = {r["tenant_id"]: r["wanted_lines"] for r in listed.json()}
+    assert (wanted.get(str(a)), wanted.get(str(b))) == (5, 3)
+    async with tenant_session(b) as session:
+        seen = (
+            await session.execute(
+                text("SELECT scanned_tenant_id, wanted_lines FROM open_call_line_request_scan()")
+            )
+        ).all()
+        after = (await session.execute(text("SELECT current_setting('app.tenant_id')"))).scalar()
+    assert [(row[0], row[1]) for row in seen] == [(b, 3)]
+    assert after == str(b)
+
+
 async def test_a_raise_the_workspace_holds_closes_only_once_it_is_read_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

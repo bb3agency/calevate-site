@@ -1,3 +1,7 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { businessLabels, statItems } from "@/app/c/[slug]/analyticsFigures";
@@ -9,7 +13,7 @@ import { HOME } from "@/app/c/[slug]/_ui/copy";
 import type { Stats, StatsMetric } from "@/lib/api/analytics";
 import { UNKNOWN_CAPABILITIES } from "@/lib/businessCapabilities";
 import { OUTCOME_KIND_WORDS } from "@/lib/callReview";
-import { clockRange, clockWords } from "@/lib/clock";
+import { clockRange, clockWords, hourWords, minuteOfDayWords } from "@/lib/clock";
 import { GOAL_STAGE, stageLabel } from "@/lib/goalStage";
 
 const metric = (key: StatsMetric["key"], value: string): StatsMetric => ({
@@ -86,6 +90,24 @@ describe("the business's own words (E-HOT, founder 5 Nov 2026)", () => {
     expect(clockRange("09:00", "21:00")).toBe("9am to 9pm");
     expect(clockWords("13:30")).toBe("1:30pm");
     expect(clockWords("00:00")).toBe("12am");
+    expect(clockWords("09:75")).toBe("09:75");
+    expect(hourWords(0)).toBe("12am");
+    expect(hourWords(18)).toBe("6pm");
+    expect(minuteOfDayWords(570)).toBe("9:30am");
+    expect(minuteOfDayWords(600)).toBe("10am");
+  });
+
+  it("words every wall-clock time in lib/clock, not beside it (L3-23)", () => {
+    // A 12-hour conversion written anywhere else is a second style waiting to happen. The
+    // booking-hours label in `agents/actions/jobs.ts` is written into an action's
+    // instructions and parsed back by `readHours`, so its "9 am" is a stored format.
+    const allowed = new Set(["lib/clock.ts", "app/c/[slug]/agents/actions/jobs.ts"]);
+    const src = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
+    const offenders = (readdirSync(src, { recursive: true }) as string[])
+      .map((file) => file.split(sep).join("/"))
+      .filter((file) => /\.tsx?$/.test(file) && !allowed.has(file))
+      .filter((file) => /%\s*12\s*===\s*0\s*\?\s*12/.test(readFileSync(join(src, file), "utf8")));
+    expect(offenders).toEqual([]);
   });
 
   it("names the Needs you queue item (L3-03)", () => {

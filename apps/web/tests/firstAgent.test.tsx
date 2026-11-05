@@ -316,11 +316,11 @@ describe("the pieces and where an owner resumes", () => {
   });
 
   it("reads the open days and times back as one sentence", () => {
-    expect(hoursSummary({ opens: "09:00", closes: "18:00", closed: ["sun"] })).toBe("Mon to Sat, 9:00 am to 6:00 pm");
+    expect(hoursSummary({ opens: "09:00", closes: "18:00", closed: ["sun"] })).toBe("Mon to Sat, 9am to 6pm");
     expect(hoursSummary({ opens: "10:30", closes: "13:00", closed: ["tue", "thu", "sun"] })).toBe(
-      "Mon, Wed, Fri, Sat, 10:30 am to 1:00 pm",
+      "Mon, Wed, Fri, Sat, 10:30am to 1pm",
     );
-    expect(hoursSummary({ opens: "00:00", closes: "23:59", closed: [] })).toBe("Every day, 12:00 am to 11:59 pm");
+    expect(hoursSummary({ opens: "00:00", closes: "23:59", closed: [] })).toBe("Every day, 12am to 11:59pm");
   });
 
   it("lets one agent take several jobs, every one sent, in the cards' order", () => {
@@ -957,7 +957,7 @@ describe("meet your agent", () => {
       page,
       routes({ "/v1/first-run": asked, "POST /v1/first-run/answers": asked, "POST /v1/first-run/build": asked }),
     );
-    expect(await screen.findByText("Mon to Sat, 9:00 am to 6:00 pm")).toBeTruthy();
+    expect(await screen.findByText("Mon to Sat, 9am to 6pm")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Build my agent/ }));
     await waitFor(() => expect(calls.some((call) => call.path === "/v1/first-run/build")).toBe(true));
     const sent = calls.find((call) => call.path === "/v1/first-run/answers");

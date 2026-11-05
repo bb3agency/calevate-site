@@ -24059,6 +24059,10 @@
             "title": "Billable",
             "type": "boolean"
           },
+          "billed_in_seconds": {
+            "title": "Billed In Seconds",
+            "type": "integer"
+          },
           "effective_from": {
             "anyOf": [
               {
@@ -24144,6 +24148,7 @@
           "attested_at",
           "source_note",
           "billable",
+          "billed_in_seconds",
           "sold_as"
         ],
         "title": "EngineMinutePriceOut",

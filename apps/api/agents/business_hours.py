@@ -154,15 +154,21 @@ async def count_after_hours_calls(session: AsyncSession, *, since: datetime) -> 
 
     Runs inside the caller's tenant-scoped session, so RLS decides which profile and which
     calls are visible (hard rule 1). It counts only `True`: with no hours recorded every
-    call is UNKNOWN, and the count is zero.
+    call is UNKNOWN, and the count is zero. Test calls are not captured business: they are
+    left out by the predicate the rest of the dashboard uses (`REAL_CALL_SQL`).
     """
+    # Imported here: `crm.schemas` imports the agents package at load, which imports this
+    # module through `handoff`, so a top-level import of `crm` would be a cycle.
+    from apps.api.crm.lead_definition import REAL_CALL_SQL
+
     raw = (await session.execute(text("SELECT hours FROM business_profiles LIMIT 1"))).scalar()
     hours: Mapping[str, Any] | None = raw if isinstance(raw, dict) and raw else None
     if hours is None:
         return 0
     rows = (
         await session.execute(
-            text("SELECT started_at FROM calls WHERE started_at >= :since"), {"since": since}
+            text(f"SELECT started_at FROM calls c WHERE started_at >= :since AND {REAL_CALL_SQL}"),
+            {"since": since},
         )
     ).all()
     return sum(1 for (started_at,) in rows if is_after_hours(hours, started_at) is True)

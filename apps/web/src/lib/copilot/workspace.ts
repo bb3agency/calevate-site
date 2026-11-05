@@ -16,6 +16,7 @@ import { apiRequest, type Session } from "@/lib/api/client";
 import { withAccountCode } from "@/lib/api/accountCode";
 import { confirmActionFor, refreshAfterConfirm } from "@/lib/api/copilot";
 import type { components } from "@/lib/api/schema";
+import { clockWords } from "@/lib/clock";
 
 type Schemas = components["schemas"];
 
@@ -274,7 +275,7 @@ export const WEEKDAYS: readonly { value: Weekday; short: string; long: string }[
 
 const WEEKDAY_SET: readonly Weekday[] = ["mon", "tue", "wed", "thu", "fri"];
 
-/** "Every day at 9:00 am", "Weekdays at 6:30 pm", "Mon, Thu at 10:00 am". */
+/** "Every day at 9am", "Weekdays at 6:30pm", "Mon, Thu at 10am". */
 export function scheduleWords(schedule: { days: readonly Weekday[]; time: string }): string {
   const days = WEEKDAYS.filter((day) => schedule.days.includes(day.value));
   const when =
@@ -288,13 +289,4 @@ export function scheduleWords(schedule: { days: readonly Weekday[]; time: string
             ? `Every ${days[0].long}`
             : days.map((day) => day.short).join(", ");
   return `${when} at ${clockWords(schedule.time)}`;
-}
-
-/** "09:00" → "9:00 am"; "18:30" → "6:30 pm". India reads a 12-hour clock. */
-export function clockWords(time: string): string {
-  const [hours, minutes] = time.split(":").map((part) => Number.parseInt(part, 10));
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return time;
-  const suffix = hours < 12 ? "am" : "pm";
-  const twelve = hours % 12 === 0 ? 12 : hours % 12;
-  return `${twelve}:${String(minutes).padStart(2, "0")} ${suffix}`;
 }

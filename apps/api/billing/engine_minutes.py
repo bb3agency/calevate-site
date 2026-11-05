@@ -107,6 +107,15 @@ ATTESTED_MINUTE_ENGINES: Final = frozenset(PULSE_SECONDS)
 #: bills 30 seconds (ThinnestAI email of 18 Oct 2026). A length, not a price.
 CARRIER_BLOCK_SECONDS: Final[dict[str, int]] = {"thinnest": 30}
 
+
+def billed_step_seconds(engine: str, rate_key: str) -> int:
+    """The step `engine` bills a minute on `rate_key` in: the carrier's block for a
+    carrier-only call, the engine's pulse for every other rate."""
+    if rate_key == CARRIER_RATE_KEY:
+        return CARRIER_BLOCK_SECONDS[engine]
+    return PULSE_SECONDS[engine]
+
+
 _SIXTY: Final = Decimal(60)
 
 BYOK_VOICE_RATE_KEY: Final[EngineRateKey] = "byok_voice"
@@ -522,8 +531,7 @@ async def engine_minute_cost(
         rate_key = forward_without_agent_rate_key(at)
     else:
         rate_key = route_key
-    pulse = CARRIER_BLOCK_SECONDS[engine] if carrier_only else PULSE_SECONDS[engine]
-    minutes = billed_minutes(seconds, pulse_s=pulse)
+    minutes = billed_minutes(seconds, pulse_s=billed_step_seconds(engine, rate_key))
     fee = await wallet_topup_fee(session, engine=engine, at=at)
     if forwarded and await _on_brought_number(session, tenant_id=tenant_id, call_id=call_id):
         return MinuteCost(
@@ -592,6 +600,7 @@ __all__ = [
     "attested_minute_prices",
     "attested_rate_keys",
     "billed_minutes",
+    "billed_step_seconds",
     "client_rungs",
     "client_voice_tier",
     "cost_with_fee",

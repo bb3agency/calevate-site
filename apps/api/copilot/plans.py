@@ -314,7 +314,8 @@ async def build_plan(
     if not targets:
         raise WriteRefusedError(
             "nothing matches those filters, so there is no plan to make; tell the person "
-            "and ask whether they meant something else"
+            "and ask whether they meant something else",
+            plain="Nobody matches that choice, so there is nothing to do.",
         )
     excluded = {
         target: _reason(reason)
