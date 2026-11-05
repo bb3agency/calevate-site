@@ -232,11 +232,11 @@ export function CommandPalette({
                       active ? "bg-ink/[0.06] dark:bg-white/10" : ""
                     }`}
                   >
-                    <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-ink">
+                    <span className="min-w-0 flex-1 break-words text-[14px] font-medium text-ink">
                       {item.label}
                     </span>
                     {item.hint && (
-                      <span className="max-w-[45%] shrink-0 truncate text-[12px] text-ink-faint">
+                      <span className="max-w-[45%] shrink-0 break-words text-right text-[12px] text-ink-faint">
                         {item.hint}
                       </span>
                     )}

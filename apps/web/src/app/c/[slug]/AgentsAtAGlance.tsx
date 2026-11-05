@@ -94,11 +94,11 @@ function AgentLine({
       <div className="min-w-0 flex-1">
         <Link
           href={href}
-          className="block truncate rounded-sm text-body font-medium text-ink after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
+          className="block break-words rounded-sm text-body font-medium text-ink after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand"
         >
           {agent.name}
         </Link>
-        <p className="truncate text-meta text-ink-muted">
+        <p className="break-words text-meta text-ink-muted">
           {role}
           {stat?.last_call_at ? ` · last call ${formatIST(stat.last_call_at)}` : ""}
           {stat ? <span className="sm:hidden"> · {formatCount(stat.calls_total)} calls so far</span> : null}

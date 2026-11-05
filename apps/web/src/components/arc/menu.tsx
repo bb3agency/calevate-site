@@ -119,7 +119,7 @@ function MenuRow({ item }: { item: MenuItem }) {
           {item.icon}
         </span>
       )}
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      <span className="min-w-0 flex-1 break-words">{item.label}</span>
       {item.hint && (
         <span id={hintId} className="shrink-0 text-[12px] text-ink-faint">
           {item.hint}

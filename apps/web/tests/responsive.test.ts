@@ -637,12 +637,79 @@ describe("a grid names its phone column", () => {
         (key.startsWith("components/") && !key.startsWith("components/marketing/"));
       if (!inConsole) continue;
       blankComments(readFileSync(file, "utf8").split("\n")).forEach((line, i) => {
-        const cls = /className=["{`]+([^"`]*)/.exec(line)?.[1];
-        if (!cls || !/(?:^|\s)grid(?:\s|$)/.test(cls)) return;
-        if (!/(?:^|\s)(?:sm|md|lg|xl|2xl):grid-cols-/.test(cls)) return;
-        if (!/(?:^|\s)grid-cols-/.test(cls)) offenders.push(`${key}:${i + 1}`);
+        if (!/className=/.test(line)) return;
+        // EVERY string literal on the line, not only the one right after `className=`:
+        // `className={open ? "grid md:grid-cols-2" : ""}` hid two grids from a check
+        // that read the first literal alone.
+        for (const [, cls] of line.matchAll(/["`]([^"`]*)["`]/g)) {
+          if (!/(?:^|\s)grid(?:\s|$)/.test(cls)) continue;
+          if (!/(?:^|\s)(?:sm|md|lg|xl|2xl):grid-cols-/.test(cls)) continue;
+          if (!/(?:^|\s)grid-cols-/.test(cls)) offenders.push(`${key}:${i + 1}`);
+        }
       });
     }
-    expect(offenders, "add grid-cols-1 so the phone column can shrink").toEqual([]);
+    const unexpected = offenders.filter((o) => !GRID_BASELINE.has(o.replace(/:\d+$/, "")));
+    expect(unexpected, "add grid-cols-1 so the phone column can shrink").toEqual([]);
+  });
+
+  it("keeps its baseline honest", () => {
+    for (const key of GRID_BASELINE) {
+      expect(FILES.some((file) => relPosix(SRC, file) === key), `stale baseline entry ${key}`).toBe(true);
+    }
+  });
+});
+
+/**
+ * Files the widened grid scan (every literal on the line) flagged outside the shell and
+ * shared-component area, owned by other work; each comes off this list when fixed.
+ */
+const GRID_BASELINE = new Set<string>([
+  // Fixed on the agent-screens branch; drops off when that merges.
+  "app/c/[slug]/agents/[agentId]/script/ScriptBuilder.tsx",
+  // The receipt (money screens work): `showSupplier ? "mt-5 grid gap-3 sm:grid-cols-2" : …`.
+  "components/receiptDocument.tsx",
+]);
+
+describe("a column is never cut when the table has room", () => {
+  /**
+   * `max-w-0 w-full` on a cell gives its column a min-content of ZERO, so an auto-layout
+   * table squeezes that column before any other: on the dashboard's latest calls a phone
+   * number read "+91 934…" while the outcome column beside it had room to spare, at
+   * desktop width. `DataColumn.width: "grow"` is the replacement — the column takes the
+   * room that is left and its text wraps.
+   */
+  const ZERO_WIDTH_BASELINE = new Set<string>([
+    // The call log's caller column (calls screen work owns it): move to `width: "grow"`.
+    "app/c/[slug]/calls/callColumns.tsx",
+  ]);
+
+  it("no cell uses the max-w-0 w-full truncation pair", () => {
+    const offenders: string[] = [];
+    for (const file of FILES) {
+      const key = relPosix(SRC, file);
+      if (ZERO_WIDTH_BASELINE.has(key)) continue;
+      blankComments(read(file).split("\n")).forEach((line, i) => {
+        if (/["`][^"`]*\bmax-w-0\b[^"`]*\bw-full\b|["`][^"`]*\bw-full\b[^"`]*\bmax-w-0\b/.test(line)) {
+          offenders.push(`${key}:${i + 1}`);
+        }
+      });
+    }
+    expect(offenders, 'give the column `width: "grow"` (DataTable) instead').toEqual([]);
+    for (const key of ZERO_WIDTH_BASELINE) {
+      expect(FILES.some((file) => relPosix(SRC, file) === key), `stale baseline entry ${key}`).toBe(true);
+    }
+  });
+
+  it("the dashboard's latest calls is a list that never scrolls sideways", () => {
+    const tile = blankComments(read(join(SRC, "app", "c", "[slug]", "LatestCalls.tsx")).split("\n")).join("\n");
+    expect(tile).not.toMatch(/<DataTable\b|<ScrollRegion\b|overflow-x-/);
+    expect(tile).not.toMatch(/\btruncate\b/);
+    expect(tile).toMatch(/grid-cols-\[minmax\(0,1fr\)_auto\]/);
+  });
+
+  it("every ScrollRegion shows its edge shadow unless told not to", () => {
+    const ui = read(join(SRC, "components", "ui.tsx"));
+    expect(ui).toMatch(/edgeCue = true/);
+    expect(ui).toMatch(/edgeCue && "scroll-shadow-x"/);
   });
 });

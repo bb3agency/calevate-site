@@ -57,12 +57,29 @@ export type DataColumn<T> = {
    * right-aligned column.
    */
   card?: "field" | "block";
+  /**
+   * How the column takes width. Default: the browser sizes it to its content. `grow`: it
+   * takes the room the other columns leave and its content WRAPS there, so a long name
+   * costs the row a line instead of being cut; give it to the one free-text column (a
+   * caller, a lead, a headline). `fit`: exactly as wide as its widest value and never
+   * wrapped, for short facts (a length, an amount, a time).
+   *
+   * Prefer `grow` to a `max-w-0 w-full` + `truncate` cell: that pair gives the column a
+   * min-content of zero, so the table squeezes it first and a phone number reads
+   * "+91 934…" while the column beside it has room to spare.
+   */
+  width?: "grow" | "fit";
   className?: string;
   /**
    * The raw value this cell shows. When it differs from the previous render for the
    * same row, the cell is marked briefly — a polled value that actually changed.
    */
   flash?: (row: T) => string | null | undefined;
+};
+
+const WIDTH: Record<NonNullable<DataColumn<unknown>["width"]>, string> = {
+  grow: "w-full break-words sm:min-w-[12rem]",
+  fit: "w-px whitespace-nowrap max-sm:w-auto max-sm:whitespace-normal",
 };
 
 const HIDE: Record<NonNullable<DataColumn<unknown>["hideBelow"]>, string> = {
@@ -518,7 +535,7 @@ export function DataTable<T>({
                             : column.card === "block"
                               ? CARD_BLOCK
                               : CARD_FIELD
-                      } ${column.pin ? PIN[column.pin] : ""} ${column.className ?? ""}`}
+                      } ${column.width ? WIDTH[column.width] : ""} ${column.pin ? PIN[column.pin] : ""} ${column.className ?? ""}`}
                     >
                       {column.flash ? (
                         <span

@@ -137,7 +137,9 @@ export function NavDrawer({
         aria-modal={isModal ? true : undefined}
         aria-label={isModal ? label : undefined}
         tabIndex={isModal ? -1 : undefined}
-        className={`fixed inset-y-0 left-0 z-drawer flex shrink-0 flex-col border-r border-line bg-surface transition-transform duration-(--duration-slow) ease-drawer motion-reduce:transition-none lg:static lg:translate-x-0 lg:shadow-none ${
+        // Below `lg` it is fixed to the viewport, outside the shell's safe-area padding, so
+        // it pads for the notch and the home indicator itself (0 without viewport-fit=cover).
+        className={`fixed inset-y-0 left-0 z-drawer flex shrink-0 flex-col max-lg:pt-[env(safe-area-inset-top,0px)] max-lg:pb-[env(safe-area-inset-bottom,0px)] max-lg:pl-[env(safe-area-inset-left,0px)] border-r border-line bg-surface transition-transform duration-(--duration-slow) ease-drawer motion-reduce:transition-none lg:static lg:translate-x-0 lg:shadow-none ${
           isOpen ? "translate-x-0 shadow-overlay" : "-translate-x-full"
         } ${className}`}
       >
