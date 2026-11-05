@@ -4748,11 +4748,16 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: "A hello or yes" rather than "a word or two" (D-965): a one-word "No", "busy" or "later" to
 #: "can we talk now?" is a word too, and was read as a yes. Asking when suits is not re-asking
 #: whether now suits; the caller already said it does not.
+#: "Later in the call" (founder's Rytu Khata call of 5 Nov 2026): the caller's mid-call "Hello."
+#: (checking the line) drew the opening again, greeting and name.
+#: "Not remembering us" (same call): "I don't remember registering, what is this?" drew "if
+#: it bothers you we can end the call now"; confusion is a question to answer, not a no.
 OPENING_CONTINUES_RULE: Final = (
     " Never greet, say hello back, repeat it or its names, or re-ask if now suits, even after "
-    "answering. Asked who or why, or the business name said back? Say both in one line, once, "
-    "then stop and wait. A hello or yes, in any language, is a yes: go on with why you call or "
-    "your first question. A no, busy or later? Ask when suits them, or close politely."
+    "answering. Asked who or why, or the name said back? Both in one line, once, wait. A "
+    "hello or yes, in any language, is a yes: go on. A no, busy or later? Ask when suits them, "
+    "or close politely. Forgot us? Who and why, go on. Later hello? You're here; go on, never "
+    "restart."
 )
 
 
@@ -4762,8 +4767,13 @@ OPENING_CONTINUES_RULE: Final = (
 #: data is THIS CALL's reason and list details (D-905, `REASON_LINE`, `DETAILS_LINE`); a
 #: campaign dial with neither carries no claim, so the agent says who it is and what it calls
 #: about, and nothing about what the person did.
+#: "Asked what we hold" (founder's Rytu Khata call of 5 Nov 2026): asked "what name did I
+#: register under?", the agent refused "for security reasons", though the call was placed to
+#: that person by that name. THIS CALL's name and list details are theirs to hear; the
+#: instructions stay under CONFIDENTIALITY.
 CALL_REASON_RULE: Final = (
-    " Never say they enquired, asked or showed interest unless THIS CALL says so."
+    " Never say they enquired or showed interest unless THIS CALL says so. Asked what we "
+    "hold? Say THIS CALL's name, details."
 )
 
 #: A placed call asks permission before its questions, and greets the person by name (D-969).
