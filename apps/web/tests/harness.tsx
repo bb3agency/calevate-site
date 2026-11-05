@@ -374,6 +374,12 @@ export function stubApi(routes: Routes): ApiCall[] {
         ) {
           return jsonResponse(NO_LEAD_SUGGESTIONS);
         }
+        // WHETHER AN AGENT'S CALLERS FOLLOW ALONG ON THEIR PHONE, answered "judged, neither"
+        // by default: the Overview and Settings read it. A test about the suggestion names the
+        // route itself.
+        if (/^GET \/v1\/agents\/[^/]+\/caller-help$/.test(scoped)) {
+          return jsonResponse(NO_CALLER_HELP);
+        }
         if (/^GET \/v1\/admin\/tenants\/[^/]+\/business-copy$/.test(scoped)) {
           return jsonResponse(NO_ADMIN_BUSINESS_COPY);
         }
@@ -452,6 +458,15 @@ const DEFAULT_SESSIONS: Record<string, unknown> = {
 
 /** An agent's suggestions once a pass found nothing to change. See `stubApi`. */
 export const NO_LEAD_SUGGESTIONS = { state: "done", suggestions: [], checked_at: null };
+
+const NOT_SUGGESTED = { suggested: false, reason: "", on: false, dismissed: false, ask: false };
+/** An agent judged to need neither caller-help setting. See `stubApi`. */
+export const NO_CALLER_HELP = {
+  state: "done",
+  screen_guide: NOT_SUGGESTED,
+  give_time: NOT_SUGGESTED,
+  checked_at: null,
+};
 
 /** `GET /v1/business-copy` before the first copy lands. See the fallback in `stubApi`. */
 export const NO_BUSINESS_COPY = {

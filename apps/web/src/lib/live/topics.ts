@@ -222,6 +222,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "call-outcomes",
     // Suggested changes to an agent's lead details, and their pass's state (D-889).
     "lead-suggestions",
+    // Whether an agent's callers follow along on their phone, judged from its script.
+    "caller-help",
     "script",
     "script-tests",
     "script-versions",

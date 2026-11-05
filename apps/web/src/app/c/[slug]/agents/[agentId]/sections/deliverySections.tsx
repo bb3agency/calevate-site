@@ -121,7 +121,7 @@ export function CallHandlingSection({ agent }: { agent: Agent }) {
             <WorstCaseCost state={pending.data} />
           </SettingRows>
         )}
-        <AgentCallHandlingRows agentId={agent.id} />
+        <AgentCallHandlingRows agentId={agent.id} agentName={agent.name} />
       </div>
       <Handover agent={agent} />
       <CallerContinuity agent={agent} />

@@ -31,6 +31,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import caller_help
 from apps.api.agents.lifecycle import assert_assignable
 from apps.api.callbacks.service import call_off_for_stopped_campaigns
 from apps.api.campaigns.service import (
@@ -161,6 +162,15 @@ async def update_draft(
     )
     if rowcount_of(result) == 0:
         raise _not_a_draft(await _status_or_404(session, campaign_id), "edited")
+    if {"purpose", "goal", "agent_id"} & set(values):
+        # Why a campaign calls is part of what its agent does (`agents/caller_help`).
+        owner = (
+            await session.execute(
+                text("SELECT tenant_id, agent_id FROM campaigns WHERE id = :cid"),
+                {"cid": campaign_id},
+            )
+        ).one()
+        await caller_help.queue_pass(session, tenant_id=owner[0], agent_id=owner[1])
     return [column for column in _EDITABLE if column in values]
 
 

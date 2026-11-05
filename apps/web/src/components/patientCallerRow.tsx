@@ -8,8 +8,9 @@
  * values have one spelling. Afterwards each is an ordinary setting in the rows below.
  *
  * "In use" is the server's `applied`: the silence settings match and the longest call is at
- * least the preset's. Any change made after reads as not in use, and the button offers the
- * preset again.
+ * least the preset's. Any change made after reads as off, and the button offers the preset
+ * again. When the agent's own judgement suggests it (`lib/api/callerHelp.ts`), the hint says
+ * so and why, in place of the general one.
  */
 
 import { type FeedbackStatus } from "@/components/arc/feedback";
@@ -34,6 +35,7 @@ export function PatientCallerRow({
   status,
   error,
   onApply,
+  suggested = null,
 }: {
   preset: PatientCaller;
   canChange: boolean;
@@ -41,13 +43,19 @@ export function PatientCallerRow({
   status: FeedbackStatus;
   error: Error | null;
   onApply: () => void;
+  /** "Suggested for <agent>: <why>", from the agent's own judgement; null when it is not. */
+  suggested?: string | null;
 }) {
   const pending = status === "pending";
   return (
     <div>
       <SettingRow
         label="Give callers time"
-        hint="For callers who follow along on their phone."
+        hint={
+          suggested && !preset.applied
+            ? suggested
+            : "Waits while callers do something on their phone, instead of hanging up."
+        }
         info={
           <>
             <ul className="list-disc space-y-1 pl-4">
@@ -71,13 +79,13 @@ export function PatientCallerRow({
               aria-busy={pending || undefined}
               className={SECONDARY_BUTTON_SM}
             >
-              {pending ? "Setting up" : "Use for this agent"}
+              {pending ? "Turning on" : "Turn on"}
             </button>
           )
         }
       />
       {!preset.applied && !canChange && (
-        <p className="pb-3 text-meta text-ink-muted">Not in use on this agent.</p>
+        <p className="pb-3 text-meta text-ink-muted">Off for this agent.</p>
       )}
       {error && <ProblemNotice error={error} />}
     </div>

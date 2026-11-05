@@ -52,6 +52,7 @@ from calevate_shared.engine_scope import scope_of
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import caller_help
 from apps.api.agents.lifecycle import assert_assignable, hold_agent_for_campaign_start
 from apps.api.agents.service import (
     NUMBER_INBOUND_ONLY_REASON,
@@ -865,6 +866,9 @@ async def create_campaign(
             "window": json.dumps(window) if window is not None else None,
         },
     )
+    if purpose or goal:
+        # Why a campaign calls is part of what its agent does (`agents/caller_help`).
+        await caller_help.queue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
     return campaign_id
 
 

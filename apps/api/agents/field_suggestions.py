@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import agent_pass
 from apps.api.agents.models import MAX_DISMISSED_SUGGESTIONS
 from apps.api.core.errors import ProblemError
 from apps.api.reliability.service import enqueue_outbox
@@ -48,7 +49,7 @@ JOB: Final = "suggest_lead_details"
 RECOMPILE_COLLECT_JOB: Final = "rebuild_collect"
 
 #: A pass `running` longer than this died (a worker killed mid-way) and may be queued again.
-STALE_MINUTES: Final = 15
+STALE_MINUTES: Final = agent_pass.STALE_MINUTES
 #: How far back unlisted answers and captured choices are read.
 RECENT_DAYS: Final = 90
 #: An unlisted answer heard this many times queues a pass; once is noise, twice is demand.
@@ -169,73 +170,31 @@ async def current_fields(session: AsyncSession, agent_id: UUID) -> list[Extracti
     return business_only(row[0] or []) if row is not None else []
 
 
-#: A pass queued or running for longer than `STALE_MINUTES` has no live job behind it: the
-#: worker died mid-pass, or a pass marked `queued` while it ran died before re-queuing.
-_DEAD_SQL: Final = (
-    "(field_suggestions_state IN ('queued', 'running') AND field_suggestions_at < "
-    f"now() - interval '{STALE_MINUTES} minutes')"
-)
+#: The pass's columns and job on the shared queue (`agents/agent_pass`).
+SLOT: Final = agent_pass.PassSlot("field_suggestions", JOB)
+_DEAD_SQL: Final = SLOT.dead_sql()
 
 
 async def queue_pass(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, force: bool = False
 ) -> bool:
-    """Ask for a pass over this agent's lead details, in the caller's transaction.
-
-    True when a job was queued. A pass already queued is left as it is; one running is
-    marked `queued` without a job, and queues the next one itself when it finishes. A dead
-    one (`_DEAD_SQL`) gets a fresh job; the worker's claim lets only one of two run.
-
-    `force` is the owner's "Check again": the last reading's hash is forgotten, so the next
-    pass reads afresh even when nothing changed. On the row, not the job, because a pass
-    already queued is the one that runs.
-    """
-    if force:
-        await session.execute(
-            text("UPDATE agents SET field_suggestions_inputs = NULL WHERE id = :aid"),
-            {"aid": agent_id},
-        )
-    prev = (
-        await session.execute(
-            text(
-                "WITH prev AS (SELECT field_suggestions_state AS state, "
-                f"  {_DEAD_SQL} AS dead FROM agents "
-                "  WHERE id = :aid AND deleted_at IS NULL FOR UPDATE) "
-                "UPDATE agents a SET field_suggestions_state = 'queued', "
-                "  field_suggestions_at = now() FROM prev "
-                "WHERE a.id = :aid AND (prev.state IS DISTINCT FROM 'queued' OR prev.dead) "
-                "RETURNING prev.state, prev.dead"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if prev is None:
-        return False
-    if prev[0] == "running" and not prev[1]:
-        return False
-    await enqueue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
-    return True
+    """Ask for a pass over this agent's lead details, in the caller's transaction
+    (`agent_pass.queue`). `force` is the owner's "Check again"."""
+    return await agent_pass.queue(
+        session, SLOT, tenant_id=tenant_id, agent_id=agent_id, force=force
+    )
 
 
 async def enqueue_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> None:
     """Promise the pass job, with no state change. `queue_pass` decides whether one is due;
     the worker calls this to re-run a pass asked for while it was running."""
-    await enqueue_outbox(
-        session, job=JOB, payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
-    )
+    await agent_pass.enqueue(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
 
 
 async def queue_first_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
     """At publish: the agent's first pass, once. Later publishes change nothing a pass reads
     that a script, details or facts save has not already queued one for."""
-    state = (
-        await session.execute(
-            text("SELECT field_suggestions_state FROM agents WHERE id = :aid"), {"aid": agent_id}
-        )
-    ).first()
-    if state is None or state[0] is not None:
-        return False
-    return await queue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    return await agent_pass.queue_first(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
 
 
 async def queue_account(session: AsyncSession, *, tenant_id: UUID) -> int:
@@ -393,6 +352,7 @@ __all__ = [
     "RECENT_DAYS",
     "RECOMPILE_COLLECT_JOB",
     "REPEAT_THRESHOLD",
+    "SLOT",
     "Kind",
     "Source",
     "Suggestion",

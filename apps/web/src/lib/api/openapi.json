@@ -11803,6 +11803,83 @@
         "title": "CallbacksBulkOut",
         "type": "object"
       },
+      "CallerHelpItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ask": {
+            "title": "Ask",
+            "type": "boolean"
+          },
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          },
+          "on": {
+            "title": "On",
+            "type": "boolean"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "suggested": {
+            "title": "Suggested",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "suggested",
+          "reason",
+          "on",
+          "dismissed",
+          "ask"
+        ],
+        "title": "CallerHelpItemOut",
+        "type": "object"
+      },
+      "CallerHelpOut": {
+        "additionalProperties": false,
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "give_time": {
+            "$ref": "#/components/schemas/CallerHelpItemOut"
+          },
+          "screen_guide": {
+            "$ref": "#/components/schemas/CallerHelpItemOut"
+          },
+          "state": {
+            "enum": [
+              "none",
+              "queued",
+              "running",
+              "done",
+              "failed",
+              "skipped"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "screen_guide",
+          "give_time",
+          "checked_at"
+        ],
+        "title": "CallerHelpOut",
+        "type": "object"
+      },
       "CallerMemoryIn": {
         "additionalProperties": false,
         "description": "Switch caller continuity on or off for one agent.\n\nONE BOOLEAN AND NOT A PAIR, unlike `DisclosureIn` above, and the difference is the\ndecision rather than the shape of the screen: remembering a caller and rescheduling a\ncall-back are \"two linked abilities, always on or off together\" (D-513), so there is\none column and there is nothing here for a second field to name. A client who could\nswitch one off and keep the other would keep the ability that REUSES what was\nremembered while withdrawing the one their callers were told about.\n\n`accept` is the client saying yes to the sentence the refusal handed them. It is only\nread the FIRST time an account switches this on: the attestation is about the\nbusiness, so it is asked once and then stands\n(`organizations.caller_memory_attested_at`).",
@@ -75922,6 +75999,88 @@
           }
         },
         "summary": "Ask AI to write one agent's call outcomes",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/caller-help": {
+      "get": {
+        "description": "Judged from what this agent does (its script, its small steps and its campaigns' purposes), with the business's own analysis as a hint: whether to guide callers through their screen and whether to give them time. Nothing is switched on by it. An agent never judged is queued for its first judgement on this read.",
+        "operationId": "get_caller_help_v1_agents__agent_id__caller_help_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerHelpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this agent's callers seem to follow along on their phone",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/caller-help/dismiss": {
+      "post": {
+        "description": "Whatever the Overview is asking about is not asked about there again. The settings themselves still say they are suggested.",
+        "operationId": "dismiss_caller_help_v1_agents__agent_id__caller_help_dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerHelpOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop asking about these settings on this agent's Overview",
         "tags": [
           "agents"
         ],

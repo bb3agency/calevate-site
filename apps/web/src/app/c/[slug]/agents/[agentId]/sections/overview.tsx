@@ -33,7 +33,7 @@ import { useMediaQuery } from "@/lib/useMediaQuery";
 import { LatestCalls } from "../../../LatestCalls";
 import { LifecycleError, MOVE_COPY } from "../../AgentLifecycle";
 import { AgentReadinessPanel } from "../../AgentReadiness";
-import { ScreenGuideSuggestion } from "../../panels/callerScreen";
+import { CallerHelpSuggestion } from "../../panels/callerScreen";
 import { OpeningNotices } from "../../panels/openingNotices";
 import { PendingBanner } from "../../panels/publishing";
 
@@ -101,7 +101,7 @@ export function Overview({ agent, slug }: { agent: Agent; slug: string }) {
   return (
     <div className="space-y-10">
       <AgentReadinessPanel agentId={agent.id} slug={slug} />
-      <ScreenGuideSuggestion agent={agent} />
+      <CallerHelpSuggestion agent={agent} />
       <SetupChecklist
         agent={agent}
         slug={slug}

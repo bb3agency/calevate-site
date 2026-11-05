@@ -206,6 +206,11 @@ ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED = "business_outcomes_draft_absorbed"
 ASSIST_FEATURE_FIELD_SUGGESTIONS = "lead_detail_suggestions"
 #: ...and ours on a trial account.
 ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED = "lead_detail_suggestions_absorbed"
+#: A pass judging whether an agent's callers follow along on their phone (founder, 5 Nov
+#: 2026), billed as the lead-detail suggestions are: against the monthly allowance...
+ASSIST_FEATURE_CALLER_HELP = "caller_help_suggestion"
+#: ...and ours on a trial account.
+ASSIST_FEATURE_CALLER_HELP_ABSORBED = "caller_help_suggestion_absorbed"
 #: "Meet your agent" (D-855): choosing the follow-up questions and writing the first agent's
 #: script from the owner's brief. Part of setting the account up, bounded per account
 #: (`first_run/models.MAX_QUESTION_RUNS`, `MAX_BUILD_RUNS`), so absorbed like the lead fields.
@@ -222,6 +227,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
     ASSIST_FEATURE_BUSINESS_OUTCOMES_ABSORBED,
     ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED,
+    ASSIST_FEATURE_CALLER_HELP_ABSORBED,
     ASSIST_FEATURE_FIRST_RUN,
 )
 

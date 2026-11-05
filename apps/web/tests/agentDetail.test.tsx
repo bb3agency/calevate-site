@@ -985,66 +985,91 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect((toggle as HTMLInputElement).checked).toBe(true);
   });
 
-  describe("asks about the screen guide when the business analysis suggests it", () => {
-    const SUGGESTING = {
-      "/v1/business-copy": {
-        placeholders: null,
-        steps: [],
-        caller_details: [],
-        example_questions: [],
-        screen_guide: {
-          suggested: true,
-          reason: "Your callers install your app and sign up while on the phone.",
-        },
-        language: null,
-        generated_at: null,
-        refreshing: false,
-        stop_reason: null,
-        stop_message: null,
-      },
-    };
+  describe("asks about guiding callers when this agent's own judgement suggests it", () => {
+    const REASON = "She walks farmers through installing the app step by step.";
+    const asked = { suggested: true, reason: REASON, on: false, dismissed: false, ask: true };
+    const HELP = "GET /v1/agents/agent-1/caller-help";
+    const BOTH = { state: "done", screen_guide: asked, give_time: asked, checked_at: null };
+    const TITLE = "Do Reception's callers follow along on their phone?";
 
-    it("asks on the Overview with the business's own reason, and one press turns it on", async () => {
+    it("asks on the Overview with the agent's reason, and one press turns both on", async () => {
       const { calls } = await renderClientPage(
         page,
-        routes({ ...SUGGESTING, "PATCH /v1/agents/agent-1/caller-screen": agent({ caller_has_screen: true }) }),
+        routes({
+          [HELP]: BOTH,
+          "PATCH /v1/agents/agent-1/caller-screen": {
+            agent_id: "agent-1",
+            enabled: true,
+            engine_synced: true,
+            patient_settings: [],
+          },
+          "POST /v1/agents/agent-1/call-handling/give-callers-time": {},
+        }),
       );
 
-      await screen.findByText("Do your callers use your app or website on the call?");
-      expect(screen.getByText("Your callers install your app and sign up while on the phone.")).toBeTruthy();
+      await screen.findByText(TITLE);
+      expect(screen.getByText(REASON)).toBeTruthy();
       await act(async () => {
-        fireEvent.click(await pressable(document.body, /Guide them on screen/));
+        fireEvent.click(await pressable(document.body, /Turn both on/));
       });
-      const patch = calls.find((call) => call.method === "PATCH");
-      expect(patch?.path).toBe("/v1/agents/agent-1/caller-screen");
-      expect(JSON.parse(patch?.body ?? "{}")).toEqual({ enabled: true });
+      await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
+      const writes = calls.filter((call) => call.method !== "GET").map((call) => call.path);
+      // The screen guide first: it decides which question "Give callers time" asks.
+      expect(writes).toEqual([
+        "/v1/agents/agent-1/caller-screen",
+        "/v1/agents/agent-1/call-handling/give-callers-time",
+      ]);
     });
 
-    it("does not ask once the agent already guides callers on screen", async () => {
-      const { container } = await renderClientPage(
+    it("offers only what is suggested and not yet on", async () => {
+      const { calls } = await renderClientPage(
         page,
-        routes({ ...SUGGESTING, "/v1/agents/agent-1": agent({ caller_has_screen: true }) }),
+        routes({
+          [HELP]: { ...BOTH, screen_guide: { ...asked, suggested: false, reason: "", ask: false } },
+          "POST /v1/agents/agent-1/call-handling/give-callers-time": {},
+        }),
       );
+      await screen.findByText("Do Reception's callers need time to do what it asks?");
+      await act(async () => {
+        fireEvent.click(await pressable(document.body, /Give them time/));
+      });
+      await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
+      expect(calls.some((call) => call.path.endsWith("/caller-screen"))).toBe(false);
+    });
+
+    it("does not ask about an agent judged to need neither", async () => {
+      const { container } = await renderClientPage(page, routes());
       await screen.findByText(/Latest calls|No calls yet/i);
-      expect(container.textContent).not.toContain("Do your callers use your app or website");
+      expect(container.textContent).not.toContain("follow along on their phone?");
     });
 
-    it("hides the question when the owner says not now", async () => {
-      await renderClientPage(page, routes(SUGGESTING));
-      await screen.findByText("Do your callers use your app or website on the call?");
-      fireEvent.click(screen.getByRole("button", { name: "Not now" }));
-      expect(screen.queryByText("Do your callers use your app or website on the call?")).toBeNull();
-      window.localStorage.clear();
+    it("remembers not now on the server", async () => {
+      const dismissed = { ...asked, dismissed: true, ask: false };
+      const { calls } = await renderClientPage(
+        page,
+        routes({
+          [HELP]: BOTH,
+          "POST /v1/agents/agent-1/caller-help/dismiss": {
+            ...BOTH,
+            screen_guide: dismissed,
+            give_time: dismissed,
+          },
+        }),
+      );
+      await screen.findByText(TITLE);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+      });
+      await waitFor(() => expect(screen.queryByText(TITLE)).toBeNull());
+      expect(calls.some((call) => call.path === "/v1/agents/agent-1/caller-help/dismiss")).toBe(true);
     });
 
-    it("shows the business's reason beside the switch in Settings", async () => {
+    it("says it is suggested for this agent, and why, beside the switch in Settings", async () => {
       openSection("settings");
-      await renderClientPage(page, routes(SUGGESTING));
+      await renderClientPage(page, routes({ [HELP]: BOTH }));
       await screen.findByText("Caller follows along on a screen");
-      expect(
-        await screen.findByRole("switch", { name: "Guide callers through their screen (suggested)" }),
-      ).toBeTruthy();
-      expect(screen.getByText("Your callers install your app and sign up while on the phone.")).toBeTruthy();
+      expect((await screen.findAllByText(`Suggested for Reception: ${REASON}`)).length).toBe(2);
+      expect(screen.getByRole("switch", { name: "Guide callers through their screen" })).toBeTruthy();
     });
   });
 

@@ -36,6 +36,7 @@ from calevate_shared.lead_fields import CORE_KEYS, OUTPUT_KEYS
 from calevate_shared.lead_fields import CORE_LEAD_FIELDS as CORE_FIELDS
 from sqlalchemy import text
 
+from apps.api.agents import agent_pass
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.extraction_routes import validate_fields
 from apps.api.agents.field_suggestions import (
@@ -47,11 +48,11 @@ from apps.api.agents.field_suggestions import (
     REASON_MAX,
     RECENT_DAYS,
     RECOMPILE_COLLECT_JOB,
+    SLOT,
     Source,
     Suggestion,
     applicable,
     current_fields,
-    enqueue_pass,
     normalise,
     suggestion_fingerprint,
 )
@@ -476,29 +477,7 @@ def _unlisted_text(unlisted: dict[str, list[tuple[str, int]]]) -> str:
 async def _finish(tenant_id: UUID, agent_id: UUID, state: str) -> None:
     """Close the pass, or, when it was asked for again while it ran, start the next one."""
     async with tenant_session(tenant_id) as session:
-        closed = (
-            await session.execute(
-                text(
-                    "UPDATE agents SET field_suggestions_state = :state, "
-                    "field_suggestions_at = now(), updated_at = now() "
-                    "WHERE id = :aid AND field_suggestions_state = 'running' RETURNING id"
-                ),
-                {"state": state, "aid": agent_id},
-            )
-        ).first()
-        if closed is None:
-            await _requeue_if_asked(session, tenant_id, agent_id)
-
-
-async def _requeue_if_asked(session: Any, tenant_id: UUID, agent_id: UUID) -> None:
-    again = (
-        await session.execute(
-            text("SELECT field_suggestions_state FROM agents WHERE id = :aid"),
-            {"aid": agent_id},
-        )
-    ).scalar()
-    if again == "queued":
-        await enqueue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+        await agent_pass.finish(session, SLOT, tenant_id=tenant_id, agent_id=agent_id, state=state)
 
 
 async def _blocked(tenant_id: UUID, *, absorbed: bool) -> bool:
@@ -553,7 +532,7 @@ async def _store(
             )
         ).scalar()
         if closed == "queued":
-            await _requeue_if_asked(session, tenant_id, agent_id)
+            await agent_pass.requeue_if_asked(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
 
 
 def _parser(inputs: Inputs) -> Any:
@@ -638,22 +617,12 @@ async def suggest_lead_details(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     tenant_id = UUID(str(payload["tenant_id"]))
     agent_id = UUID(str(payload["agent_id"]))
     async with tenant_session(tenant_id) as session:
-        claimed = (
-            await session.execute(
-                text(
-                    "UPDATE agents SET field_suggestions_state = 'running', "
-                    "field_suggestions_at = now(), updated_at = now() "
-                    "WHERE id = :aid AND field_suggestions_state = 'queued' "
-                    "AND deleted_at IS NULL RETURNING field_suggestions_inputs"
-                ),
-                {"aid": agent_id},
-            )
-        ).first()
-    if claimed is None:
+        claimed, previous = await agent_pass.claim(session, SLOT, agent_id=agent_id)
+    if not claimed:
         outcome = "not_queued"
     else:
         try:
-            outcome = await _run(tenant_id, agent_id, previous=claimed[0])
+            outcome = await _run(tenant_id, agent_id, previous=previous)
         except Exception:
             log.exception(
                 "lead_suggestions_crashed",

@@ -6,6 +6,8 @@
     PUT   /v1/organization/call-handling                            set them (owner)
     POST  /v1/organization/call-handling/all-agents                 one value on every agent
     POST  /v1/agents/{agent_id}/call-handling/give-callers-time     its silence preset
+    GET   /v1/agents/{agent_id}/caller-help                         is the preset suggested?
+    POST  /v1/agents/{agent_id}/caller-help/dismiss                 "Not now" (owner)
     GET   /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's view
     PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-handling        the operator's door
     POST  /v1/admin/tenants/{tid}/agents/{aid}/call-handling/give-callers-time   the same preset
@@ -23,6 +25,7 @@ F3 settings it leaves out are kept, so a caller written for the first two cannot
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -31,7 +34,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import call_handling, patient_caller
+from apps.api.agents import call_handling, caller_help, patient_caller
 from apps.api.agents.call_handling import (
     AMBIENCE_VOLUME_DEFAULT_PCT,
     END_AFTER_SILENCE_DEFAULT_S,
@@ -670,6 +673,108 @@ async def apply_patient_caller(
         principal=principal,
         action="agent.patient_caller_applied",
     )
+
+
+class CallerHelpItemOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggested: bool
+    #: Why, for the owner, from what this agent does; empty when not suggested.
+    reason: str
+    #: The setting is in force on the agent now.
+    on: bool
+    #: The owner answered "Not now" on the Overview.
+    dismissed: bool
+    #: Ask about it on the Overview: suggested, not on, not dismissed.
+    ask: bool
+
+
+class CallerHelpOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: `none` before the first pass is queued; `skipped` when the AI allowance or the
+    #: platform pause stopped it; `failed` when it could not be made.
+    state: Literal["none", "queued", "running", "done", "failed", "skipped"]
+    #: "Caller follows along on a screen" (`PATCH /v1/agents/{id}/caller-screen`).
+    screen_guide: CallerHelpItemOut
+    #: "Give callers time" (`POST .../call-handling/give-callers-time`).
+    give_time: CallerHelpItemOut
+    checked_at: datetime | None
+
+
+def _help_item(item: caller_help.ItemState) -> CallerHelpItemOut:
+    return CallerHelpItemOut(
+        suggested=item.suggested,
+        reason=item.reason,
+        on=item.on,
+        dismissed=item.dismissed,
+        ask=item.ask,
+    )
+
+
+async def _caller_help_out(session: AsyncSession, agent_id: UUID) -> CallerHelpOut:
+    read = await caller_help.read_state(session, agent_id=agent_id)
+    return CallerHelpOut(
+        state=read.state,
+        screen_guide=_help_item(read.screen_guide),
+        give_time=_help_item(read.give_time),
+        checked_at=read.checked_at,
+    )
+
+
+@router.get(
+    "/v1/agents/{agent_id}/caller-help",
+    response_model=CallerHelpOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="Whether this agent's callers seem to follow along on their phone",
+    description=(
+        "Judged from what this agent does (its script, its small steps and its campaigns' "
+        "purposes), with the business's own analysis as a hint: whether to guide callers "
+        "through their screen and whether to give them time. Nothing is switched on by it. "
+        "An agent never judged is queued for its first judgement on this read."
+    ),
+)
+async def get_caller_help(
+    agent_id: UUID, session: Session, principal: AgentReader
+) -> CallerHelpOut:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    out = await _caller_help_out(session, agent_id)
+    # Agents whose script was saved before the judgement existed get one the first time
+    # their page is opened, rather than waiting for a script save that may never come.
+    if out.state == "none" and await caller_help.queue_first_pass(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id
+    ):
+        out = out.model_copy(update={"state": "queued"})
+    return out
+
+
+@router.post(
+    "/v1/agents/{agent_id}/caller-help/dismiss",
+    response_model=CallerHelpOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Stop asking about these settings on this agent's Overview",
+    description=(
+        "Whatever the Overview is asking about is not asked about there again. The settings "
+        "themselves still say they are suggested."
+    ),
+)
+async def dismiss_caller_help(
+    agent_id: UUID, session: Session, request: Request, principal: Owner
+) -> CallerHelpOut:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    dismissed = await caller_help.dismiss(session, agent_id=agent_id)
+    if dismissed:
+        await write_audit(
+            session,
+            action="agent.caller_help_dismissed",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            summary={"items": list(dismissed)},
+        )
+    return await _caller_help_out(session, agent_id)
 
 
 @router.get(

@@ -52,7 +52,7 @@ from calevate_shared.engine import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import prompt_size
+from apps.api.agents import caller_help, prompt_size
 from apps.api.agents.engine_limits import PromptTooLongError, refuse_opening_over_limit
 from apps.api.agents.field_suggestions import queue_pass
 from apps.api.agents.models import is_published
@@ -343,6 +343,8 @@ async def save_agent_script(
     staged = row.status == "live" and row.system_prompt_id != row.live_prompt_id
     # What the script says the business sells may no longer match the lead details (D-889).
     await queue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
+    # What the agent does may now walk callers through their phone, or no longer.
+    await caller_help.queue_pass(session, tenant_id=tenant_id, agent_id=agent_id)
     return SavedScript(version=version, staged=staged)
 
 

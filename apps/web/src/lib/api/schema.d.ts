@@ -4019,6 +4019,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/caller-help": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether this agent's callers seem to follow along on their phone
+         * @description Judged from what this agent does (its script, its small steps and its campaigns' purposes), with the business's own analysis as a hint: whether to guide callers through their screen and whether to give them time. Nothing is switched on by it. An agent never judged is queued for its first judgement on this read.
+         */
+        get: operations["get_caller_help_v1_agents__agent_id__caller_help_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/caller-help/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop asking about these settings on this agent's Overview
+         * @description Whatever the Overview is asking about is not asked about there again. The settings themselves still say they are suggested.
+         */
+        post: operations["dismiss_caller_help_v1_agents__agent_id__caller_help_dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/caller-memory": {
         parameters: {
             query?: never;
@@ -17806,6 +17846,31 @@ export interface components {
             changed: number;
             /** Results */
             results: components["schemas"]["CallbackChangeOut"][];
+        };
+        /** CallerHelpItemOut */
+        CallerHelpItemOut: {
+            /** Ask */
+            ask: boolean;
+            /** Dismissed */
+            dismissed: boolean;
+            /** On */
+            on: boolean;
+            /** Reason */
+            reason: string;
+            /** Suggested */
+            suggested: boolean;
+        };
+        /** CallerHelpOut */
+        CallerHelpOut: {
+            /** Checked At */
+            checked_at: string | null;
+            give_time: components["schemas"]["CallerHelpItemOut"];
+            screen_guide: components["schemas"]["CallerHelpItemOut"];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "none" | "queued" | "running" | "done" | "failed" | "skipped";
         };
         /**
          * CallerMemoryIn
@@ -44688,6 +44753,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallOutcomesAgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_caller_help_v1_agents__agent_id__caller_help_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerHelpOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    dismiss_caller_help_v1_agents__agent_id__caller_help_dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerHelpOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

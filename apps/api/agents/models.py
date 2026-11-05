@@ -352,6 +352,9 @@ MAX_FIELD_SUGGESTIONS = 6
 #: Suggestions an owner said no to, remembered so the same one is not offered again. The
 #: oldest drop off past this, so a business that changed a lot can hear an old idea again.
 MAX_DISMISSED_SUGGESTIONS = 200
+#: What a "does this agent's caller follow along on their phone?" judgement may suggest
+#: (founder, 5 Nov 2026): the screen guide (D-906) and "Give callers time" (D-907).
+CALLER_HELP_ITEMS = ("screen_guide", "give_time")
 
 
 class Agent(PKMixin, TimestampMixin, Base):
@@ -505,6 +508,20 @@ class Agent(PKMixin, TimestampMixin, Base):
             f"{FIELD_SUGGESTION_STATES!r}",
             name="field_suggestions_state_enum",
         ),
+        # Founder 5 Nov 2026 (migration e8b3d6a1f427): the per-agent caller-help judgement.
+        CheckConstraint(
+            "caller_help IS NULL OR jsonb_typeof(caller_help) = 'object'",
+            name="caller_help_shape",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(caller_help_dismissed) = 'array' "
+            f"AND jsonb_array_length(caller_help_dismissed) <= {len(CALLER_HELP_ITEMS)}",
+            name="caller_help_dismissed_shape",
+        ),
+        CheckConstraint(
+            f"caller_help_state IS NULL OR caller_help_state IN {FIELD_SUGGESTION_STATES!r}",
+            name="caller_help_state_enum",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -657,6 +674,18 @@ class Agent(PKMixin, TimestampMixin, Base):
     )
     #: When the last pass finished or stopped.
     field_suggestions_at: Mapped[datetime | None]
+    #: Whether this agent's callers follow along on their own phone, judged from its script,
+    #: its campaigns and the business (`agents/caller_help`): `{item: {suggested, reason}}`
+    #: for each of `CALLER_HELP_ITEMS`. NULL until a pass has run.
+    caller_help: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: The same pass ladder as the lead-detail suggestions (`FIELD_SUGGESTION_STATES`).
+    caller_help_state: Mapped[str | None] = mapped_column(Text)
+    caller_help_inputs: Mapped[str | None] = mapped_column(Text)
+    #: The items the owner answered "Not now" to on the Overview; never asked there again.
+    caller_help_dismissed: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    caller_help_at: Mapped[datetime | None]
     #: The call-handling settings the engine was last sent for this agent, written by
     #: `agents/service.publish_agent` from the config it published (`agents/voice_stamp`,
     #: D-896). Copied onto each call when its row is first written, so reply times can be
