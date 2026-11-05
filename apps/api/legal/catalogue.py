@@ -1180,6 +1180,13 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "ask it to delete each call's content when our period ends and on an erasure. "
                 "NOT MATERIAL: the platform keeps less, and no new recipient or use.",
             ),
+            Revision(
+                "25",
+                False,
+                "The email row names lead alerts and account notices rather than a hot-lead "
+                "notification, which named a stage many businesses do not have. NOT MATERIAL: "
+                "the same recipient receives the same data for the same purpose.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

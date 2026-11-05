@@ -114,10 +114,14 @@ log = get_logger(__name__)
 # `whatsapp-alerts-v1` says different things is the one failure this column exists to
 # prevent. Rows recorded under an old version keep naming it, which is the point — they
 # evidence what that person actually saw.
-ALERT_NOTICE_VERSION = "whatsapp-alerts-v1"
+# v2 (5 Nov 2026): "such as a hot lead" named a stage many businesses do not have; the alerts
+# also now cover a change our team makes to a campaign. A v1 row keeps naming v1, and the
+# alerts it agreed to are the same kind, so it stays a valid opt-in.
+ALERT_NOTICE_VERSION = "whatsapp-alerts-v2"
 ALERT_NOTICE_TEXT = (
     "I agree that Calevate may send WhatsApp messages to this number to alert me about "
-    "activity in my own account, such as a hot lead. I can withdraw this at any time "
+    "activity in my own account, such as a caller who reached my goal or a change to a "
+    "campaign. I can withdraw this at any time "
     "from this screen."
 )
 

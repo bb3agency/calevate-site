@@ -274,9 +274,9 @@ export const SUBPROCESSOR_CATEGORIES: readonly CategoryRow[] = [
     key: "email",
     category: "Email delivery",
     named: [],
-    does: "Transactional email: the hot-lead notification to a client, and operator alerts.",
+    does: "Transactional email: lead alerts and account notices to a client, and operator alerts.",
     receives:
-      "The recipient's email address; in a hot-lead notification, the lead's name and " +
+      "The recipient's email address; in a lead alert, the lead's name and " +
       "the call summary. The phone number is masked before the email is composed. " +
       "Operator alerts carry identifiers only.",
     location: "United States.",

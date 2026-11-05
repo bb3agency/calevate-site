@@ -1070,3 +1070,11 @@ async def test_the_operator_read_is_not_gated_on_the_permission_to_write() -> No
     # mutating on purpose: an impersonating admin must not manufacture a client's consent.
     assert write == "admin:tenants"
     assert write in MUTATING_PERMISSIONS
+
+
+def test_the_notice_names_no_stage_a_business_may_not_have() -> None:
+    """v2 (5 Nov 2026): "such as a hot lead" named a stage many businesses do not have."""
+    from apps.api.compliance import whatsapp_optin
+
+    assert whatsapp_optin.ALERT_NOTICE_VERSION == "whatsapp-alerts-v2"
+    assert "hot" not in whatsapp_optin.ALERT_NOTICE_TEXT.lower()

@@ -1007,6 +1007,14 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:a67231a82975a7be843fbac0a9cf9b0648dde4f494d9564a00282df16ee08adf",
       },
+      // The email row names lead alerts and account notices, not a hot-lead notification.
+      // NOT MATERIAL: the same recipient receives the same data for the same purpose.
+      {
+        revision: "25",
+        material: false,
+        contentHash:
+          "sha256:aba15cc10ee9079fa22a113b9f39a0b98fccd05959c782d427b09a1c4d0bd149",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
