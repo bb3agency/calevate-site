@@ -42,9 +42,12 @@ import re
 import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Final, Literal, cast, get_args
 
 from calevate_shared.call_script import CallScript
+from calevate_shared.call_words import extend as _extend
+from calevate_shared.call_words import say as _say
+from calevate_shared.call_words import table
 
 Severity = Literal["strong", "soft"]
 Verdict = Literal["clear", "check", "promotional"]
@@ -116,6 +119,33 @@ def _indic(
 ) -> _Rule:
     alternatives = "|".join(re.escape(unicodedata.normalize("NFC", word)) for word in words)
     return _Rule(re.compile(f"(?:{alternatives})"), category, language, severity)
+
+
+def _indic_rules() -> tuple[_Rule, ...]:
+    """The Telugu and Hindi rules, from the founder's detector file (`call_words.json`,
+    `call_purpose.rules`), keyed "<language> <category> <severity>". A key naming a
+    language, category or severity this checker does not know fails at import rather than
+    being skipped, so a typo cannot quietly switch a launch-gate rule off; an emptied list
+    is that rule switched off."""
+    rules: list[_Rule] = []
+    for key, words in table("call_purpose.rules").items():
+        language, category, severity = key.split()
+        if (
+            language not in get_args(Language)
+            or category not in get_args(Category)
+            or severity not in get_args(Severity)
+        ):
+            raise ValueError(f"call_words call_purpose.rules has an unknown key {key!r}")
+        if words:
+            rules.append(
+                _indic(
+                    words,
+                    cast(Category, category),
+                    cast(Language, language),
+                    cast(Severity, severity),
+                )
+            )
+    return tuple(rules)
 
 
 _OFFER_QUALIFIERS = (
@@ -198,44 +228,8 @@ _RULES: Final[tuple[_Rule, ...]] = (
     ),
     _latin(r"sirf\s+aaj|kewal\s+aaj|aakhri\s+mauka|jaldi\s+karein", "urgency", "hi", "strong"),
     _latin(r"ippude\s+konandi|abhi\s+khareedein|abhi\s+kharidein", "buy_now", "hi", "strong"),
-    # --- Telugu ------------------------------------------------------------------------
-    _indic(
-        ("డిస్కౌంట్", "తగ్గింపు", "రాయితీ", "క్యాష్‌బ్యాక్", "క్యాష్ బ్యాక్", "కూపన్", "ఆఫర్", "ప్రత్యేక ధర"),
-        "discount",
-        "te",
-        "strong",
-    ),
-    _indic(
-        ("పరిమిత కాలం", "పరిమిత సమయం", "ఈ రోజు మాత్రమే", "ఈరోజు మాత్రమే", "త్వరపడండి", "చివరి అవకాశం"),
-        "urgency",
-        "te",
-        "strong",
-    ),
-    # "Do not delay" is also "do not be late", which every appointment reminder says.
-    _indic(("ఆలస్యం చేయకండి",), "urgency", "te", "soft"),
-    _indic(("ఇప్పుడే కొనండి", "ఇప్పుడే ఆర్డర్ చేయండి"), "buy_now", "te", "strong"),
-    _indic(("ఉచిత బహుమతి",), "free_offer", "te", "strong"),
-    _indic(("బెస్ట్ ప్రైస్",), "discount", "te", "soft"),
-    _indic(("కొత్త స్కీమ్", "కొత్త ప్లాన్", "కొత్త ప్రాజెక్ట్", "కొత్త ఉత్పత్తి"), "cross_sell", "te", "soft"),
-    # --- Hindi -------------------------------------------------------------------------
-    _indic(
-        ("डिस्काउंट", "कैशबैक", "कूपन", "ऑफर", "ऑफ़र", "विशेष कीमत", "खास कीमत", "स्पेशल प्राइस"),
-        "discount",
-        "hi",
-        "strong",
-    ),
-    # छूट alone: `_INDIC_EVERYDAY_AFTER` keeps out its "was missed" and "exemption" senses.
-    _indic(("छूट",), "discount", "hi", "strong"),
-    _indic(
-        ("सीमित समय", "सीमित अवधि", "सिर्फ आज", "केवल आज", "जल्दी करें", "आखिरी मौका", "मौका न चूकें"),
-        "urgency",
-        "hi",
-        "strong",
-    ),
-    _indic(("अभी खरीदें", "अभी ऑर्डर करें"), "buy_now", "hi", "strong"),
-    _indic(("मुफ्त उपहार", "मुफ़्त उपहार", "फ्री गिफ्ट"), "free_offer", "hi", "strong"),
-    _indic(("बेस्ट प्राइस",), "discount", "hi", "soft"),
-    _indic(("नई स्कीम", "नया प्लान", "नई योजना", "नया प्रोजेक्ट"), "cross_sell", "hi", "soft"),
+    # Telugu and Hindi letters: the founder's lists (`call_words.json`, `call_purpose.rules`).
+    *_indic_rules(),
 )
 
 # "free" on its own is soft, and only when none of the everyday senses fits.
@@ -250,12 +244,10 @@ _FREE_BENIGN_AFTER: Final = re.compile(
     r"gift|gifts|voucher)",
     re.IGNORECASE,
 )
-_FREE_INDIC: Final = re.compile("ఉచిత|ఫ్రీ|मुफ्त|मुफ़्त|फ्री")
-#: After ఉచిత/मुफ्त: parking, wifi, "are you free" (ఫ్రీగా ఉన్నారా, फ्री हैं), and the gift
-#: words the strong rules already caught.
-_FREE_INDIC_BENIGN_AFTER: Final = re.compile(
-    "^\\s*(?:పార్కింగ్|వైఫై|గా|టైం|బహుమతి|पार्किंग|वाईफाई|हैं|हो|है क्या|उपहार|गिफ्ट)"
-)
+#: "Free" in Telugu and Hindi letters, and the words after it that make it everyday (free
+#: parking, "are you free"): the founder's lists in `call_words.json`.
+_FREE_INDIC: Final = re.compile(_say("call_purpose._FREE_INDIC"))
+_FREE_INDIC_BENIGN_AFTER: Final = re.compile(_say("call_purpose._FREE_INDIC_BENIGN_AFTER"))
 
 # "don't miss" is the urgency rule's own phrase, never a negation of what follows it.
 _NEGATION_EN_BEFORE: Final = re.compile(
@@ -264,11 +256,13 @@ _NEGATION_EN_BEFORE: Final = re.compile(
     re.IGNORECASE,
 )
 _NEGATION_AFTER_RE: Final = re.compile(
-    r"\b(?:not\s+available|are\s+not|is\s+not|isn'?t|aren'?t|ledu|levu|undadu|nahi|nahin)\b"
-    "|లేదు|లేవు|ఉండదు|ఉండవు|ఇవ్వము|ఇవ్వం|नहीं",
+    _extend(
+        r"\b(?:not\s+available|are\s+not|is\s+not|isn'?t|aren'?t|ledu|levu|undadu|nahi|nahin)\b",
+        "call_purpose._NEGATION_AFTER_RE",
+    ),
     re.IGNORECASE,
 )
-_NEGATION_HI_BEFORE: Final = re.compile("नहीं|कोई भी")
+_NEGATION_HI_BEFORE: Final = re.compile(_say("call_purpose._NEGATION_HI_BEFORE"))
 #: A negation reaches only as far as its own clause: "Don't wait, flat 20% off" and "Rs 500
 #: off, not available anywhere else" negate nothing about the offer.
 #: Em dash, en dash and the Devanagari danda (by code point: RUF001 refuses the dashes) end
@@ -284,18 +278,15 @@ _NEGATIVE_IDIOMS: Final = re.compile(
 #: Indic words of the strong lists that also have an everyday sense, told apart by the
 #: letters around them: छूट is "was missed" before a vowel sign or गया/जाना (छूटी हुई कॉल,
 #: छूट गई) and an exemption after "tax" (टैक्स छूट); ఆఫర్/ऑफर is the verb "to offer" before
-#: "do" (సైట్ విజిట్ ఆఫర్ చేయండి, ऑफर करें) and a job offer before "letter".
+#: "do" (సైట్ విజిట్ ఆఫర్ చేయండి, ऑफर करें) and a job offer before "letter". The words and
+#: patterns are the founder's (`call_words.json`), keyed by the word as written.
 _INDIC_EVERYDAY_AFTER: Final[dict[str, re.Pattern[str]]] = {
-    word_nfc: pattern
-    for words, pattern in (
-        (("छूट",), re.compile("^(?:[ा-ौ]|\\s*(?:ग|जा|गय|गई|गए))")),
-        (("ఆఫర్",), re.compile("^[\\s‌]*(?:లెటర్|చేయ|చేస్|చేసి|చెయ్య)")),
-        (("ऑफर", "ऑफ़र"), re.compile("^[\\s‌]*(?:लेटर|कर)")),
-    )
-    for word_nfc in (unicodedata.normalize("NFC", word) for word in words)
+    unicodedata.normalize("NFC", word): re.compile(pattern)
+    for word, pattern in table("call_purpose._INDIC_EVERYDAY_AFTER").items()
 }
 _INDIC_EVERYDAY_BEFORE: Final[dict[str, re.Pattern[str]]] = {
-    "छूट": re.compile("(?:टैक्स|आयकर|कर|जीएसटी)\\s*$"),
+    unicodedata.normalize("NFC", word): re.compile(pattern)
+    for word, pattern in table("call_purpose._INDIC_EVERYDAY_BEFORE").items()
 }
 
 
@@ -347,7 +338,8 @@ def _free_findings(text: str) -> list[tuple[int, int, Language]]:
     for match in _FREE_INDIC.finditer(text):
         if _FREE_INDIC_BENIGN_AFTER.search(text[match.end() :]):
             continue
-        language: Language = "te" if "ఀ" <= match.group(0)[0] <= "౿" else "hi"
+        telugu = unicodedata.name(match.group(0)[0], "").startswith("TELUGU")
+        language: Language = "te" if telugu else "hi"
         found.append((match.start(), match.end(), language))
     return found
 

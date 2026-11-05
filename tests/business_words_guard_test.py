@@ -93,14 +93,6 @@ INDIC_ALLOWED: dict[str, tuple[int, str]] = {
         17,
         "each language's name in its own script (endonyms), reference data",
     ),
-    "apps/api/compliance/call_purpose.py": (
-        63,
-        "promotional-wording detector lists: matched, never said or shown",
-    ),
-    "packages/shared/src/calevate_shared/spoken_guard.py": (
-        2,
-        "detector of textbook words in a spoken line: matched, never said",
-    ),
     "apps/api/agents/retired_lines.py": (
         117,
         "retired lines kept only to find and remove them on live agents (D-962)",
