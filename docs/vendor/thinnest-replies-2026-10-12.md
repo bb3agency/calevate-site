@@ -2525,41 +2525,39 @@ reported `busy` for a reason on the calling side.
 What happened (production, Rytu Khata's campaign, agent Varsha, Telugu, outbound call of
 4 Nov 2026 at about 20:26 IST, 1:55 long): at 0:34 the agent began a long explanation and the
 transcript stops mid-word ("Type…"); at 0:45 the person said "your voice cut off in the
-middle". No turn of theirs appears between the two. The founder adds the call id from the
-Calls page before sending.
+middle". No turn of theirs appears between the two.
 
-Three causes fit the docs, and only their side can tell them apart:
-- the reply reached `maxReplyTokens`, which cuts a reply off at that point (§12 item 5,
-  VENDOR-STATED; `update-agent.md:756-762`, snapshot 2026-10-29). Every agent was sent 300,
-  the vendor's default, until 5 Nov 2026 and is now sent 800, the top of the range, unless an
-  operator set its own or the console holds another value;
-- a caller interruption: we send `interruptWords` 2 and, on a screen-guide agent,
-  `holdShortSpeech` false; a stop trims the transcript "to the part the caller actually
-  heard" (`channels/voice.md:1037-1041`, same snapshot), which would also end mid-word;
-- the call's voice connection failing (`call.problem` `voice_failed`, `get-call.md:312-316`).
+What our production rows show (read 5 Nov 2026, founder ran the query): call
+`out_4bad8c49-d2d8-47a0-bdd8-a2e579f49361`, 115 s, `quality.interruptions` 2, `turns` 8,
+`model_errors` 0, no `call.problem`; turn detection `ear` (console and the call's voice
+settings); the console holds no `thinnest_reply_length` and the agent no override, so 300 was
+sent; our Gemini leg recorded 500 output tokens for the WHOLE call. The timeline puts the
+agent's long reply starting at about 34.3 s (turn 3: caller stopped 32,358 ms, answer
+1,987 ms later) and the caller's next words ending at 43,639 ms (turn 4). So the reply
+ceiling is unlikely (500 tokens across eight replies), the voice did not fail, and an
+interruption is counted: the caller spoke while the agent was talking, and the transcript
+was trimmed to what was heard. What is still unknown is why the caller heard the voice cut
+BEFORE speaking — audio loss on the line, or the caller speaking over a long reply.
 
 > Subject: An agent's voice stopped mid-word on a call
 >
 > Hi Ashutosh,
 >
-> On 4 Nov at about 20:26 IST, on call `<call id>`, our agent started a long answer about
-> 34 seconds in and stopped in the middle of a word; the person said "your voice cut off in
-> the middle" about ten seconds later. They had not spoken in between.
+> On 4 Nov at 20:26 IST, on call `out_4bad8c49-d2d8-47a0-bdd8-a2e579f49361`, our agent
+> started a long answer about 34 seconds in and the person then said "your voice cut off in
+> the middle"; the transcript ends the agent's line mid-word. Get Call shows 2 interruptions
+> and no voice problem, on Ear turn detection.
 >
-> 1. Why did the agent stop there: did the reply reach `maxReplyTokens`, was it stopped by
->    something the person said or a sound on the line, or did the voice fail? If it was an
->    interruption, what was heard?
-> 2. What does `maxReplyTokens` count on a call on our Gemini key: only the words that are
->    spoken, or also text you strip before speech, a tool call's arguments, and any thinking
->    tokens? Is it sent to Google as `maxOutputTokens`?
-> 3. When a reply is cut at the ceiling, is that recorded anywhere we can read (Get Call,
->    Get Call Timeline, `quality`), and is the model told on the next turn, as it is after an
->    interruption?
-> 4. Could a reply that reaches the ceiling end at the last full sentence instead of
->    mid-word?
-> 5. With `interruptWords` 2 and `holdShortSpeech` false, can background noise that the
->    recogniser hears as two words stop the agent, and is every such stop counted in
->    `quality.interruptions` and shown as a turn in the transcript?
+> 1. What were the two interruptions on this call: what did Ear hear, at what times, and did
+>    it judge them real interruptions or acknowledgements?
+> 2. Did the audio reaching the person break up around 34–44 seconds (packet loss, jitter,
+>    a carrier or voice-side gap)? The person says the voice cut before they spoke. Can we
+>    read audio-quality figures per call anywhere?
+> 3. Is the agent's full reply text for that turn kept anywhere, so we can see what it meant
+>    to say and how far it got?
+> 4. On our Gemini key, does `maxReplyTokens` count only spoken words, or also stripped text,
+>    tool-call arguments and thinking tokens, and is it sent to Google as `maxOutputTokens`?
+>    If a reply reaches it, is that recorded anywhere we can read?
 >
 > Thanks,
 > Umesh
