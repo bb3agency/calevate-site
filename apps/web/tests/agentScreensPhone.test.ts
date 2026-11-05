@@ -65,7 +65,8 @@ describe("agent and knowledge screens on a phone", () => {
    */
   it("the step summary wraps the step name and its problem instead of cutting them", () => {
     const source = code(join(SRC, "app/c/[slug]/agents/[agentId]/script/SectionList.tsx")).join("\n");
-    const summary = /function SectionSummary[\s\S]*?\n}\n/.exec(source)?.[0] ?? "";
+    // `\r?`: the split on "\n" leaves a "\r" on each line in a CRLF checkout.
+    const summary = /function SectionSummary[\s\S]*?\n}\r?\n/.exec(source)?.[0] ?? "";
     expect(summary, "SectionSummary not found").not.toEqual("");
     expect(summary).not.toMatch(/\btruncate\b/);
   });
