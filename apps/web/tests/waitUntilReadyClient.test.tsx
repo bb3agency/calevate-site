@@ -10,6 +10,7 @@ import { TrialCallCard, callWait } from "@/app/c/[slug]/TrialCallPanel";
 import type { TestCall, TrialPanel } from "@/lib/api/trialCalls";
 
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
+import { businessProfileFixture } from "./businessProfileFixture";
 import { renderClientPage } from "./harness";
 
 /**
@@ -195,13 +196,13 @@ describe("asking Pip waits for the suggestion being written", () => {
         </>
       );
     }
-    await renderClientPage(<Written />, { "/v1/me": OWNER_ME });
+    await renderClientPage(<Written />, { "/v1/me": OWNER_ME, "/v1/business-profile": businessProfileFixture() });
     fireEvent.change(await screen.findByLabelText("What should change?"), { target: { value: "Shorter opening" } });
-    await waitFor(() => expect(waitingReason(button(/do it$/))).toMatch(/to finish this suggestion$/));
+    await waitFor(() => expect(waitingReason(button("Ask Pip"))).toMatch(/to finish this suggestion$/));
     expect(button(/^Let Pip draft the whole script:/).disabled).toBe(true);
 
     fireEvent.click(button("Suggestion written"));
-    await waitFor(() => expect(waitingReason(button(/do it$/))).toBeNull());
-    expect(button(/do it$/).disabled).toBe(false);
+    await waitFor(() => expect(waitingReason(button("Ask Pip"))).toBeNull());
+    expect(button("Ask Pip").disabled).toBe(false);
   });
 });

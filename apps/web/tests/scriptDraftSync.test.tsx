@@ -7,6 +7,7 @@ import { reconcileDraft, saveState } from "@/app/c/[slug]/agents/[agentId]/scrip
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptOut } from "@/lib/api/script";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import { problem, renderClientPage } from "./harness";
 import { agentRow, settledPending } from "./fixtures/sharedReads";
 
@@ -73,6 +74,7 @@ const routes = (script: unknown, extra: Record<string, unknown> = {}) => ({
   "POST /v1/agents/agent-1/script/check": { warnings: [] },
   "/v1/agents/agent-1/script/proposed-rules": [],
   "/v1/agents/agent-1/script/proposal": { proposal: null },
+  "/v1/business-profile": businessProfileFixture(),
   "/v1/agents/agent-1/pending": settledPending(),
   ...extra,
 });
