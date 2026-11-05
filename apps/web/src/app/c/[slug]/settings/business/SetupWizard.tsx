@@ -209,7 +209,7 @@ function Wizard({
                 }`}
               >
                 <StepMark state={states[item.id]} />
-                <span className="min-w-0 truncate">{item.short}</span>
+                <span className="min-w-0">{item.short}</span>
                 {blocking.has(item.id) ? (
                   <span className="ml-auto shrink-0 text-ink-faint">Needed</span>
                 ) : null}

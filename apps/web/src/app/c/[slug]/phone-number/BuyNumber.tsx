@@ -215,7 +215,9 @@ function HolderBlock() {
             id="holder-name"
             className={FIELD}
             value={draft.holder_name}
-            autoComplete="name"
+            // A business holder's registered name is the organisation, not a person; offering
+            // the owner's own name from autofill would fill the wrong value.
+            autoComplete={draft.holder_type === "business" ? "organization" : "name"}
             onChange={(event) => setDraft({ ...draft, holder_name: event.target.value })}
           />
         </div>

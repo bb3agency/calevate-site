@@ -163,11 +163,12 @@ function NameCell({ row, ctx }: { row: TeamRow; ctx: TeamTableContext }) {
   }
   const isMe = ctx.myId !== null && row.member.id === ctx.myId;
   return (
-    <span className="block min-w-0">
+    <span className="block min-w-0 [overflow-wrap:anywhere]">
       <span className="text-ink">{row.member.name ?? "Unnamed member"}</span>
       {isMe && <span className="ml-1.5 text-meta text-ink-faint">(you)</span>}
       {ctx.showEmail && row.email && (
-        <span className="block truncate text-meta text-ink-muted md:hidden">{row.email}</span>
+        // Wrapped rather than cut: on a phone this is the only place the address shows.
+        <span className="block text-meta text-ink-muted md:hidden">{row.email}</span>
       )}
     </span>
   );

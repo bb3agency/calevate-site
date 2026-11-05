@@ -37,7 +37,7 @@ export function ChartView({ spec, hideTitle = false }: { spec: ChartSpec; hideTi
         {spec.rows.length === 0 ? (
           <p className="text-body text-ink-muted">{empty}</p>
         ) : (
-          <ScrollRegion label={spec.title}>
+          <ScrollRegion label={spec.title} className="scroll-shadow-x">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-line">

@@ -45,7 +45,7 @@ export function HeldLeads({
           {items.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-ink">{item.lead_name ?? "No name given"}</p>
+                <p className="text-sm font-medium text-ink [overflow-wrap:anywhere]">{item.lead_name ?? "No name given"}</p>
                 <p className="text-xs text-ink-muted">
                   {sourceLabel(item.source)} · arrived {formatIST(item.held_at)}
                   {item.agent_name ? ` · ${item.agent_name} will call` : ""}

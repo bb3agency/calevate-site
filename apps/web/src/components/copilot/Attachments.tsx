@@ -380,7 +380,7 @@ export function AttachmentTray({
                   </span>
                 )}
                 <span className="min-w-0">
-                  <span className="block max-w-[10rem] truncate text-ink">{item.name}</span>
+                  <span className="block max-w-[10rem] truncate text-ink" title={item.name}>{item.name}</span>
                   <span
                     className={`block max-w-[14rem] text-xs ${item.status === "failed" ? "text-danger" : "text-ink-muted"}`}
                     aria-live="polite"
@@ -444,7 +444,7 @@ export function TurnAttachments({
             ) : (
               <span className="flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-ink-muted">
                 <FileText aria-hidden className="h-3.5 w-3.5" />
-                <span className="max-w-[9rem] truncate">{file.name}</span>
+                <span className="max-w-[9rem] truncate" title={file.name}>{file.name}</span>
               </span>
             )}
           </li>
