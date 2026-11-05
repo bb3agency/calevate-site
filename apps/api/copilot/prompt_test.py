@@ -731,6 +731,29 @@ def test_an_instruction_field_says_so() -> None:
     assert 'redacted="false" instruction="true">' in rendered
 
 
+def test_a_writable_instruction_field_brings_the_plain_english_rule() -> None:
+    """FAILS IF: Pip is shown instruction="true" without being told what it means, so a
+    script rewritten "in Telugu" puts Telugu into every instruction field and the whole
+    fill is refused (PIP-06, 5 Nov 2026)."""
+    raw = AFTER_KEPT.model_dump()
+    raw["fields"][0] = {**raw["fields"][0], "spoken_language": None, "instruction": True}
+    rendered = prompt_module.render_screen(CopilotAskIn.model_validate(raw))
+    assert rendered.count(prompt_module.INSTRUCTION_FIELD_RULE) == 1
+    assert rendered.index("</fields>") < rendered.index("<instruction_rule>")
+    raw["fields"][0]["writable"] = False
+    read_only = prompt_module.render_screen(CopilotAskIn.model_validate(raw))
+    assert "<instruction_rule>" not in read_only
+    assert "<instruction_rule>" not in prompt_module.render_screen(PAYLOAD)
+
+
+def test_the_closing_rules_never_ask_for_the_claim_in_the_calling_turn() -> None:
+    """FAILS IF: the closing rules ask Pip to say what it did in the same turn as the call,
+    before the server knows whether it went through (PIP-02)."""
+    rules = prompt_module.CLOSING_RULES
+    assert "only after its tool result comes back" in rules
+    assert "with every fill or suggestion, say" not in rules
+
+
 def test_a_screen_that_does_not_say_renders_as_before() -> None:
     rendered = prompt_module.render_screen(PAYLOAD)
     assert "saves=" not in rendered and "spoken_language=" not in rendered

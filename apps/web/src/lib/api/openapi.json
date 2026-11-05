@@ -17634,6 +17634,11 @@
             ],
             "title": "Plan Id"
           },
+          "queued": {
+            "default": false,
+            "title": "Queued",
+            "type": "boolean"
+          },
           "tool": {
             "title": "Tool",
             "type": "string"

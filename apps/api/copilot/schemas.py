@@ -616,6 +616,9 @@ class CopilotConfirmOut(BaseModel):
     #: Set when the action prepared an export: spent by `POST /v1/exports/download`, once,
     #: within ten minutes (`crm/export_tickets.py`).
     download_ticket: str | None = None
+    #: True when the change was queued, not made: a job writes the result later and can
+    #: fail (a script suggestion, fixes for failed tests). Show it as started, not done.
+    queued: bool = False
 
 
 class CopilotDoneEvent(BaseModel):

@@ -115,12 +115,21 @@ class WriteRefusedError(Exception):
     refusal and its remediation instead of retrying around it.
 
     `reason` names ids and shapes, never a value (hard rule 6): it reaches a log line and a
-    prompt.
+    prompt. It is written for the MODEL — tool names, argument keys, what to do next — so it
+    never reaches a person. `plain` is the owner's sentence (a step's detail, the line that
+    closes an answer in which nothing changed, an approval's outcome); a raise site that has
+    nothing more useful to say leaves it to `REFUSED_PLAIN`, and the model still explains the
+    refusal in its next turn from `reason`.
     """
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, plain: str | None = None) -> None:
         self.reason = reason
+        self.plain = plain or REFUSED_PLAIN
         super().__init__(reason)
+
+
+#: What the owner reads for a refused action whose raise site gave no `plain` sentence.
+REFUSED_PLAIN: Final = "This could not be done from here."
 
 
 async def agent_name(session: AsyncSession, agent_id: UUID) -> str:
@@ -155,6 +164,10 @@ class ToolActor:
     user_id: UUID
     role: str
     impersonating: bool
+    #: The person's own messages in the conversation the call came from, latest last; empty
+    #: when no conversation is behind it (a confirm, an approval). Planners read it only as
+    #: the owner's WORDING (`quotes.owners_wording`), never as permission for anything.
+    said: tuple[str, ...] = ()
 
 
 def actor_for(principal: Principal) -> ToolActor | None:
@@ -320,6 +333,10 @@ class Executed:
     #: A one-time ticket for the file an export prepared (`crm/export_tickets.py`), handed to
     #: the browser on the confirm's answer and never recorded.
     download_ticket: str | None = None
+    #: True when the act was QUEUED rather than done: a job will write the result later and
+    #: may fail. The confirm card says "Started", never "Done", and follows the job where it
+    #: can (`ProposalCard`); `applied` still says the request was accepted.
+    queued: bool = False
 
 
 #: A tool's read half: session (tenant-scoped) → described plan. READS ONLY, on every tier.

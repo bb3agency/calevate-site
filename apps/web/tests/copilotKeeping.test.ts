@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filledNotice, keepingOnWire, panelNotice, savesOf } from "@/lib/copilot/keeping";
+import { filledNotice, filledReply, keepingOnWire, panelNotice, savesOf } from "@/lib/copilot/keeping";
 import { redactForWire } from "@/lib/copilot/redaction";
 import { mergeSurfaces } from "@/lib/copilot/registry";
 import { noFill, type CopilotSurface } from "@/lib/copilot/types";
@@ -25,9 +25,11 @@ describe("what the panel says after a fill", () => {
   it("names the live step on a screen that autosaves a draft, and no save button", () => {
     const script = surface({ saves: "autosave", liveStep: "Put it live" });
     expect(filledNotice(script)).toBe(
-      "Pip changed your draft. It is saved as a draft; nothing goes live until you press Put it live.",
+      "Your draft saves by itself. Nothing goes live until you press Put it live.",
     );
     expect(filledNotice(script)).not.toMatch(/save button/);
+    // The fill lands before the autosave runs, so it never says the save has happened (PIP-13).
+    expect(filledNotice(script)).not.toMatch(/is saved|saved as a draft/);
     expect(panelNotice(script)).toMatch(/saved as a draft by themselves; nothing goes live until you press Put it live/);
   });
 
@@ -49,6 +51,16 @@ describe("what the panel says after a fill", () => {
     expect(savesOf(readOnly)).toBeNull();
     expect(panelNotice(readOnly)).toBe("");
     expect(keepingOnWire(readOnly)).toEqual({});
+  });
+});
+
+describe("the reply for a fill, said once (founder, F-1)", () => {
+  it("names what changed and leaves how the screen keeps it to the card under it", () => {
+    const script = surface({ saves: "autosave", liveStep: "Put it live" });
+    const reply = filledReply(script, ["Opening line", "Goal"]);
+    expect(reply).toBe("I changed Opening line and Goal in your draft.");
+    expect(`${reply} ${filledNotice(script)}`.match(/Nothing goes live/g)).toHaveLength(1);
+    expect(filledReply(surface(), ["Name"])).toBe("I filled in Name.");
   });
 });
 

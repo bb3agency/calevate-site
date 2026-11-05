@@ -1,0 +1,11 @@
+{
+  "_about": "Spellings of AI provider names in Indian scripts. Pip's answer is checked for these so it never names a provider (D-679). A guard list, not words anyone says: a missing spelling is a missed match that the prompt still stands in front of, never a wrong one. Evidence class: ordinary transliteration, not a vendor claim. Founder-owned: add spellings here.",
+  "spellings": [
+    "గూగుల్",
+    "गूगल",
+    "जेमिनी",
+    "జెమిని",
+    "ఓపెన్ ఏఐ",
+    "ओपनएआई"
+  ]
+}

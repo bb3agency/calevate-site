@@ -306,6 +306,15 @@ export function CopilotPanel({
   const batch = conversation.batch;
   // The fill belongs to the latest answer; an earlier empty one is not told about it.
   const lastAnswer = conversation.turns.findLastIndex((turn) => turn.role === "assistant");
+  const latestAnswer =
+    conversation.streaming ?? (lastAnswer >= 0 ? conversation.turns[lastAnswer].content : "");
+  // THE CHANGED FIELDS ARE LISTED ONCE. An answer that already names every one (the
+  // server's own "I changed …", or `filledReply` for an empty bubble) is not followed by the
+  // same list again in the fill card (founder, F-1: one rewrite listed them three times).
+  const answerNamesFill =
+    batch !== null &&
+    (latestAnswer.trim() === "" ||
+      batch.labels.every((label) => latestAnswer.toLowerCase().includes(label.toLowerCase())));
   const { navigation, clearNavigation, asking } = conversation;
 
   // THE ASK, when leaving this screen might throw work away. `null` while there is nothing
@@ -654,14 +663,7 @@ export function CopilotPanel({
             would talk over the answer — which is the thing a screen-reader user is waiting
             for and which IS announced. Kept after the answer has arrived too, so a person
             can still see which of their data was read and what each lookup returned. */}
-        <StepList
-          steps={conversation.steps}
-          answer={
-            conversation.streaming ??
-            conversation.turns.findLast((turn) => turn.role === "assistant")?.content ??
-            ""
-          }
-        />
+        <StepList steps={conversation.steps} answer={latestAnswer} realm={realm} />
 
         {/* WHY SOMETHING DID NOT WORK (D-935): a troubleshoot read's checklist, the cause
             open with its one button. The admin realm gets no button that would ask its Pip
@@ -749,15 +751,19 @@ export function CopilotPanel({
 
         {batch !== null && (
           <div className="border-l-2 border-brand pl-3">
-            {/* Folded: the answer above says what changed; the list is a tap away. */}
-            <details className="group">
-              <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-ink [&::-webkit-details-marker]:hidden">
-                Filled {batch.labels.length} {batch.labels.length === 1 ? "field" : "fields"}
-                <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
-              </summary>
-              <p className="mt-0.5 text-xs text-ink-muted">{batch.labels.join(", ")}</p>
-              <p className="mt-1 text-xs text-ink-faint">{filledNotice(surface)}</p>
-            </details>
+            {answerNamesFill ? (
+              <p className="text-xs text-ink-faint">{filledNotice(surface)}</p>
+            ) : (
+              // Folded: the list is a tap away for an answer that did not name the fields.
+              <details className="group">
+                <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-ink [&::-webkit-details-marker]:hidden">
+                  Filled {batch.labels.length} {batch.labels.length === 1 ? "field" : "fields"}
+                  <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+                </summary>
+                <p className="mt-0.5 text-xs text-ink-muted">{batch.labels.join(", ")}</p>
+                <p className="mt-1 text-xs text-ink-faint">{filledNotice(surface)}</p>
+              </details>
+            )}
             <button
               type="button"
               onClick={conversation.undo}

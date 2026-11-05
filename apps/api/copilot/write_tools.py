@@ -87,7 +87,7 @@ import hashlib
 import hmac
 import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
@@ -1150,7 +1150,9 @@ async def plan_write(
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         _refuse_ungrounded(tool, parsed_arguments, said)
-        plan = await tool.plan(session, actor, parsed_arguments)
+        plan = await tool.plan(
+            session, actor if said is None else replace(actor, said=tuple(said)), parsed_arguments
+        )
 
     issued_at = datetime.now(UTC)
     # Floored to whole seconds so the `expires_at` the browser is told is exactly the `exp`
@@ -1300,6 +1302,7 @@ async def run_immediate(
     ip: str | None,
     source: action_log.ActionSource = "interactive",
     job_id: UUID | None = None,
+    said: Sequence[str] = (),
 ) -> CopilotActionEvent:
     """One TIER 1 action: describe it, claim it, do it, record it. IN THAT ORDER.
 
@@ -1354,6 +1357,7 @@ async def run_immediate(
         raise WriteRefusedError(
             f"`{name}` needs a signed-in account and this session has none, so nothing was done"
         )
+    actor = replace(actor, said=tuple(said))
     try:
         parsed_arguments = json.loads(raw_arguments or "")
     except ValueError as exc:
@@ -1895,6 +1899,7 @@ async def confirm(
         detail=strip_invisible(executed.detail),
         plan_id=plans.plan_id_of(proposal.args),
         download_ticket=executed.download_ticket,
+        queued=executed.queued,
     )
 
 
@@ -1961,7 +1966,9 @@ async def stage_for_approval(
             )
         await _refuse_a_deleted_agent(session, tool, parsed_arguments)
         _refuse_ungrounded(tool, parsed_arguments, said)
-        plan = await tool.plan(session, actor, parsed_arguments)
+        plan = await tool.plan(
+            session, actor if said is None else replace(actor, said=tuple(said)), parsed_arguments
+        )
         action_id = await action_log.insert(
             session,
             action_log.NewAction(
@@ -2070,7 +2077,7 @@ async def approve(
             object_type=tool.object_type,
             object_id=row.object_id or "",
             applied=False,
-            detail=strip_invisible(refused.reason),
+            detail=strip_invisible(refused.plain),
         )
     await _require_action_code(tool, plan.args, code_check)
     prior_state = None if tool.undo is None else await tool.undo.capture(session, actor, plan.args)
@@ -2109,6 +2116,7 @@ async def approve(
         detail=strip_invisible(executed.detail),
         plan_id=plans.plan_id_of(plan.args),
         download_ticket=executed.download_ticket,
+        queued=executed.queued,
     )
 
 

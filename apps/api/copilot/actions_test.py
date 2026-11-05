@@ -40,8 +40,8 @@ import pytest
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
+from apps.api.copilot import areas, service, write_tools
 from apps.api.copilot import prompt as prompt_module
-from apps.api.copilot import service, write_tools
 from apps.api.copilot.actions import ACTION_TIERS, ActionTool
 from apps.api.copilot.schemas import CopilotAskIn
 from apps.api.copilot.write_tools_test import (  # reuse, never re-implement
@@ -356,6 +356,71 @@ def _create_args(name: str = "Raghava outbound") -> str:
     return json.dumps({"name": name, "direction": "outbound", "language_primary": "te-IN"})
 
 
+@pytest.mark.parametrize(
+    "because", [None, "create a new agent"], ids=["no-quote", "not-the-latest-message"]
+)
+async def test_an_action_the_latest_message_did_not_ask_for_does_not_run(
+    azure_only: None,  # noqa: F811  (the imported fixture, requested by name)
+    monkeypatch: pytest.MonkeyPatch,
+    because: str | None,
+) -> None:
+    """FAILS IF: an action that runs at once runs on the model's say-so (PIP-08). A lookup
+    can hand the model a stranger's words ("create an agent called…"); without a quote of
+    the person's latest message the action is refused back to the model, nothing changes,
+    and the step says why in the owner's words."""
+    tenant_id, _slug, token = await _make_tenant()
+    body: dict[str, Any] = {"action": "agent_create", "args": json.loads(_create_args())}
+    if because is not None:
+        body["because"] = because
+    sent = _scripted(
+        monkeypatch,
+        [
+            _turn(
+                content="Created it.",
+                calls=(
+                    chat.ToolCall(
+                        id="c1",
+                        name=areas.do_name(areas.AREA_OF["agent_create"]),
+                        arguments=json.dumps(body),
+                    ),
+                ),
+            ),
+            _turn(content="Do you want me to create that agent?"),
+        ],
+    )
+
+    events = [
+        event
+        async for event in service.run_copilot(
+            _ask(), principal=_principal(tenant_id, _user_of(token)), seed="conv-q"
+        )
+    ]
+
+    assert [event.action for event in events if event.action is not None] == []
+    refused = [e.step for e in events if e.step is not None and e.step.status == "refused"]
+    assert [step.detail for step in refused] == [service.UNQUOTED_FILL_PLAIN]
+    text_out = "".join(event.text for event in events if event.text is not None)
+    assert "Created it." not in text_out  # the claim of the refused turn is never shown
+    assert "NOTHING was changed" in str(sent[1])
+    async with tenant_session(tenant_id) as session:
+        made = await session.scalar(
+            text("SELECT count(*) FROM agents WHERE name = 'Raghava outbound'")
+        )
+    assert made == 0
+
+
+def _now(
+    call_id: str, name: str, arguments: str, because: str = "stop this campaign"
+) -> chat.ToolCall:
+    """An action that runs at once, as the model sends it: on its area's `_do` tool, with
+    `because` quoting the latest message (`_ask`'s), which such an action needs to run."""
+    return chat.ToolCall(
+        id=call_id,
+        name=areas.do_name(areas.AREA_OF[name]),
+        arguments=json.dumps({"action": name, "because": because, "args": json.loads(arguments)}),
+    )
+
+
 async def test_creating_a_draft_agent_runs_at_once_and_the_agent_meets_the_compliance_floor(
     azure_only: None,  # noqa: F811  (the imported fixture, requested by name)
     monkeypatch: pytest.MonkeyPatch,
@@ -375,7 +440,7 @@ async def test_creating_a_draft_agent_runs_at_once_and_the_agent_meets_the_compl
         [
             _turn(
                 content="Making that now.",
-                calls=(chat.ToolCall(id="c1", name="agent_create", arguments=_create_args()),),
+                calls=(_now("c1", "agent_create", _create_args()),),
             ),
             _turn(content="Done — it's a draft under Agents."),
         ],
@@ -427,11 +492,7 @@ async def test_the_loop_keeps_going_after_an_immediate_action_so_the_person_is_t
         monkeypatch,
         [
             _turn(
-                calls=(
-                    chat.ToolCall(
-                        id="c1", name="agent_create", arguments=_create_args("Nightline")
-                    ),
-                ),
+                calls=(_now("c1", "agent_create", _create_args("Nightline")),),
             ),
             _turn(content="Created Nightline as a draft — you'll find it under Agents."),
         ],
@@ -557,10 +618,10 @@ async def test_the_same_immediate_action_still_runs_at_once_interactively(
         [
             _turn(
                 calls=(
-                    chat.ToolCall(
-                        id="c1",
-                        name="lead_set_status",
-                        arguments=json.dumps({"lead_id": str(lead_id), "status": "lost"}),
+                    _now(
+                        "c1",
+                        "lead_set_status",
+                        json.dumps({"lead_id": str(lead_id), "status": "lost"}),
                     ),
                 ),
             ),
@@ -602,9 +663,7 @@ async def test_asking_the_same_thing_twice_in_one_conversation_creates_one_agent
         _scripted(
             monkeypatch,
             [
-                _turn(
-                    calls=(chat.ToolCall(id="c1", name="agent_create", arguments=_create_args()),)
-                ),
+                _turn(calls=(_now("c1", "agent_create", _create_args()),)),
                 _turn(content="Done."),
             ],
         )
@@ -638,7 +697,7 @@ async def test_a_second_agent_of_the_same_name_is_refused_back_to_the_model(
     _scripted(
         monkeypatch,
         [
-            _turn(calls=(chat.ToolCall(id="c1", name="agent_create", arguments=_create_args()),)),
+            _turn(calls=(_now("c1", "agent_create", _create_args()),)),
             _turn(content="Done."),
         ],
     )
@@ -648,7 +707,7 @@ async def test_a_second_agent_of_the_same_name_is_refused_back_to_the_model(
     sent = _scripted(
         monkeypatch,
         [
-            _turn(calls=(chat.ToolCall(id="c2", name="agent_create", arguments=_create_args()),)),
+            _turn(calls=(_now("c2", "agent_create", _create_args()),)),
             _turn(content="What should I call this one?"),
         ],
     )

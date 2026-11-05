@@ -48,4 +48,15 @@ def quoted_in(quote: object, said: Iterable[str]) -> bool:
     return any(f" {wanted} " in f" {fold(text)} " for text in said)
 
 
-__all__ = ["fold", "quoted_in"]
+def owners_wording(current: str | None, said: Iterable[str]) -> str:
+    """The text whose words count as the owner's when a line Pip writes is judged: what the
+    field already holds plus every message the person sent in this conversation.
+
+    The spoken-style guard refuses only Pip's own textbook words, so a word the owner wrote
+    or dictated — in this message or an earlier one ("put in what I said above") — is let
+    through. The form fill (`service.validate_fill`) and the agent actions
+    (`console_actions.agent_edit`) both judge with this, so the two never disagree."""
+    return "\n".join(part for part in (current or "", *said) if part)
+
+
+__all__ = ["fold", "owners_wording", "quoted_in"]

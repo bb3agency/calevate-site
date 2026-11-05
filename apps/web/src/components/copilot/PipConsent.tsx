@@ -62,13 +62,23 @@ function OwnerConsent({ session, consent }: { session: Session; consent: PipCons
         <h3 className="text-body font-semibold text-ink">
           {changed ? `${ASSISTANT_NAME} needs turning on again` : `Turn on ${ASSISTANT_NAME} for your account`}
         </h3>
-        {changed && (
+        {changed ? (
           <p className="text-body text-ink">
             What {ASSISTANT_NAME} sends has changed since you turned it on. Read it and turn{" "}
             {ASSISTANT_NAME} on again for your team.
           </p>
+        ) : (
+          // WHAT PIP IS, before what it shares (PIP-20): the owner is asked to agree to
+          // something the panel had not yet named. The disclosure below stays in full and
+          // in view, because the tick says "I've read this"; folding it behind a tap is a
+          // wording change that needs legal sign-off first.
+          <p className="text-body text-ink">
+            {ASSISTANT_NAME} answers questions about your account and makes the changes you
+            ask for. To do that it reads your account&apos;s data.
+          </p>
         )}
         {/* The server separates its paragraphs with a blank line. */}
+        <h4 className="text-meta font-semibold text-ink">What is shared</h4>
         <p className="whitespace-pre-line text-body text-ink">{consent.text}</p>
         <p className="text-meta text-ink-muted">
           The full details:{" "}

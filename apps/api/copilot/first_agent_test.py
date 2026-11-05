@@ -10,11 +10,13 @@ from uuid import UUID
 
 import pytest
 from calevate_shared.call_script import opening_line_of
+from calevate_shared.spoken_style import style_for
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
 from apps.api.copilot import prompt, write_tools
+from apps.api.copilot.console_actions import _AgentEditArgs, _describe_edit
 from apps.api.copilot.console_actions_test import _draft_agent
 from apps.api.copilot.schemas import CopilotAskIn, CopilotScreen
 from apps.api.copilot.screen_guides import FIRST_AGENT_GUIDE, screen_guide
@@ -196,6 +198,59 @@ async def test_a_blank_opening_line_is_refused() -> None:
     with pytest.raises(write_tools.WriteRefusedError) as refused:
         await _run(tenant_id, token, "agent_edit", _edit(agent_id, "   "))
     assert "opening_line" in refused.value.reason
+    assert refused.value.plain == "The opening line was empty."
+
+
+def _telugu_line_with_a_textbook_word() -> str:
+    """A line built from the Telugu spoken-style list itself — one everyday word and one
+    textbook word — so the test writes no Telugu of its own."""
+    style = style_for("te-IN")
+    assert style is not None and len(style.word_swaps) >= 2
+    (textbook, _), (_, everyday) = style.word_swaps[0], style.word_swaps[1]
+    return f"{everyday} {textbook}"
+
+
+async def test_an_opening_line_the_owner_dictated_keeps_their_textbook_word() -> None:
+    """FAILS IF: Pip's agent_edit refuses a textbook word the owner wrote in the
+    conversation, as the form fill already lets it through (PIP-07), or the refusal shown to
+    the owner names the field key instead of saying it plainly."""
+    tenant_id, _slug, token = await _make_tenant()
+    agent_id = await _starter_agent(tenant_id, token)
+    line = _telugu_line_with_a_textbook_word()
+    args = {**_edit(agent_id, line), "language_primary": "te-IN"}
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _run(tenant_id, token, "agent_edit", args)
+    assert refused.value.plain == "The opening line used words callers do not say."
+
+    receipt = await write_tools.run_immediate(
+        "agent_edit",
+        json.dumps(args),
+        principal=_principal(tenant_id, _user_of(token)),
+        seed=f"first-agent-{uuid.uuid4()}",
+        ip=None,
+        said=(f"Make the opening line: {line}", "yes, put it in"),
+    )
+    assert receipt.applied is True
+    assert await _opening(tenant_id, agent_id) == line
+
+
+def test_a_voice_change_names_the_voice_never_its_id() -> None:
+    """FAILS IF: the agent_edit card shows a catalogue voice id to the owner (PIP-15)."""
+    parsed = _AgentEditArgs.model_validate(
+        {
+            "agent_id": str(uuid.uuid4()),
+            "language_primary": None,
+            "voice_id": "cat-voice-2",
+            "ai_disclosure_enabled": None,
+            "recording_notice_enabled": None,
+        }
+    )
+    current = {"language_primary": "en-IN", "voice_id": "cat-voice-1"}
+    was, becomes = _describe_edit(parsed, current, {"cat-voice-1": "Asha", "cat-voice-2": "Ravi"})
+    assert (was, becomes) == (["voice Asha"], ["voice Ravi"])
+    was, becomes = _describe_edit(parsed, current, {})
+    assert (was, becomes) == (["its current voice"], ["a different voice"])
+    assert "cat-voice" not in " ".join(was + becomes)
 
 
 async def test_an_edit_without_an_opening_line_leaves_the_script_alone() -> None:

@@ -163,12 +163,14 @@ async def _plan_script_suggest(
     if parsed.mode == "steps" and not base.is_raw:
         raise WriteRefusedError(
             "this agent's script is already in steps, so use mode `change` for one change "
-            "or `whole` to draft it again"
+            "or `whole` to draft it again",
+            plain="This script is already in steps. Say what to change in it.",
         )
     if parsed.mode != "steps" and base.is_raw:
         raise WriteRefusedError(
             "this agent's script is written by hand, so offer to turn it into steps first "
-            "(mode `steps`) and make the change after the person keeps those"
+            "(mode `steps`) and make the change after the person keeps those",
+            plain="This script is written by hand. Turn it into steps first.",
         )
     written = script_proposals.request_text(
         parsed.mode, canonical["change"], canonical["answers"] or {}, base
@@ -179,13 +181,19 @@ async def _plan_script_suggest(
                 "change": "the change was missing or too short, so ask the person what to change",
                 "whole": NO_ANSWERS_REASON,
                 "steps": "this agent has no hand-written script to turn into steps",
-            }[parsed.mode]
+            }[parsed.mode],
+            plain={
+                "change": "Say what to change in the script.",
+                "whole": "Answer the questions about the call first.",
+                "steps": "This agent has no hand-written script to turn into steps.",
+            }[parsed.mode],
         )
     pending = await script_proposals.read_proposal(session, parsed.agent_id)
     if pending is not None and pending.status == "drafting":
         raise WriteRefusedError(
             "the last change asked for is still being written, so tell the person to wait for "
-            "it on the Script tab before asking for another"
+            "it on the Script tab before asking for another",
+            plain="The last change is still being written. It shows on the Script tab.",
         )
     # The allowance, asked before the card: a refusal here (used up, paused) reaches the
     # person now, with its own remediation, rather than after they press Confirm.
@@ -232,6 +240,7 @@ async def _execute_script_suggest(
     )
     return Executed(
         applied=True,
+        queued=True,
         detail=(
             f"Writing it now. In about half a minute it is on {name}'s Script tab. Nothing "
             "reaches the script until you keep it."
@@ -318,7 +327,8 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
     )
     if run is None or run.status != "done":
         raise WriteRefusedError(
-            "this agent has no finished test run, so offer to run its tests first"
+            "this agent has no finished test run, so offer to run its tests first",
+            plain="This agent has no finished test run yet.",
         )
     failures = test_conversations.failing(run)
     keys = sorted({strip_invisible(k.strip()) for k in parsed.test_keys or [] if k.strip()})
@@ -327,11 +337,15 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         if not set(keys) <= known:
             raise WriteRefusedError(
                 "a `test_keys` entry is not a failed test of the latest run; use the keys "
-                "listed in SCREEN STATE, or null for every failed test"
+                "listed in SCREEN STATE, or null for every failed test",
+                plain="That is not a failed test of the latest run.",
             )
         failures = [r for r in failures if str(r.get("key")) in set(keys)]
     if not failures:
-        raise WriteRefusedError("every test in the latest run passed, so there is nothing to fix")
+        raise WriteRefusedError(
+            "every test in the latest run passed, so there is nothing to fix",
+            plain="Every test in the latest run passed. Nothing to fix.",
+        )
     # Rules the platform owns, settings and tests marked wrong are never the script's to fix
     # (D-823): the person is told who can fix them instead.
     failures = [r for r in failures if r in test_conversations.needs_improving(run)]
@@ -339,12 +353,14 @@ async def _plan_tests_fix(session: AsyncSession, actor: ToolActor, args: Mapping
         raise WriteRefusedError(
             "none of these failed tests is the script's or the facts' to fix: each result in "
             "the Training tab says who can (a setting to change, or our side, which we are "
-            "fixing), so tell the person that instead"
+            "fixing), so tell the person that instead",
+            plain="None of these is the script's to fix. The Training tab says who can.",
         )
     if run.improving:
         raise WriteRefusedError(
             "fixes for this run are already being worked out, so tell the person they will "
-            "appear in the agent's Training tab"
+            "appear in the agent's Training tab",
+            plain="Fixes for this run are already being written.",
         )
     await require_ai_assist(session, tenant_id=actor.tenant_id)
     titles = [strip_invisible(str(r.get("title") or "")) for r in failures]
@@ -391,6 +407,7 @@ async def _execute_tests_fix(
     )
     return Executed(
         applied=True,
+        queued=True,
         detail=(
             f"Working out the fixes now. In about two minutes they are on {name}'s Training "
             "tab, under Practice callers. Nothing changes until you keep one."
