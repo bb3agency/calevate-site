@@ -18733,6 +18733,8 @@ export interface components {
             plans: components["schemas"]["CartesiaPlanOut"][];
             /** Refusal Floor Inr Per Min */
             refusal_floor_inr_per_min: string;
+            /** Refusal Usd Inr */
+            refusal_usd_inr: string;
         };
         /** CaseDraftOut */
         CaseDraftOut: {
@@ -34449,6 +34451,8 @@ export interface components {
             created_at?: string | null;
             /** Credit Inr */
             credit_inr?: string | null;
+            /** Credit Unpacked Inr */
+            credit_unpacked_inr?: string | null;
             /** Holds */
             holds: string[];
             /**

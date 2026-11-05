@@ -13827,6 +13827,10 @@
           "refusal_floor_inr_per_min": {
             "title": "Refusal Floor Inr Per Min",
             "type": "string"
+          },
+          "refusal_usd_inr": {
+            "title": "Refusal Usd Inr",
+            "type": "string"
           }
         },
         "required": [
@@ -13842,6 +13846,7 @@
           "floor_inr_per_min",
           "best_marginal_cost_inr_per_min",
           "refusal_floor_inr_per_min",
+          "refusal_usd_inr",
           "plan_crossover_call_minutes",
           "plans",
           "ladder"
@@ -55898,6 +55903,18 @@
               }
             ],
             "title": "Credit Inr"
+          },
+          "credit_unpacked_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Unpacked Inr"
           },
           "holds": {
             "items": {

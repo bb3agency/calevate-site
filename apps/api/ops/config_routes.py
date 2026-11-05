@@ -90,6 +90,7 @@ from apps.api.billing.rates import (
     CARTESIA_VOLUME_LADDER_CALL_MINUTES,
     MIN_GROSS_MARGIN,
     MONEY_Q,
+    PLANNING_USD_INR,
     PREMIUM_VOICE_TIER,
     PREPAID_TIERS,
     ROUNDING,
@@ -1366,6 +1367,9 @@ class CartesiaVolumeOut(BaseModel):
     #: a warning. When `floor_inr_per_min` exceeds this, some rung may be under water at
     #: today's rate and still recordable, which is exactly the state the console must show.
     refusal_floor_inr_per_min: str
+    #: The rupees to the dollar that refusal floor is struck at (`rates.PLANNING_USD_INR`),
+    #: served so the console never types its own copy of a money fact.
+    refusal_usd_inr: str
     #: The volume at which the dearer plan stops costing more — DERIVED by search
     #: (`rates.cartesia_plan_crossover_call_minutes`), never typed.
     plan_crossover_call_minutes: str
@@ -1774,6 +1778,7 @@ def _cartesia_volume_out(volume: CartesiaVolume, *, fx: UsdInrRate) -> CartesiaV
         floor_inr_per_min=str(cartesia_cost_floor_inr_per_min_at(fx.rate)),
         best_marginal_cost_inr_per_min=str(cartesia_best_marginal_cost_inr_per_min(fx.rate)),
         refusal_floor_inr_per_min=str(CARTESIA_COST_FLOOR_INR_PER_MIN),
+        refusal_usd_inr=str(PLANNING_USD_INR),
         plan_crossover_call_minutes=str(cartesia_plan_crossover_call_minutes(usd_inr=fx.rate)),
         plans=[_cartesia_plan_out(plan_row, fx=fx) for plan_row in CARTESIA_PLANS],
         ladder=[

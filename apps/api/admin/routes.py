@@ -252,6 +252,9 @@ class TenantSummary(BaseModel):
     #: assistant's roster tool does not ask for them, and an absent value is null.
     credit_inr: Decimal | None = None
     minutes_left: list[DirectoryTierMinutes] | None = None
+    #: The part of `credit_inr` held in no credit pack, so no minutes are quoted for it
+    #: (minutes are priced pack by pack). Null when every rupee is in a pack.
+    credit_unpacked_inr: Decimal | None = None
 
 
 class OwnerIn(BaseModel):
