@@ -261,7 +261,7 @@ function RowAction({
     // recorded by mistake or they have since asked to be called.
     if (!canSuppress) {
       return (
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-meta text-ink-faint">
+        <span className="inline-flex items-center gap-1.5 text-meta text-ink-faint sm:whitespace-nowrap">
           <Lock className="h-3.5 w-3.5" aria-hidden />
           {COPY.ownerCanRestore}
         </span>

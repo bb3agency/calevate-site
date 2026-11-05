@@ -42,6 +42,7 @@ import { ProposalCard } from "./ProposalCard";
 import { DiagnosisCard } from "./DiagnosisCard";
 import { StepList } from "./StepList";
 import { panelFrame, type PanelPlacement } from "./panelFrame";
+import { useKeyboardFit } from "./useKeyboardFit";
 import {
   AttachButton,
   AttachmentNotice,
@@ -254,6 +255,7 @@ export function CopilotPanel({
     onRequestTaken?.();
   }, [requestNonce, requestPrompt, prefill, onRequestTaken]);
   const reduced = useReducedMotion();
+  const keyboardFit = useKeyboardFit(placement === "side");
 
   /*
    * FOLLOW THE ANSWER, BUT ONLY WHILE THE PERSON IS STILL FOLLOWING IT.
@@ -358,6 +360,7 @@ export function CopilotPanel({
       transition={{ duration: 0.2, ease: [0.23, 1, 0.32, 1] }}
       data-copilot-side={placement === "side" || undefined}
       className={panelFrame(placement)}
+      style={keyboardFit}
     >
       {/* ONE HEADER FOR BOTH REALMS: ink title, muted subtitle, no tinted band. The admin
           header used to wear the admin shell's identity class with white text on top; when
@@ -379,12 +382,12 @@ export function CopilotPanel({
           </h2>
           {/* The workspace page is titled Pip already; "Pip / Pip" says nothing twice. */}
           {surface.title !== ASSISTANT_NAME && (
-            <p className="truncate text-meta text-ink-muted">{surface.title}</p>
+            <p className="truncate text-meta text-ink-muted" title={surface.title}>{surface.title}</p>
           )}
           {/* WHAT IT WILL ACT ON. Shown only when the screen has rows ticked, so "summarise
               these" has a visible "these". */}
           {selected !== null && (
-            <p className="mt-1 truncate text-meta text-ink-muted">
+            <p className="mt-1 truncate text-meta text-ink-muted" title={`Using: ${selected}`}>
               Using: {selected}
             </p>
           )}
