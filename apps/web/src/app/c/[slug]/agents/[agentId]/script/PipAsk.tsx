@@ -26,6 +26,7 @@ import { RestrictionNote } from "@/components/ui";
 import { PipMark } from "@/components/illustration/pip";
 import { showsPrice, useBusinessProfile } from "@/lib/api/businessProfile";
 import { useActAccess } from "@/lib/api/hooks";
+import { useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
@@ -79,12 +80,13 @@ export function PipAsk({ drafting = false }: { drafting?: boolean } = {}) {
   const [change, setChange] = useState("");
   const eg = useVerticalExamples();
   const profile = useBusinessProfile(session);
+  const caps = useBusinessCapabilities();
   const valid = useFormValidation();
   const changeField = valid.field("change", "Write what should change.");
 
   // Until the profile is read, no price idea: offering one to a business that quotes none
   // is the mistake, leaving it out for a moment is not.
-  const priced = profile.data
+  const priced = profile.data && caps.quotesPrices !== false
     ? showsPrice(profile.data.wording, profile.data.services.map((s) => ({ price_inr: s.price_inr ?? "" })))
     : false;
   const ideas = changeIdeas({ idea: eg.scriptChangeIdea, priced });

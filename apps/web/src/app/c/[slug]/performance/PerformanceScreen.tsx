@@ -36,6 +36,7 @@ import {
 import { useMe } from "@/lib/api/hooks";
 import { usePerformance } from "@/lib/api/performance";
 import { useClientSession } from "@/lib/api/session";
+import { callersWord, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { endingLabel } from "@/lib/callReview";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -57,7 +58,7 @@ import {
   durationAxisEnd,
   durationRows,
 } from "./PerformanceCharts";
-import { PERFORMANCE_COPY as COPY, periodHeadline } from "./copy";
+import { PERFORMANCE_COPY as COPY, funnelTitle, periodHeadline } from "./copy";
 
 /**
  * How the agents are doing over a range of IST days the owner picks (SURFACES §2).
@@ -88,6 +89,7 @@ export function clampRange(next: DateRange): DateRange {
 export function PerformanceScreen() {
   const session = useClientSession();
   const me = useMe(session);
+  const callers = callersWord(useBusinessCapabilities(), "customers");
   const [range, setRange] = useState<DateRange>(defaultRange);
   const [testCalls, setTestCalls] = useState(true);
   const [heatmapMetric, setHeatmapMetric] = useState<"calls" | "leads">("calls");
@@ -250,7 +252,7 @@ export function PerformanceScreen() {
       <CallGroupsTable range={window} />
 
       <div className="grid grid-cols-1 items-start gap-10 page-lg:grid-cols-12 page-lg:gap-12">
-        <Section title={COPY.funnelTitle} info={FUNNEL_NOTE} className="page-lg:col-span-7">
+        <Section title={funnelTitle(callers)} info={FUNNEL_NOTE} className="page-lg:col-span-7">
           <PerformancePanel perf={perf} kind="funnel" period={rangeWords} />
         </Section>
         <Section title={COPY.outcomesTitle} info={OUTCOMES_NOTE} className="page-lg:col-span-5">

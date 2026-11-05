@@ -8,7 +8,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { PipMark } from "@/components/illustration/pip";
 import { FIELD, ProblemNotice } from "@/components/ui";
 import { VoiceButton } from "@/components/voiceButton";
-import { useMe } from "@/lib/api/hooks";
+import { useBusinessCopy } from "@/lib/api/businessCopy";
 import {
   isRecordingBusy,
   useRecordBrief,
@@ -17,11 +17,10 @@ import {
   type FirstRun,
 } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
-import { BUSINESS_TYPES } from "@/lib/businessTypes";
+import { businessLanguage } from "@/lib/businessCapabilities";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { briefWaitingFor, languageLabel } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
-import { examplesFor } from "@/lib/verticalExamples";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { BriefDocuments } from "./BriefDocuments";
@@ -40,9 +39,10 @@ export const HEARD_FAILURES: Record<string, string> = {
 /**
  * STEP 2, TELL IT ABOUT YOU (D-855): one box, in the owner's own words.
  *
- * It starts filled with the brief for the trade given at sign-up (the account's own
- * AI-written one once it exists, else the trade's example), so the owner edits rather than
- * faces a blank box. Other trades' examples are a tap away. A microphone takes up to three
+ * It starts filled with the account's own AI-written brief once that exists, so the owner
+ * edits rather than faces a blank box. Before it lands the box starts empty with the trade's
+ * example only as a placeholder: an example kept as the box's value was saved on Continue as
+ * if the owner had written it, and described a business they might not be. A microphone takes up to three
  * pieces of 30 seconds; each one's words are added to the box once heard, for the owner to
  * correct, and the audio is deleted as soon as it is heard. Files the owner already has (a
  * price list, a menu) can be added beside the words or instead of them (`BriefDocuments`).
@@ -62,26 +62,19 @@ export function BriefStep({
   pipOff: string | null;
 }) {
   const session = useClientSession();
-  const me = useMe(session);
   const examples = useVerticalExamples();
-  const ownTrade = me.data?.organization?.vertical_template ?? null;
+  const copy = useBusinessCopy(session).data;
+  const ownBrief = copy?.placeholders?.script_brief?.trim() || null;
   const save = useSaveBrief(session);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const boxId = useId();
   const box = useRef<HTMLTextAreaElement>(null);
   const [brief, setBrief] = useState<string | null>(run.brief);
-  const [undo, setUndo] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [hearing, setHearing] = useState(false);
   const waitingFor = briefWaitingFor({ documents: run.documents, sending, hearing });
-  const text = brief ?? examples.scriptBrief;
-  const language = run.language_primary ?? "te-IN";
-
-  const pickTrade = (vertical: string) => {
-    setUndo(text);
-    setBrief(examplesFor(vertical).scriptBrief);
-    box.current?.focus();
-  };
+  const text = brief ?? ownBrief ?? "";
+  const language = run.language_primary ?? businessLanguage(copy?.language);
 
   return (
     <StepScreen
@@ -120,31 +113,17 @@ export function BriefStep({
           ref={box}
           value={text}
           maxLength={MAX_BRIEF_CHARS}
-          onChange={(event) => {
-            setBrief(event.target.value);
-            setUndo(null);
-          }}
+          placeholder={ownBrief ? undefined : examples.scriptBrief}
+          onChange={(event) => setBrief(event.target.value)}
           rows={7}
           className={`${FIELD} mt-2 w-full resize-y text-[16px] leading-relaxed`}
         />
         <p className="mt-1 flex justify-between gap-3 text-meta text-ink-faint">
-          <span>{brief === null ? "An example for your kind of business. Change anything." : ""}</span>
+          <span>{brief === null && ownBrief ? "Written from your business details. Change anything." : ""}</span>
           <span className="tabular-nums">
             {Array.from(text).length} of {MAX_BRIEF_CHARS}
           </span>
         </p>
-        {undo !== null ? (
-          <button
-            type="button"
-            className={TEXT_ACTION}
-            onClick={() => {
-              setBrief(undo);
-              setUndo(null);
-            }}
-          >
-            Undo
-          </button>
-        ) : null}
       </div>
 
       <SpokenBrief
@@ -156,23 +135,6 @@ export function BriefStep({
       />
 
       <BriefDocuments run={run} onBusy={setSending} />
-
-      <div>
-        <h3 className="text-heading text-ink">Start from another example</h3>
-        <ul className="mt-2 flex flex-wrap gap-2">
-          {BUSINESS_TYPES.filter((type) => type.value !== ownTrade).map((type) => (
-            <li key={type.value}>
-              <button
-                type="button"
-                onClick={() => pickTrade(type.value)}
-                className="press inline-flex min-h-11 items-center rounded-full border border-line px-4 text-body text-ink hover:border-ink/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
-              >
-                {type.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
 
       {pipOff !== null ? <p className="text-meta text-ink-muted">{pipOff}</p> : null}
       {save.error ? <ProblemNotice error={save.error} /> : null}

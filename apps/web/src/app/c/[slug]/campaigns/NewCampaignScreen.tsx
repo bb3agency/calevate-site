@@ -191,7 +191,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         assistant={
           <AskAssistant
             label={`Build a campaign with ${ASSISTANT_NAME}`}
-            prompt="Fill in this campaign for me: who to call, why, the goal, which agent and when. For example: call this week's hot leads tomorrow at 11 to book a visit."
+            prompt="Fill in this campaign for me: who to call, why, the goal, which agent and when. For example: call the people who asked for a call back this week, tomorrow at 11."
           />
         }
         creating={createFeedback.status === "pending" || saving}

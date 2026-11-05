@@ -92,10 +92,11 @@ export interface VerticalExamples {
  * The examples that arrived with the account's own AI-written copy (D-827 prompt version 2),
  * the same for every trade until that copy lands. They are trade-free on purpose: before
  * this they were one grocery shop's ("Red chilli powder is ₹120 …") on every account, and a
- * neutral sentence reads as an instruction where another trade's reads as a mistake.
+ * neutral sentence reads as an instruction where another trade's reads as a mistake. None of
+ * them assumes a sale, a price or a booking: a business that sells nothing reads them too.
  */
 const NEUTRAL_UNTIL_GENERATED = {
-  teachNote: "Our main service is ₹500. We are open Monday to Saturday, 9 to 6. Never promise a time without checking.",
+  teachNote: "We are open Monday to Saturday, 9 to 6. Never promise a time without checking.",
   businessLine: "a family-run business in the city centre",
   agentRole: "You answer the phone for the business. You help callers with what they need and take their details.",
   callGoal: "Answer their question and, if they want to go ahead, take their name and a good time to call back.",
@@ -107,12 +108,12 @@ const NEUTRAL_UNTIL_GENERATED = {
   scriptChangeIdea: "Ask for a good time to call back",
   factQuestion: "Are you open on Sundays?",
   factAnswer: "No, we are open Monday to Saturday, 9 to 6.",
-  testExpectation: "Give the price from what we taught it.",
-  campaignName: "Festival offer reminder",
+  testExpectation: "Give the answer from what we taught it.",
+  campaignName: "Follow-up calls",
   messageTitle: "Request received",
   messageBody: "Thank you, {{1}}. We have your request and will call you back today.",
   outcomeLabel: "Wants to go ahead",
-  outcomeMeaning: "The caller wants to buy or book what we offer.",
+  outcomeMeaning: "The caller wants to take the next step with us.",
 } as const satisfies Partial<VerticalExamples>;
 
 const CLINIC: VerticalExamples = {
@@ -250,16 +251,16 @@ const AUTOMOBILE: VerticalExamples = {
 const CUSTOM: VerticalExamples = {
   orgName: "Sri Traders",
   orgSlug: "sri-traders",
-  knowledgeTitle: "Your price list",
+  knowledgeTitle: "Common questions",
   knowledgeAnswer: "The answer a caller should have been given.",
   extractionReason: "so we can call back the enquiries that matter most first",
   scriptBrief:
     "What the business does, where it is, what callers usually want, and what the agent should do about it.",
   extractionLabel: "What they need",
-  extractionOptions: "New enquiry, Repeat customer, Complaint",
+  extractionOptions: "New enquiry, Repeat caller, Complaint",
   endCallRules:
-    "Never promise a delivery date or a price without checking.\nAlways offer a callback if unsure.",
-  leadSearch: "a booking for Saturday",
+    "Never promise anything you have not checked.\nAlways offer a callback if unsure.",
+  leadSearch: "a call back on Saturday",
   bookingJobTitle: "Take bookings",
   bookingJobLine: "Your agent can check your Google Calendar and book callers in.",
   ...NEUTRAL_UNTIL_GENERATED,

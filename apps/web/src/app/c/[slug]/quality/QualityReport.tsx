@@ -182,7 +182,7 @@ export function QualityReport({ report }: { report: QaReport }) {
           <ul className="mb-3 list-disc space-y-2 pl-5 text-body text-ink-muted">
             <li>
               <strong>Not your live calls.</strong> A fixed set of scenarios, replayed. Your
-              dashboard shows real bookings.
+              dashboard shows your real calls.
             </li>
             <li>
               <strong>Nothing from a real call.</strong> We write the scenarios; the callers

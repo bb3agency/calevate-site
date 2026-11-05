@@ -18,7 +18,7 @@ export const MOMENT_LEAD_IN_MS = 2_000;
 export const CATEGORY_LABEL: Record<MomentCategory, string> = {
   details: "Details",
   attention: "Needs attention",
-  buying: "Buying signal",
+  buying: "Next step",
 };
 
 /**

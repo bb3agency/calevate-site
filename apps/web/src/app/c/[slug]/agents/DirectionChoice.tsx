@@ -39,7 +39,7 @@ export const DIRECTIONS: DirectionOption[] = [
   {
     value: "outbound",
     label: "Make calls",
-    hint: "Dials your customers for campaigns and follow-ups.",
+    hint: "Dials people for campaigns and follow-ups.",
     Icon: PhoneOutgoing,
   },
   {

@@ -49,7 +49,7 @@ export const JOBS: readonly Job[] = [
     id: "whatsapp",
     kind: "whatsapp",
     title: "Send a WhatsApp message",
-    line: "Sends your approved WhatsApp messages, like a price list.",
+    line: "Sends your approved WhatsApp messages to callers.",
   },
   {
     id: "payment_link",

@@ -46,7 +46,7 @@ const KIND_WORDS: Record<Note["kind"], string> = {
   billing: "Billing",
   login: "Login",
   delivery: "Delivery",
-  product: "Product",
+  product: "What you offer",
   other: "Other",
 };
 
@@ -55,7 +55,7 @@ const STEP_WORDS: Record<NextStep["kind"], string> = {
   promise_to_pay: "Payment promised",
   send_info: "Send details",
   visit: "Visit",
-  hand_to_sales: "Pass to sales",
+  hand_to_sales: "Pass to your team",
 };
 
 function Notes({ heading, notes }: { heading: string; notes: Note[] }) {

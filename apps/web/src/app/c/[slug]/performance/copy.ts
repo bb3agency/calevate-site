@@ -2,6 +2,9 @@
  * The words this screen writes itself, one short line each (`tests/simpleCopyLegal.test.ts`).
  * What each chart's figures mean stays behind its ⓘ (`PerformanceCharts.tsx`).
  */
+/** The funnel's title, naming the business's callers ("From calls to users"). */
+export const funnelTitle = (callers: string) => `From calls to ${callers}`;
+
 export const PERFORMANCE_COPY = {
   refused: "You need access to call records. Ask the account owner.",
   dates: "Dates",
@@ -12,7 +15,6 @@ export const PERFORMANCE_COPY = {
   activityTip: "Drag the window under the chart to look closer. India time.",
   activityEmpty: "No calls in this period yet.",
   activityError: "We could not load your calls over time.",
-  funnelTitle: "From calls to customers",
   outcomesTitle: "How calls ended",
   busyTitle: "When it gets busy",
   busyShow: "Show",

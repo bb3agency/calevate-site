@@ -9,6 +9,7 @@ import { FIELD_INLINE, ProblemNotice } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import { useBuildAgent, useRenameAgent, type FirstRun, type FirstRunBuildStep } from "@/lib/api/firstRun";
 import { useClientSession } from "@/lib/api/session";
+import { useBusinessLanguage } from "@/lib/businessCapabilities";
 import { languageLabel, leftOutLines, voicePickNote } from "@/lib/firstAgent";
 import { isImeComposing } from "@/lib/imeEnter";
 
@@ -104,7 +105,8 @@ export function BuildStep({
   const session = useClientSession();
   const retry = useBuildAgent(session);
   const retryFeedback = useActionFeedback(retry, { errorDisplay: "inline" });
-  const language = run.language_primary ?? "te-IN";
+  const businessLanguage = useBusinessLanguage();
+  const language = run.language_primary ?? businessLanguage;
   const built = run.build.status === "built";
   const failed = run.build.status === "failed";
   const firstWaiting = run.build.steps.findIndex((step) => step.state === "waiting");

@@ -76,8 +76,8 @@ export const OPENING_LINE_COPILOT_HELP =
 /** The agent's role: plain English instructions, not a brochure. */
 export const IDENTITY_COPILOT_HELP =
   "Who the agent is and its job on the phone, in one or two plain English sentences " +
-  '("You answer the phone for the shop and take orders"). Not a description of the company ' +
-  "for customers, and nothing about being an AI or about recording: the platform adds those.";
+  '("You answer the phone for the business and help callers with what they need"). Not a ' +
+  "description of the business for its callers, and nothing about being an AI or about recording: the platform adds those.";
 
 /**
  * One task-flow step. The steer keeps it a loose spoken instruction (PROMPT-GUIDE §2/§4:

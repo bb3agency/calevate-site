@@ -8,7 +8,9 @@ import type { Performance } from "@/lib/api/performance";
 import { endingLabel } from "@/lib/callReview";
 
 import { outcomeFill } from "../OutcomeSplit";
-import { PERFORMANCE_COPY as COPY } from "./copy";
+import { callersWord, useBusinessCapabilities } from "@/lib/businessCapabilities";
+
+import { PERFORMANCE_COPY as COPY, funnelTitle } from "./copy";
 
 /**
  * How the report's server figures become chart props. One subject: how the numbers are
@@ -18,7 +20,7 @@ import { PERFORMANCE_COPY as COPY } from "./copy";
 /** What each panel's figures mean, behind the panel's ⓘ. */
 export const FUNNEL_NOTE =
   "Answered means the call reached a real conversation — not voicemail or a missed call. " +
-  "Interested counts customers, not calls: three calls to the same person count once.";
+  "Interested counts people, not calls: three calls to the same person count once.";
 export const OUTCOMES_NOTE =
   "The tag your agent recorded, or how the call ended when it recorded none.";
 export const HEATMAP_NOTE =
@@ -43,6 +45,7 @@ export function Updating({ busy }: { busy: boolean }) {
 
 /** Calls → answered → interested, each a bar against the top of the funnel. */
 export function Funnel({ funnel, period }: { funnel: Performance["funnel"]; period: string }) {
+  const callers = callersWord(useBusinessCapabilities(), "customers");
   const stages = [
     { label: "Calls", count: funnel.calls },
     { label: "Answered", count: funnel.connected },
@@ -50,7 +53,7 @@ export function Funnel({ funnel, period }: { funnel: Performance["funnel"]; peri
   ];
   return (
     <BarChart
-      title={COPY.funnelTitle}
+      title={funnelTitle(callers)}
       hideTitle
       description={period}
       orientation="horizontal"

@@ -23,7 +23,9 @@ import {
   type FirstRun,
   type FirstRunQuestion,
 } from "@/lib/api/firstRun";
+import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useClientSession } from "@/lib/api/session";
+import { quotesPrices, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import {
   DAYS,
   MAX_ADDRESS_CHARS,
@@ -336,10 +338,12 @@ function TextAnswer({
 
 function AddressAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (answer: DraftAnswer) => void }) {
   const id = useId();
+  // A business callers never visit is asked where it works from, not for a door number.
+  const noPremises = useBusinessCapabilities().hasPremises === false;
   return (
     <div>
       <label htmlFor={id} className={FIELD_LABEL}>
-        Address
+        {noPremises ? "Where you work from" : "Address"}
       </label>
       <div className={`${FIELD_GROUP} mt-1`}>
         <span aria-hidden className={`${FIELD_GROUP_AFFIX} items-start pt-2.5`}>
@@ -350,7 +354,7 @@ function AddressAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (a
           rows={3}
           autoComplete="street-address"
           maxLength={MAX_ADDRESS_CHARS}
-          placeholder="Shop number, street, area, city"
+          placeholder={noPremises ? "Area and city" : "Building, street, area, city"}
           aria-describedby={`${id}-hint`}
           value={answer.text}
           onChange={(event) => onChange({ ...answer, text: event.target.value })}
@@ -364,9 +368,21 @@ function AddressAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (a
   );
 }
 
+/**
+ * What the business offers, in its own words (`ProfileWording`): its name for one thing it
+ * offers and for a price. The price column shows only where prices apply, and always once
+ * one has been typed, so a price is never hidden while it is being saved.
+ */
 function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (answer: DraftAnswer) => void }) {
   const base = useId();
   const rows = answer.services;
+  const wording = useBusinessProfile(useClientSession()).data?.wording;
+  const caps = useBusinessCapabilities();
+  const priced = quotesPrices(caps, wording?.price_label) || rows.some((row) => row.price.trim() !== "");
+  const offerExample = wording?.examples.offer_name?.trim();
+  const columns = priced
+    ? "grid-cols-[minmax(0,1fr)_7rem_2.75rem] sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
+    : "grid-cols-[minmax(0,1fr)_2.75rem]";
   const set = (index: number, row: { name: string; price: string }) =>
     onChange({
       ...answer,
@@ -377,16 +393,16 @@ function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (
       <div className="overflow-hidden rounded-card border border-line bg-surface">
         <div
           aria-hidden
-          className="grid grid-cols-[minmax(0,1fr)_7rem_2.75rem] gap-2 border-b border-line bg-surface-muted px-3 py-1.5 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
+          className={`grid ${columns} gap-2 border-b border-line bg-surface-muted px-3 py-1.5`}
         >
-          <span className={FIELD_LABEL}>What you offer</span>
-          <span className={FIELD_LABEL}>Price</span>
+          <span className={FIELD_LABEL}>{wording?.offer_label ?? "What you offer"}</span>
+          {priced ? <span className={FIELD_LABEL}>{wording?.price_label ?? "Price"}</span> : null}
         </div>
         <ul className="divide-y divide-line">
           {rows.map((row, index) => (
             <li
               key={index}
-              className="grid grid-cols-[minmax(0,1fr)_7rem_2.75rem] items-center gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_9rem_2.75rem]"
+              className={`grid ${columns} items-center gap-2 px-3 py-2`}
             >
               <label htmlFor={`${base}-name-${index}`} className="sr-only">
                 Service {index + 1}
@@ -395,10 +411,12 @@ function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (
                 id={`${base}-name-${index}`}
                 value={row.name}
                 maxLength={120}
-                placeholder={index === 0 ? "e.g. Site visit" : "Another service"}
+                placeholder={index === 0 ? (offerExample ? `e.g. ${offerExample}` : "What callers ask about") : "Another one"}
                 onChange={(event) => set(index, { ...row, name: event.target.value })}
                 className={`${FIELD_INLINE} w-full text-[16px]`}
               />
+              {priced ? (
+              <>
               <label htmlFor={`${base}-price-${index}`} className="sr-only">
                 Price of service {index + 1}, in rupees
               </label>
@@ -416,6 +434,8 @@ function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (
                   className={`${FIELD_GROUP_INPUT} pl-9 text-[16px] tabular-nums`}
                 />
               </span>
+              </>
+              ) : null}
               {rows.length > 1 ? (
                 <button
                   type="button"
@@ -453,7 +473,7 @@ function ServicesAnswer({ answer, onChange }: { answer: DraftAnswer; onChange: (
             Add another
           </button>
         ) : null}
-        <span className="text-meta text-ink-faint">Leave a price empty if it depends.</span>
+        {priced ? <span className="text-meta text-ink-faint">Leave a price empty if it depends.</span> : null}
       </div>
     </div>
   );
