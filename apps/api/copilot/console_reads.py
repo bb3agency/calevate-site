@@ -615,8 +615,8 @@ async def _billing_overview(
             f"hot or won) {each(cost.per_lead_inr)}; {goal}."
         )
     lines.append(
-        "To add credit: the Credits & billing screen, Add credit tab. The assistant cannot "
-        "take a payment."
+        "To add credit: the Add credit button at the top of the Credits & billing screen. "
+        "The assistant cannot take a payment."
     )
     return _clean(" ".join(lines))
 

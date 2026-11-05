@@ -95,7 +95,8 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | agent | Edit language, voice, opening line, notices (draft/paused) | agents_do:agent_edit | now | COVERED |
 | agent | Same for a live agent | agents_do:agent_edit_live | confirm | COVERED |
 | agent | AI disclosure / recording notice switches | agents_do:agent_edit / agent_edit_live | now / confirm | COVERED |
-| script | Suggest a script change / whole script / steps | agents_do:agent_script_suggest | confirm | COVERED |
+| script | "Print / show me the whole script" (as the Script tab shows it, and whether callers hear it) | agents_find:agent_settings (part script) | read | BUILT (6 Nov 2026) |
+| script | Suggest a script change, incl. add, delete, rename or reorder steps / whole script / steps | agents_do:agent_script_suggest | confirm | COVERED |
 | script | Save and put the reviewed draft live | agents_do:agent_script_put_live | confirm | COVERED |
 | script | Apply a staged change | agents_do:agent_changes_apply | confirm | COVERED |
 | script | Discard a staged change | agents_do:agent_script_discard | confirm | COVERED |
@@ -104,6 +105,8 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | script | Add or dismiss a proposed rule | (none) | confirm | MISSING |
 | script | Clear a suggestion once its parts are kept | (none) | now | MISSING |
 | training | Run practice tests | agents_do:agent_tests_run | confirm | COVERED |
+| training | "Which practice tests failed, and why?" | agents_find:agent_settings (part tests) | read | BUILT (6 Nov 2026) |
+| training | "What mistakes is it making on real calls?" | agents_find:agent_settings (part mistakes) | read | BUILT (6 Nov 2026) |
 | training | Fix failed tests | agents_do:agent_tests_fix | confirm | COVERED |
 | training | Save a hand-written test | agents_do:agent_test_add | now | COVERED |
 | training | Make a call into a test | calls_do:call_test_prepare | now | COVERED |

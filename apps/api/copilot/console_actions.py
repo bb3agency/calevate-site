@@ -2113,7 +2113,7 @@ class _CaptureField(BaseModel):
     """One detail as Pip names it. Only the label is required: a model on a provider that
     does not enforce the strict schema leaves out what it considers obvious (founder, 3 Nov
     2026, "`fields` was missing or the wrong shape" four times over), so the key is made
-    from the label and the rest default the way the Fields tab's form does."""
+    from the label and the rest default the way the What it notes tab's form does."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -2197,7 +2197,7 @@ async def _plan_capture_fields_common(
         )
     current = await _current_fields(session, parsed.agent_id)
     # The version the card shows as "current": a confirm that lands after the list changed on
-    # the Fields tab is refused rather than replacing that newer list with this one.
+    # the What it notes tab is refused rather than replacing that newer list with this one.
     shown_version = (
         await session.execute(
             text(
@@ -2299,7 +2299,7 @@ async def _invert_capture_fields(
     if status == "live":
         raise UndoRefusedError(
             "that agent has gone live since, so changing its list back would apply to its next "
-            "call — change it on the agent's Fields tab instead"
+            "call — change it on the agent's What it notes tab instead"
         )
     if await _current_fields(session, agent_id) != list(record.result_state.get("fields", [])):
         raise UndoRefusedError(
@@ -2317,7 +2317,7 @@ _CAPTURE_FIELDS_PROPERTIES: Final[dict[str, Any]] = {
         "type": "array",
         "items": {
             "type": "object",
-            # Only `label` is needed: the rest may be null and default as the Fields tab's
+            # Only `label` is needed: the rest may be null and default as the What it notes tab's
             # form does (`_CaptureField`). Marked required-but-nullable because strict
             # schemas cannot say "may be absent" (`actions.action_schema`); a non-null
             # `reason` used to read as "ask the person why", which stalled the change.
@@ -2367,7 +2367,7 @@ AGENT_CAPTURE_FIELDS_SET: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.extraction_schema_set",
-    where="on the agent's Fields tab",
+    where="on the agent's What it notes tab",
     schema=action_schema(
         "agent_capture_fields_set",
         f"Set {_CAPTURE_FIELDS_WHAT} For a DRAFT or PAUSED agent; for a LIVE agent use "
@@ -2385,7 +2385,7 @@ AGENT_CAPTURE_FIELDS_SET_LIVE: Final = ActionTool(
     permission="org:manage",
     object_type="agent",
     audit_action="agent.extraction_schema_set",
-    where="on the agent's Fields tab",
+    where="on the agent's What it notes tab",
     schema=action_schema(
         "agent_capture_fields_set_live",
         f"Propose setting {_CAPTURE_FIELDS_WHAT} For a LIVE agent: it applies from its next "

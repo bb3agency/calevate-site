@@ -178,9 +178,8 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         route="/c/{slug}/agents",
         name="Agents",
         group=None,
-        summary="The AI voice agents: what they say and capture, whether they are live, each "
-        "one's Training tab (taught, tried, tested) and Settings tab (call handling for that "
-        "agent or all of them).",
+        summary="The AI voice agents and whether each is live; one agent's page has the tabs "
+        "below.",
         aliases=(
             "bots",
             "ai agents",
@@ -458,7 +457,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         route="/c/{slug}/integrations",
         name="Integrations",
         group=SETTINGS_GROUP,
-        summary="Connections to other tools this account uses.",
+        summary="Connections to other apps this account uses.",
         aliases=("api", "webhooks", "connections", "crm sync", "zapier"),
     ),
     Screen(
@@ -522,6 +521,39 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         permission="billing:read",
     ),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class AgentTab:
+    """One tab of an agent's own page, and what an owner finds on it."""
+
+    name: str
+    holds: str
+
+
+#: The tabs of one agent's page, in the order the page shows them. A copy of `AGENT_TABS` in
+#: `apps/web/.../agents/[agentId]/sections/agentSections.tsx`, held equal by `screens_test.py`,
+#: because Pip once sent an owner to "the Training tab" for the script, which is on Script.
+#: `holds` is what `AgentWorkspace.tsx` renders under each tab.
+AGENT_PAGE_TABS: Final[tuple[AgentTab, ...]] = (
+    AgentTab("Overview", "how it is doing, latest calls"),
+    AgentTab(
+        "Script",
+        "the whole script: opening, why it calls, steps, ending, how it speaks, push-backs, "
+        "example call",
+    ),
+    AgentTab("Training", "questions to answer, mistakes, try it, what it knows, tests"),
+    AgentTab("Actions", "what it does during a call"),
+    AgentTab("What it notes", "details it writes down"),
+    AgentTab("Voice", "its voice"),
+    AgentTab("Settings", "call handling, hand-over, caller memory, alerts, AI model, hours"),
+)
+
+
+def render_agent_tabs() -> str:
+    """The agent page's tabs as one line of the static directory."""
+    tabs = "; ".join(f"{tab.name} ({tab.holds})" for tab in AGENT_PAGE_TABS)
+    return f"An agent's page has these tabs and no others: {tabs}."
 
 
 def where_is(screen: Screen) -> str:
@@ -649,6 +681,7 @@ def render_directory() -> str:
         'the name, what it is for, the words clients use for it, "Owner only." when staff '
         "cannot open it, and its address in brackets (for matching; never say this aloud).\n"
         f"{lines}\n"
+        f"{render_agent_tabs()}\n"
         "\n"
         "HOW TO USE THIS LIST:\n"
         '- Asked WHERE something is, name the screen and where it sits — "Credits & '
@@ -675,9 +708,12 @@ def render_directory() -> str:
 
 
 __all__ = [
+    "AGENT_PAGE_TABS",
     "CLIENT_SCREENS",
+    "AgentTab",
     "Screen",
     "match_route",
+    "render_agent_tabs",
     "render_directory",
     "screens_closed_to",
     "where_is",

@@ -30,6 +30,7 @@ else compares against it — the property `scripts/check_web_env_parity.py` call
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -400,3 +401,83 @@ def test_no_viewer_renders_no_element() -> None:
     """The admin realm composes this block for a TENANT's business state and has its own
     console; it passes no viewer and must not be handed a client one."""
     assert "<viewer" not in _render(None)
+
+
+# --- the tabs inside a screen -----------------------------------------------------------
+
+AGENT_TABS_SOURCE = CLIENT_APP / "agents/[agentId]/sections/agentSections.tsx"
+BILLING_VIEWS_SOURCE = CLIENT_APP / "billing/tabs.ts"
+
+#: `script: "Script",` inside `export const AGENT_TABS = { ... } as const;`.
+_AGENT_TAB = re.compile(r"^\s*\w+:\s*\"(?P<label>[^\"]+)\",\s*$", re.M)
+#: `{ value: "usage", label: "Usage" },` inside `BILLING_VIEWS = [ ... ] as const;`.
+_BILLING_VIEW = re.compile(r"\{\s*value:\s*\"\w+\",\s*label:\s*\"(?P<label>[^\"]+)\"\s*\}")
+
+
+def _declaration(source: Path, opener: str) -> str:
+    """From `opener` to the `as const` that closes it."""
+    text = source.read_text(encoding="utf-8")
+    start = text.index(opener)
+    return text[start : text.index("as const", start)]
+
+
+def _agent_tab_labels() -> list[str]:
+    block = _declaration(AGENT_TABS_SOURCE, "export const AGENT_TABS = {")
+    return [m["label"] for m in _AGENT_TAB.finditer(block)]
+
+
+def _billing_view_labels() -> list[str]:
+    block = _declaration(BILLING_VIEWS_SOURCE, "export const BILLING_VIEWS = [")
+    return [m["label"] for m in _BILLING_VIEW.finditer(block)]
+
+
+def test_the_tab_parsers_still_find_the_tabs() -> None:
+    assert len(_agent_tab_labels()) >= 5
+    assert "Script" in _agent_tab_labels()
+    assert len(_billing_view_labels()) >= 3
+
+
+def test_the_agent_page_tabs_pip_knows_are_the_ones_the_page_shows() -> None:
+    """Pip once told an owner the script was on the Training tab; it is on Script."""
+    assert [tab.name for tab in screens_module.AGENT_PAGE_TABS] == _agent_tab_labels()
+
+
+def test_the_directory_names_every_agent_tab_and_where_the_script_is() -> None:
+    directory = screens_module.render_directory()
+    for tab in screens_module.AGENT_PAGE_TABS:
+        assert f"{tab.name} (" in directory
+    assert "Script (the whole script" in directory
+
+
+#: "on the agent's Training tab", "the Statements tab": a capitalised name of up to three
+#: words directly before "tab".
+_TAB_MENTION = re.compile(r"\b(?P<name>[A-Z][\w&-]*(?: [a-z][\w-]*){0,2}) tabs?\b")
+
+
+def _string_literals(path: Path) -> list[tuple[int, str]]:
+    """Every string a module hands on; docstrings, which nobody is shown, are left out."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    docstrings = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Expr)}
+    return [
+        (node.lineno, node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+        and id(node) not in docstrings
+    ]
+
+
+def test_every_tab_pip_names_is_a_real_tab() -> None:
+    """Every "<X> tab" in a sentence Pip says or reads is a tab the console has: the agent
+    page's or the billing screen's views. A wrong name sends an owner looking for nothing."""
+    known = {*_agent_tab_labels(), *_billing_view_labels()}
+    wrong: list[str] = []
+    for path in sorted((REPO_ROOT / "apps/api/copilot").glob("*.py")):
+        if path.name.endswith("_test.py") or path.name.startswith("admin_"):
+            continue
+        for line, text in _string_literals(path):
+            for match in _TAB_MENTION.finditer(" ".join(text.split())):
+                name = match["name"]
+                if not any(name == tab or name.endswith(f" {tab}") for tab in known):
+                    wrong.append(f"{path.name}:{line} {name!r} tab")
+    assert wrong == [], wrong
