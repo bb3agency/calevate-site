@@ -5851,6 +5851,8 @@ const SCRIPT_TAB_ROUTES = {
 
 /** Training lists the business's knowledge read-only, a pinned fact first. */
 const TRAINING_TAB_ROUTES = {
+  "/v1/kb/uploads": [],
+  "/v1/kb/notes": { notes: [] },
   "/v1/kb/knows": {
     facts: [
       { id: "f1", text: "Red chilli powder is ₹120 for 250 g.", pinned: true, origin: "taught", created_at: "2026-10-10T09:00:00Z" },

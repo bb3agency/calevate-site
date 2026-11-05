@@ -79,7 +79,10 @@ KNOWLEDGE_CHANGE: Final = (
     "correct quick facts (the faqs list: a question callers ask and a short spoken answer, at "
     "most eight); update a step's instruction, an objection's answer or the opening line{calls} "
     "only where the documents change it; where a document contradicts the script, follow the "
-    "document. Leave every other field exactly as it is."
+    "document. Where a document says how the agent should handle the call (how to greet, "
+    "what to ask first, what to do when the person is busy or stuck, how to guide them one "
+    "step at a time), put that into the opening line, the steps and the objections, "
+    "in the business's own words. Leave every other field exactly as it is."
 )
 
 

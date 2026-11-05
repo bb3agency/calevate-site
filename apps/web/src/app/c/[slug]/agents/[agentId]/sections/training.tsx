@@ -34,7 +34,9 @@ import { SavedTests } from "@/components/improvement/SavedTests";
 import { TryChat } from "@/components/improvement/TryChat";
 import { DISCLOSURE_LIST, Disclosure, ProblemNotice, Skeleton } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
+import { useBusinessProfile } from "@/lib/api/businessProfile";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { useKbNotes, useKbUploads } from "@/lib/api/kb";
 import { useTestConversations } from "@/lib/api/script";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useKnows, useTestCases } from "@/lib/api/teach";
@@ -45,6 +47,8 @@ import { PRACTICE_CALLERS_ANCHOR } from "@/lib/copilot/handoff";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { asText } from "@/lib/copilot/types";
 
+import { CallInstructions } from "../../../knowledge/CallInstructions";
+import { profileMatchCount } from "../../../knowledge/ProfileKnowledge";
 import { TeachBox } from "../../../knowledge/TeachBox";
 import { countsOf, lastRunLine } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
@@ -130,7 +134,7 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
       {/* One list of three folded rows rather than three cards: a fact on each closed row,
           the chevron beside its title. */}
       <div className={DISCLOSURE_LIST}>
-        <WhatItKnows slug={slug} agentId={agent.id} />
+        <WhatItKnows slug={slug} agent={agent} />
         <SavedTestsSummary agentId={agent.id} canWrite={tryAccess.allowed} />
         <PracticeCallers agent={agent} slug={slug} />
       </div>
@@ -147,11 +151,14 @@ function countLine(n: number, one: string, many: string): string {
  * belongs to the business and every agent answers from it (D-689), so this never offers a
  * per-agent copy; the editing happens on the Knowledge page.
  */
-function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
+function WhatItKnows({ slug, agent }: { slug: string; agent: Agent }) {
+  const agentId = agent.id;
   const session = useClientSession();
   const { href } = useClientRealm();
   const teach = useWriteAccess(session, "kb:write", "teach your agents");
   const knows = useKnows(session);
+  const profile = useBusinessProfile(session);
+  const notes = useKbNotes(session);
 
   let line = "Checking…";
   let body;
@@ -166,12 +173,17 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
     );
   } else {
     const { facts, items } = knows.data;
-    line =
-      facts.length + items.length === 0
-        ? "Nothing yet"
-        : `${countLine(facts.length, "fact", "facts")}${
-            items.length > 0 ? `, ${countLine(items.length, "file or link", "files and links")}` : ""
-          }`;
+    // Counted as the Knowledge page counts it ("N things"), so the two screens agree; said
+    // only once every read it adds up has answered.
+    if (notes.isError || profile.isError) line = "Could not be read";
+    else if (notes.data && profile.data) {
+      const total =
+        facts.length +
+        items.length +
+        notes.data.notes.filter((n) => n.state !== "removed").length +
+        profileMatchCount(profile.data, "");
+      line = total === 0 ? "Nothing yet" : countLine(total, "thing", "things");
+    }
     // Pinned facts first, as on the Knowledge page: they are in every call.
     const ordered = [...facts.filter((f) => f.pinned), ...facts.filter((f) => !f.pinned)];
     const shown = ordered.slice(0, FACTS_SHOWN);
@@ -199,6 +211,7 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
     <Disclosure variant="row" headingLevel={3} title="What it knows" subtitle={line}>
       <div className="space-y-6">
         {body}
+        <AgentCallInstructions agent={agent} />
         {/* The shared facts above, then which of them this agent answers at once (D-896). */}
         <KnownFactsPanel agentId={agentId} />
         <Link href={href(`/c/${slug}/knowledge`)} className={`${TEXT_ACTION} inline-flex items-center gap-1.5`}>
@@ -209,6 +222,19 @@ function WhatItKnows({ slug, agentId }: { slug: string; agentId: string }) {
       </div>
     </Disclosure>
   );
+}
+
+/** Each file's call instructions, offered to this agent's script (`CallInstructions`). */
+function AgentCallInstructions({ agent }: { agent: Agent }) {
+  const session = useClientSession();
+  const uploads = useKbUploads(session);
+  if (uploads.isPending) return null;
+  if (uploads.isError) {
+    return <ProblemNotice error={uploads.error} onRetry={() => void uploads.refetch()} />;
+  }
+  return uploads.data
+    .filter((u) => u.review_state !== "archived" && (u.call_instructions?.length ?? 0) > 0)
+    .map((u) => <CallInstructions key={u.id} upload={u} agent={{ id: agent.id, name: agent.name }} />);
 }
 
 /** The saved tests, folded to how many there are and when they last ran. */

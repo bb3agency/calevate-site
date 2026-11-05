@@ -70,6 +70,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.crm.assist import ASSIST_FEATURE_KB_OCR
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations.egress_guard import (
     EgressRefusedError,
@@ -89,6 +90,7 @@ from apps.api.kb.models import (
     UPLOAD_RETRYABLE,
     text_is_read,
 )
+from apps.api.kb.structured_text import PARSER_VERSION, looks_like_markdown, read_markdown
 from apps.api.kb.uploads import enqueue_ingest
 from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
 from apps.workers.document_pictures import read_pictures
@@ -164,9 +166,29 @@ def page_digest(body: bytes) -> str:
     return hashlib.sha256(_WHITESPACE.sub(b" ", stripped).strip().lower()).hexdigest()
 
 
+#: The row's sentence for a file whose every line tells the agent how to run the call.
+ONLY_INSTRUCTIONS_DETAIL: Final = (
+    "This file says how your agent should handle calls, not facts for callers. "
+    "Use it in a call script."
+)
+
+_MARKDOWN_EXTENSIONS: Final = (".md", ".markdown")
+
+
+def reads_as_markdown(kind: str, filename: str | None, body: str) -> bool:
+    """A text upload is read as Markdown when it is named so, or when its text carries two
+    kinds of Markdown markup (`structured_text.looks_like_markdown`) — a guide saved as
+    `.txt` is the same guide."""
+    if kind != "txt":
+        return False
+    if (filename or "").lower().endswith(_MARKDOWN_EXTENSIONS):
+        return True
+    return looks_like_markdown(body)
+
+
 _ROW_SQL = """
 SELECT u.id, u.source_kind, u.original_key, u.content_type, u.ingest_status,
-       u.original_sha256, s.status, u.text_provenance, s.submitted_by
+       u.original_sha256, s.status, u.text_provenance, s.submitted_by, u.original_filename
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 WHERE u.source_id = :sid
 """
@@ -429,9 +451,14 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             )
             if extracted is None:
                 return "refused"
+            structured = reads_as_markdown(kind, row[9], extracted.text)
             try:
-                chunks = await kb_service.store_extracted_text(
-                    session, tenant_id=tenant_id, source_id=source_id, body=extracted.text
+                stored = await kb_service.store_document_text(
+                    session,
+                    tenant_id=tenant_id,
+                    source_id=source_id,
+                    body=extracted.text,
+                    structured=structured,
                 )
             except ProblemError as refusal:
                 # The knowledge gate's own refusal (invisible characters, empty text). Its
@@ -443,6 +470,24 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                     detail=f"{refusal.detail} {refusal.remediation or ''}".strip(),
                 )
                 return "refused"
+            if kind == "txt":
+                await session.execute(
+                    text("UPDATE kb_uploads SET text_parser = :v WHERE id = :id"),
+                    {"id": upload_id, "v": PARSER_VERSION},
+                )
+            if stored.chunks == 0:
+                # Every line of the file tells the agent how to run the call: nothing in it is
+                # a fact to look up, so nothing goes live; its instructions wait on the row
+                # for the owner to put into a call script.
+                await _mark(
+                    session,
+                    upload_id,
+                    UPLOAD_CONVERSION_FAILED,
+                    detail=ONLY_INSTRUCTIONS_DETAIL,
+                    provenance=extracted.provenance,
+                    extractor=extracted.model or "parsed",
+                )
+                return "only_instructions"
             await _mark(
                 session,
                 upload_id,
@@ -456,7 +501,9 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                     "upload_id": str(upload_id),
                     "kind": kind,
                     "provenance": extracted.provenance,
-                    "chunks": chunks,
+                    "chunks": stored.chunks,
+                    "instructions": stored.instructions,
+                    "structured": structured,
                     "discarded": len(extracted.discarded),
                 },
             )
@@ -808,6 +855,145 @@ async def _unpublished_typed_sources(now: datetime) -> list[tuple[UUID, UUID]]:
     return found
 
 
+#: Live text uploads read by an older `PARSER_VERSION`, the oldest first.
+_STALE_PARSE_SQL = """
+SELECT u.id FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
+WHERE u.source_kind = 'txt' AND s.is_active = true AND s.status <> 'archived'
+  AND (u.text_parser IS NULL OR u.text_parser < :version)
+ORDER BY u.created_at
+LIMIT :limit
+"""
+
+_REPARSE_ROW_SQL = """
+SELECT u.source_id, u.original_key, u.original_filename, u.original_sha256, s.name, s.uri,
+       s.submitted_by, s.approved_by, s.status, u.call_instructions, u.text_parser
+FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
+WHERE u.id = :id
+"""
+
+#: The most uploads one tick re-reads. Each that changed is a new version and a publish.
+MAX_REPARSE_PER_TICK: Final = 10
+
+
+async def _stale_parses() -> list[tuple[UUID, UUID]]:
+    """`(tenant_id, upload_id)` of live text uploads read by an older reading, per tenant
+    for `_unpublished_typed_sources`' reason (FORCEd RLS)."""
+    from apps.workers.kb_gloss import tenants_holding_knowledge
+
+    found: list[tuple[UUID, UUID]] = []
+    cursor = WalkCursor("kb_stale_parse")
+    for tenant_id in await cursor.order(await tenants_holding_knowledge()):
+        remaining = MAX_REPARSE_PER_TICK - len(found)
+        if remaining <= 0:
+            break
+        await cursor.reached(tenant_id)
+        async with tenant_session(tenant_id) as session:
+            rows = (
+                await session.execute(
+                    text(_STALE_PARSE_SQL), {"version": PARSER_VERSION, "limit": remaining}
+                )
+            ).scalars()
+            found.extend((tenant_id, UUID(str(upload_id))) for upload_id in rows)
+    return found
+
+
+async def reparse_kb_upload(*, tenant_id: UUID, upload_id: UUID) -> str:
+    """Read one live text upload again with the current reading, from the file we hold.
+
+    When the new reading differs from the stored one, it becomes a NEW VERSION of the same
+    named source rather than a rewrite of the approved one (`store_document_text` never
+    touches approved words). A version the client approved themselves is approved again in
+    the same name, as their upload was (D-658); one an operator approved waits for review
+    and the live version keeps answering meanwhile. Either way the upload is stamped first,
+    so the sweep never offers it twice.
+    """
+    from apps.api.kb.uploads import file_extension
+    from apps.workers.storage import kb_object_key, store_kb_object
+
+    async with tenant_session(tenant_id) as session:
+        row = (await session.execute(text(_REPARSE_ROW_SQL), {"id": upload_id})).first()
+        if row is None:
+            return "gone"
+        if row[10] is not None and int(row[10]) >= PARSER_VERSION:
+            return "current"
+        await session.execute(
+            text("UPDATE kb_uploads SET text_parser = :v WHERE id = :id"),
+            {"id": upload_id, "v": PARSER_VERSION},
+        )
+        source_id, key, filename = UUID(str(row[0])), row[1], row[2]
+        if row[8] == "archived" or not key:
+            return "skipped"
+        data = await read_kb_object(str(key))
+        if not data:
+            return "no_file"
+        try:
+            body = assemble(read_document(data, "txt"), {}).text
+        except DocumentRefusedError:
+            return "unreadable"
+        if not reads_as_markdown("txt", filename, body):
+            return "unchanged"
+        reading = read_markdown(body)
+        wanted = [chunk.content for chunk in kb_service.chunk_groups(reading.facts)]
+        instructions = kb_service.instruction_rows(reading.instructions)
+        held = [
+            str(content)
+            for content in (
+                await session.execute(
+                    text("SELECT content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
+                    {"sid": source_id},
+                )
+            ).scalars()
+        ]
+        if held == wanted and (row[9] or []) == instructions:
+            return "unchanged"
+
+        self_approved = row[7] is not None and row[7] == row[6]
+        new_source, version, _status = await kb_service.insert_source_version(
+            session,
+            tenant_id=tenant_id,
+            name=str(row[4]),
+            kind="file",
+            uri=row[5],
+            submitted_by=row[6],
+        )
+        new_upload = uuid7()
+        new_key = kb_object_key(
+            tenant_id=tenant_id,
+            upload_id=new_upload,
+            slot="original",
+            suffix=file_extension(str(filename or "document.md")),
+        )
+        # A copy under the new upload's own prefix, so removing either version's object
+        # never takes the other's file with it.
+        await store_kb_object(key=new_key, data=data, content_type="text/plain; charset=utf-8")
+        await session.execute(
+            text(
+                "INSERT INTO kb_uploads (id, tenant_id, source_id, source_kind, original_key, "
+                "original_filename, original_bytes, original_sha256, content_type, "
+                "ingest_status, created_at, updated_at) VALUES (:id, :tid, :sid, 'txt', :key, "
+                ":fname, :bytes, :sha, 'text/plain; charset=utf-8', :status, now(), now())"
+            ),
+            {
+                "id": new_upload,
+                "tid": tenant_id,
+                "sid": new_source,
+                "key": new_key,
+                "fname": filename,
+                "bytes": len(data),
+                "sha": row[3],
+                "status": UPLOAD_RECEIVED,
+            },
+        )
+        await enqueue_ingest(
+            session, tenant_id=tenant_id, source_id=new_source, may_self_approve=self_approved
+        )
+    log.info(
+        "kb_upload_reparsed",
+        extra={"upload_id": str(upload_id), "source_id": str(new_source), "version": version},
+    )
+    return "new_version"
+
+
 async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
     """Re-drive ingests that stalled, publish typed knowledge that never went live, and
     re-read links whose page may have moved.
@@ -895,6 +1081,17 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             continue
         published += 1
 
+    # A text upload read before the current reading (`structured_text.PARSER_VERSION`): read
+    # again from the file we hold, so a deploy that changes the reading reaches every live
+    # file within a few ticks with nobody uploading anything.
+    reparsed = 0
+    for tenant_id, upload_id in await _stale_parses():
+        try:
+            if await reparse_kb_upload(tenant_id=tenant_id, upload_id=upload_id) == "new_version":
+                reparsed += 1
+        except Exception as exc:
+            _sweep_item_failed(failures, "reparse", upload_id, exc)
+
     caught_up = await _catch_up_agents(failures)
 
     names = await _due_link_sources(due)
@@ -934,6 +1131,7 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         extra={
             "redriven": redriven,
             "typed": published,
+            "reparsed": reparsed,
             "caught_up": caught_up,
             "links": checked,
             "changed": changed,
@@ -946,7 +1144,8 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
             f"{len(failures)} item(s) raised: {', '.join(failures[:_SWEEP_FAILURES_NAMED])}"
         )
     return (
-        f"redriven={redriven} typed={published} caught_up={caught_up} links={checked} "
+        f"redriven={redriven} typed={published} reparsed={reparsed} caught_up={caught_up} "
+        f"links={checked} "
         f"changed={changed}"
     )
 

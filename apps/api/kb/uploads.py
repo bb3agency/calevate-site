@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
 
@@ -674,7 +675,7 @@ _LIST_SQL = """
 SELECT u.id, u.source_id, s.name, u.source_kind, u.ingest_status,
        u.ingest_detail, s.status, s.is_active, s.version, u.original_filename,
        u.original_bytes, u.source_url, u.change_detected_at, u.created_at, u.updated_at,
-       u.text_provenance, u.read_state, u.read_detail, u.page_count
+       u.text_provenance, u.read_state, u.read_detail, u.page_count, u.call_instructions
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 """
 
@@ -729,6 +730,7 @@ def _row_out(row: Any) -> dict[str, Any]:
         "created_at": row[13],
         "updated_at": row[14],
         "text_provenance": row[15],
+        "call_instructions": list(row[19] or []),
     }
 
 
@@ -829,6 +831,53 @@ async def confirm_upload(
         session, tenant_id=tenant_id, source_id=row["source_id"], approved_by=principal.user_id
     )
     return await get_upload(session, upload_id)
+
+
+@dataclass(frozen=True, slots=True)
+class InstructionsAsked:
+    agents: int
+    skipped: int
+
+
+async def use_call_instructions(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    upload_id: UUID,
+    name: str,
+    agent_id: UUID | None,
+) -> InstructionsAsked:
+    """Queue a script suggestion written from this file for one agent or every agent.
+
+    Through the `knowledge` proposal (D-923), whose writer reads the file's words AND its
+    call instructions (`first_run.documents.document_words`), so the owner reviews the
+    result part by part on the Script page and nothing reaches a live agent unasked. An
+    agent waiting on a suggestion the owner asked Pip for keeps it (`request_knowledge_
+    proposal` answers None) and is counted as skipped."""
+    # Deferred: `script_proposals` pulls in the script writer, which this module's request
+    # path does not otherwise need.
+    from apps.api.agents.script_proposals import request_knowledge_proposal
+    from apps.api.kb.service import knowledge_agents
+
+    if agent_id is not None:
+        found = (
+            await session.execute(
+                text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+                {"aid": agent_id},
+            )
+        ).first()
+        if found is None:
+            raise ProblemError.not_found("Agent")
+        targets = [agent_id]
+    else:
+        targets = await knowledge_agents(session, tenant_id=tenant_id)
+    asked = 0
+    for target in targets:
+        made = await request_knowledge_proposal(
+            session, tenant_id=tenant_id, agent_id=target, upload_ids=[upload_id], names=[name]
+        )
+        asked += made is not None
+    return InstructionsAsked(agents=asked, skipped=len(targets) - asked)
 
 
 async def remove_upload(session: AsyncSession, *, tenant_id: UUID, upload_id: UUID) -> None:

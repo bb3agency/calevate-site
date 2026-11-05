@@ -18,6 +18,7 @@ from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -330,6 +331,10 @@ class KbUpload(PKMixin, TimestampMixin, Base):
             f"read_state IS NULL OR read_state IN {READ_STATES!r}",
             name="ck_kb_uploads_read_state",
         ),
+        CheckConstraint(
+            "call_instructions IS NULL OR jsonb_typeof(call_instructions) = 'array'",
+            name="ck_kb_uploads_call_instructions_is_array",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -384,6 +389,13 @@ class KbUpload(PKMixin, TimestampMixin, Base):
     #: Why the reading failed or was partial, written for the client.
     read_detail: Mapped[str | None] = mapped_column(Text)
     page_count: Mapped[int | None] = mapped_column(Integer)
+    #: What a Markdown guide tells the agent to DO on a call, kept off the knowledge the
+    #: engine searches and offered to the owner for a call script (`kb/structured_text.py`):
+    #: a list of `{"section": str | null, "text": str}`.
+    call_instructions: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    #: The `structured_text.PARSER_VERSION` that read this text upload; the sweep re-reads
+    #: a live one read by an older version.
+    text_parser: Mapped[int | None] = mapped_column(SmallInteger)
 
 
 class KbRetrievalLog(PKMixin, Base):
