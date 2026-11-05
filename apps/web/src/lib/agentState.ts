@@ -107,7 +107,7 @@ export const DIRECTION_COPY: Record<string, { label: string; hint: string }> = {
   },
   outbound: {
     label: "Makes calls",
-    hint: "Dials your customers for campaigns and follow-ups.",
+    hint: "Dials people for campaigns and follow-ups.",
   },
   both: {
     label: "Answers and makes calls",

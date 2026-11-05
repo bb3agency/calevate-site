@@ -9,6 +9,7 @@ import { keepingOnWire } from "@/lib/copilot/keeping";
 
 import { noContent, renderClientPage } from "./harness";
 import { agentRow, settledPending } from "./fixtures/sharedReads";
+import { businessProfileFixture } from "./businessProfileFixture";
 
 /**
  * What Pip reads about the Script tab after the owner keeps its suggestion (D-832).
@@ -75,6 +76,8 @@ describe("the Script tab tells Pip where the suggestion and the draft stand", ()
         "/v1/me": OWNER,
         "/v1/agents/agent-1": agentRow(),
         "/v1/agents/agent-1/script": OUT,
+        // The "What it may do" switches read the business profile's price label.
+        "/v1/business-profile": businessProfileFixture(),
         "POST /v1/agents/agent-1/script/preview": { compiled: "x", instructions_chars: 10, instructions_limit: 8000, native_steps: 0 },
         "/v1/agents/agent-1/script/proposed-rules": [],
         "/v1/agents/agent-1/pending": settledPending(),
@@ -110,6 +113,8 @@ describe("the Script tab tells Pip where the suggestion and the draft stand", ()
         "/v1/me": OWNER,
         "/v1/agents/agent-1": agentRow(),
         "/v1/agents/agent-1/script": OUT,
+        // The "What it may do" switches read the business profile's price label.
+        "/v1/business-profile": businessProfileFixture(),
         "POST /v1/agents/agent-1/script/preview": { compiled: "x", instructions_chars: 10, instructions_limit: 8000, native_steps: 0 },
         "/v1/agents/agent-1/script/proposed-rules": [],
         "/v1/agents/agent-1/pending": settledPending(),

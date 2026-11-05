@@ -445,7 +445,7 @@ describe("key moments in the call", () => {
     await screen.findByText(/^key moments$/i);
     expect(momentRows().map((li) => li.textContent)).toEqual([
       "0:08Appointment slot capturedDetails",
-      "~0:21Caller asked about paymentBuying signal· Suggested",
+      "~0:21Caller asked about paymentNext step· Suggested",
       "0:34Caller asked not to be called againNeeds attention",
     ]);
     expect(screen.getByText(/~ means about/)).toBeTruthy();
@@ -460,7 +460,7 @@ describe("key moments in the call", () => {
     await screen.findByText(/^key moments$/i);
     const suggested = momentRows().filter((li) => li.textContent?.includes("Suggested"));
     expect(suggested.map((li) => li.textContent)).toEqual([
-      "~0:21Caller asked about paymentBuying signal· Suggested",
+      "~0:21Caller asked about paymentNext step· Suggested",
     ]);
   });
 

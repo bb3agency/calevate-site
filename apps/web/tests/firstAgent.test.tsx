@@ -34,7 +34,19 @@ import { answersBody, emptyAnswer } from "@/lib/firstRunQuestions";
 
 import { businessProfileFixture } from "./businessProfileFixture";
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
-import { problem, renderClientPage } from "./harness";
+import { NO_BUSINESS_COPY, problem, renderClientPage } from "./harness";
+
+/** The placeholders every generated copy carries; a test sets the one it is about. */
+const PLACEHOLDERS_FOR_BRIEF = {
+  end_call_rules: "Always offer a call back.",
+  extraction_label: "What they need",
+  extraction_options: "New, Returning",
+  extraction_reason: "so we can help them first",
+  knowledge_answer: "We help you set up the app.",
+  knowledge_title: "Getting started",
+  lead_search: "help with setup",
+  script_brief: "",
+};
 
 /**
  * "MEET YOUR AGENT" (D-855): the job, the brief, the questions, the build ticked as it
@@ -456,12 +468,29 @@ describe("meet your agent", () => {
     expect(screen.getByText(/Change languages on its own page/)).toBeTruthy();
   });
 
-  it("starts the brief from the trade's example and says the audio is not kept", async () => {
+  it("shows the trade's example only as a placeholder, offers no other trade's, and says the audio is not kept", async () => {
     await renderClientPage(page, routes({ "/v1/first-run": run({ jobs: ["answer_calls"], language_primary: "te-IN" }) }));
     const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
-    expect(box.value.length).toBeGreaterThan(20);
+    // An example kept as the value would be saved on Continue as if the owner wrote it.
+    expect(box.value).toBe("");
+    expect(box.placeholder.length).toBeGreaterThan(20);
+    expect(screen.queryByRole("heading", { name: "Start from another example" })).toBeNull();
     expect(screen.getByText("Only the text is kept, not the audio.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Talk it through with Pip instead/ })).toBeTruthy();
+  });
+
+  it("starts the brief from the account's own written brief once it has landed", async () => {
+    const own = "We run an app that helps farmers keep their accounts. We call registered users to help them.";
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": run({ jobs: ["answer_calls"], language_primary: "te-IN" }),
+        "/v1/business-copy": { ...NO_BUSINESS_COPY, placeholders: { ...PLACEHOLDERS_FOR_BRIEF, script_brief: own } },
+      }),
+    );
+    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    await waitFor(() => expect(box.value).toBe(own));
+    expect(screen.getByText("Written from your business details. Change anything.")).toBeTruthy();
   });
 
   it("lists the brief's files by state: being read, read but not on calls, and unreadable with a way to try another", async () => {

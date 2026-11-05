@@ -125,7 +125,7 @@ export function Templates({
                     <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{titleOf(t)}</p>
                     <p className="text-meta text-ink-muted">
                       {lookup(LANGUAGE_LABELS, t.language) ?? t.language} ·{" "}
-                      {t.category === "UTILITY" ? "About an order or booking" : "Marketing"}
+                      {t.category === "UTILITY" ? "About something they asked for" : "Marketing"}
                       {t.origin === "calevate" ? " · Written by Calevate" : ""}
                     </p>
                   </div>

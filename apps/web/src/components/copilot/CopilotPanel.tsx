@@ -19,6 +19,8 @@ import { filledNotice, filledReply, panelNotice } from "@/lib/copilot/keeping";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
+import { useBusinessCopy } from "@/lib/api/businessCopy";
+import { capabilitiesOf } from "@/lib/businessCapabilities";
 import { pipLocked } from "@/lib/copilot/conversation";
 import {
   MAX_QUESTION_CHARS,
@@ -146,6 +148,9 @@ export function CopilotPanel({
   // same wallet notice as an ask refused there.
   const [confirmAtCeiling, setConfirmAtCeiling] = useState(false);
   const conversation = useCopilotConversation(session, holder);
+  // The business's own profile, so the empty panel's questions fit it: a client's only.
+  const businessCopy = useBusinessCopy(session, { enabled: realm === "client" });
+  const business = realm === "client" ? capabilitiesOf(businessCopy.data) : undefined;
   // FILES FOR THE NEXT QUESTION (D-781): chosen, converted on this device, and streamed to
   // the API before Ask; Ask waits while any is still on its way.
   const tray = useAttachmentTray(session, realm, conversation.uploadsAvailable);
@@ -492,7 +497,7 @@ export function CopilotPanel({
                 className="max-sm:-mx-4 max-sm:px-4 max-sm:pb-1 max-sm:[scrollbar-width:none] sm:overflow-visible"
               >
               <ul className="flex gap-2 max-sm:w-max sm:flex-wrap">
-                {suggestedQuestions(surface.route).map((question) => (
+                {suggestedQuestions(surface.route, business).map((question) => (
                   <li key={question}>
                     <button
                       type="button"

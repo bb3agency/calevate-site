@@ -48,9 +48,14 @@ export const REFRESH_POLL_MS = 4000;
 const adminPath = (tenantId: string) =>
   `/v1/admin/tenants/${encodeURIComponent(tenantId)}/business-copy`;
 
-export function useBusinessCopy(session: Session): UseQueryResult<BusinessCopy> {
+export function useBusinessCopy(
+  session: Session,
+  { enabled = true }: { enabled?: boolean } = {},
+): UseQueryResult<BusinessCopy> {
   return useQuery({
     queryKey: businessCopyKeys.client(session.orgSlug),
+    // Off where the session is not a client's (the operator's assistant panel).
+    enabled,
     queryFn: () => apiRequest<BusinessCopy>(session, "/v1/business-copy"),
     // The copy changes once a fortnight at most; every screen shares this one read.
     staleTime: 5 * 60_000,

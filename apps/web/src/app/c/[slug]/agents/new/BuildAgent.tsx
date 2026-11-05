@@ -17,6 +17,7 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useLanes } from "@/lib/api/publishing";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useBusinessLanguage } from "@/lib/businessCapabilities";
 import { hasKey, lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText, noFill } from "@/lib/copilot/types";
@@ -89,7 +90,10 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
   // A ready name for the job until the owner types their own (REDESIGN-2: no blank fields).
   const name = typedName ?? DEFAULT_NAME[direction];
   const setDirection = (next: AgentDirection) => setDirectionRaw(next);
-  const [language, setLanguage] = useState<AgentLanguage>("te-IN");
+  // The business's own main language until the owner picks another.
+  const startLanguage = useBusinessLanguage();
+  const [picked, setLanguage] = useState<AgentLanguage | null>(null);
+  const language = picked ?? startLanguage;
   const [capMinutes, setCapMinutes] = useState("");
   const [created, setCreated] = useState<Agent | null>(null);
 
@@ -211,7 +215,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
            * otherwise ask on this screen every time because it has writable fields.
            */
           unsaved:
-            typedName !== null || capMinutes !== "" || direction !== "inbound" || language !== "te-IN",
+            typedName !== null || capMinutes !== "" || direction !== "inbound" || language !== startLanguage,
         },
   );
 

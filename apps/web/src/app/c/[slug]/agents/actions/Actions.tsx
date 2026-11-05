@@ -44,6 +44,8 @@ import {
 import type { Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { useBusinessCopy } from "@/lib/api/businessCopy";
+import { capabilitiesOf } from "@/lib/businessCapabilities";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -108,6 +110,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const [requested, setView] = useState<View>({ at: "list" });
   const eg = useVerticalExamples();
+  const caps = capabilitiesOf(useBusinessCopy(session).data);
   const { href } = useClientRealm();
   // Reading actions and credentials is `org:read`; every write here — the master switch,
   // a tool, a credential, a test run — is `org:manage`, which staff do not hold.
@@ -256,7 +259,9 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   const catalogue = JOBS.filter(
     (j) =>
       !RETIRED_JOBS.includes(j.id) &&
-      (j.id === "booking" ? !hasBooking : REPEATABLE_JOBS.includes(j.id) || !setUpKinds.has(j.kind)),
+      // A business judged not to take bookings is not offered the booking job; one already
+      // set up stays listed above, so it can still be changed or turned off.
+      (j.id === "booking" ? !hasBooking && caps.takesBookings !== false : REPEATABLE_JOBS.includes(j.id) || !setUpKinds.has(j.kind)),
   );
 
   return (

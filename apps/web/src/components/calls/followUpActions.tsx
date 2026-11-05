@@ -86,7 +86,7 @@ export type Dialer = { id: string; name: string };
 
 /** The swipe's three lead outcomes, in the order offered. */
 const LEAD_MARKS: { status: LeadStatus; label: string; hint: string }[] = [
-  { status: SWIPE_LEAD_STATUS.won, label: "Won", hint: "They bought or booked." },
+  { status: SWIPE_LEAD_STATUS.won, label: "Won", hint: "They went ahead: the call did what it was for." },
   { status: SWIPE_LEAD_STATUS.lost, label: "Lost", hint: "They are not going ahead." },
   { status: SWIPE_LEAD_STATUS.followUp, label: "Interested", hint: "Not decided yet. Worth another call." },
 ];

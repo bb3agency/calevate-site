@@ -109,7 +109,7 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
           <p className={`text-meta ${contact.verified && !unplugged ? "text-ink-muted" : "text-warn"}`}>
             {contact.channel === "whatsapp" ? "WhatsApp" : "Email"}
             {" · "}
-            {!contact.verified ? "Waiting for the code" : unplugged ? "Its WhatsApp was disconnected" : "Hears every hot lead"}
+            {!contact.verified ? "Waiting for the code" : unplugged ? "Its WhatsApp was disconnected" : "Gets the alerts you chose"}
           </p>
         </div>
         <button

@@ -267,7 +267,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
           "The agent fills these in from the conversation. It never reads out a form.",
           "Required ones are asked on every call. A call without one still becomes a lead.",
           "The optional reason helps the agent fill the column more accurately.",
-          "Name, need, preferred time, another number, language and notes are always written down (Settings, Lead details).",
+          "The standard details, such as the name, are always written down. Rename them in Settings, Lead details.",
         ]}
       />
 

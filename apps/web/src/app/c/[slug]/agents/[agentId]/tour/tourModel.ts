@@ -74,7 +74,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "teach",
     title: "Teach it facts",
-    body: `Prices, hours, bookings. Add them in ${AGENT_TABS.training}.`,
+    body: `Hours and the answers callers need. Add them in ${AGENT_TABS.training}.`,
     target: agentTab("training"),
   },
   {

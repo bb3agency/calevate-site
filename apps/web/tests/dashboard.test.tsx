@@ -1381,7 +1381,7 @@ describe("proof on the home screen (D-944)", () => {
     );
     await screen.findByText("Captured after hours");
     await waitFor(() => expect(calls.some((c) => c.path === "/v1/analytics/cost-per-result")).toBe(true));
-    await waitFor(() => expect(screen.queryByText("Working out your cost per lead")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Working out what each result cost")).toBeNull());
     expect(screen.queryByText("Cost per lead, 7 days")).toBeNull();
   });
 

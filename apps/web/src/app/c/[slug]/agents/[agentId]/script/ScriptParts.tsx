@@ -25,7 +25,10 @@ import type { ReactNode } from "react";
 
 import { DISCLOSURE_LIST, Disclosure } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
+import { useBusinessProfile } from "@/lib/api/businessProfile";
 import type { CallScript, ScriptContext } from "@/lib/api/script";
+import { useClientSession } from "@/lib/api/session";
+import { goAheadLabel, quotesPrices, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { lookup } from "@/lib/lookup";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
@@ -72,6 +75,16 @@ export function ScriptParts({
   edit: (next: (s: CallScript) => CallScript) => void;
 }) {
   const eg = useVerticalExamples();
+  const caps = useBusinessCapabilities();
+  const profile = useBusinessProfile(useClientSession());
+  const offers = {
+    prices: quotesPrices(caps, profile.data?.wording.price_label),
+    goAhead: goAheadLabel(caps),
+  };
+  const ownObjection = caps.objections[0];
+  const objectionExample = ownObjection
+    ? { says: ownObjection.caller_says, answer: ownObjection.how_to_answer }
+    : undefined;
   const issuesOf = (id: string) => {
     const owns = lookup(PART_ISSUES, id);
     return owns ? issues.filter((i) => i.section === null && owns(i.field)) : [];
@@ -104,7 +117,12 @@ export function ScriptParts({
 
       <div className="space-y-2">
         <h4 className="text-body font-semibold text-ink">What it may do</h4>
-        <PoliciesSection policies={script.policies} onChange={(v) => setField("policies", v)} context={context} />
+        <PoliciesSection
+          policies={script.policies}
+          onChange={(v) => setField("policies", v)}
+          context={context}
+          offers={offers}
+        />
       </div>
 
       <div className={DISCLOSURE_LIST}>
@@ -131,7 +149,11 @@ export function ScriptParts({
             {part(
               "objections",
               "When callers push back",
-              <ObjectionsSection objections={script.objections} onChange={(v) => setField("objections", v)} />,
+              <ObjectionsSection
+                objections={script.objections}
+                onChange={(v) => setField("objections", v)}
+                example={objectionExample}
+              />,
             )}
             {part(
               "ending",
@@ -156,7 +178,9 @@ export function ScriptParts({
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <div className="min-w-0">
           <h4 className="text-body font-semibold text-ink">Quick facts</h4>
-          <p className="text-meta text-ink-muted">Prices and timings, shared by all your agents.</p>
+          <p className="text-meta text-ink-muted">
+            {offers.prices ? "Prices and timings" : "Timings and answers"}, shared by all your agents.
+          </p>
         </div>
         <Link href={knowledgeHref} className={TEXT_ACTION}>
           Open What your agents know

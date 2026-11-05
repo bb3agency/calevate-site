@@ -104,7 +104,7 @@ export function useCampaignsCopilotSurface({
         label: "What should a good call end with?",
         type: "text",
         value: form.goal,
-        help: `e.g. they book a visit. Plain words, at most ${GOAL_MAX} characters.`,
+        help: `e.g. they agree to the next step. Plain words, at most ${GOAL_MAX} characters.`,
       },
       {
         id: "campaign-agent",

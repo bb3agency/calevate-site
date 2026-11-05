@@ -234,7 +234,7 @@ describe("routines", () => {
     expect(screen.getByText(/Weekdays at 9:30 am/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "New routine" }));
     const drawer = await screen.findByRole("dialog", { name: "New routine" });
-    fireEvent.click(within(drawer).getByRole("button", { name: "Friday lead summary" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Friday summary" }));
     fireEvent.click(within(drawer).getByRole("button", { name: "Next" }));
     await within(drawer).findByText("When should it run?");
     // Add Monday to Friday: the wire is Monday-first whatever order it was ticked in.
@@ -247,9 +247,9 @@ describe("routines", () => {
     await waitFor(() => expect(posted(view.calls, "/v1/copilot/routines")).toHaveLength(1));
     const body = JSON.parse(posted(view.calls, "/v1/copilot/routines")[0].body ?? "{}");
     expect(body).toEqual({
-      name: "Friday lead summary",
+      name: "Friday summary",
       instruction:
-        "Summarise this week's leads: how many came in, who is hot, and who to call next.",
+        "Summarise this week's calls: how many came in, who asked for a call back, and who to call next.",
       schedule: { days: ["mon", "fri"], time: "17:00" },
       enabled: true,
     });

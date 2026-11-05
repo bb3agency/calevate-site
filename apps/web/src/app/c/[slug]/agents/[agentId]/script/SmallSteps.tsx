@@ -86,7 +86,7 @@ export function SmallSteps({
                     rows={2}
                     value={step.action}
                     maxLength={limits.procedureStepMax}
-                    placeholder="For example: Ask them to keep their reference number ready."
+                    placeholder="For example: Ask what they need help with today."
                     aria-invalid={errs.length > 0 || undefined}
                     aria-describedby={errs.length ? errId : undefined}
                     onChange={(e) => set(i, { action: e.target.value })}

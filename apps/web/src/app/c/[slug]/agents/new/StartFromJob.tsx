@@ -25,6 +25,7 @@ import {
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+import { useBusinessLanguage } from "@/lib/businessCapabilities";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { hasKey } from "@/lib/lookup";
@@ -74,8 +75,6 @@ export const JOBS: {
   },
 ];
 
-/** The language a new agent starts in unless the owner picks another (Telugu-first, BRD §1). */
-const DEFAULT_LANGUAGE: AgentLanguage = "te-IN";
 
 /** What the next steps need of the agent just made. */
 export type CreatedAgent = { id: string; name: string };
@@ -132,7 +131,10 @@ function StarterPreviewStep({
   onCreated: (agent: CreatedAgent) => void;
 }) {
   const session = useClientSession();
-  const [language, setLanguage] = useState<AgentLanguage>(DEFAULT_LANGUAGE);
+  // The business's own main language until the owner picks another.
+  const startLanguage = useBusinessLanguage();
+  const [picked, setLanguage] = useState<AgentLanguage | null>(null);
+  const language = picked ?? startLanguage;
   const [opening, setOpening] = useState("");
   const starter = useStarters(session);
   const create = useCreateAgent(session);
@@ -194,7 +196,7 @@ function StarterPreviewStep({
         else if (item.field_id === "new-agent-opening") setOpening(text.slice(0, OPENING_MAX_CHARS));
       }
     },
-    unsaved: typedName !== null || language !== DEFAULT_LANGUAGE || opening !== "",
+    unsaved: typedName !== null || language !== startLanguage || opening !== "",
   });
 
   const submit = () => {

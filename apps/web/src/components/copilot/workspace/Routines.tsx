@@ -41,13 +41,13 @@ import {
 const EXAMPLES: readonly { name: string; instruction: string; days: Weekday[]; time: string }[] = [
   {
     name: "Morning call-backs",
-    instruction: "Call back yesterday's missed leads.",
+    instruction: "Call back yesterday's missed calls.",
     days: ["mon", "tue", "wed", "thu", "fri", "sat"],
     time: "09:30",
   },
   {
-    name: "Friday lead summary",
-    instruction: "Summarise this week's leads: how many came in, who is hot, and who to call next.",
+    name: "Friday summary",
+    instruction: "Summarise this week's calls: how many came in, who asked for a call back, and who to call next.",
     days: ["fri"],
     time: "17:00",
   },
@@ -106,7 +106,7 @@ export function Routines({ session }: { session: Session }) {
       {routines.data !== undefined && rows.length === 0 && (
         <EmptyState
           message="No routines yet."
-          hint="For example: every weekday at 9:30 am, call back yesterday's missed leads."
+          hint="For example: every weekday at 9:30 am, call back yesterday's missed calls."
         />
       )}
       {update.error != null && <ProblemNotice error={update.error} />}

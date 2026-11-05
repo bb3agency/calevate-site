@@ -501,12 +501,19 @@ export function StyleSection({
   );
 }
 
+/** Before the business's own objections land, one any business meets: a price one reads
+ * as a mistake to a business that sells nothing. */
+const NEUTRAL_OBJECTION = { says: "I need to think about it.", answer: "Answer it once, kindly. Accept a final no." };
+
 export function ObjectionsSection({
   objections,
   onChange,
+  example = NEUTRAL_OBJECTION,
 }: {
   objections: Objection[];
   onChange: (objections: Objection[]) => void;
+  /** The placeholder pair: one push-back this business's callers really make. */
+  example?: { says: string; answer: string };
 }) {
   const plain = usePlainText();
   const update = (i: number, next: Partial<Objection>) =>
@@ -523,7 +530,7 @@ export function ObjectionsSection({
                   aria-label={`Objection ${i + 1}: what they say`}
                   value={o.objection}
                   maxLength={300}
-                  placeholder="It is too expensive."
+                  placeholder={example.says}
                   onChange={(e) => update(i, { objection: plain.take(e.target.value) })}
                 />
                 <textarea
@@ -531,7 +538,7 @@ export function ObjectionsSection({
                   rows={2}
                   aria-label={`Objection ${i + 1}: how to answer`}
                   value={o.response}
-                  placeholder="Say why it is worth it. Accept a final no."
+                  placeholder={example.answer}
                   onChange={(e) => update(i, { response: plain.take(e.target.value) })}
                 />
               </div>
@@ -554,14 +561,28 @@ export function ObjectionsSection({
   );
 }
 
+/**
+ * Which of the "may do" switches apply to this business (`businessCapabilities`): `prices`
+ * false hides the prices switch, and `goAhead` names the bookings switch for what the
+ * business takes, or is null to hide it. Leaving it out shows both, as before the profile.
+ */
+export interface PolicyOffers {
+  prices: boolean;
+  goAhead: string | null;
+}
+
+const ALL_OFFERS: PolicyOffers = { prices: true, goAhead: "Take bookings and orders" };
+
 export function PoliciesSection({
   policies,
   onChange,
   context,
+  offers = ALL_OFFERS,
 }: {
   policies: ScriptPolicies;
   onChange: (policies: ScriptPolicies) => void;
   context: ScriptContext | null;
+  offers?: PolicyOffers;
 }) {
   const trial = context !== null && !context.call_backs_available;
   const settings = useSectionLink("settings");
@@ -581,18 +602,22 @@ export function PoliciesSection({
         disabled={trial}
         onChange={(next) => onChange({ ...policies, offer_call_backs: next })}
       />
-      <ToggleSwitch
-        label="Tell callers prices"
-        hint="Only prices you taught it. Off: the team shares them."
-        checked={policies.share_prices}
-        onChange={(next) => onChange({ ...policies, share_prices: next })}
-      />
-      <ToggleSwitch
-        label="Take bookings and orders"
-        hint="When off, it notes what they want and when it suits them."
-        checked={policies.take_bookings}
-        onChange={(next) => onChange({ ...policies, take_bookings: next })}
-      />
+      {offers.prices && (
+        <ToggleSwitch
+          label="Tell callers prices"
+          hint="Only prices you taught it. Off: the team shares them."
+          checked={policies.share_prices}
+          onChange={(next) => onChange({ ...policies, share_prices: next })}
+        />
+      )}
+      {offers.goAhead !== null && (
+        <ToggleSwitch
+          label={offers.goAhead}
+          hint="When off, it notes what they want and when it suits them."
+          checked={policies.take_bookings}
+          onChange={(next) => onChange({ ...policies, take_bookings: next })}
+        />
+      )}
       {/* A status and the button that changes it, not a sentence: hand-over is set in the
           Settings tab, reached through the tabs' own unsaved-edits guard. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-muted">
