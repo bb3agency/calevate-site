@@ -156,7 +156,7 @@ const PACK_CARD = {
   studio_tier_label: "Studio",
   voice_not_offered: "clear",
   voice_not_offered_notice:
-    "Not available to choose yet: the vendor that speaks this voice changed and we have not established what one minute of it costs, so we will not put an agent on it. Its rate is still fixed on credit you buy today, and it costs you nothing to move an agent onto it once it opens.",
+    "Not open yet: we are still confirming what this voice costs to run. Credit you buy today keeps its rate, and moving an agent onto it later costs nothing.",
   packs: [
     {
       pack_id: "starter",
@@ -1281,6 +1281,27 @@ describe("payments that did not finish", () => {
     await screen.findByText("Don't pay again yet.");
     // A payment that may still land offers no retry.
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("names an outcome this build does not know in plain words, never its code", async () => {
+    // E2E audit OB-27.
+    await renderBillingHub(
+      routes({
+        [ATTEMPTS]: [
+          {
+            id: "55555555-5555-4555-8555-555555555555",
+            receipt: "CAL-2608-0009",
+            amount_inr: "2500.00",
+            pack_id: null,
+            outcome: "partially_refunded_v2",
+            started_at: "2026-08-30T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    await screen.findByText("Being checked");
+    await screen.findByText("CAL-2608-0009");
+    expect(screen.queryByText("partially_refunded_v2")).toBeNull();
   });
 
   it("says nothing at all when no payment is outstanding", async () => {

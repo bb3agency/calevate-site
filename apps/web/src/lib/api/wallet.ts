@@ -32,7 +32,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { formatINR, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
@@ -150,47 +150,79 @@ const TOPUP_ATTEMPTS_PATH = "/v1/billing/wallet/topups";
 export const CREDIT_POLL_MS = 4_000;
 export const CREDIT_WAIT_MS = 3 * 60_000;
 
-/** A payment this page saw verified, and the instant it stops waiting for the credit. */
+/** A payment this page saw approved, and the instant it stops waiting for the credit. */
 export interface AwaitedCredit {
   receipt: string;
+  /** The payment the Checkout callback verified: the credit's ledger row carries it as `ref`. */
+  paymentId: string;
   until: number;
 }
+
+/** `waiting` until the credit is on the wallet (`landed`), or `late` once the wait is up. */
+export type CreditLanding = "waiting" | "landed" | "late";
 
 function captured(attempts: TopUpAttempt[] | undefined, receipt: string): boolean {
   return attempts?.some((row) => row.receipt === receipt && row.outcome === "captured") ?? false;
 }
 
+function onLedger(ledger: WalletLedger | undefined, paymentId: string): boolean {
+  return (
+    ledger?.entries.some(
+      (entry) => entry.reason === "topup" && (entry.ref === paymentId || entry.payment_ref === paymentId),
+    ) ?? false
+  );
+}
+
 /**
- * Has the credit for a payment this page just saw verified reached the wallet?
+ * Has the credit for a payment this page just saw approved reached the wallet?
  *
  * The Checkout callback proves the payment and credits NOTHING
- * (`payment_routes.confirm_topup_callback`): the webhook credits, seconds later, and marks
- * the attempt `captured` in the same transaction. So the refetch `useConfirmTopUp` makes
- * on the callback almost always reads the balance from before the payment — and nothing
- * else re-reads it while the client stays on the page, because the payment window is an
- * overlay and closing it is not a window focus. A client told "your balance updates as
- * soon as the provider confirms it" then watched a balance that never moved, which is the
- * screen most likely to make them pay twice.
+ * (`payment_routes.confirm_topup_callback`): the webhook credits once the payment is
+ * captured, seconds later, and marks the attempt `captured` in the same transaction. So the
+ * refetch `useConfirmTopUp` makes on the callback almost always reads the balance from before
+ * the payment — and nothing else re-reads it while the client stays on the page, because the
+ * payment window is an overlay and closing it is not a window focus.
  *
- * Polls the attempts list for THIS receipt rather than the balance, because a balance can
- * move for other reasons (a call ending, an operator's grant) and would stop the wait on
- * the wrong event. Stops when the attempt is captured or at `until`, and on capture
- * re-reads everything the credit moved.
+ * Two signals, either one enough: the attempt for THIS receipt marked `captured`, or a top-up
+ * row on the ledger for THIS payment. The second is what ends the wait when the attempt never
+ * learnt its order id (`payment_routes._remember_order` may fail after the order exists, and
+ * the webhook settles attempts by order id) — the page used to wait for ever on a credit that
+ * had landed (e2e audit OB-19). The balance is not watched: it moves for other reasons (a
+ * call ending, an operator's grant) and would stop the wait on the wrong event.
+ *
+ * At `until` the answer is `late` rather than silence, so the page can say the payment is
+ * still settling and where to look (OB-17); on landing everything the credit moved is re-read.
  */
-export function useCreditLanding(session: Session, awaited: AwaitedCredit | null): boolean {
+export function useCreditLanding(session: Session, awaited: AwaitedCredit | null): CreditLanding | null {
   const client = useQueryClient();
+  // Keyed to the payment it timed out for, so a new payment starts its own wait.
+  const [lateFor, setLateFor] = useState<AwaitedCredit | null>(null);
+  useEffect(() => {
+    if (awaited === null) return;
+    const timer = setTimeout(() => setLateFor(awaited), Math.max(0, awaited.until - Date.now()));
+    return () => clearTimeout(timer);
+  }, [awaited]);
+
   const attempts = useQuery({
     queryKey: walletAttemptsKey(session.orgSlug),
     queryFn: () => apiRequest<TopUpAttempt[]>(session, TOPUP_ATTEMPTS_PATH),
     enabled: awaited !== null,
     refetchInterval: (query) =>
-      awaited !== null &&
-      !captured(query.state.data, awaited.receipt) &&
-      Date.now() < awaited.until
+      awaited !== null && !captured(query.state.data, awaited.receipt) && Date.now() < awaited.until
         ? CREDIT_POLL_MS
         : false,
   });
-  const landed = awaited !== null && captured(attempts.data, awaited.receipt);
+  const ledger = useQuery({
+    queryKey: walletLedgerKey(session.orgSlug),
+    queryFn: () => apiRequest<WalletLedger>(session, `/v1/billing/wallet/ledger?limit=${WALLET_LEDGER_LIMIT}`),
+    enabled: awaited !== null,
+    refetchInterval: (query) =>
+      awaited !== null && !onLedger(query.state.data, awaited.paymentId) && Date.now() < awaited.until
+        ? CREDIT_POLL_MS
+        : false,
+  });
+  const landed =
+    awaited !== null && (captured(attempts.data, awaited.receipt) || onLedger(ledger.data, awaited.paymentId));
 
   useEffect(() => {
     if (!landed) return;
@@ -201,8 +233,11 @@ export function useCreditLanding(session: Session, awaited: AwaitedCredit | null
     void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
   }, [landed, client, session.orgSlug]);
 
-  return landed;
+  if (awaited === null) return null;
+  if (landed) return "landed";
+  return lateFor === awaited ? "late" : "waiting";
 }
+
 
 /**
  * One payment's receipt, fetched only when the client asks for it.

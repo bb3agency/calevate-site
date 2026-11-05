@@ -55,13 +55,23 @@ class GoLiveOut(Strict):
     owed_at: datetime | None
     finished_at: datetime | None
     dismissed_at: datetime | None
-    #: The first step not done, or `done`.
+    #: The first owner step not done (`verify`, `number`, `switch_on`), or `done`. Never
+    #: `move` since the move left the owner's steps; it is published as `move` below.
     current: guide.GuideStep
+    #: Our move of the account's agents into its own calling set-up. Not an owner step.
     move: MoveOut
-    #: `todo`, `in_review`, `needs_attention` (rejected or expired) or `done`.
+    #: The business check: `todo`, `in_review`, `needs_attention` (rejected or expired) or
+    #: `done`.
     verify: guide.VerifyState
-    #: `locked` (verify first), `waiting_approval`, `todo` or `done`.
+    #: The agreements every publish needs: `todo` or `done`.
+    agreements: guide.AcceptState
+    #: The no-cold-calls pledge every outgoing call needs: `todo` or `done`.
+    pledge: guide.AcceptState
+    #: Where the number stands, one state per reason it cannot be bought yet (see
+    #: `guide.NumberState`), `todo` when it can, `done` once the account has one.
     number: guide.NumberState
+    #: On a rejected or withdrawn business-details application, what to correct.
+    business_review_note: str | None
     numbers: int
     #: `done` once any agent is taking calls.
     switch_on: guide.SwitchState
@@ -86,7 +96,10 @@ async def _out(session: AsyncSession, tenant_id: UUID) -> GoLiveOut:
             total=state.move.total,
         ),
         verify=state.verify,
+        agreements=state.agreements,
+        pledge=state.pledge,
         number=state.number,
+        business_review_note=state.business_review_note,
         numbers=state.numbers,
         switch_on=state.switch_on,
         live_agents=state.live_agents,

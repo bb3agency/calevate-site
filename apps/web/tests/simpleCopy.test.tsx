@@ -5,7 +5,7 @@ import { KIND_COPY } from "@/app/c/[slug]/attention/rows";
 import { HEARD_FAILURES } from "@/app/c/[slug]/agents/first/BriefStep";
 import { HONEST_WORDS } from "@/app/c/[slug]/agents/first/HearItStep";
 import { JOBS } from "@/app/c/[slug]/agents/new/StartFromJob";
-import { MOVE_COPY, NUMBER_COPY, VERIFY_COPY } from "@/app/c/[slug]/go-live/GoLiveGuide";
+import { NUMBER_COPY, VERIFY_COPY, VERIFY_ITEMS } from "@/app/c/[slug]/go-live/GoLiveGuide";
 import { splitHint } from "@/app/c/[slug]/settings/business/SetupWizard";
 import { ATTENTION, FIRST, GO_LIVE, HOME, NEW_AGENT, SETUP, TRIAL } from "@/app/c/[slug]/_ui/copy";
 import { Why } from "@/components/why";
@@ -45,7 +45,7 @@ const TABLES: Record<string, unknown> = {
   FIRST,
   NEW_AGENT,
   KIND_COPY: Object.fromEntries(Object.entries(KIND_COPY).map(([k, v]) => [k, { label: v.label, action: v.action }])),
-  MOVE_COPY: Object.fromEntries(Object.entries(MOVE_COPY).map(([k, v]) => [k, { title: v.title, hint: v.hint }])),
+  VERIFY_ITEMS,
   VERIFY_COPY: Object.fromEntries(
     Object.entries(VERIFY_COPY).map(([k, v]) => [k, { title: v.title, hint: v.hint, action: v.action ?? "" }]),
   ),

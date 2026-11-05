@@ -6,7 +6,7 @@ import { useState } from "react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { MoneyInput } from "@/components/arc/money-input";
 import { NumberField } from "@/components/arc/number-field";
-import { StatsBand } from "@/components/arc/stats-band";
+import { StatsBand, type StatItem } from "@/components/arc/stats-band";
 import { UsageMeter } from "@/components/arc/usage-meter";
 import { Section } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
@@ -28,7 +28,7 @@ import {
 import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps, type Caps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
-import { useUsage, useWriteAccess } from "@/lib/api/hooks";
+import { useUsage, useWriteAccess, type UsagePanel } from "@/lib/api/hooks";
 import { formatBillingMonth } from "@/lib/billingMonth";
 import type { Session } from "@/lib/api/client";
 
@@ -167,27 +167,7 @@ export function UsageTab({
           {/* Minutes arrive as the invoice's decimal strings and are shown under the display
               rule (at most one decimal). The extra-charges figure carries its rate,
               so an owner can check how it was arrived at and what the next minute costs. */}
-          <StatsBand
-            label="This month so far"
-            items={[
-              {
-                label: "Minutes used",
-                value: formatDecimal(data.minutes_used),
-                hint: data.included_minutes > 0 ? `${formatCount(data.included_minutes)} included` : "Pay as you go",
-              },
-              { label: "Calls", value: formatCount(data.calls), hint: "Billed this month" },
-              {
-                label: "Extra minutes",
-                value: formatDecimal(data.overage_minutes),
-                hint: hasNonZeroDigit(data.overage_minutes) ? "Beyond your plan" : "Within your plan",
-              },
-              {
-                label: "Extra charges",
-                value: formatINR(data.overage_cost_inr),
-                hint: `${formatINR(data.overage_rate_inr)} per extra minute`,
-              },
-            ]}
-          />
+          <StatsBand label="This month so far" items={monthTiles(data)} />
 
           {/* `Number()` sizes the bars only; every figure read is the server's string. */}
           {data.included_minutes > 0 || data.cap_minutes !== null ? (
@@ -231,11 +211,17 @@ export function UsageTab({
             subtitle={`Total so far ${formatINR(data.month_charges_inr)}`}
           >
             <dl className="divide-y divide-line text-body">
-              <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
-              <Row
-                label={`Extra usage (${formatDecimal(data.overage_minutes)} min × ${formatINR(data.overage_rate_inr)})`}
-                value={formatINR(data.overage_cost_inr)}
-              />
+              {/* A plan fee and extra usage exist only on an invoiced plan; a prepaid wallet
+                  has neither, and a ₹0 row of each read as "calls are free" (OB-4). */}
+              {!isPrepaid(data.plan_tier) && (
+                <>
+                  <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
+                  <Row
+                    label={`Extra usage (${formatDecimal(data.overage_minutes)} min × ${formatINR(data.overage_rate_inr)})`}
+                    value={formatINR(data.overage_cost_inr)}
+                  />
+                </>
+              )}
               {/* WHAT EACH VOICE QUALITY COST THIS MONTH (D-547), replacing the plan's
                   "standard rate / reduced rate" pair that was NULL on every plan and
                   therefore never rendered for anybody. These two are real: the minutes are
@@ -549,6 +535,47 @@ function describeLimit(minutes: number | null, spend: string | null): string {
   return parts.length > 0 ? parts.join(" or ") : "no limit";
 }
 
+
+/**
+ * The month's four figures. An invoiced plan counts minutes against what it includes, so it
+ * shows the minutes past the plan and what they cost. A prepaid wallet has no plan to go past
+ * (e2e audit OB-4: it read "Extra charges ₹0" beside a ₹4.5 minute), so it shows what the
+ * month has taken from the wallet — `month_charges_inr`, the lot splits' own total — and,
+ * during a free trial, says nothing was charged.
+ */
+export function monthTiles(data: UsagePanel): StatItem[] {
+  const minutes: StatItem = {
+    label: "Minutes used",
+    value: formatDecimal(data.minutes_used),
+    hint: data.included_minutes > 0 ? `${formatCount(data.included_minutes)} included` : "Pay as you go",
+  };
+  const calls: StatItem = { label: "Calls", value: formatCount(data.calls), hint: "Billed this month" };
+  if (isPrepaid(data.plan_tier)) {
+    return [
+      minutes,
+      calls,
+      {
+        label: "Spent this month",
+        value: formatINR(data.month_charges_inr),
+        hint: data.trial.active ? "Free trial: nothing charged" : "Taken from your credit",
+      },
+    ];
+  }
+  return [
+    minutes,
+    calls,
+    {
+      label: "Extra minutes",
+      value: formatDecimal(data.overage_minutes),
+      hint: hasNonZeroDigit(data.overage_minutes) ? "Beyond your plan" : "Within your plan",
+    },
+    {
+      label: "Extra charges",
+      value: formatINR(data.overage_cost_inr),
+      hint: `${formatINR(data.overage_rate_inr)} per extra minute`,
+    },
+  ];
+}
 
 function Row({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
   return (

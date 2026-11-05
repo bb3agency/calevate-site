@@ -131,6 +131,7 @@ const USAGE = {
   llm_surcharge_inr: "0.00",
   llm_surcharge_tiers: [],
   month_charges_inr: "2310.00",
+  trial: { active: false, days_remaining: null, ends_at: null },
 };
 
 const FIGURES = {

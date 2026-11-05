@@ -6,7 +6,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
-import { ProfileBlockers } from "@/components/businessProfile/ProfileBlockers";
 import { SectionEditor, stepProblem } from "@/components/businessProfile/SectionEditor";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
@@ -136,7 +135,6 @@ function Profile({
   return (
     <div className="max-w-3xl space-y-5">
       {reason && <RestrictionNote reason={reason} />}
-      <ProfileBlockers blockers={profile.blockers} href={href} />
       <SetupChecklist />
 
       <Section title="Your business">

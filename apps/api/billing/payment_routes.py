@@ -29,7 +29,7 @@ Three surfaces, three routers, because they have nothing in common but the money
   and a minute is simply a cheap cache of a constant. `self_serve_inr_per_min` survives as
   a readable setting and as `SELF_SERVE_PER_MIN`'s dated row (plan §10); it no longer
   prices anything on this card, which is why `list_rate_inr_per_min` below is the
-  `starter` pack's Sarvam rate rather than the setting.
+  `starter` pack's Clear rate rather than the setting.
 
 **The provider contract is documented, not guessed (D-699).** Every wire fact the routes rely
 on was read from Razorpay's docs on 9 Oct 2026 and is cited in `billing/payments.py`; the
@@ -146,7 +146,7 @@ from apps.api.billing.rates import (
     voice_tier_label,
 )
 from apps.api.billing.service import plan_tier_of, refuse_json_float, to_paise
-from apps.api.billing.wallet import record_attempt
+from apps.api.billing.wallet import attempt_paid, record_attempt
 from apps.api.campaigns.number_pricing import attested_price_inr
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
@@ -350,11 +350,11 @@ class CreditPackOut(Strict):
     clear_inr_per_min: Decimal
     #: ₹/min on the Studio voice. Never below `clear_inr_per_min`.
     studio_inr_per_min: Decimal
-    #: Whole minutes the credits buy on the Sarvam voice, floored (you do not get a partial
+    #: Whole minutes the credits buy on the Clear voice, floored (you do not get a partial
     #: minute, and rounding UP would advertise talk time the credits do not cover). A
     #: display estimate, not a billed figure.
     clear_minutes: int
-    #: The same on the Cartesia voice. Always the smaller of the two.
+    #: The same on the Studio voice. Always the smaller of the two.
     studio_minutes: int
     #: DEPRECATED (D-547, removed next release): equal to `clear_inr_per_min`. It was the
     #: bonus-derived effective rate; there is no single "effective rate" for a pack any
@@ -385,7 +385,7 @@ class RateCardChangeOut(Strict):
 
 
 class CreditPacksOut(Strict):
-    """The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
+    """The pack rate card: six packs, each with a Clear and a Studio ₹/min.
 
     The "from" figures are DERIVED MINIMA over the rows below, never typed, so the site
     cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged. The
@@ -394,7 +394,7 @@ class CreditPacksOut(Strict):
     site renders a name we chose once rather than a copy that drifts from it.
     """
 
-    #: What a minute lists at: the `starter` pack's Sarvam rate, ₹5.00. ⚠ It used to be the
+    #: What a minute lists at: the `starter` pack's Clear rate, ₹5.00. ⚠ It used to be the
     #: live `self_serve_inr_per_min` setting; since D-547 the card is static and this is the
     #: entry rung of it. The setting still exists and still dates a row
     #: (`billing/list_rates.SELF_SERVE_PER_MIN`), and it no longer prices this card.
@@ -403,22 +403,17 @@ class CreditPacksOut(Strict):
     #: single "from" rate cannot describe a two-voice card; it holds the cheaper voice so an
     #: unmigrated reader under-quotes rather than over-quotes.
     from_inr_per_min: Decimal
-    #: The lowest Sarvam rate any pack delivers — the marketing site's "from ₹X/min".
+    #: The lowest Clear rate any pack delivers — the marketing site's "from ₹X/min".
     from_clear_inr_per_min: Decimal
-    #: The lowest Cartesia rate any pack delivers.
+    #: The lowest Studio rate any pack delivers.
     from_studio_inr_per_min: Decimal
-    #: What a CLIENT calls the voice the `sarvam_*` rates price — `rates.VOICE_TIER_LABELS`
+    #: What a CLIENT calls the voice the `clear_*` rates price — `rates.VOICE_TIER_LABELS`
     #: ("Clear"), crossed over the wire rather than copied into the web (founder decision,
-    #: 7 Sep 2026). No client-facing surface names a vendor as a product tier: they buy a
-    #: named voice quality, and which vendor speaks it must be able to change without a
-    #: client-visible rename. The wire and the ledger keep the vendor spelling — the field
-    #: NAMES below still say `sarvam`/`cartesia`, because those mean the vendor and renaming
-    #: a vendor in a money column is how a leg becomes unauditable. This is only what a
-    #: human reads, and it travels with the rates so a page cannot print a name the API
-    #: never sent (`apps/web/tests/marketingPages.test.tsx` holds a tier NAME to the same
-    #: provenance rule it holds a ₹ figure to).
+    #: 7 Sep 2026), so a page cannot print a name the API never sent
+    #: (`apps/web/tests/marketingPages.test.tsx`). A rung names no supplier: who speaks it is
+    #: ours to change without a client-visible rename.
     clear_tier_label: str
-    #: The same for the voice the `cartesia_*` rates price ("Studio").
+    #: The same for the voice the `studio_*` rates price ("Studio").
     studio_tier_label: str
     #: The voice quality no agent can be put on on this deployment, or null when both can.
     #: Its rates are still real and still frozen on credit bought today; pages say so with
@@ -568,7 +563,7 @@ def _pack_out(pack: CreditPack) -> CreditPackOut:
     summary="The prepaid credit-pack rate card: two per-minute rates on every pack",
     description=(
         "The static pack catalogue (`billing/credit_packs.py`), each pack priced for "
-        "display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time "
+        "display: the credits, the Clear and Studio per-minute rates, and the talk time "
         "the credits buy on each voice. Selecting a pack starts a top-up intent with its "
         "`pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and "
         "`talk_time_minutes` are DEPRECATED (D-547) and go next release."
@@ -610,17 +605,15 @@ async def stated_for_account(card: CreditPacksOut, *, tenant_id: UUID) -> Credit
 
 #: On an engine that does not sell its own voices by band the cheaper rung has no attested
 #: invoice figure, so hard rule 7 keeps every voice in it off the picker.
+#: Client-facing (billing, pricing page): short, and naming no supplier (D-679).
 _UNPRICED_VOICE_NOTICE: Final = (
-    "Not available to choose yet: the vendor that speaks this voice changed and we have not "
-    "established what one minute of it costs, so we will not put an agent on it. Its rate is "
-    "still fixed on credit you buy today, and it costs you nothing to move an agent onto it "
-    "once it opens."
+    "Not open yet: we are still confirming what this voice costs to run. Credit you buy "
+    "today keeps its rate, and moving an agent onto it later costs nothing."
 )
 #: On an engine whose own voices are sold by band (D-681), a rung no band is sold as.
 _NOT_YET_OPENED_NOTICE: Final = (
-    "Not available to choose yet: this voice is not open on the platform your calls run on "
-    "today, so we will not put an agent on it. Its rate is still fixed on credit you buy "
-    "today, and it costs you nothing to move an agent onto it once it opens."
+    "Not open on your account yet. Credit you buy today keeps its rate, and moving an agent "
+    "onto it later costs nothing."
 )
 
 
@@ -667,7 +660,7 @@ async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     NO ARGUMENT ANY MORE (D-547). It used to take the live `self_serve_inr_per_min` and
     derive every row from it; the rates are now the catalogue's own, so passing anything in
     would be passing a number this function must not use. `list_rate_inr_per_min` is the
-    `starter` pack's Sarvam rate — the entry rung, which is what "list rate" always meant.
+    `starter` pack's Clear rate — the entry rung, which is what "list rate" always meant.
 
     The two "from" figures are minima over the priced rows rather than over the catalogue,
     so a rate that quantization moved is the rate the site leads with.
@@ -824,7 +817,9 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
     # which silently rounded — see that function for why that was correct only by
     # accident. One way per problem: the adapter converts through the same function.
     amount_paise = inr_to_paise(amount)
-    receipt = topup_receipt(tenant_id=tenant_id, amount_inr=amount, at=datetime.now(UTC))
+    receipt = await _unpaid_receipt(
+        tenant_id=tenant_id, amount_inr=amount, pack_id=pack_id, at=datetime.now(UTC)
+    )
     notes = {NOTES_TENANT_KEY: str(tenant_id)}
     if pack_id is not None:
         # Into the order by construction, so the receiver grants the bonus from the payment
@@ -892,6 +887,25 @@ async def create_topup_intent(payload: TopUpIntentIn, principal: TopUpWrite) -> 
             order_id=intent.provider_order_id,
         )
     return intent
+
+
+async def _unpaid_receipt(
+    *, tenant_id: UUID, amount_inr: Decimal, pack_id: str | None, at: datetime
+) -> str:
+    """The key of this request, stepped past every order in the same window that a payment
+    has already been taken on (`payments.topup_receipt`): a paid order cannot be paid again.
+    Ends because each step needs one more paid attempt row."""
+    receipt = topup_receipt(tenant_id=tenant_id, amount_inr=amount_inr, at=at, pack_id=pack_id)
+    async with tenant_session(tenant_id) as session:
+        while await attempt_paid(session, tenant_id=tenant_id, receipt=receipt):
+            receipt = topup_receipt(
+                tenant_id=tenant_id,
+                amount_inr=amount_inr,
+                at=at,
+                pack_id=pack_id,
+                after_paid=receipt,
+            )
+    return receipt
 
 
 async def _remember_order(

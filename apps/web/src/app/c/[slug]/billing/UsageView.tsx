@@ -1,5 +1,6 @@
 "use client";
 
+import { Disclosure } from "@/components/ui";
 import type { CreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
@@ -12,6 +13,9 @@ import { VoiceTiers } from "./VoiceTiers";
 import { WhatCallsCost } from "./WhatCallsCost";
 import { WhereItWent } from "./WhereItWent";
 import type { TierLabels } from "./lots";
+
+export const RATES_TITLE = "Voices and rates";
+export const RATES_SUBTITLE = "Clear or Studio, and how calls are charged";
 
 /**
  * The Usage view: spending over time, this month's charges and limit, then — for a
@@ -63,13 +67,17 @@ export function UsageView({
       {wallet?.prepaid && (
         <>
           {/* Owner figures: sent only once `/v1/me` says this session may read them. */}
-          {billingAllowed === true && (
-            <>
-              <WhereItWent session={session} />
-              <VoiceTiers session={session} agentsHref={href(`/c/${slug}/agents`)} />
-            </>
-          )}
-          <WhatCallsCost card={card} labels={labels} />
+          {billingAllowed === true && <WhereItWent session={session} />}
+          {/* Reference, not this month's figures: closed until asked for, so a phone does
+              not scroll past two rate tables to reach nothing (e2e audit OB-15). */}
+          <Disclosure title={RATES_TITLE} subtitle={RATES_SUBTITLE}>
+            <div className="space-y-6">
+              {billingAllowed === true && (
+                <VoiceTiers session={session} agentsHref={href(`/c/${slug}/agents`)} />
+              )}
+              <WhatCallsCost card={card} labels={labels} />
+            </div>
+          </Disclosure>
         </>
       )}
     </div>

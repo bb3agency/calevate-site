@@ -6372,7 +6372,7 @@ export interface paths {
         };
         /**
          * The prepaid credit-pack rate card: two per-minute rates on every pack
-         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.
+         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Clear and Studio per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.
          */
         get: operations["read_credit_packs_v1_billing_topups_packs_get"];
         put?: never;
@@ -21300,7 +21300,7 @@ export interface components {
         };
         /**
          * CreditPacksOut
-         * @description The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
+         * @description The pack rate card: six packs, each with a Clear and a Studio ₹/min.
          *
          *     The "from" figures are DERIVED MINIMA over the rows below, never typed, so the site
          *     cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged. The
@@ -24124,6 +24124,13 @@ export interface components {
         /** GoLiveOut */
         GoLiveOut: {
             /**
+             * Agreements
+             * @enum {string}
+             */
+            agreements: "todo" | "done";
+            /** Business Review Note */
+            business_review_note: string | null;
+            /**
              * Current
              * @enum {string}
              */
@@ -24141,11 +24148,16 @@ export interface components {
              * Number
              * @enum {string}
              */
-            number: "locked" | "waiting_approval" | "todo" | "done";
+            number: "locked" | "add_credit" | "setting_up" | "send_details" | "waiting_approval" | "needs_attention" | "not_on_sale" | "todo" | "done";
             /** Numbers */
             numbers: number;
             /** Owed At */
             owed_at: string | null;
+            /**
+             * Pledge
+             * @enum {string}
+             */
+            pledge: "todo" | "done";
             /**
              * Switch On
              * @enum {string}
@@ -36863,11 +36875,8 @@ export interface components {
             not_offered_notice: string | null;
             /** Recommendation Reason */
             recommendation_reason: string;
-            /**
-             * Recommended
-             * @enum {string}
-             */
-            recommended: "clear" | "studio";
+            /** Recommended */
+            recommended: ("clear" | "studio") | null;
             /** Tiers */
             tiers: components["schemas"]["VoiceTierCompareOut"][];
         };

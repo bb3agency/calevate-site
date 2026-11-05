@@ -157,15 +157,17 @@ describe("what the page offers", () => {
     expect(screen.queryByRole("button", { name: /verif/i })).toBeNull();
   });
 
-  it("tells a client where their number comes from, and never offers to sell one", async () => {
-    // The number is ours to provide (founder, 2 Oct 2026), and no provider is named to a
-    // client (white label, 6 Oct 2026). No price and no timeline is promised here.
+  it("tells a client their number is in their business's name, and never offers to sell one", async () => {
+    // D-693: numbers are bought in the client's own business name (e2e audit OB-3: this
+    // said "our own telephony account"). No provider is named to a client (white label,
+    // 6 Oct 2026). No price and no timeline is promised here.
     const { container } = await render(VERIFIED);
 
     await screen.findByText("Outgoing calls are open");
     const text = container.textContent ?? "";
-    expect(text).toContain("Calevate provides your calling number.");
-    expect(text).toContain("our own telephony account");
+    expect(text).toContain("Your number is registered to your business, not to us.");
+    expect(text).not.toContain("our own telephony account");
+    expect(text).not.toContain("account manager");
     for (const provider of ["Plivo", "Exotel", "Thinnest"]) {
       expect(text).not.toContain(provider);
     }
@@ -180,7 +182,7 @@ describe("what the page offers", () => {
     // false statement about our own processing: empty fields are dropped, never dashed.
     const { container } = await render(NOTHING_ON_FILE);
 
-    await screen.findByText("Outgoing calls are paused");
+    await screen.findByText("Outgoing calls open after these steps");
     const held = container.querySelector('[data-section="on-file"]');
     expect(held?.textContent).not.toContain("Signed for the business by");
     expect(held?.textContent).not.toContain("Our file reference");
@@ -208,7 +210,7 @@ describe("what the page offers", () => {
 describe("the refusals stated on the page", () => {
   async function unverified() {
     const rendered = await render(NOTHING_ON_FILE);
-    await screen.findByText("Outgoing calls are paused");
+    await screen.findByText("Outgoing calls open after these steps");
     return rendered;
   }
 
@@ -248,12 +250,12 @@ describe("the refusals stated on the page", () => {
     expect(document.getElementById("step-details")).not.toBeNull();
   });
 
-  it("says we provide the number, and what the client's part is", async () => {
+  it("says the number is in the business's name, and what the client's part is", async () => {
     const { container } = await unverified();
     const text = container.textContent ?? "";
-    expect(text).toContain("Calevate provides your calling number.");
-    expect(text).toContain("Your part is passing our business verification");
-    expect(text).toContain("Then keep your caller details accurate.");
+    expect(text).toContain("Your number is registered to your business, not to us.");
+    expect(text).toContain("First, pass our business verification");
+    expect(text).toContain("Then keep your business details accurate.");
     expect(text).toContain("Your verification is still outstanding.");
     expect(text).not.toContain("API credentials");
   });

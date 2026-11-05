@@ -60,8 +60,8 @@ export const SIGNUP_VERTICALS = BUSINESS_TYPES;
  * Truncation comes BEFORE the hyphen strip, as it does server-side, so a long name cut
  * at 40 characters never previews a trailing hyphen the server would not produce.
  *
- * **The empty string is a real answer**: every character of `మా క్లినిక్` is outside
- * `[a-z0-9]`, so a Telugu- or Devanagari-named business derives nothing at all. The
+ * **The empty string is a real answer**: a name typed in Telugu or Devanagari script has no character in
+ * `[a-z0-9]`, so such a business derives nothing at all. The
  * server refuses that with `slug_not_derivable` rather than inventing a URL; callers of
  * this function must therefore treat "" as "ask the person", never as "let it through"
  * — see `slugIsDerivable`. */

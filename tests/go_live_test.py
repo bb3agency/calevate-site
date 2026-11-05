@@ -886,7 +886,7 @@ async def test_the_first_payment_owes_the_guide_until_it_is_put_aside(
         read = await http.get("/v1/go-live", headers=headers)
         assert read.status_code == 200, read.text
         body = read.json()
-        assert body["due"] is True and body["current"] == "move"
+        assert body["due"] is True and body["current"] == "number", "the move is not an owner step"
         assert body["move"]["state"] == "moving"
         assert [a["state"] for a in body["move"]["agents"]] == ["moving"]
         assert "ThinnestAI" not in read.text

@@ -6,7 +6,7 @@ import { useState } from "react";
 import { Metric } from "@/components/console/metric";
 import { Section } from "@/components/console/section";
 import { SegmentedControl } from "@/components/interior/segmented-control";
-import { ProblemNotice, Skeleton, formatCount, formatINR } from "@/components/ui";
+import { ProblemNotice, Skeleton, formatCount, formatINR, hasNonZeroDigit } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useCostPerResult, type CostWindow } from "@/lib/api/proof";
 
@@ -75,10 +75,14 @@ function goalSentence(labels: readonly string[]): string {
   return `A goal is a call that ended as ${labels.map((l) => `"${l}"`).join(" or ")}.`;
 }
 
-function each(value: string | null | undefined, count: number, one: string, many: string) {
-  return value == null
-    ? { value: "None yet", hint: `No ${many} in this period` }
-    : { value: formatINR(value), hint: `${formatCount(count)} ${count === 1 ? one : many}` };
+/** Said in place of a per-result rupee figure when nothing was charged: "₹0 per lead" read
+ *  as "leads are free" (e2e audit OB-14). */
+export const NOTHING_CHARGED = { value: "—", hint: "No charges in this period" } as const;
+
+function each(value: string | null | undefined, count: number, one: string, many: string, charged: boolean) {
+  if (value == null) return { value: "None yet", hint: `No ${many} in this period` };
+  if (!charged) return NOTHING_CHARGED;
+  return { value: formatINR(value), hint: `${formatCount(count)} ${count === 1 ? one : many}` };
 }
 
 function CostFigures({
@@ -90,8 +94,9 @@ function CostFigures({
   labels: readonly string[];
   goalsHref: string;
 }) {
-  const call = each(window.per_answered_call_inr, window.answered_calls, "answered call", "answered calls");
-  const lead = each(window.per_lead_inr, window.leads, "lead", "leads");
+  const charged = hasNonZeroDigit(window.spent_inr);
+  const call = each(window.per_answered_call_inr, window.answered_calls, "answered call", "answered calls", charged);
+  const lead = each(window.per_lead_inr, window.leads, "lead", "leads", charged);
   return (
     <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
       <Metric label="Spent" value={formatINR(window.spent_inr)} hint={`Last ${window.days} days`} />
@@ -118,7 +123,7 @@ function CostFigures({
 }
 
 function GoalFigure({ window, labels }: { window: CostWindow; labels: readonly string[] }) {
-  const goal = each(window.per_goal_inr, window.goals_reached, "call", "calls");
+  const goal = each(window.per_goal_inr, window.goals_reached, "call", "calls", hasNonZeroDigit(window.spent_inr));
   const label = labels.length === 1 ? `Per ${labels[0]}` : "Per goal reached";
   return <Metric label={label} value={goal.value} hint={goal.hint} />;
 }

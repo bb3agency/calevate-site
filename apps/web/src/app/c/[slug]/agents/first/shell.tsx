@@ -130,7 +130,7 @@ export function StepRail({
   layout = "column",
   canGo = () => true,
 }: {
-  /** Four steps: the narrow shape is four columns. */
+  /** Three or four steps: the narrow shape is one column per step. */
   steps: readonly { id: string; label: string }[];
   current: number;
   onGo: (step: number) => void;
@@ -146,7 +146,7 @@ export function StepRail({
   const at = Math.min(current, steps.length - 1);
   return (
     <nav aria-label="Steps" className={look.nav}>
-      <ol className={look.list}>
+      <ol className={`${steps.length === 3 ? "grid-cols-3" : "grid-cols-4"} ${look.list}`}>
         {steps.map((entry, index) => {
           const done = index < current;
           const here = index === current;
@@ -215,7 +215,7 @@ export function StepRail({
  */
 const ROW = {
   nav: "@container",
-  list: "grid grid-cols-4 gap-1.5 @min-[44rem]:flex @min-[44rem]:items-center @min-[44rem]:gap-0",
+  list: "grid gap-1.5 @min-[44rem]:flex @min-[44rem]:items-center @min-[44rem]:gap-0",
   item: "flex min-w-0 flex-col gap-1.5 @min-[44rem]:flex-row @min-[44rem]:items-center @min-[44rem]:gap-0",
   joined: "@min-[44rem]:flex-1",
   line: "mx-3 hidden h-px min-w-6 flex-1 @min-[44rem]:block",
@@ -228,7 +228,7 @@ const ROW = {
 
 const COLUMN = {
   nav: "",
-  list: "grid grid-cols-4 gap-1.5 lg:grid-cols-1 lg:gap-1",
+  list: "grid gap-1.5 lg:grid-cols-1 lg:gap-1",
   item: "flex min-w-0 flex-col gap-1.5 lg:block",
   joined: "",
   line: "",

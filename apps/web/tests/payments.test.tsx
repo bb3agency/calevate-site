@@ -9,6 +9,7 @@ import { disputeConfirmation } from "@/lib/api/adminPayments";
 import { useClientRealm } from "@/lib/api/session";
 
 import { expectNoA11yViolations } from "./a11y";
+import { RATE_CARD } from "./fixtures/rateCard";
 import { problem, renderAdminPage, renderClientPage } from "./harness";
 
 /**
@@ -42,6 +43,9 @@ const SETTINGS = {
   suggested_threshold_inr: "700.00",
 };
 
+/** The credit term the panel reads beside its settings; none until the Terms that set it are accepted. */
+const NO_TERM = { "/v1/billing/topups/packs": { packs: [], credit_expiry_months: null } };
+
 function Panel({ available = true }: { available?: boolean }) {
   const { session } = useClientRealm();
   return <AutoRechargePanel session={session} available={available} />;
@@ -53,6 +57,7 @@ describe("auto top-up and the payment route it needs", () => {
       "/v1/me": ME,
       "/v1/billing/auto-recharge": SETTINGS,
       "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
     });
     expect(await screen.findByText(/Needs online payment, which isn't on yet/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Approve a payment method/ })).toBeNull();
@@ -70,6 +75,7 @@ describe("auto top-up and the payment route it needs", () => {
         mandate_max_inr: "15000.00",
       },
       "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
     });
     expect(await screen.findByRole("button", { name: "Withdraw approval" })).toBeTruthy();
     expect(screen.getByText(/Needs online payment/)).toBeTruthy();
@@ -81,6 +87,7 @@ describe("auto top-up and the payment route it needs", () => {
       "/v1/me": ME,
       "/v1/billing/auto-recharge": SETTINGS,
       "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
     });
     expect(await screen.findByRole("button", { name: /Approve a payment method/ })).toBeTruthy();
     expect(screen.getByRole("switch", { name: /Top up automatically/ })).toBeTruthy();
@@ -98,6 +105,7 @@ describe("auto-recharge card", () => {
       "/v1/me": ME,
       "/v1/billing/auto-recharge": SETTINGS,
       "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
     });
     expect(await screen.findByText(/No automatic payment method yet/)).toBeTruthy();
     expect(screen.getByText(/one to two days later/)).toBeTruthy();
@@ -116,6 +124,7 @@ describe("auto-recharge card", () => {
         mandate_method: "upi",
         disabled_reason: "The automatic payment approval was paused in your UPI app.",
       },
+      ...NO_TERM,
       "/v1/billing/auto-recharge/charges?limit=20": [
         {
           amount_inr: "2000.00",
@@ -132,11 +141,24 @@ describe("auto-recharge card", () => {
     expect(screen.getByRole("button", { name: "Withdraw approval" })).toBeTruthy();
   });
 
+  it("states how long the credit an automatic top-up adds lasts", async () => {
+    // E2E audit OB-18 (D-840: the term is stated wherever credit is sold).
+    await renderClientPage(<Panel />, {
+      "/v1/me": ME,
+      "/v1/billing/auto-recharge": SETTINGS,
+      "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
+      "/v1/billing/topups/packs": { ...RATE_CARD, credit_expiry_months: 12 },
+    });
+    expect(await screen.findByText("Each top-up lasts 12 months from the day it is added.")).toBeTruthy();
+  });
+
   it("shows a refused approval start in words rather than dropping it", async () => {
     await renderClientPage(<Panel />, {
       "/v1/me": ME,
       "/v1/billing/auto-recharge": SETTINGS,
       "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
       "POST /v1/billing/auto-recharge/mandate": problem(409, {
         title: "Conflict",
         detail: "Auto-recharge cannot be approved right now.",

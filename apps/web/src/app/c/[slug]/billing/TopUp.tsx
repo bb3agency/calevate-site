@@ -32,7 +32,7 @@ import {
 } from "@/lib/api/billing";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { formatPayableINR } from "@/lib/numberDisplay";
-import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit } from "@/lib/api/wallet";
+import { CREDIT_WAIT_MS, useCreditLanding, type AwaitedCredit, type CreditLanding } from "@/lib/api/wallet";
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
 import type { ApiProblem, Session } from "@/lib/api/client";
 
@@ -88,10 +88,7 @@ export function TopUp({ session }: { session: Session }) {
   const intentFeedback = useActionFeedback(intent, { errorDisplay: "inline" });
   const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
   const [stage, setStage] = useState<Stage>({ at: "idle" });
-  const creditLanded = useCreditLanding(
-    session,
-    stage.at === "verified" ? stage.awaited : null,
-  );
+  const landing = useCreditLanding(session, stage.at === "verified" ? stage.awaited : null);
   /** A pack id, `CUSTOM`, or "" before anything is chosen. */
   const [choice, setChoice] = useState("");
   const [amount, setAmount] = useState("");
@@ -119,10 +116,14 @@ export function TopUp({ session }: { session: Session }) {
         // Unconditional, and above the guards below on purpose: a payment exists.
         setStage({ at: "verifying" });
         confirm.mutate(response, {
-          onSuccess: () =>
+          onSuccess: (confirmed) =>
             setStage({
               at: "verified",
-              awaited: { receipt: order.receipt, until: Date.now() + CREDIT_WAIT_MS },
+              awaited: {
+                receipt: order.receipt,
+                paymentId: confirmed.payment_id,
+                until: Date.now() + CREDIT_WAIT_MS,
+              },
             }),
           onError: () => setStage({ at: "unverified" }),
         });
@@ -178,10 +179,14 @@ export function TopUp({ session }: { session: Session }) {
 
   const choose = (next: string) => {
     setChoice(next);
-    // A changed choice withdraws an order prepared for the old one, unless money moved.
+    // A changed choice withdraws an order prepared for the old one, unless money is moving
+    // on it now. A PAID order is withdrawn too, so its panel never offers it again (OB-16);
+    // the "Payment approved" notice stays until the next payment starts.
     if (order && (stage.at === "idle" || stage.at === "failed" || stage.at === "blocked")) {
       intent.reset();
       setStage({ at: "idle" });
+    } else if (order && stage.at === "verified") {
+      intent.reset();
     }
   };
 
@@ -201,15 +206,7 @@ export function TopUp({ session }: { session: Session }) {
         <RestrictionNote reason={write.reason} />
 
         {/* THE OUTCOME OF THE LAST PAYMENT, above the controls that would start another. */}
-        {stage.at === "verified" && (
-          <NoticeBox tone="ok" title="Payment received">
-            {creditLanded ? (
-              <p role="status">Credit added to your balance.</p>
-            ) : (
-              <p>Balance updates within about a minute.</p>
-            )}
-          </NoticeBox>
-        )}
+        {stage.at === "verified" && landing !== null && <PaymentOutcome landing={landing} />}
         {stage.at === "unverified" && (
           <div className="space-y-2">
             {/* The server owns this wording: a compliance-shaped refusal about money. */}
@@ -330,6 +327,37 @@ export function TopUp({ session }: { session: Session }) {
   );
 }
 
+/**
+ * A payment the Checkout callback verified. The signature proves the bank APPROVED it, not
+ * that it was captured: Razorpay holds an authorised payment until it is captured and
+ * refunds it automatically if it is not captured within 3 days
+ * (https://razorpay.com/docs/payments/payments/capture-settings/, read 5 Nov 2026). Only the
+ * credit landing is "added" (e2e audit OB-17).
+ */
+export const PAYMENT_OUTCOME = {
+  waiting: { tone: "ok", title: "Payment approved", line: "Adding your credit…" },
+  landed: { tone: "ok", title: "Credit added", line: "It is on your balance now." },
+  late: {
+    tone: "warn",
+    title: "Taking longer than usual",
+    line: "It shows under Unfinished payments until it lands.",
+  },
+} as const;
+
+function PaymentOutcome({ landing }: { landing: CreditLanding }) {
+  const copy = PAYMENT_OUTCOME[landing];
+  return (
+    <NoticeBox tone={copy.tone} title={copy.title}>
+      <p role="status">{copy.line}</p>
+      {landing === "late" ? (
+        <Why>
+          <p>Do not pay again. Credit is added once for each payment that goes through.</p>
+        </Why>
+      ) : null}
+    </NoticeBox>
+  );
+}
+
 /** The bank-transfer state's words, short enough for one phone line each. */
 export const TOPUP_COPY = {
   bankTitle: "Pay by bank transfer",
@@ -414,7 +442,7 @@ function OrderPanel({
           <p className="mt-1">
             Transfer{" "}
             <strong className="font-semibold text-ink">{formatPayableINR(order.amount_inr)}</strong> by
-            bank. Quote the ref below.
+            bank. Quote the reference below.
           </p>
           <Why label="How it works">
             <p>
@@ -425,21 +453,17 @@ function OrderPanel({
           </Why>
         </>
       ) : paid ? (
-        <p className="mt-1">Quote these refs if you ask us about it.</p>
+        <p className="mt-1">Quote the reference if you ask us about it.</p>
       ) : (
         <>
           <p className="mt-1">Pay in the window that opens here.</p>
           <div className="mt-3">{payNow}</div>
         </>
       )}
+      {/* Our reference only: the provider's own order id is ours to look up from it (OB-26). */}
       <p className="mt-2 text-meta text-ink-faint">
-        ref <MonoValue>{order.receipt}</MonoValue>
+        Reference <MonoValue>{order.receipt}</MonoValue>
       </p>
-      {order.provider_order_id !== null && (
-        <p className="text-meta text-ink-faint">
-          order <MonoValue>{order.provider_order_id}</MonoValue>
-        </p>
-      )}
     </div>
   );
 }

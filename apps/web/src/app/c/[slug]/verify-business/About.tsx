@@ -4,9 +4,10 @@ import type { ComponentType, ReactNode } from "react";
 import { PhoneIncoming, PhoneOutgoing, PhoneOff } from "lucide-react";
 
 import { Accordion, type AccordionItem } from "@/components/arc/accordion";
-import { MonoValue, formatIST } from "@/components/ui";
+import { MonoValue, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
 import { documentKindLabel, entityTypeLabel, type KycRecord } from "@/lib/api/kyc";
 import { Term } from "@/lib/glossary";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 
 import { LEAD_IN, LIST, joinDocument, stateLabel } from "./copy";
 
@@ -40,8 +41,8 @@ export function AboutVerification({ record, outgoingOpen }: { record: KycRecord 
   items.push(
     {
       id: "number",
-      title: "Where your calling number comes from",
-      subtitle: "From us, on our own telephony account.",
+      title: "Whose name your number is in",
+      subtitle: "Your business's, once it is verified.",
       content: <PhoneNumbers verified={record?.is_verified ?? false} />,
     },
     {
@@ -134,30 +135,33 @@ function Affected({
 }
 
 /**
- * Where the calling number comes from: us, on our own telephony account, naming no provider
- * (white label, founder 6 Oct 2026). A sentence, not a control: getting a number is the
- * phone-number screen's job. No price and no timeline, because neither is a fact this page
- * can stand behind.
+ * Whose name the calling number is in: the client's own business, in its own calling account
+ * (D-693; `campaigns/engine_number_purchase.py`), naming no provider (D-679). A sentence, not
+ * a control: getting a number is the phone-number screen's job. No price and no timeline,
+ * because neither is a fact this page can stand behind.
  */
 function PhoneNumbers({ verified }: { verified: boolean }) {
   return (
     <div className="space-y-3">
       <p className="text-body text-ink-muted">
-        Calevate provides your calling number. It runs on our own telephony account, so there
-        is no operator account for you to open.
+        Your number is registered to your business, not to us. You buy it from us once your
+        business is verified and your business details are approved.
       </p>
       <ul className={LIST}>
         <li>
           <span className={LEAD_IN}>
-            Your part is passing our business verification (<Term id="kyc" />).
+            First, pass our business verification (<Term id="kyc" />).
           </span>{" "}
           Indian telecom rules require it for every calling number.
         </li>
         <li>
-          <span className={LEAD_IN}>Then keep your caller details accurate.</span> If your
-          business name, address or signatory changes, tell your account manager.
+          <span className={LEAD_IN}>Then keep your business details accurate.</span> If your
+          business name, address or signatory changes, tell us.
         </li>
       </ul>
+      <a className={SECONDARY_BUTTON_SM} href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent("Our business details changed")}`}>
+        Tell us about a change
+      </a>
       {!verified && (
         <p className="text-body text-ink-muted">
           Your verification is still outstanding. Existing numbers and incoming calls keep
@@ -180,8 +184,8 @@ function PhoneNumbers({ verified }: { verified: boolean }) {
 function OnFile({ record }: { record: KycRecord }) {
   const rows: { label: string; value: string | null; mono?: boolean }[] = [
     // "Verification status", not "State": in a list of registration details a reader in
-    // India takes "State" for Telangana. It prints an unrecognised status verbatim, so the
-    // client still has a word to quote at us.
+    // India takes "State" for Telangana. A status this build cannot name reads "Being
+    // checked", never the code; "Our file reference" below is what a client quotes.
     { label: "Verification status", value: stateLabel(record) },
     { label: "Kind of business", value: entityTypeLabel(record.entity_type) },
     {
