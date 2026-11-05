@@ -1,7 +1,7 @@
 """call_word_revisions: the founder edits the words the call checks listen for
 
 Revision ID: f4b8c2e6a1d9
-Revises: d3a9f5c1e7b4
+Revises: f2c6a8d4b1e3
 Create Date: 2026-11-06 00:00:00.000000
 
 G-C2. The words the call checks listen for (`calevate_shared/call_words.json`) become
@@ -25,7 +25,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "f4b8c2e6a1d9"
-down_revision: str | None = "d3a9f5c1e7b4"
+down_revision: str | None = "f2c6a8d4b1e3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

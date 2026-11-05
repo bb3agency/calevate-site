@@ -28,6 +28,7 @@ from collections.abc import Sequence
 from typing import Final, Literal
 
 from calevate_shared.call_script import substitute_variables
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.spoken_style import (
     caller_guidance,
@@ -166,15 +167,16 @@ def question_end_problem(where: str, text: str) -> str | None:
 #: opening said after the agent's introduction does not greet (D-865), and the composer that
 #: drops a greeting the introduction already said (`engine.join_first_words`). The greetings
 #: and honorifics in Indian letters are the founder's (`call_words.json`).
-_GREETINGS: Final = _extend(
-    r"hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)",
-    "spoken_guard._GREETING_HEAD.greetings",
-)
-_HONORIFICS: Final = _extend("ji|andi|garu|sir|madam", "spoken_guard._GREETING_HEAD.honorifics")
-_GREETING_HEAD: Final = re.compile(
-    rf"^\W*(?:{_GREETINGS})(?=[\s,.!?।]|$)(?:\s+(?:{_HONORIFICS})(?=[\s,.!?।]|$))?[\s,.!?।]*",
-    re.IGNORECASE,
-)
+def _greeting_head() -> str:
+    greetings = _extend(
+        r"hello|hi|hey|namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)",
+        "spoken_guard._GREETING_HEAD.greetings",
+    )
+    honorifics = _extend("ji|andi|garu|sir|madam", "spoken_guard._GREETING_HEAD.honorifics")
+    return rf"^\W*(?:{greetings})(?=[\s,.!?।]|$)(?:\s+(?:{honorifics})(?=[\s,.!?।]|$))?[\s,.!?।]*"
+
+
+_GREETING_HEAD: Final = _LivePattern(_greeting_head, re.IGNORECASE)
 
 
 def opens_with_greeting(text: str) -> bool:

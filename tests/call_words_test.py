@@ -248,5 +248,16 @@ def test_the_editor_refuses_what_would_break_a_check() -> None:
     assert call_words.problems("optout.patterns", {"ta": rule}) == []
     assert call_words.problems("optout.patterns", {"ta": [["only_an_id"]]})
     assert call_words.problems("optout.patterns", {"Tamil": rule})
+    # A table keyed by word takes a new word, never a word of another shape or a blank one.
+    everyday = "call_purpose._INDIC_EVERYDAY_BEFORE"
+    assert call_words.problems(everyday, {"zzq": r"x\s*$"}) == []
+    assert call_words.problems(everyday, {"zzq": ["x"]})
+    assert call_words.problems(everyday, {" ": "x"})
+    # A promotional rule under a key the launch gate does not know fails its build.
+    from apps.api.compliance.call_purpose import first_finding
+
+    assert first_finding("a plain reminder") is None
+    unknown = {**call_words.shipped()["call_purpose.rules"], "te bribe strong": ["zzq"]}
+    assert call_words.trial("call_purpose.rules", unknown).failures
     assert call_words.trial("detection.stalls", "(?i)zzq").failures
     assert call_words.trial("detection.stalls", None).failures == ()

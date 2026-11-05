@@ -121,12 +121,18 @@ def problems(key: str, value: Any) -> list[str]:
     return found
 
 
+#: A key of a table by language: a two- or three-letter language code.
+_LANGUAGE_KEY: Final = re.compile(r"[a-z]{2,3}")
+
+
 def _shape_name(default: Any) -> str:
     if isinstance(default, str):
         return "one pattern"
     if isinstance(default, list):
         return "a list of words"
-    return "a table by language in the same form as the shipped one"
+    if all(_LANGUAGE_KEY.fullmatch(k) for k in default):
+        return "a table by language in the same form as the shipped one"
+    return "a table in the same form as the shipped one"
 
 
 def _conforms(value: Any, template: Any, *, top: bool = False) -> bool:
@@ -147,10 +153,15 @@ def _conforms(value: Any, template: Any, *, top: bool = False) -> bool:
             return False
         if top:
             # A table by language: any language code, each in the shape the shipped
-            # languages share, so the founder can add a language without a release.
+            # languages share, so the founder can add a language without a release. A table
+            # keyed by something else (a word, a rule's name) takes any non-blank key: the
+            # code that reads it judges the key, and `trial` reports a key it refuses.
             shapes = list(template.values())
+            by_language = all(_LANGUAGE_KEY.fullmatch(k) for k in template)
             return bool(shapes) and all(
-                isinstance(k, str) and re.fullmatch(r"[a-z]{2,3}", k) and _conforms(v, shapes[0])
+                isinstance(k, str)
+                and (_LANGUAGE_KEY.fullmatch(k) if by_language else k.strip())
+                and _conforms(v, shapes[0])
                 for k, v in value.items()
             )
         return set(value) == set(template) and all(_conforms(value[k], template[k]) for k in value)

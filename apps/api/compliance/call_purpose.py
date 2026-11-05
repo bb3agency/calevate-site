@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from typing import Final, Literal, cast, get_args
 
 from calevate_shared.call_script import CallScript
+from calevate_shared.call_words import Live as _Live
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.call_words import say as _say
 from calevate_shared.call_words import table
@@ -159,7 +161,7 @@ _BOOKED_THINGS = (
     "dose|follow-?up|check-?up|test|exam|booking|interview|demo|consultation|scan|delivery"
 )
 
-_RULES: Final[tuple[_Rule, ...]] = (
+_EN_RULES: Final[tuple[_Rule, ...]] = (
     # --- English ---------------------------------------------------------------------
     _latin(r"discounts?|discounted", "discount", "en", "strong"),
     # Not `_latin`: a `\b` cannot sit beside "%" or "₹", which are not word characters.
@@ -228,9 +230,10 @@ _RULES: Final[tuple[_Rule, ...]] = (
     ),
     _latin(r"sirf\s+aaj|kewal\s+aaj|aakhri\s+mauka|jaldi\s+karein", "urgency", "hi", "strong"),
     _latin(r"ippude\s+konandi|abhi\s+khareedein|abhi\s+kharidein", "buy_now", "hi", "strong"),
-    # Telugu and Hindi letters: the founder's lists (`call_words.json`, `call_purpose.rules`).
-    *_indic_rules(),
 )
+#: The English and romanised rules above, then the Telugu and Hindi ones from the founder's
+#: lists (`call_words.json`, `call_purpose.rules`), rebuilt when an edit is installed.
+_RULES: Final[_Live[tuple[_Rule, ...]]] = _Live(lambda: (*_EN_RULES, *_indic_rules()))
 
 # "free" on its own is soft, and only when none of the everyday senses fits.
 _FREE_EN: Final = re.compile(r"\bfree\b", re.IGNORECASE)
@@ -246,8 +249,10 @@ _FREE_BENIGN_AFTER: Final = re.compile(
 )
 #: "Free" in Telugu and Hindi letters, and the words after it that make it everyday (free
 #: parking, "are you free"): the founder's lists in `call_words.json`.
-_FREE_INDIC: Final = re.compile(_say("call_purpose._FREE_INDIC"))
-_FREE_INDIC_BENIGN_AFTER: Final = re.compile(_say("call_purpose._FREE_INDIC_BENIGN_AFTER"))
+_FREE_INDIC: Final = _LivePattern(lambda: _say("call_purpose._FREE_INDIC"))
+_FREE_INDIC_BENIGN_AFTER: Final = _LivePattern(
+    lambda: _say("call_purpose._FREE_INDIC_BENIGN_AFTER")
+)
 
 # "don't miss" is the urgency rule's own phrase, never a negation of what follows it.
 _NEGATION_EN_BEFORE: Final = re.compile(
@@ -255,14 +260,14 @@ _NEGATION_EN_BEFORE: Final = re.compile(
     r"nahi|nahin)\b",
     re.IGNORECASE,
 )
-_NEGATION_AFTER_RE: Final = re.compile(
-    _extend(
+_NEGATION_AFTER_RE: Final = _LivePattern(
+    lambda: _extend(
         r"\b(?:not\s+available|are\s+not|is\s+not|isn'?t|aren'?t|ledu|levu|undadu|nahi|nahin)\b",
         "call_purpose._NEGATION_AFTER_RE",
     ),
     re.IGNORECASE,
 )
-_NEGATION_HI_BEFORE: Final = re.compile(_say("call_purpose._NEGATION_HI_BEFORE"))
+_NEGATION_HI_BEFORE: Final = _LivePattern(lambda: _say("call_purpose._NEGATION_HI_BEFORE"))
 #: A negation reaches only as far as its own clause: "Don't wait, flat 20% off" and "Rs 500
 #: off, not available anywhere else" negate nothing about the offer.
 #: Em dash, en dash and the Devanagari danda (by code point: RUF001 refuses the dashes) end
@@ -275,19 +280,25 @@ _NEGATIVE_IDIOMS: Final = re.compile(
     re.IGNORECASE,
 )
 
+
 #: Indic words of the strong lists that also have an everyday sense, told apart by the
 #: letters around them: छूट is "was missed" before a vowel sign or गया/जाना (छूटी हुई कॉल,
 #: छूट गई) and an exemption after "tax" (टैक्स छूट); ఆఫర్/ऑफर is the verb "to offer" before
 #: "do" (సైట్ విజిట్ ఆఫర్ చేయండి, ऑफर करें) and a job offer before "letter". The words and
 #: patterns are the founder's (`call_words.json`), keyed by the word as written.
-_INDIC_EVERYDAY_AFTER: Final[dict[str, re.Pattern[str]]] = {
-    unicodedata.normalize("NFC", word): re.compile(pattern)
-    for word, pattern in table("call_purpose._INDIC_EVERYDAY_AFTER").items()
-}
-_INDIC_EVERYDAY_BEFORE: Final[dict[str, re.Pattern[str]]] = {
-    unicodedata.normalize("NFC", word): re.compile(pattern)
-    for word, pattern in table("call_purpose._INDIC_EVERYDAY_BEFORE").items()
-}
+def _patterns_by_word(key: str) -> dict[str, re.Pattern[str]]:
+    return {
+        unicodedata.normalize("NFC", word): re.compile(pattern)
+        for word, pattern in table(key).items()
+    }
+
+
+_INDIC_EVERYDAY_AFTER: Final[_Live[dict[str, re.Pattern[str]]]] = _Live(
+    lambda: _patterns_by_word("call_purpose._INDIC_EVERYDAY_AFTER")
+)
+_INDIC_EVERYDAY_BEFORE: Final[_Live[dict[str, re.Pattern[str]]]] = _Live(
+    lambda: _patterns_by_word("call_purpose._INDIC_EVERYDAY_BEFORE")
+)
 
 
 def _norm(value: str) -> str:
@@ -296,8 +307,8 @@ def _norm(value: str) -> str:
 
 def _everyday_sense(text: str, start: int, end: int) -> bool:
     word = text[start:end]
-    after = _INDIC_EVERYDAY_AFTER.get(word)
-    before = _INDIC_EVERYDAY_BEFORE.get(word)
+    after = _INDIC_EVERYDAY_AFTER().get(word)
+    before = _INDIC_EVERYDAY_BEFORE().get(word)
     return bool(
         (after is not None and after.search(text[end:]))
         or (before is not None and before.search(text[:start]))
@@ -370,7 +381,7 @@ def _part_findings(part: ScriptPart) -> list[Finding]:
             )
         )
 
-    for rule in _RULES:
+    for rule in _RULES():
         for match in rule.pattern.finditer(text):
             if _everyday_sense(text, match.start(), match.end()):
                 continue
