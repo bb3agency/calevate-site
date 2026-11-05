@@ -393,11 +393,17 @@ async def test_the_worker_stores_a_grounded_draft_and_the_list_offers_it(
     )
     assert outcome == "drafted"
     assert "When are you open?" in seen["prompt"]
-    offered = (await _list(tenant_id)).items[0]
-    assert (
-        offered.draft == "Open every day, near MG Road." and offered.draft_source_kind is not None
-    )
-    assert offered.drafting is False
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text(
+                    "SELECT draft_status, draft FROM teach_questions WHERE question_key = 'timings'"
+                )
+            )
+        ).one()
+    assert tuple(stored) == ("ready", "Open every day, near MG Road.")
+    # A setup question the business's own words answer is not asked (G5-6).
+    assert (await _list(tenant_id)).items == []
 
     # The same job delivered twice does nothing the second time.
     again = await draft_worker.draft_teach_question(
@@ -486,3 +492,55 @@ async def test_a_neighbour_sees_none_of_the_rows() -> None:
         rows = (await session.execute(text("SELECT count(*) FROM teach_questions"))).scalar()
     assert rows == 0
     assert "location" in {q.key for q in (await _list(neighbour)).items}
+
+
+async def _ready_draft(tenant_id: uuid.UUID, question: questions.Question) -> None:
+    """The draft worker's stored outcome for `question`'s current inputs, without a model."""
+    async with tenant_session(tenant_id) as session:
+        fingerprint = questions.inputs_hash(await questions.inputs_marker(session), question)
+        await session.execute(
+            text(
+                "INSERT INTO teach_questions (id, tenant_id, question_key, inputs_hash, "
+                "draft_status, draft, draft_source_kind, draft_source_label, created_at, "
+                "updated_at) VALUES (:id, :tid, :key, :hash, 'ready', :draft, 'fact', "
+                "'What you taught', now(), now()) ON CONFLICT (tenant_id, question_key) DO "
+                "UPDATE SET inputs_hash = EXCLUDED.inputs_hash, draft_status = 'ready', "
+                "draft = EXCLUDED.draft, draft_source_kind = 'fact', "
+                "draft_source_label = EXCLUDED.draft_source_label"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "key": question.key,
+                "hash": fingerprint,
+                "draft": "We welcome customers from nine to six.",
+            },
+        )
+
+
+async def test_hours_said_in_words_the_patterns_miss_are_not_asked_again() -> None:
+    """G5-6: hours written in words `_HOURS_PATTERN` does not hear (another language, or
+    English without "open" or a digit) are found by the grounded draft, and the setup
+    question goes; a caller's question with a draft is still offered for the owner to keep."""
+    tenant_id, agent_id, _ = await _tenant()
+    await _profile(tenant_id, branches='[{"label": "Main", "address": "MG Road"}]')
+    async with tenant_session(tenant_id) as session:
+        await fact_store.add_facts(
+            session,
+            tenant_id=tenant_id,
+            texts=["We welcome customers from nine to six."],
+            origin="taught",
+            teaching_id=None,
+            created_by=None,
+            auto_approve=True,
+        )
+    await _gap(tenant_id, agent_id, "Do you have parking near the shop?")
+    listed = {q.key: q for q in (await _list(tenant_id)).items}
+    assert listed["timings"].why == "setup"
+    callers = next(q for q in listed.values() if q.why == "callers")
+
+    await _ready_draft(tenant_id, listed["timings"])
+    await _ready_draft(tenant_id, callers)
+    after = {q.key: q for q in (await _list(tenant_id)).items}
+    assert "timings" not in after
+    assert after[callers.key].draft == "We welcome customers from nine to six."

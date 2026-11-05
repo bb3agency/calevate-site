@@ -25,6 +25,8 @@ can only ever see one tenant's rows, proven by `insights/rls_test.py`.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
+from typing import Final
 from uuid import UUID
 
 from sqlalchemy import text
@@ -39,9 +41,13 @@ from apps.api.insights.schemas import (
     KnowledgeGapListOut,
     KnowledgeGapOut,
 )
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.business_copy import capabilities_for
 
 log = get_logger(__name__)
+
+#: The worker job that names one call's gap topics (`workers/gap_topics.py`).
+NAME_TOPICS_JOB: Final = "name_gap_topics"
 
 #: The most gaps one listing returns. A ceiling, not a target — the urgent surface shows a
 #: handful and the count says how many there are (`open_count`), the same split
@@ -62,65 +68,155 @@ async def record_call_gaps(
     this call contributed, for the pipeline's stage span. `turns` MUST carry redacted text
     — the pipeline passes `transcript_turns.text_redacted` — so every stored quote is
     redacted by construction (hard rule 6).
+
+    The topics written here are the keyword ones. A call with gaps also queues
+    `NAME_TOPICS_JOB` in the same transaction, which re-files them under topics named from
+    the business's own context (`workers/gap_topics.py`); if that cannot run, the keyword
+    topics stay. Queued on every run rather than once per call, because a re-drive writes
+    the keyword topics again and they must be named again.
     """
     async with tenant_session(tenant_id) as session:
         withheld = detection.withheld_topics(await capabilities_for(session, tenant_id))
     gaps = detection.detect_gaps(turns, withheld=withheld)
     async with tenant_session(tenant_id) as session:
-        # Topics this call PREVIOUSLY contributed — recomputed too, so a re-drive that no
-        # longer detects a topic correctly shrinks its aggregate instead of stranding it.
-        previous = {
-            str(row[0])
-            for row in (
-                await session.execute(
-                    text(
-                        "SELECT topic_key FROM knowledge_gap_occurrences "
-                        "WHERE call_id = :cid AND tenant_id = :tid"
-                    ),
-                    {"cid": call_id, "tid": tenant_id},
-                )
-            ).all()
-        }
-        # Replace this call's contribution wholesale — the delete + re-insert is the whole
-        # of "exactly-once, keyed by call_id". Both run in one transaction, so a re-drive
-        # interrupted mid-flight cannot leave a partial set behind.
-        await session.execute(
-            text("DELETE FROM knowledge_gap_occurrences WHERE call_id = :cid AND tenant_id = :tid"),
-            {"cid": call_id, "tid": tenant_id},
+        await _replace_call_gaps(
+            session, tenant_id=tenant_id, agent_id=agent_id, call_id=call_id, gaps=gaps
         )
-        for gap in gaps:
-            await session.execute(
-                text(
-                    "INSERT INTO knowledge_gap_occurrences "
-                    "(id, tenant_id, agent_id, call_id, topic_key, topic_label, "
-                    " question_redacted, answer_redacted, signal, hit_count, "
-                    " created_at, updated_at) "
-                    "VALUES (:id, :tid, :aid, :cid, :key, :label, :q, :a, :sig, :hits, "
-                    " now(), now())"
-                ),
-                {
-                    "id": uuid7(),
-                    "tid": tenant_id,
-                    "aid": agent_id,
-                    "cid": call_id,
-                    "key": gap.topic_key,
-                    "label": gap.topic_label,
-                    "q": gap.question_redacted,
-                    "a": gap.answer_redacted,
-                    "sig": gap.signal,
-                    "hits": gap.hit_count,
+        if gaps:
+            await enqueue_outbox(
+                session,
+                job=NAME_TOPICS_JOB,
+                payload={
+                    "tenant_id": str(tenant_id),
+                    "agent_id": str(agent_id),
+                    "call_id": str(call_id),
                 },
             )
-        # SORTED, because each recompute locks its aggregate row until this transaction
-        # commits. A `set` iterates in string-hash order, which is randomised per process,
-        # so two workers finishing calls that share topics would lock them in different
-        # orders and deadlock. `scrub_quotes_for_calls` takes the same order.
-        affected = sorted(previous | {gap.topic_key for gap in gaps})
-        for topic_key in affected:
-            await _recompute_aggregate(
-                session, tenant_id=tenant_id, agent_id=agent_id, topic_key=topic_key
-            )
     return len(gaps)
+
+
+async def _replace_call_gaps(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    call_id: UUID,
+    gaps: Sequence[detection.DetectedGap],
+) -> None:
+    """Replace this call's occurrence rows with `gaps` and recompute every aggregate the
+    call touched, old topics and new, in the caller's transaction."""
+    # Topics this call PREVIOUSLY contributed — recomputed too, so a re-drive that no
+    # longer detects a topic correctly shrinks its aggregate instead of stranding it.
+    previous = {gap.topic_key for gap in await _gaps_of_call(session, tenant_id, call_id)}
+    # Replace this call's contribution wholesale — the delete + re-insert is the whole of
+    # "exactly-once, keyed by call_id". One transaction, so a re-drive interrupted
+    # mid-flight cannot leave a partial set behind.
+    await session.execute(
+        text("DELETE FROM knowledge_gap_occurrences WHERE call_id = :cid AND tenant_id = :tid"),
+        {"cid": call_id, "tid": tenant_id},
+    )
+    for gap in gaps:
+        await session.execute(
+            text(
+                "INSERT INTO knowledge_gap_occurrences "
+                "(id, tenant_id, agent_id, call_id, topic_key, topic_label, "
+                " question_redacted, answer_redacted, signal, hit_count, "
+                " created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :cid, :key, :label, :q, :a, :sig, :hits, "
+                " now(), now())"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "aid": agent_id,
+                "cid": call_id,
+                "key": gap.topic_key,
+                "label": gap.topic_label,
+                "q": gap.question_redacted,
+                "a": gap.answer_redacted,
+                "sig": gap.signal,
+                "hits": gap.hit_count,
+            },
+        )
+    # SORTED, because each recompute locks its aggregate row until this transaction
+    # commits. A `set` iterates in string-hash order, which is randomised per process, so
+    # two workers finishing calls that share topics would lock them in different orders and
+    # deadlock. `scrub_quotes_for_calls` takes the same order.
+    affected = sorted(previous | {gap.topic_key for gap in gaps})
+    for topic_key in affected:
+        await _recompute_aggregate(
+            session, tenant_id=tenant_id, agent_id=agent_id, topic_key=topic_key
+        )
+
+
+async def _gaps_of_call(
+    session: AsyncSession, tenant_id: UUID, call_id: UUID
+) -> list[detection.DetectedGap]:
+    """This call's stored gaps in the order they were written (uuid7 ids sort by time),
+    locked until the transaction ends: a re-drive and a renaming of one call take the
+    occurrence rows first and the aggregates after, so neither interleaves the other."""
+    rows = await session.execute(
+        text(
+            "SELECT topic_key, topic_label, question_redacted, answer_redacted, signal, "
+            "hit_count FROM knowledge_gap_occurrences "
+            "WHERE call_id = :cid AND tenant_id = :tid ORDER BY id FOR UPDATE"
+        ),
+        {"cid": call_id, "tid": tenant_id},
+    )
+    return [
+        detection.DetectedGap(
+            topic_key=str(r.topic_key),
+            topic_label=str(r.topic_label),
+            question_redacted=str(r.question_redacted),
+            answer_redacted=str(r.answer_redacted),
+            signal=r.signal,
+            hit_count=int(r.hit_count),
+        )
+        for r in rows
+    ]
+
+
+async def call_gaps(*, tenant_id: UUID, call_id: UUID) -> list[detection.DetectedGap]:
+    """This call's stored gaps, in the order they were detected."""
+    async with tenant_session(tenant_id) as session:
+        return await _gaps_of_call(session, tenant_id, call_id)
+
+
+async def rename_call_topics(
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    call_id: UUID,
+    named: Sequence[tuple[str, tuple[str, str]]],
+) -> bool:
+    """Re-file this call's gaps under the topics the model named. `named` pairs each stored
+    topic key, in detection order, with its new (key, label). Two gaps named one topic
+    become one, counts added and the first one's quotes kept, as `detect_gaps` merges.
+
+    A compare-and-set on the call's keys: when they are no longer the ones that were named
+    (a re-drive wrote new ones meanwhile and queued its own naming), nothing changes and
+    this returns False.
+    """
+    async with tenant_session(tenant_id) as session:
+        stored = await _gaps_of_call(session, tenant_id, call_id)
+        if [gap.topic_key for gap in stored] != [old for old, _ in named]:
+            return False
+        merged: dict[str, detection.DetectedGap] = {}
+        for gap, (_old, (key, label)) in zip(stored, named, strict=True):
+            first = merged.get(key)
+            merged[key] = (
+                replace(gap, topic_key=key, topic_label=label)
+                if first is None
+                else replace(first, hit_count=first.hit_count + gap.hit_count)
+            )
+        await _replace_call_gaps(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=call_id,
+            gaps=list(merged.values()),
+        )
+    return True
 
 
 async def _recompute_aggregate(
@@ -437,7 +533,10 @@ async def list_gaps(
 
 __all__ = [
     "MAX_PAGE",
+    "NAME_TOPICS_JOB",
+    "call_gaps",
     "list_gaps",
     "record_call_gaps",
+    "rename_call_topics",
     "scrub_quotes_for_calls",
 ]

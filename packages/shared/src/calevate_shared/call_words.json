@@ -9,6 +9,10 @@
     "detection.topic.*": "Each topic's trigger words in Telugu letters and Hindi letters (only English and a few romanised words are listed), so a question asked in Telugu letters falls to the caller's-own-words label instead of the topic."
   },
   "entries": {
+    "turn_checks.word_languages": [
+      "te",
+      "hi"
+    ],
     "turn_checks._TIME_PHRASES": "(?:ఇప్పుడు|अभी)\\s+(?:సమయం|టైమ్|time|समय|टाइम)\\s*\\d{1,2}[:.]\\d{2}",
     "turn_checks._LABEL": "(?:^|[\\n.!?।]\\s*)(?:caller|customer|user|agent|assistant|you|కాలర్|కస్టమర్|ग्राहक|कॉलर)\\s*:",
     "turn_checks._QUANTITY": "(?:\\d+(?:\\.\\d+)?\\s*|(?:^|(?<=\\s))(?:one|two|three|half|a|ఒక|రెండు|అర|एक|दो|आधा)\\s+)(?:kg|kgs|kilo|kilos|g|gm|grams?|litres?|liters?|l|ml|packets?|packs?|pieces?|dozen|boxes?|bags?|bottles?|కిలో|కేజీ|ప్యాకెట్|लीटर|किलो|पैकेट)(?=[\\s.,!?।]|$)",
@@ -701,6 +705,7 @@
     "test_conversations._PRETENDS_TO_CONNECT": "(?:కలుపుతున్నాను|కలుపుతాను|కనెక్ట్ చేస్తున్నాను|కనెక్ట్ చేస్తాను|connect చేస్తున్నాను|connect చేస్తాను|ట్రాన్స్ఫర్ చేస్తున్నాను|transfer చేస్తున్నాను|transfer చేస్తాను)|(?:जोड़ रहा|जोड़ रही|कनेक्ट कर रहा|कनेक्ट कर रही|ट्रांसफर कर रहा|ट्रांसफर कर रही)"
   },
   "notes": {
+    "turn_checks.word_languages": "The languages, by two-letter code, whose words the turn_checks lists in this file were written for. English is in code. A practice run in any other language says on its result that word-by-word checks do not cover that language yet. Add a code here only once that language's words are in the turn_checks lists.",
     "optout.patterns": "How a caller says 'do not call me again', per language, as regular expressions over the caller's words (the do-not-call ledger, TRAI). A staged language may not be switched on until it has patterns here (agents/languages readiness). Each entry is [rule id, pattern]; a plain phrase is a valid pattern. English is in code. Precision matters, because a match makes the number undiallable for the client: match the negative form only (Telugu cheyakandi or cheyyoddu, never cheyandi; Hindi mat karo, never karo); a removal verb only ('number teesi pettukondi' is 'note the number down'); and never 'phone band karo', which is 'hang up'. The native-script lists are smaller than the romanised ones, written from the language rather than from observed speech-to-text output, and should grow from the first native-script transcripts. tests/call_optout_test.py holds a negative example for each rule.",
     "optout.not_now": "'Now' a few words before an opt-out makes it 'not now' (another time), per language: latin is matched as whole words, native as written."
   }

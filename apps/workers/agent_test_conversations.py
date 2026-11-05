@@ -89,6 +89,7 @@ from apps.api.agents.test_conversations import (
     wrong_tests,
 )
 from apps.api.agents.test_window import send_test_message
+from apps.api.agents.turn_checks import word_checks_note
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -391,6 +392,8 @@ async def new_test_set(
     if few_calls and (untested := untested_callers(language, brief.direction, brief.fit)):
         said = untested_note(language, untested)
         note = f"{note} {said}" if note else said
+    if unchecked := word_checks_note(language):
+        note = f"{note} {unchecked}" if note else unchecked
     return scenarios, note
 
 

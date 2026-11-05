@@ -233,6 +233,7 @@ from apps.workers.forwarding import (
     sweep_forwarded_lines,
 )
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
+from apps.workers.gap_topics import name_gap_topics
 from apps.workers.healer import SCORE_MINUTES, healer_sweep, run_healer, score_agent_health
 from apps.workers.hot_facts import SWEEP_HOUR as HOT_FACTS_SWEEP_HOUR
 from apps.workers.hot_facts import SWEEP_MINUTE as HOT_FACTS_SWEEP_MINUTE
@@ -479,6 +480,7 @@ FUNCTIONS: list[Any] = [
         # A guided question's grounded draft answer (D-893), from the outbox
         # (`teach/questions.list_questions`).
         draft_teach_question,
+        name_gap_topics,
         # "Meet your agent" (D-855), from the outbox (`first_run/service.py`): a spoken piece
         # of the brief heard, its follow-up questions chosen, and the first agent built.
         hear_first_run_recording,
