@@ -553,7 +553,15 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
   uses a word from the language's spoken-style list (`turn_checks.formal_swaps`, the test
   loop's own check), naming the word and what people say; a word the field already held or
   the person typed is theirs and passes. The refusal goes back to the model like any refused
-  fill. Pip's chat replies are never checked.
+  fill. The SCREEN STATE carries the language's whole list as `<spoken_style>`
+  (`prompt.render_spoken_styles`) whenever such a field is writable, so Pip writes the
+  everyday word first time. Pip's chat replies are never checked.
+* **The owner reads refusals by label.** `FillRefusedError.reasons` name field ids for the
+  model; `.plain` names the field's label and no id, and is what the step, the
+  out-of-turns message and the route's "Nothing was changed." line show.
+* **A fill turn's words wait for the fill.** On a screen with a writable field the loop
+  holds each turn's text until the turn ends: shown with an accepted fill or a turn with no
+  fill, dropped with a refused fill, so "I have updated it" never stands above a refusal.
 
 ## 14. A request rests on the person's own words (D-833)
 
@@ -569,7 +577,9 @@ reviewed. No model is called, so nothing is metered and no allowance is checked.
   symbols by Unicode category to spaces). The refusal (`UNQUOTED_FILL_REASON`) goes back to
   the model like any refused fill. It works in any language and accepts a bare answer to
   Pip's own question ("10 to 8, closed on Sundays"). It cannot tell whether the quoted words
-  ask for a change; it stops a fill that rests on an earlier, answered request.
+  ask for a change; it stops a fill that rests on an earlier, answered request. Once a fill
+  of a run has quoted the latest message, the repair of that fill in the same run is
+  grounded by it (`validate_fill(grounded=)`): a repair answers the refusal, not the person.
 * **An action may declare `grounded`.** `ActionTool.grounded(arguments, said)` checks the
   model's arguments against the person's messages in this conversation
   (`service.person_said`: the user turns of the history, then the question). `plan_write`

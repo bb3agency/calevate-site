@@ -278,7 +278,11 @@ async def test_an_answer_whose_every_change_was_refused_says_nothing_changed(
 
     assert "fill" not in [name for name, _ in events]
     said = "".join(data["delta"] for name, data in events if name == "text")
-    assert "Nothing was changed:" in said
+    # The claim made beside a refused fill never reaches the screen, and the truth is said
+    # in the owner's words: the field's label, no id, no backticks.
+    assert "I have updated it." not in said
+    assert "Nothing was changed. Status cannot be changed here." in said
+    assert "`" not in said
 
 
 def test_a_silent_answer_names_each_field_once_and_each_receipt() -> None:
@@ -532,7 +536,7 @@ async def test_a_tool_call_naming_a_non_writable_field_reaches_the_browser_as_no
     # the full stop arrives as its own frame — the browser appends it either way.
     said = "".join(data["delta"] for name, data in events if name == "text")
     assert said.startswith(service.EXHAUSTED_MESSAGE)
-    assert "`status` is not writable" in said
+    assert "Status cannot be changed here" in said
     # Still metered: every one of those turns was paid for.
     assert await _usage_rows(tenant_id)
 
