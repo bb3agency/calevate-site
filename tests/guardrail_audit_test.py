@@ -1176,6 +1176,8 @@ class TestRedactionExposure:
             "RuleOut.text",
             "ExampleLine.text",
             "VersionOut.summary",
+            # A call instruction read out of a document the business uploaded.
+            "CallInstructionOut.text",
             # D-744: the platform's spoken-style table under review, platform words.
             "EntryValue.text",
             "TurnBody.text",

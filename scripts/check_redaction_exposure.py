@@ -265,6 +265,12 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "`agent_hot_facts.items`, chosen from `kb_documents` of live sources), never a "
         "caller's words; tenant-scoped by RLS (tests/hot_facts_test.py)"
     ),
+    "CallInstructionOut.text": (
+        "a passage of a document the BUSINESS uploaded to its knowledge, read as a call "
+        "instruction rather than a fact (`kb/structured_text.read_markdown`, "
+        "`kb_uploads.call_instructions`), never a caller's words; tenant-scoped by RLS "
+        "(tests/kb_structured_text_test.py)"
+    ),
     "TeachItemIO.text": (
         "one fact or rule sorted out of the owner's OWN words in the teach box "
         "(`kb_teachings.items`), never a caller's; tenant-scoped by RLS"

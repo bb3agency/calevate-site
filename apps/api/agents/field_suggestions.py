@@ -39,6 +39,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import agent_pass
+from apps.api.agents.agent_pass import dead_sql
 from apps.api.agents.models import MAX_DISMISSED_SUGGESTIONS
 from apps.api.core.errors import ProblemError
 from apps.api.reliability.service import enqueue_outbox
@@ -172,7 +173,7 @@ async def current_fields(session: AsyncSession, agent_id: UUID) -> list[Extracti
 
 #: The pass's columns and job on the shared queue (`agents/agent_pass`).
 SLOT: Final = agent_pass.PassSlot("field_suggestions", JOB)
-_DEAD_SQL: Final = SLOT.dead_sql()
+_DEAD_SQL: Final = dead_sql(SLOT)
 
 
 async def queue_pass(

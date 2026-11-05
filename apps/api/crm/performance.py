@@ -95,7 +95,7 @@ async def performance(
     window: tuple[datetime, datetime] | None = None,
     test_calls: bool = True,
 ) -> dict[str, Any]:
-    """The whole tab in three aggregate queries over tenant-scoped tables.
+    """The whole tab in aggregate queries over tenant-scoped tables.
 
     `window` is a half-open instant range (the screen's IST calendar days, resolved by
     the route); without one the panel covers the last `days` days of 24 hours up to now.
