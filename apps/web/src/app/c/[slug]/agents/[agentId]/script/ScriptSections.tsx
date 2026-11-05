@@ -33,6 +33,7 @@ import {
   ToggleSwitch,
 } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
+import { SegmentedControl } from "@/components/interior/segmented-control";
 import { TEXT_ACTION } from "@/components/console/section";
 import { useSectionLink } from "@/components/console/settingsLayout";
 import type {
@@ -114,7 +115,8 @@ function TextBox({
       ) : (
         <textarea
           id={id}
-          className={FIELD}
+          // Grows with its words, so a part is read in full rather than behind a scrollbar.
+          className={`${FIELD} [field-sizing:content] min-h-16`}
           rows={rows}
           value={value}
           maxLength={maxLength}
@@ -705,44 +707,38 @@ export function StrictnessSection({
   const options = [
     {
       value: "flexible" as const,
-      label: "Use the steps as a guide",
+      label: "As a guide",
+      full: "Use the steps as a guide",
       hint: "It follows your order, but goes where the caller goes.",
     },
     {
       value: "strict" as const,
-      label: "Follow the steps closely",
+      label: "Closely",
+      full: "Follow the steps closely",
       hint: "It goes in order and keeps closely to your exact words.",
     },
   ];
-  // One line on the page; what each choice does is behind the ⓘ, because an owner picks
-  // this once and the labels already say the difference.
+  // A segmented switch, not an on/off toggle: these are two named ways of working, and a
+  // toggle would show only one of them ("Follow closely: off") and leave the other unsaid.
+  // What each does is behind the ⓘ, because an owner picks this once.
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <span className="flex items-center gap-1">
-        <span id="adherence-label" className="text-body font-medium text-ink">
-          How closely it follows them
-        </span>
+        <span className="text-body font-medium text-ink">How closely it follows them</span>
         <InfoTip label="how closely it follows the steps" align="start">
           {options.map((option) => (
             <p key={option.value}>
-              <span className="font-medium text-ink">{option.label}:</span> {option.hint}
+              <span className="font-medium text-ink">{option.full}:</span> {option.hint}
             </p>
           ))}
         </InfoTip>
       </span>
-      <div role="radiogroup" aria-labelledby="adherence-label" className="flex flex-wrap gap-x-4">
-        {options.map((option) => (
-          <label key={option.value} className="flex cursor-pointer items-center gap-2 text-body text-ink touch:min-h-11">
-            <input
-              type="radio"
-              name="adherence"
-              checked={value === option.value}
-              onChange={() => onChange(option.value)}
-            />
-            {option.label}
-          </label>
-        ))}
-      </div>
+      <SegmentedControl
+        label="How closely it follows the steps"
+        options={options.map(({ value: v, label }) => ({ value: v, label }))}
+        value={value}
+        onValueChange={(next) => onChange(next === "strict" ? "strict" : "flexible")}
+      />
     </div>
   );
 }

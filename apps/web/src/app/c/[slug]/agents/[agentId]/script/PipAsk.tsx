@@ -9,26 +9,41 @@
  * Pip's ask box with a request about THIS agent's script, and the owner presses Ask there.
  * Pip prepares the suggestion; it comes back to this page for review (`PipProposal`).
  * The panel says before the first request that it spends the AI allowance.
+ *
+ * It is the teach card's shape (`knowledge/TeachBox`): one well holding the words and the
+ * button that sends them, so the field and its action read as one control rather than a
+ * box with a grey button floating under it. The ask stays pressable while empty and says
+ * what is missing, because a greyed button gives no reason.
  */
 
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 
 import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { ActionButton } from "@/components/arc/feedback";
-import { FIELD, FIELD_LABEL, RestrictionNote } from "@/components/ui";
+import { TEXT_ACTION } from "@/components/console/section";
+import { useFormValidation } from "@/components/formValidation";
+import { RestrictionNote } from "@/components/ui";
 import { PipMark } from "@/components/illustration/pip";
+import { showsPrice, useBusinessProfile } from "@/lib/api/businessProfile";
 import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
-/** Example changes any business might ask for; each prefills Pip as written. The account's
- * own idea (`scriptChangeIdea`, D-827) is offered after them. */
-export const IDEAS = [
-  "Handle callers who say the price is too high",
-  "Make the opening line warmer and shorter",
-  "Sound more like people talk here",
+/** An idea: a few words on the chip, the full request in Pip's ask box. Short labels keep
+ *  the ideas to a wrapping row or two in the side panel instead of a stack of sentences. */
+export interface ChangeIdea {
+  label: string;
+  request: string;
+}
+
+/** Only for a business that quotes prices: to one that does not, it suggests a conversation its callers never have. */
+export const PRICE_IDEA: ChangeIdea = { label: "Price is too high", request: "Handle callers who say the price is too high" };
+/** Changes any business might ask for. */
+export const IDEAS: readonly ChangeIdea[] = [
+  { label: "Warmer, shorter opening", request: "Make the opening line warmer and shorter" },
+  { label: "Sound more local", request: "Sound more like people talk here" },
 ];
 
 /** What Pip is asked, in the words the owner sees in its ask box. */
@@ -38,6 +53,19 @@ export const WHOLE_REQUEST = "Draft the whole script for this agent. Ask me the 
 export const wholeRequestFor = (agentName: string) =>
   `Draft the whole script for my agent “${agentName}”. Ask me the six questions first.`;
 export const STEPS_REQUEST = "Turn this agent's hand-written script into steps.";
+
+/**
+ * The ideas offered: the account's own first (`scriptChangeIdea`, D-827), because it names
+ * this business's callers and products; it is written under eight words, so it is its own
+ * label. Then the price idea where prices apply, then the ones any business might ask for.
+ */
+export function changeIdeas({ idea, priced }: { idea: string; priced: boolean }): ChangeIdea[] {
+  const own = idea.trim();
+  const all = [own ? { label: own, request: own } : null, priced ? PRICE_IDEA : null, ...IDEAS].filter(
+    (x): x is ChangeIdea => x !== null,
+  );
+  return all.filter((x, i) => all.findIndex((y) => y.request === x.request) === i);
+}
 
 /** Steps only: a hand-written script's one move is under the script (`HandWritten`). */
 export function PipAsk({ drafting = false }: { drafting?: boolean } = {}) {
@@ -50,12 +78,16 @@ export function PipAsk({ drafting = false }: { drafting?: boolean } = {}) {
   const asking = write.allowed && !drafting;
   const [change, setChange] = useState("");
   const eg = useVerticalExamples();
-  const ideas = IDEAS.includes(eg.scriptChangeIdea) ? IDEAS : [...IDEAS, eg.scriptChangeIdea];
+  const profile = useBusinessProfile(session);
+  const valid = useFormValidation();
+  const changeField = valid.field("change", "Write what should change.");
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (asking && change.trim()) openAssistant({ prompt: changeRequest(change.trim()) });
-  };
+  // Until the profile is read, no price idea: offering one to a business that quotes none
+  // is the mistake, leaving it out for a moment is not.
+  const priced = profile.data
+    ? showsPrice(profile.data.wording, profile.data.services.map((s) => ({ price_inr: s.price_inr ?? "" })))
+    : false;
+  const ideas = changeIdeas({ idea: eg.scriptChangeIdea, priced });
 
   return (
     <section aria-labelledby="pip-ask-heading" className="space-y-3 rounded-card border border-line bg-surface p-4">
@@ -64,44 +96,87 @@ export function PipAsk({ drafting = false }: { drafting?: boolean } = {}) {
         Tell {ASSISTANT_NAME} what to change
       </h3>
       <RestrictionNote reason={write.reason} />
-      <form noValidate onSubmit={submit} className="space-y-2">
-        <label className={FIELD_LABEL} htmlFor="pip-change">
+      <form
+        noValidate
+        className="space-y-2"
+        onSubmit={valid.onSubmit(() => {
+          if (asking) openAssistant({ prompt: changeRequest(change.trim()) });
+        })}
+      >
+        <label className="sr-only" htmlFor="pip-change">
           What should change?
         </label>
-        <textarea
-          id="pip-change"
-          className={`${FIELD} mt-0`}
-          rows={3}
-          // No `maxLength`: it cuts a paste without a word. Pip's ask box, which this
-          // prefills, shows the count and holds Send past the limit.
-          disabled={!write.allowed}
-          value={change}
-          placeholder={eg.scriptChange}
-          onChange={(e) => setChange(e.target.value)}
-        />
-        <ActionButton
-          type="submit"
-          variant="secondary"
-          disabled={!write.allowed || (!drafting && change.trim().length === 0)}
-          waitingFor={write.allowed && drafting ? `Wait for ${ASSISTANT_NAME} to finish this suggestion` : null}
+        {/* The well, not the bare textarea, carries the focus and invalid states, so the
+            button inside it reads as part of the field. */}
+        <div
+          className={`rounded-card border border-line transition-[border-color,box-shadow] duration-(--duration-fast) ease-out focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20 has-[textarea[aria-invalid=true]]:border-danger ${
+            write.allowed ? "bg-surface" : "bg-surface-muted"
+          }`}
         >
-          Let {ASSISTANT_NAME} do it
-        </ActionButton>
+          <textarea
+            {...changeField}
+            required
+            id="pip-change"
+            rows={2}
+            // No `maxLength`: it cuts a paste without a word. Pip's ask box, which this
+            // prefills, shows the count and holds Send past the limit.
+            disabled={!write.allowed}
+            value={change}
+            placeholder="What should it say or do differently?"
+            onChange={(e) => setChange(e.target.value)}
+            className="block min-h-16 max-h-60 w-full resize-none rounded-t-card [field-sizing:content] bg-transparent px-3 pt-2.5 pb-1 text-body text-ink placeholder:text-ink-faint focus:outline-none disabled:cursor-not-allowed"
+          />
+          <div className="flex justify-end px-2 pb-2">
+            <div className="flex flex-col items-end gap-1 text-right">
+              <ActionButton
+                type="submit"
+                variant="primary-sm"
+                disabled={!write.allowed}
+                title={write.reason ?? undefined}
+                waitingFor={write.allowed && drafting ? `Wait for ${ASSISTANT_NAME} to finish this suggestion` : null}
+              >
+                Ask {ASSISTANT_NAME}
+              </ActionButton>
+            </div>
+          </div>
+        </div>
+        {valid.error("change")}
+        <p className="text-meta text-ink-muted">Uses your AI allowance. You check every change first.</p>
       </form>
-      <div className="space-y-1.5">
-        <p className="text-meta text-ink-muted">Or tap one:</p>
-        <ul className="flex flex-wrap gap-1.5" aria-label="Ideas">
-          {ideas.map((idea) => (
-            <li key={idea}>
-              <AskAssistant variant="chip" prompt={changeRequest(idea)} label={idea} disabled={!asking} />
-            </li>
-          ))}
-        </ul>
+      {ideas.length ? (
+        <div className="space-y-1.5">
+          <p id="pip-ask-ideas" className="text-meta font-medium text-ink-muted">
+            Or try
+          </p>
+          <ul aria-labelledby="pip-ask-ideas" className="flex flex-wrap gap-1.5">
+            {ideas.map((idea) => (
+              <li key={idea.request} className="min-w-0 max-w-full">
+                <AskAssistant
+                  variant="chip"
+                  prompt={changeRequest(idea.request)}
+                  label={idea.label}
+                  disabled={!asking}
+                  className="max-w-full text-left [overflow-wrap:anywhere]"
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="border-t border-line pt-2">
+        <button
+          type="button"
+          className={TEXT_ACTION}
+          disabled={!asking}
+          onClick={() => openAssistant({ prompt: WHOLE_REQUEST })}
+          // The name carries the request, as `AskAssistant` does: "the whole script" alone
+          // does not say a screen-reader user will be asked six questions first.
+          aria-label={`Let ${ASSISTANT_NAME} draft the whole script: ${WHOLE_REQUEST}`}
+          title={WHOLE_REQUEST}
+        >
+          Let {ASSISTANT_NAME} draft the whole script
+        </button>
       </div>
-      <p className="text-meta text-ink-muted">
-        Uses your AI allowance. You check every change first.
-      </p>
-      <AskAssistant label={`Let ${ASSISTANT_NAME} draft the whole script`} prompt={WHOLE_REQUEST} disabled={!asking} />
     </section>
   );
 }

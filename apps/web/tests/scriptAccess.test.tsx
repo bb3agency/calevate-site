@@ -5,6 +5,7 @@ import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuil
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type ScriptOut } from "@/lib/api/script";
 
+import { businessProfileFixture } from "./businessProfileFixture";
 import { renderClientPage } from "./harness";
 import { agentRow, settledPending } from "./fixtures/sharedReads";
 
@@ -57,6 +58,7 @@ function routes(who: Me, script: ScriptOut = SCRIPT) {
     "POST /v1/agents/agent-1/script/publish": { version: 4, live: true },
     "/v1/agents/agent-1/script/proposed-rules": [],
     "/v1/agents/agent-1/script/proposal": { proposal: null },
+    "/v1/business-profile": businessProfileFixture(),
     "/v1/agents/agent-1/pending": settledPending(),
     "/v1/agents/agent-1/script/tests": {
       available: false,

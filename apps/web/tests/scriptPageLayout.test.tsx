@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
-import { partSummaries } from "@/app/c/[slug]/agents/[agentId]/script/ScriptParts";
+import { StrictnessSection } from "@/app/c/[slug]/agents/[agentId]/script/ScriptSections";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptOut, type ScriptProposal } from "@/lib/api/script";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
@@ -10,6 +11,7 @@ import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launc
 import { expectNoA11yViolations } from "./a11y";
 import { noContent, renderClientPage } from "./harness";
 import { agentRow, settledPending } from "./fixtures/sharedReads";
+import { businessProfileFixture, NEUTRAL_WORDING } from "./businessProfileFixture";
 
 /**
  * The Script page is ordered by how often an owner needs each thing (founder, 11 Oct 2026:
@@ -87,6 +89,7 @@ const routes = (script: ScriptOut, extra: Record<string, unknown> = {}) => ({
   "/v1/agents/agent-1/script/proposed-rules": [],
   "/v1/agents/agent-1/pending": settledPending(),
   "/v1/agents/agent-1/script/proposal": { proposal: null },
+  "/v1/business-profile": businessProfileFixture(),
   ...extra,
 });
 
@@ -104,21 +107,25 @@ describe("the Script tab leads with the opening line and the steps", () => {
     expect(first).toContain("“Namaskaram andi, em kavali?”");
     expect(first).toContain("1 other way out");
 
-    const rows = Array.from(container.querySelectorAll("details")).map((d) => d.querySelector("summary h4")?.textContent);
-    expect(rows).toEqual([
-      "Who it is",
-      "What a good call achieves",
+    // Who it is, the goal and what it may do are on the page in full; the rest is one row.
+    expect((screen.getByLabelText("Your business in one line") as HTMLInputElement).value).toBe(
+      "An organic produce shop in Kukatpally",
+    );
+    expect((screen.getByLabelText("The goal") as HTMLTextAreaElement).closest("details")).toBeNull();
+    expect(container.querySelector("#policies")?.closest("details")).toBeNull();
+    const parts = screen.getByRole("heading", { name: "About the agent" }).closest("section") as HTMLElement;
+    const folded = Array.from(parts.querySelectorAll("details"));
+    expect(folded.map((d) => d.querySelector("summary h4")?.textContent)).toEqual(["More settings"]);
+    expect(folded[0].open).toBe(false);
+    expect(Array.from(folded[0].querySelectorAll("h5")).map((h) => h.textContent)).toEqual([
       "How it speaks",
       "When callers push back",
-      "What it may do",
       "How it ends the call",
       "An example call",
     ]);
-    expect(Array.from(container.querySelectorAll("details")).every((d) => !d.open)).toBe(true);
     // Closed, every form is still in the document: the assistant's fills and find work.
-    expect(screen.getByLabelText("Your business in one line")).toBeTruthy();
-    expect(screen.getByText("An organic produce shop in Kukatpally")).toBeTruthy();
-    expect(screen.getByText("1 line · waiting for a native speaker")).toBeTruthy();
+    expect(within(folded[0]).getByLabelText("Ending")).toBeTruthy();
+    expect(within(folded[0]).getByText("Example to check")).toBeTruthy();
   });
 
   it("opens a step in place, with its rarer options folded and saying what they hold", async () => {
@@ -173,13 +180,21 @@ describe("a part that needs finishing says so while it is closed", () => {
 });
 
 describe("a link to a part opens it", () => {
-  it("opens What it may do for #policies, which Knowledge's Fix in script uses", async () => {
+  it("leaves the rows closed for #policies, which Knowledge's Fix in script uses and is on the page", async () => {
     window.history.replaceState(null, "", "/c/acme/agents/agent-1/script#policies");
     const { container } = await renderClientPage(page, routes(out(FULL)));
     await screen.findByRole("list", { name: "Steps of the call, in order" });
+    expect(container.querySelector("#policies")?.closest("details")).toBeNull();
+    expect(Array.from(container.querySelectorAll("details")).filter((d) => d.open)).toEqual([]);
+  });
+
+  it("opens More settings for a part folded inside it", async () => {
+    window.history.replaceState(null, "", "/c/acme/agents/agent-1/script#objections");
+    const { container } = await renderClientPage(page, routes(out(FULL)));
+    await screen.findByRole("list", { name: "Steps of the call, in order" });
     const open = Array.from(container.querySelectorAll("details")).filter((d) => d.open);
-    expect(open.map((d) => d.querySelector("summary h4")?.textContent)).toEqual(["What it may do"]);
-    expect(open[0].querySelector("#policies")).toBeTruthy();
+    expect(open.map((d) => d.querySelector("summary h4")?.textContent)).toEqual(["More settings"]);
+    expect(open[0].querySelector("#objections")).toBeTruthy();
   });
 });
 
@@ -205,22 +220,6 @@ describe("the occasional actions are in the menu", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "See what the agent reads" }));
     expect(await screen.findByText("FULL TEXT")).toBeTruthy();
     expect(calls.some((c) => c.path.endsWith("/script/preview"))).toBe(true);
-  });
-});
-
-describe("partSummaries", () => {
-  it("reads plainly when nothing is written", () => {
-    expect(partSummaries(EMPTY_SCRIPT, null)).toMatchObject({
-      identity: "Not written yet",
-      objections: "None yet",
-      policies: "Offers call backs · tells prices · takes bookings",
-      example: "None yet",
-    });
-  });
-
-  it("never offers call backs on a trial", () => {
-    const context = { call_backs_available: false } as Parameters<typeof partSummaries>[1];
-    expect(partSummaries(EMPTY_SCRIPT, context).policies).toMatch(/^No call backs/);
   });
 });
 
@@ -264,13 +263,20 @@ const PROPOSAL: ScriptProposal = {
 describe("asking Pip to change the script (D-820)", () => {
   it("prefills Pip with the request and sends nothing itself", async () => {
     const asked = listenToPip();
-    const { calls } = await renderClientPage(page, routes(out(FULL)));
-    fireEvent.click(await screen.findByRole("button", { name: "Let Pip do it" }));
+    const { calls } = await renderClientPage(
+      page,
+      routes(out(FULL), { "/v1/business-profile": businessProfileFixture() }),
+    );
+    // Empty, the ask says what is missing rather than sending nothing.
+    const ask = await screen.findByRole("button", { name: "Ask Pip" });
+    await waitFor(() => expect((ask as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(ask);
+    expect(await screen.findByText("Write what should change.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("What should change?"), {
       target: { value: "Offer free delivery when someone asks for a discount" },
     });
-    fireEvent.submit(screen.getByLabelText("What should change?").closest("form") as HTMLFormElement);
-    fireEvent.click(screen.getByRole("button", { name: /Handle callers who say the price is too high$/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask Pip" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Handle callers who say the price is too high$/ }));
     fireEvent.click(screen.getByRole("button", { name: /^Let Pip draft the whole script: / }));
     expect(asked.map((a) => a.prompt)).toEqual([
       "Change this agent's script: Offer free delivery when someone asks for a discount",
@@ -278,6 +284,20 @@ describe("asking Pip to change the script (D-820)", () => {
       "Draft the whole script for this agent. Ask me the six questions first.",
     ]);
     expect(calls.some((c) => c.method === "POST" && !c.path.endsWith("/preview"))).toBe(false);
+  });
+
+  it("offers the price idea only to a business that quotes prices", async () => {
+    await renderClientPage(
+      page,
+      routes(out(FULL), {
+        "/v1/business-profile": businessProfileFixture({
+          wording: { ...NEUTRAL_WORDING, price_label: null },
+          services: [{ name: "Haircut", price_inr: "", notes: null }],
+        }),
+      }),
+    );
+    expect(await screen.findByRole("button", { name: /Make the opening line warmer and shorter$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /price is too high$/ })).toBeNull();
   });
 
   it("says while Pip is writing", async () => {
@@ -326,7 +346,7 @@ describe("asking Pip to change the script (D-820)", () => {
       page,
       routes(out(FULL), { "/v1/agents/agent-1/script/proposal": { proposal: PROPOSAL } }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Let Pip do it" }));
+    await screen.findByRole("button", { name: "Ask Pip" });
     await screen.findByRole("heading", { name: "1 suggested change" });
     await expectNoA11yViolations(container, "script page, Pip's ask and suggestion");
   });
@@ -342,5 +362,30 @@ describe("asking Pip to change the script (D-820)", () => {
     );
     expect(await screen.findByText("Pip could not write that suggestion")).toBeTruthy();
     expect(screen.getByText("This month's AI help allowance is used up.")).toBeTruthy();
+  });
+});
+
+describe("how closely it follows the steps", () => {
+  it("is a two-way switch that sends the same values the radios did", () => {
+    const sent: string[] = [];
+    function Strictness() {
+      const [value, setValue] = useState<"flexible" | "strict">("flexible");
+      return (
+        <StrictnessSection
+          value={value}
+          onChange={(next) => {
+            sent.push(next);
+            setValue(next);
+          }}
+        />
+      );
+    }
+    render(<Strictness />);
+    const group = screen.getByRole("radiogroup", { name: "How closely it follows the steps" });
+    expect(within(group).getByRole("radio", { name: "As a guide" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(group).getByRole("radio", { name: "Closely" }));
+    expect(within(group).getByRole("radio", { name: "Closely" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(group).getByRole("radio", { name: "As a guide" }));
+    expect(sent).toEqual(["strict", "flexible"]);
   });
 });
