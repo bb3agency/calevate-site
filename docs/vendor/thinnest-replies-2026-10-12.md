@@ -2561,3 +2561,62 @@ BEFORE speaking — audio loss on the line, or the caller speaking over a long r
 >
 > Thanks,
 > Umesh
+
+## 49. The agent's goodbye was cut off (Rytu Khata, 5 Nov 2026; DRAFTED 5 Nov 2026, unsent)
+
+What happened (production, Rytu Khata's campaign, agent Varsha, Telugu, outbound call of
+5 Nov 2026 at about 19:40 IST, 2:03 long): the agent's last line was
+"సరే అండి, అంతా అర్థమైంది కదా. థాంక్స్ అండి, ఉంటాను." and the line went dead while it was
+still being spoken; the person heard only its first words. Earlier calls also had the voice
+cutting out (§48).
+
+What is ruled out, from the docs and our code:
+
+- **We send no end phrases.** `voice.endPhrases` is always `[]` (`apps/api/engine/thinnest.py`
+  `PLATFORM_VOICE_VALUES`), so a word the caller said cannot have matched one.
+- **Our call rules do not ask for an early hang-up.** They say "then one goodbye, nothing more.
+  End only then or when asked, never while they talk" (`calevate_shared/engine.py`, the Close
+  bullet of the call rules). Ending the conversation after the goodbye is what the docs
+  describe ("after it has said goodbye and there is nothing left to do",
+  `snapshots/2026-10-29/pages/channels/voice.md:749-752`).
+- **There is no setting to make the agent finish its line before hanging up.** The docs say it
+  always does: "The closing line is always spoken first. The call ends when the agent has
+  finished talking, not part way through." (`voice.md:754-755`, same in the 19 Oct snapshot at
+  :602-603). `voice.endCallOnFinish` only decides whether the line is released after that
+  (`voice.md:772-791`).
+- **Get Call does not say who ended the call** (`hangup` is `answered` for any connected call,
+  `api-reference/calls/get-call.md:947-965`), so our rows cannot tell an agent hang-up from the
+  caller putting the phone down.
+
+What is left, and only ThinnestAI can tell: the platform also ends a call itself when the agent
+"says a goodbye and forgets to end the call", recognising Telugu goodbyes (`voice.md:768-770`).
+If that check reads the reply TEXT as it is written, rather than waiting for the voice to finish
+playing it, a goodbye at the end of a reply would end the call while the start of the same
+reply is still being spoken. That fits this call exactly, and is unproven.
+
+To read our own rows for the call before sending (ids and timings only):
+
+```bash
+sudo -u postgres psql -d calevate -c "SELECT c.engine_call_id, c.started_at AT TIME ZONE 'Asia/Kolkata' AS started_ist, c.duration_s, c.engine_quality->'interruptions' AS interruptions, (c.engine_timeline IS NOT NULL) AS has_timeline, c.ended_at AT TIME ZONE 'Asia/Kolkata' AS ended_ist FROM calls c JOIN agents a ON a.id = c.agent_id WHERE a.name = 'Varsha' AND c.started_at >= '2026-11-05 19:30+05:30' AND c.started_at < '2026-11-05 19:50+05:30' ORDER BY c.started_at;"
+```
+
+> Subject: Our agent's goodbye was cut off mid-sentence
+>
+> Hi Ashutosh,
+>
+> On 5 Nov at about 19:40 IST, on a Telugu outbound call from our Rytu Khata agent, the
+> agent's last reply was "సరే అండి, అంతా అర్థమైంది కదా. థాంక్స్ అండి, ఉంటాను." The call ended
+> while it was still speaking, and the person heard only the first few words. Your docs say
+> the closing line is always spoken first, and we send no end phrases.
+>
+> 1. On that call (I can send the call id), who ended it: the agent's end-call action, your
+>    goodbye check ("if your agent says a goodbye and forgets to end the call, we end it"),
+>    the silence timer, or the person?
+> 2. Does the goodbye check, or the end-call action, wait for the voice to finish playing the
+>    whole reply, or can it fire once the goodbye word is written while the start of the same
+>    reply is still being spoken?
+> 3. Is there a setting to keep the line open for a moment after the last word is played?
+> 4. Can Get Call or `call.completed` tell us who ended a call (agent, platform, caller)?
+>
+> Thanks,
+> Umesh
