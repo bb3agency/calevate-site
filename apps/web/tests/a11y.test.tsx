@@ -2516,6 +2516,7 @@ const CLIENT_SCREENS: Screen[] = [
         ],
         extraction_valid: true,
         unclear_fields: [],
+        interest_moments_label: "Buying signal",
         next_step_by: null,
         goal: null,
         moments: [

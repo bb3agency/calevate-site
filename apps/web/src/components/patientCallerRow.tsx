@@ -54,7 +54,7 @@ export function PatientCallerRow({
         hint={
           suggested && !preset.applied
             ? suggested
-            : "Waits while callers do something on their phone, instead of hanging up."
+            : "Waits while callers do something on their phone."
         }
         info={
           <>

@@ -139,6 +139,7 @@ function performance(over: Partial<Performance> = {}): Performance {
     avg_duration_s: 154,
     outcomes: { appointment_booked: 14, no_answer: 8, enquiry: 29 },
     busiest_hours_ist: Array.from({ length: 24 }, () => 0),
+    business_outcomes: [],
     ...over,
   };
 }

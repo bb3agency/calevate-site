@@ -142,7 +142,7 @@ describe("the teach box's example is the account's own", () => {
   it("names what happens next and labels the action by it", async () => {
     await renderClientPage(<TeachBox allowed reason={null} />, { ...TEACH_READS, "/v1/business-copy": LANDED });
     expect(await screen.findByRole("button", { name: "Teach this" })).toBeTruthy();
-    expect(screen.getByText("Pip sorts it into facts and rules. You check each one before it is saved.")).toBeTruthy();
+    expect(screen.getByText("Pip sorts it into facts. You check each before saving.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Let Pip/ })).toBeNull();
   });
 

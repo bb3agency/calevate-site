@@ -69,6 +69,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     ],
     extraction_valid: true,
     unclear_fields: [],
+    interest_moments_label: "Buying signal",
     next_step_by: null,
     goal: null,
     has_recording: false,

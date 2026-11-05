@@ -193,7 +193,7 @@ export function TeachBox({ allowed, reason }: { allowed: boolean; reason: string
             <p className="text-meta text-ink-muted">{saved.note}</p>
           ) : (
             <p className="text-meta text-ink-muted">
-              {ASSISTANT_NAME} sorts it into facts and rules. You check each one before it is saved.
+              {ASSISTANT_NAME} sorts it into facts. You check each before saving.
             </p>
           )}
           {examples.length ? (
