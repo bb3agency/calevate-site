@@ -21,10 +21,16 @@ import { UNLISTED_NOTE, capturedValue, unlistedWords } from "@/lib/leadLabels";
 export function LeadCaptured({ session, leadId }: { session: Session; leadId: string }) {
   const captured = useLeadCaptured(session, leadId);
   if (captured.isLoading) return <Skeleton rows={2} label="Loading what was captured" />;
-  if (captured.error != null) {
-    return <ProblemNotice error={captured.error} onRetry={() => void captured.refetch()} />;
+  // Asks whether the answer ARRIVED: a paused query (offline) has no error and no data.
+  if (captured.error != null || !captured.data) {
+    return (
+      <ProblemNotice
+        error={captured.error ?? new Error("What was captured did not load.")}
+        onRetry={() => void captured.refetch()}
+      />
+    );
   }
-  const fields = captured.data?.fields ?? [];
+  const fields = captured.data.fields;
   if (!fields.length) return null;
   const shown = (field: (typeof fields)[number]) => capturedValue(field) ?? unlistedWords(field);
   const given = fields.filter((field) => shown(field) !== null);

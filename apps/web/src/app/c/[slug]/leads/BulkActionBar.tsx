@@ -211,7 +211,7 @@ export function BulkActionBar({
           set is chosen, because "1,240 leads selected" alone does not say which 1,240. */}
       {selection.wholeQuery && count !== undefined ? (
         <p className="rounded-md bg-ink/[0.03] px-4 py-2.5 text-body text-ink-muted">
-          All {formatCount(count)} matching {count === 1 ? "lead" : "leads"} selected (
+          All {formatCount(count)} matching {count === 1 ? "person" : "people"} selected (
           {formatCount(Math.max(count - pageSize, 0))} on other pages).
         </p>
       ) : !selection.wholeQuery &&
@@ -236,7 +236,7 @@ export function BulkActionBar({
           say WHICH n. */}
       <SelectionBar
         count={count ?? pageSize}
-        noun={selection.wholeQuery ? "matching lead" : "lead on this page"}
+        noun={selection.wholeQuery ? "matching person" : "person on this page"}
         nounPlural={selection.wholeQuery ? "matching people" : "people on this page"}
         onClear={onClear}
       >
@@ -292,7 +292,7 @@ export function BulkActionBar({
       </SelectionBar>
       {count === undefined ? (
         <p className="text-meta text-ink-muted">
-          Couldn&apos;t count the matching leads. Reload to try again.
+          Couldn&apos;t count the matching people. Reload to try again.
         </p>
       ) : null}
 
@@ -311,7 +311,7 @@ export function BulkActionBar({
           onConfirm={run}
         >
           <p className="font-medium text-ink">
-            {selection.wholeQuery ? "Every matching lead, not just this page." : "The leads you ticked."}
+            {selection.wholeQuery ? "Everyone matching, not just this page." : "The people you ticked."}
           </p>
           <p>Saved in each lead&rsquo;s history.</p>
           <p>{action === "status" ? "Leads already at that stage are skipped." : "Leads they already own are skipped."}</p>

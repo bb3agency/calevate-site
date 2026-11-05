@@ -1,7 +1,7 @@
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { campaignPage, detailRoutes, pickDate, progressFixture } from "./campaignFixtures";
+import { campaignPage, detailRoutes, dltRegistrationRoute, pickDate, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
 import type {
   CampaignProgress,
@@ -357,6 +357,8 @@ describe("arming a schedule while the gate is refusing", () => {
       launched_at: null,
     }),
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,
+    // Calevate's telemarketer registration live: the national check is ours to run.
+    ...dltRegistrationRoute(true),
   };
 
   it("offers both forms with blockers outstanding, and still lists every blocker", async () => {

@@ -6,13 +6,13 @@ import { insightWords } from "@/app/c/[slug]/calls/[callId]/InsightsCard";
 import { listBlockerNote } from "@/app/c/[slug]/campaigns/blockerCopy";
 import { SAMPLE_CSV } from "@/app/c/[slug]/campaigns/contactList";
 import { HOME } from "@/app/c/[slug]/_ui/copy";
-import type { Stats } from "@/lib/api/analytics";
+import type { Stats, StatsMetric } from "@/lib/api/analytics";
 import { UNKNOWN_CAPABILITIES } from "@/lib/businessCapabilities";
 import { OUTCOME_KIND_WORDS } from "@/lib/callReview";
 import { clockRange, clockWords } from "@/lib/clock";
 import { GOAL_STAGE, stageLabel } from "@/lib/goalStage";
 
-const metric = (key: Stats["metrics"][number]["key"], value: string) => ({
+const metric = (key: StatsMetric["key"], value: string): StatsMetric => ({
   key,
   value,
   previous: value,
@@ -20,9 +20,13 @@ const metric = (key: Stats["metrics"][number]["key"], value: string) => ({
   higher_is_better: true,
 });
 
-const STATS = {
+const WINDOW = { days: 7, from_date: "2026-10-30", to_date: "2026-11-05", timezone: "Asia/Kolkata" } as const;
+
+const STATS: Stats = {
   metrics: [metric("calls", "4"), metric("answer_rate_pct", "100"), metric("leads", "2"), metric("hot_leads", "1")],
-} as unknown as Stats;
+  window: WINDOW,
+  previous_window: WINDOW,
+};
 
 describe("the business's own words (E-HOT, founder 5 Nov 2026)", () => {
   it("never names the hot stage by its key", () => {

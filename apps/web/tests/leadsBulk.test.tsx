@@ -214,7 +214,7 @@ describe("selection scope is never ambiguous", () => {
     await renderClientPage(<LeadsPage />, routes());
     await tick("Ramesh Kumar");
     expect(
-      await screen.findByText(/1 lead on this page selected/),
+      await screen.findByText(/1 person on this page selected/),
     ).toBeTruthy();
   });
 
@@ -225,7 +225,7 @@ describe("selection scope is never ambiguous", () => {
       routes({ "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140) }),
     );
     fireEvent.click(
-      await screen.findByLabelText("Select all leads on this page"),
+      await screen.findByLabelText("Select all people on this page"),
     );
 
     expect(
@@ -240,7 +240,7 @@ describe("selection scope is never ambiguous", () => {
     // is the whole risk of this control and it is stated rather than implied.
     expect(
       await screen.findByText(
-        /All 140 matching leads selected/,
+        /All 140 matching people selected/,
       ),
     ).toBeTruthy();
     expect(container.textContent).toContain("138 on other pages");
@@ -249,11 +249,11 @@ describe("selection scope is never ambiguous", () => {
   it("does not offer the whole query when the page already holds every matching lead", async () => {
     await renderClientPage(<LeadsPage />, routes());
     fireEvent.click(
-      await screen.findByLabelText("Select all leads on this page"),
+      await screen.findByLabelText("Select all people on this page"),
     );
     // The bar still names the scope and the count; what is absent is the escape hatch,
     // because there is nothing off-screen for it to reach.
-    await screen.findByText(/2 leads on this page selected/);
+    await screen.findByText(/2 people on this page selected/);
     expect(
       screen.queryByRole("button", { name: /matching these filters/ }),
     ).toBeNull();
@@ -301,9 +301,9 @@ describe("selection scope is never ambiguous", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: /^Hot/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: /^Goal reached/ }));
     fireEvent.click(
-      await screen.findByLabelText("Select all leads on this page"),
+      await screen.findByLabelText("Select all people on this page"),
     );
     fireEvent.click(
       await screen.findByRole("button", {
@@ -362,8 +362,8 @@ describe("selection scope is never ambiguous", () => {
       }),
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: /^Hot/ }));
-    fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
+    fireEvent.click(await screen.findByRole("radio", { name: /^Goal reached/ }));
+    fireEvent.click(await screen.findByLabelText("Select all people on this page"));
     fireEvent.click(
       await screen.findByRole("button", { name: /Select all 140 matching/ }),
     );
@@ -388,7 +388,7 @@ describe("selection scope is never ambiguous", () => {
       }),
     );
     await tick("Ramesh Kumar");
-    await screen.findByText(/1 lead on this page selected/);
+    await screen.findByText(/1 person on this page selected/);
 
     fireEvent.click(screen.getByRole("radio", { name: /^Won/ }));
     expect(
@@ -417,7 +417,7 @@ describe("selection scope is never ambiguous", () => {
     );
     await screen.findByText("Ramesh Kumar");
     expect(
-      await screen.findByLabelText("Select all leads on this page"),
+      await screen.findByLabelText("Select all people on this page"),
     ).toBeTruthy();
     expect(screen.getByLabelText("Select Ramesh Kumar")).toBeTruthy();
   });
@@ -431,7 +431,7 @@ describe("the confirmation states the consequences before the click", () => {
 
     const alert = await screen.findByRole("dialog", { name: /Set the stage to/ });
     expect(alert.textContent).toContain("1 lead");
-    expect(alert.textContent).toContain("The leads you ticked.");
+    expect(alert.textContent).toContain("The people you ticked.");
     // The `unchanged` bucket is promised BEFORE the run, so "3 were already there" in the
     // result is not a surprise the client reads as a fault.
     expect(
@@ -456,7 +456,7 @@ describe("the confirmation states the consequences before the click", () => {
       routes({ "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140) }),
     );
     fireEvent.click(
-      await screen.findByLabelText("Select all leads on this page"),
+      await screen.findByLabelText("Select all people on this page"),
     );
     fireEvent.click(
       await screen.findByRole("button", {

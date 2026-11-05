@@ -258,8 +258,6 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   numbers: [
     "attention",
     "own-numbers",
-    "number-holder",
-    "numbers-available",
     "campaign-numbers",
     "forwarding",
     // The declaration lists the rented numbers and which agent numbers are undeclared.

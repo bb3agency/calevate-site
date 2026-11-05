@@ -10,6 +10,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { expectNoA11yViolations } from "./a11y";
 import { renderClientPage, type ApiCall } from "./harness";
 import { PLAN_ID, planFixture } from "./planFixture";
+import { dltRegistrationRoute } from "./campaignFixtures";
 
 /**
  * Moving and calling off call-backs, one or many (D-893 L1), and the Calls screen's
@@ -141,6 +142,7 @@ describe("calling the unanswered again", () => {
   it("asks how they agreed, then shows the plan; nobody is called before Approve", async () => {
     const { calls } = await renderClientPage(<Again dialers={[DIALER]} />, {
       "/v1/me": OWNER,
+      ...dltRegistrationRoute(),
       "POST /v1/copilot/plans": planFixture({ tool: "calls_place_bulk" }),
       [`/v1/copilot/plans/${PLAN_ID}`]: planFixture({ tool: "calls_place_bulk" }),
     });

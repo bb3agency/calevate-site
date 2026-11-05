@@ -663,7 +663,7 @@ describe("the call screen's layout and robustness", () => {
   it("keeps the conversation readable when the API is older than the web (L3-06)", async () => {
     // A deploy where the API has not yet learned these fields: the screen used to fall to
     // "This screen stopped" on `unclear_fields.map`.
-    const old = detail({ extraction_valid: false }) as Partial<CallDetail>;
+    const old: Partial<CallDetail> = detail({ extraction_valid: false });
     delete old.unclear_fields;
     delete old.moments;
     delete old.mistakes;
