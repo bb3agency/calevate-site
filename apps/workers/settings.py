@@ -107,6 +107,7 @@ from apps.api.core.settings import (
 )
 from apps.api.db.session import get_engine
 from apps.api.live.capture import LIVE_DRAIN_S, drain_in_flight, install_change_capture
+from apps.api.ops.call_words_store import refresh_call_words
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
 from apps.api.ops.spoken_style_store import refresh_spoken_style
@@ -2109,6 +2110,9 @@ async def _boot(service: str) -> str:
     # before `startup` queues the platform prompt walk (D-739), so the revision that start
     # computes does not depend on whether the background poll has run yet.
     await refresh_spoken_style()
+    # The founder's call words (G-C2), installed before the first post-call job runs
+    # its checks, so a fresh worker does not judge its first calls on the file alone.
+    await refresh_call_words()
     return observability
 
 

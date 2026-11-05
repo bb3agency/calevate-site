@@ -11935,6 +11935,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/call-words": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every word list the call checks listen for */
+        get: operations["list_call_words_v1_ops_call_words_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/call-words/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One word list and its history */
+        get: operations["read_call_words_v1_ops_call_words__key__get"];
+        /**
+         * Save one word list, or put the shipped one back (step-up, audited)
+         * @description The whole entry in its shipped shape, or null for the shipped entry. Refused with a plain reason when a word or pattern does not compile, or would break the check it is part of. Every check uses it within a minute, without a deploy. Requires `X-Confirm-Action: change_call_words:<key>`.
+         */
+        put: operations["change_call_words_v1_ops_call_words__key__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/config": {
         parameters: {
             query?: never;
@@ -18145,6 +18183,84 @@ export interface components {
              */
             test_calls: boolean;
             when?: components["schemas"]["ViewDaysIn"] | null;
+        };
+        /** CallWordDetailOut */
+        CallWordDetailOut: {
+            /** Asked For */
+            asked_for: string | null;
+            /** Changed At */
+            changed_at: string | null;
+            /** Confirmation */
+            confirmation: string;
+            /** Edited */
+            edited: boolean;
+            /** Group */
+            group: string;
+            /** History */
+            history: components["schemas"]["RevisionOut"][];
+            /** Key */
+            key: string;
+            /** Note */
+            note: string | null;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "pattern" | "list" | "table";
+            /** Shipped */
+            shipped: string | string[] | {
+                [key: string]: unknown;
+            };
+            /** Value */
+            value: string | string[] | {
+                [key: string]: unknown;
+            };
+        };
+        /** CallWordIn */
+        CallWordIn: {
+            /** Note */
+            note?: string | null;
+            /** Value */
+            value: string | string[] | {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** CallWordOut */
+        CallWordOut: {
+            /** Asked For */
+            asked_for: string | null;
+            /** Changed At */
+            changed_at: string | null;
+            /** Confirmation */
+            confirmation: string;
+            /** Edited */
+            edited: boolean;
+            /** Group */
+            group: string;
+            /** Key */
+            key: string;
+            /** Note */
+            note: string | null;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "pattern" | "list" | "table";
+            /** Shipped */
+            shipped: string | string[] | {
+                [key: string]: unknown;
+            };
+            /** Value */
+            value: string | string[] | {
+                [key: string]: unknown;
+            };
+        };
+        /** CallWordsOut */
+        CallWordsOut: {
+            /** About */
+            about: string;
+            /** Entries */
+            entries: components["schemas"]["CallWordOut"][];
         };
         /** CallbackChangeOut */
         CallbackChangeOut: {
@@ -31617,6 +31733,25 @@ export interface components {
             gaps_minutes: number[];
             /** Max Attempts */
             max_attempts: number;
+        };
+        /** RevisionOut */
+        RevisionOut: {
+            /**
+             * Changed At
+             * Format: date-time
+             */
+            changed_at: string;
+            /**
+             * Changed By
+             * Format: uuid
+             */
+            changed_by: string;
+            /** Note */
+            note: string | null;
+            /** Value */
+            value: string | string[] | {
+                [key: string]: unknown;
+            } | null;
         };
         /** RevokedOut */
         RevokedOut: {
@@ -59791,6 +59926,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MistakeFixOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_call_words_v1_ops_call_words_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallWordsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_call_words_v1_ops_call_words__key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallWordDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    change_call_words_v1_ops_call_words__key__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallWordIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallWordDetailOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

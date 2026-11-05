@@ -246,6 +246,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.legal.routes import router as legal_readiness_router
     from apps.api.live.routes import router as live_router
     from apps.api.notifications.routes import router as notifications_router
+    from apps.api.ops.call_words_routes import router as ops_call_words_router
     from apps.api.ops.config_routes import rate_card_router as ops_rate_card_router
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.config_sources import router as ops_config_sources_router
@@ -644,6 +645,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(ops_engine_model_bands_router)
     # Ops > Spoken style: the founder reviews how agents speak each language (D-744).
     application.include_router(ops_spoken_style_router)
+    application.include_router(ops_call_words_router)
     # The ENCODER price attestation (D-608). Its own router for the voice one's reason and
     # one more of its own: an encoder identifier contains a slash, so its path parameter is
     # a `:path` and cannot share a prefix with `POST /v1/ops/model-prices/{model}`.

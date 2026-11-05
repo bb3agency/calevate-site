@@ -972,6 +972,36 @@ class SpokenStylePublication(Base):
     __table_args__ = (Index("ix_spoken_style_publications_language", "language", text("seq DESC")),)
 
 
+class CallWordRevision(Base):
+    """One change to one entry of the words the call checks listen for (G-C2), made on Ops >
+    Call words. Layered over `calevate_shared/call_words.json`, which stays the shipped
+    default: the newest revision of each `entry_key` is in force, and a NULL `value` puts the
+    shipped entry back. There is no separate publish step because a save is already
+    step-up confirmed and the checks only read words, they say nothing to a caller.
+    Append-only and platform-scoped: the words belong to no tenant, and the history is the
+    record of who changed which list."""
+
+    __tablename__ = "call_word_revisions"
+
+    #: Also the version every process compares to decide whether to reload.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    #: `<module>.<name>`, a key of the file's `entries`.
+    entry_key: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The whole entry: a pattern, a list of words or a table by language.
+    value: Mapped[Any | None] = mapped_column(JSONB)
+    #: Why it changed, in the editor's words.
+    note: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("char_length(note) <= 300", name="note_length"),
+        Index("ix_call_word_revisions_entry", "entry_key", text("seq DESC")),
+    )
+
+
 class PlatformVoiceComparisonRound(PKMixin, Base):
     """One blind listening round (D-946): the admin's chosen voices from two providers, the
     sentences, and when it was finished. Platform data: the voices are our own provider
@@ -1057,6 +1087,7 @@ __all__ = [
     "MAINTENANCE_OPEN_STATES",
     "MAINTENANCE_STATES",
     "USD_PER_MTOK",
+    "CallWordRevision",
     "FxRateObservation",
     "PlatformAlert",
     "PlatformConfigVersion",

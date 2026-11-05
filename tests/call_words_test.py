@@ -14,6 +14,7 @@ import ast
 import io
 import re
 import tokenize
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -109,3 +110,119 @@ def test_detector_words_live_in_one_file() -> None:
         assert INDIC.search(call_words.say(key))
     assert says_ai("I am an AI assistant")
     assert says_recorded("This call is recorded")
+
+
+# ═══════════════ the console's edits reach a running check (G-C2) ═══════════════
+
+
+@pytest.fixture
+def _file_alone() -> Iterator[None]:
+    call_words.install(None)
+    yield
+    call_words.install(None)
+
+
+def test_an_installed_edit_rebuilds_the_pattern_without_a_restart(_file_alone: None) -> None:
+    from calevate_shared.opening_notices import says_ai
+
+    assert not says_ai("zzqmachine speaking")
+    entry = call_words.shipped()["opening_notices.AI_WORDS"]
+    call_words.install({"opening_notices.AI_WORDS": f"{entry}|zzqmachine"})
+    assert says_ai("zzqmachine speaking")
+    call_words.install(None)
+    assert not says_ai("zzqmachine speaking")
+
+
+def test_an_override_the_code_cannot_read_is_skipped(_file_alone: None) -> None:
+    """A key a release removed, or a value in a shape the file no longer ships, stays out:
+    the code reading the entry was written against the file."""
+    call_words.install({"no.such_key": "x", "detection.stalls": ["a list"]})
+    assert call_words.keys().isdisjoint({"no.such_key"})
+    assert isinstance(call_words.say("detection.stalls"), str)
+
+
+def test_a_rebuild_that_fails_keeps_the_last_good_value(
+    _file_alone: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = call_words.LivePattern(lambda: call_words.say("detection.stalls") + "|zzq")
+    assert live.search("zzq")
+    # Past `install`'s checks on purpose: a value that slipped by the save.
+    monkeypatch.setattr(
+        call_words, "_installed", {**call_words.shipped(), "detection.stalls": "(unclosed"}
+    )
+    monkeypatch.setattr(call_words, "_generation", call_words.generation() + 1)
+    assert live.search("zzq")
+
+
+_READERS = frozenset({"say", "words", "extend", "table"})
+
+
+def _module_level_reads(path: Path) -> list[int]:
+    """Lines where `path` reads an entry outside any function or lambda: a value fixed at
+    import, which an edit on the console would never reach."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    aliases = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "calevate_shared.call_words"
+        for alias in node.names
+        if alias.name in _READERS
+    }
+    found: list[int] = []
+
+    def visit(node: ast.AST) -> None:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            return
+        if isinstance(node, ast.Call):
+            func = node.func
+            if (isinstance(func, ast.Name) and func.id in aliases) or (
+                isinstance(func, ast.Attribute)
+                and func.attr in _READERS
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "call_words"
+            ):
+                found.append(node.lineno)
+        for child in ast.iter_child_nodes(node):
+            visit(child)
+
+    visit(tree)
+    return found
+
+
+def test_no_check_fixes_its_words_at_import() -> None:
+    """G-C2: every read of an entry happens inside a function, a lambda or a `Live`, so an
+    edit on Ops > Call words reaches the check without a restart. A module that builds a
+    pattern from the words at import must wrap it in `call_words.Live` / `LivePattern`."""
+    offenders: dict[str, list[int]] = {}
+    for root in ("apps", "packages/shared/src"):
+        for path in sorted((ROOT / root).rglob("*.py")):
+            if path.name == "call_words.py" or "call_words" not in path.read_text(encoding="utf-8"):
+                continue
+            lines = _module_level_reads(path)
+            if lines:
+                offenders[path.relative_to(ROOT).as_posix()] = lines
+    assert offenders == {}
+
+
+def test_every_shipped_entry_passes_the_editors_own_checks() -> None:
+    """The save refuses what the file itself would fail, so the file must pass."""
+    found = {k: call_words.problems(k, v) for k, v in call_words.shipped().items()}
+    assert {k: v for k, v in found.items() if v} == {}
+
+
+def test_the_editor_refuses_what_would_break_a_check() -> None:
+    from apps.api.insights import detection
+
+    assert detection._NONANSWER_RE.search("let me check")
+    assert call_words.problems("detection.stalls", "(unclosed")
+    assert call_words.problems("detection.stalls", ["a", "list"])
+    assert call_words.problems("detection.stalls", "a|")  # matches every call
+    assert call_words.problems("detection.topic.pricing", "a pattern")
+    assert call_words.problems("no.such_key", "x")
+    # A table keeps its rows' width and may gain a language.
+    rule = [["rule_id", r"\bnahi\b"]]
+    assert call_words.problems("optout.patterns", {"ta": rule}) == []
+    assert call_words.problems("optout.patterns", {"ta": [["only_an_id"]]})
+    assert call_words.problems("optout.patterns", {"Tamil": rule})
+    assert call_words.trial("detection.stalls", "(?i)zzq").failures
+    assert call_words.trial("detection.stalls", None).failures == ()

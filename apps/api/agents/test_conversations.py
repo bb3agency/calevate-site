@@ -74,6 +74,8 @@ from uuid import UUID
 
 from calevate_shared import spoken_lines
 from calevate_shared.call_script import upgrade_to_v2
+from calevate_shared.call_words import Live as _Live
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.engine import placed_call_line
@@ -736,8 +738,8 @@ _SAID_NOBODY_CAN_TAKE_IT: Final = (
 #: A reply promising to put the caller through right now: "connecting you", "కలుపుతున్నాను",
 #: "transfer చేస్తున్నాను", "जोड़ रहा हूँ". "Our team will call you" is not one. The
 #: Indian-language forms are the founder's (`call_words.json`).
-_PRETENDS_TO_CONNECT: Final = re.compile(
-    _extend(
+_PRETENDS_TO_CONNECT: Final = _LivePattern(
+    lambda: _extend(
         r"\b(?:connecting you|i(?:['\N{RIGHT SINGLE QUOTATION MARK}]ll| will| am"
         r"|['\N{RIGHT SINGLE QUOTATION MARK}]m) (?:now )?(?:connect|transfer|put)"
         r"(?:ing)? you|putting you through|transferring (?:you|your call))\b",
@@ -2007,8 +2009,12 @@ MissingFact = Literal["prices"]
 #: Something that reads as a price in a fact or a knowledge document: a rupee sign or word, a
 #: "price" word in English, Telugu or Hindi (the founder's, `call_words.json`), or the "450/-"
 #: form. Postgres regex.
-PRICE_PATTERN: Final = _extend(
-    r"₹|\mrs\.?\s?[0-9]|rupee|\minr\M|\mprice|\m[0-9]+\s*/-", "test_conversations.PRICE_PATTERN"
+PRICE_PATTERN: Final = _Live(
+    lambda: _extend(
+        r"₹|\mrs\.?\s?[0-9]|rupee|\minr\M|\mprice|\m[0-9]+\s*/-",
+        "test_conversations.PRICE_PATTERN",
+    ),
+    postgres=True,
 )
 
 
@@ -2037,7 +2043,7 @@ async def missing_facts(session: AsyncSession) -> list[MissingFact]:
                 "jsonb_array_elements(p.services) AS item "
                 "WHERE COALESCE(item->>'price_inr', '') <> '')"
             ),
-            {"pattern": PRICE_PATTERN},
+            {"pattern": PRICE_PATTERN()},
         )
     ).scalar_one()
     return [] if has_price else ["prices"]

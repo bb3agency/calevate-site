@@ -390,6 +390,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/ops/rate-card",
     "admin/ops/secrets",
     "admin/ops/spoken-style",
+    "admin/ops/call-words",
     "admin/ops/voices",
     "admin/ops/voice-comparison",
     "ops/config-sources",

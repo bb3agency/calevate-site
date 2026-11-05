@@ -14,6 +14,7 @@ import {
   Headphones,
   HeartPulse,
   CirclePause,
+  Ear,
   KeyRound,
   Languages,
   Megaphone,
@@ -258,6 +259,16 @@ export const ADMIN_NAV: NavGroup[] = [
         icon: Languages,
         permission: "ops:manage",
         action: "review how agents speak each language",
+      },
+      {
+        // The words the call checks listen for (G-C2): the founder writes and corrects them
+        // here, and every check uses a save within a minute. `ops:manage` is what every route
+        // the screen calls carries (`apps/api/ops/call_words_routes.py`).
+        href: "/admin/ops/call-words",
+        label: "Call words",
+        icon: Ear,
+        permission: "ops:manage",
+        action: "change the words the call checks listen for",
       },
       {
         // PLANNED MAINTENANCE. Its own entry rather than a panel on Operations, for the

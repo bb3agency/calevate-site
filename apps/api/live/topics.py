@@ -249,6 +249,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "platform_voice_comparison_rounds": "platform",
     "platform_voice_comparison_trials": "platform",
     "platform_mistake_fixes": "platform",
+    "call_word_revisions": "platform",
     "spoken_style_publications": "platform",
     "spoken_style_revisions": "platform",
 }

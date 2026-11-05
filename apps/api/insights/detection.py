@@ -46,6 +46,8 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
+from calevate_shared.call_words import Live as _Live
+from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import say as _say
 from calevate_shared.call_words import words as _words
 
@@ -76,12 +78,14 @@ class Turn(Protocol):
 # The agent SAYING it cannot answer. Word-bounded; the Indian-language forms ("I don't know",
 # "can't say", "no idea" as callers' agents say them in Telugu and Hindi) are founder-owned
 # data (`call_words.json`, `detection.dont_know`).
-_DONT_KNOW_RE = re.compile(
-    r"(?<!\w)(?:"
-    r"i\s+(?:don'?t|do\s+not)\s+know|"
-    r"i'?m\s+not\s+sure|i\s+am\s+not\s+sure|"
-    r"i\s+don'?t\s+have\s+(?:that|the|any)|we\s+don'?t\s+have\s+that\s+(?:info|information)|"
-    r"not\s+sure\s+about\s+(?:that|this)|" + _say("detection.dont_know") + r")(?!\w)",
+_DONT_KNOW_RE = _LivePattern(
+    lambda: (
+        r"(?<!\w)(?:"
+        r"i\s+(?:don'?t|do\s+not)\s+know|"
+        r"i'?m\s+not\s+sure|i\s+am\s+not\s+sure|"
+        r"i\s+don'?t\s+have\s+(?:that|the|any)|we\s+don'?t\s+have\s+that\s+(?:info|information)|"
+        r"not\s+sure\s+about\s+(?:that|this)|" + _say("detection.dont_know") + r")(?!\w)"
+    ),
     re.IGNORECASE,
 )
 
@@ -91,20 +95,22 @@ _DONT_KNOW_RE = re.compile(
 # that is the answer, and on the Rytu Khata calls of 4 Nov 2026 the channel name alone made
 # it a question the agent could not answer (L5-06). An "I don't know" beside the send is
 # still `dont_know` above.
-_DEFERRED_RE = re.compile(
-    r"(?<!\w)(?:"
-    r"(?:the\s+)?team\s+will\s+(?:call|get\s+back|reach|contact|send|whats\s?app)|"
-    r"(?:have|get)\s+(?:someone|the\s+team|our\s+team)\s+(?:to\s+)?(?:call|contact|whats\s?app)|"
-    r"someone\s+will\s+(?:call|contact|get\s+back)|"
-    r"call\s+you\s+back|get\s+back\s+to\s+you|"
-    # Sending what the agent could have SAID (a price, the details) is a punt; sending a
-    # thing (a link, a form, a photo) is not, whatever channel carries it.
-    r"(?:send|share|whats\s?app)\s+(?:you\s+)?(?:the\s+|our\s+|all\s+the\s+)?"
-    r"(?:prices?|pricing|rates?|cost|details|information|info)\b|"
-    r"(?:message|whats\s?app|call|contact|email|reach)\s+us\b|"
-    r"(?:visit|check)\s+(?:our|the)\s+(?:website|page|office|shop)|"
-    + _say("detection.later_by_a_person")
-    + r")(?!\w)",
+_DEFERRED_RE = _LivePattern(
+    lambda: (
+        r"(?<!\w)(?:"
+        r"(?:the\s+)?team\s+will\s+(?:call|get\s+back|reach|contact|send|whats\s?app)|"
+        r"(?:have|get)\s+(?:someone|the\s+team|our\s+team)\s+(?:to\s+)?(?:call|contact|whats\s?app)|"
+        r"someone\s+will\s+(?:call|contact|get\s+back)|"
+        r"call\s+you\s+back|get\s+back\s+to\s+you|"
+        # Sending what the agent could have SAID (a price, the details) is a punt; sending a
+        # thing (a link, a form, a photo) is not, whatever channel carries it.
+        r"(?:send|share|whats\s?app)\s+(?:you\s+)?(?:the\s+|our\s+|all\s+the\s+)?"
+        r"(?:prices?|pricing|rates?|cost|details|information|info)\b|"
+        r"(?:message|whats\s?app|call|contact|email|reach)\s+us\b|"
+        r"(?:visit|check)\s+(?:our|the)\s+(?:website|page|office|shop)|"
+        + _say("detection.later_by_a_person")
+        + r")(?!\w)"
+    ),
     re.IGNORECASE,
 )
 
@@ -118,10 +124,12 @@ _ASKED_FOR_A_PERSON_RE = re.compile(
 # The agent STALLING on a direct question without answering or committing to a channel:
 # "let me check", "I'll find out". Weaker than the two above and only counted when the
 # caller actually asked something — otherwise "let me check your booking" is a normal turn.
-_NONANSWER_RE = re.compile(
-    r"(?<!\w)(?:"
-    r"let\s+me\s+check|let\s+me\s+find\s+out|i'?ll\s+find\s+out|i\s+will\s+find\s+out|"
-    r"i\s+need\s+to\s+check|i\s+have\s+to\s+check|" + _say("detection.stalls") + r")(?!\w)",
+_NONANSWER_RE = _LivePattern(
+    lambda: (
+        r"(?<!\w)(?:"
+        r"let\s+me\s+check|let\s+me\s+find\s+out|i'?ll\s+find\s+out|i\s+will\s+find\s+out|"
+        r"i\s+need\s+to\s+check|i\s+have\s+to\s+check|" + _say("detection.stalls") + r")(?!\w)"
+    ),
     re.IGNORECASE,
 )
 
@@ -144,8 +152,8 @@ _TOPIC_NAMES: Final[tuple[tuple[str, str], ...]] = (
     ("payment", "Payment options"),
     ("documents", "Documents & eligibility"),
 )
-_TOPICS: Final[tuple[tuple[str, str, tuple[str, ...]], ...]] = tuple(
-    (key, label, _words(f"detection.topic.{key}")) for key, label in _TOPIC_NAMES
+_TOPICS: Final[_Live[tuple[tuple[str, str, tuple[str, ...]], ...]]] = _Live(
+    lambda: tuple((key, label, _words(f"detection.topic.{key}")) for key, label in _TOPIC_NAMES)
 )
 
 #: The canonical topics each capability stands behind. A business judged not to have the
@@ -178,7 +186,7 @@ def withheld_topics(caps: Capabilities) -> frozenset[str]:
     )
 
 
-_STOPWORDS: Final[frozenset[str]] = frozenset(_words("detection.stopwords"))
+_STOPWORDS: Final[_Live[frozenset[str]]] = _Live(lambda: frozenset(_words("detection.stopwords")))
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -250,12 +258,13 @@ def _topic(caller_text: str, agent_text: str, withheld: Collection[str] = ()) ->
     to nothing falls to a single honest bucket rather than a blank label.
     """
     haystack = f"{caller_text} {agent_text}".lower()
-    for key, label, triggers in _TOPICS:
+    for key, label, triggers in _TOPICS():
         if key in withheld:
             continue
         if any(_contains_word(haystack, trigger) for trigger in triggers):
             return key, label
-    words = [w for w in _WORD_RE.findall(caller_text.lower()) if w not in _STOPWORDS and len(w) > 2]
+    stopwords = _STOPWORDS()
+    words = [w for w in _WORD_RE.findall(caller_text.lower()) if w not in stopwords and len(w) > 2]
     if not words:
         return "general", "General question"
     picked = words[:3]
@@ -272,7 +281,7 @@ def topics_in(value: str, withheld: Collection[str] = ()) -> frozenset[str]:
     haystack = value.lower()
     return frozenset(
         key
-        for key, _label, triggers in _TOPICS
+        for key, _label, triggers in _TOPICS()
         if key not in withheld and any(_contains_word(haystack, trigger) for trigger in triggers)
     )
 

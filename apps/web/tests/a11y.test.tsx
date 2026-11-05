@@ -2,6 +2,7 @@ import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 import { STYLE_LIST, TELUGU_STYLE } from "./fixtures/spokenStyle";
+import { CALL_WORDS } from "./fixtures/callWords";
 import {
   COMPARISON_ROUNDS,
   COMPARISON_SENTENCES,
@@ -66,6 +67,7 @@ import { DAILY_SUMMARY_PATH } from "@/lib/api/proof";
 import KitPage from "@/app/admin/ops/kit/page";
 import WhatsAppAdminPage from "@/app/admin/ops/whatsapp/page";
 import SpokenStylePage from "@/app/admin/ops/spoken-style/page";
+import CallWordsPage from "@/app/admin/ops/call-words/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import VoiceComparisonPage from "@/app/admin/ops/voice-comparison/page";
 import OperatorsPage from "@/app/admin/operators/page";
@@ -4972,6 +4974,20 @@ const ADMIN_SCREENS: Screen[] = [
       },
       "/v1/ops/spoken-style": STYLE_LIST,
       "/v1/ops/spoken-style/te-IN": TELUGU_STYLE,
+    },
+  },
+  {
+    // Ops > Call words (G-C2): a list of each shape, one waiting for the founder's
+    // words and one edited, so both pills, the notice and the filters are swept.
+    file: "admin/ops/call-words/page.tsx",
+    realm: "admin",
+    element: () => <CallWordsPage />,
+    routes: {
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/call-words": CALL_WORDS,
     },
   },
   {

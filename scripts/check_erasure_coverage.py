@@ -330,6 +330,11 @@ ERASURE_EXEMPT: dict[str, str] = {
         "style. Its free text is the reviewer's own name for the stamp and their note on the "
         "change; it names no caller and belongs to no tenant."
     ),
+    "call_word_revisions": (
+        "Platform-scoped (G-C2): the founder's edits to the words the call checks listen for. "
+        "Its `note` is the editor's reason for a change to a word list; it names no caller "
+        "and belongs to no tenant."
+    ),
     "credit_ledger": (
         "Append-only money (hard rules 4 and 7). Its `reason` is an authored code or an "
         "operator's note about a top-up or an adjustment — the client's commercial record, "

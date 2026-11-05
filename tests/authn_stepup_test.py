@@ -547,7 +547,10 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # `campaigns/archive_admin_routes.py`, `archive_confirmation` / `delete_confirmation`,
     # bound to the campaign): each takes something away from the client and tells them.
     # Restoring beside them gives back, and takes no gate.
-    assert sites == 92, f"found {sites} step-up call sites, expected 92; the census went stale"
+    # ONE MORE saves one list of the words the call checks listen for (G-C2,
+    # `ops/call_words_routes.py`, `change_confirmation`, bound to the entry): it reaches every
+    # check within a minute, and the do-not-call phrases decide which numbers can be dialled.
+    assert sites == 93, f"found {sites} step-up call sites, expected 93; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

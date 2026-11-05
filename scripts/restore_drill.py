@@ -295,6 +295,8 @@ _APPEND_ONLY_PROBE_SET = {
     # D-744: platform-scoped, no `tenant_id`. `approved` and `note` carry no constraint.
     "spoken_style_revisions": "approved = NOT approved",
     "spoken_style_publications": "note = coalesce(note, '') || 'x'",
+    # G-C2: platform-scoped, no `tenant_id`. `entry_key` carries no constraint.
+    "call_word_revisions": "entry_key = entry_key || 'x'",
 }
 
 
@@ -858,6 +860,10 @@ class RestoreDrill:
             f"created_by) VALUES ('te-IN', 'swap', 'drill', NULL, false, '{ADMIN_ID}')",
             "INSERT INTO spoken_style_publications (language, through_revision, "
             f"reviewer_name, published_by) VALUES ('te-IN', 0, 'restore drill', '{ADMIN_ID}')",
+            # G-C2: one call-word revision, for the same reason. A NULL value is "the shipped
+            # entry", so a drill row changes no check.
+            "INSERT INTO call_word_revisions (entry_key, value, created_by) "
+            f"VALUES ('drill.key', NULL, '{ADMIN_ID}')",
             # D-678: one attested engine minute price, for the same reason. A FIXTURE.
             "INSERT INTO platform_engine_minute_prices (engine, rate_key, effective_from, "
             "inr_per_min, attested_by, source_note) VALUES ('thinnest', 'platform', now(), "
