@@ -41,7 +41,7 @@ from apps.api.tenancy import business_profile as bp
 from apps.api.tenancy.models import PROFILE_STEPS
 from apps.api.tenancy.profile_service import ProfilePatch, SetupAction, record_setup, save_profile
 from apps.api.tenancy.profile_wording import ProfileWording, read_wording
-from apps.api.tenancy.setup_nudges import on_dashboard, setup_nudges
+from apps.api.tenancy.setup_nudges import NudgeCause, on_dashboard, setup_nudges
 
 router = APIRouter(prefix="/v1/business-profile", tags=["business-profile"])
 admin_router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/business-profile", tags=["admin"])
@@ -66,6 +66,7 @@ class ProfileSetupNudgeOut(_Out):
 
     step: bp.StepId
     message: str
+    cause: NudgeCause
 
 
 class ProfileSetupOut(_Out):
@@ -196,7 +197,11 @@ async def render(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
                 nudges=nudges,
             ),
             nudges=[
-                ProfileSetupNudgeOut(step=n.step, message=n.message)  # type: ignore[arg-type]
+                ProfileSetupNudgeOut(
+                    step=n.step,  # type: ignore[arg-type]
+                    message=n.message,
+                    cause=n.cause,
+                )
                 for n in nudges
             ],
         ),
