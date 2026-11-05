@@ -10293,6 +10293,40 @@
       "CallLinesOut": {
         "additionalProperties": false,
         "properties": {
+          "account_ceiling": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Ceiling"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "applied_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied Lines"
+          },
           "call_lines": {
             "title": "Call Lines",
             "type": "integer"
@@ -10307,6 +10341,19 @@
               }
             ],
             "title": "Call Lines Chosen"
+          },
+          "engine_state": {
+            "enum": [
+              "ours",
+              "applied",
+              "applying"
+            ],
+            "title": "Engine State",
+            "type": "string"
+          },
+          "lines_elsewhere_at_most": {
+            "title": "Lines Elsewhere At Most",
+            "type": "integer"
           },
           "max_lines": {
             "title": "Max Lines",
@@ -10355,7 +10402,12 @@
           "min_lines",
           "max_lines",
           "paid_default",
-          "trial_default"
+          "trial_default",
+          "engine_state",
+          "applied_lines",
+          "applied_at",
+          "account_ceiling",
+          "lines_elsewhere_at_most"
         ],
         "title": "CallLinesOut",
         "type": "object"
@@ -14532,6 +14584,10 @@
         "additionalProperties": false,
         "description": "What the client sees of its own lines: the number in force, how many are busy now,\nand its request for more. Choosing the number stays the operator's (a commercial\ndecision), so the client asks rather than sets.",
         "properties": {
+          "being_applied": {
+            "title": "Being Applied",
+            "type": "boolean"
+          },
           "call_lines": {
             "title": "Call Lines",
             "type": "integer"
@@ -14563,7 +14619,8 @@
           "call_lines",
           "in_progress",
           "on_trial",
-          "max_lines"
+          "max_lines",
+          "being_applied"
         ],
         "title": "ClientCallLinesOut",
         "type": "object"
@@ -69107,7 +69164,7 @@
     },
     "/v1/admin/organizations/{org_id}/call-lines": {
       "get": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).",
         "operationId": "admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get",
         "parameters": [
           {
@@ -69146,7 +69203,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "put": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).",
         "operationId": "admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put",
         "parameters": [
           {

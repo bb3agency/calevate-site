@@ -240,6 +240,10 @@ class Organization(PKMixin, TimestampMixin, Base):
     #: How many calls this client may have at once (F7, `tenancy/call_lines`): NULL is
     #: Calevate's default, 2 for a paying client and 1 on a free trial.
     call_lines: Mapped[int | None] = mapped_column(Integer)
+    #: The calls at once the client's own voice workspace read back (`sync_engine_call_lines`),
+    #: and when. NULL until a sync succeeded. Migration f4c2a8e1b7d3.
+    call_lines_applied: Mapped[int | None] = mapped_column(Integer)
+    call_lines_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: Where the client wants to be warned that credit is running low, in rupees; NULL is
     #: Calevate's line (`billing.service.LOW_BALANCE_INR`). 0 turns the warning off; the
     #: empty-wallet warning is sent whatever this holds.

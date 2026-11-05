@@ -1461,12 +1461,12 @@ export interface paths {
         };
         /**
          * How many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).
          */
         get: operations["admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get"];
         /**
          * Set how many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).
          */
         put: operations["admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put"];
         post?: never;
@@ -17382,10 +17382,23 @@ export interface components {
         };
         /** CallLinesOut */
         CallLinesOut: {
+            /** Account Ceiling */
+            account_ceiling: number | null;
+            /** Applied At */
+            applied_at: string | null;
+            /** Applied Lines */
+            applied_lines: number | null;
             /** Call Lines */
             call_lines: number;
             /** Call Lines Chosen */
             call_lines_chosen: number | null;
+            /**
+             * Engine State
+             * @enum {string}
+             */
+            engine_state: "ours" | "applied" | "applying";
+            /** Lines Elsewhere At Most */
+            lines_elsewhere_at_most: number;
             /** Max Lines */
             max_lines: number;
             /** Min Lines */
@@ -19046,6 +19059,8 @@ export interface components {
          *     decision), so the client asks rather than sets.
          */
         ClientCallLinesOut: {
+            /** Being Applied */
+            being_applied: boolean;
             /** Call Lines */
             call_lines: number;
             /** In Progress */

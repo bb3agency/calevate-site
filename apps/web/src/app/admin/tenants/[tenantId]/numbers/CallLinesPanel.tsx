@@ -9,8 +9,10 @@
  * read offers no control, so an operator never saves over a value they could not see.
  *
  * When the client has asked for more, the request sits beside the control: who asked, how
- * many, their note. Saving a higher number closes it (the server does, in the same write);
- * Decline closes it with a reason the client reads. The console bell and the operators'
+ * many, their note. Saving a higher number answers it: at once on a free trial, and once the
+ * client's own workspace reads it back otherwise (`engine_state`); until then the panel says
+ * the voice platform does not hold it yet. Decline closes it with a reason the client reads.
+ * The account-wide ceiling sits beside the limit, so a grant past it is visible. The console bell and the operators'
  * email link here with `?focus=call-lines`, which opens the control at the number asked for.
  */
 
@@ -85,12 +87,27 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                 }
               >
                 {asked.requested_by ?? "Someone at the account"}, {formatIST(asked.created_at)}.
-                {asked.note ? ` “${asked.note}”` : ""} Saving a higher number answers it.
+                {asked.note ? ` “${asked.note}”` : ""}{" "}
+                {data.engine_state === "applying"
+                  ? "Answered once the voice platform holds the new number."
+                  : "Saving a higher number answers it."}
+              </NoticeBox>
+            )}
+            {data.engine_state === "applying" && (
+              <NoticeBox tone="warn" title="Not on the voice platform yet" role="status">
+                {data.applied_lines === null
+                  ? "Sent, not confirmed yet. "
+                  : `It still holds ${callsAtOnce(data.applied_lines)}. `}
+                If this stays, check{" "}
+                <a className={TEXT_ACTION} href="/admin/ops#stuck">
+                  stuck messages
+                </a>
+                .
               </NoticeBox>
             )}
             <SettingRows className="border-y border-line">
               <SettingRow
-                label="Calls at once"
+                label="Limit"
                 hint={
                   data.source === "organization"
                     ? "Set for this client"
@@ -103,7 +120,11 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                     A call over the limit is refused until one ends.
                   </p>
                 }
-                value={callsAtOnce(data.call_lines)}
+                value={
+                  data.engine_state === "applied"
+                    ? `${callsAtOnce(data.call_lines)}, confirmed`
+                    : callsAtOnce(data.call_lines)
+                }
                 action={
                   editing || !canWrite ? undefined : (
                     <button
@@ -120,6 +141,13 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
                   )
                 }
               />
+              {data.account_ceiling !== null && (
+                <SettingRow
+                  label="Account ceiling"
+                  hint="Shared by every client on the voice platform"
+                  value={accountLine(data.account_ceiling, data.lines_elsewhere_at_most)}
+                />
+              )}
             </SettingRows>
             {save.error && <ProblemNotice error={save.error} />}
             {editing && (
@@ -134,7 +162,7 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
               >
                 <NumberField
                   label="Calls at once"
-                  hint={`${data.min_lines} to ${data.max_lines}. Leave empty for the default.`}
+                  hint={limitHint(data)}
                   value={value}
                   onChange={setValue}
                   min={data.min_lines}
@@ -167,6 +195,21 @@ export function CallLinesPanel({ tenantId, canWrite }: { tenantId: string; canWr
       </Section>
     </div>
   );
+}
+
+/** "20 at once; other clients hold up to 14". Exported for the test. */
+export function accountLine(ceiling: number, elsewhere: number): string {
+  return `${ceiling} at once; other clients hold up to ${elsewhere}`;
+}
+
+/** The field's hint: its range, and the room left on the account when it is known. */
+export function limitHint(data: CallLines): string {
+  const range = `${data.min_lines} to ${data.max_lines}. Leave empty for the default.`;
+  if (data.account_ceiling === null) return range;
+  const room = data.account_ceiling - data.lines_elsewhere_at_most;
+  return room > 0
+    ? `${range} At least ${room} free on the account.`
+    : `${range} Other clients may already use the whole account.`;
 }
 
 function DeclineDialog({

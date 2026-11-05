@@ -177,7 +177,7 @@ function InEffect({ row }: { row: PlanRow | null }) {
     { label: "Spend ceiling (ours)", value: money(row.hard_cap_spend_inr) },
     { label: "Minute ceiling (ours)", value: row.hard_cap_minutes === null ? null : String(row.hard_cap_minutes) },
     { label: "Client's own spend cap", value: money(row.client_cap_spend_inr) },
-    { label: "Concurrent calls", value: String(row.concurrency_ceiling) },
+    { label: "Most campaign calls at once", value: String(row.concurrency_ceiling) },
     { label: "In effect from", value: row.effective_from ? formatIST(row.effective_from) : "always" },
     { label: "Until", value: row.effective_to ? formatIST(row.effective_to) : "further notice" },
   ].filter((entry) => entry.value !== null);
