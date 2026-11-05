@@ -54,7 +54,7 @@ log = get_logger(__name__)
 
 JOB_NAME: Final = JOB
 #: Part of the inputs hash, so a changed question re-judges every agent at its next trigger.
-PROMPT_VERSION: Final = 1
+PROMPT_VERSION: Final = 2
 TIMEOUT_S: Final = 30.0
 MAX_TOKENS: Final = 400
 SCRIPT_CHARS: Final = 6000
@@ -73,15 +73,14 @@ SYSTEM_PROMPT: Final = (
     "enough.\n"
     "give_time: during the call, does the agent ask the person to do something that keeps "
     "them quiet for a while, such as following steps on their phone, fetching a card or a "
-    "document, reading a number off a bill, or checking with someone at home? A receptionist "
-    "that answers questions, books, takes messages or transfers calls is no; so is an agent "
-    "that only tells people about an offer.\n"
+    "document, reading a number off a bill, or checking with someone at home? An agent that "
+    "only answers questions, books, takes messages, transfers calls or tells people about "
+    "an offer is no.\n"
     "The business's own analysis is given as a hint about the business as a whole; this "
     "agent's script decides. When the inputs do not say, the answer is no.\n"
     "For each, reason: when yes, one plain English sentence for the owner saying what the "
-    'agent does that makes it so, drawn from its script or campaign (for example: "She '
-    f'walks farmers through installing the app step by step."), at most {REASON_MAX} '
-    "characters, naming no technology company; when no, an empty string.\n"
+    "agent does that makes it so, in the words of its own script or campaign, at most "
+    f"{REASON_MAX} characters, naming no technology company; when no, an empty string.\n"
     'Return ONLY JSON: {"screen_guide": {"suggested": bool, "reason": str}, '
     '"give_time": {"suggested": bool, "reason": str}}.'
 )
