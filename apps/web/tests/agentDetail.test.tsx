@@ -845,22 +845,43 @@ describe("the numbers come from the server", () => {
 });
 
 describe("the two opening notices, and the answer neither of them reaches (D-163)", () => {
-  //: The fixture agent's opening, as the server composes it — shared by every test here so
-  //: that a case about the THIRD sentence (D-507) can say what the other two still are.
+  //: The fixture agent's `first_words`, shown as the server sent it.
   const OPENING =
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
 
-  it("renders the server's opening line verbatim and offers no way to reword it", async () => {
-    const { container } = await renderClientPage(page, routes());
+  it("renders the server's opening line verbatim, unquoted", async () => {
+    await renderClientPage(page, routes());
 
-    await screen.findByText(`“${OPENING}”`);
-    // The WORDING is still ours to write (hard rule 5): a client may switch a notice off,
-    // and may not retype it into something that no longer discloses. The screen SAYS so
-    // rather than leaving a quoted sentence with no control beside it to read as an
-    // oversight.
-    expect(container.textContent).toContain("cannot be edited here");
-    expect(container.textContent).toContain(
-      "every agent must have all of them on file",
+    const words = await screen.findByText(OPENING);
+    expect(words.textContent).toBe(OPENING);
+    expect(words.getAttribute("lang")).toBe("te-IN");
+  });
+
+  it("quotes no fixed notice sentence: the agent words the notices itself", async () => {
+    // With a switch on the agent mentions the notice in its own words, so a sentence shown
+    // here would be one it may never say. The columns are still on the API.
+    const GREETING = "Namaskaram! Sri Clinic, how can I help you today?";
+    const panelOf = async () => waitFor(() => card("What it says at the start of every call"));
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          script_opening_line: GREETING,
+          first_words: GREETING,
+          ai_disclosure_line: "FIXED AI SENTENCE",
+          recording_notice_line: "FIXED RECORDING SENTENCE",
+        }),
+      }),
+    );
+
+    const panel = await panelOf();
+    await within(panel).findByText(GREETING);
+    expect(panel.textContent).not.toContain("FIXED AI SENTENCE");
+    expect(panel.textContent).not.toContain("FIXED RECORDING SENTENCE");
+    expect(panel.querySelector("blockquote")).toBeNull();
+    expect(panel.textContent).not.toContain("“");
+    expect(panel.textContent).toContain(
+      "also mentions, in its own words, that it is an AI assistant and that the call is being recorded.",
     );
   });
 
@@ -883,37 +904,24 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
         ),
       );
 
-  it("says the memory sentence is spoken, and gives it no switch of its own (D-507)", async () => {
-    // An agent that remembers callers says so as a third sentence. It is bound to the
-    // MEMORY setting, so the screen shows it as a fact and must not grow a third switch —
-    // a toggle here would advertise a state ("remembers, says nothing") the product cannot
-    // be configured into.
+  it("has no memory row on an agent that remembers callers: that sentence is not spoken", async () => {
     const MEMORY = "I keep a short note of what you ask about.";
-    const { container } = await renderClientPage(
+    await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1": agent({
           caller_memory_enabled: true,
           caller_memory_paused: false,
           caller_memory_notice_line: MEMORY,
-          opening_line: `${OPENING} ${MEMORY}`,
         }),
       }),
     );
 
-    await screen.findByText(`“${MEMORY}”`);
-    // TWO NOTICE SWITCHES AND NO THIRD ONE BESIDE THE SENTENCE. The workspace does carry a
-    // third switch — the caller-continuity setting this sentence FOLLOWS — and that is the
-    // point of the panel's copy: the sentence is bound to that setting rather than to one
-    // of its own, so a toggle HERE would advertise a state ("remembers, says nothing") the
-    // product cannot be configured into.
+    const panel = await waitFor(() => card("What it says at the start of every call"));
+    await within(panel).findByText(OPENING);
     expect(noticeSwitches()).toHaveLength(2);
-    expect(container.textContent).toContain("No switch. Said while it remembers callers.");
-    // WHY it is being said, not just that it is: a client reading a three-sentence opening
-    // has to be able to find the setting that produced the third one.
-    expect(container.textContent).toContain(
-      "remembers what callers asked about",
-    );
+    expect(panel.textContent).not.toContain(MEMORY);
+    expect(panel.textContent).not.toContain("remembers callers");
   });
 
   it("asks an account on the old caller-memory statement to accept the new one (D-900)", async () => {
@@ -1059,16 +1067,6 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).not.toContain("Caller memory is paused");
   });
 
-  it("says nothing about memory for an agent that does not remember", async () => {
-    const { container } = await renderClientPage(page, routes());
-
-    await screen.findByText(`“${OPENING}”`);
-    expect(container.textContent).not.toContain("No switch. Said while it remembers callers.");
-    expect(container.textContent).not.toContain(
-      "Say that it remembers callers",
-    );
-  });
-
   it("puts the truthful-answer guarantee above the switches, in the server's words", async () => {
     // The one sentence that must not be paraphrased on the way to a client: the switches
     // change what the agent VOLUNTEERS, never what it ANSWERS. It comes from the API
@@ -1110,12 +1108,16 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       }),
     );
 
-    await screen.findByText(/^Nothing yet.$/);
-    // Never an empty quotation: a pair of empty quotes reads as "the agent says nothing",
-    // which is true of the OPENING and false of the call.
-    expect(container.textContent).not.toContain("“”");
-    // The two sentences a screen like this most easily omits.
-    expect(container.textContent).toContain("Calls are still recorded");
+    await screen.findByText("No opening line yet.");
+    // The two sentences a screen like this most easily omits, each beside its own switch.
+    const recording = screen.getByRole("switch", { name: /Say the call is being recorded/ });
+    const warning = document.getElementById(recording.getAttribute("aria-describedby") ?? "");
+    expect(warning?.textContent).toBe("Calls are still recorded. You must tell callers another way.");
+    expect(warning?.getAttribute("data-notice")).toBe("warn");
+    const ai = screen.getByRole("switch", { name: /Say it is an AI assistant/ });
+    expect(document.getElementById(ai.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      "Reception won't bring it up, but still says so if a caller asks.",
+    );
     // "DPDP" now carries a hover gloss, so it renders in its own element and the gloss
     // text interleaves with the sentence in textContent; assert the term and the phrases
     // around it rather than one contiguous run.
@@ -1126,9 +1128,9 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).toContain(
       "Act; with this off, it has to be covered by your own privacy notice or consent",
     );
-    // And, in both off-states, the agent still answers honestly when asked.
-    expect(container.textContent).toContain("If asked, it still says it is an AI.");
     expect(container.textContent).toContain("the agent still says yes");
+    // Nothing is switched on, so nothing is said to be mentioned.
+    expect(container.textContent).not.toContain("also mentions");
   });
 
   it("keeps the opening line when both notices are off: the switches never reach it (D-708)", async () => {
@@ -1147,25 +1149,30 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     );
 
     // What callers hear first is the agent's own greeting, not "nothing".
-    await screen.findByText(`“${GREETING}”`);
-    expect(container.textContent).not.toContain("Nothing yet.");
+    await screen.findByText(GREETING);
+    expect(container.textContent).not.toContain("No opening line yet.");
     expect(container.textContent).toContain("These switches never change it");
     expect(screen.getByRole("link", { name: "Edit the opening line" })).toBeTruthy();
   });
 
-  it("quotes the opening line and then the notices when the notices are on (D-861)", async () => {
+  it("shows the server's first words as sent, then names only the notices switched on", async () => {
     const GREETING = "How can I help you today?";
-    await renderClientPage(
+    const { container } = await renderClientPage(
       page,
       routes({
         "/v1/agents/agent-1": agent({
           script_opening_line: GREETING,
-          first_words: `${GREETING} ${OPENING}`,
+          first_words: GREETING,
+          recording_notice_enabled: false,
         }),
       }),
     );
 
-    await screen.findByText(`“${GREETING} ${OPENING}”`);
+    await screen.findByText(GREETING);
+    expect(container.textContent).toContain(
+      "Reception also mentions, in its own words, that it is an AI assistant.",
+    );
+    expect(container.textContent).not.toContain("that the call is being recorded");
   });
 
   it("sends only the switch that moved", async () => {
@@ -1200,6 +1207,9 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(JSON.parse(patched?.body ?? "{}")).toEqual({
       ai_disclosure_enabled: false,
     });
+    // The save is confirmed beside the heading, in a live region, not by a toast.
+    const saved = await screen.findByText("Saved. The next call uses this.");
+    expect(saved.getAttribute("role")).toBe("status");
   });
 
   it("does not hand staff switches the route refuses", async () => {

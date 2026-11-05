@@ -15,10 +15,8 @@
  *
  * ## Why it is not in `OpeningNotices`
  *
- * That panel is about what the agent SAYS, and the memory sentence appears there as a
- * fact with no toggle precisely because it follows this switch. Putting the switch there
- * too would have made a data decision look like a third announcement setting. They point
- * at each other in copy instead: flip this and the sentence appears there.
+ * That panel is about what the agent announces at the start of a call. Remembering callers
+ * is a data decision, and a switch there would make it look like a third announcement.
  *
  * ## The attestation is a refusal, not a checkbox
  *
