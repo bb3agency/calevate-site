@@ -9,7 +9,7 @@ Every test mints its own tenant; `_make_tenant`'s agent is live with a script.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import pytest
@@ -447,7 +447,6 @@ async def test_pip_asks_about_the_screen_when_the_business_analysis_suggests_it(
 ) -> None:
     """Founder, 4 Nov 2026: the owner is asked from what the business does, not only when a
     campaign's name happens to say "app"."""
-    from apps.api.copilot import agent_setup_actions
     from apps.api.tenancy import business_copy
 
     guide = business_copy.ScreenGuide(
@@ -455,7 +454,7 @@ async def test_pip_asks_about_the_screen_when_the_business_analysis_suggests_it(
     )
     state = business_copy.CopyState(
         # Only the screen judgement is read here, so the rest of the copy is not built.
-        copy=business_copy.GeneratedCopy.model_construct(screen_guide=guide),
+        copy=cast(Any, business_copy.GeneratedCopy).model_construct(screen_guide=guide),
         language="te-IN",
         model=None,
         generated_at=None,
@@ -470,7 +469,7 @@ async def test_pip_asks_about_the_screen_when_the_business_analysis_suggests_it(
     async def analysed(_session: object) -> business_copy.CopyState:
         return state
 
-    monkeypatch.setattr(agent_setup_actions.business_copy, "read_state", analysed)
+    monkeypatch.setattr(business_copy, "read_state", analysed)
     tenant_id, _slug, token = await _make_tenant()
     agent_id = await _agent(tenant_id)
     asked = await _run(
