@@ -1,8 +1,9 @@
 """The longest reply an agent may give (D-769): ThinnestAI's `maxReplyTokens`.
 
 Vendor shape: `thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/agents/
-update-agent.md:703-709,839-845` and create-agent.md:760-768 — an integer 100-800, default
-300, one ceiling for chat and calls, read back on the Agent the write answers with.
+update-agent.md:703-709,839-845` and create-agent.md:760-768 — an integer 100-800, vendor
+default 300 (ours 800), one ceiling for chat and calls, read back on the Agent the write
+answers with.
 """
 
 from __future__ import annotations
@@ -42,7 +43,7 @@ def _body(cfg: AgentConfig) -> dict[str, Any]:
 
 
 def test_every_agent_write_states_the_ceiling_default_or_its_own() -> None:
-    assert _body(_cfg())["maxReplyTokens"] == 300
+    assert _body(_cfg())["maxReplyTokens"] == 800
     assert _body(_cfg(max_reply_tokens=650))["maxReplyTokens"] == 650
 
 
@@ -172,8 +173,8 @@ async def test_an_operator_sets_and_clears_the_ceiling_audited_and_applied_live(
         assert first.json() == {
             "agent_id": str(agent_id),
             "max_reply_tokens": None,
-            "default": 300,
-            "effective": 300,
+            "default": 800,
+            "effective": 800,
             "min": 100,
             "max": 800,
         }
@@ -189,7 +190,7 @@ async def test_an_operator_sets_and_clears_the_ceiling_audited_and_applied_live(
         cleared = await client.patch(
             _path(tenant_id, agent_id), headers=operator, json={"max_reply_tokens": None}
         )
-        assert (cleared.json()["max_reply_tokens"], cleared.json()["effective"]) == (None, 300)
+        assert (cleared.json()["max_reply_tokens"], cleared.json()["effective"]) == (None, 800)
         refused = await client.patch(
             _path(tenant_id, agent_id), headers=operator, json={"max_reply_tokens": 900}
         )

@@ -2519,3 +2519,47 @@ reported `busy` for a reason on the calling side.
 >
 > Thanks,
 > Umesh
+
+## 48. The agent's voice cut out mid-word (Rytu Khata, 4 Nov 2026; DRAFTED 5 Nov 2026, unsent)
+
+What happened (production, Rytu Khata's campaign, agent Varsha, Telugu, outbound call of
+4 Nov 2026 at about 20:26 IST, 1:55 long): at 0:34 the agent began a long explanation and the
+transcript stops mid-word ("Type…"); at 0:45 the person said "your voice cut off in the
+middle". No turn of theirs appears between the two. The founder adds the call id from the
+Calls page before sending.
+
+Three causes fit the docs, and only their side can tell them apart:
+- the reply reached `maxReplyTokens`, which cuts a reply off at that point (§12 item 5,
+  VENDOR-STATED; `update-agent.md:756-762`, snapshot 2026-10-29). Every agent was sent 300,
+  the vendor's default, until 5 Nov 2026 and is now sent 800, the top of the range, unless an
+  operator set its own or the console holds another value;
+- a caller interruption: we send `interruptWords` 2 and, on a screen-guide agent,
+  `holdShortSpeech` false; a stop trims the transcript "to the part the caller actually
+  heard" (`channels/voice.md:1037-1041`, same snapshot), which would also end mid-word;
+- the call's voice connection failing (`call.problem` `voice_failed`, `get-call.md:312-316`).
+
+> Subject: An agent's voice stopped mid-word on a call
+>
+> Hi Ashutosh,
+>
+> On 4 Nov at about 20:26 IST, on call `<call id>`, our agent started a long answer about
+> 34 seconds in and stopped in the middle of a word; the person said "your voice cut off in
+> the middle" about ten seconds later. They had not spoken in between.
+>
+> 1. Why did the agent stop there: did the reply reach `maxReplyTokens`, was it stopped by
+>    something the person said or a sound on the line, or did the voice fail? If it was an
+>    interruption, what was heard?
+> 2. What does `maxReplyTokens` count on a call on our Gemini key: only the words that are
+>    spoken, or also text you strip before speech, a tool call's arguments, and any thinking
+>    tokens? Is it sent to Google as `maxOutputTokens`?
+> 3. When a reply is cut at the ceiling, is that recorded anywhere we can read (Get Call,
+>    Get Call Timeline, `quality`), and is the model told on the next turn, as it is after an
+>    interruption?
+> 4. Could a reply that reaches the ceiling end at the last full sentence instead of
+>    mid-word?
+> 5. With `interruptWords` 2 and `holdShortSpeech` false, can background noise that the
+>    recogniser hears as two words stop the agent, and is every such stop counted in
+>    `quality.interruptions` and shown as a turn in the transcript?
+>
+> Thanks,
+> Umesh

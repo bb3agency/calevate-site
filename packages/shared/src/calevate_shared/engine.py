@@ -4081,13 +4081,19 @@ class ByokVoiceTuning(BaseModel):
 
 
 #: The longest one agent reply may be, in tokens: one ceiling for every reply on a call, and
-#: a reply that reaches it is cut off there. 100-800 with 300 the default is ThinnestAI's
-#: `maxReplyTokens` (`thinnest-findings/mirror/snapshots/2026-10-13/pages/api-reference/
-#: agents/create-agent.md:760-768`, update-agent.md:839-845), so our default changes nothing
-#: a call does. Held here because the setting, the column CHECK and `AgentConfig` share them.
+#: a reply that reaches it is cut off there, mid-word if that is where it lands. ThinnestAI's
+#: `maxReplyTokens`, 100-800, vendor default 300 (`thinnest-findings/mirror/snapshots/
+#: 2026-10-29/pages/api-reference/agents/update-agent.md:756-762`; the cut, VENDOR-STATED in
+#: `docs/vendor/thinnest-replies-2026-10-12.md` §12 item 5). Our default is the top of the
+#: range rather than the vendor's 300: the prompt is what keeps a spoken turn short, and the
+#: ceiling only decides what happens to a reply that ignores it. Cut, the caller hears half
+#: a word and silence and cannot recover the rest; long, they can talk over it
+#: (`interruptWords`). How many tokens a Telugu turn takes on the call's model is not
+#: measured, so no lower number is known to be safe. Held here because the setting, the
+#: column CHECK and `AgentConfig` share them.
 REPLY_TOKENS_MIN: Final = 100
 REPLY_TOKENS_MAX: Final = 800
-REPLY_TOKENS_DEFAULT: Final = 300
+REPLY_TOKENS_DEFAULT: Final = REPLY_TOKENS_MAX
 
 #: How the engine decides the caller has finished speaking (`voice.turnDetection`,
 #: `snapshots/2026-10-19/pages/api-reference/agents/update-agent.md:1418-1439`): `timer`, a

@@ -491,8 +491,8 @@ class Settings(BaseSettings):
     #: price attested, and no Google access limit (`THINNEST_OWN_MODEL_DEFAULT`, D-817).
     thinnest_own_model_default: GoogleDirectModel = THINNEST_OWN_MODEL_DEFAULT
     #: The reply ceiling, in tokens, every agent with none of its own is published with
-    #: (D-769). A reply that reaches it is cut off mid-sentence; the default is the vendor's
-    #: own, so leaving it changes nothing a call does (`calevate_shared.engine.REPLY_TOKENS_*`).
+    #: (D-769). A reply that reaches it is cut off mid-sentence, so the default is the top of
+    #: the range, not the vendor's 300 (`calevate_shared.engine.REPLY_TOKENS_DEFAULT` says why).
     thinnest_reply_length: int = Field(
         default=REPLY_TOKENS_DEFAULT, ge=REPLY_TOKENS_MIN, le=REPLY_TOKENS_MAX
     )
