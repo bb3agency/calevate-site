@@ -14,7 +14,7 @@
 
 import { useId } from "react";
 
-import { FIELD, FIELD_HINT, FIELD_LABEL, FilterChip } from "@/components/ui";
+import { FIELD, FilterChip } from "@/components/ui";
 import { useCallOutcomes } from "@/lib/api/callOutcomes";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -63,54 +63,73 @@ function useGoalSuggestions(agentId: string): string[] {
     .slice(0, MAX_SUGGESTIONS);
 }
 
+/**
+ * The room left shows once there is a line to count: under an empty box "90 characters
+ * left" reads as an instruction to fill ninety characters.
+ */
+function Room({ id, text, room }: { id: string; text: string; room: number }) {
+  return text.trim() === "" ? null : <RoomCounter id={id} text={text} room={room} />;
+}
+
 export function BriefFields({ form, agentId }: { form: CampaignFormState; agentId: string }) {
   const purposeId = useId();
   const goalId = useId();
   const suggestions = useGoalSuggestions(agentId);
   return (
-    <div className="space-y-5">
-      <div className="max-w-xl">
-        <label htmlFor={purposeId} className={FIELD_LABEL}>
+    <div className="space-y-6">
+      <div>
+        <label htmlFor={purposeId} className="block text-body font-medium text-ink">
           Why are you calling them?
         </label>
-        <span className={FIELD_HINT}>The agent tells people this. Say it in your own words.</span>
+        <span id={`${purposeId}-hint`} className="mt-0.5 block text-meta text-ink-muted">
+          The agent says this to each person. Use your own words.
+        </span>
         <input
           id={purposeId}
           value={form.purpose}
           onChange={(e) => form.setPurpose(e.target.value)}
           maxLength={PURPOSE_MAX + 20}
-          aria-describedby={`${purposeId}-room`}
-          className={`${FIELD} mt-1.5`}
+          aria-describedby={`${purposeId}-hint ${purposeId}-room`}
+          className={`${FIELD} mt-2`}
         />
-        <RoomCounter id={`${purposeId}-room`} text={form.purpose} room={PURPOSE_MAX} />
+        <Room id={`${purposeId}-room`} text={form.purpose} room={PURPOSE_MAX} />
       </div>
 
-      <div className="max-w-xl">
-        <label htmlFor={goalId} className={FIELD_LABEL}>
+      <div>
+        <label htmlFor={goalId} className="block text-body font-medium text-ink">
           What should a good call end with?
         </label>
-        <span className={FIELD_HINT}>The agent aims for this. We count how many calls get there.</span>
-        {suggestions.length > 0 && (
-          <div role="group" aria-label="Goal suggestions" className="mt-1.5 flex flex-wrap gap-2">
-            {suggestions.map((label) => (
-              <FilterChip
-                key={label}
-                label={label}
-                active={form.goal.trim() === label}
-                onClick={() => form.setGoal(label)}
-              />
-            ))}
-          </div>
-        )}
+        <span id={`${goalId}-hint`} className="mt-0.5 block text-meta text-ink-muted">
+          The agent aims for this. We count the calls that do.
+        </span>
         <input
           id={goalId}
           value={form.goal}
           onChange={(e) => form.setGoal(e.target.value)}
           maxLength={GOAL_MAX + 20}
-          aria-describedby={`${goalId}-room`}
-          className={`${FIELD} mt-1.5`}
+          aria-describedby={`${goalId}-hint ${goalId}-room`}
+          className={`${FIELD} mt-2`}
         />
-        <RoomCounter id={`${goalId}-room`} text={form.goal} room={GOAL_MAX} />
+        <Room id={`${goalId}-room`} text={form.goal} room={GOAL_MAX} />
+        {/* Under the box, not above it: picked, a suggestion fills the box, so the box is
+            the answer and these are shortcuts to it. */}
+        {suggestions.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <span aria-hidden className="text-meta text-ink-muted">
+              Or pick one:
+            </span>
+            <div role="group" aria-label="Goal suggestions" className="flex flex-wrap gap-2">
+              {suggestions.map((label) => (
+                <FilterChip
+                  key={label}
+                  label={label}
+                  active={form.goal.trim() === label}
+                  onClick={() => form.setGoal(label)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

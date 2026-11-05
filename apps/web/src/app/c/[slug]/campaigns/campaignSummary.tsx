@@ -3,21 +3,21 @@
 import { Pencil } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { formatCount, formatPhone } from "@/components/ui";
+import { formatCount } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import type { CampaignNumber } from "@/lib/api/campaigns";
 import { lookup } from "@/lib/lookup";
 
 import { briefValue } from "./BriefFields";
 import type { CampaignFormState, ScheduleFormState } from "./campaignForm";
-import { CLASSIFICATIONS, CONSENT_SOURCES } from "./choices";
-import { campaignNumbers, describeHours, describeRetry } from "./NewCampaignSteps";
+import { CONSENT_SOURCES } from "./choices";
+import { placementWords, rulesWords } from "./NewCampaignSteps";
 import { describeRepeat } from "./scheduleCopy";
 
 /**
- * THE CAMPAIGN AS IT STANDS, worked out once and read in two places: the summary beside
- * the steps, and the review before Create. One derivation, so the rail and the review can
- * never disagree about what will be created.
+ * THE CAMPAIGN AS IT STANDS, worked out once from the form: the review before Create reads
+ * it, and its sentences are the ones the steps show beside "Change", so the review can never
+ * disagree with what will be created.
  */
 
 export interface SummaryRow {
@@ -71,30 +71,23 @@ function peopleWords({ form, leadsMatching }: Pick<SummaryInput, "form" | "leads
 
 export function summarize(input: SummaryInput): SummaryGroup[] {
   const { form, schedule, agent, numbers, concurrency } = input;
-  const number = campaignNumbers(numbers).find((n) => n.id === form.numberId);
   const purpose = briefValue(form.purpose);
   const goal = briefValue(form.goal);
   const source = lookup(Object.fromEntries(CONSENT_SOURCES.map((c) => [c.value, c.label])), form.consentSource);
   return [
     {
       step: 0,
-      title: "Basics",
+      title: "What it's for",
       rows: [
-        { label: "Name", value: form.name.trim() || "Not named yet", set: form.name.trim() !== "" },
-        { label: "Agent", value: agent?.name ?? "Not chosen", set: Boolean(agent) },
+        { label: "Who calls", value: agent?.name ?? "Not chosen", set: Boolean(agent) },
         { label: "Why you are calling", value: purpose ?? "Not said", set: purpose !== null },
-        { label: "Goal", value: goal ?? "Not said", set: goal !== null },
-        {
-          label: "Kind of call",
-          value: CLASSIFICATIONS.find((c) => c.value === form.classification)?.label ?? form.classification,
-          set: true,
-        },
-        { label: "Calling from", value: number ? formatPhone(number.e164) : "The agent's own number", set: true },
+        { label: "A good call ends with", value: goal ?? "Not said", set: goal !== null },
+        { label: "How the calls go out", value: placementWords(form, numbers), set: true },
       ],
     },
     {
       step: 1,
-      title: "People",
+      title: "Who to call",
       rows: [
         peopleWords(input),
         { label: "Where the list came from", value: source ?? "Not answered", set: source !== undefined },
@@ -102,12 +95,10 @@ export function summarize(input: SummaryInput): SummaryGroup[] {
     },
     {
       step: 2,
-      title: "Timing",
+      title: "When",
       rows: [
         { label: "Starts", value: startWords(schedule), set: true },
-        { label: "Calling hours", value: describeHours(form), set: true },
-        { label: "Calls at the same time", value: `Up to ${concurrency}`, set: true },
-        { label: "If nobody answers", value: describeRetry(form.retry), set: true },
+        { label: "Calling rules", value: rulesWords(form, concurrency), set: true },
       ],
     },
   ];
@@ -136,44 +127,28 @@ export function headline({ form, schedule, agent, leadsMatching }: SummaryInput)
   return `${who} will call ${people} ${when}.`;
 }
 
-/**
- * One group of the summary as a definition list. `onEdit` adds the jump back to the step
- * that asks it; `compact` is the rail's narrower, label-over-value form.
- */
-export function SummaryList({
-  group,
-  onEdit,
-  compact = false,
-}: {
-  group: SummaryGroup;
-  onEdit?: () => void;
-  compact?: boolean;
-}) {
+/** One group of the summary as a definition list; `onEdit` adds the jump back to its step. */
+export function SummaryList({ group, onEdit }: { group: SummaryGroup; onEdit?: () => void }) {
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <h4 className={compact ? "text-meta font-semibold text-ink-muted" : "text-body font-semibold text-ink"}>
-          {group.title}
-        </h4>
+        <h4 className="text-body font-semibold text-ink">{group.title}</h4>
         {onEdit ? (
           <button
             type="button"
             onClick={onEdit}
             aria-label={`Change ${group.title.toLowerCase()}`}
-            className={`${TEXT_ACTION} inline-flex items-center gap-1`}
+            className={`${TEXT_ACTION} inline-flex items-center gap-1 touch:min-h-11`}
           >
             <Pencil aria-hidden className="h-3 w-3" />
             Change
           </button>
         ) : null}
       </div>
-      <dl className={compact ? "mt-2 space-y-2" : "mt-3 divide-y divide-line"}>
+      <dl className="mt-2 space-y-2.5 sm:space-y-1.5">
         {group.rows.map((row) => (
-          <div
-            key={row.label}
-            className={compact ? "min-w-0" : "grid grid-cols-1 gap-x-4 gap-y-0.5 py-2.5 sm:grid-cols-[11rem_minmax(0,1fr)]"}
-          >
-            <dt className="text-meta text-ink-muted">{row.label}</dt>
+          <div key={row.label} className="grid grid-cols-1 gap-x-4 sm:grid-cols-[11rem_minmax(0,1fr)]">
+            <dt className="text-meta text-ink-muted sm:pt-px">{row.label}</dt>
             <dd className={`min-w-0 break-words text-body ${row.set ? "text-ink" : "text-ink-faint"}`}>{row.value}</dd>
           </div>
         ))}

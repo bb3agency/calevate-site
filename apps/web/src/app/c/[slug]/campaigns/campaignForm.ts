@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import {
   consentCollectedAt,
@@ -29,9 +29,25 @@ import { checkContacts, type CheckedList, type ContactEntry } from "./contactLis
  * Every initial value below carries an argument that is a compliance or safety property,
  * not a preference, and each is kept beside the field it belongs to.
  */
+/**
+ * The name a campaign gets from its goal until the owner types one: the goal and the day it
+ * was made, "Booked a visit, 5 Nov". An owner rarely knows what to call a list of calls, and
+ * a blank name was the one field every draft stopped on; the day tells two runs of the same
+ * goal apart in the list.
+ */
+export function nameFromGoal(goal: string, at: Date = new Date()): string {
+  const line = goal.trim().replace(/\s+/g, " ");
+  if (line === "") return "";
+  const day = at.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+  return `${line}, ${day}`;
+}
+
 export interface CampaignFormState {
   name: string;
+  /** Typed by the owner. A cleared name goes back to following the goal. */
   setName: (value: string) => void;
+  /** True while the name is the one made from the goal, not one the owner typed. */
+  nameFollowsGoal: boolean;
   /** Why these people are called, in the business's words (`campaigns.purpose`). */
   purpose: string;
   setPurpose: (value: string) => void;
@@ -79,9 +95,26 @@ export interface CampaignFormState {
 }
 
 export function useCampaignForm(): CampaignFormState {
-  const [name, setName] = useState("");
+  const [name, setNameValue] = useState("");
+  // A ref, not state: the edit page sets the saved name and then the saved goal in one
+  // effect, and a state flag read in that same closure would still say "follows the goal"
+  // and overwrite the name the draft was saved with.
+  const nameFollows = useRef(true);
+  const [nameFollowsGoal, setNameFollowsGoal] = useState(true);
+  const followGoal = (on: boolean) => {
+    nameFollows.current = on;
+    setNameFollowsGoal(on);
+  };
+  const setName = (value: string) => {
+    setNameValue(value);
+    followGoal(value.trim() === "");
+  };
   const [purpose, setPurpose] = useState("");
-  const [goal, setGoal] = useState("");
+  const [goal, setGoalValue] = useState("");
+  const setGoal = (value: string) => {
+    setGoalValue(value);
+    if (nameFollows.current) setNameValue(nameFromGoal(value));
+  };
   const [agentId, setAgentId] = useState("");
   const [classification, setClassification] = useState<Classification>("service");
   const [concurrency, setConcurrency] = useState(3);
@@ -127,7 +160,8 @@ export function useCampaignForm(): CampaignFormState {
    * twice.
    */
   const reset = () => {
-    setName("");
+    setNameValue("");
+    followGoal(true);
     setPurpose("");
     setGoal("");
     setContacts([]);
@@ -139,7 +173,7 @@ export function useCampaignForm(): CampaignFormState {
   };
 
   return {
-    name, setName,
+    name, setName, nameFollowsGoal,
     purpose, setPurpose,
     goal, setGoal,
     agentId, setAgentId,

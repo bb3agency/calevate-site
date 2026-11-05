@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
+import { nameFromGoal } from "@/app/c/[slug]/campaigns/campaignForm";
 import type { Agent } from "@/lib/api/agents";
 import type { CallOutcomes } from "@/lib/api/callOutcomes";
 import type { LaunchCheck } from "@/lib/api/campaigns";
@@ -164,6 +165,13 @@ function next(): void {
 }
 
 const PURPOSE_FIELD = "Why are you calling them?";
+/** The first step's question: what the calls are for comes before anything else. */
+const BASICS = "What are these calls for?";
+
+/** Opens the settings that already have an answer, e.g. "How the calls go out". */
+function change(title: string): void {
+  fireEvent.click(screen.getByRole("button", { name: `Change ${title.toLowerCase()}` }));
+}
 const GOAL_FIELD = "What should a good call end with?";
 
 /** The basics step's three typed answers: the name, why it calls and the goal. */
@@ -180,7 +188,7 @@ async function fillNew(
   { atWhoToCall = false }: { atWhoToCall?: boolean } = {},
 ): Promise<void> {
   if (!atWhoToCall) {
-    await screen.findByRole("heading", { name: "The basics" });
+    await screen.findByRole("heading", { name: BASICS });
     fillBasics(name);
     next();
   }
@@ -199,7 +207,7 @@ describe("the create page's consent declaration", () => {
     // Where the list came from is an audited statement. A pre-selected answer would be an
     // assertion nobody made, so the page opens empty and refuses to create without one.
     const { container } = await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: "The basics" });
+    await screen.findByRole("heading", { name: BASICS });
     fillBasics("List");
     next();
     await screen.findByRole("heading", { name: "Who should we call?" });
@@ -216,7 +224,8 @@ describe("the create page's consent declaration", () => {
 
   it("offers Service only while Calevate's telemarketer registration is not live, and never Transactional", async () => {
     await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: "The basics" });
+    await screen.findByRole("heading", { name: BASICS });
+    change("How the calls go out");
     expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
     expect(screen.queryByRole("radio", { name: /Promotional/ })).toBeNull();
     expect(screen.queryByRole("radio", { name: /Transactional/ })).toBeNull();
@@ -224,6 +233,8 @@ describe("the create page's consent declaration", () => {
 
   it("offers Promotional once the telemarketer registration is live", async () => {
     await renderClientPage(newCampaignPage(), newRoutes(dltRegistrationRoute(true)));
+    await screen.findByRole("heading", { name: BASICS });
+    change("How the calls go out");
     expect(await screen.findByRole("radio", { name: /Promotional/ })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
   });
@@ -274,13 +285,14 @@ describe("choosing which agent makes the calls (D-440)", () => {
         ],
       }),
     );
-    await screen.findByText("Which agent makes these calls");
-    const picker = container.querySelector<HTMLSelectElement>("select")!;
-    const options = Array.from(picker.options)
-      .map((o) => o.textContent)
+    const agents = await screen.findByRole("group", { name: "Which agent makes these calls" });
+    const options = within(agents)
+      .getAllByRole("radio")
+      .map((radio) => radio.closest("label")?.textContent ?? "")
       .join(" | ");
     expect(options).toContain("Follow-ups");
     expect(options).not.toContain("Retired dialler");
+    expect(container.textContent).not.toContain("Retired dialler");
   });
 
   it("marks an agent that cannot dial yet", async () => {
@@ -290,10 +302,13 @@ describe("choosing which agent makes the calls (D-440)", () => {
         "/v1/agents": [agentIn({ id: "a-draft", name: "Half built", status: "draft", published: false })],
       }),
     );
-    await screen.findByText("Which agent makes these calls");
-    expect(container.querySelector("select")!.options[0].textContent).toContain(
-      "not able to call out yet",
+    const agents = await screen.findByRole("group", { name: "Which agent makes these calls" });
+    expect(within(agents).getByRole("radio", { name: /Half built/ }).closest("label")?.textContent).toContain(
+      "Not calling yet",
     );
+    // Said kindly, with the way to fix it: the campaign can still be built.
+    expect(container.textContent).toContain("Build it now.");
+    expect(screen.getByRole("link", { name: "Open Half built" })).toBeTruthy();
   });
 
   it("does not claim there is no agent when /v1/agents failed", async () => {
@@ -346,6 +361,10 @@ describe("the number picker", () => {
         ],
       }),
     );
+    await screen.findByRole("heading", { name: BASICS });
+    // The number has an answer already, so it sits behind Change with that answer said.
+    expect(container.textContent).toContain("Service calls, from the agent's own number.");
+    change("How the calls go out");
     const picker = (await screen.findByRole("combobox", { name: /^Calling from/ })) as HTMLSelectElement;
     expect(Array.from(picker.options).map((o) => o.value)).toEqual(["", "n-ok", "n-other"]);
     expect(container.textContent).toContain("Any of your numbers. Every agent can call from them.");
@@ -433,7 +452,7 @@ describe("creating a campaign", () => {
         },
       }),
     );
-    await screen.findByRole("heading", { name: "The basics" });
+    await screen.findByRole("heading", { name: BASICS });
     fillBasics("Hot leads");
     next();
     await screen.findByRole("heading", { name: "Who should we call?" });
@@ -467,7 +486,7 @@ describe("creating a campaign", () => {
       }),
     );
     await fillNew(rendered.container);
-    fireEvent.click(screen.getByRole("button", { name: "Change timing" }));
+    change("When");
     fireEvent.click(await screen.findByRole("radio", { name: /At a set time/ }));
     next();
     expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
@@ -496,9 +515,11 @@ describe("calls at once on the create page", () => {
     );
     await fillNew(rendered.container);
     // The review states the pace that will be sent, never the unclamped default of 3.
-    expect(rendered.container.textContent).toContain("Up to 2");
-    expect(rendered.container.textContent).not.toContain("Up to 3");
-    fireEvent.click(screen.getByRole("button", { name: "Change timing" }));
+    expect(rendered.container.textContent).toContain("up to 2 at a time");
+    expect(rendered.container.textContent).not.toContain("up to 3 at a time");
+    change("When");
+    await screen.findByRole("heading", { name: "When should we call?" });
+    change("Calling rules");
     const pace = await screen.findByRole("radiogroup", { name: "Calls at the same time" });
     expect(within(pace).getAllByRole("radio").map((r) => r.textContent)).toEqual(["1", "2"]);
     expect(within(pace).getByRole("radio", { name: "2" }).getAttribute("aria-checked")).toBe("true");
@@ -518,7 +539,7 @@ describe("calls at once on the create page", () => {
       newCampaignPage(),
       newRoutes({ "/v1/call-lines": problem(503, { title: "Unavailable", retryable: true }) }),
     );
-    await screen.findByRole("heading", { name: "The basics" });
+    await screen.findByRole("heading", { name: BASICS });
     fillBasics("Pace");
     next();
     await screen.findByRole("heading", { name: "Who should we call?" });
@@ -527,6 +548,7 @@ describe("calls at once on the create page", () => {
     await pickDate(CONSENT_DATE, "2026-08-01");
     next();
     await screen.findByRole("heading", { name: "When should we call?" });
+    change("Calling rules");
     expect(await screen.findByText("We couldn't check your account's limit. It still applies.")).toBeTruthy();
   });
 });
@@ -806,10 +828,18 @@ describe("Pip on the campaign pages", () => {
   });
 });
 
+describe("nameFromGoal", () => {
+  it("names the goal and the IST day, and gives nothing for a blank goal", () => {
+    // 19:00 UTC on 4 Nov is already 5 Nov in India.
+    expect(nameFromGoal("  Booked   a visit ", new Date("2026-11-04T19:00:00Z"))).toBe("Booked a visit, 5 Nov");
+    expect(nameFromGoal("   ")).toBe("");
+  });
+});
+
 describe("what a campaign is for", () => {
   it("asks why it calls and the goal before the basics are done", async () => {
     await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: "The basics" });
+    await screen.findByRole("heading", { name: BASICS });
     fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Visits" } });
     next();
     expect((await screen.findByRole("alert")).textContent).toContain("Say why you are calling");
@@ -817,7 +847,7 @@ describe("what a campaign is for", () => {
     fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: "**Book**" } });
     next();
     expect((await screen.findByRole("alert")).textContent).toContain("plain words");
-    expect(screen.getByRole("heading", { name: "The basics" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: BASICS })).toBeTruthy();
   });
 
   it("offers the agent's own outcomes that move a lead up as goals, and sends both lines", async () => {
@@ -828,7 +858,7 @@ describe("what a campaign is for", () => {
         [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
       }),
     );
-    await screen.findByRole("heading", { name: "The basics" });
+    await screen.findByRole("heading", { name: BASICS });
     const suggestions = await screen.findByRole("group", { name: "Goal suggestions" });
     expect(within(suggestions).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "Booked a visit",
@@ -875,6 +905,57 @@ describe("what a campaign is for", () => {
     });
     expect(sent.goal).toBe("They renew the plan");
     expect(sent.purpose).toBe("Our Diwali offer on service plans");
+  });
+
+  it("keeps the draft's saved name when its goal is read back on Edit", async () => {
+    // The edit page sets the saved name and then the saved goal in one pass; the name must
+    // not be replaced by one made from the goal.
+    await renderClientPage(
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({ [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture() }),
+    );
+    const name = (await screen.findByRole("textbox", { name: "Name" })) as HTMLInputElement;
+    expect(name.value).toBe("Diwali offer");
+    fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: "They renew" } });
+    expect(name.value).toBe("Diwali offer");
+  });
+
+  it("names the campaign from its goal until the owner types a name", async () => {
+    await renderClientPage(newCampaignPage(), newRoutes());
+    await screen.findByRole("heading", { name: BASICS });
+    const name = screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement;
+    expect(name.value).toBe("");
+    const suggestions = await screen.findByRole("group", { name: "Goal suggestions" });
+    fireEvent.click(within(suggestions).getByRole("button", { name: "Booked a visit" }));
+    expect(name.value).toBe(nameFromGoal("Booked a visit"));
+    expect(screen.getByText("Made from the goal. Type to change it.")).toBeTruthy();
+
+    fireEvent.change(name, { target: { value: "Weekend visits" } });
+    fireEvent.click(within(suggestions).getByRole("button", { name: "Wants the price list" }));
+    expect(name.value).toBe("Weekend visits");
+
+    // Cleared, it follows the goal again rather than staying blank.
+    fireEvent.change(name, { target: { value: "" } });
+    fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: "They book" } });
+    expect(name.value).toBe(nameFromGoal("They book"));
+  });
+
+  it("counts the room left only once there is a line to count", async () => {
+    const { container } = await renderClientPage(newCampaignPage(), newRoutes());
+    await screen.findByRole("heading", { name: BASICS });
+    expect(container.textContent).not.toContain("characters left");
+    fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), { target: { value: "Our offer" } });
+    expect(container.textContent).toContain("characters left");
+  });
+
+  it("asks nothing it already has an answer for, and says the answer", async () => {
+    const { container } = await renderClientPage(newCampaignPage(), newRoutes());
+    await screen.findByRole("heading", { name: BASICS });
+    expect(screen.queryByRole("combobox", { name: /^Calling from/ })).toBeNull();
+    expect(container.textContent).toContain("Service calls, from the agent's own number.");
+    // No running summary of unanswered questions beside the steps.
+    expect(container.textContent).not.toContain("Not said");
+    expect(container.textContent).not.toContain("Untitled campaign");
   });
 
   it("shows the goal on the campaign, how many reached it, and each person's verdict", async () => {

@@ -91,7 +91,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
     create.mutate(
       {
         agent_id: selectedAgentId,
-        name: form.name,
+        name: form.name.trim(),
         purpose: briefValue(form.purpose),
         goal: briefValue(form.goal),
         classification: form.classification,
