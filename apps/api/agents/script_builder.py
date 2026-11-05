@@ -726,9 +726,18 @@ async def list_versions(
     ]
 
 
-async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int) -> Draft:
+@dataclass(frozen=True, slots=True)
+class Restored:
+    draft: Draft
+    #: The working copy the restore replaced, for its Undo (A-25); None when there was none.
+    replaced: CallScript | None
+
+
+async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int) -> Restored:
     """Copy an earlier version into the working copy. Callers keep hearing the live script
-    until the owner puts the draft live."""
+    until the owner puts the draft live. The working copy it replaces is handed back, so
+    the screen can offer the way back to it."""
+    before = await read_draft(session, agent_id)
     row = (
         await session.execute(
             text(
@@ -746,7 +755,10 @@ async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int
         else CallScript.from_freeform(str(row[0]))
     )
     saved_at = await save_draft(session, agent_id, script)
-    return Draft(script=script, saved_at=saved_at)
+    return Restored(
+        draft=Draft(script=script, saved_at=saved_at),
+        replaced=before.script if before is not None else None,
+    )
 
 
 @dataclass(frozen=True, slots=True)

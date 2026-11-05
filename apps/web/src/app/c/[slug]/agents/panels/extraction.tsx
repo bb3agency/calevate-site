@@ -340,7 +340,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
           className={SECONDARY_BUTTON}
         >
           <Plus aria-hidden className="h-4 w-4" />
-          Add variable
+          Add a detail
         </button>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
@@ -352,7 +352,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
             title={write.reason ?? undefined}
           >
             <Save aria-hidden className="h-4 w-4" />
-            Save variables
+            Save
           </ActionButton>
           {clientError ? (
             <span className="text-xs text-warn">{clientError}</span>

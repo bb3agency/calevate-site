@@ -666,6 +666,8 @@ async def test_the_draft_autosaves_without_a_version_and_restores_a_version() ->
         # No version per autosave.
         assert len(await script_builder.list_versions(session, agent_id)) == len(before)
         restored = await script_builder.restore_into_draft(session, agent_id, before[0].version)
-        assert restored.script.schema_version == 2
+        assert restored.draft.script.schema_version == 2
+        # The draft it replaced comes back, for the Undo (A-25).
+        assert restored.replaced == V2
         await script_builder.clear_draft(session, agent_id)
         assert await script_builder.read_draft(session, agent_id) is None

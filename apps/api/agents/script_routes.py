@@ -1684,17 +1684,27 @@ async def script_versions(
     ]
 
 
+class RestoredOut(DraftOut):
+    #: The draft the restore replaced (null: there was none), so the screen can undo it by
+    #: saving it back with `saved_at` as the base.
+    replaced: CallScript | None = None
+
+
 @router.post(
     "/versions/{version}/restore",
-    response_model=DraftOut,
+    response_model=RestoredOut,
     openapi_extra=permission_meta("org:manage"),
     summary="Copy an earlier version into the draft (callers keep the live one)",
 )
 async def restore_script_version(
     agent_id: UUID, version: int, session: Session, principal: ScriptWriter
-) -> DraftOut:
-    draft = await script_builder.restore_into_draft(session, agent_id, version)
-    return DraftOut(script=draft.script, saved_at=draft.saved_at)
+) -> RestoredOut:
+    restored = await script_builder.restore_into_draft(session, agent_id, version)
+    return RestoredOut(
+        script=restored.draft.script,
+        saved_at=restored.draft.saved_at,
+        replaced=restored.replaced,
+    )
 
 
 @router.post(

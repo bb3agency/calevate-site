@@ -1315,7 +1315,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
     expect(panel.textContent).toContain("visit_reason");
   });
 
-  it("adds a blank variable when Add variable is pressed", async () => {
+  it("adds a blank detail when Add a detail is pressed", async () => {
     await renderClientPage(
       page,
       routes({
@@ -1332,7 +1332,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
     await openEditors(panel);
     expect(within(panel).getAllByLabelText("Name")).toHaveLength(1);
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Add variable/));
+      fireEvent.click(await pressable(panel, /Add a detail/));
     });
     expect(within(panel).getAllByLabelText("Name")).toHaveLength(2);
   });
@@ -1361,7 +1361,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
     await openEditors(panel);
     // The inputs are disabled until write access resolves off `/v1/me`; gate on that first,
     // or an edit fired at first paint lands on a dead control (see `pressable`).
-    await pressable(panel, /Add variable/);
+    await pressable(panel, /Add a detail/);
     await act(async () => {
       fireEvent.change(within(panel).getByLabelText("Name"), {
         target: { value: "Why they called" },
@@ -1371,7 +1371,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
       });
     });
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Save variables/));
+      fireEvent.click(await pressable(panel, /^Save$/));
     });
 
     const put = calls.find((call) => call.method === "PUT");
@@ -1411,14 +1411,14 @@ describe("editing what an agent captures (the extraction variables)", () => {
     await screen.findByText("Reception");
     const panel = card(captures);
     await openEditors(panel);
-    await pressable(panel, /Add variable/); // wait for write access before editing
+    await pressable(panel, /Add a detail/); // wait for write access before editing
     await act(async () => {
       fireEvent.change(within(panel).getByLabelText("Name"), {
         target: { value: "Monthly budget" },
       });
     });
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Save variables/));
+      fireEvent.click(await pressable(panel, /^Save$/));
     });
 
     const put = calls.find((call) => call.method === "PUT");
@@ -1453,12 +1453,12 @@ describe("editing what an agent captures (the extraction variables)", () => {
     await screen.findByText("Reception");
     const panel = card(captures);
     await openEditors(panel);
-    await pressable(panel, /Add variable/); // wait for write access before toggling
+    await pressable(panel, /Add a detail/); // wait for write access before toggling
     await act(async () => {
       fireEvent.click(within(panel).getByRole("switch"));
     });
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Save variables/));
+      fireEvent.click(await pressable(panel, /^Save$/));
     });
 
     const put = calls.find((call) => call.method === "PUT");
@@ -1494,7 +1494,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
       expect(within(panel).queryByDisplayValue("Reason for visit")).toBeNull(),
     );
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Save variables/));
+      fireEvent.click(await pressable(panel, /^Save$/));
     });
 
     const put = calls.find((call) => call.method === "PUT");
@@ -1532,7 +1532,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
     await screen.findByText("Reception");
     const panel = card(captures);
     await openEditors(panel);
-    await pressable(panel, /Add variable/); // wait for write access before editing
+    await pressable(panel, /Add a detail/); // wait for write access before editing
     // Make something change so Save lights, then save into the refusal.
     await act(async () => {
       fireEvent.change(within(panel).getByLabelText("Name"), {
@@ -1540,7 +1540,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
       });
     });
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Save variables/));
+      fireEvent.click(await pressable(panel, /^Save$/));
     });
 
     const alert = await within(panel).findByRole("alert");
@@ -1571,12 +1571,12 @@ describe("editing what an agent captures (the extraction variables)", () => {
     await screen.findByText("Reception");
     const panel = card(captures);
     await openEditors(panel);
-    await pressable(panel, /Add variable/);
+    await pressable(panel, /Add a detail/);
     await act(async () => {
       fireEvent.change(within(panel).getByLabelText("Name"), { target: { value: "Why" } });
     });
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Save variables/));
+      fireEvent.click(await pressable(panel, /^Save$/));
     });
 
     await within(panel).findByText(/changed somewhere else/);
@@ -1612,7 +1612,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
     const panel = card(captures);
     await openEditors(panel);
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Add variable/));
+      fireEvent.click(await pressable(panel, /Add a detail/));
     });
     const names = within(panel).getAllByLabelText("Name");
     await act(async () => {
@@ -1621,7 +1621,7 @@ describe("editing what an agent captures (the extraction variables)", () => {
       });
     });
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Save variables/));
+      fireEvent.click(await pressable(panel, /^Save$/));
     });
 
     const put = calls.find((call) => call.method === "PUT");

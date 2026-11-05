@@ -22,6 +22,7 @@ Nothing is logged but ids and outcomes (hard rule 6).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Final
 from uuid import UUID
@@ -47,7 +48,8 @@ MAX_ANSWER_TOKENS: Final = 400
 SYSTEM_PROMPT: Final = (
     "You help the owner of a small Indian business answer a question their phone agent "
     "is asked. Answer ONLY from the numbered sources, which are the business's own words. "
-    "Write one or two short plain sentences a receptionist could say, in the language of "
+    "Write one or two short plain sentences the business's phone agent could say, in the "
+    "language of "
     "the sources. Never add a price, time, place or promise that is not in a source, and "
     "never change a number. If no source answers the question, answer null. "
     'Return ONLY JSON: {"answer": str or null, "source": the number of the source used, '
@@ -87,7 +89,21 @@ def parse_draft(raw: dict[str, Any], sources: list[questions.Source]) -> Drafted
     cleaned = " ".join(str(answer).split())
     if len(cleaned) > MAX_FACT_CHARS:
         return None
-    return Drafted(cleaned, sources[number - 1])
+    source = sources[number - 1]
+    if not figures(cleaned) <= figures(source.text):
+        # A number, time or amount the cited source does not hold is the model's, not the
+        # business's (A-21): unusable, so the repair gets its chance and else no draft.
+        return None
+    return Drafted(cleaned, source)
+
+
+_DIGITS: Final = re.compile(r"\d+")
+
+
+def figures(text: str) -> set[int]:
+    """The numbers written in digits in `text`, by value, so "09:00" holds the 9 an answer's
+    "9 am" says. Any script's digits count."""
+    return {int(run) for run in _DIGITS.findall(text.replace(",", ""))}
 
 
 def prompt_for(question: questions.Question, sources: list[questions.Source]) -> str:

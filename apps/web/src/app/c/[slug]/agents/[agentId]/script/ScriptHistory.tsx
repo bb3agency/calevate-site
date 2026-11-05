@@ -15,7 +15,14 @@ import { ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import { TEXT_ACTION } from "@/components/console/section";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
-import { useRestoreVersion, useScriptVersions, type CallScript, type ScriptVersion } from "@/lib/api/script";
+import {
+  useRestoreVersion,
+  useSaveDraft,
+  useScript,
+  useScriptVersions,
+  type CallScript,
+  type ScriptVersion,
+} from "@/lib/api/script";
 
 export function ScriptHistory({
   agentId,
@@ -28,9 +35,22 @@ export function ScriptHistory({
   const versions = useScriptVersions(session, agentId);
   const restore = useRestoreVersion(session, agentId);
   // The dialog shows a refusal inside itself; the restored draft appears in the editor.
+  const putBack = useSaveDraft(session, agentId);
+  const stored = useScript(session, agentId);
   const restoreFeedback = useActionFeedback(restore, {
     errorDisplay: "inline",
     successToast: "Restored to your draft. Put it live to use it.",
+    // The draft the restore replaced comes back with it (A-25): its Undo saves that draft
+    // again, as a compare-and-set on the restore's own stamp.
+    undo: (restored) => {
+      // No draft before: the script on file is what the owner had.
+      const replaced = restored.replaced ?? stored.data?.script;
+      if (!replaced) return;
+      putBack.mutate(
+        { script: replaced, base_saved_at: restored.saved_at },
+        { onSuccess: (saved) => onRestored({ script: replaced, saved_at: saved.saved_at }) },
+      );
+    },
   });
   const write = useWriteAccess(session, "org:manage", "restore an earlier script");
   const [asking, setAsking] = useState<ScriptVersion | null>(null);

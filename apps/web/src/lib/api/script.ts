@@ -561,7 +561,10 @@ export function useScriptVersions(
   });
 }
 
-export type RestoredDraft = WithCallScripts<components["schemas"]["DraftOut"], "script">;
+/** A restored draft, and the draft it replaced (null: none) for the Undo (A-25). */
+export type RestoredDraft = WithCallScripts<components["schemas"]["DraftOut"], "script"> & {
+  replaced?: CallScript | null;
+};
 
 /** Copy an earlier entry into the draft; callers keep the live one. */
 export function useRestoreVersion(
