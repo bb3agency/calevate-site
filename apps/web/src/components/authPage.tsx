@@ -78,7 +78,7 @@ export function AuthPageFrame({
             <span className="text-meta font-medium text-ink-muted">{realmLabel}</span>
           </header>
           <main
-            className={`mx-auto flex w-full flex-1 flex-col justify-center px-5 py-10 sm:px-8 ${
+            className={`mx-auto flex w-full flex-1 flex-col justify-start px-5 py-8 sm:justify-center sm:py-10 sm:px-8 ${
               width === "wide" ? "max-w-xl" : "max-w-[25rem]"
             }`}
           >

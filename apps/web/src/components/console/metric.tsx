@@ -79,7 +79,7 @@ export function Metric({
     <div className={`min-w-0 ${className}`}>
       <p className="text-[13px] font-medium text-ink-muted">{label}</p>
       <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
-        <p className={`text-figure tabular-nums [overflow-wrap:anywhere] ${VALUE_TONES[tone]}`}>
+        <p className={`text-title tabular-nums [overflow-wrap:anywhere] sm:text-figure ${VALUE_TONES[tone]}`}>
           {compared === undefined ? value : <FlashValue value={compared}>{value}</FlashValue>}
         </p>
         {trend ? <div className="mb-1.5 shrink-0">{trend}</div> : null}

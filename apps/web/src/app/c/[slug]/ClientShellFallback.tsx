@@ -71,7 +71,7 @@ export function ClientShellFallback({ slug }: { slug: string }) {
             <span className="lg:hidden">
               <BrandIcon size={32} />
             </span>
-            <span className="line-clamp-1 text-heading text-ink sm:text-title">{current?.label ?? "Dashboard"}</span>
+            <span className="line-clamp-2 text-heading text-ink [overflow-wrap:anywhere] sm:line-clamp-1 sm:text-title">{current?.label ?? "Dashboard"}</span>
           </div>
         </header>
         {/* A `<main>` with the shell's id: `SkipLink` renders in every state of the shell,

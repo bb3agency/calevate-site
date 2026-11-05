@@ -509,11 +509,12 @@ describe("the dashboard renders what the server said, or says it could not", () 
     expect(
       await screen.findByText("What they want: Two kilos of rice · Preferred time: Saturday"),
     ).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Cost" })).toBeTruthy();
-    expect(screen.getByText("₹12.5")).toBeTruthy();
+    const cost = screen.getByText("₹12.5");
+    // Named for a screen reader beside the figure, since the list has no column header.
+    expect(cost.previousElementSibling?.textContent).toBe("Cost ");
   });
 
-  it("shows no cost column when the server sent no cost, as it does for staff", async () => {
+  it("shows no cost when the server sent no cost, as it does for staff", async () => {
     const call: CallSummary = {
       id: "c3",
       agent_id: "a1",
@@ -534,7 +535,7 @@ describe("the dashboard renders what the server said, or says it could not", () 
     await renderClientPage(page, routes({ "/v1/calls?limit=6": [call] }));
 
     expect(await screen.findByText("+91 98765 43212")).toBeTruthy();
-    expect(screen.queryByRole("columnheader", { name: "Cost" })).toBeNull();
+    expect(screen.queryByText("Cost")).toBeNull();
   });
 
   it("says which definition of after-hours produced the number", async () => {
