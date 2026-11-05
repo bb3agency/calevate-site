@@ -1,0 +1,31 @@
+{
+  "_owner": "Founder-owned spoken lines for the marketing demo call (auth showcase, home hero, /why-calevate, /roi). Edit the te lines here; code never hand-writes them (e2e audit OB-23).",
+  "business": "Akshara Coaching",
+  "turns": [
+    {
+      "who": "Agent",
+      "te": "నమస్కారం, Akshara Coaching. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలా సహాయం చేయగలను?",
+      "en": "Namaskaram, Akshara Coaching. I am an AI assistant, and this call is recorded. How can I help?"
+    },
+    {
+      "who": "Caller",
+      "te": "EAMCET లాంగ్ టర్మ్ బ్యాచ్ ఉందా? ఫీజు ఎంత?",
+      "en": "Do you have an EAMCET long-term batch? What are the fees?"
+    },
+    {
+      "who": "Agent",
+      "te": "ఉంది. ఫీజు వివరాలు కౌన్సెలర్ చెబుతారు — ముందుగా డెమో క్లాస్ బుక్ చేయనా?",
+      "en": "We do. The counsellor will go through the fees — shall I book a demo class first?"
+    },
+    {
+      "who": "Caller",
+      "te": "అవును. శనివారం ఉదయం. నా పేరు కావ్య.",
+      "en": "Yes. Saturday morning. My name is Kavya."
+    },
+    {
+      "who": "Agent",
+      "te": "శనివారం ఉదయం 10 గంటలకు డెమో క్లాస్ బుక్ చేశాను.",
+      "en": "Booked the demo class for Saturday at 10 AM."
+    }
+  ]
+}

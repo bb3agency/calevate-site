@@ -348,6 +348,47 @@ describe("what a click actually sends", () => {
       expect(container.textContent).toContain("4 leads are still assigned"),
     );
   });
+
+  it("hands a removed colleague's leads to the owner in one press", async () => {
+    // E2E audit OB-35: the notice only linked to the Leads screen.
+    const { calls, container } = await renderClientPage(<TeamPage />, {
+      "/v1/me": ME,
+      "/v1/members": [OWNER, STAFF],
+      "/v1/team/members": ROSTER,
+      "/v1/invitations": [],
+      [`/v1/members/${STAFF.id}`]: {
+        user_id: STAFF.id,
+        previous_role: "staff",
+        leads_still_assigned: 4,
+      },
+      "POST /v1/leads/bulk": {
+        action: "assign",
+        scope: "filter",
+        requested: 4,
+        changed: 4,
+        unchanged: 0,
+        failures: [],
+      },
+    });
+
+    await screen.findByText("Priya");
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Priya" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from account" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove their access" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Give their leads to me" }));
+
+    await waitFor(() => expect(container.textContent).toContain("4 leads now with you."));
+    const sent = JSON.parse(calls.find((c) => c.method === "POST" && c.path === "/v1/leads/bulk")?.body ?? "{}");
+    expect(sent).toMatchObject({
+      scope: "filter",
+      action: "assign",
+      assign_to: ME.user_id,
+      expected_count: 4,
+      lens: { assigned_to: STAFF.id },
+    });
+  });
 });
 
 describe("failure is never an empty state", () => {

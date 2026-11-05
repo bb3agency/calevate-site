@@ -14,6 +14,7 @@ import {
   SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
+  formatCountOf,
   formatDecimal,
   formatINR,
   formatIST,
@@ -122,13 +123,13 @@ export function WalletLedgerPanel({
             </div>
             {shown.length === 0 ? (
               <p className="py-6 text-body text-ink-muted">
-                None in your latest {ledger.data.entries.length} entries.
+                None in your latest {formatCountOf(ledger.data.entries.length, "entry", "entries")}.
               </p>
             ) : (
             <ScrollRegion label="Credit history">
               <table className={`relative w-full border-collapse text-body sm:min-w-[34rem] ${CARD.table}`}>
                 <caption className="sr-only">
-                  Your credit history, newest first — {ledger.data.entries.length} entries
+                  Your credit history, newest first — {formatCountOf(ledger.data.entries.length, "entry", "entries")}
                 </caption>
                 <thead className={CARD.head}>
                   <tr className="border-b border-line text-left text-meta text-ink-muted">

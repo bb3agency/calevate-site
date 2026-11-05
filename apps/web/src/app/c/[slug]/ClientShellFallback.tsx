@@ -6,6 +6,7 @@ import { BrandIcon } from "@/components/brand";
 import { SIDEBAR_ROW_CLASS, sidebarNavClass } from "@/components/sidebarCollapse";
 import { MAIN_CONTENT_ID, SHELL_MAIN_CLASS, SHELL_RAIL_CLASS, Skeleton } from "@/components/ui";
 import { clientNavigation } from "@/lib/clientNav";
+import { clientPageTitle } from "@/lib/clientPageTitle";
 
 import { currentItem } from "./ClientSidebar";
 
@@ -71,7 +72,7 @@ export function ClientShellFallback({ slug }: { slug: string }) {
             <span className="lg:hidden">
               <BrandIcon size={32} />
             </span>
-            <span className="line-clamp-2 text-heading text-ink [overflow-wrap:anywhere] sm:line-clamp-1 sm:text-title">{current?.label ?? "Dashboard"}</span>
+            <span className="line-clamp-2 text-heading text-ink [overflow-wrap:anywhere] sm:line-clamp-1 sm:text-title">{clientPageTitle(slug, pathname)}</span>
           </div>
         </header>
         {/* A `<main>` with the shell's id: `SkipLink` renders in every state of the shell,

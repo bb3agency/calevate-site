@@ -40,7 +40,9 @@ export function pollMs(guide: GoLive | undefined): number | false {
   // An account owed no guide (it has not paid) has nothing moving; nor does a finished one.
   if (guide === undefined || guide.owed_at === null || (guide.finished_at ?? null) !== null) return false;
   if (isMoving(guide)) return MOVE_POLL_MS;
-  if (guide.verify === "in_review" || guide.number === "waiting_approval") return REVIEW_POLL_MS;
+  if (guide.verify === "in_review" || guide.number === "waiting_approval" || guide.number === "setting_up") {
+    return REVIEW_POLL_MS;
+  }
   return false;
 }
 

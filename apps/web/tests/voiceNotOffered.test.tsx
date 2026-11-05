@@ -21,9 +21,8 @@ import { stubApi } from "./harness";
  * a buyer the one voice it sells cannot be chosen.
  */
 const HELD_BACK_NOTICE =
-  "Not available to choose yet: this voice is not open on the platform your calls run on " +
-  "today, so we will not put an agent on it. Its rate is still fixed on credit you buy " +
-  "today, and it costs you nothing to move an agent onto it once it opens.";
+  "Not open on your account yet. Credit you buy today keeps its rate, and moving an agent " +
+  "onto it later costs nothing.";
 
 const STUDIO_HELD_BACK: PublicRateCard = {
   ...RATE_CARD,

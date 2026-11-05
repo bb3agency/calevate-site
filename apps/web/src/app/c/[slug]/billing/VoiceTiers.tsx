@@ -14,6 +14,7 @@ import {
 } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useVoiceTierComparison, type VoiceTierCompare } from "@/lib/api/voiceTiers";
+import { Why } from "@/components/why";
 
 import { formatWhole } from "./lots";
 
@@ -29,9 +30,28 @@ function formatMinutes(value: string): string {
  * oldest purchase's, which is what the next call is charged); with none it is the card's
  * range across packs, because no single figure would be true until a pack is chosen.
  */
-function toTier(tier: VoiceTierCompare, notOfferedNotice: string | null): Tier {
+export function toTier(tier: VoiceTierCompare, notOfferedNotice: string | null): Tier {
   const yours = tier.your_inr_per_min;
   const used = hasNonZeroDigit(tier.minutes_this_month);
+  if (!tier.offered) {
+    // A rung no agent can be put on is not sold here: no benefits, no "best for", and its
+    // reason one tap away rather than a paragraph on the card (e2e audit OB-5).
+    return {
+      id: tier.tier,
+      name: tier.label,
+      ratePerMinute: yours ?? tier.from_inr_per_min,
+      rateTo: yours === null ? tier.to_inr_per_min : undefined,
+      rateNote: "Fixed on credit you buy today",
+      summary: (
+        <>
+          {NOT_OPEN}
+          {notOfferedNotice ? <Why>{notOfferedNotice}</Why> : null}
+        </>
+      ),
+      includes: [],
+      bestFor: "",
+    };
+  }
   return {
     id: tier.tier,
     name: tier.label,
@@ -43,11 +63,9 @@ function toTier(tier: VoiceTierCompare, notOfferedNotice: string | null): Tier {
           ? "Your rate now"
           : `Your rate now · about ${formatCount(tier.minutes_left)} min left`
         : "Set by the pack you buy",
-    summary: !tier.offered
-      ? (notOfferedNotice ?? "Not open on your account yet.")
-      : used
-        ? `This month: ${formatMinutes(tier.minutes_this_month)} minutes, ${formatINR(tier.charged_this_month_inr)}`
-        : "Not used this month",
+    summary: used
+      ? `This month: ${formatMinutes(tier.minutes_this_month)} minutes, ${formatINR(tier.charged_this_month_inr)}`
+      : "Not used this month",
     includes: tier.includes,
     bestFor: tier.best_for,
   };
@@ -73,6 +91,9 @@ export function VoiceTiers({ session, agentsHref }: { session: Session; agentsHr
       </Section>
     );
   }
+  // The server recommends only a rung an agent can be put on; a label it cannot name is
+  // never printed in its place.
+  const recommended = data.tiers.find((tier) => tier.tier === data.recommended && tier.offered);
   return (
         <TierComparison
           title={TITLE}
@@ -81,9 +102,9 @@ export function VoiceTiers({ session, agentsHref }: { session: Session; agentsHr
           guidance={
             <>
               <p>
-                <span className="font-semibold text-ink">
-                  {data.tiers.find((tier) => tier.tier === data.recommended)?.label ?? data.recommended} suits you.
-                </span>{" "}
+                {recommended ? (
+                  <span className="font-semibold text-ink">{recommended.label} suits you. </span>
+                ) : null}
                 {data.recommendation_reason}
               </p>
               <p>Change the voice on each agent.</p>
@@ -97,3 +118,4 @@ export function VoiceTiers({ session, agentsHref }: { session: Session; agentsHr
 }
 
 const TITLE = "Clear or Studio";
+const NOT_OPEN = "Not open yet.";

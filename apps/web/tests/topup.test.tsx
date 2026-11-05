@@ -2,7 +2,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/lib/api/client";
-import { CREDIT_POLL_MS, type Wallet } from "@/lib/api/wallet";
+import { CREDIT_POLL_MS, CREDIT_WAIT_MS, type Wallet } from "@/lib/api/wallet";
 import { RAZORPAY_CHECKOUT_SRC } from "@/lib/razorpayCheckout";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -152,7 +152,7 @@ const PACK_CARD = {
   studio_tier_label: "Studio",
   voice_not_offered: "clear",
   voice_not_offered_notice:
-    "Not available to choose yet: the vendor that speaks this voice changed and we have not established what one minute of it costs, so we will not put an agent on it. Its rate is still fixed on credit you buy today, and it costs you nothing to move an agent onto it once it opens.",
+    "Not open yet: we are still confirming what this voice costs to run. Credit you buy today keeps its rate, and moving an agent onto it later costs nothing.",
   packs: [
     {
       pack_id: "starter",
@@ -808,7 +808,7 @@ describe("the payment window", () => {
       await act(async () => {
         opened[0].options.handler(CHECKOUT_RESPONSE);
       });
-      await screen.findByText("Payment received");
+      await screen.findByText("Payment approved");
       expect(await screen.findByText("Still settling")).toBeTruthy();
       const walletReadsBefore = calls.filter((c) => c.path === WALLET).length;
 
@@ -817,11 +817,103 @@ describe("the payment window", () => {
         await vi.advanceTimersByTimeAsync(CREDIT_POLL_MS);
       });
 
-      expect(await screen.findByText("Credit added to your balance.")).toBeTruthy();
+      expect(await screen.findByText("It is on your balance now.")).toBeTruthy();
       await waitFor(() => expect(screen.queryByText("Still settling")).toBeNull());
       await waitFor(() =>
         expect(calls.filter((c) => c.path === WALLET).length).toBeGreaterThan(walletReadsBefore),
       );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends the wait when the credit is on the ledger though the attempt never learnt its order", async () => {
+    // E2E audit OB-19: the attempt row is settled by order id, and a lost order id left the
+    // page waiting on a credit that had already landed.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let credited = false;
+      const opened = stubRazorpay();
+      await renderBillingHub(
+        routes({
+          [ATTEMPTS]: [],
+          [LEDGER]: () => ({
+            entries: credited
+              ? [
+                  {
+                    id: "0192f0aa-2222-7000-8000-000000000001",
+                    delta_inr: "2500.10",
+                    reason: "topup",
+                    ref: CHECKOUT_RESPONSE.razorpay_payment_id,
+                    balance_after_inr: "2500.10",
+                    occurred_at: "2026-09-26T04:00:30Z",
+                    payment_ref: CHECKOUT_RESPONSE.razorpay_payment_id,
+                    label: null,
+                    lots: [],
+                  },
+                ]
+              : [],
+            payments: [],
+          }),
+          [INTENT]: ORDER_INTENT,
+          [CALLBACK]: {
+            verified: true,
+            payment_id: CHECKOUT_RESPONSE.razorpay_payment_id,
+            order_id: CHECKOUT_RESPONSE.razorpay_order_id,
+            credit_pending: true,
+          },
+        }),
+        "Credits",
+      );
+
+      await payCustomAmount();
+      await waitFor(() => expect(opened).toHaveLength(1));
+      await act(async () => {
+        opened[0].options.handler(CHECKOUT_RESPONSE);
+      });
+      expect(await screen.findByText("Payment approved")).toBeTruthy();
+      expect(screen.getByText("Adding your credit…")).toBeTruthy();
+
+      credited = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CREDIT_POLL_MS);
+      });
+      expect(await screen.findByText("It is on your balance now.")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says the payment is still settling once the wait is up, never 'within a minute' for ever", async () => {
+    // E2E audit OB-17.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const opened = stubRazorpay();
+      await renderBillingHub(
+        routes({
+          [INTENT]: ORDER_INTENT,
+          [CALLBACK]: {
+            verified: true,
+            payment_id: CHECKOUT_RESPONSE.razorpay_payment_id,
+            order_id: CHECKOUT_RESPONSE.razorpay_order_id,
+            credit_pending: true,
+          },
+        }),
+        "Credits",
+      );
+      await payCustomAmount();
+      await waitFor(() => expect(opened).toHaveLength(1));
+      await act(async () => {
+        opened[0].options.handler(CHECKOUT_RESPONSE);
+      });
+      await screen.findByText("Payment approved");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CREDIT_WAIT_MS + CREDIT_POLL_MS);
+      });
+      expect(await screen.findByText("Taking longer than usual")).toBeTruthy();
+      expect(screen.getByText("It shows under Unfinished payments until it lands.")).toBeTruthy();
+      expect(screen.queryByText(/within about a minute/)).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -848,7 +940,7 @@ describe("the payment window", () => {
       opened[0].options.handler(CHECKOUT_RESPONSE);
     });
 
-    await screen.findByText("Payment received");
+    await screen.findByText("Payment approved");
 
     // THE THREE, in the server's own field names, and NOTHING ELSE. `CheckoutCallbackIn`
     // forbids extra keys, so forwarding the provider's object whole would turn a vendor
@@ -999,7 +1091,7 @@ describe("the payment window", () => {
       "the credit is added when the payment is confirmed",
     );
     // Nothing that reads as a completed payment.
-    expect(screen.queryByText("Payment received")).toBeNull();
+    expect(screen.queryByText("Payment approved")).toBeNull();
     expect(container.textContent).not.toContain("— paid.");
     // The money may have moved, so no second order may start from the pinned button.
     expect(screen.getByRole("button", { name: "Continue" }).matches(":disabled")).toBe(true);

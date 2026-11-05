@@ -146,9 +146,9 @@ describe("business verification verdict", () => {
     await screen.findByText(SCREEN);
     expect(container.textContent).toContain("Your business is verified.");
     expect(screen.queryByText("Outgoing calls are open")).not.toBeNull();
-    // Fails VISIBLE: the unrecognised word is still on screen, in the record we hold,
-    // so a client can quote it back to us.
-    expect(container.textContent).toContain("verified_by_operator");
+    // Never the code itself (e2e audit OB-28): the record says it in plain words, and the
+    // file reference beside it is what a client quotes to us.
+    expect(container.textContent).not.toContain("verified_by_operator");
   });
 
   it("renders the cleared state only when the server says verified", async () => {

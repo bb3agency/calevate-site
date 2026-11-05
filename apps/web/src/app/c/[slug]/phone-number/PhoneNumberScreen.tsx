@@ -6,14 +6,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Section } from "@/components/console/section";
-import { ProblemNotice, Skeleton, formatPhone } from "@/components/ui";
+import { NoticeBox, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatPhone } from "@/components/ui";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 import { useAgents, type Agent } from "@/lib/api/agents";
 import { useCampaignNumbers, type CampaignNumber } from "@/lib/api/campaigns";
 import { useOwnNumbersStatus } from "@/lib/api/ownNumbers";
 import { useClientRealm } from "@/lib/api/session";
 import { EXISTING_SECTION, FROM_CALEVATE_SECTION } from "@/lib/phoneNumbersSection";
 
-import { BuyNumber } from "./BuyNumber";
+import { SpamLabels } from "./SpamLabels";
 import { CallsAtOnce, ExistingNumberSection, SaveNumber } from "./ExistingNumber";
 import { NumberAssignment } from "./NumberAssignment";
 import { OwnNumbersJourney, ReleaseOwnNumber } from "./OwnNumbers";
@@ -68,8 +69,8 @@ function CalevateNumbers() {
   const agents = useAgents(session);
   const rows = numbers.data;
   const none = rows !== undefined && rows.length === 0;
-  // Where numbers are rented in the business's own calling account (D-693), the three-step
-  // journey replaces the older purchase panel; elsewhere the older panel stays.
+  // Numbers are rented in the business's own calling account (D-693), one way: the journey.
+  // A deployment whose engine has no such accounts sells none, and says so in one line.
   const own = useOwnNumbersStatus(session);
   const ownNumbers = own.data?.available === true;
   const getNumber = own.isLoading ? (
@@ -78,24 +79,21 @@ function CalevateNumbers() {
     <ProblemNotice error={own.error ?? new Error("Your number options did not load.")} onRetry={() => void own.refetch()} />
   ) : ownNumbers ? (
     <OwnNumbersJourney status={own.data} />
+  ) : own.data.trial !== null ? (
+    <TrialLockNotice lock="numbers" />
   ) : (
-    <BuyNumber />
+    <NumbersNotOnSale />
   );
 
   return (
     <div className="space-y-6">
-      {/* The own-number flow says the trial's state and offers credit itself; a second
-          notice above it would be a second primary action for the same step. */}
-      {own.data?.available === false && <TrialLockNotice lock="numbers" />}
       {/* With no number yet, getting one IS the job, so it comes first. */}
       {none && getNumber}
 
       {numbers.error && <ProblemNotice error={numbers.error} onRetry={() => numbers.refetch()} />}
       {numbers.isLoading || !rows ? (
         !numbers.error && <Skeleton rows={3} />
-      ) : none ? (
-        <p className="text-body text-ink-muted">No number yet.</p>
-      ) : (
+      ) : none ? null : (
         <Section title="Your numbers">
           <div>
             {rows.map((number) => (
@@ -113,7 +111,25 @@ function CalevateNumbers() {
       {!none && getNumber}
       <CallsAtOnce session={session} />
       <SaveNumber session={session} />
+      <SpamLabels />
     </div>
+  );
+}
+
+/** Where this deployment sells no numbers: one line and one way to ask. */
+function NumbersNotOnSale() {
+  return (
+    <NoticeBox
+      tone="neutral"
+      title="Numbers can't be bought here yet"
+      action={
+        <a className={SECONDARY_BUTTON_SM} href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent("A phone number")}`}>
+          Contact us
+        </a>
+      }
+    >
+      Ask us and we will tell you when they open.
+    </NoticeBox>
   );
 }
 

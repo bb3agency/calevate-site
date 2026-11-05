@@ -20592,7 +20592,7 @@
       },
       "CreditPacksOut": {
         "additionalProperties": false,
-        "description": "The pack rate card: six packs, each with a Sarvam and a Cartesia \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged. The\ntwo tier LABELS obey the same rule for a different kind of value: the name a client\nreads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing\nsite renders a name we chose once rather than a copy that drifts from it.",
+        "description": "The pack rate card: six packs, each with a Clear and a Studio \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged. The\ntwo tier LABELS obey the same rule for a different kind of value: the name a client\nreads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing\nsite renders a name we chose once rather than a copy that drifts from it.",
         "properties": {
           "clear_tier_label": {
             "title": "Clear Tier Label",
@@ -28300,6 +28300,25 @@
       "GoLiveOut": {
         "additionalProperties": false,
         "properties": {
+          "agreements": {
+            "enum": [
+              "todo",
+              "done"
+            ],
+            "title": "Agreements",
+            "type": "string"
+          },
+          "business_review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Review Note"
+          },
           "current": {
             "enum": [
               "move",
@@ -28349,7 +28368,12 @@
           "number": {
             "enum": [
               "locked",
+              "add_credit",
+              "setting_up",
+              "send_details",
               "waiting_approval",
+              "needs_attention",
+              "not_on_sale",
               "todo",
               "done"
             ],
@@ -28371,6 +28395,14 @@
               }
             ],
             "title": "Owed At"
+          },
+          "pledge": {
+            "enum": [
+              "todo",
+              "done"
+            ],
+            "title": "Pledge",
+            "type": "string"
           },
           "switch_on": {
             "enum": [
@@ -28399,7 +28431,10 @@
           "current",
           "move",
           "verify",
+          "agreements",
+          "pledge",
           "number",
+          "business_review_note",
           "numbers",
           "switch_on",
           "live_agents"
@@ -62427,12 +62462,19 @@
             "type": "string"
           },
           "recommended": {
-            "enum": [
-              "clear",
-              "studio"
+            "anyOf": [
+              {
+                "enum": [
+                  "clear",
+                  "studio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Recommended",
-            "type": "string"
+            "title": "Recommended"
           },
           "tiers": {
             "items": {
@@ -82475,7 +82517,7 @@
     },
     "/v1/billing/topups/packs": {
       "get": {
-        "description": "The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.",
+        "description": "The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Clear and Studio per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.",
         "operationId": "read_credit_packs_v1_billing_topups_packs_get",
         "responses": {
           "200": {

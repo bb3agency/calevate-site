@@ -2397,7 +2397,10 @@ const CLIENT_SCREENS: Screen[] = [
         current: "verify",
         move: { state: "done", agents: [], total: 0 },
         verify: "todo",
+        agreements: "done",
+        pledge: "todo",
         number: "locked",
+        business_review_note: null,
         numbers: 0,
         switch_on: "todo",
         live_agents: 0,
@@ -3073,7 +3076,7 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    // D-859: the go-live guide on its first step, one agent moved, one still moving, so the
+    // D-859: the go-live guide on its first step while our move still runs, so the
     // sweep covers the rail, the checklist and the pinned action.
     file: "c/[slug]/go-live/page.tsx",
     realm: "client",
@@ -3085,7 +3088,7 @@ const CLIENT_SCREENS: Screen[] = [
         owed_at: "2026-10-23T06:00:00Z",
         finished_at: null,
         dismissed_at: null,
-        current: "move",
+        current: "verify",
         move: {
           state: "moving",
           agents: [
@@ -3095,7 +3098,10 @@ const CLIENT_SCREENS: Screen[] = [
           total: 2,
         },
         verify: "todo",
+        agreements: "todo",
+        pledge: "todo",
         number: "locked",
+        business_review_note: null,
         numbers: 0,
         switch_on: "todo",
         live_agents: 0,
@@ -3661,11 +3667,6 @@ const CLIENT_SCREENS: Screen[] = [
           answerable: true,
         },
       ],
-      // BUYING A NUMBER, swept in the state that HAS controls: a deployment that may
-      // sell, an unverified account (so the activation notice and its link render), a
-      // registrant nobody has recorded yet (so the holder form is in the scan) and one
-      // number on offer. The refused state has no controls at all and is swept by
-      // `numberProvisioning.test.tsx`, where its copy is asserted too.
       "/v1/agents": [AGENT],
       "/v1/compliance/kyc": {
         recorded: false,
@@ -3674,23 +3675,8 @@ const CLIENT_SCREENS: Screen[] = [
         status: "not_started",
       },
       "/v1/billing/wallet": { prepaid: true, balance_inr: "2500.00" },
-      "/v1/numbers/available": [
-        {
-          e164: "+918041234500",
-          region: "Karnataka",
-          locality: "Bengaluru",
-          series: "standard",
-          inr_per_month: "499.00",
-        },
-      ],
-      "/v1/numbers/holder": {
-        recorded: false,
-        holder_type: null,
-        holder_name: null,
-        holder_email: null,
-      },
-      // Not a deployment that rents numbers in the client's own account (D-693), so the
-      // older purchase panel above is what renders; `ownNumbers.test.tsx` sweeps the other.
+      // Not a deployment that rents numbers in the client's own account (D-693), so the one
+      // "not on sale here" line renders; `ownNumbers.test.tsx` sweeps the journey.
       [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,
     },
   },

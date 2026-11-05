@@ -33,7 +33,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { AuthProblemNotice } from "@/components/authn/fields";
-import { Card, Skeleton } from "@/components/ui";
+import { Card, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { useUnscopedMe } from "@/lib/api/hooks";
 import { ApiProblem, apiRequest } from "@/lib/api/client";
 import { FIRST_RUN_PATH, type FirstRun } from "@/lib/api/firstRun";
@@ -116,15 +116,12 @@ function Resolve() {
             We could not open your console
           </h1>
           <AuthProblemNotice error={me.error} />
-          <p className="text-sm text-ink-muted">
-            If you belong to more than one Calevate account, open the link for the one you
-            want — this page can only open one account, and there is no list of yours to
-            choose from yet. Otherwise, reload, or{" "}
-            <a href={CLIENT_SIGN_IN_PATH} className="underline underline-offset-2">
-              sign in again
-            </a>
-            .
-          </p>
+          {/* No read lists a person's businesses yet, so the way to another one is the
+              link it sent (e2e audit OB-34); said in one line, with the one button. */}
+          <p className="text-sm text-ink-muted">In more than one business? Open the link it sent you.</p>
+          <a href={CLIENT_SIGN_IN_PATH} className={SECONDARY_BUTTON}>
+            Sign in again
+          </a>
         </div>
       </Card>
     );

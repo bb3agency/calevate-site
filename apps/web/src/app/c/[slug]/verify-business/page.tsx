@@ -30,10 +30,9 @@ import { TrialLockNotice } from "../TrialLockNotice";
  * verdict and the one next thing at the top, the four steps with their forms, the DLT
  * registration where one is on file, and the explanations folded at the foot.
  *
- * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE: the number is ours to provide.
- * Calevate provides the calling number on its own telephony account, naming no provider
- * (white label, founder 6 Oct 2026), and a number is arranged from the phone-number screen.
- * No self-serve provisioning adapter exists
+ * WHY THERE IS NO "BUY A NUMBER" CONTROL ON THIS PAGE: a number is bought on the
+ * phone-number screen, in the business's own name once it is verified (D-693), naming no
+ * provider (white label, founder 6 Oct 2026). No legacy self-serve provisioning adapter exists
  * either: `campaigns.provisioning.PROVISIONING_IMPLEMENTED = False`.
  *
  * That sentence is also load-bearing for a guard. `scripts/check_docs_drift.py` §5
@@ -145,6 +144,17 @@ function nextSentence(step: StepStatus, record: KycRecord, pledge: OutboundPledg
 }
 
 /**
+ * Whether outgoing calls were open before: a check that was passed (and has since lapsed or
+ * been withdrawn), or a pledge accepted in an older version. Only then is "paused" true; a
+ * business that never cleared the steps is told they open after them (e2e audit OB-12).
+ */
+function wasOpen(record: KycRecord, pledge: OutboundPledge | undefined): boolean {
+  const checkLapsed = record.status === "verified" || record.status === "expired";
+  const pledgeOutdated = pledge !== undefined && pledge.accepted_version !== null && !pledge.is_current;
+  return checkLapsed || pledgeOutdated;
+}
+
+/**
  * Where outgoing calls stand, first on the page: open, or paused with the one next thing and
  * a jump to it. Inbound is said before the verdict, because "paused" read alone sounds like
  * the phone line is down.
@@ -172,7 +182,7 @@ function OutgoingSummary({
   return (
     <NoticeBox
       tone={record.status === "rejected" && !record.is_verified ? "stop" : "warn"}
-      title="Outgoing calls are paused"
+      title={wasOpen(record, pledge) ? "Outgoing calls are paused" : "Outgoing calls open after these steps"}
       action={
         next && (
           <a href={`#step-${next.id}`} className={PRIMARY_BUTTON_SM}>

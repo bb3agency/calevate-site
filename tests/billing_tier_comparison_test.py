@@ -53,19 +53,26 @@ async def test_the_comparison_quotes_the_card_and_the_wallet() -> None:
     assert all(t["includes"] for t in body["tiers"])
 
 
+def _pick(*, clear: bool, studio: bool, clear_min: int, studio_min: int) -> str | None:
+    return recommend(
+        clear_offered=clear,
+        studio_offered=studio,
+        clear_minutes=Decimal(clear_min),
+        studio_minutes=Decimal(studio_min),
+    )[0]
+
+
 def test_the_recommendation_follows_use_and_availability() -> None:
-    assert (
-        recommend(studio_offered=False, clear_minutes=Decimal(0), studio_minutes=Decimal(9))[0]
-        == "clear"
-    )
-    assert (
-        recommend(studio_offered=True, clear_minutes=Decimal(2), studio_minutes=Decimal(9))[0]
-        == "studio"
-    )
-    assert (
-        recommend(studio_offered=True, clear_minutes=Decimal(0), studio_minutes=Decimal(0))[0]
-        == "clear"
-    )
+    assert _pick(clear=True, studio=False, clear_min=0, studio_min=9) == "clear"
+    assert _pick(clear=True, studio=True, clear_min=2, studio_min=9) == "studio"
+    assert _pick(clear=True, studio=True, clear_min=0, studio_min=0) == "clear"
+
+
+def test_a_tier_that_is_not_open_is_never_recommended() -> None:
+    """E2E audit OB-5: billing said "Clear suits you" beside a Clear card that could not be
+    chosen."""
+    assert _pick(clear=False, studio=True, clear_min=9, studio_min=0) == "studio"
+    assert _pick(clear=False, studio=False, clear_min=9, studio_min=9) is None
 
 
 async def test_credit_usage_this_month_and_all_time_is_the_accounts_own() -> None:

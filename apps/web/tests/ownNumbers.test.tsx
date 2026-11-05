@@ -114,6 +114,24 @@ function onTrial(over: Partial<OwnNumbersStatus> = {}): OwnNumbersStatus {
 
 const CREDITS_HREF = "/c/acme/billing?tab=credits";
 
+describe("one story about getting a number (e2e audit OB-6, OB-24)", () => {
+  it("where numbers are not sold, says so once with one way to ask", async () => {
+    await renderClientPage(<PhoneNumberPage />, routes(status({ available: false, step: null })));
+    expect(await screen.findByText("Numbers can't be bought here yet")).toBeTruthy();
+    expect(screen.getAllByRole("link", { name: "Contact us" })).toHaveLength(1);
+    expect(screen.queryByText("No number yet.")).toBeNull();
+    expect(document.body.textContent).not.toMatch(/arranged with us|We set it up with you|operator/i);
+  });
+
+  it("tells the owner what to do when callers see Suspected spam", async () => {
+    await renderClientPage(<PhoneNumberPage />, routes(status()));
+    fireEvent.click(await screen.findByText(/If callers see/));
+    const register = await screen.findByRole("link", { name: /Register with Hiya/ });
+    expect(register.getAttribute("href")).toMatch(/^https:\/\/business\.hiya\.com\//);
+    expect(screen.getByText("Pause calls from that number until the label goes.")).toBeTruthy();
+  });
+});
+
 describe("what the page shows for the account's state", () => {
   it("on a trial: says calls use the shared number, offers credit, and marks no step next", async () => {
     await renderClientPage(<PhoneNumberPage />, routes(onTrial()));

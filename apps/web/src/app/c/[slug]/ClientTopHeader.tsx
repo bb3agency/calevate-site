@@ -28,11 +28,10 @@ import {
 } from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
 import { creditLeftPhrase, useWallet, walletState } from "@/lib/api/wallet";
-import { clientNavigation } from "@/lib/clientNav";
+import { clientPageTitle } from "@/lib/clientPageTitle";
 import { useDesktopAlerts } from "@/lib/desktopAlerts";
 
 import { consoleHref } from "./ClientAnnouncements";
-import { currentItem } from "./ClientSidebar";
 import { HOME } from "./_ui/copy";
 import { TrialChip, trialView } from "./TrialBanner";
 
@@ -51,7 +50,7 @@ export function ClientTopHeader({ slug, onMenuToggle }: { slug: string; onMenuTo
   const pathname = usePathname();
   const { session, href } = useClientRealm();
   const attention = useAttention(session);
-  const title = currentItem(clientNavigation(slug), pathname)?.label ?? "Dashboard";
+  const title = clientPageTitle(slug, pathname);
 
   // New attention items also become desktop notifications, once turned on in Alerts.
   useDesktopAlerts(slug, attention.data, href);
