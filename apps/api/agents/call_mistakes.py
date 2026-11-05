@@ -167,7 +167,7 @@ def _replies(
     greeting as a reply to it would read it as greeting twice. A turn the caller spoke over
     (`unheard`) is left out: saying again what was not heard is right. The first such reply
     is still returned, because a turn is cut at its end, never its start, so a greeting that
-    opens it was heard ("హలో అండి. రైతు ఖాతా", cut off, on the call of 2 Nov 2026)."""
+    opens it was heard and saying it again is a mistake."""
     opening: list[str] = []
     replies: list[_Reply] = []
     cut_first: _Reply | None = None

@@ -353,3 +353,16 @@ def test_the_telugu_examples_are_the_founders_27_october_wording() -> None:
     openers = [e["agent"].split(",")[0] for e in exchanges if "," in e["agent"]]
     assert len(openers) == len(set(openers))
     assert not any(e["agent"].startswith("సరే అండి") for e in exchanges)
+
+
+def test_a_language_the_word_rules_do_not_hear_is_named_on_the_run() -> None:
+    """G5-5: a Tamil practice run gets the symbol and script rules only, so its result says
+    the word checks do not cover Tamil rather than read as clean as a Telugu one."""
+    from apps.api.agents.turn_checks import word_checks_note
+
+    for heard in ("te-IN", "hi-IN", "en-IN", ""):
+        assert word_checks_note(heard) is None, heard
+    for tag, name in (("ta-IN", "Tamil"), ("kn-IN", "Kannada"), ("mr-IN", "Marathi")):
+        note = word_checks_note(tag)
+        assert note is not None and name in note, tag
+        assert len(note) <= 60, note

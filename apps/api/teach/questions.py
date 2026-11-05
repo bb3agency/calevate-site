@@ -17,6 +17,11 @@ source is republished so the next call carries it. "Not something we answer" clo
 gaps as dismissed. A practice or setup question has no gap to close, so its settlement is
 kept in `teach_questions`; a later gap on the same topic asks it again, because a caller did.
 
+A practice or setup question is left out once a grounded draft for its current inputs exists:
+the business already said it, and the model reads any language where `_HOURS_PATTERN` and
+`_ADDRESS_PATTERN` read only English and the founder's word lists. They stay as the free
+first pass, so a covered question is not drafted at all.
+
 DRAFTS. Where what the business already gave us (its profile, its facts, its earlier answers,
 its files) answers a question, Pip drafts the answer and names that source; a draft without
 a source is never offered. Drafting calls a model, so it runs in the worker
@@ -293,6 +298,12 @@ async def list_questions(
         fingerprint = inputs_hash(marker, question)
         row = cached.get(question.key)
         if row is not None and row.inputs_hash == fingerprint:
+            if row.draft_status == "ready" and question.why != "callers":
+                # What the business already gave us answers it, in whatever language it
+                # was written: the patterns above hear only English and the founder's
+                # word lists. A caller's question stays, its draft offered, because
+                # answering it closes the caller's gaps.
+                continue
             if row.draft_status == "ready":
                 question = replace(
                     question,

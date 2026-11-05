@@ -6,10 +6,15 @@ string match can prove is how a feature acquires a hallucination surface it neve
 A deflection is a thing the agent SAID — "I don't know", "the team will WhatsApp you" —
 and recognising a said thing is a match, not a judgement. So detection reuses the pipeline
 that already exists (the transcript the post-call pipeline persists) rather than inventing
-a second LLM-calling mechanism, and it does NOT send a model anything: there is no new
-provider call, no new residency question, and no new prompt to keep honest. If a model
-pass is ever wanted for topic naming, it must run over redacted text through the SAME
-`redact()` guard `run_assist` uses — never the raw turn — because of the rule below.
+a second LLM-calling mechanism, and it does NOT send a model anything.
+
+TOPICS ARE NAMED TWICE. Here, from keywords (`_TOPICS`): free, immediate, and blind to a
+question asked in a script or a trade the word lists do not carry. Then by the worker job
+`workers/gap_topics.py`, which reads the stored redacted quotes with the business's own
+description and its existing topics, and re-files each gap under a known topic or one named
+for this business (`insights.service.rename_call_topics`). Naming is a judgement, so it is
+the model's; whether a gap happened stays the match above. The keyword topic is what stays
+when the model cannot run.
 
 THE QUOTES ARE REDACTED, STRUCTURALLY. The one input is a list of `(speaker, text)` where
 `text` is `transcript_turns.text_redacted`. This module never sees `turn.text`; the caller
@@ -34,9 +39,8 @@ comprehension (the same disclosure `moments.py` and `extraction.OfflineExtractor
 - a deflection with no preceding caller turn (the agent volunteering "I don't know" out of
   nowhere) — no question to anchor it, so it is not emitted;
 - sarcasm, or an agent that says "I don't know" and then answers anyway in the same turn;
-- a topic said only in words the keyword map does not carry — it still becomes a gap, but
-  under a phrase-derived label rather than a canonical one, so two callers who phrase the
-  same question differently may not aggregate.
+- a topic said only in words the keyword map does not carry — it still becomes a gap, under
+  a phrase-derived label until the naming job re-files it.
 """
 
 from __future__ import annotations
@@ -176,6 +180,11 @@ def withheld_topics(caps: Capabilities) -> frozenset[str]:
         for topic, needs in _TOPIC_NEEDS.items()
         if all(getattr(caps, need).applies is False for need in needs)
     )
+
+
+def topic_menu(withheld: Collection[str] = ()) -> tuple[tuple[str, str], ...]:
+    """The canonical (key, label) topics this business may be filed under."""
+    return tuple((key, label) for key, label in _TOPIC_NAMES if key not in withheld)
 
 
 _STOPWORDS: Final[frozenset[str]] = frozenset(_words("detection.stopwords"))
@@ -347,6 +356,7 @@ __all__ = [
     "caller_asked",
     "detect_gaps",
     "is_gap",
+    "topic_menu",
     "topics_in",
     "withheld_topics",
 ]

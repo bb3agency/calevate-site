@@ -34,6 +34,7 @@ from typing import Final, Literal, Protocol
 
 from calevate_shared.call_words import say as _say
 from calevate_shared.call_words import words as _word_list
+from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import opens_with_greeting, textbook_note, textbook_words
 from calevate_shared.spoken_style import style_for
 
@@ -267,7 +268,24 @@ _SCRIPT_OF: Final[dict[str, tuple[str, re.Pattern[str]]]] = {
     "ml": ("Malayalam", re.compile("[ഀ-ൿ]")),
     "mr": ("Marathi", re.compile("[ऀ-ॿ]")),
 }
+#: The languages whose words the word rules hear: English, which is in code, and the
+#: languages the founder's `call_words.json` lists were written for. A reply in any other
+#: language still gets the symbol, script and number rules, but a question without "?", a
+#: restated question or a formal word in it goes unseen, so a run says so (`word_checks_note`).
+_WORD_LANGUAGES: Final = frozenset({"en", *_word_list("turn_checks.word_languages")})
 _LATIN_WORD: Final = re.compile(r"[A-Za-z]{2,}")
+
+
+def word_checks_note(language: str) -> str | None:
+    """One plain line for a practice run in a language the word rules do not hear, so a
+    clean result is not read as a full check; None when they do."""
+    if not language or language.split("-")[0].lower() in _WORD_LANGUAGES:
+        return None
+    found = find_language(language)
+    name = found.english_name if found is not None else language
+    return f"Word-by-word checks don't cover {name} yet."
+
+
 #: The agent talking ABOUT the person it is talking TO: an action's answer read out as it
 #: stands ("The caller's number has been added ..."). "This customer" is how an owner's own
 #: script may describe a caller to the agent, so only "the caller" and "the customer's" count.
@@ -1846,5 +1864,6 @@ __all__ = [
     "opened_again",
     "sentences",
     "turn_problems",
+    "word_checks_note",
     "wrong_weekday",
 ]

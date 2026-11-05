@@ -1302,8 +1302,9 @@ async def _owner_insights_stage(
         # rule 6). It reads `redact(turn.text).text`, the same redaction STEP 2 wrote to
         # `transcript_turns.text_redacted`, and never `turn.text`. Exactly-once per call:
         # `record_call_gaps` replaces this call's occurrence rows and recomputes the aggregate,
-        # so a re-drive cannot double-count (`apps/api/insights/service.py`). Guarded on a
-        # transcript existing — a call with none implies no gaps.
+        # so a re-drive cannot double-count (`apps/api/insights/service.py`), and queues the
+        # job that names the topics from the business's context (`workers/gap_topics.py`).
+        # Guarded on a transcript existing — a call with none implies no gaps.
         if snapshot.transcript:
             redacted_turns = [
                 gap_detection.RedactedTurn(speaker=turn.speaker, text=redact(turn.text).text)
