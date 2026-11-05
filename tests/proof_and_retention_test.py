@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from apps.api.analytics import proof
+from apps.api.crm import lead_definition
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.main import app
@@ -430,6 +431,80 @@ async def test_a_person_becomes_a_lead_once_on_the_day_they_first_showed_interes
         )
     assert counts.leads == 1
     assert older.leads == 1
+
+
+async def test_a_test_call_never_makes_a_lead() -> None:
+    """L3-02: a lead the after-call rules moved on a test call is not a lead until a real
+    call moves it; a person's own move counts whatever calls came before it."""
+    tenant_id, _slug, _token = await _make_tenant()
+    today = _today_ist()
+    at = _ist(today - timedelta(days=1), 10)
+    async with tenant_session(tenant_id) as session:
+        agent_id = await _agent(session)
+        test_only, real_after, person = uuid7(), uuid7(), uuid7()
+        for lead_id, phone in (
+            (test_only, "+919876543221"),
+            (real_after, "+919876543222"),
+            (person, "+919876543223"),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                    "status_set_at, created_at, updated_at) VALUES (:id, :t, :a, :p, "
+                    "'test_call', 'interested', :at, :at, now())"
+                ),
+                {"id": lead_id, "t": tenant_id, "a": agent_id, "p": phone, "at": at},
+            )
+        for lead_id, trial, minutes in (
+            (test_only, True, 0),
+            (real_after, True, 0),
+            (real_after, False, 30),
+            (person, True, 0),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, lead_id, engine_call_id, "
+                    "direction, status, started_at, trial_call, created_at, updated_at) VALUES "
+                    "(:id, :t, :a, :l, :e, 'inbound', 'completed', :at, :trial, :at, now())"
+                ),
+                {
+                    "id": uuid7(),
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "l": lead_id,
+                    "e": f"tc-{uuid.uuid4().hex}",
+                    "trial": trial,
+                    "at": at + timedelta(minutes=minutes),
+                },
+            )
+
+        async def rules_move(lead_id: uuid.UUID, status: str, when: datetime) -> None:
+            await session.execute(
+                text(
+                    "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
+                    "created_at, updated_at) VALUES (:id, :t, :l, 'status_change', "
+                    "jsonb_build_object('status', CAST(:s AS text), 'by', 'after_call_rules'), "
+                    "'system', :at, :at)"
+                ),
+                {"id": uuid7(), "t": tenant_id, "l": lead_id, "s": status, "at": when},
+            )
+
+        await rules_move(test_only, "interested", at + timedelta(minutes=2))
+        await rules_move(real_after, "interested", at + timedelta(minutes=2))
+        await rules_move(real_after, "hot", at + timedelta(minutes=32))
+        await _status_event(session, tenant_id, person, "interested", at + timedelta(minutes=5))
+        ids = {
+            row[0]
+            for row in (
+                await session.execute(
+                    text(f"SELECT bl.id FROM {lead_definition.BECAME_LEADS_SQL} AS bl")
+                )
+            ).all()
+        }
+        counts = await proof.result_counts(session, start=today - timedelta(days=6), end=today)
+    assert test_only not in ids
+    assert {real_after, person} <= ids
+    assert counts.leads == 2
 
 
 async def test_the_fleet_view_groups_every_client_by_language() -> None:
