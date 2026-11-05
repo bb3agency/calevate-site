@@ -65,9 +65,9 @@ function row(over: Partial<ClientHealth> = {}): ClientHealth {
 describe("the client health board", () => {
   it("refuses to render a trend for an account too new to have a previous week", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({ calls_basis: "too_new", calls_7d: 0, calls_prev_7d: 0 }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -84,9 +84,9 @@ describe("the client health board", () => {
     // history that has already arrived is a different mistake from calling it a collapse,
     // and the copy has to distinguish them.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({ calls_basis: "no_baseline", calls_7d: 1, calls_prev_7d: 3 }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -97,7 +97,7 @@ describe("the client health board", () => {
 
   it("renders the measured drop when, and only when, the server says it is measured", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           calls_basis: "measured",
           calls_7d: 2,
@@ -111,7 +111,7 @@ describe("the client health board", () => {
             }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -122,13 +122,13 @@ describe("the client health board", () => {
 
   it("keeps an account flagged on a signal this build cannot name, and offers a real destination", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           signals: [
             signal({ rule: "a_signal_added_after_this_build", count: null }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -148,7 +148,7 @@ describe("the client health board", () => {
     // the account. A board that sent every cause to one place would bury the work, and one
     // that re-worded the gates would be a second vocabulary for one refusal.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           signals: [
             signal({
@@ -160,7 +160,7 @@ describe("the client health board", () => {
             }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -175,13 +175,13 @@ describe("the client health board", () => {
 
   it("names an account whose numbers we have not filed, as ours, with the filing screen", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           signals: [
             signal({ rule: "calling_numbers_unfiled", severity: "warn", count: 2, causes: [] }),
           ],
         }),
-      ],
+      ] },
     });
     await screen.findByText("Sri Traders");
     expect(container.textContent).toContain("Calling numbers not filed by us");
@@ -190,7 +190,7 @@ describe("the client health board", () => {
 
   it("names an account whose calling numbers are not confirmed, and why (D-941)", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           signals: [
             signal({
@@ -202,7 +202,7 @@ describe("the client health board", () => {
             }),
           ],
         }),
-      ],
+      ] },
     });
     await screen.findByText("Sri Traders");
     expect(container.textContent).toContain("Calling numbers not confirmed");
@@ -253,7 +253,7 @@ describe("the client health board", () => {
 
   it("says every client is healthy, in words, when the board is empty", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [],
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [] },
     });
 
     await screen.findByText("Every client looks healthy");
@@ -267,7 +267,7 @@ describe("the client health board", () => {
     // The server ranks most-broken-first (`_triage_order`); the screen must not re-sort,
     // and the headline must be derived from the rows rather than assumed from the order.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({ tenant_id: "t-a", name: "Broken Co", severity: "stop" }),
         row({
           tenant_id: "t-b",
@@ -277,7 +277,7 @@ describe("the client health board", () => {
             signal({ rule: "knowledge_waiting", severity: "warn", count: 2 }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Broken Co");
@@ -289,7 +289,7 @@ describe("the client health board", () => {
 
   it("says one account needs attention in the singular", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [row()],
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [row()] },
     });
 
     await screen.findByText("Sri Traders");
@@ -301,7 +301,7 @@ describe("the client health board", () => {
     // The false alarm of 11 Oct 2026: a trial account placing test calls read "Broken now:
     // Cannot dial out". A trial is a state, and agreements are the client's step.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           severity: "warn",
           on_trial: true,
@@ -315,7 +315,7 @@ describe("the client health board", () => {
             }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -333,13 +333,13 @@ describe("the client health board", () => {
 
   it("keeps a refusal only we can clear broken now", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           signals: [
             signal({ rule: "outbound_blocked", severity: "stop", count: null, causes: ["spend_cap"] }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -356,7 +356,7 @@ describe("the client health board", () => {
     // names and drops the blockers' `reason` prose, which can interpolate free
     // text. This screen must not fetch any of it back to fill the gap.
     const { container, calls } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           signals: [
             signal({
@@ -366,7 +366,7 @@ describe("the client health board", () => {
             }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -383,7 +383,7 @@ describe("the client health board", () => {
     // spend, so the board is bound by it — the percentage it shows is the SERVER's
     // integer, computed from Decimals, never divided in the browser.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           spend_used_inr: "10159.0000",
           spend_cap_inr: "10160.0000",
@@ -391,7 +391,7 @@ describe("the client health board", () => {
             signal({ rule: "spend_cap_near", severity: "warn", count: 99 }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -405,7 +405,7 @@ describe("the client health board", () => {
     // the string and never parses them, so the figure an operator quotes to a client is
     // the one billing holds (hard rule 7).
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           spend_used_inr: "900.5000",
           spend_cap_inr: "1000.0000",
@@ -413,7 +413,7 @@ describe("the client health board", () => {
             signal({ rule: "spend_cap_near", severity: "warn", count: 90 }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -429,7 +429,7 @@ describe("the client health board", () => {
     // rather than a limit that does not exist, and an operator chasing a missing cap on
     // an uncapped account is work invented by a render.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [
         row({
           spend_used_inr: "900.5000",
           spend_cap_inr: null,
@@ -437,7 +437,7 @@ describe("the client health board", () => {
             signal({ rule: "spend_cap_near", severity: "warn", count: 90 }),
           ],
         }),
-      ],
+      ] },
     });
 
     await screen.findByText("Sri Traders");
@@ -451,7 +451,7 @@ describe("the client health board", () => {
     // so a heading here would print "Client health" twice and give the name a second place
     // to be renamed out of step with the link that leads here.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [row()],
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [row()] },
     });
 
     await screen.findByText("Sri Traders");
@@ -467,7 +467,7 @@ describe("the client health board", () => {
     // `slate-` outright, because the neutral tone's dot is slate (`--chart-neutral`) and is
     // shared with the client realm.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [row()],
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [row()] },
     });
 
     await screen.findByText("Sri Traders");
@@ -493,7 +493,7 @@ describe("the client health board", () => {
   it("does not call the estate healthy over a read the browser never made", () => {
     browserOffline();
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [row()],
+      [CLIENT_HEALTH_PATH]: { computed_at: "2026-11-05T04:00:00Z", accounts: [row()] },
     });
 
     // The server WOULD have answered with a broken client. Nobody asked it.

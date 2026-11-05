@@ -514,24 +514,37 @@ function configList(over: Partial<ConfigList> = {}): ConfigList {
  * the result needs a non-empty queue to be about anything at all. The empty case has its
  * own test rather than being everyone's premise.
  */
-function deadLetters(over: Partial<PlatformState["outbox_dead_letters"]> = {}) {
+function deadLetters(
+  over: Partial<PlatformState["outbox_dead_letters"]> = {},
+): PlatformState["outbox_dead_letters"] {
   return {
     depth: 9,
     // Added by the slice that regenerated the client after `deferred` landed on
     // `DeadLetterQueueOut`; the field is required on the wire, so a fixture without it
     // is a shape the server never sends.
     deferred: 0,
+    stalled_pending: 0,
+    oldest_pending_at: null,
+    stalled_after_minutes: 27,
+    held_for_release: 0,
+    held_for_bulk_worker: 0,
     oldest_at: "2026-08-04T04:15:00Z",
     by_job: [
       {
         job: "deliver_outbound_webhook",
+        label: "Deliver outbound webhook",
         depth: 6,
         oldest_at: "2026-08-04T04:15:00Z",
+        last_error: "HTTPStatusError: 502 from the client's endpoint",
+        cause: null,
       },
       {
         job: "send_hot_lead_email",
+        label: "Send hot lead email",
         depth: 3,
         oldest_at: "2026-08-11T09:00:00Z",
+        last_error: "published 2026-08-11 14:30 IST; no run succeeded",
+        cause: "never_ran",
       },
     ],
     ...over,
@@ -1351,8 +1364,8 @@ describe("the dead-letter depth, before the click", () => {
     await screen.findByText("9 messages are stuck");
     // The mix, because 9 CRM webhooks and 9 hot-lead emails are different things to
     // re-send — this is the sentence a bare total cannot say.
-    expect(container.textContent).toContain("deliver_outbound_webhook");
-    expect(container.textContent).toContain("send_hot_lead_email");
+    expect(container.textContent).toContain("Deliver outbound webhook");
+    expect(container.textContent).toContain("Send hot lead email");
 
     // ORDER is the property, not mere presence: a count rendered under the button is a
     // measurement taken after the irreversible act.
@@ -1414,12 +1427,7 @@ describe("the dead-letter depth, before the click", () => {
       <OpsPage />,
       routes(
         platform({
-          outbox_dead_letters: {
-            depth: 0,
-            deferred: 0,
-            oldest_at: null,
-            by_job: [],
-          },
+          outbox_dead_letters: deadLetters({ depth: 0, oldest_at: null, by_job: [] }),
         }),
         SUPERADMIN,
       ),
@@ -1455,12 +1463,12 @@ describe("the dead-letter depth, before the click", () => {
       <OpsPage />,
       routes(
         platform({
-          outbox_dead_letters: {
+          outbox_dead_letters: deadLetters({
             depth: 0,
             deferred: 214,
             oldest_at: null,
             by_job: [],
-          },
+          }),
         }),
         SUPERADMIN,
       ),
@@ -1492,6 +1500,51 @@ describe("the dead-letter depth, before the click", () => {
 
     await screen.findByText("9 messages are stuck");
     await screen.findByText("31 messages are waiting to retry on their own");
+  });
+
+  it("names why each job failed, in words, before the resend", async () => {
+    // A7-04: the operator used to replay blind, reading raw job names.
+    renderAdminPage(<OpsPage />, routes(platform(), SUPERADMIN));
+    await screen.findByText("Deliver outbound webhook");
+    expect(
+      screen.getByText("Last error: HTTPStatusError: 502 from the client's endpoint"),
+    ).toBeTruthy();
+  });
+
+  it("names a dead letter that never ran, and rows held for a release or the bulk worker (G-C1)", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          outbox_dead_letters: deadLetters({ held_for_release: 4, held_for_bulk_worker: 2 }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+    await screen.findByText("Sent, but no run of it succeeded");
+    expect(container.textContent).toContain("4 messages wait for a newer release");
+    expect(container.textContent).toContain("2 messages wait for the bulk worker");
+  });
+
+  it("does not call a queue that stopped moving healthy", async () => {
+    // A7-03: a stopped worker fails nothing, and the strip read a green 0.
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          outbox_dead_letters: deadLetters({
+            depth: 0,
+            oldest_at: null,
+            by_job: [],
+            stalled_pending: 23844,
+            oldest_pending_at: "2026-10-10T04:15:00Z",
+          }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+    await screen.findByText("23,844 messages have not been sent for over 27 minutes");
+    expect(container.textContent).not.toContain("Nothing is stuck");
   });
 
   it("will not replay until a scope is chosen, and there is no default", async () => {

@@ -74,6 +74,7 @@ export const SELF_SERVE_PRICE_META: Pick<
   | "nullable"
   | "label"
   | "description"
+  | "details"
   | "section"
   | "subsection"
   | "engine_scope"
@@ -83,6 +84,7 @@ export const SELF_SERVE_PRICE_META: Pick<
   nullable: false,
   label: "Self-serve price per minute",
   description: "The self-serve list price per calling minute.",
+  details: null,
   section: "billing",
   subsection: "prices",
   engine_scope: null,

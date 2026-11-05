@@ -222,6 +222,7 @@ describe("the operator's lines", () => {
     absorbed: true,
     last_trigger: "signup",
     last_attempt_at: "2026-10-19T04:30:00Z",
+    capability_overrides: {},
   };
 
   it("names who paid and why it ran", () => {

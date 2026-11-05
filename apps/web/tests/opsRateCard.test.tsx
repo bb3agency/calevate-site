@@ -205,6 +205,7 @@ function cartesiaVolume(over: Partial<CartesiaVolume> = {}): CartesiaVolume {
     floor_inr_per_min: "5.5899",
     best_marginal_cost_inr_per_min: "4.6395",
     refusal_floor_inr_per_min: "5.5899",
+    refusal_usd_inr: "95",
     plan_crossover_call_minutes: "1439",
     plans: [
       {
@@ -1183,6 +1184,18 @@ describe("the volume every Studio cost figure is struck at", () => {
     expect(container.textContent).toContain(
       "because no published rate is current",
     );
+  });
+
+  it("states the frozen refusal rate the server sends, never its own copy (A7-24)", async () => {
+    const { container } = renderOps(
+      routes({
+        [OPS_RATE_CARD_PATH]: card(undefined, {
+          cartesia_volume: cartesiaVolume({ refusal_usd_inr: "91" }),
+        }),
+      }),
+    );
+    await screen.findByText("17.60%");
+    expect(container.textContent).toContain("frozen at ₹91 to the dollar");
   });
 
   it("refuses to print a cost column at all when the deployment sent no volume", async () => {

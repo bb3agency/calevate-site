@@ -17,10 +17,12 @@ Slack app requests: every reviewer is told, and the reviewer acts from the messa
   The console's bell reads the open requests themselves (`open_requests_by_client`).
 * **The client is told on its bell** from the resolved row itself
   (`notifications/service.feed`), not from a copy, for `NOTICE_DAYS`.
-* **Closing is part of the existing setter.** `call_lines.set_call_lines` calls
-  `close_on_raise` in the transaction that moved the number, so a raise made from anywhere
-  closes the request; a raise to any number above what the client had counts, because an
-  operator who grants 3 of the 5 asked for has answered the request.
+* **Closing follows the cap, not the click.** Where our dial gate holds the cap,
+  `call_lines.set_call_lines` calls `close_on_raise` in the transaction that moved the number.
+  Where the client's own workspace holds it, the request closes when that workspace reads the
+  raise back (`call_lines.record_engine_call_lines`), so the client is never told "raised"
+  while the platform still caps the old number. A raise to any number above what the client
+  had counts, because an operator who grants 3 of the 5 asked for has answered the request.
 """
 
 from __future__ import annotations

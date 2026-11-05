@@ -387,6 +387,36 @@ async def test_the_console_read_returns_the_recorded_alert(transport: Any) -> No
     assert report.complete is True
 
 
+@pytest.mark.asyncio
+async def test_an_open_alarm_last_seen_before_the_window_is_still_listed(transport: Any) -> None:
+    """A7-02: the open counts are not windowed, so the list may not be either for an open
+    alarm. The board counted 14 alarms "still happening" and then said "No alarms in this
+    window" because each was last seen before the 7-day window. A cleared one that old
+    stays out."""
+    from apps.api.ops.alerts_service import alert_report
+
+    alerting.alert("CORE_LOGIC", AN_ATTENTION, detail="stale")
+    alerting.alert("PROCESS_RESTART", A_RECORD, detail="SIGTERM")
+    _drain()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "UPDATE platform_alerts SET last_seen_at = now() - interval '20 days', "
+                "cleared_at = CASE WHEN code = :closed THEN now() - interval '20 days' END "
+                "WHERE code IN (:open, :closed)"
+            ),
+            {"open": AN_ATTENTION, "closed": A_RECORD},
+        )
+        await session.commit()
+
+    async with untenanted_session() as session:
+        report = await alert_report(session, days=7)
+
+    codes = {episode.code for episode in report.episodes}
+    assert AN_ATTENTION in codes, "an open alarm the counts include must be on the list"
+    assert A_RECORD not in codes, "a cleared alarm outside the window stays out"
+
+
 # --- 7: the table does not grow without bound --------------------------------
 
 

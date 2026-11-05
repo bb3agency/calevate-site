@@ -59,7 +59,7 @@ from apps.api.admin.health import (
     HealthSignal,
     Owner,
     Severity,
-    client_health,
+    client_health_board,
     read_account,
     tenant_health,
 )
@@ -201,9 +201,19 @@ def _out(row: ClientHealth) -> ClientHealthOut:
     )
 
 
+class ClientHealthBoardOut(BaseModel):
+    """The board, and when it was worked out. The worker recomputes it every
+    `health.BOARD_REFRESH_S`; one per request was a walk of every tenant per poll."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    computed_at: datetime
+    accounts: list[ClientHealthOut]
+
+
 @router.get(
     "",
-    response_model=list[ClientHealthOut],
+    response_model=ClientHealthBoardOut,
     openapi_extra=permission_meta("org:read"),
     summary="Client health overview — accounts about to churn or break, worst first",
     description=(
@@ -214,14 +224,18 @@ def _out(row: ClientHealth) -> ClientHealthOut:
         "from the same predicates that refuse the client's dial, so the board cannot say "
         "an account is fine while the client is looking at a refusal. `calls_basis` says "
         "whether the call-volume comparison is entitled to be made at all; a trend must "
-        "never be rendered on any value but `measured`."
+        "never be rendered on any value but `measured`. The board is computed by a "
+        "background job every two minutes; `computed_at` says when. With no fresh board "
+        "one request computes it and others get a retryable 503 "
+        "`client_health_computing`."
     ),
 )
-async def read_client_health(
-    session: AdminSession, principal: BoardReader
-) -> list[ClientHealthOut]:
+async def read_client_health(session: AdminSession, principal: BoardReader) -> ClientHealthBoardOut:
     del principal  # the dependency IS the authorization; the identity is not needed here
-    return [_out(row) for row in await client_health(session)]
+    board = await client_health_board(session)
+    return ClientHealthBoardOut(
+        computed_at=board.computed_at, accounts=[_out(row) for row in board.rows]
+    )
 
 
 class TenantHealthOut(BaseModel):

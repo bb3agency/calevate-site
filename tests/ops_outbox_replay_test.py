@@ -483,6 +483,39 @@ async def test_the_depth_names_the_age_of_the_oldest_dead_letter() -> None:
     assert datetime.fromisoformat(body["oldest_at"]) <= oldest
 
 
+async def test_each_job_names_why_it_failed_and_reads_as_words() -> None:
+    """A7-04: replay was blind. The latest failure's redacted `last_error` rides each job's
+    row, with the job name read as words; the payload still never does."""
+    job = _job_name("why")
+    await _message(job=job, payload={"phone": "+919876543210"})
+    token, _ = await _make_admin()
+
+    entry = _entry((await _read_platform(token)).json(), job)
+
+    assert entry is not None
+    assert entry["last_error"] == "exhausted after 3"
+    assert entry["label"] == job.replace("_", " ").capitalize()
+    assert "+919876543210" not in json.dumps(entry)
+
+
+async def test_a_queue_that_is_not_draining_counts_as_stuck() -> None:
+    """A7-03: a stopped worker fails nothing, so "Stuck messages 0" read healthy while the
+    queue had not moved for weeks. A pending message older than the retry loop can hold one
+    is counted as stalled, and the oldest pending one is named."""
+    from apps.api.ops.outbox_view import STALLED_AFTER
+
+    await _message(job=_job_name("stalled"), status="pending", age_days=2)
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).json()["outbox_dead_letters"]
+
+    assert body["stalled_pending"] >= 1
+    assert body["oldest_pending_at"] is not None
+    age = datetime.now(UTC) - datetime.fromisoformat(body["oldest_pending_at"])
+    assert age >= timedelta(days=2) - timedelta(minutes=1)
+    assert body["stalled_after_minutes"] == int(STALLED_AFTER.total_seconds() // 60)
+
+
 async def test_a_job_with_no_dead_letters_is_absent_rather_than_a_zero_row() -> None:
     """The breakdown is what the queue HOLDS, not a roster of every job that exists.
 
@@ -676,3 +709,52 @@ async def test_the_scoped_replay_records_which_queue_it_emptied(
         f"a redelivery of unknown scope. Records seen: {[r.getMessage() for r in caplog.records]}"
     )
     assert summaries[0].replayed == 1
+
+
+async def test_a_dead_letter_that_never_ran_says_so() -> None:
+    """G-C1: lane C's sweep dead-letters a published message whose run never succeeded; the
+    panel names that cause rather than leaving a raw error."""
+    from apps.api.ops.outbox_view import NO_RUN_SUCCEEDED
+
+    job = _job_name("neverran")
+    message_id = await _message(job=job)
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE outbox_messages SET last_error = :e WHERE id = :id"),
+            {"e": f"published 2026-11-05 09:00 IST; {NO_RUN_SUCCEEDED}", "id": message_id},
+        )
+    token, _ = await _make_admin()
+
+    entry = _entry((await _read_platform(token)).json(), job)
+
+    assert entry is not None and entry["cause"] == "never_ran"
+
+
+async def test_a_row_held_for_a_newer_release_is_counted_apart() -> None:
+    """G-C1: a migration-queued row waits for the release that contains its revision; that is
+    a deploy to finish, not a message to resend."""
+    message_id = await _message(job=_job_name("heldrev"), status="pending", age_days=0)
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE outbox_messages SET min_revision = 'zz_not_in_this_image' WHERE id = :id"),
+            {"id": message_id},
+        )
+    token, _ = await _make_admin()
+
+    body = (await _read_platform(token)).json()["outbox_dead_letters"]
+
+    assert body["held_for_release"] >= 1
+    assert isinstance(body["held_for_bulk_worker"], int)
+
+
+def test_the_producers_still_write_the_causes_the_panel_reads() -> None:
+    """The panel classifies by text the two producers write; this holds them together."""
+    from pathlib import Path
+
+    from apps.api.ops.outbox_view import EARLIER_RUN_FAILED, NO_RUN_SUCCEEDED
+
+    root = Path(__file__).resolve().parents[1]
+    sweep = (root / "apps/api/reliability/service.py").read_text(encoding="utf-8")
+    dispatcher = (root / "apps/workers/dispatcher.py").read_text(encoding="utf-8")
+    assert NO_RUN_SUCCEEDED in sweep
+    assert EARLIER_RUN_FAILED in dispatcher

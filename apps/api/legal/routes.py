@@ -131,7 +131,7 @@ class ReadinessRowOut(Strict):
     rule: str
     title: str
     reason: str
-    actor: Literal["client", "calevate"]
+    actor: readiness.Actor
     next_step: str
 
 

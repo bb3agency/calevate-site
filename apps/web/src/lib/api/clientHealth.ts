@@ -43,6 +43,8 @@ type Schemas = components["schemas"];
 
 /** One line of the board. */
 export type ClientHealth = Schemas["ClientHealthOut"];
+/** The board and when the worker computed it. */
+export type ClientHealthBoard = Schemas["ClientHealthBoardOut"];
 /** One thing wrong with one account, in machine names. */
 export type HealthSignal = Schemas["HealthSignalOut"];
 /** One client's health, healthy case included (`severity: null`, no signals). */

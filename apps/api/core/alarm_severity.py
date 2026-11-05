@@ -150,6 +150,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A config problem (no Gemini leg) that silently stops every agent's judgement: someone
     # should look, but no call is affected.
     "caller_help_unavailable": "attention",
+    # Expected while one request computes the board; the operator just retries.
+    "client_health_computing": "record",
     "copilot_attachments_unavailable": "record",
     "copilot_pdf_unavailable": "record",
     "recording_unavailable": "record",
@@ -400,6 +402,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # (a plan upgrade, a retry): attention, never a page. A workspace left holding rented
     # numbers after an offboarding is money leaking monthly, still one operator task.
     "engine_workspace_plan_limit": "attention",
+    # A7-06. A client's own workspace held another calls-at-once cap than ours; the daily
+    # sweep set it back, so one operator question (who changed it), never a page.
+    "engine_call_lines_drift": "attention",
     "engine_workspace_provisioning_failed": "attention",
     "engine_workspace_offboarding_failed": "attention",
     # D-860. A held number not released before its renewal costs us one month's rent; the

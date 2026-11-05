@@ -12,6 +12,7 @@ export const AGREEMENTS_COPY = {
   done: "Done",
   yourMove: "Your move",
   oursToDo: "Ours to do",
+  notYet: "Not available yet",
   reviewAndAccept: "Review and accept",
   seeAgreements: "See the agreements",
   verifyBusiness: "Verify your business",

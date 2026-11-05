@@ -240,6 +240,58 @@ async def test_a_raise_closes_the_request_and_the_clients_bell_says_so() -> None
     assert all(r["tenant_id"] != str(tenant_id) for r in listed.json())
 
 
+async def test_a_raise_the_workspace_holds_closes_only_once_it_is_read_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A7-06: where the client's own workspace holds the cap, the client is not told
+    "raised" until that workspace reads the raise back; until then it reads as being
+    applied, and the operator's panel says so."""
+    from apps.api.tenancy import call_lines as lines_module
+    from apps.api.tenancy.call_lines import record_engine_call_lines
+
+    async def _held_by_workspace(*_args: object, **_kwargs: object) -> bool:
+        return True
+
+    monkeypatch.setattr(lines_module, "_engine_holds_it", _held_by_workspace)
+    tenant_id, _agent, owner = await _tenant()
+    operator = await _operator()
+    path = f"/v1/admin/organizations/{tenant_id}/call-lines"
+    async with _client() as client:
+        await client.post(ASK, headers=owner, json={"wanted": 4})
+        raised = await client.put(
+            path,
+            headers={**operator, "X-Confirm-Action": call_lines_confirmation(tenant_id)},
+            json={"call_lines": 4},
+        )
+        mine = await client.get("/v1/call-lines", headers=owner)
+    assert raised.json()["engine_state"] == "applying"
+    assert raised.json()["open_request"] is not None, "closed before the platform held it"
+    assert mine.json()["being_applied"] is True
+    assert mine.json()["request"]["status"] == "open"
+
+    async with tenant_session(tenant_id) as session:
+        closed = await record_engine_call_lines(session, tenant_id=tenant_id, held=4)
+    assert closed is not None and closed.lines_granted == 4
+    async with _client() as client:
+        page = (await client.get(path, headers=operator)).json()
+        mine = (await client.get("/v1/call-lines", headers=owner)).json()
+    assert page["engine_state"] == "applied" and page["applied_lines"] == 4
+    assert page["open_request"] is None
+    assert mine["being_applied"] is False and mine["request"]["status"] == "done"
+
+
+async def test_the_operator_sees_the_account_ceiling_and_what_others_hold() -> None:
+    """A7-10: calls at once is granted per client against one account-wide ceiling."""
+    tenant_id, _agent, _owner = await _tenant()
+    operator = await _operator()
+    async with _client() as client:
+        page = (
+            await client.get(f"/v1/admin/organizations/{tenant_id}/call-lines", headers=operator)
+        ).json()
+    assert "account_ceiling" in page
+    assert isinstance(page["lines_elsewhere_at_most"], int)
+
+
 async def test_a_decline_carries_its_reason_and_holds_the_next_ask_for_a_day() -> None:
     tenant_id, _agent, owner = await _tenant()
     operator = await _operator()

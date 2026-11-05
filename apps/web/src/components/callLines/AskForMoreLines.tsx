@@ -40,6 +40,8 @@ export function AskForMoreLines({ session }: { session: Session }) {
   if (data.on_trial) return <span>Trial: one line. More once you pay.</span>;
 
   const request = data.request;
+  // Changed by us and not yet held by the phone system: neither "asked" nor "done".
+  if (data.being_applied) return <span role="status">A change to your lines is being applied.</span>;
   if (request?.status === "open") {
     const day = formatISTDay(request.created_at);
     const asked = request.wanted_lines != null ? `Asked for ${request.wanted_lines}` : "Asked for more";
