@@ -122,7 +122,7 @@ describe("the opening line's room (D-846)", () => {
     );
     expect(screen.getByText("When it answers")).toBeTruthy();
     expect(screen.getByText("When it calls")).toBeTruthy();
-    expect(screen.getByText("“Ippudu matladocha?”")).toBeTruthy();
+    expect(screen.getByText("Ippudu matladocha?")).toBeTruthy();
     expect(screen.getByRole("link", { name: /Edit the opening lines/ })).toBeTruthy();
   });
 

@@ -181,6 +181,7 @@ export function ToggleSwitch({
   onChange,
   children,
   className,
+  describedBy,
 }: {
   label: ReactNode;
   hint?: ReactNode;
@@ -190,6 +191,8 @@ export function ToggleSwitch({
   /** Anything shown under the control — a quoted sentence, a warning about OFF. */
   children?: ReactNode;
   className?: string;
+  /** The id of text in `children` that is read with the switch, as its description. */
+  describedBy?: string;
 }) {
   return (
     <div className={className}>
@@ -198,6 +201,7 @@ export function ToggleSwitch({
           type="checkbox"
           role="switch"
           className="peer sr-only"
+          aria-describedby={describedBy}
           checked={checked}
           disabled={disabled}
           // `disabled` stops a person, not a dispatched click (jsdom delivers one, and so

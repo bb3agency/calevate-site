@@ -1,20 +1,17 @@
 "use client";
 
 /**
- * THE OPENING NOTICES — a compliance surface, and the one sentence no switch reaches.
+ * THE OPENING NOTICES — two switches, and the answer neither of them reaches.
  *
  * What stays on screen without a click (UX-DOCTRINE §3, §8 rule 7): the guarantee that the
- * agent answers honestly when asked, each switch with its one-line label and the sentence
- * the caller hears, and — while a notice is off — one line saying what off does NOT do.
- * Everything that explains rather than qualifies (where each notice falls in the opening,
- * the DPDP reasoning, why the memory sentence has no switch, when a change takes effect)
- * is in one closed disclosure under the block. The founder's reason (D-873, 24 Oct 2026):
- * every owner was made to read all of it on every visit, and stopped reading.
+ * agent answers honestly when asked, each switch with one line saying what its position
+ * does, and how a call starts. The reasoning (the DPDP duty, when a change takes effect)
+ * is in one closed disclosure under the block (D-873).
  */
 
-import { PenLine, ShieldCheck } from "lucide-react";
+import { PenLine, TriangleAlert } from "lucide-react";
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import {
@@ -23,8 +20,6 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   ToggleSwitch,
-  NOTICE_BAR,
-  NOTICE_BASE,
 } from "@/components/ui";
 import { useSetDisclosure, type Agent, type DisclosureIn } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -51,7 +46,7 @@ export function splitPromise(rule: string): { lead: string; rest: string } {
 }
 
 /**
- * The two opening notices, as switches — and the one sentence the switches do not reach.
+ * The two opening notices, as switches.
  *
  * ## What the client is actually deciding (D-163)
  *
@@ -61,44 +56,38 @@ export function splitPromise(rule: string): { lead: string; rest: string } {
  * An operator in "view as client" can flip them too (D-587, over D-22's read-only rule):
  * every flip is audited, and an operator's names them and the view-as session.
  *
- * ## The three things "off" does not mean, each said on screen
+ * ## No sentence is quoted
+ *
+ * With a switch on, the agent mentions the notice in its own words when it opens the call
+ * (founder, 5 Nov 2026), so there is no fixed sentence to show: the screen says what the
+ * switch does rather than quoting `ai_disclosure_line` / `recording_notice_line`, which
+ * stay on the API untouched. The caller-memory sentence is no longer spoken and has no row.
+ *
+ * ## What "off" does not mean, said on screen
  *
  * - **"Off" does not mean the agent lies.** `truthful_answer_rule` comes from the server and
- *   is drawn in the server's words, its first sentence above the switches. Paraphrasing it
- *   is how a client ends up believing they bought a bot that can pass for human.
- * - **"Off" does not stop the recording.** Nothing in the product can, so the recording
- *   switch's off line says the calls are still recorded.
- * - **"Off" does not discharge the obligation.** It moves where the notice is given; the
- *   off line says telling callers is still the owner's responsibility.
+ *   is drawn in the server's words, its first sentence above the switches; the AI switch's
+ *   off line repeats the point for that switch.
+ * - **"Off" does not stop the recording, or discharge the duty to tell callers.** Nothing in
+ *   the product stops recording, so the recording switch's off line is the panel's one
+ *   warning.
  *
- * `first_words` is the SERVER's composition of what callers hear first — the opening line
- * from the script, then the notices switched on (D-861) — quoted back, never joined here:
- * a second implementation of a compliance rule is where drift starts. No switch reaches the
- * opening line (D-708).
- *
- * The notice wording is not client-editable: `agents.ai_disclosure_line` /
- * `recording_notice_line` are NOT NULL and non-blank by CHECK constraint (hard rule 5) and
- * written only from the admin realm, so there is no textbox here, and the disclosure says
- * why rather than leaving a quote with no control beside it to read as an oversight.
- *
- * The memory sentence (D-507) has no switch: it is spoken exactly when the agent remembers
- * callers, so it is shown as a fact when `caller_memory_enabled` is true and its only
- * control is the memory setting. A toggle here would advertise a state ("remembers, says
- * nothing") the product cannot be configured into.
+ * `first_words` is the server's own text for what the agent says first and is shown as
+ * sent, never assembled here (D-861). No switch reaches the opening line (D-708).
  */
 export function OpeningNotices({ agent }: { agent: Agent }) {
   const { href } = useClientRealm();
   const session = useClientSession();
   const setDisclosure = useSetDisclosure(session, agent.id);
-  // The switch's position is the success; a refusal is the notice (or the opening-line fix)
-  // drawn here, so nothing is toasted.
-  useActionFeedback(setDisclosure, { errorDisplay: "inline" });
+  // The switch's position and the "Saved" line beside the heading are the success; a
+  // refusal is the notice (or the opening-line fix) drawn here, so nothing is toasted.
+  const feedback = useActionFeedback(setDisclosure, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "switch these notices");
   const locked = setDisclosure.isPending || !write.allowed;
   const opening = agent.script_opening_line.trim();
-  const firstWords = agent.first_words;
   const calling = agent.first_words_when_calling ?? null;
   const promise = splitPromise(agent.truthful_answer_rule);
+  const name = agent.name.trim() || "The agent";
   // The switch last turned on, so a refusal for want of room can offer the room that
   // switch needs and turn the same one on again once the line is shorter.
   const [lastOn, setLastOn] = useState<DisclosureIn | null>(null);
@@ -119,15 +108,22 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
 
   return (
     <section aria-labelledby="opening-notices-heading" className="max-w-3xl">
-      <h3 id="opening-notices-heading" className="text-heading text-ink">
-        What it says at the start of every call
-      </h3>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h3 id="opening-notices-heading" className="text-heading text-ink">
+          What it says at the start of every call
+        </h3>
+        <p role="status" className="text-meta text-ink-muted">
+          {feedback.status === "pending"
+            ? "Saving…"
+            : feedback.status === "success"
+              ? "Saved. The next call uses this."
+              : ""}
+        </p>
+      </div>
 
-      {/* Before the switches: two "off" positions read first would say the opposite. */}
-      <p className="mt-2 flex items-start gap-2 text-sm text-ink">
-        <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
-        <span>{promise.lead}</span>
-      </p>
+      {/* Above the switches, so two "off" positions are never read as "it may pass for
+          human". Quiet on purpose: a guarantee, not an alert. */}
+      <p className="mt-1 text-meta text-ink-muted">{promise.lead}</p>
 
       {setDisclosure.error && !needsRoom && !introducedTwice && (
         <ProblemNotice error={setDisclosure.error} />
@@ -155,105 +151,121 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
         </div>
       )}
 
-      {/* One left edge for the whole block: rows carry no side padding, and everything under
-          a switch (its quote, its off line) is indented to the label, not to the switch. */}
       <div className="mt-3 divide-y divide-line border-y border-line">
         <NoticeToggle
           label="Say it is an AI assistant"
-          quote={agent.ai_disclosure_line}
           checked={agent.ai_disclosure_enabled}
           pending={locked}
-          offNote="If asked, it still says it is an AI."
+          onLine={`${name} says so when the call starts.`}
+          offLine={`${name} won't bring it up, but still says so if a caller asks.`}
           onChange={(next) => flip({ ai_disclosure_enabled: next }, next)}
         />
         <NoticeToggle
           label="Say the call is being recorded"
-          quote={agent.recording_notice_line}
           checked={agent.recording_notice_enabled}
           pending={locked}
-          offNote="Calls are still recorded. Tell callers yourself."
+          onLine={`${name} tells callers when the call starts.`}
+          offLine="Calls are still recorded. You must tell callers another way."
+          offIsWarning
           onChange={(next) => flip({ recording_notice_enabled: next }, next)}
         />
-        {agent.caller_memory_enabled && (
-          <div className="py-3 pl-12">
-            <p className="text-sm font-medium text-ink">Say that it remembers callers</p>
-            <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
-              “{agent.caller_memory_notice_line}”
-            </blockquote>
-            <p className="mt-2 text-xs text-ink-muted">
-              No switch. Said while it remembers callers.
-            </p>
-          </div>
-        )}
       </div>
 
-      <div className="mt-4">
-        <p className="text-xs font-medium text-ink-muted">What callers hear first</p>
-        {calling !== null ? (
-          // A "both" agent opens the calls it places with a line of their own (D-920).
-          <dl className="mt-2 space-y-3">
-            <FirstWords label="When it answers" words={firstWords} />
-            <FirstWords label="When it calls" words={calling} />
-          </dl>
-        ) : firstWords.trim() ? (
-          <blockquote className="mt-2 border-l-2 border-brand pl-3 text-sm italic text-ink">
-            “{firstWords}”
-          </blockquote>
-        ) : (
-          <p className="mt-2 text-sm text-ink-muted">Nothing yet.</p>
-        )}
-        {/* A button, not a sentence: the opening line is changed on the Script tab. */}
-        <Link
-          href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=script`)}
-          className={`${SECONDARY_BUTTON_SM} mt-3 w-full justify-center sm:w-auto`}
-        >
-          <PenLine aria-hidden className="h-4 w-4" />
-          {calling !== null
-            ? "Edit the opening lines"
-            : opening
-              ? "Edit the opening line"
-              : "Write an opening line"}
-        </Link>
-      </div>
+      <CallStart
+        agent={agent}
+        name={name}
+        calling={calling}
+        edit={
+          // A button, not a sentence: the opening line is changed on the Script tab.
+          <Link
+            href={href(`/c/${session.orgSlug}/agents/${agent.id}?section=script`)}
+            className={`${SECONDARY_BUTTON_SM} shrink-0 bg-surface`}
+          >
+            <PenLine aria-hidden className="h-4 w-4" />
+            {calling !== null
+              ? "Edit the opening lines"
+              : opening
+                ? "Edit the opening line"
+                : "Write an opening line"}
+          </Link>
+        }
+      />
 
-      <Disclosure
-        variant="inline"
-        headingLevel={4}
-        title="How these work"
-        className="mt-2"
-      >
-        <NoticeDetails agent={agent} promiseRest={promise.rest} hasOpening={opening !== ""} />
+      <Disclosure variant="inline" headingLevel={4} title="How these work" className="mt-2">
+        <NoticeDetails promiseRest={promise.rest} hasOpening={opening !== ""} />
       </Disclosure>
     </section>
   );
 }
 
+/**
+ * How a call starts: the server's opening text as sent, then what the switched-on notices
+ * add — described, never written out. The agent words those itself, so a sentence printed
+ * here would be one it may never say.
+ */
+function CallStart({
+  agent,
+  name,
+  calling,
+  edit,
+}: {
+  agent: Agent;
+  name: string;
+  calling: string | null;
+  edit: ReactNode;
+}) {
+  const mentions = [
+    agent.ai_disclosure_enabled ? "that it is an AI assistant" : null,
+    agent.recording_notice_enabled ? "that the call is being recorded" : null,
+  ].filter((part): part is string => part !== null);
+  return (
+    <div className="mt-4 rounded-lg bg-surface-muted px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <p className="text-meta font-medium text-ink-muted">How a call starts</p>
+        {edit}
+      </div>
+      {calling !== null ? (
+        // A "both" agent opens the calls it places with a line of their own (D-920).
+        <dl className="mt-2 space-y-2">
+          <FirstWords label="When it answers" words={agent.first_words} lang={agent.language_primary} />
+          <FirstWords label="When it calls" words={calling} lang={agent.language_primary} />
+        </dl>
+      ) : (
+        <Words words={agent.first_words} lang={agent.language_primary} className="mt-1" />
+      )}
+      {mentions.length > 0 && (
+        <p className="mt-2 text-meta text-ink-muted">
+          {name} also mentions, in its own words, {mentions.join(" and ")}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Words({ words, lang, className = "" }: { words: string; lang: string; className?: string }) {
+  return words.trim() ? (
+    <p lang={lang} className={`text-body text-ink [overflow-wrap:anywhere] ${className}`}>
+      {words}
+    </p>
+  ) : (
+    <p className={`text-body text-ink-muted ${className}`}>No opening line yet.</p>
+  );
+}
+
 /** One of a "both" agent's two first turns, labelled by the call it opens. */
-function FirstWords({ label, words }: { label: string; words: string }) {
+function FirstWords({ label, words, lang }: { label: string; words: string; lang: string }) {
   return (
     <div>
-      <dt className="text-xs text-ink-muted">{label}</dt>
-      <dd className="mt-1">
-        {words.trim() ? (
-          <blockquote className="border-l-2 border-brand pl-3 text-sm italic text-ink">“{words}”</blockquote>
-        ) : (
-          <span className="text-sm text-ink-muted">Nothing yet.</span>
-        )}
+      <dt className="text-meta text-ink-muted">{label}</dt>
+      <dd>
+        <Words words={words} lang={lang} />
       </dd>
     </div>
   );
 }
 
 /** What the notices block explains on request: the reasoning, never a control. */
-function NoticeDetails({
-  agent,
-  promiseRest,
-  hasOpening,
-}: {
-  agent: Agent;
-  promiseRest: string;
-  hasOpening: boolean;
-}) {
+function NoticeDetails({ promiseRest, hasOpening }: { promiseRest: string; hasOpening: boolean }) {
   return (
     <div className="space-y-2 pb-3 text-sm text-ink-muted">
       {promiseRest && <p>{promiseRest}</p>}
@@ -261,9 +273,8 @@ function NoticeDetails({
         {hasOpening
           ? "The opening line is the agent's own greeting, from its script. "
           : "This agent's script has no opening line yet. "}
-        These switches never change it. In Telugu and Hindi the AI notice is how the agent
-        introduces itself, before its opening line. The recording notice is said after the
-        opening line and the AI notice.
+        These switches never change it. With a switch on, the agent adds the notice when it
+        starts the call, in its own words; there is no fixed sentence it reads out.
       </p>
       <p>
         Calls are still recorded — the recording switch only stops the agent announcing it.
@@ -271,24 +282,13 @@ function NoticeDetails({
         <Term id="dpdp" term="DPDP Act" />; with this off, it has to be covered by your own
         privacy notice or consent. If a caller asks, the agent still says yes.
       </p>
-      {agent.caller_memory_enabled && (
-        <p>
-          The memory sentence is said once as the agent says goodbye, not when the caller
-          asked to stop or hung up. It is said because this agent remembers what callers asked
-          about between calls; turn that off and the sentence goes with it.
-        </p>
-      )}
-      <p>
-        Changes take effect on the next call. The notice sentences are written by us and
-        cannot be edited here or switched off entirely — every agent must have all of them on
-        file. Tell us if anything in the wording is wrong.
-      </p>
+      <p>Changes take effect on the next call.</p>
     </div>
   );
 }
 
 /**
- * One notice, as a switch with its sentence under it.
+ * One notice, as a switch and one line saying what its current position does.
  *
  * `pending` disables BOTH switches while either is in flight. The two write one row, and a
  * second click before the first response is a lost update the API has no way to catch —
@@ -297,32 +297,42 @@ function NoticeDetails({
  */
 function NoticeToggle({
   label,
-  quote,
   checked,
   pending,
-  offNote,
+  onLine,
+  offLine,
+  offIsWarning = false,
   onChange,
 }: {
   label: string;
-  quote: string;
   checked: boolean;
   pending: boolean;
-  offNote: ReactNode;
+  onLine: string;
+  offLine: string;
+  /** Off leaves a duty the owner must meet elsewhere, so the off line is a warning. */
+  offIsWarning?: boolean;
   onChange: (next: boolean) => void;
 }) {
+  const lineId = useId();
+  const warn = !checked && offIsWarning;
   return (
-    <ToggleSwitch label={label} checked={checked} disabled={pending} onChange={onChange} className="py-3">
-      {/* `pl-12`: the switch (w-9) and its gap (gap-3), so these sit under the label. */}
-      <div className="pl-12">
-        <blockquote className="mt-2 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
-          “{quote}”
-        </blockquote>
-        {!checked && (
-          <p className={`mt-2 ${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-            <span>{offNote}</span>
-          </p>
-        )}
-      </div>
+    <ToggleSwitch
+      label={label}
+      checked={checked}
+      disabled={pending}
+      onChange={onChange}
+      describedBy={lineId}
+      className="py-3"
+    >
+      {/* `pl-12`: the switch (w-9) and its gap (gap-3), so the line sits under the label. */}
+      <p
+        id={lineId}
+        data-notice={warn ? "warn" : undefined}
+        className={`mt-0.5 flex items-start gap-1.5 pl-12 text-meta ${warn ? "text-ink" : "text-ink-muted"}`}
+      >
+        {warn && <TriangleAlert aria-hidden className="mt-[3px] h-3.5 w-3.5 shrink-0 text-warn" />}
+        <span>{checked ? onLine : offLine}</span>
+      </p>
     </ToggleSwitch>
   );
 }
