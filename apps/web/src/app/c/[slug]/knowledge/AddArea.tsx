@@ -89,8 +89,8 @@ export function AddArea({
       <div
         role="radiogroup"
         aria-label="What do you want to add?"
-        // Two columns on a phone with the always-works way across the top, so five choices
-        // read as a tidy block rather than a ragged wrap; one row from `sm` up.
+        // Two columns of equal tiles on a phone (icon above the label, so a label that wraps
+        // stays aligned) with the always-works way across the top; one row of pills from `sm`.
         className="mt-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap"
       >
         {ways.map(({ value, label }) => {
@@ -99,7 +99,7 @@ export function AddArea({
           return (
             <label
               key={value}
-              className={`press relative flex min-w-0 cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm font-medium leading-tight first:col-span-2 sm:rounded-full sm:px-3.5 sm:py-2 transition-colors duration-(--duration-fast) ease-out has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand has-[:focus-visible]:ring-offset-2 touch:min-h-11 ${
+              className={`press relative flex min-h-[4.25rem] min-w-0 cursor-pointer flex-col items-start justify-center gap-1.5 rounded-xl border px-3.5 py-3 text-left text-sm font-medium leading-snug first:col-span-2 first:min-h-12 first:flex-row first:items-center first:justify-start first:gap-2.5 sm:h-10 sm:min-h-0 sm:flex-row sm:items-center sm:gap-1.5 sm:rounded-full sm:px-3.5 sm:py-0 sm:leading-none sm:first:min-h-0 transition-colors duration-(--duration-fast) ease-out has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-brand has-[:focus-visible]:ring-offset-2 touch:min-h-11 ${
                 on
                   ? "border-brand-strong bg-brand-soft text-brand-strong"
                   : "border-line bg-surface text-ink hover:bg-ink/[0.04]"
@@ -113,8 +113,8 @@ export function AddArea({
                 onChange={() => setChosen(value)}
                 className="sr-only"
               />
-              <Icon aria-hidden className={`h-4 w-4 shrink-0 ${on ? "text-brand-strong" : "text-ink-muted"}`} />
-              {label}
+              <Icon aria-hidden className={`size-[18px] shrink-0 ${on ? "text-brand-strong" : "text-ink-muted"}`} />
+              <span className="min-w-0">{label}</span>
             </label>
           );
         })}
