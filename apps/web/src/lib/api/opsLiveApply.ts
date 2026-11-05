@@ -43,6 +43,9 @@ export function usePlatformLiveApply(): UseQueryResult<Schemas["LiveApplyRunsOut
  */
 export function liveApplyLine(run: LiveApplyRun): string {
   if (run.status === "superseded") return "Replaced by a later change before it finished.";
+  if (run.not_started) {
+    return `Not started after ${run.not_started_after_minutes} minutes: live agents still have the old setting.`;
+  }
   if (run.total === null) return "Queued: live agents are about to be updated.";
   const of = `Applied to ${run.applied} of ${run.total} live agent${run.total === 1 ? "" : "s"}`;
   const extra = [

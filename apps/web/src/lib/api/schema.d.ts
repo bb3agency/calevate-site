@@ -27004,6 +27004,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Not Started */
+            not_started: boolean;
+            /** Not Started After Minutes */
+            not_started_after_minutes: number;
+            /** Reason Labels */
+            reason_labels: string[];
             /** Reasons */
             reasons: string[];
             /** Retrying */

@@ -35976,6 +35976,21 @@
             "title": "Id",
             "type": "string"
           },
+          "not_started": {
+            "title": "Not Started",
+            "type": "boolean"
+          },
+          "not_started_after_minutes": {
+            "title": "Not Started After Minutes",
+            "type": "integer"
+          },
+          "reason_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Labels",
+            "type": "array"
+          },
           "reasons": {
             "items": {
               "type": "string"
@@ -36048,6 +36063,9 @@
           "tenant_id",
           "agent_id",
           "reasons",
+          "reason_labels",
+          "not_started",
+          "not_started_after_minutes",
           "status",
           "total",
           "applied",
