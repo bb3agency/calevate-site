@@ -233,13 +233,15 @@ function HealthRow({ row }: { row: ClientHealth }) {
       className={`grid grid-cols-1 gap-x-5 gap-y-3 border-l-2 py-4 pl-3 sm:pr-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_9rem_minmax(0,0.9fr)] ${NOTICE_BAR[status.tone]}`}
     >
       <div className="min-w-0">
+        {/* Wrapped, not truncated: at 1024px this column is about 140px wide, and a cut-off
+            name or slug is the one fact the row exists to give. */}
         <Link
           href={`/admin/tenants/${row.tenant_id}`}
-          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:py-3"
+          className="block rounded-sm text-body font-medium text-ink [overflow-wrap:anywhere] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:py-3"
         >
           {row.name}
         </Link>
-        <div className="truncate text-meta text-ink-muted">/c/{row.slug}</div>
+        <div className="text-meta text-ink-muted [overflow-wrap:anywhere]">/c/{row.slug}</div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <StatusPill tone={status.tone}>{status.label}</StatusPill>
           {row.on_trial && <StatusPill tone="neutral">{ON_TRIAL_LABEL}</StatusPill>}
@@ -284,7 +286,7 @@ function HealthRow({ row }: { row: ClientHealth }) {
       <div className="flex flex-wrap items-start gap-x-4 gap-y-1 lg:flex-col">
         {[...remedies(row)].map(([href, cta]) => (
           <Link key={href} href={href} className={`${TEXT_ACTION} max-w-full`}>
-            <span className="truncate">{cta}</span>
+            <span className="min-w-0">{cta}</span>
             <ArrowRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
           </Link>
         ))}

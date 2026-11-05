@@ -87,7 +87,7 @@ export function OperatorRow({
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span title={operator.name ?? undefined} className="min-w-0 truncate font-medium text-ink">
+            <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">
               {operator.name ?? "No name on file"}
             </span>
             {selfBlock !== null && <span className="text-meta text-ink-muted">(you)</span>}
@@ -100,8 +100,9 @@ export function OperatorRow({
             )}
           </div>
           {/* The whole address: two accounts at one domain must be told apart before one is
-              revoked, and the confirmations are typed against it. */}
-          <span title={operator.email ?? undefined} className="block truncate font-mono text-meta text-ink-muted">
+              revoked, and the confirmations are typed against it — so it wraps rather than
+              truncates, since a phone has no hover to read a title. */}
+          <span className="block font-mono text-meta text-ink-muted [overflow-wrap:anywhere]">
             {operator.email ?? "no address on file"}
           </span>
           <span className="block text-meta text-ink-muted">Added {formatIST(operator.created_at)}</span>

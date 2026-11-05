@@ -65,7 +65,7 @@ function ViewAsStart() {
   }
   return (
     <div className="space-y-3">
-      <h2 className="text-heading text-ink">Opening {slug}</h2>
+      <h2 className="text-heading text-ink [overflow-wrap:anywhere]">Opening {slug}</h2>
       {error === null ? (
         <p className="text-body text-ink-muted">
           The client&apos;s console opens in this tab.

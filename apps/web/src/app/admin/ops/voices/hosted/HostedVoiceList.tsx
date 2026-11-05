@@ -214,7 +214,7 @@ function VoiceRow({ voice, onOpen }: { voice: HostedVoice; onOpen: (voiceId: str
           aria-describedby={metaId}
           className="group inline-flex max-w-full items-center gap-1 rounded-sm text-left text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
         >
-          <span className="truncate">{voice.label}</span>
+          <span className="min-w-0 [overflow-wrap:anywhere]">{voice.label}</span>
           <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint" />
         </button>
         <p id={metaId} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-ink-muted">

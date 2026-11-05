@@ -32,10 +32,10 @@ const COLUMNS: DataColumn<MaintenanceWindow>[] = [
   {
     id: "reason",
     header: "What clients were told",
-    // Free operator text on a one-line row: the list is a schedule, not a log, so the
-    // whole sentence lives in the title.
+    // Free operator text, wrapped rather than truncated: it is what clients were told, and a
+    // title holding the rest is unreadable on a phone, which has no hover.
     cell: (row) => (
-      <span title={row.reason} className="block max-w-[16rem] truncate text-ink-muted sm:max-w-md">
+      <span className="block max-w-md text-ink-muted [overflow-wrap:anywhere] [text-wrap:pretty]">
         {row.reason}
       </span>
     ),

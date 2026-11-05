@@ -496,7 +496,7 @@ function RecopyRow({ target }: { target: RecopyTarget }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span id={callLabelId} className="min-w-0 break-all text-meta">
           <span className="text-ink-muted">Call </span>
-          <MonoValue>{target.callId}</MonoValue>
+          <MonoValue className="[overflow-wrap:anywhere]">{target.callId}</MonoValue>
         </span>
         <ActionButton
           variant="secondary-sm"

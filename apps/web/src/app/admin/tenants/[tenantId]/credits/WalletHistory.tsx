@@ -62,8 +62,10 @@ export function WalletHistory({
   return (
     <>
       <Section title="Wallet history" description="Every entry on this client's wallet, newest first.">
-        <ScrollRegion label="Filter the history" className="-mx-1 px-1 pb-3 [scrollbar-width:none]">
-          <div className="flex w-max items-center gap-1.5">
+        {/* Scrolls behind an edge shadow on a phone; wraps from `sm`, where a mouse has no
+            sideways swipe to reach chips past a hidden scrollbar. */}
+        <ScrollRegion label="Filter the history" className="-mx-1 px-1 pb-3 [scrollbar-width:none] max-sm:scroll-shadow-x">
+          <div className="flex w-max items-center gap-1.5 sm:w-auto sm:flex-wrap">
             {FILTERS.map((option) => (
               <FilterChip
                 key={option.value}

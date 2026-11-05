@@ -354,9 +354,12 @@ export default function AdminClientsPage() {
           </label>
         </div>
         {/* State and billing as chips in one row, a hairline between the two groups: each
-            group is one choice (or none), and both are the server's own filters. */}
-        <ScrollRegion label="Filter clients" className="-mx-1 px-1 [scrollbar-width:none]">
-          <div className="flex w-max items-center gap-1.5">
+            group is one choice (or none), and both are the server's own filters. On a phone
+            the row scrolls behind an edge shadow, the only cue a hidden scrollbar leaves;
+            from `sm` it wraps, because a mouse has no sideways swipe and the chips past the
+            edge were simply out of reach. */}
+        <ScrollRegion label="Filter clients" className="-mx-1 px-1 [scrollbar-width:none] max-sm:scroll-shadow-x">
+          <div className="flex w-max items-center gap-1.5 sm:w-auto sm:flex-wrap">
             <FilterChip label="Any state" active={!status} onClick={() => narrow(() => setStatus(""))} />
             {STATUS_FILTERS.map((value) => (
               <FilterChip
@@ -423,10 +426,10 @@ export default function AdminClientsPage() {
           // so an operator compares the same columns on any screen.
           <PagedRows busy={tenants.isPlaceholderData}>
           <ScrollRegion label="Clients" className="scroll-shadow-x relative">
-            <div className="min-w-[760px]">
+            <div className="min-w-[680px]">
             {/* Column labels for a sighted reader. Each cell below names itself to a screen
                 reader, so this row is decoration and is hidden from assistive technology. */}
-            <div aria-hidden className={`grid gap-4 px-2 pb-2 ${ROW_GRID} ${LIST_HEAD}`}>
+            <div aria-hidden className={`grid gap-x-3 px-2 pb-2 ${ROW_GRID} ${LIST_HEAD}`}>
               <span>Client</span>
               <span>Plan</span>
               <span>Status</span>
@@ -469,9 +472,17 @@ function addedOn(createdAt: string | null | undefined): string | null {
   return formatDateShort(istDateStamp(at));
 }
 
-/** Client · plan · status and flags · credit left · last call · menu. */
+/**
+ * Client · plan · status and flags · credit left · last call · menu.
+ *
+ * The flexible tracks have content floors rather than `minmax(0,…)`: credit left is
+ * "Studio 1,200 min" on one unbreakable line, and a zero floor let it paint over the next
+ * column. Floors, gaps and padding sum to 680px, the list's `min-w`, which is under the
+ * ~690px a 1024px window leaves beside the open sidebar and a classic scrollbar — so a
+ * desktop never scrolls this list sideways, and a phone does, behind the edge shadow.
+ */
 const ROW_GRID =
-  "grid-cols-[minmax(0,1.3fr)_6.5rem_minmax(0,1.2fr)_minmax(0,1.1fr)_7.5rem_2.75rem]";
+  "grid-cols-[minmax(7.5rem,1.3fr)_6rem_minmax(6.5rem,1.2fr)_minmax(8.5rem,1.1fr)_6.5rem_2.75rem]";
 
 /**
  * One client, one row (founder, 10 Oct 2026): name, plan, status with its flags, credit left
@@ -482,16 +493,16 @@ const ROW_GRID =
 function ClientRow({ tenant }: { tenant: TenantSummary }) {
   return (
     <li
-      className={`grid items-center gap-x-4 px-2 py-3 ${ROW_GRID} ${ROW_HOVER}`}
+      className={`grid items-center gap-x-3 px-2 py-3 ${ROW_GRID} ${ROW_HOVER}`}
     >
       <div className="min-w-0">
         <Link
           href={`/admin/tenants/${tenant.id}`}
-          className="block truncate rounded-sm text-body font-medium text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:flex touch:min-h-11 touch:items-center"
+          className="block rounded-sm text-body font-medium text-ink [overflow-wrap:anywhere] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 touch:flex touch:min-h-11 touch:items-center"
         >
           {tenant.name}
         </Link>
-        <div className="truncate text-meta text-ink-muted">
+        <div className="text-meta text-ink-muted [overflow-wrap:anywhere]">
           /c/{tenant.slug}
           {tenant.vertical_template ? ` · ${tenant.vertical_template.replace(/_/g, " ")}` : ""}
           {/* What the default and "oldest" sorts order by. Without it a newest-first list
