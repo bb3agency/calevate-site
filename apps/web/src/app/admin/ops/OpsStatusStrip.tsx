@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { loadShedModeCopy } from "@/app/admin/ops/opsLanguage";
 import { formatCount } from "@/components/ui";
-import type { PlatformState } from "@/lib/api/admin";
+import type { DeadLetterQueue, EngineDrift, PlatformState } from "@/lib/api/admin";
 
 import type { DeadLetterState, EngineDriftState } from "./opsSurfaceState";
 
@@ -58,20 +58,8 @@ export function OpsStatusStrip({
       ? { value: "Live", tone: "ok" as const }
       : { value: "Not required", tone: "unknown" as const }
     : unknown;
-  const stuck =
-    deadLetters.status === "read"
-      ? {
-          value: formatCount(deadLetters.queue.depth),
-          tone: deadLetters.queue.depth > 0 ? ("warn" as const) : ("ok" as const),
-        }
-      : unknown;
-  const drift =
-    engineDrift.status === "read"
-      ? {
-          value: `${formatCount(engineDrift.drift.out_of_sync)} drifted`,
-          tone: engineDrift.drift.out_of_sync > 0 ? ("warn" as const) : ("ok" as const),
-        }
-      : unknown;
+  const stuck = deadLetters.status === "read" ? stuckFact(deadLetters.queue) : unknown;
+  const drift = engineDrift.status === "read" ? driftFact(engineDrift.drift) : unknown;
 
   return (
     <dl className="grid grid-cols-2 gap-x-6 gap-y-4 border-y border-line py-4 sm:grid-cols-3 lg:grid-cols-5">
@@ -82,6 +70,32 @@ export function OpsStatusStrip({
       <Fact href="#drift" label="Live agents" {...drift} />
     </dl>
   );
+}
+
+type FactValue = { value: string; tone: Tone };
+
+/**
+ * Stuck = failed, or pending longer than the retry loop can hold a message. A stopped
+ * worker fails nothing, so counting only failed messages read "0" over a queue that had not
+ * moved in weeks. An older server that does not send the pending count cannot vouch for
+ * "nothing stuck", so its zero is not green.
+ */
+export function stuckFact(queue: DeadLetterQueue): FactValue {
+  const stalled: number | undefined = queue.stalled_pending;
+  const total = queue.depth + (stalled ?? 0);
+  if (total > 0) return { value: formatCount(total), tone: "warn" };
+  return { value: "0", tone: stalled === undefined ? "unknown" : "ok" };
+}
+
+/** Drift is green only when every live agent was checked and none drifted. */
+export function driftFact(drift: EngineDrift): FactValue {
+  if (drift.out_of_sync > 0) return { value: `${formatCount(drift.out_of_sync)} drifted`, tone: "warn" };
+  const unchecked = drift.never_checked + drift.undetermined;
+  if (drift.live_agents > 0 && unchecked >= drift.live_agents) {
+    return { value: "Not checked", tone: "unknown" };
+  }
+  if (unchecked > 0) return { value: `${formatCount(unchecked)} not checked`, tone: "unknown" };
+  return { value: "0 drifted", tone: "ok" };
 }
 
 function Fact({

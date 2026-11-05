@@ -92,6 +92,7 @@ export const OPS_RATE_CARD = {
     floor_inr_per_min: "5.5899",
     best_marginal_cost_inr_per_min: "4.6395",
     refusal_floor_inr_per_min: "5.5899",
+    refusal_usd_inr: "95",
     plan_crossover_call_minutes: "1439",
     plans: [
       {

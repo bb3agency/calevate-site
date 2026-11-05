@@ -18,8 +18,9 @@ caller-facing quotes a gap carries are redacted by construction (hard rule 6). A
 number a caller reads out is already masked before it can reach a `question_redacted`.
 
 A GAP NEEDS A QUESTION (D-970). Every signal counts only after a caller line that asks for
-something (`caller_asked`): a question word or a "?" in English, Telugu, Hindi or their
-transliteration, and never a request to hear the last words again. On the Rytu Khata call of 4
+something (`caller_asked`, which is `turn_checks.asks_question`: a "?", an English question
+by its shape, or a whole question word from `call_words.json`), and never a request to hear
+the last words again. On the Rytu Khata call of 4
 Nov 2026 the caller agreed to try the app ("I will try."), the agent then gave the business's
 WhatsApp number as its next line, and the WhatsApp match alone made the agreement an
 unanswered question on the owner's list. Unanswered-question reports elsewhere work the same
@@ -45,7 +46,10 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, Protocol
 
-from apps.api.agents.turn_checks import asks_to_repeat, caller_asks
+from calevate_shared.call_words import say as _say
+from calevate_shared.call_words import words as _words
+
+from apps.api.agents.turn_checks import asks_question, asks_to_repeat
 from apps.api.tenancy.business_copy import Capabilities
 
 Signal = Literal["dont_know", "deferred_channel", "unanswered_question"]
@@ -69,40 +73,45 @@ class Turn(Protocol):
     def text(self) -> str: ...
 
 
-# The agent SAYING it cannot answer. Word-bounded, code-mixed (English · Telugu · Hindi
-# transliteration), because this product's calls are Telugu-first. These are the phrases an
-# agent uses to state ignorance, not to hedge — "teliyadu" (don't know), "cheppalenu"
-# (can't say), "idea ledu" (no idea).
+# The agent SAYING it cannot answer. Word-bounded; the Indian-language forms ("I don't know",
+# "can't say", "no idea" as callers' agents say them in Telugu and Hindi) are founder-owned
+# data (`call_words.json`, `detection.dont_know`).
 _DONT_KNOW_RE = re.compile(
     r"(?<!\w)(?:"
     r"i\s+(?:don'?t|do\s+not)\s+know|"
     r"i'?m\s+not\s+sure|i\s+am\s+not\s+sure|"
     r"i\s+don'?t\s+have\s+(?:that|the|any)|we\s+don'?t\s+have\s+that\s+(?:info|information)|"
-    r"not\s+sure\s+about\s+(?:that|this)|"
-    r"teliyadu|teliyadhu|telidu|"  # "don't know"
-    r"cheppalenu|cheppaledu|"  # "can't say"
-    r"idea\s+ledu|"  # "no idea"
-    r"naaku\s+teliyadu|maaku\s+teliyadu|"
-    r"pata\s+nahi|nahi\s+pata|mujhe\s+nahi\s+pata"  # Hindi "don't know"
-    r")(?!\w)",
+    r"not\s+sure\s+about\s+(?:that|this)|" + _say("detection.dont_know") + r")(?!\w)",
     re.IGNORECASE,
 )
 
-# The agent PUNTING instead of answering: WhatsApp it, have a human call back, take a
-# message. This is the Outpero signal verbatim — "didn't know this, offered to send it on
-# WhatsApp or have the team call back".
+# The agent PUNTING: the answer will come later from a person, the caller must go elsewhere
+# to get it, or what could have been said is sent instead. NOT the agent sending a THING
+# ("I'll send you the link on WhatsApp"): for a business whose answer is a link or a form,
+# that is the answer, and on the Rytu Khata calls of 4 Nov 2026 the channel name alone made
+# it a question the agent could not answer (L5-06). An "I don't know" beside the send is
+# still `dont_know` above.
 _DEFERRED_RE = re.compile(
     r"(?<!\w)(?:"
-    r"whats\s?app|"
-    r"send\s+(?:you|it|the\s+details|the\s+information)|"
-    r"share\s+(?:it|the\s+details)\s+(?:with\s+you|on)|"
-    r"(?:the\s+)?team\s+will\s+(?:call|get\s+back|reach)|"
-    r"(?:have|get)\s+(?:someone|the\s+team|our\s+team)\s+(?:call|to\s+call)|"
+    r"(?:the\s+)?team\s+will\s+(?:call|get\s+back|reach|contact|send|whats\s?app)|"
+    r"(?:have|get)\s+(?:someone|the\s+team|our\s+team)\s+(?:to\s+)?(?:call|contact|whats\s?app)|"
+    r"someone\s+will\s+(?:call|contact|get\s+back)|"
     r"call\s+you\s+back|get\s+back\s+to\s+you|"
-    r"message\s+chestanu|message\s+chesta|"  # "I'll message you"
-    r"team\s+call\s+chestaru|tarvata\s+call\s+chestam|"  # "team will call" / "we'll call later"
-    r"pampistanu|pampista"  # "I'll send it"
-    r")(?!\w)",
+    # Sending what the agent could have SAID (a price, the details) is a punt; sending a
+    # thing (a link, a form, a photo) is not, whatever channel carries it.
+    r"(?:send|share|whats\s?app)\s+(?:you\s+)?(?:the\s+|our\s+|all\s+the\s+)?"
+    r"(?:prices?|pricing|rates?|cost|details|information|info)\b|"
+    r"(?:message|whats\s?app|call|contact|email|reach)\s+us\b|"
+    r"(?:visit|check)\s+(?:our|the)\s+(?:website|page|office|shop)|"
+    + _say("detection.later_by_a_person")
+    + r")(?!\w)",
+    re.IGNORECASE,
+)
+
+# A caller who asked to be called back or put through to a person gets "we'll call you back"
+# as the answer, not as a punt.
+_ASKED_FOR_A_PERSON_RE = re.compile(
+    r"(?<!\w)(?:call\s+(?:me|back)|callback|ring\s+me|talk\s+to\s+(?:a|someone|the|your))(?!\w)",
     re.IGNORECASE,
 )
 
@@ -112,103 +121,31 @@ _DEFERRED_RE = re.compile(
 _NONANSWER_RE = re.compile(
     r"(?<!\w)(?:"
     r"let\s+me\s+check|let\s+me\s+find\s+out|i'?ll\s+find\s+out|i\s+will\s+find\s+out|"
-    r"i\s+need\s+to\s+check|i\s+have\s+to\s+check|"
-    r"chusi\s+cheptanu|kanukkoni\s+cheptanu"  # "I'll check and tell you"
-    r")(?!\w)",
+    r"i\s+need\s+to\s+check|i\s+have\s+to\s+check|" + _say("detection.stalls") + r")(?!\w)",
     re.IGNORECASE,
 )
 
-# Did the caller ASK something? A question mark is unreliable (STT rarely punctuates), so
-# this leans on interrogatives in all three languages. "enta" (how much), "eppudu" (when),
-# "ekkada" (where), "ela" (how), "unda/unదా" (is there).
-_QUESTION_RE = re.compile(
-    r"(?<!\w)(?:"
-    r"what|when|where|how\s+much|how\s+many|how\s+do|do\s+you|can\s+you|is\s+there|are\s+there|"
-    r"enta|entha|eppudu|ekkada|ela|emi\s+|em\s+|unda|undha|kavali|"
-    r"kitna|kitne|kab|kahan|kaise"
-    r")(?!\w)|\?",
-    re.IGNORECASE,
+#: The canonical topics, most specific first: (topic_key, display label). The key aggregates
+#: a topic across calls; the label is the owner's card. Each topic is offered to a business
+#: only when its capability profile does not rule it out (`_TOPIC_NEEDS`), so a business that
+#: sells nothing never sees "Refunds". The words that trigger a topic, English and Indian
+#: languages alike, are founder-owned data (`detection.topic.<key>`). Order matters: "refund"
+#: beats "payment", "delivery" beats "timing".
+_TOPIC_NAMES: Final[tuple[tuple[str, str], ...]] = (
+    ("pricing", "Pricing"),
+    ("refund", "Refunds & returns"),
+    ("warranty", "Warranty"),
+    ("delivery", "Delivery"),
+    ("timings", "Opening hours"),
+    ("location", "Location & directions"),
+    ("availability", "Availability & stock"),
+    ("booking", "Bookings"),
+    ("offers", "Offers & discounts"),
+    ("payment", "Payment options"),
+    ("documents", "Documents & eligibility"),
 )
-
-# Canonical topics common to Indian SMB calls, most specific first. Each maps a set of
-# word-bounded triggers (English · Telugu · Hindi) to (topic_key, display label). The key
-# is what aggregates a topic across calls; the label is the client's product copy on the
-# card. Order matters: "refund" beats "payment", "delivery" beats "timing".
-_TOPICS: Final[tuple[tuple[str, str, tuple[str, ...]], ...]] = (
-    (
-        "pricing",
-        "Pricing",
-        (
-            "price",
-            "cost",
-            "how much",
-            "charges",
-            "fee",
-            "fees",
-            "rate",
-            "enta",
-            "entha",
-            "khareedu",
-            "dhara",
-            "kitna",
-        ),
-    ),
-    (
-        "refund",
-        "Refunds & returns",
-        ("refund", "return", "money back", "cancel", "cancellation", "wapas", "refund chestara"),
-    ),
-    ("warranty", "Warranty", ("warranty", "guarantee", "guarantee unda")),
-    (
-        "delivery",
-        "Delivery",
-        ("delivery", "deliver", "shipping", "ship", "courier", "delivery eppudu"),
-    ),
-    (
-        "timings",
-        "Opening hours",
-        (
-            "timing",
-            "timings",
-            "open",
-            "opening",
-            "hours",
-            "close",
-            "closing",
-            "eppudu open",
-            "time enni",
-        ),
-    ),
-    (
-        "location",
-        "Location & directions",
-        ("where", "location", "address", "directions", "ekkada", "kahan"),
-    ),
-    (
-        "availability",
-        "Availability & stock",
-        ("available", "availability", "in stock", "stock", "unda", "undha", "dorukutunda"),
-    ),
-    (
-        "booking",
-        "Bookings",
-        ("book", "booking", "appointment", "slot", "reserve", "book chey", "appointment kavali"),
-    ),
-    (
-        "offers",
-        "Offers & discounts",
-        ("offer", "offers", "discount", "deal", "coupon", "scheme", "offer unda"),
-    ),
-    (
-        "payment",
-        "Payment options",
-        ("payment", "pay", "upi", "card", "emi", "installment", "cash", "chelinchu"),
-    ),
-    (
-        "documents",
-        "Documents & eligibility",
-        ("document", "documents", "eligibility", "kyc", "proof", "papers"),
-    ),
+_TOPICS: Final[tuple[tuple[str, str, tuple[str, ...]], ...]] = tuple(
+    (key, label, _words(f"detection.topic.{key}")) for key, label in _TOPIC_NAMES
 )
 
 #: The canonical topics each capability stands behind. A business judged not to have the
@@ -241,66 +178,7 @@ def withheld_topics(caps: Capabilities) -> frozenset[str]:
     )
 
 
-_STOPWORDS: Final[frozenset[str]] = frozenset(
-    {
-        "the",
-        "a",
-        "an",
-        "is",
-        "are",
-        "do",
-        "does",
-        "you",
-        "your",
-        "i",
-        "we",
-        "me",
-        "my",
-        "to",
-        "of",
-        "for",
-        "and",
-        "or",
-        "can",
-        "could",
-        "would",
-        "will",
-        "please",
-        "tell",
-        "know",
-        "want",
-        "what",
-        "when",
-        "where",
-        "how",
-        "much",
-        "many",
-        "there",
-        "this",
-        "that",
-        "about",
-        "any",
-        "get",
-        "have",
-        "need",
-        "hi",
-        "hello",
-        "sir",
-        "madam",
-        "andi",
-        "garu",
-        "naaku",
-        "meeku",
-        "enta",
-        "entha",
-        "eppudu",
-        "ekkada",
-        "ela",
-        "kavali",
-        "unda",
-        "undha",
-    }
-)
+_STOPWORDS: Final[frozenset[str]] = frozenset(_words("detection.stopwords"))
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -338,12 +216,17 @@ def caller_asked(caller_text: str) -> bool:
     to say it again asks for nothing new: the agent repeating its number then is no gap."""
     if asks_to_repeat(caller_text):
         return False
-    return bool(_QUESTION_RE.search(caller_text) or caller_asks(caller_text))
+    return asks_question(caller_text)
 
 
 def is_gap(caller_text: str, agent_text: str) -> Signal | None:
     """The gap signal of one caller line and the agent's reply to it, or None."""
-    return _classify(agent_text) if caller_asked(caller_text) else None
+    if not caller_asked(caller_text):
+        return None
+    signal = _classify(agent_text)
+    if signal == "deferred_channel" and _ASKED_FOR_A_PERSON_RE.search(caller_text):
+        return None
+    return signal
 
 
 def _classify(agent_text: str) -> Signal | None:

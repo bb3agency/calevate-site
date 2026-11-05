@@ -354,7 +354,7 @@ export interface paths {
         };
         /**
          * Client health overview — accounts about to churn or break, worst first
-         * @description Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT — this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.
+         * @description Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT — this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`. The board is computed by a background job every two minutes; `computed_at` says when. With no fresh board one request computes it and others get a retryable 503 `client_health_computing`.
          */
         get: operations["read_client_health_v1_admin_client_health_get"];
         put?: never;
@@ -1461,12 +1461,12 @@ export interface paths {
         };
         /**
          * How many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).
          */
         get: operations["admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get"];
         /**
          * Set how many calls one client may have at once
-         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.
+         * @description How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).
          */
         put: operations["admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put"];
         post?: never;
@@ -1932,9 +1932,9 @@ export interface paths {
         put?: never;
         /**
          * Set one client agent up for a caller who follows along on their phone
-         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
+         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
          */
-        post: operations["admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post"];
+        post: operations["admin_apply_give_callers_time_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2316,6 +2316,26 @@ export interface paths {
         /** The client's AI-written examples and suggestions */
         get: operations["admin_read_business_copy_v1_admin_tenants__tenant_id__business_copy_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Correct one capability the AI judged for this client, or go back to the AI's
+         * @description Sets what the business does with its callers (for example `takes_bookings`) where the AI judged it wrongly. A regeneration keeps the correction. `applies: null` restores the AI's verdict. Audited.
+         */
+        put: operations["admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3574,6 +3594,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's wallet as the client reads it — the operator's copy
+         * @description Balance, runway, minutes left, trial, and whether outbound is stopped for lack of credit: the answer `GET /v1/billing/wallet` gives the client, for an account named in the path. Reading this writes an `admin.tenant_read` audit row.
+         */
+        get: operations["read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {
         parameters: {
             query?: never;
@@ -4053,9 +4093,9 @@ export interface paths {
         put?: never;
         /**
          * Set an agent up for a caller who follows along on their phone
-         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
+         * @description One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.
          */
-        post: operations["apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post"];
+        post: operations["apply_give_callers_time_v1_agents__agent_id__call_handling_give_callers_time_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4204,7 +4244,7 @@ export interface paths {
          * Say whether callers follow this agent's steps on a screen of their own (D-906)
          * @description For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.
          *
-         *     Switching on also gives the agent the "Give callers time" silence settings and longest call wherever they are still the default (`patient_settings` names them).
+         *     Switching on also gives the agent the "Give callers time" silence settings and longest call wherever they are still the default (`give_callers_time_settings` names them).
          *
          *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.
          */
@@ -4610,7 +4650,7 @@ export interface paths {
         put?: never;
         /**
          * Fix the lines the script check found, before putting it live
-         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that fixes exactly those lines and changes nothing else; poll `GET .../proposal` until it is `ready`. Refused with `script_has_nothing_to_fix` when the check finds nothing.
+         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.
          */
         post: operations["fix_script_lines_v1_agents__agent_id__script_fix_lines_post"];
         delete?: never;
@@ -4673,6 +4713,26 @@ export interface paths {
          * @description Offered after the agent's main language changes (D-838, D-965). Queues a `written` suggestion with the opening lines written for this business in that language; poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches a caller until the line is put live.
          */
         post: operations["rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/script/opening-line/put-back": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put back the opening line Pip rewrote to say the notices, and put it live
+         * @description The Undo for the notice writer (D-971): the opening line it replaced goes live again and is not rewritten on the next publish; the stored notice sentences are said beside it. Refused when the line has changed since it was rewritten, or while other script changes are waiting to go live.
+         */
+        post: operations["put_back_opening_line_v1_agents__agent_id__script_opening_line_put_back_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6432,7 +6492,7 @@ export interface paths {
         };
         /**
          * The prepaid credit-pack rate card: two per-minute rates on every pack
-         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.
+         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Clear and Studio per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.
          */
         get: operations["read_credit_packs_v1_billing_topups_packs_get"];
         put?: never;
@@ -14462,6 +14522,10 @@ export interface components {
             /** Caller Noun */
             caller_noun: string | null;
             capabilities: components["schemas"]["Capabilities"];
+            /** Capability Overrides */
+            capability_overrides: {
+                [key: string]: boolean;
+            };
             /** Cost Inr */
             cost_inr: string | null;
             /** Example Questions */
@@ -14985,6 +15049,7 @@ export interface components {
              * @enum {string}
              */
             filler_lines_source: "agent" | "organization" | "platform";
+            give_callers_time: components["schemas"]["GiveCallersTimeOut"];
             /** Nudge After Seconds */
             nudge_after_seconds: number | null;
             /** Nudge After Seconds Effective */
@@ -15045,7 +15110,6 @@ export interface components {
             organization_reask_after_ms: number | null;
             /** Organization Turn Silence Ms */
             organization_turn_silence_ms: number | null;
-            patient_caller: components["schemas"]["PatientCallerOut"];
             /** Reask After Ms */
             reask_after_ms: number | null;
             /** Reask After Ms Effective */
@@ -17442,10 +17506,23 @@ export interface components {
         };
         /** CallLinesOut */
         CallLinesOut: {
+            /** Account Ceiling */
+            account_ceiling: number | null;
+            /** Applied At */
+            applied_at: string | null;
+            /** Applied Lines */
+            applied_lines: number | null;
             /** Call Lines */
             call_lines: number;
             /** Call Lines Chosen */
             call_lines_chosen: number | null;
+            /**
+             * Engine State
+             * @enum {string}
+             */
+            engine_state: "ours" | "applied" | "applying";
+            /** Lines Elsewhere At Most */
+            lines_elsewhere_at_most: number;
             /** Max Lines */
             max_lines: number;
             /** Min Lines */
@@ -17786,11 +17863,13 @@ export interface components {
              * @default
              */
             opening_line: string;
+            opening_notices?: components["schemas"]["OpeningNotices"];
             /**
              * Outbound Opening Line
              * @default
              */
             outbound_opening_line: string;
+            outbound_opening_notices?: components["schemas"]["OpeningNotices"];
             /**
              * Outbound Purpose
              * @default
@@ -18262,8 +18341,8 @@ export interface components {
             enabled: boolean;
             /** Engine Synced */
             engine_synced: boolean;
-            /** Patient Settings */
-            patient_settings?: string[];
+            /** Give Callers Time Settings */
+            give_callers_time_settings?: string[];
         };
         /**
          * CallingHoursIn
@@ -18546,9 +18625,11 @@ export interface components {
          *     sells anything to callers at all (False for a free app helping its registered users, or a
          *     helpline). health_business: it gives health or medical care.
          *
-         *     THE UNKNOWN RULE: `applies is None` means "not judged yet", and a consumer then behaves
-         *     exactly as it did before this profile existed. Only `applies is False` may withdraw
-         *     anything; never read None as False.
+         *     THE UNKNOWN RULE: `applies is None` means "not judged yet". Never read None as False
+         *     where False takes something away (a switch the owner may turn on, a check that keeps a
+         *     caller safe); never read it as True where True puts words in an agent's or a screen's
+         *     mouth (a booking offered, a price quoted, a sale assumed). `offered` and `assumed` are
+         *     the two readings.
          */
         Capabilities: {
             has_premises: components["schemas"]["Capability"];
@@ -18573,6 +18654,11 @@ export interface components {
             applies: boolean | null;
             /** Reason */
             reason: string;
+        };
+        /** CapabilityOverrideIn */
+        CapabilityOverrideIn: {
+            /** Applies */
+            applies: boolean | null;
         };
         /**
          * CapsIn
@@ -18789,6 +18875,8 @@ export interface components {
             plans: components["schemas"]["CartesiaPlanOut"][];
             /** Refusal Floor Inr Per Min */
             refusal_floor_inr_per_min: string;
+            /** Refusal Usd Inr */
+            refusal_usd_inr: string;
         };
         /** CaseDraftOut */
         CaseDraftOut: {
@@ -19115,6 +19203,8 @@ export interface components {
          *     decision), so the client asks rather than sets.
          */
         ClientCallLinesOut: {
+            /** Being Applied */
+            being_applied: boolean;
             /** Call Lines */
             call_lines: number;
             /** In Progress */
@@ -19148,6 +19238,20 @@ export interface components {
             tenant_id: string;
             /** Unfiled */
             unfiled: number;
+        };
+        /**
+         * ClientHealthBoardOut
+         * @description The board, and when it was worked out. The worker recomputes it every
+         *     `health.BOARD_REFRESH_S`; one per request was a walk of every tenant per poll.
+         */
+        ClientHealthBoardOut: {
+            /** Accounts */
+            accounts: components["schemas"]["ClientHealthOut"][];
+            /**
+             * Computed At
+             * Format: date-time
+             */
+            computed_at: string;
         };
         /**
          * ClientHealthOut
@@ -19760,6 +19864,8 @@ export interface components {
             default: string | boolean | number | null;
             /** Description */
             description: string;
+            /** Details */
+            details: string | null;
             /** Editable */
             editable: boolean;
             /** Engine Scope */
@@ -20235,6 +20341,11 @@ export interface components {
             object_type: string;
             /** Plan Id */
             plan_id?: string | null;
+            /**
+             * Queued
+             * @default false
+             */
+            queued: boolean;
             /** Tool */
             tool: string;
         };
@@ -21389,7 +21500,7 @@ export interface components {
         };
         /**
          * CreditPacksOut
-         * @description The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
+         * @description The pack rate card: six packs, each with a Clear and a Studio ₹/min.
          *
          *     The "from" figures are DERIVED MINIMA over the rows below, never typed, so the site
          *     cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged. The
@@ -21714,16 +21825,22 @@ export interface components {
          * DeadLetterJobOut
          * @description One `job`'s share of the outbox DLQ.
          *
-         *     COUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding
-         *     lead fields and phone numbers; `job` is an ARQ job name — a code identifier — and
-         *     nothing derived from a payload reaches this model. See
-         *     `reliability.service.DeadLetterQueue`, which is where that boundary is enforced.
+         *     Never the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields
+         *     and phone numbers. `last_error` is the most recent failure's error, which is redacted
+         *     when it is written (`reliability.service._stored_error`), so an operator can see why a
+         *     job failed before resending it.
          */
         DeadLetterJobOut: {
+            /** Cause */
+            cause: ("never_ran" | "earlier_run_failed") | null;
             /** Depth */
             depth: number;
             /** Job */
             job: string;
+            /** Label */
+            label: string;
+            /** Last Error */
+            last_error: string | null;
             /**
              * Oldest At
              * Format: date-time
@@ -21757,8 +21874,18 @@ export interface components {
             deferred: number;
             /** Depth */
             depth: number;
+            /** Held For Bulk Worker */
+            held_for_bulk_worker: number;
+            /** Held For Release */
+            held_for_release: number;
             /** Oldest At */
             oldest_at: string | null;
+            /** Oldest Pending At */
+            oldest_pending_at: string | null;
+            /** Stalled After Minutes */
+            stalled_after_minutes: number;
+            /** Stalled Pending */
+            stalled_pending: number;
         };
         /** DecideStep */
         DecideStep: {
@@ -23618,7 +23745,49 @@ export interface components {
         };
         /** FixLinesIn */
         FixLinesIn: {
+            /** Base Saved At */
+            base_saved_at?: string | null;
             script: components["schemas"]["CallScript"];
+        };
+        /** FixLinesOut */
+        FixLinesOut: {
+            base_script: components["schemas"]["CallScript"];
+            /** Disclosure */
+            disclosure: string | null;
+            /** Documents */
+            documents: string[];
+            /**
+             * Draft Saved At
+             * Format: date-time
+             */
+            draft_saved_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "change" | "whole" | "steps" | "knowledge" | "opening" | "written" | "starter";
+            /** Note */
+            note: string | null;
+            /** Request */
+            request: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            script: components["schemas"]["CallScript"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "drafting" | "ready" | "failed";
+            /** Unplaced */
+            unplaced: string[];
         };
         /** FlagStateOut */
         FlagStateOut: {
@@ -24154,6 +24323,27 @@ export interface components {
              */
             state: "live" | "stale" | "never_pulled";
         };
+        /**
+         * GiveCallersTimeOut
+         * @description The "Give callers time" preset (D-907) for this agent: what it sets and whether the
+         *     settings in force match it.
+         */
+        GiveCallersTimeOut: {
+            /** Applied */
+            applied: boolean;
+            /** Call Cap S */
+            call_cap_s: number;
+            /** End After Silence Seconds */
+            end_after_silence_seconds: number;
+            /** Nudge After Seconds */
+            nudge_after_seconds: number;
+            /** Nudge Count */
+            nudge_count: number;
+            /** Nudge Phrase */
+            nudge_phrase: string;
+            /** Reask After Ms */
+            reask_after_ms: number;
+        };
         /** GlobalEntryOut */
         GlobalEntryOut: {
             /**
@@ -24213,6 +24403,13 @@ export interface components {
         /** GoLiveOut */
         GoLiveOut: {
             /**
+             * Agreements
+             * @enum {string}
+             */
+            agreements: "todo" | "done";
+            /** Business Review Note */
+            business_review_note: string | null;
+            /**
              * Current
              * @enum {string}
              */
@@ -24230,11 +24427,16 @@ export interface components {
              * Number
              * @enum {string}
              */
-            number: "locked" | "waiting_approval" | "todo" | "done";
+            number: "locked" | "add_credit" | "setting_up" | "send_details" | "waiting_approval" | "needs_attention" | "not_on_sale" | "todo" | "done";
             /** Numbers */
             numbers: number;
             /** Owed At */
             owed_at: string | null;
+            /**
+             * Pledge
+             * @enum {string}
+             */
+            pledge: "todo" | "done";
             /**
              * Switch On
              * @enum {string}
@@ -27039,6 +27241,12 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Not Started */
+            not_started: boolean;
+            /** Not Started After Minutes */
+            not_started_after_minutes: number;
+            /** Reason Labels */
+            reason_labels: string[];
             /** Reasons */
             reasons: string[];
             /** Retrying */
@@ -28197,6 +28405,42 @@ export interface components {
              */
             when: "answers" | "calls";
         };
+        /**
+         * OpeningNotices
+         * @description What the notice writer did to one opening line (D-971), kept in the script beside it.
+         *
+         *     `ai` and `recording` are the exact words of `line` that say each notice, as the writer
+         *     returned them; they count only while the opening is still `line` (`said_in`). `before` is
+         *     the line the writer replaced, shown with an Undo; `kept_own` is a line the owner put back
+         *     over the writer's, which is not rewritten again.
+         */
+        OpeningNotices: {
+            /**
+             * Ai
+             * @default
+             */
+            ai: string;
+            /**
+             * Before
+             * @default
+             */
+            before: string;
+            /**
+             * Kept Own
+             * @default
+             */
+            kept_own: string;
+            /**
+             * Line
+             * @default
+             */
+            line: string;
+            /**
+             * Recording
+             * @default
+             */
+            recording: string;
+        };
         /** OperatorCreateIn */
         OperatorCreateIn: {
             /**
@@ -28723,27 +28967,6 @@ export interface components {
         PasswordChangeOut: {
             /** Revoked */
             revoked: number;
-        };
-        /**
-         * PatientCallerOut
-         * @description The "Give callers time" preset (D-907) for this agent: what it sets and whether the
-         *     settings in force match it.
-         */
-        PatientCallerOut: {
-            /** Applied */
-            applied: boolean;
-            /** Call Cap S */
-            call_cap_s: number;
-            /** End After Silence Seconds */
-            end_after_silence_seconds: number;
-            /** Nudge After Seconds */
-            nudge_after_seconds: number;
-            /** Nudge Count */
-            nudge_count: number;
-            /** Nudge Phrase */
-            nudge_phrase: string;
-            /** Reask After Ms */
-            reask_after_ms: number;
         };
         /** PaymentAlarmOut */
         PaymentAlarmOut: {
@@ -29737,6 +29960,8 @@ export interface components {
             findings: components["schemas"]["FindingOut"][];
             /** Fix */
             fix: string;
+            /** Not Checked In */
+            not_checked_in?: string[];
             /** Truncated */
             truncated: boolean;
             /**
@@ -29988,6 +30213,15 @@ export interface components {
             received: number;
             /** Refused */
             refused: number;
+        };
+        /** PutBackOpeningIn */
+        PutBackOpeningIn: {
+            /**
+             * When
+             * @default answers
+             * @enum {string}
+             */
+            when: "answers" | "calls";
         };
         /**
          * QaQueueClient
@@ -30487,7 +30721,7 @@ export interface components {
              * Actor
              * @enum {string}
              */
-            actor: "client" | "calevate";
+            actor: "client" | "calevate" | "outside";
             /** Next Step */
             next_step: string;
             /** Reason */
@@ -31260,6 +31494,16 @@ export interface components {
             latest_evidence_id: string | null;
             /** Note */
             note?: string | null;
+        };
+        /** RestoredOut */
+        RestoredOut: {
+            replaced?: components["schemas"]["CallScript"] | null;
+            /**
+             * Saved At
+             * Format: date-time
+             */
+            saved_at: string;
+            script: components["schemas"]["CallScript"];
         };
         /** RetentionLineOut */
         RetentionLineOut: {
@@ -34283,7 +34527,7 @@ export interface components {
              * Actor
              * @enum {string}
              */
-            actor: "client" | "calevate";
+            actor: "client" | "calevate" | "outside";
             /** Next Step */
             next_step: string;
             /** Reason */
@@ -34392,6 +34636,8 @@ export interface components {
             created_at?: string | null;
             /** Credit Inr */
             credit_inr?: string | null;
+            /** Credit Unpacked Inr */
+            credit_unpacked_inr?: string | null;
             /** Holds */
             holds: string[];
             /**
@@ -36859,11 +37105,8 @@ export interface components {
             not_offered_notice: string | null;
             /** Recommendation Reason */
             recommendation_reason: string;
-            /**
-             * Recommended
-             * @enum {string}
-             */
-            recommended: "clear" | "studio";
+            /** Recommended */
+            recommended: ("clear" | "studio") | null;
             /** Tiers */
             tiers: components["schemas"]["VoiceTierCompareOut"][];
         };
@@ -38420,7 +38663,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ClientHealthOut"][];
+                    "application/json": components["schemas"]["ClientHealthBoardOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -41157,7 +41400,7 @@ export interface operations {
             };
         };
     };
-    admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post: {
+    admin_apply_give_callers_time_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -41946,6 +42189,42 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBusinessCopyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapabilityOverrideIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -44340,6 +44619,37 @@ export interface operations {
             };
         };
     };
+    read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_get: {
         parameters: {
             query?: never;
@@ -45185,7 +45495,7 @@ export interface operations {
             };
         };
     };
-    apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post: {
+    apply_give_callers_time_v1_agents__agent_id__call_handling_give_callers_time_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -46178,7 +46488,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ScriptProposalOut"];
+                    "application/json": components["schemas"]["FixLinesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -46276,6 +46586,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScriptProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    put_back_opening_line_v1_agents__agent_id__script_opening_line_put_back_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PutBackOpeningIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OpeningLineOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -46769,7 +47114,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DraftOut"];
+                    "application/json": components["schemas"]["RestoredOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

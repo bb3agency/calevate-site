@@ -29,6 +29,7 @@ import {
   useStartMandate,
   useWithdrawMandate,
 } from "@/lib/api/autoRecharge";
+import { useCreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { rupeeProblem } from "@/lib/api/credits";
@@ -36,6 +37,11 @@ import { lookup } from "@/lib/lookup";
 import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 
 import { Why } from "@/components/why";
+
+/** How long credit an automatic top-up adds lasts. */
+export function autoTopUpLasts(months: number): string {
+  return `Each top-up lasts ${months} ${months === 1 ? "month" : "months"} from the day it is added.`;
+}
 
 /**
  * Auto top-up (D-699): approve UPI Autopay or a card once, then choose when we top up, by
@@ -70,6 +76,9 @@ export function AutoRechargePanel({
   const start = useStartMandate(session);
   const confirm = useConfirmMandate(session);
   const withdraw = useWithdrawMandate(session);
+  // This account's credit term, from the card the Add credit drawer states it from; none
+  // until the Terms that set it are accepted (D-900).
+  const expiryMonths = useCreditPacks(session).data?.credit_expiry_months ?? null;
   // Every failure here is said in the one ProblemNotice under the fields, so none is toasted.
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const startFeedback = useActionFeedback(start, { errorDisplay: "inline" });
@@ -275,6 +284,9 @@ export function AutoRechargePanel({
             hint={`${formatINR(data.month_charged_inr)} used this month.`}
           />
         </div>
+        {/* D-840: the credit term is stated wherever credit is sold, and an automatic top-up
+            is a purchase like any other (`apply_credit_to_lots(source="topup")`) (OB-18). */}
+        {expiryMonths ? <p className="text-meta text-ink-muted">{autoTopUpLasts(expiryMonths)}</p> : null}
 
         {/* 3. THE SWITCH, and the save for amounts changed without touching it. */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-4">

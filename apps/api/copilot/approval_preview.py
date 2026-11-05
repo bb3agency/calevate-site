@@ -81,7 +81,7 @@ async def preview_approval(
     try:
         plan = await tool.plan(session, actor, row.pending_args)
     except WriteRefusedError as refusal:
-        return refused("This no longer applies", _said(refusal.reason))
+        return refused("This no longer applies", _said(refusal.plain))
     return CopilotApprovalPreviewOut(
         action_id=str(action_id),
         tool=row.tool,

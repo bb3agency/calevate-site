@@ -3,7 +3,8 @@ import { Fragment } from "react";
 import { formatCount, formatINRExact } from "@/components/ui";
 import type { TenantSummary } from "@/lib/api/admin";
 
-type Credit = Pick<TenantSummary, "plan_tier" | "credit_inr" | "minutes_left">;
+type Credit = Pick<TenantSummary, "plan_tier" | "credit_inr" | "minutes_left"> &
+  Partial<Pick<TenantSummary, "credit_unpacked_inr">>;
 
 /**
  * "Clear 240 min · Studio 80 min" — a client's minutes, one per voice quality, in the
@@ -61,6 +62,13 @@ export function CreditLeft({ credit, compact = false }: { credit: Credit; compac
               colour-blind operator can read (WCAG 1.4.1). */}
           {overdrawn && "Overdrawn: "}
           {rupees}
+        </span>
+      )}
+      {/* Minutes are priced pack by pack, so rupees in no pack show no minutes. Saying so
+          keeps "0 min" and a positive balance from reading as a contradiction. */}
+      {credit.credit_unpacked_inr && (
+        <span className={`tabular-nums ${compact ? "ml-2" : "block"} text-meta text-ink-muted`}>
+          {formatINRExact(credit.credit_unpacked_inr)} not in a pack yet
         </span>
       )}
     </span>

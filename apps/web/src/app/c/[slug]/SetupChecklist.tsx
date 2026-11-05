@@ -22,6 +22,9 @@ export function SetupChecklist() {
   const finished = data.setup.complete && data.blockers.length === 0;
   const states = stepStates(data);
   const blocking = new Set(data.blockers.map((b) => b.step));
+  // A blocker's own sentence first: this is the one list of what stops calls on Business
+  // profile (e2e audit OB-25 removed the second list that repeated it).
+  const blockerSaid = new Map(data.blockers.map((b) => [b.step, b.message]));
   const why = new Map(data.setup.nudges.map((n) => [n.step, n.message]));
   const items: ChecklistItem[] = STEPS.map((step) => {
     const state = states[step.id];
@@ -30,6 +33,7 @@ export function SetupChecklist() {
       label: step.short,
       state: state === "done" ? "done" : "todo",
       detail:
+        blockerSaid.get(step.id) ??
         why.get(step.id) ??
         (state === "skipped"
           ? blocking.has(step.id)

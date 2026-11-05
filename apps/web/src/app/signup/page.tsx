@@ -91,7 +91,7 @@ export default function SignupPage() {
     // sign-in prompt, which is the demand-with-no-context this page exists to avoid.
     <ClientSessionProvider>
       <Providers>
-        <AuthPageFrame realmLabel="Nothing here places a call" aside={<AuthShowcase />} width="wide">
+        <AuthPageFrame realmLabel="Create your account" aside={<AuthShowcase />} width="wide">
             {/* The kill switch is checked FIRST, above both the form and the account
                 gate: on a deployment that opens no workspaces, sending a stranger off to
                 create an account would be walking them one screen further into a door
@@ -210,11 +210,12 @@ function SignupClosed({
             </p>
           )}
           {!deferred && (
-            <p className="text-meta text-ink-faint">
-              Already have a workspace? Open{" "}
-              <code className="rounded bg-black/5 px-1 font-mono text-ink dark:bg-white/10">
-                /c/your-slug
-              </code>.
+            /* A button, not a path to type (e2e audit OB-21): sign-in opens the account. */
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-2 text-meta text-ink-muted">
+              <span>Already have an account?</span>
+              <Link href={CLIENT_SIGN_IN_PATH} className={SECONDARY_BUTTON}>
+                Sign in
+              </Link>
             </p>
           )}
           {onRetry && (
@@ -295,6 +296,7 @@ function SignupForm() {
   // back: a form that cannot succeed is a worse answer than a form that says what it
   // needs.
   const mustChooseSlug = businessName.trim().length > 0 && !slugIsDerivable(derived);
+  const [editingSlug, setEditingSlug] = useState(false);
   const created = signup.data;
 
   // THE ONLY SOURCE OF A SUCCESS SCREEN. `signup.data` is set by TanStack Query only
@@ -370,6 +372,8 @@ function SignupForm() {
 
   const problem = signup.error instanceof ApiProblem ? signup.error : null;
   const fields = problem?.fields ?? [];
+  const slugError = valid.message("slug") ?? fieldMessage(fields, "slug");
+  const showSlug = mustChooseSlug || editingSlug || slug !== "" || slugError !== undefined;
   /**
    * Field messages are shown AT their field, so the summary must not repeat them — but a
    * message about a field this form does not render would then vanish entirely, and a
@@ -472,11 +476,34 @@ function SignupForm() {
             )}
           </Field>
 
+          {/* THE WEB ADDRESS IS OURS TO DERIVE (e2e audit OB-22): a permanent, technical
+              field at the first touch was a decision the server already makes. It is asked
+              only when the name cannot become one (a name typed in Telugu script), when the
+              server refused the one it would make, or when the owner chooses to. */}
+          {!showSlug ? (
+            derived && (
+              /* A preview, never a promise: the server checks reserved names and
+                 collisions, and may hand back a different one. */
+              <p className="flex flex-wrap items-baseline gap-x-2 text-meta text-ink-muted">
+                <span>
+                  Your web address:{" "}
+                  <code className="font-mono text-ink [overflow-wrap:anywhere]">/c/{derived}</code>
+                </span>
+                <button
+                  type="button"
+                  className="font-medium text-brand-strong underline underline-offset-2 touch:min-h-11 dark:text-brand-bright"
+                  onClick={() => setEditingSlug(true)}
+                >
+                  Change
+                </button>
+              </p>
+            )
+          ) : (
           <Field
             id={FIELD_IDS.slug}
-            label="Workspace URL"
-            hint="Cannot be changed later."
-            error={valid.message("slug") ?? fieldMessage(fields, "slug")}
+            label="Your web address"
+            hint="It stays the same once your account is made."
+            error={slugError}
           >
             {(props) => (
               <div className="mt-1 flex items-center gap-1">
@@ -502,20 +529,12 @@ function SignupForm() {
               </div>
             )}
           </Field>
-          {mustChooseSlug ? (
+          )}
+          {showSlug && mustChooseSlug ? (
             <p className="-mt-3 text-meta text-ink-muted">
               Choose a web address: 3-40 characters of a-z, 0-9 and -.
             </p>
-          ) : (
-            derived && (
-              /* A preview, never a promise: the server checks reserved names and
-                 collisions, and may hand back a different one. */
-              <p className="-mt-3 text-meta text-ink-faint">
-                Your workspace will be at{" "}
-                <code className="font-mono [overflow-wrap:anywhere]">/c/{derived}</code>, unless that name is taken.
-              </p>
-            )
-          )}
+          ) : null}
 
           <Field
             id={FIELD_IDS.vertical_template}

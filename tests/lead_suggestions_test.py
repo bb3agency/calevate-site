@@ -144,6 +144,7 @@ async def test_six_bedrooms_stays_unlisted_rather_than_the_nearest_choice() -> N
 INPUTS = passer.Inputs(
     description="d",
     fields=[BHK, AREA],
+    script="Step 'Ask': Ask the car model they drive, the visit day, the facing, the main crops.",
     unlisted={"bhk_size": [("6 BHK", 3), ("Penthouse", 1)]},
     captured={"bhk_size": {"2BHK": 4}},
 )
@@ -158,6 +159,7 @@ def _item(kind: str, **kw: Any) -> dict[str, Any]:
         "hint": kw.get("hint"),
         "reason": kw.get("reason", "Because."),
         "source": kw.get("source", "calls"),
+        "evidence": kw.get("evidence", kw.get("label") or ""),
     }
 
 
@@ -183,8 +185,14 @@ def test_a_new_detail_is_never_one_the_agent_or_every_lead_already_has() -> None
     assert _clean(_item("new_field", label="Name", source="script")) == []
     assert _clean(_item("new_field", label="location", source="script")) == []
     car, visit = _clean(
-        _item("new_field", label="Car model", values=["Swift", "City"], hint="Which car."),
-        _item("new_field", label="Visit day", values=["only one"]),
+        _item(
+            "new_field",
+            label="Car model",
+            values=["Swift", "City"],
+            hint="Which car.",
+            source="script",
+        ),
+        _item("new_field", label="Visit day", values=["only one"], source="script"),
     )
     assert car.field is not None and car.field.type == "enum" and car.field_key == "car_model"
     assert car.field.enum_values == ["Swift", "City"] and car.field.reason == "Which car."
@@ -700,3 +708,13 @@ def test_a_new_detail_comes_from_the_script_or_callers_never_the_business_alone(
     assert _clean(_item("new_field", source="business", **crops)) == []
     assert _clean(_item("new_field", source="facts", **crops)) == []
     assert len(_clean(_item("new_field", source="script", **crops))) == 1
+
+
+def test_a_new_detail_must_quote_the_script_or_callers_it_claims_to_come_from() -> None:
+    """A-08: the model's own `source` label is not trusted. A detail labelled "script" whose
+    words the script does not hold is dropped, however it is labelled."""
+    lot: dict[str, Any] = {"label": "Plot size", "values": [], "hint": "Size."}
+    assert _clean(_item("new_field", source="script", **lot)) == []
+    assert _clean(_item("new_field", source="script", evidence="", **lot)) == []
+    assert _clean(_item("new_field", source="calls", evidence="Penthouse", **lot)) != []
+    assert _clean(_item("new_field", source="calls", evidence="Villa plots", **lot)) == []

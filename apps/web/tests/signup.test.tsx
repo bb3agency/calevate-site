@@ -56,7 +56,8 @@ function fill(): void {
   fireEvent.change(screen.getByLabelText("Business name"), {
     target: { value: "Sri Sai Dental Care" },
   });
-  fireEvent.change(screen.getByLabelText("Workspace URL"), {
+  fireEvent.click(screen.getByRole("button", { name: "Change" }));
+  fireEvent.change(screen.getByLabelText("Your web address"), {
     target: { value: "sri-sai-dental" },
   });
   fireEvent.change(screen.getByLabelText("Billing email"), {
@@ -222,7 +223,7 @@ describe("field-level refusals", () => {
     });
 
     const input = (await screen.findByLabelText(
-      "Workspace URL",
+      "Your web address",
     )) as HTMLInputElement;
     expect(input.getAttribute("aria-invalid")).toBe("true");
     const describedBy = input.getAttribute("aria-describedby") ?? "";
@@ -349,6 +350,26 @@ describe("the framing this screen has to carry itself", () => {
     // this route has neither. Without an overflow container of its own the submit button
     // is simply unreachable on a short viewport — a bug no type checker can see.
     expect(container.firstElementChild?.className).toContain("overflow-y-auto");
+  });
+});
+
+describe("the web address (e2e audit OB-22)", () => {
+  it("is derived from the name and asked for only when the owner wants to change it", async () => {
+    stubApi({});
+    await mount();
+    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "Lakeview Properties" } });
+    expect(screen.queryByLabelText("Your web address")).toBeNull();
+    expect(pageText()).toContain("/c/lakeview-properties");
+    expect(pageText()).not.toContain("Workspace URL");
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(screen.getByLabelText("Your web address")).toBeTruthy();
+  });
+
+  it("is asked for at once when the name cannot become one", async () => {
+    stubApi({});
+    await mount();
+    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "★ ★ ★" } });
+    expect(screen.getByLabelText("Your web address")).toBeTruthy();
   });
 });
 

@@ -111,15 +111,17 @@ SYSTEM_PROMPT: Final = (
     "caller's name, phone number, preferred time, language, notes or what they want: every "
     "lead already records those. Give a label of 2 to 4 plain words, choices when a short "
     f"fixed list fits ({NEW_FIELD_CHOICES[0]} to {NEW_FIELD_CHOICES[1]}) or none for free "
-    "text, and a hint: one sentence telling the note-taker what to record.\n"
-    "For each, reason: one plain English sentence for the owner saying where it came from "
-    '("Your script lists 2BHK and 3BHK flats", "3 callers asked for 6BHK"), and source: '
-    "script, business, facts or calls. Never invent products the inputs do not mention. "
+    "text, a hint: one sentence telling the note-taker what to record, and evidence: the "
+    "words of the script, or of the callers' answers, that ask for or give this detail, "
+    "copied exactly as they are written there. Any other suggestion leaves evidence empty.\n"
+    "For each, reason: one plain English sentence for the owner saying where it came from, "
+    "naming the script's own words or how many callers said it, and source: script, "
+    "business, facts or calls. Never invent products the inputs do not mention. "
     "Name no company, brand or technology. At most "
     f"{MAX_FIELD_SUGGESTIONS} suggestions; none at all is a good answer when the details "
     "already fit. Return ONLY JSON: "
     '{"suggestions": [{"kind": str, "field_key": str or null, "label": str or null, '
-    '"values": [str], "hint": str or null, "reason": str, "source": str}]}.'
+    '"values": [str], "hint": str or null, "reason": str, "source": str, "evidence": str}]}.'
 )
 
 _ANSWER_SCHEMA: Final = {
@@ -140,8 +142,18 @@ _ANSWER_SCHEMA: Final = {
                     "hint": {"type": ["string", "null"]},
                     "reason": {"type": "string"},
                     "source": {"type": "string", "enum": ["script", "business", "facts", "calls"]},
+                    "evidence": {"type": "string"},
                 },
-                "required": ["kind", "field_key", "label", "values", "hint", "reason", "source"],
+                "required": [
+                    "kind",
+                    "field_key",
+                    "label",
+                    "values",
+                    "hint",
+                    "reason",
+                    "source",
+                    "evidence",
+                ],
                 "additionalProperties": False,
             },
         }
@@ -159,6 +171,9 @@ class Inputs:
 
     description: str
     fields: list[ExtractionField]
+    #: The agent's script as the model read it (redacted), which a new detail's evidence
+    #: must be found in when its source is the script.
+    script: str = ""
     unlisted: dict[str, list[tuple[str, int]]] = field(default_factory=dict)
     captured: dict[str, dict[str, int]] = field(default_factory=dict)
     dismissed: frozenset[str] = frozenset()
@@ -252,8 +267,8 @@ def _one(
     if kind == "new_field":
         # A new detail is a question the agent will ask every caller, so it must serve this
         # agent's job: something its script asks or callers keep telling it. What the
-        # business is in general ("farmers grow crops") is no reason to ask a support caller.
-        if source not in ("script", "calls"):
+        # business is in general is no reason to ask a caller of an agent that does not.
+        if source not in ("script", "calls") or not grounded(item, source, inputs):
             return None
         return _new_field(item, values, reason, source, inputs, taken)
     if kind not in ("add_choices", "remove_choices"):
@@ -288,6 +303,24 @@ def _one(
         reason=reason,
         source=source,
         callers=callers,
+    )
+
+
+#: The shortest evidence that can tie a detail to the text: a few letters match by chance.
+MIN_EVIDENCE_CHARS: Final = 6
+
+
+def grounded(item: dict[str, Any], source: str, inputs: Inputs) -> bool:
+    """Is a new detail's evidence found, as written, in what its `source` names (A-08)? The
+    model's own label for where a detail came from is not checked by anything else: a model
+    that tagged a detail "script" for a business whose script never asks it got through."""
+    evidence = normalise(str(item.get("evidence") or ""))
+    if len(evidence) < MIN_EVIDENCE_CHARS:
+        return False
+    if source == "script":
+        return evidence in normalise(inputs.script)
+    return any(
+        evidence in normalise(said) for rows in inputs.unlisted.values() for said, _n in rows
     )
 
 
@@ -435,6 +468,7 @@ async def gather(tenant_id: UUID, agent_id: UUID, *, dismissed: list[str]) -> In
         parts.append("What callers asked for that no choice fitted:\n" + _unlisted_text(unlisted))
     return Inputs(
         description=redact("\n\n".join(parts)).text,
+        script=redact(body[:SCRIPT_CHARS]).text if body else "",
         fields=fields,
         unlisted=unlisted,
         captured=captured,

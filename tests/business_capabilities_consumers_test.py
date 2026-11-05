@@ -210,8 +210,15 @@ def test_a_business_that_sells_nothing_hears_about_interested_users_not_leads() 
     assert "Stage: Goal reached" in body
 
 
-@pytest.mark.parametrize("words", [CallerWords(), CallerWords(sells=True, caller_noun="customer")])
-def test_a_selling_or_unjudged_business_keeps_its_lead_words(words: CallerWords) -> None:
+def test_an_unjudged_business_reads_neutral_words_in_its_summary() -> None:
+    """G1-1: not judged to sell, so no sales words in the daily summary."""
+    assert email_subject(_summary(CallerWords())) == (
+        "Today: 3 calls answered, 2 interested callers"
+    )
+
+
+@pytest.mark.parametrize("words", [CallerWords(sells=True, caller_noun="customer")])
+def test_a_selling_business_keeps_its_lead_words(words: CallerWords) -> None:
     assert email_subject(_summary(words)) == "Today: 3 calls answered, 2 new leads"
     assert email_facts(_summary(words))[1][0] == "Cost per lead today"
     assert hot_lead_subject(words, None) == HOT_LEAD_SUBJECT

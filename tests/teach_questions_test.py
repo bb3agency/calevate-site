@@ -149,7 +149,8 @@ async def test_one_topic_is_one_question_across_agents_ranked_by_calls() -> None
 async def test_practice_and_setup_questions_appear_only_while_nothing_answers_them() -> None:
     tenant_id, _agent_id, _ = await _tenant()
     keys = {q.key: q.why for q in (await _list(tenant_id)).items}
-    assert keys == {"pricing": "practice", "timings": "setup", "location": "setup"}
+    # Not judged to quote prices yet, so no price question (G1-1).
+    assert keys == {"timings": "setup", "location": "setup"}
 
     await _profile(
         tenant_id,
@@ -176,7 +177,7 @@ async def test_an_agent_scope_narrows_the_callers_questions_only() -> None:
     await _gap(tenant_id, agent_id, "Do you deliver to Kukatpally?")
     other = await _list(tenant_id, agent_id=uuid.uuid4())
     assert "delivery" not in {q.key for q in other.items}
-    assert {q.why for q in other.items} == {"practice", "setup"}
+    assert {q.why for q in other.items} == {"setup"}
 
 
 # --- answering and dismissing -----------------------------------------------------------
@@ -301,6 +302,38 @@ def test_a_draft_is_kept_only_with_a_source_that_exists() -> None:
     assert empty is not None and empty.answer is None
 
 
+def test_a_draft_with_a_figure_its_source_does_not_hold_is_not_used() -> None:
+    """A-21: the cited source is checked, not only named."""
+    sources = [questions.Source("profile", "Your business profile", "Hours: Mon 09:00-18:00")]
+    assert draft_worker.parse_draft({"answer": "We open at 8.", "source": 1}, sources) is None
+    assert draft_worker.parse_draft({"answer": "It costs ₹500.", "source": 1}, sources) is None
+    kept = draft_worker.parse_draft({"answer": "We are open 9 to 18.", "source": 1}, sources)
+    assert kept is not None and kept.answer == "We are open 9 to 18."
+
+
+async def test_a_script_that_states_the_hours_and_address_is_not_asked_them_again() -> None:
+    """A-20: coverage reads the agent's own script, not only facts and documents."""
+    tenant_id, agent_id, _ = await _tenant()
+    from apps.api.agents import script_builder
+    from calevate_shared.call_script import CallScript
+
+    async with tenant_session(tenant_id) as session:
+        await script_builder.save_agent_script(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=CallScript(
+                schema_version=2,
+                goal="Answer callers.",
+                business_line="We are open 9am to 8pm, on MG Road near the bus stand.",
+            ),
+            notes=None,
+            created_by=None,
+        )
+    keys = {q.key for q in (await _list(tenant_id)).items}
+    assert "timings" not in keys and "location" not in keys
+
+
 async def test_the_worker_stores_a_grounded_draft_and_the_list_offers_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -331,7 +364,7 @@ async def test_the_worker_stores_a_grounded_draft_and_the_list_offers_it(
     async def fake_ask_json(description: str, instruction: str, **kwargs: Any) -> Any:
         seen["prompt"] = description
         assert kwargs["gemini_only"] is True
-        value = kwargs["parse"]({"answer": "Open 9 to 6.", "source": 1})
+        value = kwargs["parse"]({"answer": "Open every day, near MG Road.", "source": 1})
         return JsonAnswer(value=value, capability=cast(Any, _Capability()))
 
     class _Capability:
@@ -361,7 +394,9 @@ async def test_the_worker_stores_a_grounded_draft_and_the_list_offers_it(
     assert outcome == "drafted"
     assert "When are you open?" in seen["prompt"]
     offered = (await _list(tenant_id)).items[0]
-    assert offered.draft == "Open 9 to 6." and offered.draft_source_kind is not None
+    assert (
+        offered.draft == "Open every day, near MG Road." and offered.draft_source_kind is not None
+    )
     assert offered.drafting is False
 
     # The same job delivered twice does nothing the second time.
@@ -378,7 +413,7 @@ async def test_no_draft_without_sources_and_no_model_call(monkeypatch: pytest.Mo
     async with tenant_session(tenant_id) as session:
         fingerprint = (
             await session.execute(
-                text("SELECT inputs_hash FROM teach_questions WHERE question_key = 'pricing'")
+                text("SELECT inputs_hash FROM teach_questions WHERE question_key = 'timings'")
             )
         ).scalar_one()
 
@@ -388,11 +423,11 @@ async def test_no_draft_without_sources_and_no_model_call(monkeypatch: pytest.Mo
     monkeypatch.setattr(draft_worker, "ask_json", never)
     outcome = await draft_worker.draft_teach_question(
         {},
-        {"tenant_id": str(tenant_id), "question_key": "pricing", "inputs_hash": fingerprint},
+        {"tenant_id": str(tenant_id), "question_key": "timings", "inputs_hash": fingerprint},
     )
     assert outcome == "no_sources"
-    pricing = next(q for q in (await _list(tenant_id)).items if q.key == "pricing")
-    assert pricing.draft is None and pricing.drafting is False
+    timings = next(q for q in (await _list(tenant_id)).items if q.key == "timings")
+    assert timings.draft is None and timings.drafting is False
 
 
 # --- the routes and the neighbour ---------------------------------------------------------

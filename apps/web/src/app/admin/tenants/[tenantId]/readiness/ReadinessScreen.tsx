@@ -32,7 +32,12 @@ const ACTOR_COPY = {
     heading: "Theirs to clear",
     blurb: "The client's own to do. We can explain them, not do them.",
   },
-} as const;
+  outside: {
+    heading: "Not available yet",
+    blurb:
+      "Neither we nor the client can clear these today. The national do-not-call check needs a registered telemarketer, and Calevate is not one: an open legal question.",
+  },
+} as const satisfies Record<ReadinessActor, { heading: string; blurb: string }>;
 
 /**
  * Everything standing between this client and outbound calling, grouped by whose move it
@@ -59,9 +64,11 @@ export function ReadinessScreen({
   const rows = readiness.data?.rows ?? [];
   const ours = rows.filter((row) => row.actor === "calevate");
   const theirs = rows.filter((row) => row.actor === "client");
+  const outside = rows.filter((row) => row.actor === "outside");
   const groups: [ReadinessActor, ReadinessRow[]][] = [
     ["calevate", ours],
     ["client", theirs],
+    ["outside", outside],
   ];
   const firstOurs = ours.find((row) => lookup(ruleScreens, row.rule) !== undefined);
 
@@ -113,7 +120,9 @@ export function ReadinessScreen({
             <StatusPill tone={ours.length ? "warn" : "neutral"}>
               {ours.length
                 ? `${ours.length} of ${rows.length} are ours to clear`
-                : `All ${rows.length} are the client's to clear`}
+                : theirs.length === rows.length
+                  ? `All ${rows.length} are the client's to clear`
+                  : `${theirs.length} of ${rows.length} are the client's to clear`}
             </StatusPill>
           ) : null
         }
@@ -197,7 +206,11 @@ function RuleRow({
         {/* The gate's own sentence, verbatim: the client is reading this same string. */}
         <p className="mt-1 text-body text-ink-muted">{row.reason}</p>
         <p className="mt-1.5 text-body text-ink">{row.next_step}</p>
-        <p className="mt-1.5 break-all font-mono text-meta text-ink-muted">{row.rule}</p>
+        {/* The rule code is for engineers and support, so it sits behind Details. */}
+        <details className="mt-1.5 text-meta text-ink-muted">
+          <summary className="w-fit cursor-pointer">Details</summary>
+          <p className="mt-1 break-all font-mono">{row.rule}</p>
+        </details>
       </div>
       {screen && (
         <Link

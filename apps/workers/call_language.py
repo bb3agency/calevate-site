@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Final
 
 import httpx
+from calevate_shared.call_words import words as _words
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
 from calevate_shared.extraction import clip_headline
 from calevate_shared.languages import find_language
@@ -99,16 +100,7 @@ _ENGLISH_WORDS: Final = frozenset((
 ))  # fmt: skip
 #: Telugu and Hindi grammar words as STT and models romanise them. None is an English word,
 #: and nouns are left out on purpose: a code-mixed Indian summary is mostly English nouns.
-_ROMANISED_WORDS: Final = frozenset((
-    # Telugu
-    "ani", "annaru", "annadu", "andi", "undi", "unnaru", "unnadu", "kavali", "kaavali",
-    "chepparu", "cheppadu", "cheppindi", "cheppaaru", "adigaru", "adigadu", "ledu", "kaadu",
-    "vaddu", "ki", "ku", "lo", "tho", "nunchi", "kosam", "garu", "chesaru", "cheyali",
-    "vachi", "vacharu", "ayindi", "avutundi", "kuda", "inka",
-    # Hindi
-    "hai", "hain", "tha", "thi", "ke", "ka", "ko", "mein", "se", "aur", "bhi", "nahi",
-    "chahiye", "chahte", "bola", "kaha", "raha", "rahe",
-))  # fmt: skip
+_ROMANISED_WORDS: Final = frozenset(_words("call_language._ROMANISED_WORDS"))
 
 
 def reads_as_romanised(text: str) -> bool:

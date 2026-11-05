@@ -171,6 +171,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "GET /v1/admin/tenants/{tenant_id}/profile": None,
     "GET /v1/admin/tenants/{tenant_id}/readiness": None,
     "GET /v1/admin/tenants/{tenant_id}/activity": None,
+    "GET /v1/admin/tenants/{tenant_id}/wallet": None,
     # An EMPTY body is the ordinary resend — "send it again to the address it has" — and
     # it is the one that reaches the tenant lookup rather than the address validator.
     "POST /v1/admin/tenants/{tenant_id}/invitations/{invitation_id}/resend": {},
@@ -330,6 +331,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # The client's AI-written examples (D-827).
     "GET /v1/admin/tenants/{tenant_id}/business-copy": None,
     "POST /v1/admin/tenants/{tenant_id}/business-copy/refresh": None,
+    "PUT /v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {"applies": True},
 }
 
 

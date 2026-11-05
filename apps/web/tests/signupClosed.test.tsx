@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import SignupPage from "@/app/signup/page";
+import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { resolvePlaceholders } from "@/lib/legal/placeholders";
 
 import { problem, stubApi } from "./harness";
@@ -46,6 +47,16 @@ describe("signup with the kill switch off", () => {
     const mail = resolvePlaceholders("{{SUPPORT_EMAIL}}");
     const link = screen.getByRole("link", { name: mail });
     expect(link.getAttribute("href")).toBe(`mailto:${mail}`);
+  });
+
+  it("sends someone who already has an account to sign in, not to a path to type", async () => {
+    // E2E audit OB-21.
+    stubApi(CLOSED);
+    await mount();
+    await screen.findByText("Signing up online is closed");
+    expect(screen.getByRole("link", { name: "Sign in" }).getAttribute("href")).toBe(CLIENT_SIGN_IN_PATH);
+    expect(document.body.textContent).not.toContain("/c/your-slug");
+    expect(document.body.textContent).not.toContain("Nothing here places a call");
   });
 
   it("does not call signup closed when it could not read the switch", async () => {

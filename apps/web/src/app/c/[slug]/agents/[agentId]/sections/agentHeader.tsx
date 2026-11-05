@@ -32,6 +32,7 @@ import { ChevronDown, MessageSquareText, PhoneCall } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { formatINR, ProblemNotice, RestrictionNote, SECONDARY_BUTTON, ToggleSwitch } from "@/components/ui";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { useSectionLink } from "@/components/console/settingsLayout";
@@ -85,6 +86,7 @@ export function AgentHeader({
     errorDisplay: "inline",
     successToast: "Changes undone. Callers hear the same as before.",
   });
+  const [confirmingUndo, setConfirmingUndo] = useState(false);
   const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
   // Owners see what this agent spent this month; staff without billing:read see nothing,
   // and a failed read shows nothing rather than a guessed figure.
@@ -111,7 +113,8 @@ export function AgentHeader({
               {
                 id: "undo",
                 label: "Undo waiting changes",
-                onSelect: () => undoFeedback.run(),
+                // Asked first: it throws away changes the owner may still want (A-27).
+                onSelect: () => setConfirmingUndo(true),
                 disabled: !write.allowed || undo.isPending,
                 hint: write.reason ?? undefined,
               },
@@ -269,7 +272,27 @@ export function AgentHeader({
       <RestrictionNote reason={write.reason} />
 
       <LifecycleError error={move.error} />
-      {undo.error && <ProblemNotice error={undo.error} />}
+      {undo.error && !confirmingUndo && <ProblemNotice error={undo.error} />}
+      {confirmingUndo && (
+        <ConfirmDialog
+          title="Undo the changes waiting to go live?"
+          confirmLabel="Undo changes"
+          pendingLabel="Undoing…"
+          cancelLabel="Keep them"
+          status={undoFeedback.status}
+          error={undo.error}
+          onCancel={() => {
+            setConfirmingUndo(false);
+            undo.reset();
+          }}
+          onConfirm={() =>
+            undo.mutate(undefined, { onSuccess: () => setConfirmingUndo(false) })
+          }
+        >
+          <p>The waiting changes are thrown away.</p>
+          <p>Callers keep hearing what they hear now.</p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

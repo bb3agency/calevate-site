@@ -146,6 +146,10 @@ class LanguageStyle:
     #: amount rule when the `prices` rule says `english` (`amounts_rule`). File-only, like
     #: `spelled_address`.
     spoken_amounts: str | None = None
+    #: One short line written the way native speakers write this language, suffixes and
+    #: question particles joined to their word (F-5), quoted by the in-call written-form rule.
+    #: Founder-written; empty until then. File-only, like `spelled_address`.
+    written_form: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +368,7 @@ def _build(tag: str, row: Mapping[str, Any]) -> LanguageStyle:
         prompt_examples=_prompt_examples(tag, row),
         spelled_address=row.get("spelled_address") or None,
         spoken_amounts=row.get("spoken_amounts") or None,
+        written_form=row.get("written_form") or None,
     )
 
 
@@ -696,6 +701,13 @@ def spelled_address(tag: str | None) -> str | None:
     return style.spelled_address if style is not None else None
 
 
+def written_form(tag: str | None) -> str | None:
+    """The founder's native example of words written joined as speakers write them (F-5), or
+    None until it is written."""
+    style = style_for(tag)
+    return style.written_form if style is not None else None
+
+
 #: How the example line names each side: the agent reading it is "you".
 _WHO: Final[dict[str, str]] = {"caller": "caller", "agent": "you"}
 
@@ -963,4 +975,5 @@ __all__ = [
     "thinking_lines",
     "trial_call_opening",
     "writer_guidance",
+    "written_form",
 ]

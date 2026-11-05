@@ -49,6 +49,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     notice_fields,
 )
+from calevate_shared.opening_notices import OpeningNotices, said_in
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -725,9 +726,18 @@ async def list_versions(
     ]
 
 
-async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int) -> Draft:
+@dataclass(frozen=True, slots=True)
+class Restored:
+    draft: Draft
+    #: The working copy the restore replaced, for its Undo (A-25); None when there was none.
+    replaced: CallScript | None
+
+
+async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int) -> Restored:
     """Copy an earlier version into the working copy. Callers keep hearing the live script
-    until the owner puts the draft live."""
+    until the owner puts the draft live. The working copy it replaces is handed back, so
+    the screen can offer the way back to it."""
+    before = await read_draft(session, agent_id)
     row = (
         await session.execute(
             text(
@@ -745,7 +755,10 @@ async def restore_into_draft(session: AsyncSession, agent_id: UUID, version: int
         else CallScript.from_freeform(str(row[0]))
     )
     saved_at = await save_draft(session, agent_id, script)
-    return Draft(script=script, saved_at=saved_at)
+    return Restored(
+        draft=Draft(script=script, saved_at=saved_at),
+        replaced=before.script if before is not None else None,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -764,6 +777,7 @@ async def replace_opening_line(
     created_by: UUID | None,
     placed: bool = False,
     notes: str | None = None,
+    notices: OpeningNotices | None = None,
 ) -> ReplacedOpening:
     """Put a new opening line into the script callers hear and keep the rest of it (D-846).
 
@@ -776,8 +790,13 @@ async def replace_opening_line(
     go live, since applying this would either carry that change with it or leave it behind.
     An autosaved working copy still holding the old line gets the new one too; one that the
     owner had already changed there is theirs and is left alone.
+
+    `notices`: the notice writer's record for the new line (D-971), the words in it that say
+    each notice; without it the line says none of them by woven words, and the stored
+    sentences are said beside it.
     """
     line = opening_line.strip()
+    record = notices if notices is not None else OpeningNotices()
     row = (
         await session.execute(
             text(
@@ -829,23 +848,77 @@ async def replace_opening_line(
         opening=line,
         language=str(row.language_primary),
         placed=placed,
+        said=said_in(record, line),
     )
     field = "outbound_opening_line" if placed else "opening_line"
+    record_field = "outbound_opening_notices" if placed else "opening_notices"
     script = CallScript.model_validate(row.structured_script)
     old_line = str(getattr(script, field)).strip()
+    update = {field: line, record_field: record}
     version = await rewrite_script(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        script=script.model_copy(update={field: line}),
+        script=script.model_copy(update=update),
         notes=notes
         or ("Opening line for calls it places changed" if placed else "Opening line shortened"),
         created_by=created_by,
     )
     draft = await read_draft(session, agent_id)
     if draft is not None and str(getattr(draft.script, field)).strip() == old_line:
-        await save_draft(session, agent_id, draft.script.model_copy(update={field: line}))
+        await save_draft(session, agent_id, draft.script.model_copy(update=update))
     return ReplacedOpening(opening_line=line, version=version)
+
+
+#: The history note when the owner puts their own opening back over the notice writer's.
+PUT_BACK_NOTE: Final = "Your own opening line put back"
+
+
+async def put_back_opening_line(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    created_by: UUID | None,
+    placed: bool = False,
+) -> ReplacedOpening:
+    """Put back the opening line the notice writer replaced (D-971's Undo, founder 5 Nov
+    2026) and put it live. The line is marked as the owner's choice (`kept_own`), so it is
+    not rewritten on the next publish; the stored notice sentences are said beside it."""
+    stored = (
+        await session.execute(
+            text(
+                "SELECT pv.structured_script FROM agents a "
+                "JOIN prompt_versions pv ON pv.id = a.system_prompt_id "
+                "WHERE a.id = :aid AND a.deleted_at IS NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).scalar()
+    if stored is None:
+        raise ProblemError.not_found("Agent")
+    record, line = OpeningNotices(), ""
+    if isinstance(stored, dict):
+        script = CallScript.model_validate(stored)
+        record = script.outbound_opening_notices if placed else script.opening_notices
+        line = script.outbound_opening_line if placed else script.opening_line
+    before = record.before.strip()
+    if not before or " ".join(record.line.split()) != " ".join(line.split()):
+        raise ProblemError.conflict(
+            "nothing_to_put_back",
+            "The opening line has changed since Pip rewrote it.",
+            remediation="Edit the opening line on the Script tab instead.",
+        )
+    return await replace_opening_line(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        opening_line=before,
+        created_by=created_by,
+        placed=placed,
+        notes=PUT_BACK_NOTE,
+        notices=OpeningNotices(kept_own=before),
+    )
 
 
 __all__ = [
@@ -865,6 +938,7 @@ __all__ = [
     "compiled_preview",
     "list_versions",
     "load_agent_script",
+    "put_back_opening_line",
     "read_draft",
     "recompile_collect",
     "replace_opening_line",

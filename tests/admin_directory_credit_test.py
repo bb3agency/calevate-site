@@ -22,6 +22,7 @@ from typing import Any
 from uuid import UUID
 
 from apps.api.admin import service as admin_service
+from apps.api.billing.lots import read_open_lots
 from apps.api.billing.service import get_balance, record_entry, to_paise
 from apps.api.billing.wallet import tier_minutes
 from apps.api.db.session import admin_session, tenant_session
@@ -75,6 +76,22 @@ async def test_a_prepaid_row_quotes_what_the_credits_screen_quotes() -> None:
         {"voice_tier": tier.voice_tier, "label": tier.label, "minutes": tier.minutes}
         for tier in minutes
     ], "the roster's minutes must be the wallet's own pair, in catalogue order"
+
+
+async def test_rupees_held_in_no_pack_are_named_beside_the_minutes() -> None:
+    """A7-18: minutes are priced pack by pack, so a balance written straight to the ledger
+    read "Clear 0 min · Studio 0 min ₹5,000.00". The row names the part in no pack."""
+    tenant_id = await _tenant("prepaid", topup=Decimal("300.00"))
+    async with tenant_session(tenant_id) as session:
+        in_packs = sum(
+            (lot.credits_remaining for lot in await read_open_lots(session, tenant_id=tenant_id)),
+            Decimal("0"),
+        )
+
+    row = await _row(tenant_id, with_credit=True)
+
+    expected = Decimal("300.00") - in_packs
+    assert row["credit_unpacked_inr"] == (to_paise(expected) if expected > 0 else None)
 
 
 async def test_an_invoiced_row_has_no_credit_to_quote() -> None:

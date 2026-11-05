@@ -337,21 +337,23 @@ class _StoredTurn:
 
 async def recheck_call_mistakes(tenant_id: UUID) -> int:
     """Read again the calls in the window holding a `RECHECKED_KINDS` row, and delete each such
-    row the checks no longer find. Never adds a row: the language and the prior contact the
-    pipeline had are not re-read here, and neither decides these kinds. Returns rows deleted."""
+    row the checks no longer find. Never adds a row. The checks read the agent's primary
+    language as the pipeline passes it (STEP 3c'); the prior contact is not re-read, and it
+    decides none of these kinds. Returns rows deleted."""
     since = datetime.now(UTC) - timedelta(days=WINDOW_DAYS)
     async with tenant_session(tenant_id) as session:
         flagged = (
             await session.execute(
                 text(
-                    "SELECT call_id, array_agg(kind) FROM call_mistakes "
-                    "WHERE kind = ANY(:k) AND call_started_at >= :since GROUP BY call_id"
+                    "SELECT m.call_id, array_agg(m.kind), min(a.language_primary) "
+                    "FROM call_mistakes m LEFT JOIN agents a ON a.id = m.agent_id "
+                    "WHERE m.kind = ANY(:k) AND m.call_started_at >= :since GROUP BY m.call_id"
                 ),
                 {"k": list(RECHECKED_KINDS), "since": since},
             )
         ).all()
         dropped = 0
-        for call_id, kinds in flagged:
+        for call_id, kinds, language in flagged:
             rows = (
                 await session.execute(
                     text(
@@ -365,7 +367,7 @@ async def recheck_call_mistakes(tenant_id: UUID) -> int:
             unheard = likely_cut_off_rows(
                 (int(r[0]), str(r[1]), len(r[2] or ""), r[3]) for r in rows
             )
-            still = mistakes_in(turns, language="", unheard=unheard)
+            still = mistakes_in(turns, language=str(language or ""), unheard=unheard)
             gone = [k for k in kinds if k not in still]
             if gone:
                 await session.execute(

@@ -219,12 +219,13 @@ async def test_a_fill_reaches_the_browser_and_is_metered_at_the_published_price(
     async with _client() as http:
         events = await _events(http, token, slug)
 
-    assert [name for name, _ in events] == ["text", "fill", "done"]
+    assert [name for name, _ in events] == ["text", "step", "fill", "done"]
     assert events[0][1] == {"delta": "Nine in the morning."}
-    assert events[1][1] == {"items": [{"field_id": "open", "value": "09:00"}]}
+    assert events[1][1]["status"] == "done" and events[1][1]["args"] == ""
+    assert events[2][1] == {"items": [{"field_id": "open", "value": "09:00"}]}
     # Azure answers here as the opt-in BACKUP (D-694): the usual Gemini tier model is not
     # offerable in this deployment, so the person is told a backup answered (G-6).
-    assert events[2][1] == {"disclosure": service.BACKUP_MODEL_DISCLOSURE, "metered": True}
+    assert events[3][1] == {"disclosure": service.BACKUP_MODEL_DISCLOSURE, "metered": True}
 
     model = get_settings().azure_openai_model
     price = rates.llm_inr_per_ktok(model)
@@ -255,8 +256,8 @@ async def test_an_answer_that_only_filled_says_what_it_changed(
     async with _client() as http:
         events = await _events(http, token, slug)
 
-    assert [name for name, _ in events] == ["fill", "text", "done"]
-    assert events[1][1] == {"delta": "I changed Opens."}
+    assert [name for name, _ in events] == ["step", "fill", "text", "done"]
+    assert events[2][1] == {"delta": "I changed Opens."}
 
 
 async def test_an_answer_whose_every_change_was_refused_says_nothing_changed(

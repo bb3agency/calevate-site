@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 from apps.api.agents import readiness, roster, script_builder, starters, trial_results
+from apps.api.agents.business_fit import BusinessFit
 from apps.api.agents.capability_manifest import (
     books_visits,
     lint_context_for,
@@ -87,6 +88,15 @@ EVERYTHING = CapabilityManifest(
 
 
 # --- the start of the call --------------------------------------------------------------
+
+#: A business judged to sell, quote prices and take bookings and orders: the plans offer.
+_BOOKS = BusinessFit(
+    takes_bookings=True, takes_orders=True, quotes_prices=True, has_premises=True, sells=True
+)
+#: One judged to take bookings only, whose callers book a time (the calendar reminder).
+_BOOKS_ONLY = BusinessFit(
+    takes_bookings=True, takes_orders=False, quotes_prices=True, has_premises=True, sells=True
+)
 
 
 def test_who_is_this_gets_who_and_why_then_a_stop() -> None:
@@ -309,7 +319,7 @@ def test_calling_plans_say_one_true_fact_then_offer_two_exact_times() -> None:
     for trade, words in TRADE_WORDS.items():
         assert words.value_topics, trade
         for job in ("call_leads", "call_new_leads"):
-            plan = playbook_for(trade, job, starters.TRADES[trade])
+            plan = playbook_for(trade, job, starters.TRADES[trade], _BOOKS)
             titles = [step.title for step in plan.steps]
             value = titles.index(VALUE_STEP_TITLE)
             assert titles[value - 1] == "Find out what they need"
@@ -587,7 +597,10 @@ def test_a_finding_names_its_place_in_the_owners_words() -> None:
 
 def test_the_starters_are_reminded_by_their_own_booking_word() -> None:
     for trade in ("clinic", "real_estate", "education"):
-        script = starters.CATALOGUE[(trade, "call_leads")].call_script(business="Acme")
+        script = starters.starter_for(trade, "call_leads", _BOOKS_ONLY).call_script(business="Acme")
         assert books_visits("outbound", script), trade
+        # Not judged yet: no offer, so no reminder (G1-1).
+        unjudged = starters.CATALOGUE[(trade, "call_leads")].call_script(business="Acme")
+        assert not books_visits("outbound", unjudged), trade
     shop = starters.CATALOGUE[("retail", "call_leads")].call_script(business="Acme")
     assert not books_visits("outbound", shop)

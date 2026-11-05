@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import pytest
+from apps.api.agents.business_fit import BusinessFit
 from apps.api.agents.specimen_scenarios import (
     CLASSES,
     PER_RUN,
@@ -331,7 +332,7 @@ def test_honest_future_wording_is_not_a_claim(text: str) -> None:
 def test_every_class_is_a_caller_for_every_business_and_language(
     language: str, business_type: str
 ) -> None:
-    scenarios = all_specimen_scenarios(language, business_type)
+    scenarios = all_specimen_scenarios(language, business_type, fit=_SELLS)
     assert [s.key for s in scenarios] == [c.key for c in CLASSES]
     for scenario in scenarios:
         assert 1 <= len(scenario.turns) <= MAX_TURNS
@@ -339,9 +340,16 @@ def test_every_class_is_a_caller_for_every_business_and_language(
         assert scenario.source == "standard" and scenario.expect
 
 
+#: A business judged to sell and take orders: its type's own practice callers apply. A
+#: business not judged yet gets the neutral ones (G2-8, `business_fit_agents_test`).
+_SELLS = BusinessFit(
+    takes_bookings=True, takes_orders=True, quotes_prices=True, has_premises=True, sells=True
+)
+
+
 def test_the_clinic_lines_reach_only_a_clinic() -> None:
-    clinic = {s.key: s.turns for s in all_specimen_scenarios("en-IN", "clinic")}
-    shop = {s.key: s.turns for s in all_specimen_scenarios("en-IN", "retail")}
+    clinic = {s.key: s.turns for s in all_specimen_scenarios("en-IN", "clinic", fit=_SELLS)}
+    shop = {s.key: s.turns for s in all_specimen_scenarios("en-IN", "retail", fit=_SELLS)}
     assert "doctor" in clinic["specimen_done_without_action"][0]
     assert all("doctor" not in " ".join(turns) for turns in shop.values())
 
@@ -356,14 +364,14 @@ def test_the_failure_classes_of_the_october_calls_are_standing_callers() -> None
         "specimen_just_whatsapp",
         "specimen_already_bought",
     } <= keys
-    half = {s.key: s.turns for s in all_specimen_scenarios("te-IN", "retail")}
+    half = {s.key: s.turns for s in all_specimen_scenarios("te-IN", "retail", fit=_SELLS)}
     assert half["specimen_half_answer"][-1].endswith("ఒక")
 
 
 def test_runs_rotate_through_every_class() -> None:
     seen: set[str] = set()
     for n in range(60):
-        picked = specimen_scenarios("te-IN", "retail", round_key=f"r{n:06x}")
+        picked = specimen_scenarios("te-IN", "retail", round_key=f"r{n:06x}", fit=_SELLS)
         assert len(picked) == PER_RUN and len({s.key for s in picked}) == PER_RUN
         seen |= {s.key for s in picked}
     assert seen == {c.key for c in CLASSES}

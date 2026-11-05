@@ -41,7 +41,13 @@ from uuid import UUID
 import httpx
 import pytest
 from apps.api.billing import payment_routes
-from apps.api.billing.payment_routes import TopUpIntentIn, create_topup_intent
+from apps.api.billing.credit_packs import PACK_CATALOGUE
+from apps.api.billing.payment_routes import (
+    MAX_TOPUP_INR,
+    MIN_TOPUP_INR,
+    TopUpIntentIn,
+    create_topup_intent,
+)
 from apps.api.billing.payments import (
     API_VERSION_PATH,
     BASE_URL,
@@ -62,6 +68,7 @@ from apps.api.billing.payments import (
     topup_receipt,
 )
 from apps.api.billing.service import to_paise
+from apps.api.billing.wallet import settle_attempt
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -713,6 +720,66 @@ async def test_a_second_click_from_another_owner_of_the_same_tenant_replays_too(
 
     assert len(recorder.requests) == 1
     assert second.provider_order_id == first.provider_order_id
+
+
+async def test_a_paid_order_is_never_handed_back_for_the_same_amount(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """E2E audit OB-16. Razorpay allows no further payment on a `paid` order
+    (https://razorpay.com/docs/payments/orders/, read 5 Nov 2026), so a second top-up of the
+    same amount inside the replay window must get a new order — and two clicks after the
+    payment must still collapse into ONE new order."""
+    _payments_configured(monkeypatch)
+    tenant_id, principal = await _prepaid_tenant()
+    ids = iter(["order_PAID0001", "order_NEXT0001", "order_SPARE001"])
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        return httpx.Response(200, json={"id": next(ids), "amount": body["amount"]})
+
+    recorder = _Recorder(responder)
+    _install(monkeypatch, recorder)
+
+    paid = await create_topup_intent(TopUpIntentIn(amount_inr=Decimal("1500.00")), principal)
+    async with tenant_session(tenant_id) as session:
+        await settle_attempt(
+            session,
+            tenant_id=tenant_id,
+            order_id=paid.provider_order_id,
+            payment_id="pay_PAID0001",
+            status="captured",
+        )
+    again = await create_topup_intent(TopUpIntentIn(amount_inr=Decimal("1500.00")), principal)
+    double_click = await create_topup_intent(
+        TopUpIntentIn(amount_inr=Decimal("1500.00")), principal
+    )
+
+    assert again.provider_order_id == "order_NEXT0001"
+    assert again.receipt != paid.receipt
+    assert double_click.provider_order_id == again.provider_order_id
+    assert len(recorder.requests) == 2
+
+
+async def test_a_pack_and_the_same_free_amount_are_two_orders(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """E2E audit OB-33: the replayed intent carries the pack the order was made for."""
+    _payments_configured(monkeypatch)
+    _tenant_id, principal = await _prepaid_tenant()
+    pack = next(p for p in PACK_CATALOGUE if MIN_TOPUP_INR <= p.amount_inr <= MAX_TOPUP_INR)
+    ids = iter(["order_PACK0001", "order_FREE0001"])
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        return httpx.Response(200, json={"id": next(ids), "amount": body["amount"]})
+
+    _install(monkeypatch, _Recorder(responder))
+
+    by_pack = await create_topup_intent(TopUpIntentIn(pack_id=pack.pack_id), principal)
+    free = await create_topup_intent(TopUpIntentIn(amount_inr=pack.amount_inr), principal)
+
+    assert by_pack.receipt != free.receipt
+    assert (by_pack.pack_id, free.pack_id) == (pack.pack_id, None)
 
 
 async def test_a_different_amount_is_a_different_order(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -45,7 +45,7 @@ export type AgentOwnCallHandling = Schemas["AgentOwnCallHandlingOut"];
 export type CallHandlingSource = AgentCallHandling["turn_silence_source"];
 export type AllAgentsCallHandlingIn = Schemas["AllAgentsCallHandlingIn"];
 export type AllAgentsCallHandling = Schemas["AllAgentsCallHandlingOut"];
-export type PatientCaller = Schemas["PatientCallerOut"];
+export type GiveCallersTime = Schemas["GiveCallersTimeOut"];
 
 export const ORGANIZATION_CALL_HANDLING_PATH = "/v1/organization/call-handling";
 export const ALL_AGENTS_CALL_HANDLING_PATH = "/v1/organization/call-handling/all-agents";
@@ -62,7 +62,7 @@ export const callHandlingKeys = {
 
 /**
  * Whether an agent's callers follow along on their phone (`lib/api/callerHelp.ts`). Spelled
- * here so the two switches it suggests, `useSetCallerScreen` and `useApplyPatientCaller`,
+ * here so the two switches it suggests, `useSetCallerScreen` and `useApplyGiveCallersTime`,
  * can refresh it without importing the hooks that read it.
  */
 export const callerHelpKeys = {
@@ -338,7 +338,7 @@ function allAgentsChanges(changes: AgentCallHandlingIn): AllAgentsCallHandlingIn
  * settings; the account read (which agents have their own values) and the agent's call limit
  * read both move.
  */
-export function useApplyPatientCaller(
+export function useApplyGiveCallersTime(
   session: Session,
   agentId: string,
 ): UseMutationResult<AgentCallHandling, Error, void> {
@@ -419,7 +419,7 @@ export function useAdminSetAgentCallHandling({
 }
 
 /** The operator's door onto the same preset, from the console's agent page. */
-export function useAdminApplyPatientCaller({
+export function useAdminApplyGiveCallersTime({
   tenantId,
   agentId,
   slug,

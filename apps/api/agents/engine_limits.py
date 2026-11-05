@@ -32,9 +32,10 @@ from calevate_shared.engine import (
     introduces_itself,
     join_first_words,
     said_as_taught,
+    said_notices,
     spoken_ai_notice,
 )
-from calevate_shared.opening_notices import says_ai, says_recorded
+from calevate_shared.opening_notices import NONE_SAID, SaidNotices
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.prompt_size import PromptSize, measure
@@ -76,19 +77,33 @@ def greeting_limit(engine: VoiceEngine, direction: str) -> int | None:
 
 
 def greeting_chars(
-    engine: VoiceEngine, *, notices: str, opening: str, ai_notice: str, language: str
+    engine: VoiceEngine,
+    *,
+    notices: str,
+    opening: str,
+    ai_notice: str,
+    language: str,
+    said: SaidNotices = NONE_SAID,
 ) -> int:
     """The length of what `engine` holds as the greeting for these notices and opening line.
 
     `join_first_words` is `compose_first_utterance` taken apart, so a screen measuring an
     agent's stored lines and the publish measuring its config count the same text, the
-    salutation an introducing agent opens with included (D-865)."""
-    first_words = join_first_words(notices, opening, ai_notice=ai_notice, language=language)
+    salutation an introducing agent opens with included (D-865). `said`: the notice words
+    woven into `opening` (D-971)."""
+    first_words = join_first_words(
+        notices, opening, ai_notice=ai_notice, language=language, said=said
+    )
     return len(engine_greeting(engine, notices=notices, first_words=first_words))
 
 
 def _posture_chars(
-    engine: VoiceEngine, posture: DisclosurePosture, *, opening: str, language: str
+    engine: VoiceEngine,
+    posture: DisclosurePosture,
+    *,
+    opening: str,
+    language: str,
+    said: SaidNotices = NONE_SAID,
 ) -> int:
     recorded = engine_capabilities(engine).records_audio
     return greeting_chars(
@@ -97,17 +112,21 @@ def _posture_chars(
         opening=opening,
         ai_notice=spoken_ai_notice(posture),
         language=language,
+        said=said,
     )
 
 
-def unsaid_posture(posture: DisclosurePosture, opening: str) -> DisclosurePosture:
-    """`posture` with each notice `opening` already says switched off: its stored sentence
-    is not added to the greeting (`join_first_words`, D-971), so it takes no room."""
+def unsaid_posture(
+    posture: DisclosurePosture, opening: str, said: SaidNotices = NONE_SAID
+) -> DisclosurePosture:
+    """`posture` with each notice `opening` says in its woven words (`said`) switched off:
+    its stored sentence is not added to the greeting (`join_first_words`, D-971), so it
+    takes no room."""
     return posture.model_copy(
         update={
-            "ai_disclosure_enabled": posture.ai_disclosure_enabled and not says_ai(opening),
+            "ai_disclosure_enabled": posture.ai_disclosure_enabled and not said.says_ai_in(opening),
             "recording_notice_enabled": (
-                posture.recording_notice_enabled and not says_recorded(opening)
+                posture.recording_notice_enabled and not said.says_recorded_in(opening)
             ),
         }
     )
@@ -120,6 +139,7 @@ def opening_room(
     direction: str,
     language: str,
     opening: str = "",
+    said: SaidNotices = NONE_SAID,
 ) -> int | None:
     """How many characters the opening line may have with these notices and still be spoken.
     With `opening`, a notice it says in its own words takes no room of its own (D-971).
@@ -129,7 +149,7 @@ def opening_room(
     limit = greeting_limit(engine, direction)
     if limit is None or not hosted_agent_limits(engine).greeting_is_first_words:
         return None
-    posture = unsaid_posture(posture, opening)
+    posture = unsaid_posture(posture, opening, said)
     # Measured with a one-character line, so the separator between notices and line counts.
     return limit - (_posture_chars(engine, posture, opening="x", language=language) - 1)
 
@@ -154,6 +174,7 @@ def greeting_budget(
     opening: str,
     direction: str,
     language: str,
+    said: SaidNotices = NONE_SAID,
 ) -> GreetingBudget | None:
     """The budget for an agent with this posture and opening line, or None where the engine
     sets no ceiling on what the opening line may be."""
@@ -161,7 +182,12 @@ def greeting_budget(
     def room(switch: str | None = None) -> int | None:
         turned = posture if switch is None else posture.model_copy(update={switch: True})
         return opening_room(
-            engine, posture=turned, direction=direction, language=language, opening=opening
+            engine,
+            posture=turned,
+            direction=direction,
+            language=language,
+            opening=opening,
+            said=said,
         )
 
     limit = greeting_limit(engine, direction)
@@ -187,6 +213,7 @@ def refuse_notice_without_room(
     opening: str,
     language: str,
     cause: str,
+    said: SaidNotices = NONE_SAID,
 ) -> None:
     """Refuse a switch that adds a notice the greeting has no room for, before it is saved.
 
@@ -197,7 +224,7 @@ def refuse_notice_without_room(
     limit = greeting_limit(engine, direction)
     if limit is None:
         return
-    length = _posture_chars(engine, posture, opening=opening, language=language)
+    length = _posture_chars(engine, posture, opening=opening, language=language, said=said)
     if length <= limit:
         return
     log.info(
@@ -228,20 +255,24 @@ def refuse_opening_over_limit(
     opening: str,
     language: str,
     placed: bool = False,
+    said: SaidNotices = NONE_SAID,
 ) -> None:
     """Refuse a new opening line that would not fit with the notices, before it is saved.
 
     `placed`: the opening a "both" agent says on the calls it places (D-920), which rides
-    each dial rather than the greeting field, so only the dial's ceiling binds it."""
+    each dial rather than the greeting field, so only the dial's ceiling binds it. `said`:
+    the notice words woven into it (D-971)."""
     if placed:
         limit = hosted_agent_limits(engine).call_opening_chars
         recorded = engine_capabilities(engine).records_audio
         notices = compose_opening_line(posture, call_is_recorded=recorded)
         ai_notice = spoken_ai_notice(posture)
-        length = len(join_first_words(notices, opening, ai_notice=ai_notice, language=language))
+        length = len(
+            join_first_words(notices, opening, ai_notice=ai_notice, language=language, said=said)
+        )
     else:
         limit = greeting_limit(engine, direction)
-        length = _posture_chars(engine, posture, opening=opening, language=language)
+        length = _posture_chars(engine, posture, opening=opening, language=language, said=said)
     if limit is None:
         return
     if length <= limit:
@@ -279,6 +310,7 @@ def refuse_over_engine_limits(engine: VoiceEngine, cfg: AgentConfig) -> None:
         ),
         ai_notice=cfg.ai_notice,
         language=cfg.language_primary,
+        said=said_notices(cfg.system_prompt, business=cfg.business),
     )
     limit = greeting_limit(engine, cfg.direction)
     if limit is not None and length > limit:

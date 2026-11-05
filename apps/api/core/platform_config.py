@@ -409,6 +409,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "platform_fee_inr": AppliesRule(
         LIVE, "a fee already raised keeps its amount; the next month's is raised at the new one"
     ),
+    "ai_overage_block_inr": AppliesRule(
+        LIVE, "a block already bought keeps its amount; an open screen must reload to buy"
+    ),
     # Both read through `get_settings()` inside the blocker that uses them, once per
     # launch preview / dispatch tick — so counsel's answer takes effect within one poll
     # interval rather than on the next deploy, which is the whole reason they are config.

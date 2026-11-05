@@ -77,10 +77,16 @@ export function describeVerification(record: KycRecord): string {
   return "";
 }
 
+/** A status this build cannot name reads as a plain word, never as the code (e2e audit OB-28);
+ *  the file reference beside it is what a client quotes to us. */
+export const UNNAMED_STATUS_LABEL = "Being checked";
+
 export function stateLabel(record: KycRecord): string {
   const status = record.status;
   if (status !== null && isKnownKycStatus(status)) return KYC_STATUS_COPY[status].label;
-  return status ?? NOT_RECORDED.label;
+  if (status === null) return NOT_RECORDED.label;
+  // The direction is `is_verified`'s, as in `verdictCopy`; only the word is ours to choose.
+  return record.is_verified ? KYC_STATUS_COPY.verified.label : UNNAMED_STATUS_LABEL;
 }
 
 export function joinDocument(kind: string | null, ref: string | null): string | null {

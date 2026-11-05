@@ -155,7 +155,7 @@ export const CALL_HANDLING_BOUNDS = {
 };
 
 /** The "Patient caller" preset on a Telugu agent, not in use (D-907). */
-export const PATIENT_CALLER = {
+export const GIVE_CALLERS_TIME = {
   applied: false,
   nudge_after_seconds: 20,
   nudge_count: 3,
@@ -235,7 +235,7 @@ export function agentCallHandling(agentId = "agent-1") {
     ...VOICE_SOURCES_PLATFORM,
     ...VOICE_ORGANIZATION_NONE,
     bounds: CALL_HANDLING_BOUNDS,
-    patient_caller: PATIENT_CALLER,
+    give_callers_time: GIVE_CALLERS_TIME,
   };
 }
 
@@ -700,7 +700,7 @@ export function adminOverviewSummaryReads(tenantId: string) {
       spend_used_inr: null,
       spend_cap_inr: null,
     },
-    "/v1/billing/wallet": noReply(),
+    [`/v1/admin/tenants/${tenantId}/wallet`]: noReply(),
     "/v1/healer/incidents?days=30&limit=20": noReply(),
     "/v1/calls?limit=5": [],
     ...adminAccountFactReads(tenantId),

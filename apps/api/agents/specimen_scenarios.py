@@ -299,7 +299,7 @@ CLASSES: Final[tuple[SpecimenClass, ...]] = (
             ),
         },
         expect=(
-            'Offers its reading as one short question with a way out ("one kg, or more?") and '
+            'Offers its reading as one short question with a way out ("just one, or more?") and '
             "waits. Never takes a guessed amount as said, never asks a second question in the "
             "same turn, and never just repeats its earlier question."
         ),
@@ -479,7 +479,7 @@ def _line(lines: Lines, language: str) -> str:
 
 
 def _sells_goods(fit: BusinessFit) -> bool:
-    return fit.sells is not False and fit.takes_orders is not False
+    return fit.assumes_orders
 
 
 def scenario_of(
@@ -495,7 +495,7 @@ def scenario_of(
     `_neutral` lines where it has them; one that sells nothing never hears its type's."""
     goods = _sells_goods(fit)
     turns = (
-        (cls.turns.get(business_type) if fit.sells is not False else None)
+        (cls.turns.get(business_type) if fit.assumes_sale else None)
         or (None if goods else cls.turns.get(_NEUTRAL))
         or cls.turns[_DEFAULT]
     )
@@ -517,7 +517,7 @@ def scenario_of(
 
 def classes_for(fit: BusinessFit = UNKNOWN) -> tuple[SpecimenClass, ...]:
     """The classes that fit the business: every one, less a sale's for one selling nothing."""
-    return tuple(cls for cls in CLASSES if not (cls.assumes_sale and fit.sells is False))
+    return tuple(cls for cls in CLASSES if not (cls.assumes_sale and not fit.assumes_sale))
 
 
 def all_specimen_scenarios(

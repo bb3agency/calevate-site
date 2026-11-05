@@ -168,7 +168,7 @@ def test_a_spec_is_built_only_when_somebody_is_on_duty() -> None:
     # A blank trigger falls back to the composed default rather than publishing an empty
     # tool description, which the model would read as "never".
     assert spec.trigger == handoff.HANDOFF_TRIGGER_DEFAULT
-    assert spec.spoken_line == handoff.HANDOFF_SPOKEN_TEMPLATES["te-IN"]
+    assert spec.spoken_line == handoff.spoken_line_for("te-IN")
 
 
 def test_an_unknown_language_falls_back_rather_than_going_silent() -> None:

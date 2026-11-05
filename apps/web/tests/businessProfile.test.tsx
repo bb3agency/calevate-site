@@ -185,7 +185,9 @@ describe("the setup wizard", () => {
 });
 
 describe("the business profile screen", () => {
-  it("links each missing fact to the step that fixes it", async () => {
+  it("lists each missing fact once, linked to the step that fixes it", async () => {
+    // E2E audit OB-25: the blockers were listed twice, in "Finish your business profile"
+    // and again in "Your setup". The setup list carries them, marked as needed for calls.
     const { container } = await renderClientPage(<BusinessProfileScreen />, {
       "/v1/me": OWNER,
       "/v1/business-profile": profile({
@@ -194,9 +196,10 @@ describe("the business profile screen", () => {
         ],
       }),
     });
-    await screen.findByText("Finish your business profile");
-    const blockers = screen.getByRole("region", { name: "Finish your business profile" });
-    const row = within(blockers).getByText("What you offer").closest("li") as HTMLElement;
+    const detail = await screen.findByText("Add at least one thing you offer.");
+    expect(screen.queryByText("Finish your business profile")).toBeNull();
+    expect(screen.getAllByText("Add at least one thing you offer.")).toHaveLength(1);
+    const row = detail.closest("li") as HTMLElement;
     const link = within(row).getByRole("link", { name: /Open/ });
     expect(link.getAttribute("href")).toContain("/c/acme/settings/business?mode=steps&step=services");
     expect(container.textContent).toContain("Sunrise Dental");

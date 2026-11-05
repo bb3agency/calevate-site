@@ -507,6 +507,20 @@ async def read_attempts(
     return out
 
 
+async def attempt_paid(session: AsyncSession, *, tenant_id: UUID, receipt: str) -> bool:
+    """Has a payment been taken on the order behind this receipt? `authorized` counts: with
+    auto-capture it becomes `captured` within moments, and the order already holds it."""
+    return (
+        await session.execute(
+            text(
+                "SELECT 1 FROM topup_attempts WHERE tenant_id = :tid AND receipt = :receipt "
+                "AND status IN ('captured', 'authorized')"
+            ),
+            {"tid": tenant_id, "receipt": receipt},
+        )
+    ).first() is not None
+
+
 async def record_attempt(
     session: AsyncSession,
     *,
@@ -679,6 +693,7 @@ __all__ = [
     "TierMinutes",
     "TopUpAttemptRow",
     "WalletSummary",
+    "attempt_paid",
     "read_attempts",
     "read_runway",
     "read_wallet",

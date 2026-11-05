@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from apps.api.agents import starters
+from apps.api.agents.trade_playbooks import NEXT_STEP_TITLE
 from apps.api.billing import rates
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.models import (
@@ -124,6 +125,14 @@ def copy_dict() -> dict[str, Any]:
         "screen_guide": {"suggested": False, "reason": ""},
         # Deep: a test that edits a judgement must not edit the next test's answer.
         **copylib.deepcopy(V4_PROFILE),
+        # Prompt version 5 (G1-3): the ready-made agents' own words.
+        "starter_words": {
+            "answer_name": "Oil counter",
+            "calling_name": "Customer follow-up",
+            "topics": "the oils, prices, pickup or delivery",
+            "capture": "the oil they want, how much, and pickup or delivery",
+            "caution": "Never promise stock without checking.",
+        },
     }
 
 
@@ -164,6 +173,13 @@ def _not_selling() -> dict[str, Any]:
     raw["placeholders"]["booking_job_title"] = ""
     raw["placeholders"]["booking_job_line"] = ""
     raw["caller_noun"] = "farmer"
+    raw["starter_words"] = {
+        "answer_name": "Help desk",
+        "calling_name": "User follow-up",
+        "topics": "what you offer",
+        "capture": "what they need",
+        "caution": "Never promise anything your facts do not say; say the team will confirm.",
+    }
     return raw
 
 
@@ -1005,7 +1021,11 @@ def test_starter_lines_fill_only_empty_example_lines() -> None:
     lines = [f"Line {i} andi" for i in range(len(script.stages))]
     filled = starters.with_example_lines(script, lines)
     assert filled.stages[0].sounds_like == "Owner's own words"
-    assert [s.sounds_like for s in filled.stages[1:]] == lines[1:]
+    # The step that agrees the next step has no line of the business's (D-962).
+    assert [s.sounds_like for s in filled.stages[1:]] == [
+        "" if stage.name == NEXT_STEP_TITLE else line
+        for stage, line in zip(script.stages[1:], lines[1:], strict=True)
+    ]
 
 
 def test_lines_for_another_number_of_steps_or_too_long_are_not_used() -> None:
@@ -1307,3 +1327,55 @@ async def test_worker_start_queues_the_upgrade_walk_once_per_version() -> None:
         getattr(f, "coroutine", None) is worker.upgrade_business_copies
         for f in WorkerSettings.functions
     )
+
+
+# --- 9. an operator's correction of the capability profile (A7-08) -----------------------
+
+
+async def test_an_operator_corrects_a_capability_and_a_refresh_keeps_it(
+    model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: a profile the AI judged wrongly can only be regenerated, a regeneration
+    reverts the correction, or clearing it does not bring the AI's verdict back."""
+    from apps.api.admin.capability_overrides import OVERRIDE_REASON
+
+    _trial(monkeypatch, False)
+    tenant_id, _slug, _token = await _make_tenant()
+    await _seed_row(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        ai_verdict = (await business_copy.capabilities_for(session, tenant_id)).sells
+    wanted = not ai_verdict.applies
+    headers = await _superadmin()
+    path = f"/v1/admin/tenants/{tenant_id}/business-copy/capabilities/sells"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        decided = await http.put(path, headers=headers, json={"applies": wanted})
+    assert decided.status_code == 200, decided.text
+    assert decided.json()["capability_overrides"] == {"sells": wanted}
+    async with tenant_session(tenant_id) as session:
+        now = (await business_copy.capabilities_for(session, tenant_id)).sells
+    assert now.applies is wanted and now.reason == OVERRIDE_REASON
+
+    assert await _run(tenant_id, "refresh") == "stored"
+    async with tenant_session(tenant_id) as session:
+        kept = (await business_copy.capabilities_for(session, tenant_id)).sells
+    assert kept.applies is wanted, "a regeneration reverted the correction"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        cleared = await http.put(path, headers=headers, json={"applies": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["capability_overrides"] == {}
+    async with tenant_session(tenant_id) as session:
+        back = (await business_copy.capabilities_for(session, tenant_id)).sells
+    assert back.reason != OVERRIDE_REASON
+
+
+async def test_an_unknown_capability_is_refused() -> None:
+    tenant_id, _slug, _token = await _make_tenant()
+    headers = await _superadmin()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        refused = await http.put(
+            f"/v1/admin/tenants/{tenant_id}/business-copy/capabilities/grows_crops",
+            headers=headers,
+            json={"applies": True},
+        )
+    assert refused.status_code == 404, refused.text

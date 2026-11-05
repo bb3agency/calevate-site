@@ -115,10 +115,26 @@ export interface ExampleLine {
  * (the fields are ignored and this text is the body verbatim). The server refuses both at
  * once, so the UI clears one side when switching modes.
  */
+/**
+ * What Pip did to one opening line to say the notices (D-971). Mirrors `OpeningNotices`.
+ * Kept as the server sent it; the editor never writes it.
+ */
+export interface OpeningNotices {
+  /** The line Pip wrote; the record counts only while the opening is still this line. */
+  line?: string;
+  ai?: string;
+  recording?: string;
+  /** The owner's line Pip replaced, shown with "Put mine back". */
+  before?: string;
+  kept_own?: string;
+}
+
 export interface CallScript {
   opening_line: string;
   /** A "both" agent's first words on a call it places (D-920); empty or absent: a composed line. */
   outbound_opening_line?: string;
+  opening_notices?: OpeningNotices;
+  outbound_opening_notices?: OpeningNotices;
   steps: ScriptStep[];
   faqs: FaqEntry[];
   faq_fallback: string;
@@ -500,6 +516,38 @@ export function useReplaceOpeningLine(
   });
 }
 
+/**
+ * The Undo for Pip's notice rewrite (D-971, founder 5 Nov 2026): the owner's own opening line
+ * goes live again and is not rewritten on the next publish.
+ */
+export function usePutBackOpeningLine(
+  session: Session,
+  agentId: string,
+): UseMutationResult<OpeningLineOut, Error, OpeningWhen> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (when: OpeningWhen) =>
+      apiRequest<OpeningLineOut>(session, `${base(agentId)}/opening-line/put-back`, {
+        method: "POST",
+        body: { when },
+      }),
+    onSuccess: () => invalidateScript(client, session, agentId),
+  });
+}
+
+/** The opening Pip rewrote to say the notices, and the owner's line it replaced, or null. */
+export function rewrittenOpening(
+  script: CallScript,
+  when: OpeningWhen,
+): { before: string; after: string } | null {
+  const line = (when === "calls" ? script.outbound_opening_line : script.opening_line) ?? "";
+  const record = when === "calls" ? script.outbound_opening_notices : script.opening_notices;
+  const before = (record?.before ?? "").trim();
+  const flat = (s: string) => s.split(/\s+/).filter(Boolean).join(" ");
+  if (!before || !line.trim() || flat(record?.line ?? "") !== flat(line)) return null;
+  return { before, after: line.trim() };
+}
+
 /** The script's history, newest first. */
 export function useScriptVersions(
   session: Session,
@@ -513,7 +561,10 @@ export function useScriptVersions(
   });
 }
 
-export type RestoredDraft = WithCallScripts<components["schemas"]["DraftOut"], "script">;
+/** A restored draft, and the draft it replaced (null: none) for the Undo (A-25). */
+export type RestoredDraft = WithCallScripts<components["schemas"]["DraftOut"], "script"> & {
+  replaced?: CallScript | null;
+};
 
 /** Copy an earlier entry into the draft; callers keep the live one. */
 export function useRestoreVersion(
@@ -575,16 +626,20 @@ export function useClearProposal(
  * suggestion is asked for that fixes exactly the lines the check found. Polled through
  * `useScriptProposal`; `useKeepFixedScript` puts the result into the draft.
  */
+/** A fix asked for, and when the draft it is made to was saved (the base to keep it with). */
+export type FixLinesOut = ScriptProposal & { draft_saved_at: string };
+
 export function useFixScriptLines(
   session: Session,
   agentId: string,
-): UseMutationResult<ScriptProposal, Error, CallScript> {
+): UseMutationResult<FixLinesOut, Error, { script: CallScript; baseSavedAt?: string | null }> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (script: CallScript) =>
-      apiRequest<ScriptProposal>(session, `${base(agentId)}/fix-lines`, {
+    mutationFn: ({ script, baseSavedAt }) =>
+      apiRequest<FixLinesOut>(session, `${base(agentId)}/fix-lines`, {
         method: "POST",
-        body: { script },
+        // The draft on screen is saved as a compare-and-set, like every autosave (A-13).
+        body: baseSavedAt === undefined ? { script } : { script, base_saved_at: baseSavedAt },
       }),
     onSuccess: (proposal) => client.setQueryData(proposalKey(session.orgSlug, agentId), proposal),
   });
@@ -603,19 +658,24 @@ export function useRewriteStarterScript(
   });
 }
 
-/** The fixed script into the draft, and the suggestion it came from cleared. */
+/**
+ * The fixed script into the draft once the owner has seen it, and the suggestion it came from
+ * cleared. `baseSavedAt` is the draft's stamp when the fix was asked for: a draft changed
+ * since in another tab is refused rather than overwritten (A-13).
+ */
 export function useKeepFixedScript(
   session: Session,
   agentId: string,
-): UseMutationResult<void, Error, { proposalId: string; script: CallScript }> {
+): UseMutationResult<DraftSavedOut, Error, { proposalId: string; script: CallScript; baseSavedAt?: string | null }> {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async ({ proposalId, script }) => {
-      await apiRequest<DraftSavedOut>(session, `${base(agentId)}/draft`, {
+    mutationFn: async ({ proposalId, script, baseSavedAt }) => {
+      const saved = await apiRequest<DraftSavedOut>(session, `${base(agentId)}/draft`, {
         method: "PUT",
-        body: { script },
+        body: baseSavedAt === undefined ? { script } : { script, base_saved_at: baseSavedAt },
       });
       await apiRequest<void>(session, `${base(agentId)}/proposal/${proposalId}`, { method: "DELETE" });
+      return saved;
     },
     onSuccess: () => {
       client.setQueryData(proposalKey(session.orgSlug, agentId), null);

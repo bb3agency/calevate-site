@@ -1,3 +1,4 @@
+import demoCall from "./demoCall.json";
 import { Avatar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, type LeadStatus } from "./kit";
 
 /**
@@ -15,42 +16,19 @@ import { Avatar, Chip, MaskedPhone, Panel, StatusPill, Tag, Waveform, type LeadS
  * The Telugu runs carry `lang="te"` so a screen reader switches voice; each has its English
  * underneath so a reader who does not speak Telugu can follow.
  *
+ * The spoken lines are the founder's, in `demoCall.json` beside this file: no Indian-language
+ * words are hand-written in code. This module only lays them out.
+ *
  * Field names are the education template's own (`scripts/seed.py` VERTICAL_TEMPLATES):
  * "Course", "Class / year", "Fee concern", "Demo booked". Speakers are labelled "Agent" and
  * "Caller", as the console's transcript labels them.
  */
 
-export const SAMPLE_BUSINESS = "Akshara Coaching";
+export const SAMPLE_BUSINESS: string = demoCall.business;
 
 export type CallTurn = { who: "Agent" | "Caller"; te: string; en: string };
 
-export const CALL_TURNS: readonly CallTurn[] = [
-  {
-    who: "Agent",
-    te: "నమస్కారం, Akshara Coaching. నేను AI అసిస్టెంట్‌ని, ఈ కాల్ రికార్డ్ చేయబడుతోంది. మీకు ఎలా సహాయం చేయగలను?",
-    en: "Namaskaram, Akshara Coaching. I am an AI assistant, and this call is recorded. How can I help?",
-  },
-  {
-    who: "Caller",
-    te: "EAMCET లాంగ్ టర్మ్ బ్యాచ్ ఉందా? ఫీజు ఎంత?",
-    en: "Do you have an EAMCET long-term batch? What are the fees?",
-  },
-  {
-    who: "Agent",
-    te: "ఉంది. ఫీజు వివరాలు కౌన్సెలర్ చెబుతారు — ముందుగా డెమో క్లాస్ బుక్ చేయనా?",
-    en: "We do. The counsellor will go through the fees — shall I book a demo class first?",
-  },
-  {
-    who: "Caller",
-    te: "అవును. శనివారం ఉదయం. నా పేరు కావ్య.",
-    en: "Yes. Saturday morning. My name is Kavya.",
-  },
-  {
-    who: "Agent",
-    te: "శనివారం ఉదయం 10 గంటలకు డెమో క్లాస్ బుక్ చేశాను.",
-    en: "Booked the demo class for Saturday at 10 AM.",
-  },
-];
+export const CALL_TURNS: readonly CallTurn[] = demoCall.turns as readonly CallTurn[];
 
 /** One turn of a conversation, as a bubble. Agent on the left, caller on the right. */
 export function Turn({

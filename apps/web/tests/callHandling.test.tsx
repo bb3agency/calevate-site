@@ -10,7 +10,7 @@ import type { AgentCallHandling, OrganizationCallHandling } from "@/lib/api/call
 
 import {
   CALL_HANDLING_BOUNDS,
-  PATIENT_CALLER,
+  GIVE_CALLERS_TIME,
   VOICE_EFFECTIVE_DEFAULTS,
   VOICE_ORGANIZATION_NONE,
   VOICE_OWN_NONE,
@@ -99,7 +99,7 @@ function agent(over: Partial<AgentCallHandling> = {}): AgentCallHandling {
     ...VOICE_SOURCES_PLATFORM,
     ...VOICE_ORGANIZATION_NONE,
     bounds: BOUNDS,
-    patient_caller: PATIENT_CALLER,
+    give_callers_time: GIVE_CALLERS_TIME,
     ...over,
   };
 }
@@ -673,7 +673,7 @@ describe("a client's call handling defaults, from the operator console", () => {
   });
 });
 
-describe("asking an unanswered question again, and the patient caller preset (D-907)", () => {
+describe("asking an unanswered question again, and the 'Give callers time' preset (D-907)", () => {
   const PATIENT_PATH = `${AGENT_PATH}/give-callers-time`;
 
   it("sets 'never' for this agent and reads the wait in seconds", async () => {
@@ -716,7 +716,7 @@ describe("asking an unanswered question again, and the patient caller preset (D-
       end_after_silence_seconds_effective: 120,
       reask_after_ms: 0,
       reask_after_ms_effective: 0,
-      patient_caller: { ...PATIENT_CALLER, applied: true },
+      give_callers_time: { ...GIVE_CALLERS_TIME, applied: true },
     });
     const { calls, container } = await renderClientPage(rows(), {
       "/v1/me": OWNER,

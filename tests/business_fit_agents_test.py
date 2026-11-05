@@ -131,14 +131,18 @@ def test_a_shop_starter_keeps_its_offer_and_switches() -> None:
 
 
 @pytest.mark.parametrize("vertical", [*starters.TRADES, None, "bakery"])
-def test_an_unjudged_business_gets_exactly_the_old_starter(vertical: str | None) -> None:
+def test_an_unjudged_business_gets_a_neutral_starter(vertical: str | None) -> None:
+    """G1-1: not judged yet is neutral. Nothing offers a booking or quotes a price, and the
+    switches start off for the owner to turn on."""
     for job in starters.STARTER_JOBS:
-        assert (
-            starters.starter_for(vertical, job, UNKNOWN)
-            == starters.CATALOGUE[(starters.vertical_of(vertical), job)]
-        )
+        starter = starters.starter_for(vertical, job, UNKNOWN)
+        assert starter == starters.CATALOGUE[(starters.vertical_of(vertical), job)]
+        assert NEXT_STEP_TITLE in [s.title for s in starter.steps]
+        assert not any(s.title.startswith("Offer") for s in starter.steps)
+        assert "arrange" not in starter.goal
+        assert "front desk" not in starter.tone
         script = starters.starter_script(vertical, job, business="Acme")
-        assert script.policies.share_prices and script.policies.take_bookings
+        assert not script.policies.share_prices and not script.policies.take_bookings
 
 
 def test_a_business_plan_keeps_the_platforms_words_on_the_replaced_step() -> None:
@@ -178,23 +182,29 @@ def test_a_both_ways_helpline_script_has_no_offer_in_either_block() -> None:
 
 def test_the_neutral_trade_names_only_what_the_business_does() -> None:
     unknown = starters.trade_for("custom")
-    assert unknown == starters.TRADES["custom"]
+    assert unknown.topics == "what you offer"
+    assert unknown.receptionist_name == "Help desk" and unknown.caller_name == "Follow-up calls"
+    assert unknown.caution.startswith("Never promise anything your facts do not say")
     helpline = starters.trade_for("custom", HELPLINE)
     assert helpline.topics == "what you offer"
     assert helpline.capture == "what they need"
     assert helpline.caution.startswith("Never promise anything your facts do not say")
     shop = starters.trade_for("custom", replace(SHOP, takes_orders=False))
     assert shop.caution.startswith("Never promise a price or availability")
-    assert starters.trade_for("clinic", HELPLINE) == starters.TRADES["clinic"]
+    assert starters.trade_for("clinic", replace(HELPLINE, words=None)) == starters.TRADES["clinic"]
+    assert starters.trade_for("clinic", HELPLINE).receptionist_name == "Help desk"
 
 
 # --- the plans, objections and the writer's brief ------------------------------------------
 
 
-def test_an_unjudged_plan_keeps_the_trades_objection() -> None:
+def test_an_unjudged_plan_raises_no_price() -> None:
+    """G2-3: a price objection only for a business judged to quote prices."""
     plan = playbook_for("custom", "call_leads", starters.TRADES["custom"])
-    assert "Can you just tell me the price?" in [o for o, _r in plan.objections]
-    assert "How much does it cost?" in [o for o, _r in plan.objections]
+    assert "Can you just tell me the price?" not in [o for o, _r in plan.objections]
+    assert "How much does it cost?" not in [o for o, _r in plan.objections]
+    priced = playbook_for("custom", "call_leads", starters.TRADES["custom"], SHOP)
+    assert "How much does it cost?" in [o for o, _r in priced.objections]
     seller = replace(SHOP, objections=())
     judged = playbook_for("custom", "call_leads", starters.TRADES["custom"], seller)
     assert "Can you just tell me the price?" not in [o for o, _r in judged.objections]
@@ -264,11 +274,13 @@ def test_the_switches_that_apply_follow_the_profile() -> None:
 
 
 def test_the_calendar_reminder_follows_whether_callers_book() -> None:
-    clinic = starters.CATALOGUE[("clinic", "call_leads")].call_script(business="Acme")
-    assert books_visits("outbound", clinic)
+    unjudged = starters.CATALOGUE[("clinic", "call_leads")].call_script(business="Acme")
+    assert not books_visits("outbound", unjudged)
+    clinic = starters.starter_for("clinic", "call_leads", SHOP).call_script(business="Acme")
+    assert books_visits("outbound", clinic, SHOP)
     assert not books_visits("outbound", clinic, replace(SHOP, takes_bookings=False))
-    shop = starters.CATALOGUE[("retail", "call_leads")].call_script(business="Acme")
-    assert not books_visits("outbound", shop)
+    shop = starters.starter_for("retail", "call_leads", SHOP).call_script(business="Acme")
+    assert not books_visits("outbound", shop, replace(SHOP, takes_bookings=False))
     assert books_visits("outbound", shop, SHOP)
     assert not books_visits("inbound", shop, SHOP)
 
@@ -286,9 +298,20 @@ def test_a_helplines_standard_callers_carry_no_shop_lines(language: str) -> None
     helpline = test_conversations.standard_scenarios(language, "outbound", HELPLINE)
     keys = {s.key for s in helpline}
     assert "price_in_words" not in keys and "asks_about_products" not in keys
-    assert {"vague_answer", "low_interest", "goes_quiet", "asks_what_callers_ask"} <= keys
-    asked = next(s for s in helpline if s.key == "asks_what_callers_ask")
-    assert asked.turns == ("How do I add my crop to the app?",)
+    neutral = {"vague_answer", "goes_quiet", "asks_what_callers_ask"}
+    if language == "en-IN":
+        assert neutral | {"low_interest"} <= keys
+        asked = next(s for s in helpline if s.key == "asks_what_callers_ask")
+        assert asked.turns == ("How do I add my crop to the app?",)
+    else:
+        # G5-1: the neutral callers are written in English only, so a Telugu or Hindi agent
+        # runs none of them and the run says what went untested.
+        assert "low_interest" in keys and not neutral & keys
+        assert test_conversations.untested_callers(language, "outbound", HELPLINE) == [
+            "Asks what your callers ask",
+            "Answers vaguely",
+            "Goes quiet",
+        ]
     unknown_turns = {t for s in unknown for t in s.turns}
     shop_only = {
         t for s in unknown if s.key in ("asks_about_products", "price_in_words") for t in s.turns
@@ -299,10 +322,11 @@ def test_a_helplines_standard_callers_carry_no_shop_lines(language: str) -> None
     assert ("raises_own_objection" in keys) == (language == "en-IN")
 
 
-def test_a_shop_and_an_unjudged_business_keep_todays_standard_callers() -> None:
-    today = test_conversations.standard_scenarios("te-IN", "inbound")
-    assert test_conversations.standard_scenarios("te-IN", "inbound", replace(SHOP)) == today
-    assert {"asks_about_products", "price_in_words"} <= {s.key for s in today}
+def test_a_shop_keeps_its_callers_and_an_unjudged_business_gets_neutral_ones() -> None:
+    shop = test_conversations.standard_scenarios("te-IN", "inbound", replace(SHOP))
+    assert {"asks_about_products", "price_in_words"} <= {s.key for s in shop}
+    unjudged = {s.key for s in test_conversations.standard_scenarios("te-IN", "inbound")}
+    assert not {"asks_about_products", "price_in_words"} & unjudged
 
 
 def test_a_business_that_prices_but_takes_no_orders_gets_a_neutral_price_caller() -> None:
@@ -330,7 +354,7 @@ def test_a_helplines_specimen_callers_carry_no_shop_lines() -> None:
         done = next(s for s in callers if s.key == "specimen_done_without_action")
         assert "powder" not in " ".join(done.turns)
     unknown = specimens.all_specimen_scenarios("en-IN", "custom", business_name="Acme")
-    assert len(unknown) == len(specimens.CLASSES)
+    assert "specimen_already_bought" not in {s.key for s in unknown}
     fact = next(
         s
         for s in specimens.all_specimen_scenarios(
@@ -377,4 +401,5 @@ async def test_the_fit_is_read_from_the_accounts_copy_and_no_price_is_nagged_for
         assert await test_conversations.missing_facts(session) == []
     async with tenant_session(unjudged) as session:
         assert await business_fit(session, unjudged) == UNKNOWN
-        assert await test_conversations.missing_facts(session) == ["prices"]
+        # Not judged to quote prices: no price nag (G1-1).
+        assert await test_conversations.missing_facts(session) == []

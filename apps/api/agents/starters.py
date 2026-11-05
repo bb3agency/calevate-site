@@ -26,11 +26,13 @@ it must hold for every business of its type:
 * Trade words only for that trade (the founder's neutral-copy rule, 10 Oct 2026): a clinic
   books appointments, a property office site visits, a coaching centre counselling
   sessions, and "Something else" gets neutral words ("a booking", "your customers").
-* Nothing the business does not do. Each starter is fitted to the business's judged
-  capability profile (`agents/business_fit`): a business that books and orders nothing gets
-  "agree the next step" where the offer was, no price objection when it quotes no prices,
-  its own objections, goal and role where its business copy has them, and its "may do"
-  switches set to match. While the business is unjudged it gets exactly the trade's starter.
+* Nothing the business is not known to do. Each starter is fitted to the business's judged
+  capability profile (`agents/business_fit`): a booking is offered, a price quoted, a place
+  to visit or a sale assumed only once the business is judged to do it, so an unjudged
+  business gets "agree the next step" where the offer was, no price objection, and its "may
+  do" switches off for the owner to turn on (audit of 5 Nov 2026, G1-1). Its own objections,
+  goal, role and starter words (agent names, topics, what to capture, the caution) replace
+  the trade table's wherever its business copy has them (G1-3): the table is the seed.
 * No vendor names (D-679).
 * Outbound starters follow up and take no for an answer: no pressure, and a request to
   stop calling is recorded with the do-not-call tool. The calling-hours, consent and
@@ -64,6 +66,7 @@ from calevate_shared.call_script import (
     SpeakingStyle,
     StageBranch,
 )
+from calevate_shared.engine import DEFAULT_PRIMARY_LANGUAGE
 from calevate_shared.languages import get_language
 from calevate_shared.spoken_style import opening_in
 from scripts.seed import CUSTOM_EXTRACTION_FIELDS, VERTICAL_TEMPLATES
@@ -86,10 +89,11 @@ from apps.api.tenancy.business_copy import read_state as read_business_copy
 StarterJob = Literal["answer_calls", "call_new_leads", "call_leads"]
 STARTER_JOBS: Final[tuple[StarterJob, ...]] = get_args(StarterJob)
 
-#: A starter preview greets in English; a starter agent is made Telugu-first unless the
-#: owner chose otherwise. Derived from the language registry, never spelled here.
+#: A starter preview greets in English; a starter agent starts in the platform's one default
+#: call language (`engine.DEFAULT_PRIMARY_LANGUAGE`, G7-1) when its caller passes none: the
+#: callers that know the business pass its own first language.
 PREVIEW_LANGUAGE: Final = get_language("english_india").bcp47
-STARTER_LANGUAGE: Final = get_language("telugu").bcp47
+STARTER_LANGUAGE: Final = DEFAULT_PRIMARY_LANGUAGE
 
 #: Each job's calling direction. An agent given an answering job and a calling one is `both`
 #: (`direction_of_jobs`): the owner ticked both, which is the deliberate choice.
@@ -300,11 +304,11 @@ def trade_for(vertical: str, fit: BusinessFit = UNKNOWN) -> Trade:
     names only what the business is not judged against, so an unjudged business gets the
     row exactly as written and a free app's helpline hears nothing of prices, places or
     delivery dates."""
-    row = TRADES[vertical]
-    if vertical != NEUTRAL_VERTICAL or fit == UNKNOWN:
+    row = _with_own_words(TRADES[vertical], fit)
+    if vertical != NEUTRAL_VERTICAL or fit.words is not None:
         return row
-    prices = fit.sells is not False and fit.quotes_prices is not False
-    visits = fit.has_premises is not False
+    prices = fit.assumes_prices
+    visits = fit.assumes_premises
     topics = ["what you offer"]
     if prices:
         topics.append("prices")
@@ -314,8 +318,8 @@ def trade_for(vertical: str, fit: BusinessFit = UNKNOWN) -> Trade:
         word
         for word, applies in (
             ("a price", prices),
-            ("a delivery date", fit.takes_orders is not False),
-            ("availability", fit.books is not False),
+            ("a delivery date", fit.assumes_orders),
+            ("availability", fit.assumes_booking),
         )
         if applies
     ]
@@ -327,10 +331,27 @@ def trade_for(vertical: str, fit: BusinessFit = UNKNOWN) -> Trade:
     return replace(
         row,
         receptionist_name=row.receptionist_name if visits else "Help desk",
+        caller_name=row.caller_name if fit.assumes_sale else "Follow-up calls",
         topics=_either(topics),
         booking=fit.offer_noun or row.booking,
-        capture=row.capture if fit.books is not False else "what they need",
+        capture=row.capture if fit.assumes_booking else "what they need",
         caution=caution,
+    )
+
+
+def _with_own_words(row: Trade, fit: BusinessFit) -> Trade:
+    """The trade row with the business's own starter words (`GeneratedCopy.starter_words`)
+    wherever its copy wrote them; the row alone before then."""
+    words = fit.words
+    if words is None:
+        return row
+    return replace(
+        row,
+        receptionist_name=words.answer_name,
+        caller_name=words.calling_name,
+        topics=words.topics,
+        capture=words.capture,
+        caution=words.caution,
     )
 
 
@@ -379,7 +400,7 @@ class Starter:
     #: judged profile; both on while it is unjudged.
     share_prices: bool = True
     take_bookings: bool = True
-    tone: str = "Warm, calm and brief, like a helpful person at the front desk."
+    tone: str = "Warm, calm and brief, like a helpful person on the phone."
 
     def planned(self, plan: Plan | None) -> Starter:
         """This starter with the business's own steps (`agents/starter_plans`): each
@@ -511,15 +532,16 @@ def _calling_name(trade: Trade, fit: BusinessFit) -> str:
 
 
 def _fitted(starter: Starter, fit: BusinessFit) -> Starter:
-    """The switches and tone the business's profile sets; the trade's own while unjudged."""
+    """The switches and tone the business's profile sets: on only for what it is judged to
+    do, so an unjudged business starts with both off for its owner to turn on."""
     return replace(
         starter,
-        share_prices=fit.sells is not False and fit.quotes_prices is not False,
-        take_bookings=fit.books is not False,
+        share_prices=fit.assumes_prices,
+        take_bookings=fit.assumes_booking,
         tone=(
-            starter.tone
-            if fit.has_premises is not False
-            else "Warm, calm and brief, like a helpful person on the phone."
+            "Warm, calm and brief, like a helpful person at the front desk."
+            if fit.assumes_premises
+            else starter.tone
         ),
     )
 
@@ -527,7 +549,7 @@ def _fitted(starter: Starter, fit: BusinessFit) -> Starter:
 def _answer_calls(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
     if fit.call_goal:
         goal = fit.call_goal
-    elif fit.books is False:
+    elif not fit.assumes_booking:
         goal = (
             "Understand what each caller needs, answer it from the business's facts, and "
             "where it fits, agree the next step or take their details for the team."
@@ -559,7 +581,7 @@ def _answer_calls(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
 def _calling_goal(trade: Trade, fit: BusinessFit, lead: str) -> str:
     if fit.call_goal:
         return f"{fit.call_goal} {_TAKE_NO}"
-    offer = "agree the next step" if fit.books is False else f"arrange {trade.booking}"
+    offer = f"arrange {trade.booking}" if fit.assumes_booking else "agree the next step"
     return f"{lead} {offer}. {_TAKE_NO}"
 
 

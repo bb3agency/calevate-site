@@ -79,6 +79,7 @@ from apps.api.copilot.actions import (
     parse_args,
 )
 from apps.api.copilot.sanitize import strip_invisible
+from apps.api.copilot.word_lists import mentions_screen_word
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
 from apps.api.tenancy import business_copy
@@ -1023,12 +1024,11 @@ async def _execute_settings(
 
 #: Words that say a call walks the person through something on their phone or computer
 #: (D-906). A hint for Pip to ASK the owner, never a switch it flips: a false match costs one
-#: question, which is why plain words like "app" and "website" are enough.
+#: question, which is why plain words like "app" and "website" are enough. The English ones
+#: are here; every other language's are founder-owned data (`word_lists.screen_words`).
 _SCREEN_WORDS: Final = re.compile(
     r"\b(?:install\w*|download\w*|apps?|website|web ?site|log ?in|sign ?(?:up|in)|browser|"
-    r"chrome|tap|click|screen|online form|fill (?:in|out)|step by step|troubleshoot\w*)\b"
-    r"|యాప్|ఇన్‌?స్టాల్|డౌన్‌?లోడ్|వెబ్‌?సైట్|లాగిన్|ఐకాన్"
-    r"|ऐप|इंस्टॉल|डाउनलोड|वेबसाइट|लॉगिन",
+    r"chrome|tap|click|screen|online form|fill (?:in|out)|step by step|troubleshoot\w*)\b",
     re.IGNORECASE,
 )
 
@@ -1060,7 +1060,8 @@ async def screen_guide_hint(session: AsyncSession, agent_id: UUID, context: str)
         state = await business_copy.read_state(session)
         guide = state.copy.screen_guide if state is not None and state.copy is not None else None
         suggested = guide is not None and guide.suggested
-    guided = bool(_SCREEN_WORDS.search(f"{context}\n{row[1] or ''}")) or suggested
+    said = f"{context}\n{row[1] or ''}"
+    guided = bool(_SCREEN_WORDS.search(said)) or mentions_screen_word(said) or suggested
     if guided and not row[0]:
         return (
             " These calls look like they walk people through their phone or computer: ask "

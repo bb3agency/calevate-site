@@ -300,6 +300,7 @@ const HUB_USAGE = {
   included_minutes: 0,
   minutes_left: null,
   month_charges_inr: "0.00",
+  trial: { active: false, days_remaining: null, ends_at: null },
   monthly_fee_inr: null,
   overage_minutes: "0.0000",
   // BOTH SPELLINGS: the wire carries the deprecated pair beside the new one
@@ -646,6 +647,7 @@ describe("the client's spend screen", () => {
           ...HUB_USAGE,
           minutes_used: "140.5000",
           month_charges_inr: "902.50",
+          trial: { active: false, days_remaining: null, ends_at: null },
           clear_minutes: "120.50",
           clear_charges_inr: "602.50",
           clear_label: "Clear",

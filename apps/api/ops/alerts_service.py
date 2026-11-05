@@ -104,7 +104,10 @@ _SELECT = """
 SELECT id, code, stage, severity, service, detail, ids,
        first_seen_at, last_seen_at, occurrences, emailed, emailed_at, cleared_at
 FROM platform_alerts
-WHERE last_seen_at >= now() - make_interval(days => :days)
+-- The window limits CLEARED episodes only. An open one is listed however long ago it was
+-- last seen: the open counts below are not windowed, and a screen that counted an alarm it
+-- could not show said "still happening" above "No alarms in this window".
+WHERE (cleared_at IS NULL OR last_seen_at >= now() - make_interval(days => :days))
 -- A screen's own family of codes is filtered HERE, before the LIMIT, so a storm of unrelated
 -- alarms cannot push it off the page. `starts_with`, not LIKE: `_` in a prefix is a wildcard
 -- there.

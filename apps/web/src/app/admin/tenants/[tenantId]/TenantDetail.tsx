@@ -1,6 +1,7 @@
 "use client";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { PanelBoundary } from "@/app/admin/PanelBoundary";
 import { formatISTStamp } from "@/components/ui";
 import { useTenant, useTenantKbQueue } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -199,15 +200,25 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
 
       {/* Status, what is wrong now, credit and runway, the last calls and the quick
           actions (founder, 10 Oct 2026), above the money and the knowledge queue. */}
-      <HealthSummary tenant={tenant} />
+      <PanelBoundary title="Health">
+        <HealthSummary tenant={tenant} />
+      </PanelBoundary>
 
-      <UsagePanel tenantId={tenantId} />
+      <PanelBoundary title="Usage">
+        <UsagePanel tenantId={tenantId} />
+      </PanelBoundary>
 
-      <MarginPanel tenantId={tenantId} />
+      <PanelBoundary title="Margin">
+        <MarginPanel tenantId={tenantId} />
+      </PanelBoundary>
 
-      <BusinessCopyPanel tenantId={tenantId} />
+      <PanelBoundary title="Business examples">
+        <BusinessCopyPanel tenantId={tenantId} />
+      </PanelBoundary>
 
-      <KnowledgeQueue tenantId={tenantId} slug={slug} />
+      <PanelBoundary title="Knowledge">
+        <KnowledgeQueue tenantId={tenantId} slug={slug} />
+      </PanelBoundary>
     </div>
   );
 }

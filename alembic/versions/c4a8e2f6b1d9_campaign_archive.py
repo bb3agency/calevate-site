@@ -1,7 +1,7 @@
 """a campaign can be archived and restored, by its client or by an operator (F-10)
 
 Revision ID: c4a8e2f6b1d9
-Revises: e3b8d1f6a924
+Revises: a9d3f6c2e8b1
 Create Date: 2026-11-05 21:30:00.000000
 
 Four nullable columns on `campaigns` (an existing tenant table; its FORCEd RLS policy is
@@ -12,7 +12,7 @@ realm, and a reason when the realm is admin.
 No DML, so no NO FORCE / FORCE bracket. Reversible: `downgrade()` drops the check and the
 columns, which loses only who archived what (the campaigns themselves stay).
 
-The merger re-chains `down_revision` onto the integration head (f5a9c3e1d7b2 after lane C).
+Chained onto the integration head at the time of the lane E merge (a9d3f6c2e8b1).
 """
 
 from collections.abc import Sequence
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c4a8e2f6b1d9"
-down_revision: str | None = "e3b8d1f6a924"
+down_revision: str | None = "a9d3f6c2e8b1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

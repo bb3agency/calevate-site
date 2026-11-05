@@ -95,17 +95,27 @@ class VoiceTierComparisonOut(Strict):
     #: The sentence a page shows beside a tier that is not offered; null when both are.
     not_offered_notice: str | None
     #: "Which is right for me": the tier we suggest, and why, from this account's own use.
-    recommended: VoiceTier
+    #: Always one an agent can be put on; null when no tier is open on this account.
+    recommended: VoiceTier | None
     recommendation_reason: str
 
 
 def recommend(
-    *, studio_offered: bool, clear_minutes: Decimal, studio_minutes: Decimal
-) -> tuple[VoiceTier, str]:
-    """Deterministic: Studio only when it is offered AND most of this month's minutes were
-    already spoken on it; Clear otherwise."""
+    *,
+    clear_offered: bool,
+    studio_offered: bool,
+    clear_minutes: Decimal,
+    studio_minutes: Decimal,
+) -> tuple[VoiceTier | None, str]:
+    """Deterministic, and only ever a tier an agent can be put on: Studio when it is the only
+    one open or most of this month's minutes were already spoken on it; Clear otherwise.
+    None when neither is open, so the page recommends nothing rather than a closed tier."""
+    if not clear_offered and not studio_offered:
+        return None, "Neither voice is open on your account yet."
     if not studio_offered:
         return "clear", "Studio is not open on your account yet, so Clear is the one to use."
+    if not clear_offered:
+        return "studio", "Clear is not open on your account yet, so Studio is the one to use."
     if studio_minutes > 0 and studio_minutes >= clear_minutes:
         return (
             "studio",
@@ -161,6 +171,7 @@ async def voice_tiers(session: Session, principal: BillingReader) -> VoiceTierCo
         )
     by_tier = {t.tier: t for t in tiers}
     recommended, reason = recommend(
+        clear_offered=by_tier["clear"].offered,
         studio_offered=by_tier["studio"].offered,
         clear_minutes=by_tier["clear"].minutes_this_month,
         studio_minutes=by_tier["studio"].minutes_this_month,

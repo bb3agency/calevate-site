@@ -394,6 +394,13 @@ invitation to trim guardrails.
   prompt decides them and the owner's script cannot (D-828). Ten is a choice, not a measured
   threshold: 14 let a 12-word Telugu run through on the founder's call of 28 Oct 2026, which he
   heard as unpunctuated, and 10 still passes a plain nine-word English sentence.
+- **Words written joined, as native speakers write them (F-5, 5 Nov 2026).** On a production
+  Telugu call the model wrote a question particle as its own word after the noun, and the
+  voice read the gap and sounded unnatural. HOW TO SPEAK says, in English and for every
+  language, that a suffix or question particle joins its word and a mark goes only where a
+  speaker pauses (`engine._WRITTEN_FORM_BULLET`). The language's own example is the founder's
+  `written_form` line in `spoken_style.json`, quoted after the rule for the primary language;
+  it is empty until he writes it.
 - **A greeting is not a language switch (D-849).** "Hello", "OK" or a word or two keeps the
   language the agent greeted in; it switches when the caller says a sentence in another
   language or asks. On 21 Oct 2026 a Telugu agent answered a pickup "Hello" in English until

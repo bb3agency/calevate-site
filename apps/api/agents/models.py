@@ -12,7 +12,12 @@ from uuid import UUID
 from calevate_shared.business_outcomes import MAX_BUSINESS_OUTCOMES
 from calevate_shared.carrier import NumberProvider
 from calevate_shared.config import SELECTABLE_ENGINES
-from calevate_shared.engine import LLM_MODEL_NAMES, REPLY_TOKENS_MAX, REPLY_TOKENS_MIN
+from calevate_shared.engine import (
+    DEFAULT_PRIMARY_LANGUAGE,
+    LLM_MODEL_NAMES,
+    REPLY_TOKENS_MAX,
+    REPLY_TOKENS_MIN,
+)
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -529,7 +534,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     direction: Mapped[str] = mapped_column(String, nullable=False)
-    language_primary: Mapped[str] = mapped_column(Text, nullable=False, server_default="te-IN")
+    language_primary: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=DEFAULT_PRIMARY_LANGUAGE
+    )
     languages_extra: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     # Model choices are plain config strings (D-04/D-20): changing one is a config
     # edit + regression run, never a code change.

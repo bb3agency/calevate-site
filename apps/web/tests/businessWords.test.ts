@@ -48,7 +48,9 @@ describe("the business's own words (E-HOT, founder 5 Nov 2026)", () => {
     const app = { ...UNKNOWN_CAPABILITIES, sells: false, callerNoun: "user" };
     expect(businessLabels(app)).toEqual({ leads: "Interested users" });
     expect(statItems(STATS, ["leads"], { context: "vs before", caps: app })[0]!.label).toBe("Interested users");
-    expect(businessLabels(UNKNOWN_CAPABILITIES)).toEqual({});
+    // Unknown is neutral (lane D, `leadWords`): only a business judged to sell reads "New leads".
+    expect(businessLabels(UNKNOWN_CAPABILITIES)).toEqual({ leads: "Interested callers" });
+    expect(businessLabels({ ...UNKNOWN_CAPABILITIES, sells: true })).toEqual({});
   });
 
   it("says an answer is a pick-up, so a hang-up during the greeting is not called a conversation (L3-04)", () => {

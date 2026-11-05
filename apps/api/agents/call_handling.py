@@ -134,7 +134,7 @@ def opening_waits_default(direction: str) -> bool:
     and refuses any other key, `api-reference/calls/place-call.md:1254-1288`, 29 Oct 2026
     snapshot). A caller ringing it hears the opening after their own "Hello" or the
     console's short silence (`thinnest_opening_wait_ms`); a greeting said twice on every
-    placed call was the worse fault (founder's Rytu Khata call, 2 Nov 2026)."""
+    placed call is the worse fault."""
     return direction in ("outbound", "both")
 
 

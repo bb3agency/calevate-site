@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Final, Literal, Protocol
 
+from calevate_shared.call_words import say as _say
+from calevate_shared.call_words import words as _word_list
 from calevate_shared.spoken_guard import opens_with_greeting, textbook_note, textbook_words
 from calevate_shared.spoken_style import style_for
 
@@ -200,7 +202,7 @@ _TIME_PHRASES: Final = (
         re.IGNORECASE,
     ),
     re.compile(r"\b\d{1,2}[:.]\d{2}\s*(?:am|pm|a\.m\.|p\.m\.)?\s+now\b", re.IGNORECASE),
-    re.compile(r"(?:ఇప్పుడు|अभी)\s+(?:సమయం|టైమ్|time|समय|टाइम)\s*\d{1,2}[:.]\d{2}", re.IGNORECASE),
+    re.compile(_say("turn_checks._TIME_PHRASES"), re.IGNORECASE),
     re.compile(r"\bcurrent (?:time|date)\b", re.IGNORECASE),
     # An ISO timestamp, or a clock with seconds: nobody says either on the phone.
     re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}"),
@@ -213,26 +215,19 @@ _MONEY_DIGITS: Final = re.compile(
     re.IGNORECASE,
 )
 _LABEL: Final = re.compile(
-    r"(?:^|[\n.!?।]\s*)(?:caller|customer|user|agent|assistant|you|కాలర్|కస్టమర్|ग्राहक|कॉलर)"
-    r"\s*:",
+    _say("turn_checks._LABEL"),
     re.IGNORECASE,
 )
 _QUANTITY: Final = re.compile(
-    r"(?:\d+(?:\.\d+)?\s*|(?:^|(?<=\s))(?:one|two|three|half|a|ఒక|రెండు|అర|एक|दो|आधा)\s+)"
-    r"(?:kg|kgs|kilo|kilos|g|gm|grams?|litres?|liters?|l|ml|packets?|packs?|pieces?|"
-    r"dozen|boxes?|bags?|bottles?|కిలో|కేజీ|ప్యాకెట్|लीटर|किलो|पैकेट)"
-    r"(?=[\s.,!?।]|$)",
+    _say("turn_checks._QUANTITY"),
     re.IGNORECASE,
 )
 #: How a caller ends an order: "please" in English, "give" or "want" in Telugu and Hindi.
-_ORDER_ENDING: Final = re.compile(
-    r"(?:\bplease|ఇవ్వండి|కావాలి|चाहिए|दीजिए|दे दो|दे दीजिए)\s*[.!।]?\s*$", re.IGNORECASE
-)
-_OR: Final = re.compile(r"\s+(?:or|లేదా|या)\s+", re.IGNORECASE)
+_ORDER_ENDING: Final = re.compile(_say("turn_checks._ORDER_ENDING"), re.IGNORECASE)
+_OR: Final = re.compile(_say("turn_checks._OR"), re.IGNORECASE)
 #: What a caller says when they want more than a short answer.
 _ASKS_DETAIL: Final = re.compile(
-    r"detail|explain|tell me (?:more|everything|all)|more about|everything|in full|full list|"
-    r"all the|వివరాలు|వివరంగా|పూర్తిగా|అన్నీ|విస్తారంగా|विस्तार|पूरी जानकारी|सब कुछ|सारी",
+    _say("turn_checks._ASKS_DETAIL"),
     re.IGNORECASE,
 )
 #: A sentence that is a question by its words. English: an opening question word. Hindi:
@@ -245,8 +240,8 @@ _EN_QUESTION: Final = re.compile(
     r"shall|should|is|are|am|may)\b",
     re.IGNORECASE,
 )
-_TE_YES_NO_ENDINGS: Final = ("దా", "లా", "రా", "నా", "సా")
-_HI_QUESTION: Final = re.compile(r"^क्या\s|\sक्या$")
+_TE_YES_NO_ENDINGS: Final = _word_list("turn_checks._TE_YES_NO_ENDINGS")
+_HI_QUESTION: Final = re.compile(_say("turn_checks._HI_QUESTION"))
 #: A sentence end, with or without the space after it: a reply the voice platform generated
 #: again after an interruption arrives glued together ("ఎంత కావాలి?మీకు", D-749). A full
 #: stop counts unspaced only before a letter, so "1.5" stays whole.
@@ -260,48 +255,7 @@ _PUNCTUATION: Final = "\"'“”\u2018\u2019.,!?;:()[]{}।\uff1f…-\u2013—"
 #: Short abbreviations whose full stop does not end a sentence.
 _ABBREVIATION: Final = re.compile(r"\b(?:rs|dr|mr|mrs|ms|no|st|vs|etc|approx)\.$", re.IGNORECASE)
 #: Words that carry no meaning when comparing two questions.
-_FILLER: Final = frozenset(
-    [
-        "a",
-        "an",
-        "the",
-        "do",
-        "you",
-        "your",
-        "is",
-        "are",
-        "or",
-        "to",
-        "of",
-        "for",
-        "it",
-        "what",
-        "which",
-        "how",
-        "would",
-        "like",
-        "want",
-        "we",
-        "can",
-        "please",
-        "sir",
-        "madam",
-        "andi",
-        "garu",
-        "అండి",
-        "గారు",
-        "మీకు",
-        "మీ",
-        "కావాలి",
-        "ఏ",
-        "ఏది",
-        "ఏం",
-        "क्या",
-        "आप",
-        "आपको",
-        "जी",
-    ]
-)
+_FILLER: Final = frozenset(_word_list("turn_checks._FILLER"))
 #: The script each language is written in, for the wrong-language rule. Only languages whose
 #: callers write a script of their own: an English or Latin-script reply to a caller who
 #: wrote Telugu letters is unambiguous, where two Latin-script languages are not.
@@ -413,11 +367,10 @@ def _caller_order(parts: list[str]) -> str | None:
 #: English number words, for the figures a "said before" claim names.
 _EN_NUMBER: Final = "one|two|three|four|five|six|seven|eight|nine|ten|half|hundred|thousand"
 #: Telugu joins "నాకు" and "ఒక" into "నాకొక", so a word ending in "కొక" ends on "ఒక".
-_TE_JOINED_ONE: Final = "కొక"
+_TE_JOINED_ONE: Final = _say("turn_checks._TE_JOINED_ONE")
 #: A unit right after the number the agent supplied ("ఒక కేజీ", "one kg").
 _UNIT: Final = re.compile(
-    r"^(?:kg|kgs|kilo|kilos|g|gm|grams?|litres?|liters?|packets?|packs?|pieces?|dozen|boxes?|"
-    r"bags?|bottles?|కిలో\S*|కేజీ\S*|ప్యాకెట్\S*|लीटर|किलो|पैकेट)$",
+    _say("turn_checks._UNIT"),
     re.IGNORECASE,
 )
 
@@ -425,18 +378,18 @@ _UNIT: Final = re.compile(
 #: Telugu number forms that need a noun after them: "ఒక" (a, one) and "అర" (half). The
 #: standalone answers are "ఒకటి" and "అర కేజీ", so a line ending on one of these was cut. A
 #: bare "two" or "రెండు" answering "how many?" is complete, so other numbers are left alone.
-_NEEDS_A_NOUN: Final = frozenset({"ఒక", "అర"})
+_NEEDS_A_NOUN: Final = frozenset(_word_list("turn_checks._NEEDS_A_NOUN"))
 
 
 def _number_word(word: str) -> str | None:
     """The noun-needing number a caller's last word ends on, or None."""
     if word.endswith(_TE_JOINED_ONE):
-        return "ఒక"
+        return _say("turn_checks._number_word")
     return word if word in _NEEDS_A_NOUN else None
 
 
 #: Words a caller's line cannot end on unless the turn timer cut it ("మాకు", "to us").
-_DANGLING: Final = frozenset({"నాకు", "మాకు", "मुझे", "हमें"})
+_DANGLING: Final = frozenset(_word_list("turn_checks._DANGLING"))
 #: The longest reply that is still only a "go on" ("చెప్పండి అండి", "हाँ जी, बोलिए").
 NUDGE_MAX_WORDS: Final = 4
 #: The longest single question that offers a reading of a broken-off answer ("అంటే ఒక కోటి
@@ -556,15 +509,13 @@ def _formal_problem(reply: str, language: str) -> TurnProblem | None:
 
 #: Words that open a question restating the one before it with options or plainer words
 #: ("ఏ area లో చూస్తున్నారు? అంటే ఏదైనా particular area ఉందా?"): one question, said two ways.
-_RESTATES: Final = frozenset({"అంటే", "లేక", "లేదా", "or", "i.e", "मतलब", "यानी", "या"})
+_RESTATES: Final = frozenset(_word_list("turn_checks._RESTATES"))
 
 
 #: A question asking leave to say something ("would you like to know the price?"), which costs
 #: the caller a turn: on four calls of 20-22 Oct 2026 the agent asked it instead of the price.
 _ASKS_TO_TELL: Final = re.compile(
-    r"\b(?:would you like|do you want|want me) to (?:know|hear)\b|\bshall i tell you\b"
-    r"|తెలుసుకోవాల(?:నుకుంటున్నారా|ని ఉందా)|వినాలనుకుంటున్నారా|చెప్పమంటారా"
-    r"|जानना चाह(?:ेंगे|ते हैं)|बताऊँ क्या",
+    _say("turn_checks._ASKS_TO_TELL"),
     re.IGNORECASE,
 )
 
@@ -577,26 +528,12 @@ def _restates(question: str) -> bool:
 #: A joiner that adds a second question inside one sentence: "మీరు ఏ ఏరియాలో చూస్తున్నారు,
 #: అలాగే మీ బడ్జెట్ ఎంత?" has one "?" and asks two things (D-910). Only explicit "and"
 #: words, never a bare comma or "or": "పొద్దున వీలవుతుందా, సాయంత్రమా?" is one choice.
-_ALSO: Final = re.compile(r"(?:,\s*|\s+)(?:and also|and|also|అలాగే|మరియు|और|तथा)\s+", re.IGNORECASE)
+_ALSO: Final = re.compile(_say("turn_checks._ALSO"), re.IGNORECASE)
 _EN_WH: Final = frozenset({"what", "which", "where", "when", "how", "who", "whom", "why"})
 #: Telugu question words. "ఏ" (which) only as a whole word: ఏరియా starts with the same letter.
-_TE_WH_EXACT: Final = frozenset({"ఏ", "ఏం"})
-_TE_WH_STEMS: Final = (
-    "ఎంత",
-    "ఎక్కడ",
-    "ఎప్పుడు",
-    "ఎలా",
-    "ఏమి",
-    "ఏంటి",
-    "ఎవరు",
-    "ఎవరి",
-    "ఎన్ని",
-    "ఏది",
-    "ఎందుకు",
-)
-_HI_WH: Final = frozenset(
-    {"क्या", "कौन", "कितना", "कितने", "कितनी", "कहाँ", "कहां", "कब", "कैसे", "क्यों", "कौनसा"}
-)
+_TE_WH_EXACT: Final = frozenset(_word_list("turn_checks._TE_WH_EXACT"))
+_TE_WH_STEMS: Final = _word_list("turn_checks._TE_WH_STEMS")
+_HI_WH: Final = frozenset(_word_list("turn_checks._HI_WH"))
 
 
 def _asks_wh(clause: str) -> bool:
@@ -867,14 +804,8 @@ _INDIC_BLOCKS: Final[dict[str, tuple[str, str]]] = {
     "ml": ("ഀ", "ൿ"),
 }
 
-_TE_NUMBER: Final = (
-    "ఒకటి|ఒక|రెండు|మూడు|నాలుగు|ఐదు|అయిదు|ఆరు|ఏడు|ఎనిమిది|తొమ్మిది|పది|ఇరవై|ముప్పై|నలభై|"
-    "యాభై|అరవై|డెబ్బై|ఎనభై|తొంభై|వంద|వందల|నూరు|నూట|వెయ్యి|వేల|వేలు"
-)
-_HI_NUMBER: Final = (
-    "एक|दो|तीन|चार|पाँच|पांच|छह|छः|सात|आठ|नौ|दस|बीस|तीस|चालीस|पचास|साठ|सत्तर|अस्सी|नब्बे|"
-    "सौ|हज़ार|हजार|डेढ़|ढाई"
-)
+_TE_NUMBER: Final = _say("turn_checks._TE_NUMBER")
+_HI_NUMBER: Final = _say("turn_checks._HI_NUMBER")
 #: A price in the language's own number words ("ఆరు నూరు రూపాయలు"). A problem only where the
 #: language's `prices` number rule says the English way (`LanguageStyle.native_price_words`):
 #: Telugu's does ("six hundred rupees", as shops in Hyderabad say it, D-744), Hindi's allows
@@ -883,14 +814,16 @@ _HI_NUMBER: Final = (
 #: `lakhs` rule says the English way, written in Telugu letters ("టూ క్రోర్స్", D-861). A
 #: time in Telugu number words ("రెండు గంటలకు") is how people say a time and is not flagged.
 _NATIVE_PRICE: Final[dict[str, re.Pattern[str]]] = {
-    "te": re.compile(rf"(?:(?:{_TE_NUMBER})\s+)*(?:{_TE_NUMBER})\s*(?:రూపాయ|కోట|లక్ష)"),
-    "hi": re.compile(rf"(?:(?:{_HI_NUMBER})\s+)*(?:{_HI_NUMBER})\s*(?:रुपय|रुपए|रुपये|रूपये)"),
+    "te": re.compile(
+        rf"(?:(?:{_TE_NUMBER})\s+)*(?:{_TE_NUMBER})\s*(?:{_say('turn_checks._NATIVE_PRICE.te')})"
+    ),
+    "hi": re.compile(
+        rf"(?:(?:{_HI_NUMBER})\s+)*(?:{_HI_NUMBER})\s*(?:{_say('turn_checks._NATIVE_PRICE.hi')})"
+    ),
 }
 #: Digits beside a unit written in an Indian script ("1 కిలో"), which `_MONEY_DIGITS` (Latin
 #: units only) does not see.
-_DIGIT_UNIT: Final = re.compile(
-    r"\d+(?:[.,]\d+)?\s*(?:కిలో|కేజీ|రూపాయ|గ్రాము|లీటర్|ప్యాకెట్|किलो|रुपय|रुपए|रुपये|ग्राम|लीटर|पैकेट)"
-)
+_DIGIT_UNIT: Final = re.compile(_say("turn_checks._DIGIT_UNIT"))
 
 
 def _foreign_letter(reply: str, language: str) -> str | None:
@@ -927,9 +860,7 @@ def _script_and_number_problems(reply: str, language: str) -> list[TurnProblem]:
     said = in_words or _DIGIT_UNIT.search(reply)
     if said:
         how = (
-            'the English way, as shops do, in the call\'s letters ("సిక్స్ హండ్రెడ్ రూపీస్", "టూ క్రోర్స్")'
-            if in_words
-            else "in words, as shops do"
+            _say("turn_checks._script_and_number_problems") if in_words else "in words, as shops do"
         )
         found.append(
             TurnProblem(
@@ -960,46 +891,27 @@ class Exchange(Protocol):
 #: "రాసుకున్నాను" is NOT a claim (founder, 21 Oct 2026): the post-call reading records what
 #: the caller asked for, so saying it was noted is true.
 _CLAIMS_DONE: Final = re.compile(
-    r"\b(?:i(?:['\u2019]ve| have)|we(?:['\u2019]ve| have)|it(?:['\u2019]s| is| has been)|(?:your )?"
-    r"(?:order|details|booking|number|request|name|slot)(?: is| are| has been| have "
-    r"been)) (?:now |already |all )?(?:placed|booked|saved|recorded|sent|added|"
-    r"confirmed|registered|scheduled)\b"
-    r"|\b(?:booked|placed|saved)(?: down)? (?:your|the) (?:order|details|booking)\b"
-    # The bare Telugu form must not be followed by a letter, so "చేసుకున్నారా?" (did you?)
-    # is no claim.
-    # "Fixed" a visit or a slot is a booking claim too (a competitor's "సైట్ విజిట్ ఫిక్స్
-    # చేశాను", D-856), in textbook Telugu too ("ఖరారు చేశాను", our call of 24 Oct 2026, D-877).
-    r"|(?:నమోదు|సేవ్|save|బుక్|book|రికార్డ్|record|confirm|కన్ఫర్మ్|place|ప్లేస్|add|"
-    r"యాడ్|fix|ఫిక్స్|ఖరారు|ఖాయం|షెడ్యూల్|schedule|ఫైనల్|final|ఆర్డర్ పెట్టే|order పెట్టే)"
-    r"\s*(?:చేసా|చేశా|చేసేసా|చేసేశా|అయిపోయింది|"
-    r"అయింది|ఐంది|చేసుకున్నాను|చేసుకున్నాం|చేసుకున్నా(?![ఀ-౿]))"
-    r"|పంపాను|పంపాం|పంపించాను|పంపించాం|పంపేశాను|పంపేసాను|పంపేశాం|పంపేసాం"
-    r"|(?:सेव|बुक|दर्ज|रिकॉर्ड|कन्फर्म|प्लेस|ऐड|फिक्स|तय|पक्का|शेड्यूल|save|book|confirm|add|"
-    r"fix|schedule)\s*"
-    r"(?:कर\s*(?:दिया|दी|दिए|लिया|ली|लिए)|हो\s*(?:गया|गई|गए))|भेज\s*(?:दिया|दी|दिए)",
+    _say("turn_checks._CLAIMS_DONE"),
     re.IGNORECASE,
 )
 #: Tools that only look something up, so they confirm nothing was done.
 _LOOKUP_TOOL: Final = re.compile(r"knowledge|search|lookup|look_up", re.IGNORECASE)
 _PHONE_NUMBER: Final = re.compile(
-    r"(?:phone|mobile|contact|whatsapp|whats app)\s*(?:number|no\b)|"
-    r"(?:ఫోన్|మొబైల్|phone|mobile|కాంటాక్ట్)\s*(?:నంబర్|నెంబర్|నంబరు|నెంబరు|number)|"
-    r"(?:फ़ोन|फोन|मोबाइल|phone|mobile)\s*(?:नंबर|नम्बर|number)",
+    _say("turn_checks._PHONE_NUMBER"),
     re.IGNORECASE,
 )
 _ASKS_FOR: Final = re.compile(
-    r"\?|ఇవ్వ|చెప్ప|ఇస్తారా|చెప్తారా|give|share|tell|send|दीजिए|बताइए|बताएं|दे दीजिए",
+    _say("turn_checks._ASKS_FOR"),
     re.IGNORECASE,
 )
 #: "Shall we use this same number?" is the one question about a number the platform allows.
 _SAME_NUMBER: Final = re.compile(
-    r"(?:this|same)\s+number|ఇదే\s*(?:నంబర్|నెంబర్|number)|ఈ\s*(?:నంబర్|నెంబర్|number)|"
-    r"इसी\s*(?:नंबर|नम्बर|number)|यही\s*(?:नंबर|नम्बर)",
+    _say("turn_checks._SAME_NUMBER"),
     re.IGNORECASE,
 )
 #: The caller wants a number other than the one the call is on.
 _OTHER_NUMBER: Final = re.compile(
-    r"(?:another|different|other|second)\s+number|వేరే|ఇంకో\s*(?:నంబర్|నెంబర్)|दूसरा|दूसरे",
+    _say("turn_checks._OTHER_NUMBER"),
     re.IGNORECASE,
 )
 #: One digit said as a word: English, English in Telugu letters (how our agents write it,
@@ -1007,10 +919,10 @@ _OTHER_NUMBER: Final = re.compile(
 _DIGIT_WORDS: Final = frozenset(
     {
         *("zero", "oh", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"),
-        *("జీరో", "వన్", "టూ", "త్రీ", "ఫోర్", "ఫైవ్", "సిక్స్", "సెవెన్", "ఎయిట్", "నైన్"),
-        *("సున్నా", "ఒకటి", "రెండు", "మూడు", "నాలుగు", "ఐదు", "అయిదు", "ఆరు", "ఏడు", "ఎనిమిది"),
-        "తొమ్మిది",
-        *("शून्य", "एक", "दो", "तीन", "चार", "पांच", "पाँच", "छह", "सात", "आठ", "नौ"),
+        *_word_list("turn_checks._DIGIT_WORDS.1"),
+        *_word_list("turn_checks._DIGIT_WORDS.2"),
+        _say("turn_checks._DIGIT_WORDS.3"),
+        *_word_list("turn_checks._DIGIT_WORDS.4"),
     }
 )
 #: A mobile number in India has ten digits.
@@ -1018,37 +930,32 @@ MOBILE_DIGITS: Final = 10
 #: A reply asking for the rest of a number in words. A bare "?" is not one: "is this number
 #: right?" after four digits is a question too (D-910).
 _ASKS_FOR_REST: Final = re.compile(
-    r"ఇవ్వ|చెప్ప|మిగ|అంకె|డిజిట్|పూర్తి|మొత్తం|tell|give|rest|remaining|digits|full|complete|"
-    r"बताइए|बताएं|दीजिए|बाकी|अंक|पूरा",
+    _say("turn_checks._ASKS_FOR_REST"),
     re.IGNORECASE,
 )
 #: A reply asking whether what it read back is right: what it does with a WHOLE number, and
 #: never with part of one.
 _CONFIRMS: Final = re.compile(
-    r"correct|\bright\?|is that it|కరెక్ట|సరైన|సరిగ్గా|సరేనా|ఓకేనా|ఇదేనా|सही|ठीक है\?",
+    _say("turn_checks._CONFIRMS"),
     re.IGNORECASE,
 )
 #: What a reply says when it treats what it was given as complete.
 _WRAPS_UP: Final = re.compile(
-    r"thank|thanks|anything else|ధన్యవాద|థాంక్స్|థ్యాంక్స్|ఇంకేమైనా|ఇంకా ఏమైనా|धन्यवाद|"
-    r"शुक्रिया|और कुछ",
+    _say("turn_checks._WRAPS_UP"),
     re.IGNORECASE,
 )
 #: Offering more help, "anything else?" in each language our agents speak. Detection only,
 #: never spoken copy; read in a question, so "call if you need anything else." closing a
 #: call is not one.
 _OFFERS_MORE: Final = re.compile(
-    r"anything else|anything more|any other (?:question|doubt|help)|what else can i|"
-    r"ఇంకేమైనా|ఇంకా ఏమైనా|ఇంకా ఏదైనా|ఇంకేదైనా|వేరే ఏమైనా|"
-    r"और कुछ|कुछ और|और कोई (?:सवाल|मदद|बात)",
+    _say("turn_checks._OFFERS_MORE"),
     re.IGNORECASE,
 )
 #: Within how many replies two offers of more help count as too many (D-959).
 OFFERS_MORE_WINDOW: Final = 3
 #: A caller line that thanks or says they are done, after which offering more is right.
 _CALLER_DONE_WITH_TOPIC: Final = re.compile(
-    r"thank|that'?s all|nothing else|థాంక్స్|థ్యాంక్స్|ధన్యవాద|అంతే|धन्यवाद|शुक्रिया|थैंक|"
-    r"बस इतना",
+    _say("turn_checks._CALLER_DONE_WITH_TOPIC"),
     re.IGNORECASE,
 )
 
@@ -1061,44 +968,94 @@ def offers_more(reply: str) -> bool:
 
 
 _GOODBYE: Final = re.compile(
-    r"\bgood\s?bye\b|\bbye\b|గుడ్\s?బై|(?:^|[\s,.!?])బై(?=[\s,.!?]|$)|ఉంటాను\s*మరి|ఉంటానండి|"
-    r"ఉంటాం\s*మరి|अलविदा|बाय",
+    _say("turn_checks._GOODBYE"),
     re.IGNORECASE,
 )
 #: A caller line that closes the conversation, after which a goodbye is right.
 _CALLER_CLOSES: Final = re.compile(
-    r"\bbye\b|thank|that'?s all|nothing|\bno\b|not interested|\bok(?:ay)?\b|"
-    r"బై|థాంక్స్|థ్యాంక్స్|ధన్యవాద|లేదు|వద్దు|అంతే|సరే|"
-    r"नहीं|बस|धन्यवाद|शुक्रिया|ठीक है|बाय",
+    _say("turn_checks._CALLER_CLOSES"),
     re.IGNORECASE,
 )
-#: A caller line that asks or complains, which is never a close however it ends.
-_CALLER_ASKS: Final = re.compile(
-    r"\?|ఎందుకు|ఏంటి|ఎలా|ఎప్పుడు|ఎక్కడ|\bwhy\b|\bwhat\b|\bhow\b|\bwhen\b|\bwhere\b|"
-    r"क्यों|क्या|कैसे|कब|कहाँ",
+#: WHETHER A LINE ASKS SOMETHING (L5-05, 5 Nov 2026). Matching a question word anywhere made
+#: "I will try when I get time" and "ok I will try what you said" questions, and matching a
+#: Telugu question word as a substring made "somehow" and "somewhere" questions, because
+#: Telugu forms those words by adding to the question word. So: a "?"; an English question,
+#: which starts its clause with an interrogative, an auxiliary before its subject, or a
+#: request to be told; or a question word from `call_words.json` standing as a whole word,
+#: which in Telugu and Hindi can sit anywhere in the clause. A Telugu question word with a
+#: case ending fused to it ("how much" + "for") is not seen until the founder lists that
+#: form: missing a question costs one gap, inventing one put a false gap on the owner's list.
+_QUESTION_WORDS: Final = frozenset(w.lower() for w in _word_list("turn_checks.question_words"))
+_EN_INTERROGATIVES: Final = frozenset(
+    {"what", "when", "where", "which", "who", "whom", "whose", "why", "how"}
+)
+_EN_AUXILIARIES: Final = frozenset(
+    {
+        *("do", "does", "did", "can", "could", "will", "would", "shall", "should", "may"),
+        *("is", "are", "was", "were", "have", "has", "am"),
+    }
+)
+_EN_SUBJECTS: Final = frozenset(
+    {"you", "i", "we", "they", "it", "there", "he", "she", "this", "that", "the", "your", "my"}
+)
+_EN_ASKS_TO_BE_TOLD: Final = re.compile(
+    r"^(?:please\s+)?(?:tell me|let me know|explain)\b"
+    r"|^i\s+(?:want|wanted|need|would like)\s+to\s+know\b|^can\s+i\s+know\b",
     re.IGNORECASE,
 )
+#: Words a clause may open with before its question: "ok, what…", "so how…".
+_EN_OPENERS: Final = frozenset(
+    {"ok", "okay", "so", "and", "but", "then", "well", "oh", "hello", "hi", "sir", "madam"}
+)
+#: The Devanagari full stop and the full-width question mark, spelled as code points so no
+#: look-alike character sits in the source.
+_DANDA: Final = chr(0x0964)
+_WIDE_QUESTION: Final = chr(0xFF1F)
+_CLAUSES: Final = re.compile(rf"[.,!;:{_DANDA}]+|\s+(?:and|but|so)\s+", re.IGNORECASE)
+#: A word: a run of anything but space and punctuation, so a Telugu or Devanagari word stays
+#: whole with its vowel signs (which `\w` does not count as word characters).
+_TOKEN: Final = re.compile(rf"[^\s,.!?;:\"'(){_DANDA}{_WIDE_QUESTION}]+")
+
+
+def _english_question(clause: str) -> bool:
+    words = [w.lower() for w in _TOKEN.findall(clause)]
+    while words and words[0] in _EN_OPENERS:
+        words.pop(0)
+    if not words:
+        return False
+    if words[0] in _EN_INTERROGATIVES:
+        return True
+    if words[0] in _EN_AUXILIARIES and len(words) > 1 and words[1] in _EN_SUBJECTS:
+        return True
+    return bool(_EN_ASKS_TO_BE_TOLD.search(" ".join(words)))
+
+
+def asks_question(said: str) -> bool:
+    """Whether a line asks something: the one question test for the turn checks and the
+    knowledge-gap detector (`insights.detection.caller_asked`)."""
+    if "?" in said or _WIDE_QUESTION in said:
+        return True
+    if any(w.lower() in _QUESTION_WORDS for w in _TOKEN.findall(said)):
+        return True
+    return any(_english_question(clause) for clause in _CLAUSES.split(said))
+
+
 #: Asking for it slower, which wants the same words again at a pace they can follow. The
 #: Telugu and Hindi words are the ones `_PACE_PROMISE` already reads.
-_SLOWER: Final = r"slow(?:ly|er)?|నెమ్మదిగా|మెల్లగా|నిదానంగా|స్లోగా|धीरे"
+_SLOWER: Final = _say("turn_checks._SLOWER")
 #: The caller asking to hear it again: in other words, slower, or because it did not reach
 #: them. Saying it again is then the right answer, not `said_again`.
 _ASKS_REPEAT: Final = re.compile(
     r"repeat|again|once more|one more time|pardon|come again|"
     r"(?:didn'?t|did not|couldn'?t|could not|can'?t|cannot) (?:hear|catch|get|follow)|"
     r"cut off|breaking up|"
-    rf"{_SLOWER}|"
-    r"మళ్ళా|మళ్ళీ|మళ్లీ|మరలా|ఇంకోసారి|फिर से|दोबारा|एक बार और",
+    rf"{_SLOWER}|" + _say("turn_checks._ASKS_REPEAT"),
     re.IGNORECASE,
 )
 #: A caller line that ends the conversation in so many words, whatever else it holds: "nothing
 #: more for now, I'll call you when I'm free" closes although "when" is in it.
 _CALLER_SIGNS_OFF: Final = re.compile(
-    r"\bnothing (?:else|more)\b|\bthat'?s (?:all|it)\b|\bbye\b|"
-    r"\b(?:i'?ll|i will|we'?ll|will) (?:call|ring|phone|contact) (?:you )?(?:back )?"
-    r"(?:later|again|tomorrow|another time|when)|"
-    r"\b(?:call|talk|speak) (?:to you |you )?later\b|"
-    r"బై|అంతే|बस इतना|बाय",
+    _say("turn_checks._CALLER_SIGNS_OFF"),
     re.IGNORECASE,
 )
 
@@ -1115,17 +1072,13 @@ def caller_signs_off(said: str) -> bool:
 
 def caller_asks(said: str) -> bool:
     """Whether a caller line asks or complains, as opposed to signing off."""
-    return bool(_CALLER_ASKS.search(said)) and not caller_signs_off(said)
+    return asks_question(said) and not caller_signs_off(said)
 
 
 #: Asking whether now suits, which an opening of ours asks itself ("ఇప్పుడు రెండు నిమిషాలు
 #: మాట్లాడొచ్చా?").
 _ASKS_IF_NOW_SUITS: Final = re.compile(
-    r"good time|(?:is|if) (?:now|this) (?:a good time|ok|okay|fine)|can (?:you|we) talk|"
-    r"free to talk|(?:got|have) a (?:minute|moment)|"
-    r"మాట్లాడొచ్చా|మాట్లాడవచ్చా|మాట్లాడగలరా|మాట్లాడటం కుదురుతుందా|మాట్లాడడం కుదురుతుందా|"
-    r"మాట్లాడటానికి (?:సమయం|టైమ్|వీలు)|ఇప్పుడు కుదురుతుందా|ఫ్రీగా ఉన్నారా|"
-    r"बात कर सकते|बात कर सकती|अभी बात|बात करने का (?:समय|टाइम)|सही समय",
+    _say("turn_checks._ASKS_IF_NOW_SUITS"),
     re.IGNORECASE,
 )
 
@@ -1150,8 +1103,7 @@ def opened_again(reply: str) -> str | None:
 #: A salutation said as a greeting. Narrower than `opens_with_greeting`: "హలో?" mid-call checks
 #: the line is alive, and "నమస్కారం" as a reply's LAST sentence is a goodbye.
 _SALUTATION: Final = re.compile(
-    r"^\W*(?:namaste|namaskar(?:am)?|good (?:morning|afternoon|evening)|నమస్కారం|నమస్కారాలు|"
-    r"నమస్తే|नमस्ते|नमस्कार)(?=[\s,.!?।]|$)",
+    _say("turn_checks._SALUTATION"),
     re.IGNORECASE,
 )
 
@@ -1193,24 +1145,23 @@ _NUMBER_VALUES: Final[dict[str, int]] = {
     word: value
     for words in (
         ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"),
-        ("జీరో", "వన్", "టూ", "త్రీ", "ఫోర్", "ఫైవ్", "సిక్స్", "సెవెన్", "ఎయిట్", "నైన్", "టెన్"),
-        ("సున్నా", "ఒకటి", "రెండు", "మూడు", "నాలుగు", "ఐదు", "ఆరు", "ఏడు", "ఎనిమిది", "తొమ్మిది", "పది"),
-        ("ज़ीरो", "वन", "टू", "थ्री", "फोर", "फाइव", "सिक्स", "सेवन", "एट", "नाइन", "टेन"),
-        ("शून्य", "", "दो", "तीन", "चार", "पांच", "छह", "सात", "आठ", "नौ", "दस"),
+        _word_list("turn_checks._NUMBER_VALUES.1"),
+        _word_list("turn_checks._NUMBER_VALUES.2"),
+        _word_list("turn_checks._NUMBER_VALUES.3"),
+        _word_list("turn_checks._NUMBER_VALUES.4"),
     )
     for value, word in enumerate(words)
     if word
-} | {"అయిదు": 5, "पाँच": 5}
+} | {_say("turn_checks._NUMBER_VALUES.5"): 5, _say("turn_checks._NUMBER_VALUES.6"): 5}
 _DIGITS: Final = re.compile(r"\d+")
 #: Words that make a choice of numbers a choice of times, which HOW TO SPEAK allows.
 _TIME_WORDS: Final = re.compile(
-    r"o'?clock|\b[ap]\.?m\b|morning|evening|గంట|మార్నింగ్|ఈవెనింగ్|సాయంత్రం|పొద్దున|"
-    r"बजे|सुबह|शाम",
+    _say("turn_checks._TIME_WORDS"),
     re.IGNORECASE,
 )
 #: What joins the options of a choice: "or" in a word, or one ending said twice
 #: ("టూ బీహెచ్కే కావాలా, త్రీ బీహెచ్కే కావాలా?", "టూ నా త్రీ నా?").
-_EITHER: Final = re.compile(r"(?:^|\s)(?:or|లేక|లేదా|या)(?:\s|$)", re.IGNORECASE)
+_EITHER: Final = re.compile(_say("turn_checks._EITHER"), re.IGNORECASE)
 
 
 def _number_values(text: str) -> set[int]:
@@ -1226,7 +1177,7 @@ def _offered_numbers(question: str) -> set[int]:
     values = _number_values(question)
     if len(values) < 2:
         return set()
-    endings = [w for w in _words(question) if w.endswith("ా")]
+    endings = [w for w in _words(question) if w.endswith(_say("turn_checks._offered_numbers"))]
     if _EITHER.search(question) or len(endings) != len(set(endings)):
         return values
     return set()
@@ -1235,10 +1186,7 @@ def _offered_numbers(question: str) -> set[int]:
 #: Promising to talk slower, which the model cannot do: the voice's speed is the agent's
 #: setting (D-884, D-912).
 _PACE_PROMISE: Final = re.compile(
-    r"\bi(?:'ll| will| shall)\s+(?:speak|talk|go)\s+(?:a bit\s+|more\s+)?slow(?:ly|er)?\b"
-    r"|\bi(?:'ll| will) slow down\b"
-    r"|(?:నెమ్మదిగా|మెల్లగా|నిదానంగా|స్లోగా)\s+(?:\S+\s+)?మాట్లాడ(?:తా|ుతా)"
-    r"|धीरे\s+(?:से\s+)?बोल(?:ूँ|ूं)",
+    _say("turn_checks._PACE_PROMISE"),
     re.IGNORECASE,
 )
 
@@ -1296,18 +1244,11 @@ def _asked_again(reply: str, previous_reply: str) -> str | None:
 #: saved", "అయింది", "సేవ్ చేశాను", "हो गया" (D-906). The agent's "saved, good" after that
 #: acknowledges the caller's act, which `ACTION_CLAIM_RULE` allows ("or they say they did").
 _CALLER_DONE: Final = re.compile(
-    r"\bdone\b|\bdid it\b|\bit worked\b|\bit(?:\Ws| is) (?:there|saved|added|open|"
-    r"installed|showing)\b|\bi(?:\Wve| have)? ?(?:added|saved|tapped|clicked|pressed|"
-    r"installed|typed|opened|entered)\b"
-    r"|అయింది|అయిపోయింది|ఐంది|చేశాను|చేసాను|చేసేశాను|చేసేసాను|నొక్కాను|వచ్చింది|"
-    r"కనిపిస్తోంది|కనిపిస్తుంది"
-    r"|हो\s*(?:गया|गई|गए)|कर\s*(?:दिया|लिया|दी|ली)|दबा\s*(?:दिया|दी)|आ\s*(?:गया|गई)",
+    _say("turn_checks._CALLER_DONE"),
     re.IGNORECASE,
 )
 #: What turns a caller's "done" into its opposite: "not done", "కాలేదు", "नहीं हुआ".
-_CALLER_NOT: Final = re.compile(
-    r"\bnot\b|n\Wt\b|\bnever\b|లేదు|కాలేదు|రాలేదు|అవ్వలేదు|नहीं|नही", re.IGNORECASE
-)
+_CALLER_NOT: Final = re.compile(_say("turn_checks._CALLER_NOT"), re.IGNORECASE)
 
 
 def caller_says_done(said: str) -> bool:
@@ -1325,16 +1266,10 @@ def claims_done(text: str, *, caller_said: str = "") -> bool:
 #: The agent saying it already told the caller something: "as I said", "చెప్పాను కదా",
 #: "ముందే చెప్పాను", "मैंने बताया था". The caller's own "మీరు చెప్పినట్టు" (as you said) is not one.
 _SAID_BEFORE: Final = re.compile(
-    r"\b(?:as|like) i (?:said|told you|mentioned)\b|\bi (?:already |just )?(?:told|said to) you\b"
-    r"|\bi (?:already |just )?mentioned\b"
-    r"|చెప్పాను\s*(?:కదా|కద|గా)|(?:ముందే|ఇందాకే?|ఇంతకు ముందే?)\s+(?:\S+\s+){0,3}చెప్పాను"
-    r"|मैंने (?:पहले |अभी )?(?:ही )?(?:बताया|कहा)"
-    r"|बताया था (?:ना|न)",
+    _say("turn_checks._SAID_BEFORE"),
     re.IGNORECASE,
 )
-_PRICE_WORD: Final = re.compile(
-    r"rupee|rupees|price|ధర|రూపాయ\S*|रुपय\S*|रुपए|रुपये|कीमत|दाम", re.IGNORECASE
-)
+_PRICE_WORD: Final = re.compile(_say("turn_checks._PRICE_WORD"), re.IGNORECASE)
 
 
 def claims_said_before(text: str) -> bool:
@@ -1423,17 +1358,10 @@ def _stock_opener(replies: Sequence[str]) -> tuple[str, int] | None:
 #: Where a caller could have found the business, each by the spellings a reply uses. Only
 #: places that are not this call: WhatsApp is left out because an agent may rightly offer it.
 _CHANNELS: Final[tuple[re.Pattern[str], ...]] = tuple(
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"web\s?site|వెబ్\s*సైట్|వెబ్‌సైట్|वेबसाइट|वेब साइट",
-        r"facebook|ఫేస్\s*బుక్|ఫేస్‌బుక్|फेसबुक|फ़ेसबुक",
-        r"instagram|ఇన్‌స్టా|ఇన్స్టా|इंस्टा",
-        r"google|గూగుల్|गूगल",
-        r"magic\s?bricks|99\s?acres|housing\.com|just\s?dial|మ్యాజిక్\s*బ్రిక్స్|జస్ట్\s*డయల్",
-    )
+    re.compile(pattern, re.IGNORECASE) for pattern in _word_list("turn_checks._CHANNELS")
 )
 #: The caller as the subject: "you", "మీరు", "आपने".
-_YOU: Final = re.compile(r"\byou\b|\byour\b|మీరు|మీ\s|आपने|आप\s", re.IGNORECASE)
+_YOU: Final = re.compile(_say("turn_checks._YOU"), re.IGNORECASE)
 
 
 def _invented_source(reply: str, known: str) -> str | None:
@@ -1453,41 +1381,25 @@ def _invented_source(reply: str, known: str) -> str | None:
 #: The agent telling the caller about contact before this call: an enquiry they made, a
 #: previous call or conversation, "last time". Detection words, not speech (D-915).
 _CLAIMS_HISTORY: Final = re.compile(
-    r"\byou(?: had| have)? (?:enquired|inquired|made an? (?:enquiry|inquiry)"
-    r"|sent (?:us )?an? (?:enquiry|inquiry)|filled (?:in |out )?(?:our|the|a) form"
-    r"|contacted us|called us (?:before|earlier|last))\b"
-    r"|\blast time,? (?:you|we)\b|\bwhen (?:we|you) (?:last )?spoke\b"
-    r"|\bwe(?:'ve| have)? spoken before\b|\bwe spoke (?:before|earlier|last)\b"
-    r"|\b(?:our|your) (?:previous|last|earlier) (?:call|conversation|chat|enquiry|inquiry)\b"
-    r"|(?:ఎంక్వ\S*|enquiry|inquiry)\s+(?:చేశారు|చేసారు|ఇచ్చారు|పెట్టారు)"
-    r"|పోయిన\s*సారి|గత\s*సారి|లాస్ట్\s*టైమ్"
-    r"|(?:ఇంతకు\s*ముందు|ఇంతకుముందు|గతంలో)\s+(?:\S+\s+){0,4}?"
-    r"(?:మాట్లాడారు|మాట్లాడాం|మాట్లాడాము|కాల్\s+చేశారు|call\s+చేశారు|సంప్రదించారు)"
-    r"|(?:पूछताछ|इंक्वायरी|इन्क्वायरी|enquiry|inquiry)\s+की\s+थी|पिछली\s+बार"
-    r"|पहले\s+(?:\S+\s+){0,3}?(?:बात\s+(?:की|हुई)\s+थी|(?:call|कॉल)\s+किया\s+था|संपर्क\s+किया\s+था)",
+    _say("turn_checks._CLAIMS_HISTORY"),
     re.IGNORECASE,
 )
 #: "Earlier you asked": on a call where the caller has asked something, that may be this
 #: call, so it counts only before the caller has asked anything.
 _ASKED_EARLIER: Final = re.compile(
-    r"\b(?:earlier|before|previously),? you asked\b|\byou (?:had )?asked (?:us )?(?:earlier|before"
-    r"|previously)\b"
-    r"|(?:ఇంతకు\s*ముందు|ఇంతకుముందు|గతంలో)\s+(?:\S+\s+){0,4}?అడిగారు"
-    r"|आपने\s+पहले\s+(?:\S+\s+){0,3}?पूछा",
+    _say("turn_checks._ASKED_EARLIER"),
     re.IGNORECASE,
 )
 #: A sentence that asks about contact before rather than claiming it ("did you enquire?").
-_ASKS_ABOUT_IT: Final = re.compile(r"^\W*(?:have|did|had|has)\s+you\b|^\W*क्या\s", re.IGNORECASE)
+_ASKS_ABOUT_IT: Final = re.compile(_say("turn_checks._ASKS_ABOUT_IT"), re.IGNORECASE)
 #: An enquiry named in the agent's script or facts: the owner may be saying its callers did
 #: enquire, so a claim of it is the owner's word rather than invented.
-_ENQUIRY_WORDS: Final = re.compile(r"enquir|inquir|ఎంక్వ|पूछताछ|इंक्वायरी|इन्क्वायरी", re.IGNORECASE)
+_ENQUIRY_WORDS: Final = re.compile(_say("turn_checks._ENQUIRY_WORDS"), re.IGNORECASE)
 #: Words in the caller's own lines that say there was contact before ("I called last week",
 #: "I already enquired"). Broader than the script's, because a caller line is short and
 #: about this person, and a false mistake costs more than a missed one.
 _CALLER_HISTORY: Final = re.compile(
-    r"enquir|inquir|last time|before|earlier|already|previous"
-    r"|ఎంక్వ|ఇంతకు\s*ముందు|ఇంతకుముందు|పోయిన\s*సారి|ముందే|గతంలో"
-    r"|पहले|पिछली|पूछताछ|इंक्वायरी|इन्क्वायरी",
+    _say("turn_checks._CALLER_HISTORY"),
     re.IGNORECASE,
 )
 
@@ -1510,16 +1422,14 @@ def _false_history(reply: str, *, caller_asked: bool) -> str | None:
 
 #: The caller asking who is calling or why.
 _ASKS_WHO: Final = re.compile(
-    r"who (?:is|are) (?:this|you)|who'?s (?:this|calling)|why (?:are you|did you) call|"
-    r"ఎవరండి|ఎవరు మాట్లాడ|మీరు ఎవరు|ఎవరు మీరు|ఎందుకు (?:కాల్|ఫోన్)|"
-    r"(?:आप|कौन) (?:कौन|बोल)|क्यों (?:कॉल|फोन)",
+    _say("turn_checks._ASKS_WHO"),
     re.IGNORECASE,
 )
 #: The caller giving their own name.
-_GIVES_NAME: Final = re.compile(r"my name is|this is \w+ here|నా పేరు|मेरा नाम", re.IGNORECASE)
+_GIVES_NAME: Final = re.compile(_say("turn_checks._GIVES_NAME"), re.IGNORECASE)
 #: The agent asking for the caller's name.
 _ASKS_NAME: Final = re.compile(
-    r"(?:what(?:'s| is) )?your (?:good )?name\b.*\?|మీ పేరు.*\?|(?:आपका|आप का) (?:शुभ )?नाम.*\?",
+    _say("turn_checks._ASKS_NAME"),
     re.IGNORECASE,
 )
 
@@ -1535,27 +1445,27 @@ def _stacked_after_who(caller_said: str, reply: str) -> str | None:
 
 
 _WEEKDAYS: Final[tuple[tuple[str, ...], ...]] = (
-    ("monday", "mon", "సోమవారం", "सोमवार"),
-    ("tuesday", "tue", "మంగళవారం", "मंगलवार"),
-    ("wednesday", "wed", "బుధవారం", "बुधवार"),
-    ("thursday", "thu", "గురువారం", "गुरुवार"),
-    ("friday", "fri", "శుక్రవారం", "शुक्रवार"),
-    ("saturday", "sat", "శనివారం", "शनिवार"),
-    ("sunday", "sun", "ఆదివారం", "रविवार"),
+    _word_list("turn_checks._WEEKDAYS.1"),
+    _word_list("turn_checks._WEEKDAYS.2"),
+    _word_list("turn_checks._WEEKDAYS.3"),
+    _word_list("turn_checks._WEEKDAYS.4"),
+    _word_list("turn_checks._WEEKDAYS.5"),
+    _word_list("turn_checks._WEEKDAYS.6"),
+    _word_list("turn_checks._WEEKDAYS.7"),
 )
 _MONTHS: Final[tuple[tuple[str, ...], ...]] = (
-    ("january", "jan", "జనవరి", "जनवरी"),
-    ("february", "feb", "ఫిబ్రవరి", "फ़रवरी", "फरवरी"),
-    ("march", "mar", "మార్చి", "मार्च"),
-    ("april", "apr", "ఏప్రిల్", "अप्रैल"),
-    ("may", "మే", "मई"),
-    ("june", "jun", "జూన్", "जून"),
-    ("july", "jul", "జూలై", "जुलाई"),
-    ("august", "aug", "ఆగస్టు", "ఆగస్ట్", "अगस्त"),
-    ("september", "sep", "sept", "సెప్టెంబర్", "सितंबर"),
-    ("october", "oct", "అక్టోబర్", "अक्टूबर"),
-    ("november", "nov", "నవంబర్", "नवंबर"),
-    ("december", "dec", "డిసెంబర్", "दिसंबर"),
+    _word_list("turn_checks._MONTHS.1"),
+    _word_list("turn_checks._MONTHS.2"),
+    _word_list("turn_checks._MONTHS.3"),
+    _word_list("turn_checks._MONTHS.4"),
+    _word_list("turn_checks._MONTHS.5"),
+    _word_list("turn_checks._MONTHS.6"),
+    _word_list("turn_checks._MONTHS.7"),
+    _word_list("turn_checks._MONTHS.8"),
+    _word_list("turn_checks._MONTHS.9"),
+    _word_list("turn_checks._MONTHS.10"),
+    _word_list("turn_checks._MONTHS.11"),
+    _word_list("turn_checks._MONTHS.12"),
 )
 
 
@@ -1566,15 +1476,17 @@ def _alternation(groups: tuple[tuple[str, ...], ...]) -> str:
 
 _WEEKDAY_WORD: Final = rf"(?<![A-Za-z])({_alternation(_WEEKDAYS)})(?![A-Za-z])"
 _MONTH_WORD: Final = rf"(?<![A-Za-z])({_alternation(_MONTHS)})(?![A-Za-z.])"
-_DAY_NUMBER: Final = r"(\d{1,2})(?:st|nd|rd|th|వ|న)?"
+_DAY_NUMBER: Final = _say("turn_checks._DAY_NUMBER")
 _WEEKDAY_THEN_DATE: Final = re.compile(
     rf"{_WEEKDAY_WORD}[,\s]+(?:the\s+)?{_DAY_NUMBER}\s*{_MONTH_WORD}", re.IGNORECASE
 )
 _DATE_THEN_WEEKDAY: Final = re.compile(
     rf"{_DAY_NUMBER}\s*{_MONTH_WORD}[,\s]+{_WEEKDAY_WORD}", re.IGNORECASE
 )
+_TOMORROW: Final = _say("turn_checks._TOMORROW")
 _TOMORROW_WEEKDAY: Final = re.compile(
-    rf"(?<![A-Za-z])(tomorrow|రేపు)[,\s]+{_WEEKDAY_WORD}|{_WEEKDAY_WORD}[,\s]+(tomorrow|రేపు)",
+    rf"(?<![A-Za-z])(tomorrow|{_TOMORROW})[,\s]+{_WEEKDAY_WORD}"
+    rf"|{_WEEKDAY_WORD}[,\s]+(tomorrow|{_TOMORROW})",
     re.IGNORECASE,
 )
 
@@ -1742,7 +1654,7 @@ def conversation_problems(
                     "or the caller said.",
                 ),
             )
-        caller_asked = caller_asked or bool(_CALLER_ASKS.search(said))
+        caller_asked = caller_asked or asks_question(said)
         history_backed = history_backed or bool(_CALLER_HISTORY.search(said))
         history = None if history_backed else _false_history(reply, caller_asked=caller_asked)
         if history:
@@ -1855,7 +1767,7 @@ def conversation_problems(
         # own question is how a conversation gets back on track.
         again = (
             None
-            if _ASKS_REPEAT.search(said) or _CALLER_ASKS.search(said)
+            if _ASKS_REPEAT.search(said) or asks_question(said)
             else _asked_again(reply, previous_reply)
         )
         if again:
@@ -1922,6 +1834,7 @@ __all__ = [
     "SOUND_KINDS",
     "Exchange",
     "TurnProblem",
+    "asks_question",
     "asks_to_repeat",
     "caller_asks",
     "caller_says_done",

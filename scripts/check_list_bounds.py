@@ -733,6 +733,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`minutes_left` is one row per voice rung (`billing/rates.VoiceTier`, two members), "
         "the only list on the summary."
     ),
+    "GET /v1/admin/tenants/{tenant_id}/wallet": BoundedByConstruction(
+        by="the client wallet summary itself (`GET /v1/billing/wallet`), read for a named "
+        "account: `minutes_left` is one row per voice rung."
+    ),
     "GET /v1/billing/wallet/topups": BoundedByConstruction(
         by=(
             "`billing/wallet.ATTEMPT_LIMIT`, applied inside `read_attempts`. It takes no "
@@ -995,8 +999,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
     ),
     "PATCH /v1/agents/{agent_id}/caller-screen": BoundedByConstruction(
-        by="`patient_settings` names call settings of the fixed preset in "
-        "`agents/patient_caller.py`, never a caller's row count."
+        by="`give_callers_time_settings` names call settings of the fixed preset in "
+        "`agents/give_callers_time.py`, never a caller's row count."
     ),
     "POST /v1/agents/{agent_id}/script/versions/{version}/restore": BoundedByConstruction(
         by="one version copied into the draft: a `CallScript` under the same "

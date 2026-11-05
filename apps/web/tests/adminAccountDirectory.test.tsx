@@ -263,6 +263,36 @@ describe("readiness, as an operator reads it", () => {
     expect(link.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/kyc`);
   });
 
+  it("files the national scrub as nobody's to clear, with no button, and keeps codes behind Details", async () => {
+    // A7-17 and A7-22.
+    const { container } = await renderAdminRoute(
+      <TenantReadinessPage params={routeParams({ tenantId: TENANT })} />,
+      {
+        ...READINESS_ROUTES,
+        [READINESS]: {
+          tenant_id: TENANT,
+          may_operate: false,
+          blocked_on_calevate: 0,
+          rows: [
+            readinessRow({
+              rule: "national_dnd_scrub_missing",
+              title: "Promotional campaigns are not available yet",
+              reason: "1 promotional campaign has no current scrub.",
+              actor: "outside",
+              next_step: "Reminders can go out as a service campaign.",
+            }),
+          ],
+        },
+      },
+    );
+
+    await screen.findByText("Not available yet");
+    expect(container.textContent).not.toContain("Ours to clear");
+    expect(screen.queryByRole("link", { name: /Record the scrub/ })).toBeNull();
+    const code = screen.getByText("national_dnd_scrub_missing");
+    expect(code.closest("details")).not.toBeNull();
+  });
+
   it("says plainly when nothing is in the way", async () => {
     const { container } = await renderAdminRoute(
       <TenantReadinessPage params={routeParams({ tenantId: TENANT })} />,

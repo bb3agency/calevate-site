@@ -37,7 +37,8 @@ export type Tier = {
   /** One line under the rate: whose rate it is, or what fixes it. */
   rateNote?: ReactNode;
   /** One line under the name: what it sounds like to a caller. */
-  summary?: string;
+  summary?: ReactNode;
+  /** Empty for a rung that cannot be chosen: its benefits are not offered. */
   includes: string[];
   /** "Best for …": who should pick it. */
   bestFor: string;
@@ -113,7 +114,7 @@ export function TierComparison({
                     </span>
                   ) : null}
                 </div>
-                {tier.summary ? <p className="text-body text-ink-muted">{tier.summary}</p> : null}
+                {tier.summary ? <div className="text-body text-ink-muted">{tier.summary}</div> : null}
               </div>
               <div>
                 <p className="flex flex-wrap items-baseline gap-x-1.5">
@@ -127,21 +128,25 @@ export function TierComparison({
                 </p>
                 {tier.rateNote ? <p className="mt-1 text-meta text-ink-muted">{tier.rateNote}</p> : null}
               </div>
-              <div className="space-y-2">
-                <h4 className="text-meta font-semibold text-ink-muted">{strings.includes}</h4>
-                <ul className="space-y-1.5">
-                  {tier.includes.map((line) => (
-                    <li key={line} className="flex items-start gap-2 text-body text-ink">
-                      <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <p className="text-body text-ink-muted">
-                <span className="font-medium text-ink">{strings.bestFor}: </span>
-                {tier.bestFor}
-              </p>
+              {tier.includes.length > 0 ? (
+                <div className="space-y-2">
+                  <h4 className="text-meta font-semibold text-ink-muted">{strings.includes}</h4>
+                  <ul className="space-y-1.5">
+                    {tier.includes.map((line) => (
+                      <li key={line} className="flex items-start gap-2 text-body text-ink">
+                        <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong" />
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {tier.bestFor ? (
+                <p className="text-body text-ink-muted">
+                  <span className="font-medium text-ink">{strings.bestFor}: </span>
+                  {tier.bestFor}
+                </p>
+              ) : null}
               {onChoose && !current ? (
                 <div className="mt-auto">
                   <ActionButton

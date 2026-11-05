@@ -71,8 +71,16 @@ class FieldMeta:
     section: str
     subsection: str
     label: str
+    #: One plain line, at most `DESCRIPTION_MAX` characters: what the setting does.
     description: str
     used_when: EngineScope | None = None
+    #: What an engineer needs and the operator does not decide on (a vendor's field name,
+    #: the source and date of a vendor figure, a side effect). Shown under "Details".
+    details: str | None = None
+
+
+#: The longest a setting's description may be: one line in the console's description column.
+DESCRIPTION_MAX: Final = 100
 
 
 SECTIONS: Final[tuple[Section, ...]] = (
@@ -83,6 +91,8 @@ SECTIONS: Final[tuple[Section, ...]] = (
         (
             Subsection("engine", "Active engine"),
             Subsection("thinnest", "ThinnestAI"),
+            # Platform-wide targets and limits on how agents answer, whichever engine runs.
+            Subsection("quality", "Call quality"),
         ),
         panels_after=(PANEL_ENGINE_MINUTE_PRICE,),
     ),
@@ -232,8 +242,10 @@ def _m(
     label: str,
     description: str,
     used_when: EngineScope | None = None,
+    *,
+    details: str | None = None,
 ) -> FieldMeta:
-    return FieldMeta(section, subsection, label, description, used_when)
+    return FieldMeta(section, subsection, label, description, used_when, details)
 
 
 FIELD_META: Final[dict[str, FieldMeta]] = {
@@ -260,98 +272,121 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "thinnest_byok_enabled": _m(
         "voice-engine",
         "thinnest",
-        "ThinnestAI runs on all three of our own keys (full BYOK)",
-        "Not Studio. Speech, model and voice all on our keys (ThinnestAI console or API). On, "
-        "every minute bills at ₹1 and per-agent voice and model choices lock.",
+        "ThinnestAI runs on all three of our own keys",
+        "Speech, model and voice all on our keys. On: every minute bills at ₹1.",
         _THINNEST,
+        details=(
+            "Not our Studio tier. The keys are set in ThinnestAI's console or API. While on, per-"
+            "agent voice and model choices lock."
+        ),
     ),
     "thinnest_clear_voice_band": _m(
         "voice-engine",
         "thinnest",
         "ThinnestAI voice band sold as Clear",
-        "ThinnestAI's Studio band (Pro and above; the default) or its Premium band (any "
-        "plan), sold as Clear. Not our Studio tier. Attest that band's rate first.",
+        "The ThinnestAI band sold to clients as Clear: Studio (the default) or Premium.",
         _THINNEST,
+        details=(
+            "Not our Studio tier. Attest the band's per-minute rate before switching. The Studio "
+            "band is on our pay-as-you-go account since 23 Oct 2026 (VENDOR-STATED, ThinnestAI "
+            "replies §28.1)."
+        ),
     ),
     "thinnest_in_call_default_model": _m(
         "voice-engine",
         "thinnest",
         "In-call language model for agents with none chosen",
-        "Agents with no model of their own use it; an agent's own choice wins. Empty keeps "
-        "Prana [Voice]. Must be call-capable, priced and allowed with Studio voices.",
+        "Model for agents with none of their own; an agent's choice wins. Empty keeps Prana "
+        "[Voice].",
         _THINNEST,
+        details="Must be call-capable, priced, and allowed with Studio voices.",
     ),
     "thinnest_own_model": _m(
         "voice-engine",
         "thinnest",
-        "Agents answer on our own language model (Gemini on our Google key)",
-        "On: every agent, trial ones included, answers on our Google key; Clear keeps "
-        "ThinnestAI's voice, Studio our Cartesia. Refused until Voices shows it ready.",
+        "Agents answer on our own Gemini model",
+        "On: every agent, trial ones included, answers on our Google key.",
         _THINNEST,
+        details=(
+            "Clear keeps ThinnestAI's voice; Studio keeps our Cartesia voice. Refused until the "
+            "Voices screen shows it ready."
+        ),
     ),
     "thinnest_own_model_default": _m(
         "voice-engine",
         "thinnest",
         "Our language model for agents with none chosen",
-        "The Gemini model agents on our own model use when they name none. Not 2.5 (Google "
-        "refuses it to our project); needs our Google key and an attested price.",
+        "The Gemini model agents on our own model use when they name none.",
         _THINNEST,
+        details=(
+            "Needs our Google key and an attested price. Gemini 2.5 ids are refused on our Google "
+            "project (Google's models page, 13 Oct 2026; REPORTED in agents/assist_leg.py, D-786, "
+            "not re-checked since)."
+        ),
     ),
     "thinnest_reply_length": _m(
         "voice-engine",
         "thinnest",
         "Longest agent reply, in tokens",
-        "For agents with no reply length of their own, 100 to 800. A reply that hits it is "
-        "cut off mid-sentence; keep it high. 800 by default; ThinnestAI's own is 300.",
+        "Longest reply, 100 to 800 tokens, for agents with no length of their own. Keep it high.",
         _THINNEST,
+        details=(
+            "A reply that reaches it is cut off mid-sentence. 800 by default; ThinnestAI's own "
+            "default is 300."
+        ),
     ),
     "thinnest_own_rules": _m(
         "voice-engine",
         "thinnest",
-        "Agents follow only our hand-over and lead rules (ownRules)",
-        "On: ThinnestAI stops adding its lead, hand-over and call-back lines; ours state "
-        "them. Live at ThinnestAI since 21 Oct 2026.",
+        "Agents follow only our hand-over and lead rules",
+        "On: ThinnestAI stops adding its lead, hand-over and call-back lines; ours state them.",
         _THINNEST,
+        details="ThinnestAI's name for it is ownRules.",
     ),
     "thinnest_test_chat_call_mode": _m(
         "voice-engine",
         "thinnest",
-        "Practice tests run as a call (Test Chat call mode)",
-        "On: practice tests use the agent's call prompt, model and thinking level. Needs "
-        "calling set up on the agent. Live at ThinnestAI since 21 Oct 2026.",
+        "Practice tests run as a call",
+        "On: practice tests use the agent's call prompt, model and thinking level.",
         _THINNEST,
+        details=(
+            "Needs calling set up on the agent. ThinnestAI's name for it is Test Chat call mode."
+        ),
     ),
     "thinnest_call_instructions": _m(
         "voice-engine",
         "thinnest",
-        "Agents use our shorter call rules (callInstructions)",
-        "On: our call rules replace ThinnestAI's default ones, about 1,675 characters read "
-        "on every turn. Try a Telugu agent in practice tests (call mode) first.",
+        "Agents use our shorter call rules",
+        "On: our call rules replace ThinnestAI's default ones, which are read on every turn.",
         _THINNEST,
+        details=(
+            "Ours are about 1,675 characters. Try a Telugu agent in practice tests (call mode) "
+            "first. ThinnestAI's name for it is callInstructions."
+        ),
     ),
     "thinnest_turn_detection": _m(
         "voice-engine",
         "thinnest",
         "How agents know the caller has finished",
-        "Silence: the Call handling pause after the caller's last words ends the turn. Ear: "
-        "live listening ends it, after that same pause.",
+        "Silence: the pause after the caller's last words ends the turn. Ear: live listening does.",
         _THINNEST,
+        details="Under Ear the turn still ends only after that same pause, set in Call handling.",
     ),
     "thinnest_timer_turn_silence_ms": _m(
         "voice-engine",
         "thinnest",
         "Pause for an agent put on Silence on its own",
-        "Used when the agent and its account set no pause. Counted after the caller's last "
-        "words; ThinnestAI suggests 350-400 ms to start.",
+        "Pause after the caller's last words, used when the agent and account set none.",
         _THINNEST,
+        details="ThinnestAI suggests 350-400 ms to start.",
     ),
     "thinnest_opening_wait_ms": _m(
         "voice-engine",
         "thinnest",
         "Silence before a waiting opening plays",
-        "For agents that wait for hello: how long silence lasts before they speak. Unset, "
-        "nothing is sent and ThinnestAI waits 4 s.",
+        "For agents that wait for hello: the silence before they speak first.",
         _THINNEST,
+        details="Unset, nothing is sent and ThinnestAI waits 4 s.",
     ),
     "thinnest_acknowledgements": _m(
         "voice-engine",
@@ -365,9 +400,12 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "voice-engine",
         "thinnest",
         "Agents start replying before the caller has finished",
-        "On: replies start sooner, but one dropped because the caller kept talking is still "
-        "billed to our Google key, outside usage. Off: replies wait till they finish.",
+        "On: replies start before the caller has finished. Off: they wait till the caller is done.",
         _THINNEST,
+        details=(
+            "A reply dropped because the caller kept talking is still billed to our Google key, "
+            "outside usage."
+        ),
     ),
     "thinnest_interrupt_words": _m(
         "voice-engine",
@@ -379,42 +417,45 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     ),
     "reply_time_typical_target_ms": _m(
         "voice-engine",
-        "thinnest",
+        "quality",
         "Typical wait for an answer",
-        "How long a caller should usually wait for the first word of the answer, judged on "
-        "the calls' typical waits. A filler line does not count as the answer.",
+        "How long a caller should usually wait for the first word of the answer.",
         _THINNEST,
+        details="Judged on each call's typical wait. A filler line does not count as the answer.",
     ),
     "reply_time_slow_target_ms": _m(
         "voice-engine",
-        "thinnest",
+        "quality",
         "Slow wait for an answer",
-        "A call is over target when more than one wait in ten for the answer was longer "
-        "than this. A filler line does not count as the answer.",
+        "A call is over target when more than one wait in ten was longer than this.",
         _THINNEST,
+        details="A filler line does not count as the answer.",
     ),
     "public_quality_page_enabled": _m(
         "voice-engine",
-        "thinnest",
+        "quality",
         "Public reply speed page",
-        "Off: no public page shows the platform's reply speed. Waiting on the founder's "
-        "decision; the admin Reply speed by language screen shows the figures.",
+        "On: a public page shows the platform's reply speed. Off: no public page does.",
+        details="The admin Reply speed by language screen shows the figures either way.",
     ),
     "hot_facts_enabled": _m(
         "voice-engine",
-        "thinnest",
+        "quality",
         "Agents know the most asked facts by heart",
-        "On: the facts callers ask most are in each agent's instructions, answered without a "
-        "search (about a second). Off: every fact is looked up.",
+        "On: the most asked facts sit in each agent's instructions. Off: every fact is looked up.",
         _THINNEST,
+        details="Answering from the instructions skips a search of about a second.",
     ),
     "hot_facts_max_chars": _m(
         "voice-engine",
-        "thinnest",
+        "quality",
         "Most characters of facts known by heart",
-        "Each character is read again on every reply, so this caps what the facts add to a "
-        "call's cost. Agents use less when their script leaves less room.",
+        "Caps what the facts known by heart add to a call's cost.",
         _THINNEST,
+        details=(
+            "Each character is read again on every reply. Agents use less when their script leaves"
+            " less room."
+        ),
     ),
     # ---- telephony -------------------------------------------------------------------
     "number_provider": _m(
@@ -436,17 +477,22 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "limits",
         "Simultaneous calls on the ThinnestAI workspace",
-        "Inbound and outbound together; set it to the ceiling ThinnestAI has confirmed: 5 on "
-        "pay-as-you-go, 10 on Pro, raised on request.",
+        "Calls at once across every client, inbound and outbound. Set what ThinnestAI granted.",
         _THINNEST,
+        details=(
+            "ThinnestAI set 20 on our pay-as-you-go account on 23 Oct 2026, and on 30 Oct said it "
+            "was increased again without a figure (VENDOR-STATED, docs/vendor/thinnest-"
+            "replies-2026-10-12.md §28.1 and §41). Never set it above what ThinnestAI has "
+            "confirmed."
+        ),
     ),
     "trial_caller_number": _m(
         "calling-limits",
         "trial",
         "Shared trial number",
-        "Free-trial test calls ring from this number, rented in our ThinnestAI workspace. No "
-        "AI answers it; a caller ringing back hears that it only places test calls.",
+        "The number free-trial test calls ring from, rented in our ThinnestAI workspace.",
         _THINNEST,
+        details="No AI answers it; a caller ringing back hears that it only places test calls.",
     ),
     "trial_daily_call_cap": _m(
         "calling-limits",
@@ -466,39 +512,45 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "trial",
         "Studio minutes per trial account",
-        "Minutes of Studio-voice test calls one trial account may make; they cost us more. "
-        "Once used, Studio test calls are refused and Clear ones go on. 0 allows none.",
+        "Minutes of Studio-voice test calls one trial account may make. 0 allows none.",
         _THINNEST,
+        details="They cost us more. Once used, Studio test calls are refused and Clear ones go on.",
     ),
     "paid_test_copy_idle_days": _m(
         "calling-limits",
         "trial",
         "Days a paid account's test copy may sit unused",
-        "A paying client's test calls ride a copy of its agent until it has a number. A copy "
-        "unused this long is removed; the next test call makes it again.",
+        "Days before an unused test copy of a paying client's agent is removed.",
         _THINNEST,
+        details=(
+            "A paying client's test calls ride a copy of its agent until it has a number. The next"
+            " test call makes the copy again."
+        ),
     ),
     "staged_agent_languages_enabled": _m(
         "speech",
         "languages",
         "Extra agent languages offered to clients",
-        "Tamil, Kannada, Malayalam and Marathi, hidden until each is reviewed, test-called "
-        "and confirmed by ThinnestAI. Each option says what it still needs.",
+        "Offers Tamil, Kannada, Malayalam and Marathi to clients, each saying what it still needs.",
+        details="Each stays hidden until it is reviewed, test-called and confirmed by ThinnestAI.",
     ),
     "staged_language_test_tenant_ids": _m(
         "speech",
         "languages",
         "Test accounts for the extra languages",
-        "Our own test accounts, offered an extra language once its sentences are reviewed, "
-        "for its test call. Never a paying client.",
+        "Our own test accounts, offered an extra language for its test call. Never a client.",
+        details="Offered once that language's sentences are reviewed.",
     ),
     "forwarding_test_second_number": _m(
         "calling-limits",
         "trial",
         "Second number for forwarding tests",
-        "A forwarding test rings the client's number from the trial number and this one at "
-        "once, to check two callers get through. One we rent; if unset, one call.",
+        "A number we rent that rings with the trial number in a forwarding test. Unset: one call.",
         _THINNEST,
+        details=(
+            "The test rings the client's number from both at once, to check two callers get "
+            "through."
+        ),
     ),
     "forwarding_test_daily_cap": _m(
         "calling-limits",
@@ -512,46 +564,49 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "calling-limits",
         "trial",
         "Free trial days for a new account",
-        "How many days of free trial every new account starts with, whether the business "
-        "signed itself up or was invited. A trial you set for a client replaces it.",
+        "Free trial days every new account starts with. A trial you set for a client replaces it.",
+        details="Applies whether the business signed itself up or was invited.",
     ),
     "self_serve_trial_free_minutes": _m(
         "calling-limits",
         "trial",
         "Free trial minutes for a new account",
-        "How many free test-call minutes every new account starts with, whether the business "
-        "signed itself up or was invited. A trial you set for a client replaces it.",
+        "Free test-call minutes every new account starts with. A trial you set replaces it.",
+        details="Applies whether the business signed itself up or was invited.",
     ),
     "thinnest_action_source_ips": _m(
         "voice-engine",
         "thinnest",
         "Where in-call actions come from",
-        "Comma-separated addresses ThinnestAI sends in-call actions from. Others are served "
-        "with the agent's right secret and raise one alarm, so bookings never stop.",
+        "Comma-separated addresses ThinnestAI sends in-call actions from.",
         _THINNEST,
+        details=(
+            "A call from another address is still served when it carries the agent's right secret,"
+            " and raises one alarm, so bookings never stop."
+        ),
     ),
     "thinnest_customer_plan": _m(
         "voice-engine",
         "thinnest",
         "ThinnestAI plan",
-        "The plan our ThinnestAI account is on. It decides how many clients can have their "
-        "own voice workspace: 3 on pay-as-you-go, 100 on Pro, 1,000 on Scale.",
+        "The plan our ThinnestAI account is on. Each option says how many client workspaces it "
+        "allows.",
         _THINNEST,
     ),
     "thinnest_developer_workspace_id": _m(
         "voice-engine",
         "thinnest",
         "ThinnestAI developer workspace",
-        "Our own ThinnestAI workspace, read from ThinnestAI so it is never typed. It is never "
-        "treated as a client's own workspace.",
+        "Our own ThinnestAI workspace, read from ThinnestAI so it is never typed.",
         _THINNEST,
+        details="It is never treated as a client's own workspace.",
     ),
     "inbound_reserved_lines": _m(
         "calling-limits",
         "limits",
         "Lines kept free for inbound calls",
-        "How many of the simultaneous lines outbound calls may not use. Left unset, the "
-        "automatic share below applies; at least one line always stays free.",
+        "Lines outbound calls may not use. Unset: the automatic share below applies.",
+        details="At least one line always stays free.",
     ),
     "inbound_reserve_ratio": _m(
         "calling-limits",
@@ -594,8 +649,11 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "language-models",
         "assistant",
         "Assistant: use Azure when Gemini is not set up",
-        "With Gemini not set up (no key, price or data-use approval), answer on Azure, not the "
-        "basic fallback. A Gemini failure mid-question uses the basic fallback.",
+        "With Gemini not set up, the assistant answers on Azure instead of the basic fallback.",
+        details=(
+            "Not set up means no key, price or data-use approval. A Gemini failure mid-question "
+            "still uses the basic fallback."
+        ),
     ),
     "copilot_daily_message_cap": _m(
         "language-models",
@@ -718,22 +776,22 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "billing",
         "prices",
         "List price per minute",
-        "The list price per calling minute every client pays on the first pack. Recording "
-        "a rate card rewrites it.",
+        "The list price per calling minute on a client's first pack.",
+        details="Recording a rate card rewrites it.",
     ),
     "credit_pack_expiry_months": _m(
         "billing",
         "prices",
         "Credit expires after (months)",
-        "Months after purchase that pack credit lapses. The Terms promise 12, so fewer is "
-        "refused. Empty: credit bought from now on does not lapse.",
+        "Months after purchase that pack credit lapses. Empty: new credit does not lapse.",
+        details="The Terms promise 12, so fewer is refused.",
     ),
     "platform_fee_enabled": _m(
         "billing",
         "prices",
         "Monthly platform fee",
-        "On: every client not on a free trial and without a waiver is asked to pay the "
-        "amount below each month, separately from calling credit. Off: nobody is.",
+        "On: clients not on a trial or a waiver pay the amount below each month. Off: nobody does.",
+        details="Charged separately from calling credit.",
     ),
     "platform_fee_inr": _m(
         "billing",
@@ -742,19 +800,26 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "What each client pays per month while the fee is on. A fee already raised keeps "
         "its amount.",
     ),
+    "ai_overage_block_inr": _m(
+        "billing",
+        "prices",
+        "Extra AI help block",
+        "What a client pays from calling credit for one more block of AI help in a month. "
+        "A block already bought keeps its amount.",
+    ),
     "usd_inr_rate": _m(
         "billing",
         "prices",
         "Manual USD to INR rate (only if no published rate exists)",
-        "Normally unused: dollar costs convert at the published rate, even an old one. "
-        "Used only before any rate is published, or with the override on.",
+        "Used only before any rate is published, or while the override below is on.",
+        details="Dollar costs normally convert at the published rate, even an old one.",
     ),
     "usd_inr_rate_override": _m(
         "billing",
         "prices",
         "Use the manual USD to INR rate instead of the published one",
-        "Off unless you have a reason to distrust the published rate. While on, every "
-        "dollar cost converts at the manual rate above.",
+        "While on, every dollar cost converts at the manual rate above.",
+        details="Leave off unless you have a reason to distrust the published rate.",
     ),
     "payment_provider": _m(
         "billing",
@@ -784,9 +849,11 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "billing",
         "payments",
         "Days below zero before numbers are held",
-        "After this many days below zero, calls to a client's rented numbers stop, no rent is "
-        "charged, and each is given up before it renews unless they top up.",
+        "Days below zero before a client's rented numbers are held and no rent is charged.",
         _THINNEST,
+        details=(
+            "Calls to them stop, and each is given up before it renews unless the client tops up."
+        ),
     ),
     "razorpay_reconciliation_days": _m(
         "billing",
@@ -836,28 +903,28 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "compliance",
         "checks",
         "Calling numbers must be confirmed from",
-        "From this day (IST) an outbound call from a number the client has not confirmed is "
-        "refused. Before it, clients are only asked to confirm.",
+        "From this day (IST), a call from a number the client has not confirmed is refused.",
+        details="Before it, clients are only asked to confirm.",
     ),
     "kyc_verification_provider": _m(
         "compliance",
         "checks",
         "KYC verification provider",
-        "The DigiLocker provider (cashfree). Unset means document review only; list it as a "
-        "sub-processor first.",
+        "The DigiLocker provider. Unset means document review only.",
+        details="List it as a sub-processor before setting it.",
     ),
     "kyc_verification_client_id": _m(
         "compliance",
         "checks",
         "KYC provider client ID",
-        "The DigiLocker provider's API client ID. With the client secret it switches the "
-        "DigiLocker option on; absent, clients see it as not available yet.",
+        "The DigiLocker provider's API client ID. With the secret, DigiLocker is offered.",
+        details="Absent, clients see DigiLocker as not available yet.",
     ),
     "kyc_verification_environment": _m(
         "compliance",
         "checks",
         "KYC provider environment",
-        "production for real verifications; sandbox only with a test account.",
+        "Production for real checks. Sandbox only with a test account.",
     ),
     # ---- integrations ----------------------------------------------------------------
     "google_sheets_provider": _m(
@@ -888,15 +955,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "integrations",
         "google",
         "Google sign-in redirect URL",
-        "Where Google returns someone who chose Continue with Google; register it on the "
-        "same Google OAuth client.",
+        "Where Google returns someone who chose Continue with Google.",
+        details="Register it on the same Google OAuth client.",
     ),
     "google_cloud_project_number": _m(
         "integrations",
         "google",
         "Google Cloud project number",
-        "The project number the Google file picker uses so the sheets a client picks are "
-        "shared with Calevate.",
+        "The project number the Google file picker uses to share picked sheets with us.",
     ),
     "zoho_oauth_client_id": _m(
         "integrations",
@@ -938,14 +1004,17 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "integrations",
         "client_whatsapp",
         "New WhatsApp clients per 7 days",
-        "Meta's cap on new business customers in a rolling week: 10, or 200 once Meta has "
-        "approved verification, app review and access verification.",
+        "Meta's cap on new WhatsApp business customers in a rolling week.",
+        details=(
+            "10, or 200 once Meta has approved verification, app review and access verification."
+        ),
     ),
     "whatsapp_coexistence_enabled": _m(
         "integrations",
         "client_whatsapp",
         "Offer WhatsApp Business app users coexistence",
-        "Off until Meta confirms coexistence for Indian numbers (OPERATIONS gate W-6).",
+        "Lets clients keep using the WhatsApp Business app beside us. Off until Meta allows it.",
+        details="Waits on Meta confirming coexistence for Indian numbers.",
     ),
     "hubspot_oauth_redirect_uri": _m(
         "integrations",
@@ -1036,8 +1105,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "notifications",
         "whatsapp",
         "Cost of one WhatsApp we send",
-        "What one message from our WhatsApp account costs us in rupees, from Meta's rate "
-        "card; records the cost of the save-our-number message, which we absorb.",
+        "What one message from our WhatsApp account costs us, in rupees, from Meta's rate card.",
+        details="Records the cost of the save-our-number message, which we absorb.",
     ),
     "whatsapp_enabled": _m(
         "notifications",
@@ -1079,7 +1148,7 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "notifications",
         "whatsapp",
         "Alarm page template name",
-        "The approved template that pages the founder on WhatsApp.",
+        "The approved template that sends alarm pages on WhatsApp.",
     ),
     "whatsapp_template_line_notice": _m(
         "notifications",
@@ -1104,8 +1173,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "healer",
         "switches",
         "Auto-healer on",
-        "Off stops every automatic repair, line hold and scheduled sweep. Detection, "
-        "notices and the health score carry on.",
+        "Off stops every automatic repair, line hold and scheduled sweep.",
+        details="Detection, notices and the health score carry on.",
     ),
     "healer_paused_playbooks": _m(
         "healer",
@@ -1116,8 +1185,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
     "healer_founder_whatsapp": _m(
         "healer",
         "paging",
-        "Founder's WhatsApp for pages",
-        "E.164 number that receives alarm pages on WhatsApp. Empty sends pages by email only.",
+        "WhatsApp number for alarm pages",
+        "Receives alarm pages on WhatsApp; write it with +91. Empty sends pages by email only.",
     ),
     # ---- security --------------------------------------------------------------------
     "first_party_auth_enabled": _m(
@@ -1143,8 +1212,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "infrastructure",
         "database",
         "Background jobs at once",
-        "Jobs the background worker runs at the same time. Kept below its connection pool. "
-        "Read from the environment at start-up only.",
+        "Jobs the background worker runs at the same time, kept below its connection pool.",
+        details="Read from the environment at start-up only.",
     ),
     "db_statement_timeout_ms": _m(
         "infrastructure",
@@ -1366,6 +1435,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     # ---- units ----------------------------------------------------------------------
     "self_serve_inr_per_min": ControlHint(unit="per minute"),
     "platform_fee_inr": ControlHint(unit="per month"),
+    "ai_overage_block_inr": ControlHint(unit="per block"),
     "usd_inr_rate": ControlHint(unit="per US dollar"),
     "trial_call_max_seconds": ControlHint(kind="duration", unit="seconds"),
     "db_statement_timeout_ms": ControlHint(kind="duration", unit="milliseconds"),
@@ -1460,6 +1530,7 @@ HIGH_RISK: Final[dict[str, str]] = {
     "self_serve_inr_per_min": "Every client is charged this price.",
     "platform_fee_enabled": "Decides whether every client is asked for a monthly fee.",
     "platform_fee_inr": "Every client is asked for this amount each month while the fee is on.",
+    "ai_overage_block_inr": "Every client who buys extra AI help pays this amount.",
     "usd_inr_rate": "Used only if no rate was ever published, or with the override on.",
     "usd_inr_rate_override": "Every dollar cost converts at your manual rate while this is on.",
     "payment_provider": "Clients pay through the provider you choose.",

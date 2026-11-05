@@ -138,12 +138,15 @@ export const ATTENTION = {
 } as const;
 
 export const GO_LIVE = {
-  subtitle: "4 steps to real calls",
+  subtitle: "3 steps to real calls",
+  gettingReady: "Getting your account ready. Your agents keep working.",
+  agreementsTitle: "Accept the agreements",
+  agreementsHint: "Needed before an agent can take calls.",
+  reviewNote: "What to change:",
   skip: "Skip for now",
   skipping: "Skipping…",
   backToVerify: "Verify business first",
   seeSent: "See what you sent",
-  more: (n: number) => `+${n} more`,
   switchTitle: "Switch an agent on",
   switchHint: "Pick the agent that takes calls.",
   liveTitle: "You're live",

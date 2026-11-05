@@ -26,6 +26,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from apps.api.first_run import service as first_run
 from apps.workers import first_run as worker
+from apps.workers.opening_line import WrittenOpening
+from calevate_shared.opening_notices import NONE_SAID
 from calevate_shared.spoken_guard import opens_with_greeting
 from sqlalchemy import text
 
@@ -82,7 +84,9 @@ async def _build(
             line = PLACED_INTRODUCED if placed else INTRODUCED
         else:
             line = PLACED_GREETING if placed else GREETING
-        return SimpleNamespace(value=line, capability=None, earlier=(), model=None)
+        return SimpleNamespace(
+            value=WrittenOpening(line=line, said=NONE_SAID), capability=None, earlier=(), model=None
+        )
 
     async def no_meter(*_args: Any, **_kwargs: Any) -> None:
         return None

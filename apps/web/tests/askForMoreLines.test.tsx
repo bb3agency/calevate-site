@@ -16,7 +16,15 @@ const OWNER = { user_id: "u1", tenant_id: "t1", role: "owner", permissions: ["or
 const STAFF = { ...OWNER, role: "staff", permissions: ["org:read"] };
 
 function lines(over: Partial<MyCallLines> = {}): MyCallLines {
-  return { call_lines: 2, in_progress: 0, on_trial: false, max_lines: 50, request: null, ...over };
+  return {
+    call_lines: 2,
+    in_progress: 0,
+    on_trial: false,
+    max_lines: 50,
+    being_applied: false,
+    request: null,
+    ...over,
+  };
 }
 
 function asked(over: Partial<CallLineRequest> = {}): CallLineRequest {
@@ -116,5 +124,14 @@ describe("asking for more calls at once", () => {
     await renderClientPage(<Tile />, { "/v1/me": OWNER, "/v1/call-lines": lines({ call_lines: 1, on_trial: true }) });
     await screen.findByText("Trial: one line. More once you pay.");
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("says a change is being applied until the phone system holds it (A7-06)", async () => {
+    await renderClientPage(<Tile />, {
+      "/v1/me": OWNER,
+      "/v1/call-lines": lines({ call_lines: 4, being_applied: true, request: asked() }),
+    });
+    await screen.findByText("A change to your lines is being applied.");
+    expect(screen.queryByText(/Raised to/)).toBeNull();
   });
 });

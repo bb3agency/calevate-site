@@ -79,7 +79,7 @@ from apps.api.copilot.identity import (
     question_touches_model_identity,
 )
 from apps.api.copilot.model_tiers import LONG_QUESTION_CHARS
-from apps.api.copilot.quotes import quoted_in
+from apps.api.copilot.quotes import owners_wording, quoted_in
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import (
     CopilotActionEvent,
@@ -283,6 +283,37 @@ def _standby_timeout(remaining_s: float) -> float:
 #: Said to the person when the loop runs out of turns. An authored sentence with an action
 #: in it, never a spinner that stops.
 EXHAUSTED_MESSAGE: Final = "I could not finish this in one go. Try asking for one thing at a time."
+
+#: The loop's own refusals as the owner reads them, for the out-of-turns message. What the
+#: model is told sits beside each one in the loop and names its tools; these name nothing.
+TWO_ACTS_PLAIN: Final = f"{ASSISTANT_NAME} tried to do two things at once"
+JOB_HAS_NO_SCREEN_PLAIN: Final = "A background task cannot fill in a form or open a screen"
+
+#: Said after an answer that claims a change when this run changed nothing (`claims_a_change`).
+NOTHING_CHANGED_LINE: Final = "\n\nNothing was changed."
+
+#: A first-person, past-tense account of a change: "I've updated…", "I have set…", "I
+#: changed…", "…has been saved", "…is now live". A negation ("I have not changed") does not
+#: match, because the verb must follow the subject directly. ENGLISH ONLY: a Telugu or Hindi
+#: answer is never matched, since a hand-written word list in those languages is the
+#: founder's to write, not code's; there the held-text rule (`_run_tool_loop`) and the
+#: closing rules are the only guards.
+_CHANGE_DONE_VERBS: Final = (
+    r"updated|changed|set|saved|added|removed|deleted|created|applied|turned|"
+    r"switched|paused|resumed|launched|published|filled|rewrote|rewritten|replaced|moved|"
+    r"assigned|marked|renamed|edited|fixed|stopped|scheduled|booked|sent"
+)
+_CLAIMS_A_CHANGE_RE: Final = re.compile(
+    rf"\bI(?:['\u2019]ve| have)?\s+(?:just\s+|now\s+|also\s+)?(?:{_CHANGE_DONE_VERBS})\b"
+    rf"|\b(?:has|have)\s+been\s+(?:{_CHANGE_DONE_VERBS})\b"
+    r"|\bis\s+now\s+live\b",
+    re.IGNORECASE,
+)
+
+
+def claims_a_change(answer: str) -> bool:
+    """Whether `answer` tells the person, in English, that a change was made."""
+    return bool(_CLAIMS_A_CHANGE_RE.search(answer))
 
 
 def unchanged_line(reason: str) -> str:
@@ -645,8 +676,27 @@ UNQUOTED_FILL_REASON: Final = (
     "`because` is not words of the person's latest message, so that message did not ask for "
     "this: answer it instead, and fill only if it asks for a change, copying its words exactly"
 )
-#: `UNQUOTED_FILL_REASON` as the owner reads it.
+#: `UNQUOTED_FILL_REASON` as the owner reads it; also the owner's line for an unquoted action.
 UNQUOTED_FILL_PLAIN: Final = "It did not match what your latest message asked for"
+#: An action that runs at once whose `because` is not words of the latest message.
+UNQUOTED_ACTION_REASON: Final = (
+    "`because` is not words of the person's latest message, so they did not ask for this "
+    "change. Ask them whether they want it; if they say yes, call it again quoting their "
+    "words in `because`."
+)
+
+
+def _because_of(call: chat.ToolCall) -> object:
+    """The `because` of an action call: on the area call the model sent (`call.wire`), where
+    the registry call's own arguments do not carry it, else on the call itself."""
+    source = call.wire or call
+    try:
+        body = json.loads(source.arguments or "")
+    except ValueError:
+        return None
+    return body.get("because") if isinstance(body, dict) else None
+
+
 #: A tool call too broken to name a field, as the owner reads it.
 MALFORMED_FILL_PLAIN: Final = f"{ASSISTANT_NAME}'s changes came back incomplete"
 
@@ -657,8 +707,9 @@ class FillRefusedError(Exception):
     `reasons` go BACK to the model as a tool result (the loop's one legitimate use of its
     remaining turns) and name field ids, because that is what it can act on. `plain` says the
     same to the owner, by the field's label and with no ids, and is what reaches the screen.
-    `grounded` is whether this call's `because` quoted the latest message (or an earlier call
-    of the same run already had), which a repair of this fill inherits.
+    `grounded_ids` are the fields this call named when it was grounded — its `because`
+    quoted the latest message, or it repaired a grounded call — and empty otherwise. A repair
+    of this fill inherits the grounding for those fields and no others.
     """
 
     def __init__(
@@ -666,12 +717,16 @@ class FillRefusedError(Exception):
         reasons: Sequence[str],
         *,
         plain: Sequence[str] | None = None,
-        grounded: bool = False,
+        grounded_ids: frozenset[str] = frozenset(),
     ) -> None:
         self.reasons = tuple(reasons)
         self.plain = tuple(plain) if plain is not None else (MALFORMED_FILL_PLAIN,)
-        self.grounded = grounded
+        self.grounded_ids = grounded_ids
         super().__init__("; ".join(reasons))
+
+    @property
+    def grounded(self) -> bool:
+        return bool(self.grounded_ids)
 
 
 @dataclass(frozen=True, slots=True)
@@ -820,25 +875,26 @@ def _value_is_legal(field: CopilotField, value: object) -> str | None:
 
 
 def _pips_textbook_words(
-    field: CopilotField, value: object, question: str
+    field: CopilotField, value: object, said: Sequence[str]
 ) -> list[tuple[str, str]]:
     """The textbook words (with their spoken forms) Pip wrote into a line callers hear.
 
     The check is the shared spoken guard (`spoken_guard.textbook_words`, the language's
     spoken-style list), so a word added to the list is refused here too. A textbook word
-    that the field already held or the person typed in their question is theirs, not
-    Pip's, and is let through: only Pip's own writing is judged.
+    that the field already held or the person wrote in any of their messages is theirs, not
+    Pip's, and is let through (`quotes.owners_wording`): only Pip's own writing is judged.
     """
     if field.spoken_language is None or not isinstance(value, str):
         return []
     language = field.spoken_language
-    theirs = set(textbook_words(f"{field.value or ''}\n{question}", language))
+    current = field.value if isinstance(field.value, str) else None
+    theirs = set(textbook_words(owners_wording(current, said), language))
     return [swap for swap in textbook_words(value, language) if swap not in theirs]
 
 
-def spoken_line_problem(field: CopilotField, value: object, question: str) -> str | None:
+def spoken_line_problem(field: CopilotField, value: object, said: Sequence[str]) -> str | None:
     """Why this value may not go into a line callers hear, or None (D-832)."""
-    swaps = _pips_textbook_words(field, value, question)
+    swaps = _pips_textbook_words(field, value, said)
     if not swaps:
         return None
     return f"is a line callers hear and uses textbook words they do not say: {textbook_note(swaps)}"
@@ -857,10 +913,10 @@ _PLAIN_VALUE_PROBLEMS: Final[dict[str, str]] = {
 }
 
 
-def _plain_problem(field: CopilotField, value: object, question: str, problem: str) -> str:
+def _plain_problem(field: CopilotField, value: object, said: Sequence[str], problem: str) -> str:
     """The owner's version of one field's refusal: its label, never its id."""
     label = field.label
-    swaps = _pips_textbook_words(field, value, question)
+    swaps = _pips_textbook_words(field, value, said)
     if swaps:
         return f"{label} used words callers do not say: {textbook_note(swaps)}"
     if problem.startswith("is an instruction to the agent"):
@@ -892,7 +948,7 @@ def person_said(payload: CopilotAskIn) -> tuple[str, ...]:
 
 
 def validate_fill(
-    payload: CopilotAskIn, arguments: str, *, grounded: bool = False
+    payload: CopilotAskIn, arguments: str, *, grounded_for: frozenset[str] = frozenset()
 ) -> tuple[CopilotFillItem, ...]:
     """The model's `set_fields` arguments, re-checked against THIS REQUEST. Raises
     `FillRefusedError` naming every item that failed.
@@ -912,11 +968,10 @@ def validate_fill(
 
     `because` must be words of `payload.question` (D-833, `prompt.set_fields_tool`): a fill
     resting on an earlier, answered request is refused with the rest of the reasons.
-    `grounded` waives that for the repair of a fill this run already grounded: on the
-    Varsha rewrite (5 Nov 2026) the first call quoted the request and was refused only for
-    two textbook words, and the repaired call, answering our refusal rather than the
-    person, quoted nothing of theirs and was refused again with clean values. The repair
-    is still the latest message's request; an earlier message's never was grounded here.
+    `grounded_for` waives that for the REPAIR of a fill this run already grounded — a call
+    naming only fields the grounded call named. A repair answers our refusal rather than
+    the person, so it often quotes nothing of theirs; a call that adds a field the grounded
+    one did not name is a new request and must quote the person itself.
 
     EVERY REASON NAMES ITS FIELD, because the refusal is fed back to the model on the next
     turn and "one of your fields was wrong" is not something it can act on. Field IDS are
@@ -926,7 +981,8 @@ def validate_fill(
     """
 
     def malformed(reason: str) -> FillRefusedError:
-        return FillRefusedError([reason], grounded=grounded)
+        # Nothing could be read, so the grounding this call was given passes to its repair.
+        return FillRefusedError([reason], grounded_ids=grounded_for)
 
     try:
         parsed = json.loads(arguments or "")
@@ -941,10 +997,18 @@ def validate_fill(
         raise malformed("`items` was empty — nothing to fill")
 
     by_id = {field.id: field for field in payload.fields}
+    said = person_said(payload)
     items: list[CopilotFillItem] = []
     reasons: list[str] = []
     plain: list[str] = []
-    grounded = grounded or quoted_in(parsed.get("because"), (payload.question,))
+    named = frozenset(
+        raw["field_id"]
+        for raw in raw_items
+        if isinstance(raw, dict) and isinstance(raw.get("field_id"), str)
+    )
+    grounded = quoted_in(parsed.get("because"), (payload.question,)) or (
+        bool(named) and named <= grounded_for
+    )
     if not grounded:
         reasons.append(UNQUOTED_FILL_REASON)
         plain.append(UNQUOTED_FILL_PLAIN)
@@ -987,12 +1051,12 @@ def validate_fill(
         value = raw.get("value")
         problem = (
             _value_is_legal(field, value)
-            or spoken_line_problem(field, value, payload.question)
+            or spoken_line_problem(field, value, said)
             or instruction_problem(field, value, payload.question)
         )
         if problem is not None:
             reasons.append(f"`{field_id}` {problem}")
-            plain.append(_plain_problem(field, value, payload.question, problem))
+            plain.append(_plain_problem(field, value, said, problem))
             continue
         # THE EGRESS HALF OF THE INVISIBLE-CHARACTER RULE. The browser highlights a preview
         # of this value and then writes it; a tag-block character here makes the two
@@ -1000,7 +1064,11 @@ def validate_fill(
         items.append(CopilotFillItem(field_id=field_id, value=clean_value(value)))
 
     if reasons:
-        raise FillRefusedError(reasons, plain=list(dict.fromkeys(plain)), grounded=grounded)
+        raise FillRefusedError(
+            reasons,
+            plain=list(dict.fromkeys(plain)),
+            grounded_ids=named if grounded else frozenset(),
+        )
     return tuple(items)
 
 
@@ -2080,17 +2148,27 @@ async def _run_tool_loop(
     )
 
     malformed_retried = False
-    #: Whether a fill of this run has quoted the latest message; its repair inherits it.
-    fill_grounded = False
-    #: ON A SCREEN PIP CAN FILL, A TURN'S TEXT IS HELD UNTIL THE TURN HAS ENDED. The model
-    #: writes "I have updated the script" in the same turn as its `set_fields` call, before
-    #: the server has checked it, and on 5 Nov 2026 that sentence stood above a fill that
-    #: was refused. Held, it is shown once the turn is known to be prose or an accepted fill,
-    #: and dropped with a refused one. Streaming every fragment live was the alternative;
-    #: on a screen with nothing to fill no claim can be wrong that way, so it still streams.
-    hold_text = any(field.writable for field in payload.fields)
+    #: The fields of a fill this run grounded in the latest message; a repair naming only
+    #: these inherits the grounding (`validate_fill`).
+    fill_grounded: frozenset[str] = frozenset()
+    #: Whether anything this run did reached the person: a fill, an action, a proposal, a
+    #: staged approval, a job. Read by the prose exit's claim check and by the meter.
+    changed = False
+    #: Whether this run tried a write (a fill or an action) and our own guard refused it.
+    #: Such a run is not charged to the client's allowance unless something else landed.
+    guard_refused = False
+    #: Whether this run tried to change anything at all, refused or not.
+    attempted_change = False
     for turn_index in range(limits.max_turns):
         outcome: chat.ChatOutcome | None = None
+        # A TURN'S TEXT IS HELD UNTIL THE TURN HAS ENDED, on every screen. The model writes
+        # "I have updated the script" in the same turn as the call that would do it, before
+        # the server has checked anything, and on 5 Nov 2026 that sentence stood above a
+        # change that was refused. A tool call arrives at the END of a turn, so a fragment
+        # cannot be judged as it streams; held, the text is shown once the turn is known to
+        # be prose, a lookup or a call that went through, and dropped with a refused one.
+        # Streaming live was the alternative and is what this replaced: every screen can
+        # reach an action, so no screen is one where a claim cannot be wrong.
         held: list[str] = []
         sent = clear_old_read_results(messages, read_names)
         lookups_run = visible_lookups(sent)
@@ -2100,10 +2178,7 @@ async def _run_tool_loop(
                     # EGRESS STRIPPING ON EVERY FRAGMENT, not once at the end: fragments are
                     # what the browser renders, and a tag-block character split across two
                     # frames still arrives whole in the DOM.
-                    if hold_text:
-                        held.append(strip_invisible(event.text))
-                    else:
-                        yield CopilotEvent(text=strip_invisible(event.text))
+                    held.append(strip_invisible(event.text))
                 if event.outcome is not None:
                     outcome = event.outcome
         except (httpx.HTTPError, TimeoutError):
@@ -2155,17 +2230,13 @@ async def _run_tool_loop(
         # reads a name, so the tier, the permission and the planner are the registry's. A
         # wrong action or argument goes back to the model with the action's schema.
         tool_calls, misnamed = _dispatch_calls(realm, outcome.tool_calls)
-        # A turn that fills keeps its words until the fill is accepted (`hold_text`); every
-        # other turn shows them now. A fill turn that ends without a `fill` event drops them.
-        if misnamed is not None or not any(
-            call.name == prompt_module.SET_FIELDS_TOOL_NAME for call in tool_calls
-        ):
-            for fragment in held:
-                yield CopilotEvent(text=fragment)
-            held = []
         if misnamed is not None:
+            # The turn's words go with the call: it is asked again, and the next turn speaks.
             call, reason = misnamed
-            refusal_reasons = (reason,)
+            # The schema in `reason` is for the model; the owner's account of the run names
+            # nothing of it (the step below already says Pip is asking again).
+            refusal_reasons = ()
+            guard_refused = True
             log.info("copilot_area_call_refused", extra={"turn": turn_index, "tool": call.name})
             yield CopilotEvent(step=_step_start(call))
             # The person sees that Pip is correcting itself; the schema and field paths are
@@ -2233,13 +2304,16 @@ async def _run_tool_loop(
             and call not in nav_calls
             and call not in background_calls
         ]
-        if (
-            not fill_calls
-            and not write_calls
-            and not nav_calls
-            and not read_calls
-            and not background_calls
-        ):
+        acts = bool(fill_calls or write_calls or nav_calls or background_calls)
+        if not acts:
+            # Prose or a lookup: nothing in this turn can have been refused, so its words
+            # stand. A turn that acts shows them only once its act has gone through.
+            for fragment in held:
+                yield CopilotEvent(text=fragment)
+            held = []
+        else:
+            attempted_change = attempted_change or bool(fill_calls or write_calls)
+        if not acts and not read_calls:
             # The model answered in prose. Done — this is the ordinary end of a question.
             #
             # UNLESS IT SAID NOTHING, which is the same branch and is NOT the ordinary end
@@ -2267,8 +2341,19 @@ async def _run_tool_loop(
                     extra={"turn": turn_index, "finish_reason": outcome.finish_reason},
                 )
                 yield CopilotEvent(text=strip_invisible(_no_answer_sentence(outcome.finish_reason)))
+            elif not changed and not attempted_change and claims_a_change(outcome.content):
+                # THE OUTPUT CHECK. Nothing in this run changed anything, and the answer
+                # says in English that it did; the claim is left standing and the truth
+                # follows it, as `routes` does when a write was refused.
+                log.info("copilot_unbacked_claim", extra={"turn": turn_index})
+                yield CopilotEvent(text=NOTHING_CHANGED_LINE)
             yield CopilotEvent(
-                spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+                spend=CopilotSpend(
+                    usage=_sum_usage(turns),
+                    capability=capability,
+                    model=model,
+                    unused=guard_refused and not changed,
+                )
             )
             return
 
@@ -2277,17 +2362,16 @@ async def _run_tool_loop(
         # sentence, the way every other refusal on this loop is.
         if limits.mode == "job" and (fill_calls or nav_calls or background_calls):
             call = (fill_calls or nav_calls or background_calls)[0]
-            reasons = (
-                "this is a background job with no screen in front of anybody, so it cannot "
-                "fill in a form, open a screen or start another job",
-            )
             messages = _with_tool_result(
                 messages,
                 outcome,
                 call,
-                "NOTHING was done. " + reasons[0] + ". Use the action and lookup tools only.",
+                "NOTHING was done. This is a background job with no screen in front of anybody, "
+                "so it cannot fill in a form, open a screen or start another job. Use the "
+                "action and lookup tools only.",
             )
-            refusal_reasons = reasons
+            refusal_reasons = (JOB_HAS_NO_SCREEN_PLAIN,)
+            guard_refused = True
             continue
 
         # ONE BACKGROUND JOB, AND NOTHING ELSE IN THE SAME TURN. Starting a job is the act of
@@ -2301,10 +2385,11 @@ async def _run_tool_loop(
                     call.arguments, principal=principal, screen_route=payload.screen.route
                 )
             except write_tools.WriteRefusedError as refused:
-                refusal_reasons = (refused.reason,)
+                refusal_reasons = (refused.plain,)
+                guard_refused = True
                 yield CopilotEvent(
                     step=_step_end(
-                        call, status="refused", detail=refused.reason, started_at=started_at
+                        call, status="refused", detail=refused.plain, started_at=started_at
                     )
                 )
                 messages = _with_tool_result(
@@ -2315,6 +2400,9 @@ async def _run_tool_loop(
                     "tell the person why it cannot be done now.",
                 )
                 continue
+            changed = True
+            for fragment in held:
+                yield CopilotEvent(text=fragment)
             yield CopilotEvent(
                 step=_step_end(call, status="done", detail=job_event.detail, started_at=started_at)
             )
@@ -2361,7 +2449,8 @@ async def _run_tool_loop(
                 + reasons[0]
                 + ". Do one of them in this turn and the other in the next.",
             )
-            refusal_reasons = reasons
+            refusal_reasons = (TWO_ACTS_PLAIN,)
+            guard_refused = True
             log.info("copilot_mixed_navigation_turn", extra={"turn": turn_index})
             continue
 
@@ -2379,16 +2468,18 @@ async def _run_tool_loop(
                 + reasons[0]
                 + ". Do one of them in this turn and the other in the next.",
             )
-            refusal_reasons = reasons
+            refusal_reasons = (TWO_ACTS_PLAIN,)
+            guard_refused = True
             log.info("copilot_mixed_tool_turn", extra={"turn": turn_index})
             continue
 
         if fill_calls:
             call = fill_calls[0]
             try:
-                items = validate_fill(payload, call.arguments, grounded=fill_grounded)
+                items = validate_fill(payload, call.arguments, grounded_for=fill_grounded)
             except FillRefusedError as refused:
-                fill_grounded = refused.grounded
+                fill_grounded = refused.grounded_ids
+                guard_refused = True
                 # The owner's words: the out-of-turns message and the step show these.
                 refusal_reasons = refused.plain
                 log.info(
@@ -2417,6 +2508,11 @@ async def _run_tool_loop(
 
             for fragment in held:
                 yield CopilotEvent(text=fragment)
+            # A step for the accepted fill too, so a refused attempt before it reads as tried
+            # again rather than as a failure the repair never undid. No detail: the answer
+            # and the fill card say what changed, and a third list of it is noise.
+            step = _step_end(call, status="done", detail="", started_at=None)
+            yield CopilotEvent(step=step.model_copy(update={"args": ""}))
             yield CopilotEvent(fill=items)
             yield CopilotEvent(
                 spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
@@ -2451,8 +2547,8 @@ async def _run_tool_loop(
                     assert limits.job_id is not None
                     if actions_run >= limits.max_actions:
                         refusal_reasons = (
-                            f"you have already staged {limits.max_actions} changes for "
-                            "approval in this task, which is the limit",
+                            f"{limits.max_actions} changes are already waiting for approval "
+                            "from this task, which is the limit",
                         )
                         log.warning(
                             "copilot_action_cap", extra={"turn": turn_index, "tool": call.name}
@@ -2469,7 +2565,8 @@ async def _run_tool_loop(
                             messages,
                             outcome,
                             call,
-                            "NOTHING was staged. " + refusal_reasons[0] + ". Say in your "
+                            f"NOTHING was staged. You have already staged {limits.max_actions} "
+                            "changes for approval in this task, which is the limit. Say in your "
                             "final summary what is waiting for approval and what is left.",
                         )
                         continue
@@ -2481,6 +2578,10 @@ async def _run_tool_loop(
                         said=person_said(payload),
                     )
                     actions_run += 1
+                    changed = True
+                    for fragment in held:
+                        yield CopilotEvent(text=fragment)
+                    held = []
                     yield CopilotEvent(
                         step=_step_end(
                             call, status="done", detail=staged.summary, started_at=started_at
@@ -2510,7 +2611,8 @@ async def _run_tool_loop(
                     )
                 )
             except write_tools.WriteRefusedError as refused:
-                refusal_reasons = (refused.reason,)
+                refusal_reasons = (refused.plain,)
+                guard_refused = True
                 log.info(
                     "copilot_write_refused",
                     # The tool NAME and the turn. The reason string is authored by us and names
@@ -2523,7 +2625,7 @@ async def _run_tool_loop(
                 )
                 yield CopilotEvent(
                     step=_step_end(
-                        call, status="refused", detail=refused.reason, started_at=started_at
+                        call, status="refused", detail=refused.plain, started_at=started_at
                     )
                 )
                 messages = refused_proposal_turn(messages, outcome, call, refused.reason)
@@ -2549,6 +2651,8 @@ async def _run_tool_loop(
                 messages = _with_tool_result(messages, outcome, call, _problem_result(problem))
                 continue
 
+            for fragment in held:
+                yield CopilotEvent(text=fragment)
             yield CopilotEvent(
                 step=_step_end(call, status="done", detail=proposal.summary, started_at=started_at)
             )
@@ -2566,12 +2670,31 @@ async def _run_tool_loop(
         # are, then say where the result is, rather than navigating them.
         if immediate_calls:
             call = immediate_calls[0]
+            if not quoted_in(_because_of(call), (payload.question,)):
+                # AN ACT NOBODY ASKED FOR DOES NOT RUN WITHOUT A CLICK (OWASP LLM06,
+                # excessive agency). What a lookup returned — a transcript, a lead's note —
+                # is text a stranger wrote and can say "assign this lead to…"; a change
+                # that runs at once must rest on words of the person's latest message, the
+                # same rule a fill keeps (D-833). The model is told to ask them instead.
+                refusal_reasons = (UNQUOTED_FILL_PLAIN,)
+                guard_refused = True
+                log.info("copilot_action_unquoted", extra={"turn": turn_index, "tool": call.name})
+                yield CopilotEvent(step=_step_start(call))
+                yield CopilotEvent(
+                    step=_step_end(
+                        call, status="refused", detail=UNQUOTED_FILL_PLAIN, started_at=None
+                    )
+                )
+                messages = _with_tool_result(
+                    messages, outcome, call, "NOTHING was changed. " + UNQUOTED_ACTION_REASON
+                )
+                continue
             if actions_run >= limits.max_actions:
                 # A REFUSAL FED BACK, NOT A SILENT STOP. The model still has turns and still
                 # owes the person an account of what it did and did not do.
                 refusal_reasons = (
-                    f"you have already made {limits.max_actions} changes answering this "
-                    "one question, which is the limit",
+                    f"{limits.max_actions} changes were already made for this one question, "
+                    "which is the limit",
                 )
                 log.warning("copilot_action_cap", extra={"turn": turn_index, "tool": call.name})
                 yield CopilotEvent(
@@ -2587,7 +2710,8 @@ async def _run_tool_loop(
                     messages,
                     outcome,
                     call,
-                    "NOTHING was done. " + refusal_reasons[0] + ". Tell the person what "
+                    f"NOTHING was done. You have already made {limits.max_actions} changes "
+                    "answering this one question, which is the limit. Tell the person what "
                     "you have already changed and ask them to confirm the rest in a new "
                     "message.",
                 )
@@ -2603,16 +2727,18 @@ async def _run_tool_loop(
                     ip=ip,
                     source=limits.mode,
                     job_id=limits.job_id,
+                    said=person_said(payload),
                 )
             except write_tools.WriteRefusedError as refused:
-                refusal_reasons = (refused.reason,)
+                refusal_reasons = (refused.plain,)
+                guard_refused = True
                 log.info("copilot_action_refused", extra={"turn": turn_index, "tool": call.name})
                 await _log_refusal(
                     realm, principal, tool_context, call.name, "immediate", refused.reason, limits
                 )
                 yield CopilotEvent(
                     step=_step_end(
-                        call, status="refused", detail=refused.reason, started_at=started_at
+                        call, status="refused", detail=refused.plain, started_at=started_at
                     )
                 )
                 messages = _with_tool_result(
@@ -2645,6 +2771,9 @@ async def _run_tool_loop(
                 continue
 
             actions_run += 1
+            changed = True
+            for fragment in held:
+                yield CopilotEvent(text=fragment)
             yield CopilotEvent(
                 step=_step_end(call, status="done", detail=action.detail, started_at=started_at)
             )
@@ -2730,6 +2859,8 @@ async def _run_tool_loop(
                 continue
 
             navigations_run += 1
+            for fragment in held:
+                yield CopilotEvent(text=fragment)
             yield CopilotEvent(
                 step=_step_end(
                     call, status="done", detail=destination.detail, started_at=started_at
@@ -2788,15 +2919,17 @@ async def _run_tool_loop(
 
     # OUT OF TURNS. The person gets a sentence they can act on, and — when the last thing
     # that happened was a refused tool call — the reason, because "narrow the request" is
-    # unhelpful advice to somebody whose real problem is that the field is read-only.
+    # unhelpful advice to somebody whose real problem is that the field is read-only. Every
+    # reason here is the owner's version (`WriteRefusedError.plain`, `FillRefusedError.plain`
+    # and the loop's own sentences); what the model was told stays with the model.
     detail = f" ({'; '.join(refusal_reasons)})" if refusal_reasons else ""
-    # STRIPPED LIKE EVERY OTHER TEXT EVENT. This one is assembled here rather than
-    # forwarded from `turn`, so it missed the strip in the loop above — and it is not
-    # purely our own words: the reasons quote field ids and tool names the MODEL wrote,
-    # which is exactly the untrusted string the egress half of the rule exists for.
+    # STRIPPED LIKE EVERY OTHER TEXT EVENT: a fill refusal names a field by its label, and
+    # the screen wrote the label.
     yield CopilotEvent(text=strip_invisible(f"{EXHAUSTED_MESSAGE}{detail}"))
+    # A RUN THAT RAN OUT OF TURNS IS OUR COST, NOT THE CLIENT'S ALLOWANCE: the turns went on
+    # our own guards and the model's slips, and the person got no answer for them.
     yield CopilotEvent(
-        spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+        spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model, unused=True)
     )
 
 

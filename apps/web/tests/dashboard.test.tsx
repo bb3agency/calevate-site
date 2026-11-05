@@ -1015,7 +1015,8 @@ describe("this week", () => {
     expect(await figure(card, "Calls")).toContain("29↑ +70.6% vs the previous 7 days");
     // A rate moves in points, not as a percentage of a percentage.
     expect(await figure(card, "Answer rate")).toContain("69%↑ +4.5 points");
-    expect(await figure(card, "New leads")).toContain("6↑ +200%");
+    // An unjudged business reads its interested callers, never "leads" (lane D `leadWords`).
+    expect(await figure(card, "Interested callers")).toContain("6↑ +200%");
     expect(await figure(card, "Average call length")).toContain("1:34↓ −21.7%");
     // Nothing urgent: the week's calls lead; an inbound agent cannot dial, so no campaign.
     expect(await actions(card)).toEqual([

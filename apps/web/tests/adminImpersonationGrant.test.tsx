@@ -44,9 +44,9 @@ const IMPERSONATED = [
   "/v1/kb/sources?status=approved",
   // The agents, numbers, templates and spend-cap reads left the overview with their panels
   // (D-661: Agents, Compliance › Campaign setup, Money › Spend); the grant rule is unchanged.
-  // The health summary at the top of the overview (redesign #2) reads the client's own
-  // wallet, line incidents and last calls through the same session, so each needs the grant.
-  "/v1/billing/wallet",
+  // The health summary at the top of the overview (redesign #2) reads the client's line
+  // incidents and last calls through the same session, so each needs the grant. Its wallet
+  // is an admin-realm read (the client route refuses view-as), so it carries no grant.
   "/v1/healer/incidents?days=30&limit=20",
   "/v1/calls?limit=5",
 ];
@@ -185,6 +185,10 @@ describe("view-as sends a grant, and mints it once", () => {
     expect(new Set(impersonated.map((call) => call.path))).toEqual(
       new Set(IMPERSONATED.map((path) => path)),
     );
+    // The overview reads credit on the admin session: the client's wallet route refuses an
+    // impersonated read, so a view-as wallet read could never answer.
+    expect(calls.some((call) => call.path === "/v1/billing/wallet")).toBe(false);
+    expect(calls.some((call) => call.path === `${TENANT_PATH}/wallet`)).toBe(true);
 
     // The admin realm's own reads are NOT impersonated and must not carry a grant —
     // they are cross-tenant, and attaching one would be claiming a scope they do not use.

@@ -51,7 +51,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.display import display_inr
 from apps.api.billing.payment_objects import AUTO_RECHARGE, MANDATE, record_route
-from apps.api.billing.payments import NOTES_TENANT_KEY, verify_checkout_signature
+from apps.api.billing.payments import (
+    NOTES_TENANT_KEY,
+    inr_to_paise,
+    verify_checkout_signature,
+)
 from apps.api.billing.plans import ist_billing_month, ist_month_window
 from apps.api.billing.razorpay_api import (
     MANDATE_AUTH_AMOUNT_INR,
@@ -462,7 +466,7 @@ async def begin_mandate(
         key_id=key_id,
         order_id=order_id,
         customer_id=customer_id,
-        amount_paise=int(MANDATE_AUTH_AMOUNT_INR * 100),
+        amount_paise=inr_to_paise(MANDATE_AUTH_AMOUNT_INR),
         notes=notes,
     )
 

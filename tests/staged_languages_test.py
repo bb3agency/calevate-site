@@ -51,7 +51,13 @@ READY = StagedLanguageReadiness(
     sentences_reviewed_on=date(2026, 10, 24),
     test_call_checked_on=date(2026, 10, 25),
     engine_confirmation="ThinnestAI reply of 25 Oct 2026",
+    tag=TAMIL,
 )
+
+
+def _with_tamil_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The founder's Tamil do-not-call phrases, as `spoken_lines.json` would hold them."""
+    monkeypatch.setattr(languages, "opt_out_phrases_recorded", lambda tag: True)
 
 
 @pytest.fixture
@@ -61,6 +67,7 @@ def tamil_switched_on(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def tamil_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    _with_tamil_opt_out(monkeypatch)
     monkeypatch.setitem(languages.STAGED_LANGUAGE_READINESS, TAMIL, READY)  # type: ignore[arg-type]
 
 
@@ -86,7 +93,19 @@ def test_no_staged_language_is_ready_today() -> None:
     for tag in staged_language_tags():
         record = STAGED_LANGUAGE_READINESS[tag]
         assert not record.ready and not record.testable, tag
-        assert len(record.missing()) == 3, tag
+        assert len(record.missing()) == 4, tag
+        assert "its do-not-call phrases recorded" in record.missing(), tag
+
+
+def test_a_language_without_do_not_call_phrases_is_never_ready() -> None:
+    """G5-2: a Tamil caller's "don't call me" must reach the do-not-call ledger before a
+    Tamil agent may call anyone. Everything else on record is not enough."""
+    assert READY.missing() == ("its do-not-call phrases recorded",)
+    assert not READY.ready
+    assert languages.opt_out_phrases_recorded("te-IN")
+    assert languages.opt_out_phrases_recorded("hi-IN")
+    assert languages.opt_out_phrases_recorded("en-IN")
+    assert not languages.opt_out_phrases_recorded(TAMIL)
 
 
 @pytest.mark.usefixtures("tamil_switched_on")
@@ -99,6 +118,8 @@ def test_a_switched_on_language_stays_hidden_until_its_record_is_complete(
     monkeypatch.setitem(languages.STAGED_LANGUAGE_READINESS, TAMIL, REVIEWED)  # type: ignore[arg-type]
     assert enabled_staged_tags() == (), "reviewed sentences alone do not offer it to everyone"
     monkeypatch.setitem(languages.STAGED_LANGUAGE_READINESS, TAMIL, READY)  # type: ignore[arg-type]
+    assert enabled_staged_tags() == (), "not without its do-not-call phrases"
+    _with_tamil_opt_out(monkeypatch)
     assert client_language_tags() == (*offered_language_tags(), TAMIL)
 
 

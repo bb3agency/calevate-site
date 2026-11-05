@@ -100,6 +100,8 @@ import re
 import unicodedata
 from typing import Final
 
+from apps.api.copilot.word_lists import provider_spellings
+
 #: The assistant's name (D-772, founder 14 Oct 2026). It names the product's assistant and
 #: says nothing about being a person: every sentence that carries it also says "an AI".
 #: The web app spells it once in `apps/web/src/lib/copilot/assistantName.ts`;
@@ -143,14 +145,12 @@ VENDOR_WORDS: Final[tuple[str, ...]] = (
 #: * **Product aliases** — "chatgpt", "bard", "copilot" is NOT here (it is this product's
 #:   own word for the feature), "gemma", "grok".
 #: * **Non-Latin spellings**, because this platform is Telugu-first and its users ask
-#:   questions in Telugu, Hindi and English. These are matched by CONTAINMENT rather than
-#:   by `\b`, since `\b` is defined on Latin word characters and does nothing useful
-#:   between Telugu syllables.
-#:
-#: ⚠ EVIDENCE CLASS. The transliterations are ordinary orthography, not a claim about a
-#: vendor, and a wrong one costs a MISSED match (a false negative that `strict` and the
-#: prompt still stand in front of) and never a false one. They are not exhaustive and are
-#: not asserted to be: a script nobody enumerated is the documented ceiling above.
+#:   questions in Telugu, Hindi and English. They are founder-owned data, not code
+#:   (`calevate_shared/provider_spellings.json`, read by `word_lists.provider_spellings`),
+#:   and matched by CONTAINMENT rather than by `\b`, since `\b` is defined on Latin word
+#:   characters and does nothing useful between Telugu syllables. The file states their
+#:   evidence class: ordinary transliteration, where a missing spelling costs a missed
+#:   match and never a false one.
 VENDOR_ALIASES: Final[tuple[str, ...]] = (
     "open ai",
     "open-ai",
@@ -160,12 +160,6 @@ VENDOR_ALIASES: Final[tuple[str, ...]] = (
     "gemma",
     "grok",
     "xai",
-    "గూగుల్",  # google, Telugu
-    "गूगल",  # google, Devanagari
-    "जेमिनी",  # gemini, Devanagari
-    "జెమిని",  # gemini, Telugu
-    "ఓపెన్ ఏఐ",  # open ai, Telugu
-    "ओपनएआई",  # openai, Devanagari
 )
 
 #: Latin lookalikes from other scripts, folded before matching. A model does not type a
@@ -246,7 +240,9 @@ def names_a_vendor(text: str) -> bool:
     normalized = _normalize(text)
     if _VENDOR_WORD_RE.search(normalized):
         return True
-    return any(alias in normalized for alias in VENDOR_ALIASES)
+    return any(alias in normalized for alias in VENDOR_ALIASES) or any(
+        _normalize(spelling) in normalized for spelling in provider_spellings()
+    )
 
 
 #: An assertion by the speaker about WHAT IT IS or WHO MADE IT. The other half of the
@@ -378,8 +374,9 @@ def question_touches_model_identity(question: str) -> bool:
     answer.
 
     This is also what covers the language gap the module docstring admits: the sentence
-    rule below is English, this is not, and a Telugu answer to "మీరు ఏ మోడల్?" that names
-    Google is still caught, because the strict rule needs no English at all.
+    rule below is English, this is not, and a Telugu answer to "which model are you?"
+    (asked in Telugu) that names Google is still caught, because the strict rule needs no
+    English at all.
     """
     normalized = _normalize(question)
     if is_identity_question(question) or _MODEL_TALK.search(normalized):
@@ -390,7 +387,7 @@ def question_touches_model_identity(question: str) -> bool:
 #: Where one sentence ends. The Latin stops, the newline (a bullet list has no full stops
 #: and each line is still one assertion), and the Devanagari danda, which is the sentence
 #: terminator in Hindi and is what a Devanagari answer actually uses.
-_SENTENCE_END: Final = re.compile(r"[.!?\n।॥]")
+_SENTENCE_END: Final = re.compile(r"[.!?\n\u0964\u0965]")
 
 #: How much unterminated text is held before some of it is released anyway.
 #:

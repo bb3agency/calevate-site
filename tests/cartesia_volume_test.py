@@ -228,6 +228,10 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
     # must never get a veto over a card that is on sale.
     assert published.floor_inr_per_min == "5.0554"
     assert published.refusal_floor_inr_per_min == "5.0256"
+    # A7-24: the rate that floor is struck at is served, so the console types no copy of it.
+    from apps.api.billing.rates import PLANNING_USD_INR
+
+    assert published.refusal_usd_inr == str(PLANNING_USD_INR)
     assert Decimal(published.floor_inr_per_min) > Decimal(published.refusal_floor_inr_per_min)
     assert Decimal(published.refusal_floor_inr_per_min) < min(
         pack.studio_inr_per_min for pack in PACK_CATALOGUE

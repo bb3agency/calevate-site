@@ -939,6 +939,13 @@
           "capabilities": {
             "$ref": "#/components/schemas/Capabilities"
           },
+          "capability_overrides": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Capability Overrides",
+            "type": "object"
+          },
           "cost_inr": {
             "anyOf": [
               {
@@ -1112,7 +1119,8 @@
           "cost_inr",
           "absorbed",
           "last_trigger",
-          "last_attempt_at"
+          "last_attempt_at",
+          "capability_overrides"
         ],
         "title": "AdminBusinessCopyOut",
         "type": "object"
@@ -2760,6 +2768,9 @@
             "title": "Filler Lines Source",
             "type": "string"
           },
+          "give_callers_time": {
+            "$ref": "#/components/schemas/GiveCallersTimeOut"
+          },
           "nudge_after_seconds": {
             "anyOf": [
               {
@@ -2996,9 +3007,6 @@
             ],
             "title": "Organization Turn Silence Ms"
           },
-          "patient_caller": {
-            "$ref": "#/components/schemas/PatientCallerOut"
-          },
           "reask_after_ms": {
             "anyOf": [
               {
@@ -3096,7 +3104,7 @@
           "organization_opening_wait_ms",
           "organization_reask_after_ms",
           "bounds",
-          "patient_caller"
+          "give_callers_time"
         ],
         "title": "AgentCallHandlingOut",
         "type": "object"
@@ -10372,6 +10380,40 @@
       "CallLinesOut": {
         "additionalProperties": false,
         "properties": {
+          "account_ceiling": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Ceiling"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          },
+          "applied_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied Lines"
+          },
           "call_lines": {
             "title": "Call Lines",
             "type": "integer"
@@ -10386,6 +10428,19 @@
               }
             ],
             "title": "Call Lines Chosen"
+          },
+          "engine_state": {
+            "enum": [
+              "ours",
+              "applied",
+              "applying"
+            ],
+            "title": "Engine State",
+            "type": "string"
+          },
+          "lines_elsewhere_at_most": {
+            "title": "Lines Elsewhere At Most",
+            "type": "integer"
           },
           "max_lines": {
             "title": "Max Lines",
@@ -10434,7 +10489,12 @@
           "min_lines",
           "max_lines",
           "paid_default",
-          "trial_default"
+          "trial_default",
+          "engine_state",
+          "applied_lines",
+          "applied_at",
+          "account_ceiling",
+          "lines_elsewhere_at_most"
         ],
         "title": "CallLinesOut",
         "type": "object"
@@ -11236,11 +11296,17 @@
             "title": "Opening Line",
             "type": "string"
           },
+          "opening_notices": {
+            "$ref": "#/components/schemas/OpeningNotices"
+          },
           "outbound_opening_line": {
             "default": "",
             "maxLength": 1000,
             "title": "Outbound Opening Line",
             "type": "string"
+          },
+          "outbound_opening_notices": {
+            "$ref": "#/components/schemas/OpeningNotices"
           },
           "outbound_purpose": {
             "default": "",
@@ -12617,11 +12683,11 @@
             "title": "Engine Synced",
             "type": "boolean"
           },
-          "patient_settings": {
+          "give_callers_time_settings": {
             "items": {
               "type": "string"
             },
-            "title": "Patient Settings",
+            "title": "Give Callers Time Settings",
             "type": "array"
           }
         },
@@ -13323,7 +13389,7 @@
       },
       "Capabilities": {
         "additionalProperties": false,
-        "description": "What this business does with its callers, judged by the copy run from its own details.\n\ntakes_bookings: callers book a time, slot, visit or meeting. takes_orders: callers order\ngoods for pickup or delivery. quotes_prices: the business tells callers prices.\nhas_premises: callers come to a place (a shop, an office, a site). sells: the business\nsells anything to callers at all (False for a free app helping its registered users, or a\nhelpline). health_business: it gives health or medical care.\n\nTHE UNKNOWN RULE: `applies is None` means \"not judged yet\", and a consumer then behaves\nexactly as it did before this profile existed. Only `applies is False` may withdraw\nanything; never read None as False.",
+        "description": "What this business does with its callers, judged by the copy run from its own details.\n\ntakes_bookings: callers book a time, slot, visit or meeting. takes_orders: callers order\ngoods for pickup or delivery. quotes_prices: the business tells callers prices.\nhas_premises: callers come to a place (a shop, an office, a site). sells: the business\nsells anything to callers at all (False for a free app helping its registered users, or a\nhelpline). health_business: it gives health or medical care.\n\nTHE UNKNOWN RULE: `applies is None` means \"not judged yet\". Never read None as False\nwhere False takes something away (a switch the owner may turn on, a check that keeps a\ncaller safe); never read it as True where True puts words in an agent's or a screen's\nmouth (a booking offered, a price quoted, a sale assumed). `offered` and `assumed` are\nthe two readings.",
         "properties": {
           "has_premises": {
             "$ref": "#/components/schemas/Capability"
@@ -13381,6 +13447,27 @@
           "applies"
         ],
         "title": "Capability",
+        "type": "object"
+      },
+      "CapabilityOverrideIn": {
+        "additionalProperties": false,
+        "properties": {
+          "applies": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies"
+          }
+        },
+        "required": [
+          "applies"
+        ],
+        "title": "CapabilityOverrideIn",
         "type": "object"
       },
       "CapsIn": {
@@ -13882,6 +13969,10 @@
           "refusal_floor_inr_per_min": {
             "title": "Refusal Floor Inr Per Min",
             "type": "string"
+          },
+          "refusal_usd_inr": {
+            "title": "Refusal Usd Inr",
+            "type": "string"
           }
         },
         "required": [
@@ -13897,6 +13988,7 @@
           "floor_inr_per_min",
           "best_marginal_cost_inr_per_min",
           "refusal_floor_inr_per_min",
+          "refusal_usd_inr",
           "plan_crossover_call_minutes",
           "plans",
           "ladder"
@@ -14639,6 +14731,10 @@
         "additionalProperties": false,
         "description": "What the client sees of its own lines: the number in force, how many are busy now,\nand its request for more. Choosing the number stays the operator's (a commercial\ndecision), so the client asks rather than sets.",
         "properties": {
+          "being_applied": {
+            "title": "Being Applied",
+            "type": "boolean"
+          },
           "call_lines": {
             "title": "Call Lines",
             "type": "integer"
@@ -14670,7 +14766,8 @@
           "call_lines",
           "in_progress",
           "on_trial",
-          "max_lines"
+          "max_lines",
+          "being_applied"
         ],
         "title": "ClientCallLinesOut",
         "type": "object"
@@ -14718,6 +14815,30 @@
           "unfiled"
         ],
         "title": "ClientFilingOut",
+        "type": "object"
+      },
+      "ClientHealthBoardOut": {
+        "additionalProperties": false,
+        "description": "The board, and when it was worked out. The worker recomputes it every\n`health.BOARD_REFRESH_S`; one per request was a walk of every tenant per poll.",
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/ClientHealthOut"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "computed_at": {
+            "format": "date-time",
+            "title": "Computed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "computed_at",
+          "accounts"
+        ],
+        "title": "ClientHealthBoardOut",
         "type": "object"
       },
       "ClientHealthOut": {
@@ -16458,6 +16579,17 @@
             "title": "Description",
             "type": "string"
           },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Details"
+          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
@@ -16591,6 +16723,7 @@
           "control",
           "label",
           "description",
+          "details",
           "section",
           "subsection",
           "engine_scope",
@@ -17740,6 +17873,11 @@
               }
             ],
             "title": "Plan Id"
+          },
+          "queued": {
+            "default": false,
+            "title": "Queued",
+            "type": "boolean"
           },
           "tool": {
             "title": "Tool",
@@ -20699,7 +20837,7 @@
       },
       "CreditPacksOut": {
         "additionalProperties": false,
-        "description": "The pack rate card: six packs, each with a Sarvam and a Cartesia \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged. The\ntwo tier LABELS obey the same rule for a different kind of value: the name a client\nreads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing\nsite renders a name we chose once rather than a copy that drifts from it.",
+        "description": "The pack rate card: six packs, each with a Clear and a Studio \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged. The\ntwo tier LABELS obey the same rule for a different kind of value: the name a client\nreads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing\nsite renders a name we chose once rather than a copy that drifts from it.",
         "properties": {
           "clear_tier_label": {
             "title": "Clear Tier Label",
@@ -21573,8 +21711,23 @@
       },
       "DeadLetterJobOut": {
         "additionalProperties": false,
-        "description": "One `job`'s share of the outbox DLQ.\n\nCOUNTS AND JOB NAMES ONLY (hard rule 6). `outbox_messages.payload` is JSONB holding\nlead fields and phone numbers; `job` is an ARQ job name \u2014 a code identifier \u2014 and\nnothing derived from a payload reaches this model. See\n`reliability.service.DeadLetterQueue`, which is where that boundary is enforced.",
+        "description": "One `job`'s share of the outbox DLQ.\n\nNever the payload (hard rule 6): `outbox_messages.payload` is JSONB holding lead fields\nand phone numbers. `last_error` is the most recent failure's error, which is redacted\nwhen it is written (`reliability.service._stored_error`), so an operator can see why a\njob failed before resending it.",
         "properties": {
+          "cause": {
+            "anyOf": [
+              {
+                "enum": [
+                  "never_ran",
+                  "earlier_run_failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause"
+          },
           "depth": {
             "title": "Depth",
             "type": "integer"
@@ -21582,6 +21735,21 @@
           "job": {
             "title": "Job",
             "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
           },
           "oldest_at": {
             "format": "date-time",
@@ -21591,8 +21759,11 @@
         },
         "required": [
           "job",
+          "label",
           "depth",
-          "oldest_at"
+          "oldest_at",
+          "last_error",
+          "cause"
         ],
         "title": "DeadLetterJobOut",
         "type": "object"
@@ -21616,6 +21787,14 @@
             "title": "Depth",
             "type": "integer"
           },
+          "held_for_bulk_worker": {
+            "title": "Held For Bulk Worker",
+            "type": "integer"
+          },
+          "held_for_release": {
+            "title": "Held For Release",
+            "type": "integer"
+          },
           "oldest_at": {
             "anyOf": [
               {
@@ -21627,13 +21806,38 @@
               }
             ],
             "title": "Oldest At"
+          },
+          "oldest_pending_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Pending At"
+          },
+          "stalled_after_minutes": {
+            "title": "Stalled After Minutes",
+            "type": "integer"
+          },
+          "stalled_pending": {
+            "title": "Stalled Pending",
+            "type": "integer"
           }
         },
         "required": [
           "depth",
           "oldest_at",
           "by_job",
-          "deferred"
+          "deferred",
+          "stalled_pending",
+          "oldest_pending_at",
+          "stalled_after_minutes",
+          "held_for_release",
+          "held_for_bulk_worker"
         ],
         "title": "DeadLetterQueueOut",
         "type": "object"
@@ -26428,6 +26632,18 @@
       "FixLinesIn": {
         "additionalProperties": false,
         "properties": {
+          "base_saved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Saved At"
+          },
           "script": {
             "$ref": "#/components/schemas/CallScript"
           }
@@ -26436,6 +26652,124 @@
           "script"
         ],
         "title": "FixLinesIn",
+        "type": "object"
+      },
+      "FixLinesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "base_script": {
+            "$ref": "#/components/schemas/CallScript"
+          },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "documents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "draft_saved_at": {
+            "format": "date-time",
+            "title": "Draft Saved At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "change",
+              "whole",
+              "steps",
+              "knowledge",
+              "opening",
+              "written",
+              "starter"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "drafting",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unplaced": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unplaced",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "documents",
+          "status",
+          "request",
+          "base_script",
+          "script",
+          "unplaced",
+          "disclosure",
+          "note",
+          "requested_at",
+          "draft_saved_at"
+        ],
+        "title": "FixLinesOut",
         "type": "object"
       },
       "FlagStateOut": {
@@ -28252,6 +28586,51 @@
         "title": "FxRateOut",
         "type": "object"
       },
+      "GiveCallersTimeOut": {
+        "additionalProperties": false,
+        "description": "The \"Give callers time\" preset (D-907) for this agent: what it sets and whether the\nsettings in force match it.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "call_cap_s": {
+            "title": "Call Cap S",
+            "type": "integer"
+          },
+          "end_after_silence_seconds": {
+            "title": "End After Silence Seconds",
+            "type": "integer"
+          },
+          "nudge_after_seconds": {
+            "title": "Nudge After Seconds",
+            "type": "integer"
+          },
+          "nudge_count": {
+            "title": "Nudge Count",
+            "type": "integer"
+          },
+          "nudge_phrase": {
+            "title": "Nudge Phrase",
+            "type": "string"
+          },
+          "reask_after_ms": {
+            "title": "Reask After Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "nudge_after_seconds",
+          "nudge_count",
+          "nudge_phrase",
+          "end_after_silence_seconds",
+          "reask_after_ms",
+          "call_cap_s"
+        ],
+        "title": "GiveCallersTimeOut",
+        "type": "object"
+      },
       "GlobalEntryOut": {
         "additionalProperties": false,
         "properties": {
@@ -28404,6 +28783,25 @@
       "GoLiveOut": {
         "additionalProperties": false,
         "properties": {
+          "agreements": {
+            "enum": [
+              "todo",
+              "done"
+            ],
+            "title": "Agreements",
+            "type": "string"
+          },
+          "business_review_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Review Note"
+          },
           "current": {
             "enum": [
               "move",
@@ -28453,7 +28851,12 @@
           "number": {
             "enum": [
               "locked",
+              "add_credit",
+              "setting_up",
+              "send_details",
               "waiting_approval",
+              "needs_attention",
+              "not_on_sale",
               "todo",
               "done"
             ],
@@ -28475,6 +28878,14 @@
               }
             ],
             "title": "Owed At"
+          },
+          "pledge": {
+            "enum": [
+              "todo",
+              "done"
+            ],
+            "title": "Pledge",
+            "type": "string"
           },
           "switch_on": {
             "enum": [
@@ -28503,7 +28914,10 @@
           "current",
           "move",
           "verify",
+          "agreements",
+          "pledge",
           "number",
+          "business_review_note",
           "numbers",
           "switch_on",
           "live_agents"
@@ -35996,6 +36410,21 @@
             "title": "Id",
             "type": "string"
           },
+          "not_started": {
+            "title": "Not Started",
+            "type": "boolean"
+          },
+          "not_started_after_minutes": {
+            "title": "Not Started After Minutes",
+            "type": "integer"
+          },
+          "reason_labels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Labels",
+            "type": "array"
+          },
           "reasons": {
             "items": {
               "type": "string"
@@ -36068,6 +36497,9 @@
           "tenant_id",
           "agent_id",
           "reasons",
+          "reason_labels",
+          "not_started",
+          "not_started_after_minutes",
           "status",
           "total",
           "applied",
@@ -38861,6 +39293,44 @@
         "title": "OpeningLineOut",
         "type": "object"
       },
+      "OpeningNotices": {
+        "additionalProperties": false,
+        "description": "What the notice writer did to one opening line (D-971), kept in the script beside it.\n\n`ai` and `recording` are the exact words of `line` that say each notice, as the writer\nreturned them; they count only while the opening is still `line` (`said_in`). `before` is\nthe line the writer replaced, shown with an Undo; `kept_own` is a line the owner put back\nover the writer's, which is not rewritten again.",
+        "properties": {
+          "ai": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Ai",
+            "type": "string"
+          },
+          "before": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Before",
+            "type": "string"
+          },
+          "kept_own": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Kept Own",
+            "type": "string"
+          },
+          "line": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Line",
+            "type": "string"
+          },
+          "recording": {
+            "default": "",
+            "maxLength": 1000,
+            "title": "Recording",
+            "type": "string"
+          }
+        },
+        "title": "OpeningNotices",
+        "type": "object"
+      },
       "OperatorCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -40438,51 +40908,6 @@
           "revoked"
         ],
         "title": "PasswordChangeOut",
-        "type": "object"
-      },
-      "PatientCallerOut": {
-        "additionalProperties": false,
-        "description": "The \"Give callers time\" preset (D-907) for this agent: what it sets and whether the\nsettings in force match it.",
-        "properties": {
-          "applied": {
-            "title": "Applied",
-            "type": "boolean"
-          },
-          "call_cap_s": {
-            "title": "Call Cap S",
-            "type": "integer"
-          },
-          "end_after_silence_seconds": {
-            "title": "End After Silence Seconds",
-            "type": "integer"
-          },
-          "nudge_after_seconds": {
-            "title": "Nudge After Seconds",
-            "type": "integer"
-          },
-          "nudge_count": {
-            "title": "Nudge Count",
-            "type": "integer"
-          },
-          "nudge_phrase": {
-            "title": "Nudge Phrase",
-            "type": "string"
-          },
-          "reask_after_ms": {
-            "title": "Reask After Ms",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "applied",
-          "nudge_after_seconds",
-          "nudge_count",
-          "nudge_phrase",
-          "end_after_silence_seconds",
-          "reask_after_ms",
-          "call_cap_s"
-        ],
-        "title": "PatientCallerOut",
         "type": "object"
       },
       "PaymentAlarmOut": {
@@ -43755,6 +44180,14 @@
             "title": "Fix",
             "type": "string"
           },
+          "not_checked_in": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Not Checked In",
+            "type": "array"
+          },
           "truncated": {
             "title": "Truncated",
             "type": "boolean"
@@ -44457,6 +44890,22 @@
           "refused"
         ],
         "title": "PushAckOut",
+        "type": "object"
+      },
+      "PutBackOpeningIn": {
+        "additionalProperties": false,
+        "properties": {
+          "when": {
+            "default": "answers",
+            "enum": [
+              "answers",
+              "calls"
+            ],
+            "title": "When",
+            "type": "string"
+          }
+        },
+        "title": "PutBackOpeningIn",
         "type": "object"
       },
       "QaQueueClient": {
@@ -45675,7 +46124,8 @@
           "actor": {
             "enum": [
               "client",
-              "calevate"
+              "calevate",
+              "outside"
             ],
             "title": "Actor",
             "type": "string"
@@ -47706,6 +48156,35 @@
           "latest_evidence_id"
         ],
         "title": "RestoreIn",
+        "type": "object"
+      },
+      "RestoredOut": {
+        "additionalProperties": false,
+        "properties": {
+          "replaced": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "saved_at": {
+            "format": "date-time",
+            "title": "Saved At",
+            "type": "string"
+          },
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script",
+          "saved_at"
+        ],
+        "title": "RestoredOut",
         "type": "object"
       },
       "RetentionLineOut": {
@@ -55426,7 +55905,8 @@
           "actor": {
             "enum": [
               "client",
-              "calevate"
+              "calevate",
+              "outside"
             ],
             "title": "Actor",
             "type": "string"
@@ -55737,6 +56217,18 @@
               }
             ],
             "title": "Credit Inr"
+          },
+          "credit_unpacked_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credit Unpacked Inr"
           },
           "holds": {
             "items": {
@@ -62395,12 +62887,19 @@
             "type": "string"
           },
           "recommended": {
-            "enum": [
-              "clear",
-              "studio"
+            "anyOf": [
+              {
+                "enum": [
+                  "clear",
+                  "studio"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Recommended",
-            "type": "string"
+            "title": "Recommended"
           },
           "tiers": {
             "items": {
@@ -66060,18 +66559,14 @@
     },
     "/v1/admin/client-health": {
       "get": {
-        "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`.",
+        "description": "Every live client account with at least one live signal, ranked by how much is broken: the account with the most `stop` signals first, then the most `warn`. An account with nothing wrong is ABSENT \u2014 this is an exception report, not the client directory (`GET /v1/admin/tenants` is the roster). Signals are composed from the same predicates that refuse the client's dial, so the board cannot say an account is fine while the client is looking at a refusal. `calls_basis` says whether the call-volume comparison is entitled to be made at all; a trend must never be rendered on any value but `measured`. The board is computed by a background job every two minutes; `computed_at` says when. With no fresh board one request computes it and others get a retryable 503 `client_health_computing`.",
         "operationId": "read_client_health_v1_admin_client_health_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ClientHealthOut"
-                  },
-                  "title": "Response Read Client Health V1 Admin Client Health Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ClientHealthBoardOut"
                 }
               }
             },
@@ -69005,7 +69500,7 @@
     },
     "/v1/admin/organizations/{org_id}/call-lines": {
       "get": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).",
         "operationId": "admin_get_call_lines_v1_admin_organizations__org_id__call_lines_get",
         "parameters": [
           {
@@ -69044,7 +69539,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "put": {
-        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it.",
+        "description": "How many calls this client may have at once. `null` is Calevate's default: 2 for a paying client, 1 on a free trial; a chosen value is 1-50. A paying client's own voice workspace is capped at it; a free trial's calls are counted by our dial gate, which refuses one more with `call_lines_busy`. `open_request` is the client's request for more, if one waits; raising the lines above what the client had closes it, at once when the cap is ours and once the client's own workspace reads it back otherwise (`engine_state`).",
         "operationId": "admin_set_call_lines_v1_admin_organizations__org_id__call_lines_put",
         "parameters": [
           {
@@ -70505,8 +71000,8 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-handling/give-callers-time": {
       "post": {
-        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
-        "operationId": "admin_apply_patient_caller_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post",
+        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
+        "operationId": "admin_apply_give_callers_time_v1_admin_tenants__tenant_id__agents__agent_id__call_handling_give_callers_time_post",
         "parameters": [
           {
             "in": "path",
@@ -71841,6 +72336,66 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {
+      "put": {
+        "description": "Sets what the business does with its callers (for example `takes_bookings`) where the AI judged it wrongly. A regeneration keeps the correction. `applies: null` restores the AI's verdict. Audited.",
+        "operationId": "admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "capability",
+            "required": true,
+            "schema": {
+              "title": "Capability",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityOverrideIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBusinessCopyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Correct one capability the AI judged for this client, or go back to the AI's",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/business-copy/refresh": {
@@ -75748,6 +76303,47 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/wallet": {
+      "get": {
+        "description": "Balance, runway, minutes left, trial, and whether outbound is stopped for lack of credit: the answer `GET /v1/billing/wallet` gives the client, for an account named in the path. Reading this writes an `admin.tenant_read` audit row.",
+        "operationId": "read_tenant_wallet_v1_admin_tenants__tenant_id__wallet_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's wallet as the client reads it \u2014 the operator's copy",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/whatsapp-alerts": {
       "get": {
         "description": "The owner's current opt-in state, for the operator about to record one from a document. No phone number is returned \u2014 the subject is the tenant's owner, resolved server-side from the same row the alert job would send to.",
@@ -76969,8 +77565,8 @@
     },
     "/v1/agents/{agent_id}/call-handling/give-callers-time": {
       "post": {
-        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`patient_caller.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `patient_caller.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
-        "operationId": "apply_patient_caller_v1_agents__agent_id__call_handling_give_callers_time_post",
+        "description": "One tap for a caller who follows the agent along on their own phone and goes quiet for long stretches: on this agent alone, ask whether they are still there after 20 s, up to 3 times, in the agent's main language (`give_callers_time.nudge_phrase` on the read), hang up after 120 s of silence, never repeat an unanswered question on a timer, and raise the longest call to `give_callers_time.call_cap_s` (a longer one is kept). Each is an ordinary setting afterwards. Applies from the next call.",
+        "operationId": "apply_give_callers_time_v1_agents__agent_id__call_handling_give_callers_time_post",
         "parameters": [
           {
             "in": "path",
@@ -77275,7 +77871,7 @@
     },
     "/v1/agents/{agent_id}/caller-screen": {
       "patch": {
-        "description": "For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.\n\nSwitching on also gives the agent the \"Give callers time\" silence settings and longest call wherever they are still the default (`patient_settings` names them).\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.",
+        "description": "For an agent that walks callers through an app or a website while they hold the phone: on, it may name what is on their screen, gives one step at a time and waits until they say it is done, says a step again more shortly when they could not do it, and spells a web address letter by letter. Off for every agent unless switched on.\n\nSwitching on also gives the agent the \"Give callers time\" silence settings and longest call wherever they are still the default (`give_callers_time_settings` names them).\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, and if that push fails nothing is saved.",
         "operationId": "set_caller_screen_route_v1_agents__agent_id__caller_screen_patch",
         "parameters": [
           {
@@ -78303,7 +78899,7 @@
     },
     "/v1/agents/{agent_id}/script/fix-lines": {
       "post": {
-        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that fixes exactly those lines and changes nothing else; poll `GET .../proposal` until it is `ready`. Refused with `script_has_nothing_to_fix` when the check finds nothing.",
+        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.",
         "operationId": "fix_script_lines_v1_agents__agent_id__script_fix_lines_post",
         "parameters": [
           {
@@ -78332,7 +78928,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScriptProposalOut"
+                  "$ref": "#/components/schemas/FixLinesOut"
                 }
               }
             },
@@ -78479,6 +79075,57 @@
           }
         },
         "summary": "Ask for the opening lines written for this business in the agent's main language",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/script/opening-line/put-back": {
+      "post": {
+        "description": "The Undo for the notice writer (D-971): the opening line it replaced goes live again and is not rewritten on the next publish; the stored notice sentences are said beside it. Refused when the line has changed since it was rewritten, or while other script changes are waiting to go live.",
+        "operationId": "put_back_opening_line_v1_agents__agent_id__script_opening_line_put_back_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutBackOpeningIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpeningLineOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back the opening line Pip rewrote to say the notices, and put it live",
         "tags": [
           "agents"
         ],
@@ -79222,7 +79869,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DraftOut"
+                  "$ref": "#/components/schemas/RestoredOut"
                 }
               }
             },
@@ -82648,7 +83295,7 @@
     },
     "/v1/billing/topups/packs": {
       "get": {
-        "description": "The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.",
+        "description": "The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Clear and Studio per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.",
         "operationId": "read_credit_packs_v1_billing_topups_packs_get",
         "responses": {
           "200": {

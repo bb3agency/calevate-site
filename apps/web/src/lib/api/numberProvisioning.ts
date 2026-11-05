@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * A number the client holds: which agent answers it (`POST /v1/numbers/{id}/assign`).
+ * Pointing a number the account holds at an agent (`POST /v1/numbers/{id}/assign`).
  *
- * Clients buy numbers in their own business name, in their own workspace (D-693, the
- * phone-number screen's own-numbers flow), so the routes that browsed and bought through
- * Calevate are retired and nothing here buys.
+ * Buying one is `lib/api/ownNumbers.ts`: numbers are rented in the business's own calling
+ * account (D-693). The older purchase panel that lived on these routes was retired (e2e
+ * audit OB-6), so this module carries the assignment alone.
  */
 
 import { useMutation, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
@@ -23,7 +23,7 @@ export const PATHS = {
 /** Held, and not usable until the holder's identity is verified. */
 export const NOT_ACTIVATED_CODE = "number_not_activated";
 
-/** What a number is for, when it is given to an agent. */
+/** What a number is for. Recorded when it is given to an agent. */
 export type CallDirection = "inbound" | "outbound" | "both";
 
 /** What the voice platform was TOLD, so a binding that failed is not reported as one that worked. */

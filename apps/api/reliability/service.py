@@ -85,6 +85,26 @@ OUTBOX_CLAIM_LEASE = timedelta(minutes=2)
 # release is coming for it, so it goes to the DLQ, where it is visible and replayable.
 OUTBOX_UNKNOWN_JOB_GRACE = timedelta(minutes=30)
 
+#: Jobs whose payload is a live one-time credential (D-170): forgotten in the statement that
+#: publishes them, so they are never re-published by `sweep_unconsumed_outbox` and a lost
+#: one is re-requested by the person (a new reset link, a new code). Every other job keeps
+#: its payload until its run succeeds (`mark_outbox_consumed`). Names, not imports: the
+#: producers import this module. `tests/outbox_unconsumed_test.py` holds them equal to
+#: `authn.service.AUTH_EMAIL_JOB` and `team_alerts.service.CODE_JOB`.
+SCRUB_AT_PUBLISH_JOBS: frozenset[str] = frozenset({"deliver_auth_email", "send_team_contact_code"})
+
+#: How long a published message may go without a successful run before it counts as lost.
+#: Longer than arq's longest result window (`WorkerSettings.keep_result`, one hour), so a
+#: re-publish of a failed run is not refused by the result its id still holds; a message
+#: still queued behind a bulk backlog or deferred by a `Retry` is refused as a duplicate on
+#: re-publish and simply waits again.
+OUTBOX_CONSUME_DEADLINE = timedelta(hours=2)
+
+#: How long a migration-queued message may wait for a release that contains its revision
+#: before the hold is alarmed (a rollback onto an older image, or a deploy stopped after
+#: migrating).
+OUTBOX_REVISION_HOLD_ALARM = timedelta(minutes=30)
+
 
 def body_hash(payload: Any) -> str:
     """Stable hash of a request/event body. Sorted keys so key order is not a
@@ -553,7 +573,12 @@ def _claim_engine(session: AsyncSession) -> AsyncEngine:
 
 
 async def claim_outbox_batch(
-    session: AsyncSession, *, limit: int = OUTBOX_BATCH, jobs: Collection[str] | None = None
+    session: AsyncSession,
+    *,
+    limit: int = OUTBOX_BATCH,
+    jobs: Collection[str] | None = None,
+    held: Collection[str] = (),
+    revisions: Collection[str] | None = None,
 ) -> list[OutboxMessageRow]:
     """Oldest-first claim by conditional UPDATE, **committed on its own connection**.
 
@@ -589,6 +614,15 @@ async def claim_outbox_batch(
 
     `jobs` is what the calling release runs; a message for any other job is left pending
     (see `OUTBOX_UNKNOWN_JOB_GRACE`). `None` claims every job.
+
+    `held` names jobs this release runs but must not publish yet — a bulk job no live bulk
+    worker advertises (`core/queue.bulk_jobs_served`). They are left pending and are NOT
+    retired as unknown: a release is coming for them, it just has not started reading.
+
+    `revisions` is every alembic revision in the calling image. A row a migration stamped
+    with `min_revision` is claimed only by an image that contains that revision, so the
+    release still running between migrate and swap leaves it for the code it was written
+    for. `None` claims stamped rows too (a caller that is not a release's dispatcher).
     """
     known = None if jobs is None else sorted(jobs)
     engine = _claim_engine(session)
@@ -596,6 +630,8 @@ async def claim_outbox_batch(
         await _dead_letter_exhausted_claims(conn)
         if known is not None:
             await _dead_letter_unknown_jobs(conn, known)
+        if revisions is not None:
+            await _alarm_revision_holds(conn, sorted(revisions))
         rows = (
             await conn.execute(
                 text(
@@ -603,6 +639,9 @@ async def claim_outbox_batch(
                     "  SELECT id FROM outbox_messages WHERE status = 'pending' "
                     "  AND (locked_until IS NULL OR locked_until <= now()) "
                     "  AND (CAST(:jobs AS text[]) IS NULL OR job = ANY(CAST(:jobs AS text[]))) "
+                    "  AND NOT (job = ANY(CAST(:held AS text[]))) "
+                    "  AND (min_revision IS NULL OR CAST(:revisions AS text[]) IS NULL "
+                    "       OR min_revision = ANY(CAST(:revisions AS text[]))) "
                     "  ORDER BY created_at, id LIMIT :limit FOR UPDATE SKIP LOCKED"
                     ") "
                     "UPDATE outbox_messages o SET attempt_count = o.attempt_count + 1, "
@@ -610,7 +649,13 @@ async def claim_outbox_batch(
                     "WHERE o.id = picked.id "
                     "RETURNING o.id, o.job, o.payload, o.attempt_count"
                 ),
-                {"limit": limit, "lease": OUTBOX_CLAIM_LEASE, "jobs": known},
+                {
+                    "limit": limit,
+                    "lease": OUTBOX_CLAIM_LEASE,
+                    "jobs": known,
+                    "held": sorted(held),
+                    "revisions": None if revisions is None else sorted(revisions),
+                },
             )
         ).all()
     return [
@@ -638,6 +683,30 @@ async def _dead_letter_unknown_jobs(conn: AsyncConnection, known: list[str]) -> 
             "outbox_dead_letter",
             detail=f"{len(retired)} message(s) for job(s) no worker runs: "
             f"{', '.join(sorted({r[0] for r in retired}))[:160]}",
+        )
+
+
+async def _alarm_revision_holds(conn: AsyncConnection, revisions: list[str]) -> None:
+    """Say so when migration-queued work has waited too long for a release that can run it.
+    Not retired: the release that contains the revision is the only correct consumer, and
+    the next forward deploy releases the hold."""
+    waiting = (
+        await conn.execute(
+            text(
+                "SELECT count(*) FROM outbox_messages WHERE status = 'pending' "
+                "AND min_revision IS NOT NULL "
+                "AND NOT (min_revision = ANY(CAST(:revisions AS text[]))) "
+                "AND created_at < now() - :after"
+            ),
+            {"revisions": revisions, "after": OUTBOX_REVISION_HOLD_ALARM},
+        )
+    ).scalar_one()
+    if waiting:
+        alert(
+            "OUTBOX_DISPATCH",
+            "outbox_held_for_release",
+            detail=f"{waiting} migration-queued message(s) wait for a release this image "
+            "predates; deploy the release that queued them",
         )
 
 
@@ -708,15 +777,31 @@ async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_
 
     `locked_until = NULL` on every terminal transition, so a non-null lease means "claimed
     right now, or abandoned" and never "resolved a while ago".
+
+    **ONLY THE CREDENTIAL JOBS ARE FORGOTTEN HERE NOW (L5-03, 5 Nov 2026).** Scrubbing every
+    payload at publish made a message arq then dropped ("function not found" during a
+    deploy, a run that failed for good) unrecoverable: nothing had its arguments any more.
+    So `SCRUB_AT_PUBLISH_JOBS` keep the D-170 rule above, and every other job keeps its
+    payload until its run succeeds, when `mark_outbox_consumed` forgets it in the statement
+    that records the success — the exposure is "until the work is done", not ninety days.
+    `consume_by` is the deadline `sweep_unconsumed_outbox` holds a run to.
     """
     await session.execute(
         text(
             "UPDATE outbox_messages SET status = 'published', job_id = :job_id, "
-            "payload = '{}'::jsonb, "
+            "payload = CASE WHEN job = ANY(CAST(:scrub AS text[])) THEN '{}'::jsonb "
+            "ELSE payload END, "
+            "consume_by = CASE WHEN job = ANY(CAST(:scrub AS text[])) THEN NULL "
+            "ELSE now() + :deadline END, "
             "published_at = now(), locked_until = NULL, updated_at = now() "
             "WHERE id = :id AND status = 'pending'"
         ),
-        {"id": message_id, "job_id": job_id},
+        {
+            "id": message_id,
+            "job_id": job_id,
+            "scrub": sorted(SCRUB_AT_PUBLISH_JOBS),
+            "deadline": OUTBOX_CONSUME_DEADLINE,
+        },
     )
 
 
@@ -761,15 +846,74 @@ async def outbox_message_consumed(session: AsyncSession, *, message_id: UUID, jo
 
 
 async def mark_outbox_consumed(session: AsyncSession, *, message_id: UUID, job: str) -> None:
-    """Record that a run of this message succeeded. First writer wins; the status column is
-    the dispatcher's and is not touched."""
+    """Record that a run of this message succeeded, and forget its payload in the same
+    statement: from here the row only answers "was this done". First writer wins; the
+    status column is the dispatcher's and is not touched."""
     await session.execute(
         text(
-            "UPDATE outbox_messages SET consumed_at = now() "
+            "UPDATE outbox_messages SET consumed_at = now(), payload = '{}'::jsonb "
             "WHERE id = :id AND job = :job AND consumed_at IS NULL"
         ),
         {"id": message_id, "job": job},
     )
+
+
+@dataclass(frozen=True, slots=True)
+class UnconsumedSweep:
+    """What one pass of `sweep_unconsumed_outbox` did. Counts only (hard rule 6)."""
+
+    republished: int
+    dead_lettered: int
+    jobs: tuple[str, ...]
+
+
+async def sweep_unconsumed_outbox(session: AsyncSession) -> UnconsumedSweep:
+    """Published messages whose run never succeeded by `consume_by`: alarm, then hand each
+    back to the dispatcher, or to the DLQ once its attempt budget is spent.
+
+    Safe to re-publish because the id is the same (`job_id_for(job, message.id)`): arq
+    refuses it while a run is still queued, deferred or running, and `consume_outbox_once`
+    skips it if a run succeeded without recording it. What is left is a message arq dropped
+    or whose run failed for good, which is exactly what must run again or reach a person.
+
+    The budget is the message's own `attempt_count`, which every claim bumps: re-pending
+    does not reset it, so a job that fails every run reaches the DLQ (payload intact,
+    replayable with `replay_dead_letters`) after `OUTBOX_MAX_ATTEMPTS` publishes in all.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "UPDATE outbox_messages SET "
+                "status = CASE WHEN attempt_count >= :max THEN 'failed' ELSE 'pending' END, "
+                "last_error = 'published ' || to_char(published_at AT TIME ZONE "
+                "'Asia/Kolkata', 'YYYY-MM-DD HH24:MI') || ' IST; no run succeeded', "
+                "consume_by = NULL, locked_until = NULL, updated_at = now() "
+                "WHERE id IN (SELECT id FROM outbox_messages WHERE status = 'published' "
+                "  AND consumed_at IS NULL AND consume_by IS NOT NULL AND consume_by < now() "
+                "  ORDER BY consume_by LIMIT :batch FOR UPDATE SKIP LOCKED) "
+                "AND status = 'published' AND consumed_at IS NULL "
+                "RETURNING job, status"
+            ),
+            {"max": OUTBOX_MAX_ATTEMPTS, "batch": OUTBOX_BATCH},
+        )
+    ).all()
+    dead = sum(1 for row in rows if row[1] == "failed")
+    jobs = tuple(sorted({str(row[0]) for row in rows}))
+    if rows:
+        alert(
+            "OUTBOX_DISPATCH",
+            "outbox_unconsumed",
+            detail=f"{len(rows) - dead} re-published, {dead} dead-lettered; no run "
+            f"succeeded within {OUTBOX_CONSUME_DEADLINE}: {', '.join(jobs)[:160]}",
+        )
+    if dead:
+        alert(
+            "OUTBOX_DISPATCH",
+            "outbox_dead_letter",
+            detail=f"{dead} published message(s) never ran successfully and spent their "
+            "attempt budget",
+        )
+    return UnconsumedSweep(republished=len(rows) - dead, dead_lettered=dead, jobs=jobs)
 
 
 # How long a message waits before its next attempt, per attempt already spent. The shape
@@ -1357,14 +1501,18 @@ async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) 
 __all__ = [
     "IDEMPOTENCY_TTL",
     "OUTBOX_CLAIM_LEASE",
+    "OUTBOX_CONSUME_DEADLINE",
     "OUTBOX_MAX_ATTEMPTS",
     "OUTBOX_RETRY_BACKOFF_CAP_S",
     "OUTBOX_RETRY_BACKOFF_S",
+    "OUTBOX_REVISION_HOLD_ALARM",
+    "SCRUB_AT_PUBLISH_JOBS",
     "DeadLetterJobDepth",
     "DeadLetterQueue",
     "IdempotencyClaim",
     "InboxClaim",
     "OutboxMessageRow",
+    "UnconsumedSweep",
     "body_hash",
     "claim_idempotency",
     "claim_inbox_event",
@@ -1391,4 +1539,5 @@ __all__ = [
     "replay_dead_letters",
     "scope_key",
     "sweep_idempotency",
+    "sweep_unconsumed_outbox",
 ]

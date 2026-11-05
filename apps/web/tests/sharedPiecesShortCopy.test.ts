@@ -37,7 +37,7 @@ const SHARED = [
   "src/components/callHandlingVoiceRows.tsx",
   "src/components/callHandlingDefaults.tsx",
   "src/components/voiceButton.tsx",
-  "src/components/patientCallerRow.tsx",
+  "src/components/giveCallersTimeRow.tsx",
   "src/app/c/[slug]/TestCallStatus.tsx",
   "src/app/c/[slug]/TrialLockNotice.tsx",
   "src/app/c/[slug]/HeldNumberNotice.tsx",

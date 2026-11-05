@@ -38,19 +38,27 @@ from typing import Any
 
 import pytest
 from apps.api.admin.health import (
+    BOARD_KEY,
+    BOARD_STALE_AFTER,
     TREND_BASELINE_MIN,
     WINDOW_DAYS,
     Account,
+    Board,
     CallVolume,
     ClientHealth,
     HealthSignal,
     _triage_order,
     cause_owner,
+    client_health_board,
+    read_board,
+    store_board,
     tenant_health,
 )
 from apps.api.billing.service import current_billing_month
 from apps.api.billing.trials import start_trial
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import MUTATING_PERMISSIONS, iter_api_routes
+from apps.api.core.redis import get_redis
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.main import app
@@ -788,11 +796,14 @@ async def test_the_board_carries_accounts_and_rule_names_and_nothing_about_a_per
     await _calls(account, count=3, days_ago=1)
 
     token = await _make_admin()
+    # The board is the worker's copy; drop it so this request computes one with the account.
+    await get_redis().delete(BOARD_KEY)
     async with _client() as http:
         response = await http.get(BOARD_PATH, headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200, response.text
 
-    row = next((r for r in response.json() if r["tenant_id"] == str(account.tenant_id)), None)
+    accounts = response.json()["accounts"]
+    row = next((r for r in accounts if r["tenant_id"] == str(account.tenant_id)), None)
     assert row is not None, "an account blocked from dialling belongs on the board"
     assert set(row) == {
         "tenant_id",
@@ -906,3 +917,80 @@ async def test_one_clients_health_names_no_one_else_and_refuses_unknown_and_clie
 
     assert missing.status_code == 404, missing.text
     assert as_client.status_code in (401, 403), "a client token cannot read the operator's view"
+
+
+# --- the board is computed off the request (A7-16) --------------------------------------
+
+
+def _signalled_row() -> ClientHealth:
+    return ClientHealth(
+        tenant_id=uuid.uuid4(),
+        name="Board Traders",
+        slug="board-traders",
+        plan_tier="prepaid",
+        status="active",
+        severity="stop",
+        signals=(HealthSignal(rule="deliveries_failing", severity="stop", count=3),),
+        volume=CallVolume(
+            calls_7d=4, calls_prev_7d=9, basis="measured", last_call_at=datetime.now(UTC)
+        ),
+        on_trial=False,
+        spend_used_inr=Decimal("120.50"),
+        spend_cap_inr=None,
+    )
+
+
+async def test_the_board_round_trips_through_its_store_with_money_exact() -> None:
+    row = _signalled_row()
+    await store_board(Board(rows=[row], computed_at=datetime.now(UTC)))
+    board = await read_board()
+    assert board is not None and board.rows == [row]
+
+
+async def test_a_board_older_than_three_refreshes_is_not_served() -> None:
+    await store_board(Board(rows=[_signalled_row()], computed_at=datetime.now(UTC)))
+    later = datetime.now(UTC) + BOARD_STALE_AFTER + timedelta(seconds=1)
+    assert await read_board(now=later) is None, "an old 'nothing wrong' must not stand in"
+
+
+async def test_a_poll_is_served_the_stored_board_without_a_walk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import apps.api.admin.health as health
+
+    async def _no_walk(_directory: object) -> list[ClientHealth]:
+        raise AssertionError("a poll walked every tenant")
+
+    monkeypatch.setattr(health, "compute_client_health", _no_walk)
+    row = _signalled_row()
+    await store_board(Board(rows=[row], computed_at=datetime.now(UTC)))
+    async with admin_session() as directory:
+        board = await client_health_board(directory)
+    assert board.rows == [row]
+
+
+async def test_only_one_request_computes_a_missing_board(monkeypatch: pytest.MonkeyPatch) -> None:
+    await get_redis().delete(BOARD_KEY)
+    await get_redis().set("calevate:admin:client_health:computing", "1", ex=30)
+    try:
+        async with admin_session() as directory:
+            with pytest.raises(ProblemError) as refused:
+                await client_health_board(directory)
+        assert refused.value.code == "client_health_computing"
+    finally:
+        await get_redis().delete("calevate:admin:client_health:computing")
+
+
+async def test_the_worker_keeps_the_board(monkeypatch: pytest.MonkeyPatch) -> None:
+    import apps.api.admin.health as health
+    from apps.workers.client_health import refresh_client_health
+
+    row = _signalled_row()
+
+    async def _walk(_directory: object) -> list[ClientHealth]:
+        return [row]
+
+    monkeypatch.setattr(health, "compute_client_health", _walk)
+    assert await refresh_client_health({}) == "accounts=1"
+    board = await read_board()
+    assert board is not None and board.rows == [row]

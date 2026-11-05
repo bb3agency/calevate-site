@@ -23,13 +23,17 @@ budgets. The caller meters the answer or the refusal like any other assist.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 from calevate_shared.opening_notices import (
     WOVEN_AI_CHARS,
     WOVEN_RECORDING_CHARS,
+    OpeningNotices,
+    SaidNotices,
     WovenNotices,
     opening_max_chars,
+    unwoven_notice_problems,
     woven_notice_problems,
 )
 from calevate_shared.spoken_guard import (
@@ -78,7 +82,11 @@ OPENING_WRITER_INSTRUCTION: Final = (
     "Write it in "
     "the call language as people say it on the phone, following the spoken-style guide in the "
     "brief. The brief ends with the rules the line is checked against; a line that breaks "
-    'one is not used. Return ONLY JSON: {"opening_line": "..."}.'
+    "one is not used. Also return ai_notice_words: the words of the line that tell the "
+    "caller they are speaking with an AI, copied exactly from it, or an empty string when "
+    "the line says nothing about it; and recording_notice_words: the same for the call "
+    'being recorded. Return ONLY JSON: {"opening_line": "...", "ai_notice_words": "...", '
+    '"recording_notice_words": "..."}.'
 )
 
 _FORMAT: Final[dict[str, object]] = {
@@ -88,8 +96,12 @@ _FORMAT: Final[dict[str, object]] = {
         "strict": True,
         "schema": {
             "type": "object",
-            "properties": {"opening_line": {"type": "string"}},
-            "required": ["opening_line"],
+            "properties": {
+                "opening_line": {"type": "string"},
+                "ai_notice_words": {"type": "string"},
+                "recording_notice_words": {"type": "string"},
+            },
+            "required": ["opening_line", "ai_notice_words", "recording_notice_words"],
             "additionalProperties": False,
         },
     },
@@ -119,6 +131,7 @@ def opening_problems(
     introduced: bool = False,
     where: str = OPENING_PATH,
     woven: WovenNotices | None = None,
+    said: SaidNotices | None = None,
 ) -> list[str]:
     """Every rule an opening line breaks, each as the sentence a model is sent to repair it:
     at most `OPENING_MAX_CHARS` (plus the room a notice said in it earns), ending on a
@@ -126,12 +139,20 @@ def opening_problems(
     (D-861, D-864), and placed for what comes before it (D-865): after the agent's
     introduction (`introduced`) it neither greets nor says `names`; said first, it greets or
     says who is calling. With `woven`, it says the notices switched on in its own words and
-    no other (D-971); an opening that says it is an AI is said first, as the introduction."""
+    no other (D-971); an opening that says it is an AI is said first, as the introduction.
+    `said`: the words of `line` named as saying each notice; without it the notices are
+    judged by word only, a hint to the writer that never drops a stored sentence."""
     clean = line.strip()
     if not clean:
         return [f"{where}: is empty; write the line"]
     introduced = introduced and not (woven is not None and woven.ai)
-    notices = woven_notice_problems(where, clean, woven) if woven is not None else []
+    notices = (
+        []
+        if woven is None
+        else woven_notice_problems(where, clean, woven)
+        if said is None
+        else unwoven_notice_problems(where, clean, woven, said)
+    )
     found = (
         length_problem(where, clean),
         question_end_problem(where, clean),
@@ -179,7 +200,7 @@ def opening_rules(
 
 
 def _writer_problems(
-    line: str, brief: ScriptBrief, names: Sequence[str], lint: LintContext
+    line: str, brief: ScriptBrief, names: Sequence[str], lint: LintContext, said: SaidNotices
 ) -> list[str]:
     """`opening_problems`, plus the checks the script writer holds every spoken line to: no
     provider's name (D-679), no claim of a done order (D-849), the script lint (D-945)."""
@@ -189,7 +210,12 @@ def _writer_problems(
     )
     return [
         *opening_problems(
-            line, brief.language, names=names, introduced=brief.introduced, woven=brief.woven
+            line,
+            brief.language,
+            names=names,
+            introduced=brief.introduced,
+            woven=brief.woven,
+            said=said,
         ),
         *(problem for problem in extra if problem),
         *spoken_line_problems(OPENING_PATH, line, lint),
@@ -226,6 +252,24 @@ def opening_request(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class WrittenOpening:
+    """A written opening line and the words in it that say each notice (D-971)."""
+
+    line: str
+    said: SaidNotices
+
+    def notices(self, before: str = "") -> OpeningNotices:
+        """The record kept beside the line in the script (`CallScript.opening_notices`);
+        `before`: the line it replaced, shown with the Undo. Empty when there is nothing to
+        keep, so a script with no woven notice reads as it always did."""
+        if not (self.said.ai or self.said.recording or before):
+            return OpeningNotices()
+        return OpeningNotices(
+            line=self.line, ai=self.said.ai, recording=self.said.recording, before=before
+        )
+
+
 async def write_opening(
     brief: ScriptBrief,
     *,
@@ -234,7 +278,7 @@ async def write_opening(
     tenant_leg: TenantModelLeg | None = None,
     quota_exhausted: bool = False,
     placed: bool = False,
-) -> JsonAnswer[str]:
+) -> JsonAnswer[WrittenOpening]:
     """An opening line for the agent `brief` describes that keeps every rule, or the ladder's
     refusal (a `ProblemError`, a `SpentRefusalError` when a leg answered and must be
     metered). With `line` and its `problems`, the line is repaired; without, written.
@@ -242,17 +286,26 @@ async def write_opening(
     names = (brief.business_name, brief.agent_name)
     lint = brief.lint_context()
 
-    def parse(raw: dict[str, Any]) -> str | None:
+    def parse(raw: dict[str, Any]) -> WrittenOpening | None:
         value = raw.get("opening_line")
         if not isinstance(value, str) or not value.strip():
             return None
         written = " ".join(value.split())
-        found = _writer_problems(written, brief, names, lint)
+        # The words the writer names count only while woven notices are asked for.
+        said = (
+            SaidNotices(
+                ai=" ".join(str(raw.get("ai_notice_words") or "").split()),
+                recording=" ".join(str(raw.get("recording_notice_words") or "").split()),
+            )
+            if brief.woven is not None
+            else SaidNotices()
+        )
+        found = _writer_problems(written, brief, names, lint, said)
         if found:
             # Counts only: the line is the business's words (hard rule 6).
             log.info("opening_line_sent_back", extra={"problems": len(found)})
             raise UnusableAnswerError("; ".join(found))
-        return written
+        return WrittenOpening(line=written, said=said)
 
     return await ask_json(
         opening_request(brief, line=line, problems=problems, placed=placed),
@@ -273,6 +326,7 @@ __all__ = [
     "OPENING_WRITER_BUDGET_S",
     "OPENING_WRITER_INSTRUCTION",
     "PLACED_TASK",
+    "WrittenOpening",
     "length_problem",
     "opening_problems",
     "opening_request",

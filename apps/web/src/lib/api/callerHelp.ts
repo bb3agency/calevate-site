@@ -75,7 +75,7 @@ export interface CallerHelpTurnOn {
  * Turn on what the Overview suggests, through each setting's own write so each is audited and
  * reaches the line as it does from Settings. The screen guide goes first: "Give callers time"
  * asks "Can you see it?" only of an agent whose callers follow along on a screen
- * (`patient_caller.nudge_phrase_for`), so the order decides the question the agent asks.
+ * (`give_callers_time.nudge_phrase_for`), so the order decides the question the agent asks.
  */
 export function useTurnOnCallerHelp(
   session: Session,

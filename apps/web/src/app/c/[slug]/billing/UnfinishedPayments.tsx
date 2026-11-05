@@ -146,15 +146,17 @@ const OUTCOMES: Record<string, { icon: ReactNode; title: string; line: string; b
   },
 };
 
+/** Said for an outcome this build cannot name. */
+export const UNKNOWN_OUTCOME = "Being checked";
+
 function AttemptRow({ attempt }: { attempt: TopUpAttempt }) {
   // THROUGH `lookup()`, never `OUTCOMES[value]`: the key is a WIRE string, and a plain
   // index reads the prototype chain — an outcome of `constructor` would resolve to the
   // `Object` function and render as source code (`lib/lookup.ts`).
   //
-  // And it fails VISIBLE: an outcome this build has no word for still renders its own
-  // name and the amount rather than a blank row — the direction `creditReasonLabel`
-  // takes, and it matters more here because the row is about a payment nobody can
-  // otherwise account for.
+  // And it fails VISIBLE: an outcome this build has no word for still renders a plain word,
+  // the amount and the reference rather than a blank row — never the wire code itself
+  // (e2e audit OB-27), because the reference below is what a client quotes to us.
   const copy = lookup(OUTCOMES, attempt.outcome);
   return (
     <>
@@ -165,7 +167,7 @@ function AttemptRow({ attempt }: { attempt: TopUpAttempt }) {
           </span>
           {formatPayableINR(attempt.amount_inr)}
           <span className="text-meta font-normal text-ink-muted">
-            {copy?.title ?? attempt.outcome}
+            {copy?.title ?? UNKNOWN_OUTCOME}
           </span>
         </p>
         <p className="text-meta text-ink-muted">Started {formatIST(attempt.started_at)}</p>
@@ -178,7 +180,7 @@ function AttemptRow({ attempt }: { attempt: TopUpAttempt }) {
         </p>
       </Why>
       <p className="mt-1 text-meta text-ink-muted">
-        ref <MonoValue>{attempt.receipt}</MonoValue>
+        Reference <MonoValue>{attempt.receipt}</MonoValue>
       </p>
     </>
   );

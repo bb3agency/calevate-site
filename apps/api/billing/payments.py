@@ -606,7 +606,14 @@ def inr_to_paise(amount_inr: Decimal) -> int:
     return int(scaled)
 
 
-def topup_receipt(*, tenant_id: UUID, amount_inr: Decimal, at: datetime) -> str:
+def topup_receipt(
+    *,
+    tenant_id: UUID,
+    amount_inr: Decimal,
+    at: datetime,
+    pack_id: str | None = None,
+    after_paid: str | None = None,
+) -> str:
     """The key for "this top-up request", derived by US. One string, three jobs.
 
     It is the provider's `receipt`, it is the `idempotency_records` key the intent route
@@ -636,10 +643,15 @@ def topup_receipt(*, tenant_id: UUID, amount_inr: Decimal, at: datetime) -> str:
     `INTENT_REPLAY_WINDOW`. Inside one window an identical request is ONE request; across
     windows it is a new one.
 
-    - The cost: a client who genuinely wants to pay the same amount twice within fifteen
-      minutes gets the first order back. That is visible (the screen shows the order and
-      the amount), and the remedy is one field away — pay the one you have, or ask for
-      the combined amount.
+    - A PAID order is never handed back. Razorpay allows no further payment on an order once
+      it is `paid` and auto-refunds a late one (https://razorpay.com/docs/payments/orders/,
+      read 5 Nov 2026), so a second top-up of the same amount inside one window would meet
+      a checkout it cannot pay. The intent route therefore passes `after_paid` — the receipt
+      of the captured attempt this key would otherwise replay — and gets the NEXT key in
+      the chain. Two clicks after that payment still derive the same next key, so they
+      still collapse into one new order.
+    - `pack_id` is in the key: a pack and a free amount of the same value are two requests,
+      and the replayed intent carries the pack the order was made for.
     - The failure at a bucket boundary: two clicks a second apart, straddling the floor,
       derive different keys and create two orders. That is the BENIGN direction — an
       extra unpaid order expires and costs nobody anything, while collapsing two genuine
@@ -657,6 +669,8 @@ def topup_receipt(*, tenant_id: UUID, amount_inr: Decimal, at: datetime) -> str:
             # `body_hash` would otherwise `str()` it and make "2000" and "2000.00" two keys.
             "amount_inr": str(to_paise(amount_inr)),
             "window": window,
+            "pack_id": pack_id,
+            "after_paid": after_paid,
         }
     )
     receipt = f"{RECEIPT_PREFIX}_{digest[:32]}"

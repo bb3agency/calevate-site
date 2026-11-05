@@ -1,4 +1,3 @@
-import { ASSISTANT_NAME } from "./assistantName";
 import type { CopilotSaves, CopilotSurface } from "./types";
 
 /**
@@ -25,11 +24,14 @@ export function keepingOnWire(surface: CopilotSurface): { saves?: CopilotSaves; 
 
 const liveStepOf = (surface: CopilotSurface) => surface.liveStep ?? "the button that puts it live";
 
-/** Under a fill Pip just made. */
+/**
+ * Under a fill Pip just made. On an autosaving screen it says what the screen DOES, not that
+ * the save has happened: the fill lands before the debounced save runs, and a save can fail.
+ */
 export function filledNotice(surface: CopilotSurface): string {
   switch (savesOf(surface)) {
     case "autosave":
-      return `${ASSISTANT_NAME} changed your draft. It is saved as a draft; nothing goes live until you press ${liveStepOf(surface)}.`;
+      return `Your draft saves by itself. Nothing goes live until you press ${liveStepOf(surface)}.`;
     case "immediate":
       return "This screen saves each change as it is made. Undo puts the earlier value back.";
     case "view":
@@ -46,20 +48,20 @@ function listed(labels: readonly string[]): string {
 }
 
 /**
- * Pip's reply for a turn that only filled fields. The answer in the chat says what changed;
- * the card under it keeps the list folded with the Undo button.
+ * Pip's reply for a turn that only filled fields: what changed, once. How the screen keeps
+ * it is `filledNotice`, in the card under the reply, so the reply does not say it as well.
  */
 export function filledReply(surface: CopilotSurface, labels: readonly string[]): string {
   const what = listed(labels);
   switch (savesOf(surface)) {
     case "autosave":
-      return `I changed ${what} in your draft. Nothing goes live until you press ${liveStepOf(surface)}.`;
-    case "immediate":
-      return `I changed ${what}. Each change is saved; Undo puts the earlier values back.`;
+      return `I changed ${what} in your draft.`;
     case "view":
       return `I changed what the screen shows: ${what}.`;
+    case "immediate":
+      return `I changed ${what}.`;
     default:
-      return `I filled in ${what}. Nothing is saved until you press this screen's own save button.`;
+      return `I filled in ${what}.`;
   }
 }
 

@@ -1,14 +1,19 @@
 """The owner's go-live guide after the first payment (D-859, founder 23 Oct 2026).
 
-Four steps, each read from the state the rest of the product already keeps, so the guide can
-never say something the screens it links to disagree with:
+Three steps for the owner, each read from the state the rest of the product already keeps, so
+the guide can never say something the screens it links to disagree with:
 
-1. **Moving your agents**: `go_live.moves.read_move_progress`.
-2. **Verify your business**: the KYC record (`compliance/kyc.read_kyc`).
-3. **Get your number**: the account's numbers and the purchase gates
-   (`campaigns/engine_number_purchase.purchase_readiness`).
-4. **Switch it on**: whether any agent is live; switching one on is the agent's own switch,
+1. **Verify your business**: the KYC record (`compliance/kyc.read_kyc`), the agreements
+   (`legal/service.agreements_blocker`, which refuses a publish) and the no-cold-calls pledge
+   (`compliance/outbound_pledge`, which refuses outbound only, so it never holds the step).
+2. **Get your number**: the account's numbers and the purchase gates
+   (`campaigns/engine_number_purchase.purchase_readiness`), each gate its own state so the
+   screen names the real reason a number cannot be bought yet.
+3. **Switch it on**: whether any agent is live; switching one on is the agent's own switch,
    with its own gate reasons.
+
+The agents' move into the account's own calling set-up (`go_live.moves`) is published beside
+the steps but is never one of them: it is our work, and the owner carries on while it runs.
 
 The guide is owed from the first payment (`go_live_guides`, written by
 `billing/first_payment`) until the owner finishes it or puts it aside. Plain words only: no
@@ -25,14 +30,35 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns.engine_number_purchase import purchase_readiness
+from apps.api.campaigns.engine_business_details import RESUBMITTABLE
+from apps.api.campaigns.engine_number_purchase import PurchaseReadiness, purchase_readiness
 from apps.api.compliance.kyc import read_kyc
+from apps.api.compliance.outbound_pledge import pledge_blocker
 from apps.api.go_live.moves import MoveProgress, read_move_progress
+from apps.api.legal.service import agreements_blocker
 from apps.api.tenancy.engine_workspace import read_workspace_state
 
 VerifyState = Literal["todo", "in_review", "needs_attention", "done"]
-NumberState = Literal["locked", "waiting_approval", "todo", "done"]
+#: Why a number cannot be bought yet, one state per purchase gate (`PurchaseStep`):
+#: `locked` the business is not verified; `add_credit` the free trial; `setting_up` the
+#: account's own calling set-up is not active; `send_details` the business details were never
+#: sent; `waiting_approval` they are being checked; `needs_attention` they were rejected, have
+#: expired or were withdrawn; `not_on_sale` no monthly price is set yet.
+NumberState = Literal[
+    "locked",
+    "add_credit",
+    "setting_up",
+    "send_details",
+    "waiting_approval",
+    "needs_attention",
+    "not_on_sale",
+    "todo",
+    "done",
+]
 SwitchState = Literal["todo", "done"]
+AcceptState = Literal["todo", "done"]
+#: `move` stays on the wire for readers built before the move left the steps; `current` no
+#: longer answers it.
 GuideStep = Literal["move", "verify", "number", "switch_on", "done"]
 
 _VERIFY_OF_KYC: Final[dict[str, VerifyState]] = {
@@ -60,24 +86,58 @@ class GoLive:
     marker: GuideMarker | None
     move: MoveProgress
     verify: VerifyState
+    #: The agreements every publish needs (`assert_agreements_accepted`).
+    agreements: AcceptState
+    #: The no-cold-calls pledge every outbound call needs; inbound never waits on it.
+    pledge: AcceptState
     number: NumberState
+    #: On a rejected application, what to correct; otherwise None.
+    business_review_note: str | None
     numbers: int
     switch_on: SwitchState
     live_agents: int
 
     @property
     def current(self) -> GuideStep:
-        """The first step not done. The move counts as done once nothing is left to move by
-        the owner: a held agent is ours to finish, not theirs."""
-        if self.move.state in ("waiting_for_account", "moving"):
-            return "move"
-        if self.verify != "done":
+        """The first owner step not done. Switching an agent on needs the agreements as well
+        as the business check, so both close the first step; the pledge does not, because an
+        agent that only answers calls never needs it."""
+        if self.verify != "done" or self.agreements != "done":
             return "verify"
         if self.number != "done":
             return "number"
         if self.switch_on != "done":
             return "switch_on"
         return "done"
+
+
+def number_state(readiness: PurchaseReadiness, *, numbers: int) -> NumberState:
+    """Where the number step stands, from the purchase gate that stops it first."""
+    if numbers > 0:
+        return "done"
+    match readiness.step:
+        case "ready":
+            return "todo"
+        case "add_credit":
+            return "add_credit"
+        case "workspace":
+            return "setting_up"
+        case "verify_business":
+            return "locked"
+        case "price":
+            return "not_on_sale"
+        case "business_details":
+            return _details_state(readiness.business_status)
+
+
+def _details_state(status: str | None) -> NumberState:
+    """The business-details application, as the owner can act on it. `accepted` without
+    `canRent` is still the vendor's to finish, so it waits like a submission."""
+    if status is None or status in ("none", "draft"):
+        return "send_details"
+    if status in RESUBMITTABLE or status == "suspended":
+        return "needs_attention"
+    return "waiting_approval"
 
 
 async def read_marker(session: AsyncSession, *, tenant_id: UUID) -> GuideMarker | None:
@@ -108,6 +168,12 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
     )
     kyc = await read_kyc(session, tenant_id=tenant_id)
     verify = _VERIFY_OF_KYC.get(kyc.status or "", "todo")
+    agreements: AcceptState = (
+        "done" if await agreements_blocker(session, tenant_id=tenant_id) is None else "todo"
+    )
+    pledge: AcceptState = (
+        "done" if await pledge_blocker(session, tenant_id=tenant_id) is None else "todo"
+    )
     numbers = int(
         (
             await session.execute(
@@ -119,18 +185,8 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
             )
         ).scalar_one()
     )
-    number: NumberState
-    if numbers > 0:
-        number = "done"
-    else:
-        readiness = await purchase_readiness(session, tenant_id=tenant_id)
-        number = (
-            "todo"
-            if readiness.step == "ready"
-            else "waiting_approval"
-            if readiness.step == "business_details"
-            else "locked"
-        )
+    readiness = None if numbers > 0 else await purchase_readiness(session, tenant_id=tenant_id)
+    number: NumberState = "done" if readiness is None else number_state(readiness, numbers=numbers)
     live = int(
         (
             await session.execute(
@@ -146,7 +202,14 @@ async def read_go_live(session: AsyncSession, *, tenant_id: UUID) -> GoLive:
         marker=marker,
         move=move,
         verify=verify,
+        agreements=agreements,
+        pledge=pledge,
         number=number,
+        business_review_note=(
+            readiness.business_review_note
+            if readiness is not None and number == "needs_attention"
+            else None
+        ),
         numbers=numbers,
         switch_on="done" if live > 0 else "todo",
         live_agents=live,
@@ -177,6 +240,7 @@ _DISMISS_SQL: Final = (
 
 
 __all__ = [
+    "AcceptState",
     "GoLive",
     "GuideMarker",
     "GuideStep",
@@ -185,6 +249,7 @@ __all__ = [
     "SwitchState",
     "VerifyState",
     "mark",
+    "number_state",
     "read_go_live",
     "read_marker",
 ]

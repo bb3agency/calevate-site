@@ -43,6 +43,7 @@ from calevate_shared.spoken_guard import generation_guidance
 from pydantic import ValidationError
 from sqlalchemy import text
 
+from apps.api.admin.capability_overrides import apply_overrides
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.lead_fields import agents_with_fields
 from apps.api.agents.starters import CATALOGUE, LINE_SETS, STARTER_LANGUAGE, vertical_of
@@ -82,6 +83,7 @@ from apps.api.tenancy.business_copy import (
     QUESTION_MAX,
     REFRESH_EVERY,
     SHORT_MAX,
+    STARTER_WORD_KEYS,
     GeneratedCopy,
     StopReason,
     Trigger,
@@ -112,7 +114,8 @@ JOB_NAME: Final = "generate_business_copy"
 #: on the row, so a copy written under an older version is rewritten at once
 #: (`upgrade_business_copies`, queued at worker start) rather than at its next 15-day check.
 #: Version 4: the capability profile, objections, caller noun and Pip questions.
-PROMPT_VERSION: Final = 4
+#: Version 5: the ready-made agents' own words (`StarterWords`, audit of 5 Nov 2026, G1-3).
+PROMPT_VERSION: Final = 5
 
 #: The description handed to the model, in characters.
 MAX_INPUT_CHARS: Final = 9000
@@ -232,6 +235,7 @@ def answer_schema(starter_counts: dict[str, int]) -> dict[str, object]:
                     },
                     "caller_noun": _STR,
                     "pip_questions": _strings(0, MAX_PIP_QUESTIONS),
+                    "starter_words": _object(dict.fromkeys(STARTER_WORD_KEYS, _STR)),
                 }
             ),
         },
@@ -324,10 +328,17 @@ def instruction_for(inputs: Inputs) -> str:
         "a caller says it, short, in the main call language, and how_to_answer is short "
         "guidance in English. "
         "caller_noun: what this business calls the people on its calls, one to three plain "
-        "English words, singular, lower case, such as customer, user, member, student, "
-        "farmer or client. "
+        "English words, singular, lower case, such as customer, user, member, student "
+        "or client. "
         f"pip_questions: 0 to {MAX_PIP_QUESTIONS} short questions the owner of THIS business "
         "would ask an assistant about its calls, in English. "
+        "starter_words: the words this business's ready-made phone agents use, in English, "
+        "replacing the trade words in the ready-made scripts below: answer_name, a 1 to 4 "
+        "word name for the agent that answers its calls; calling_name, the same for the agent "
+        "that calls people on its lists; topics, what its callers ask about, as words after "
+        "'help callers with'; capture, the details its agent asks a caller for, in the order "
+        "a conversation reaches them, as a clause; caution, the one thing its agent must "
+        "never do or promise, as one sentence starting with Never. "
         f"Keep short values under {SHORT_MAX} characters, one-line values under {LINE_MAX}, "
         f"prose under {PROSE_MAX}, details under {CHIP_MAX} and questions under "
         f"{QUESTION_MAX}. Only end_call_rules has a line break, between its two rules. "
@@ -623,10 +634,20 @@ async def _store(
             model=answer.model,
             service_tier=answer.service_tier,
         )
+        # An operator's capability decisions are written over the fresh verdicts, so a
+        # regeneration never reverts a correction (`admin/capability_overrides`).
+        overrides = (
+            await session.execute(
+                text("SELECT capability_overrides FROM business_copies WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            )
+        ).scalar_one_or_none()
+        generated, overrides = apply_overrides(answer.value.model_dump(mode="json"), overrides)
         stored = (
             await session.execute(
                 text(
                     "UPDATE business_copies SET generated = CAST(:generated AS jsonb), "
+                    "capability_overrides = CAST(:overrides AS jsonb), "
                     "language = :language, model = :model, inputs_hash = :hash, "
                     "prompt_version = :version, generated_at = now(), cost_inr = :cost, "
                     "absorbed = :absorbed, "
@@ -634,7 +655,8 @@ async def _store(
                     "WHERE running_since = :at RETURNING id"
                 ),
                 {
-                    "generated": json.dumps(answer.value.model_dump(mode="json")),
+                    "generated": json.dumps(generated),
+                    "overrides": json.dumps(overrides),
                     "language": inputs.language,
                     "model": answer.model,
                     "hash": inputs.inputs_hash,

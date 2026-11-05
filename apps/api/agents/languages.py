@@ -56,6 +56,7 @@ from datetime import date
 from typing import Annotated, Final, Literal, get_args
 from uuid import UUID
 
+from calevate_shared import spoken_lines
 from calevate_shared.languages import (
     built_languages,
     find_language,
@@ -138,10 +139,14 @@ class StagedLanguageReadiness:
     #: Its docs list the language by name (mirror snapshots/2026-10-19/pages/api-reference/
     #: agents/create-agent.md:827-837); that is not the same as a call in it working.
     engine_confirmation: str | None = None
+    #: The language's BCP-47 tag, for the checks read from data rather than recorded here.
+    tag: str = ""
 
     def missing(self) -> tuple[str, ...]:
         """What is still to be put on record, in the words an operator reads."""
         gaps: list[str] = []
+        if not opt_out_phrases_recorded(self.tag):
+            gaps.append("its do-not-call phrases recorded")
         if not (self.sentences_reviewed_by and self.sentences_reviewed_on):
             gaps.append("a native speaker's review of its spoken sentences")
         if self.test_call_checked_on is None:
@@ -163,8 +168,17 @@ class StagedLanguageReadiness:
 
 #: One record per staged language, none complete (23 Oct 2026).
 STAGED_LANGUAGE_READINESS: Final[Mapping[str, StagedLanguageReadiness]] = {
-    tag: StagedLanguageReadiness() for tag in staged_language_tags()
+    tag: StagedLanguageReadiness(tag=tag) for tag in staged_language_tags()
 }
+
+
+def opt_out_phrases_recorded(tag: str) -> bool:
+    """Whether the do-not-call detector can hear "don't call me" in this language: the
+    founder's phrases for it (`spoken_lines.json`, `optout.patterns`, read by
+    `compliance/optout`). A language without them may not reach a caller, or a caller's
+    opt-out in it would never reach the do-not-call ledger (G5-2, TRAI)."""
+    base = tag.split("-")[0].lower()
+    return base == "en" or bool(spoken_lines.by_language("optout.patterns").get(base))
 
 
 def _chosen(raw: str) -> list[str]:

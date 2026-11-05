@@ -50,7 +50,11 @@ def _starts_word(text: str, at: int) -> bool:
 
 
 def _uses_word(text: str, word: str) -> bool:
-    return any(_starts_word(text, m.start()) for m in re.finditer(re.escape(word), text))
+    # Case-insensitive (PIP-11): "kindly" mid-sentence is the same textbook word as "Kindly".
+    # A listed word also matches the start of a longer word ("revert" in "reverting"); whether
+    # it should is the founder's open question, pinned per language in the tests.
+    found = re.finditer(re.escape(word), text, re.IGNORECASE)
+    return any(_starts_word(text, m.start()) for m in found)
 
 
 #: Every Indic script India uses, Devanagari (U+0900) through Malayalam (U+0D7F), except the

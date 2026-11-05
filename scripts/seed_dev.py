@@ -60,11 +60,14 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from apps.api.db.base import uuid7
 from sqlalchemy import text
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 # ── the accounts this script owns ──────────────────────────────────────────────
 #
@@ -475,25 +478,60 @@ async def _ensure_opening_credit(tenant_id: UUID) -> Decimal:
     D-521 is why this exists at all: the seeded tenant is `prepaid` now, and a prepaid
     tenant with no credit has every demo dial refused `no_credits`.
     """
-    from apps.api.billing.service import find_entry_by_ref, get_balance, record_entry
+    from apps.api.billing.service import (
+        find_entry_by_ref,
+        get_balance,
+        lot_of_entry,
+        record_entry,
+    )
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
         existing = await find_entry_by_ref(
             session, tenant_id=tenant_id, reason="topup", ref=SEED_CREDIT_REF
         )
-        if existing is not None:
-            return (await get_balance(session, tenant_id=tenant_id)).amount_inr
-        balance = await record_entry(
-            session,
-            tenant_id=tenant_id,
-            delta=SEED_OPENING_CREDIT_INR,
-            reason="topup",
-            ref=SEED_CREDIT_REF,
-            meta={"source": "seed_dev"},
-        )
+        if existing is None:
+            balance = (
+                await record_entry(
+                    session,
+                    tenant_id=tenant_id,
+                    delta=SEED_OPENING_CREDIT_INR,
+                    reason="topup",
+                    ref=SEED_CREDIT_REF,
+                    meta={"source": "seed_dev"},
+                )
+            ).amount_inr
+            existing = await find_entry_by_ref(
+                session, tenant_id=tenant_id, reason="topup", ref=SEED_CREDIT_REF
+            )
+            assert existing is not None, "the row was inserted in this transaction"
+        else:
+            balance = (await get_balance(session, tenant_id=tenant_id)).amount_inr
+        # A balance outside the lots reads "₹5,000, 0 minutes" on every credit screen (lots
+        # must sum to the balance, `billing/lots.py`). A database seeded before this opened
+        # one gets its lot on the next run.
+        if await lot_of_entry(session, ledger_entry_id=existing.entry_id) is None:
+            await _open_seed_lot(session, tenant_id=tenant_id, entry_id=existing.entry_id)
         await session.commit()
-        return balance.amount_inr
+        return balance
+
+
+async def _open_seed_lot(session: AsyncSession, *, tenant_id: UUID, entry_id: UUID) -> None:
+    """The seed credit's lot, at the list card's rates, as a grant is (`credit_routes`): the
+    one door every credit writer uses. `balance_after` is the opening credit itself so an
+    already-spent seed wallet is not read as an overdraft to repay."""
+    from apps.api.billing.service import apply_credit_to_lots, rate_card_at
+
+    await apply_credit_to_lots(
+        session,
+        tenant_id=tenant_id,
+        credits_inr=SEED_OPENING_CREDIT_INR,
+        balance_after=SEED_OPENING_CREDIT_INR,
+        rates=(await rate_card_at(session, at=datetime.now(UTC))).list_rates(),
+        source="grant",
+        pack_id=None,
+        ledger_entry_id=entry_id,
+    )
 
 
 def _redacted(value: str) -> str:

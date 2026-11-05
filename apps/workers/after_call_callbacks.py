@@ -25,6 +25,8 @@ at an hour this person has already shown they pick up.
 
 What it does NOT do:
 
+- book when the same reading says only the caller has something to do (`next_step_by`
+  is `caller`): the caller said they would call, not that they want to be called;
 - book on a trial account (no call back can ring until the account pays, founder
   decision 1), on a call whose caller opted out, or where a call back of this call already
   exists in any state (a cancelled one is the caller's own "don't ring me back");
@@ -171,6 +173,11 @@ async def book_requested_callback(
 ) -> Booked | None:
     """Book the call back this reading says the caller wants; None when none is booked."""
     if not extraction.callback_requested or opted_out or phone_e164 is None:
+        return None
+    if extraction.next_step_by == "caller":
+        # The same reading says only the caller has something left to do: "I'll call you"
+        # read as "call me back" (L5-17). An unwanted outbound call costs more than a
+        # missed one the owner still sees as "Needs you".
         return None
     if await restricting_trial(session, tenant_id=tenant_id) is not None:
         return None

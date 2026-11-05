@@ -19,10 +19,9 @@ import { ReadinessScreen, type RuleScreen } from "./ReadinessScreen";
 const RULE_SCREENS: Record<string, RuleScreen> = {
   kyc_missing: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Record verification" },
   kyc_not_verified: { href: (id) => `/admin/tenants/${id}/kyc`, cta: "Record verification" },
-  national_dnd_scrub_missing: {
-    href: (id) => `/admin/tenants/${id}/dnd-scrub`,
-    cta: "Record the scrub",
-  },
+  // DELIBERATELY ABSENT: `national_dnd_scrub_missing`. The check needs a registered
+  // telemarketer, which Calevate is not (D-692), so no operator can honestly record one; the
+  // row is filed as `outside`, not ours.
   // The cap is raised by `SpendCapPanel`, which lives on the Spend page.
   spend_cap: { href: (id) => `/admin/tenants/${id}/spend`, cta: "Open the cap" },
   no_credits: { href: (id) => `/admin/tenants/${id}/credits`, cta: "Open credits" },

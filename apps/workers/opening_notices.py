@@ -24,7 +24,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
-from apps.workers.opening_line import opening_problems, write_opening
+from apps.workers.opening_line import WrittenOpening, opening_problems, write_opening
 from apps.workers.script_assist import JsonAnswer
 
 log = get_logger(__name__)
@@ -32,7 +32,7 @@ log = get_logger(__name__)
 JOB_NAME: Final = WEAVE_JOB
 
 
-async def _meter(tenant_id: UUID, spends: list[JsonAnswer[str] | ProblemError]) -> None:
+async def _meter(tenant_id: UUID, spends: list[JsonAnswer[WrittenOpening] | ProblemError]) -> None:
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     async with tenant_session(tenant_id) as session:
         for spent in spends:
@@ -72,8 +72,8 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
     names = (brief.business_name, brief.agent_name)
-    spends: list[JsonAnswer[str] | ProblemError] = []
-    written: list[tuple[OpeningToWeave, str]] = []
+    spends: list[JsonAnswer[WrittenOpening] | ProblemError] = []
+    written: list[tuple[OpeningToWeave, WrittenOpening]] = []
     for line in state.todo:
         problems = opening_problems(
             line.line,
@@ -82,6 +82,7 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
             introduced=brief.introduced,
             where=line.field,
             woven=brief.woven,
+            said=line.said,
         )
         try:
             answer = await write_opening(
@@ -105,14 +106,17 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
         for line, value in written:
             try:
                 async with session.begin_nested():
+                    # The replaced line travels with the new one, so the Script tab can show
+                    # what changed and put it back (founder, 5 Nov 2026).
                     await script_builder.replace_opening_line(
                         session,
                         tenant_id=tenant_id,
                         agent_id=agent_id,
-                        opening_line=value,
+                        opening_line=value.line,
                         created_by=None,
                         placed=line.placed,
                         notes=WEAVE_NOTE,
+                        notices=value.notices(before=line.line),
                     )
                 applied += 1
             except ProblemError as refused:

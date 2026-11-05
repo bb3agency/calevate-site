@@ -62,7 +62,7 @@ At the ceiling the feature BLOCKS. It does not degrade, it does not silently bil
 it does not queue: `require_ai_assist` raises, the screen opens a modal naming the exact
 rupee figure, and **nothing leaves the wallet until a person presses accept**.
 
-What they accept is a FIXED BLOCK (`AI_OVERAGE_BLOCK_INR`), debited once, as ONE
+What they accept is a FIXED BLOCK (`ai_overage_block_inr()`), debited once, as ONE
 `credit_ledger` row with reason `usage` and `ref = ai_assist:<YYYY-MM>` — an existing
 reason, no new table, deduped by the existing `ux_credit_ledger_tenant_reason_ref`
 (D-63's key shape). Three alternatives were considered and each fails on hard rule 4:
@@ -369,7 +369,13 @@ def assist_nominal_inr(model: str) -> Decimal:
 #: hidden or unbounded — but the size of the block relative to the smallest tier is a
 #: PRICE, and a price is the founder's. It is left where they set it rather than quietly
 #: scaled per tier by an agent; what is fixed here is the claim about it.
-AI_OVERAGE_BLOCK_INR: Final = Decimal("500.00")
+
+
+def ai_overage_block_inr() -> Decimal:
+    """The block's price now: the founder's console setting (`Settings.ai_overage_block_inr`,
+    G8-1), read per request so a change reaches the next screen without a deploy."""
+    return get_settings().ai_overage_block_inr
+
 
 #: The brake on OUR key, across every tenant, per IST billing month. Independent of every
 #: tenant's quota by construction: a hundred tenants each inside their own ceiling is
@@ -460,7 +466,7 @@ def overage_ref(month: str) -> str:
     a no-op rather than a second ₹500 (the argument `billing.service.adjustment_ref`
     makes at length). It deliberately does NOT carry the amount: a key of
     `ai_assist:2026-08:500.00` would let a client who reloads into a changed
-    `AI_OVERAGE_BLOCK_INR` buy a second block in the same month, which is exactly the
+    `ai_overage_block_inr()` buy a second block in the same month, which is exactly the
     exposure "one block per tenant-month" exists to bound.
     """
     return f"{OVERAGE_REF_PREFIX}:{month}"
@@ -1455,7 +1461,7 @@ async def purchase_ai_overage(
     """Debit the one block this tenant-month may buy — AFTER a person accepted it.
 
     `accepted_amount_inr` is what the modal SHOWED, echoed back, and it is compared
-    against `AI_OVERAGE_BLOCK_INR` before anything moves. That is the client-realm form
+    against `ai_overage_block_inr()` before anything moves. That is the client-realm form
     of the `X-Confirm-Action` double-key the admin credit routes use, and it exists for
     the same failure: a screen left open across a price change would otherwise debit a
     figure nobody was shown. A mismatch is refused, never clamped.
@@ -1477,7 +1483,8 @@ async def purchase_ai_overage(
 
     AND IT WILL NOT SELL THE LAST HOUR OF A MONTH — see `LAST_SALEABLE_MINUTES`.
     """
-    if accepted_amount_inr != AI_OVERAGE_BLOCK_INR:
+    block = ai_overage_block_inr()
+    if accepted_amount_inr != block:
         raise ProblemError.business_rule(
             "ai_extra_amount_changed",
             "The amount you accepted is not the amount we would charge.",
@@ -1518,14 +1525,14 @@ async def purchase_ai_overage(
         session,
         tenant_id=tenant_id,
         ref=overage_ref(quota.month),
-        demand=AiAssistDemand(credits=AI_OVERAGE_BLOCK_INR),
+        demand=AiAssistDemand(credits=block),
         allow_negative=False,
         meta={
             "kind": OVERAGE_META_KIND,
             "month": quota.month,
             # What the person was shown when they accepted, so the row explains itself
             # on a statement a year from now without this module being read.
-            "accepted_amount_inr": str(to_paise(AI_OVERAGE_BLOCK_INR)),
+            "accepted_amount_inr": str(to_paise(block)),
             "included_inr": str(to_paise(quota.included_inr)),
             "used_inr_at_acceptance": str(to_paise(quota.used_inr)),
         },
@@ -1535,12 +1542,12 @@ async def purchase_ai_overage(
         extra={
             "tenant_id": str(tenant_id),
             "month": quota.month,
-            "amount_inr": str(AI_OVERAGE_BLOCK_INR),
+            "amount_inr": str(block),
         },
     )
     return ExtraPurchase(
         charged=True,
-        amount_inr=AI_OVERAGE_BLOCK_INR,
+        amount_inr=block,
         # Re-read INSIDE the same transaction, so the response states the world after
         # the debit rather than the world the decision was made in.
         quota=await read_ai_quota(session, tenant_id=tenant_id),
@@ -1554,6 +1561,7 @@ def quota_payload(quota: AiQuota) -> dict[str, Any]:
     drift into two definitions of the same month — the route validates this dict through
     its own `extra="forbid"` model, which is what fails loudly if they ever do.
     """
+    block = ai_overage_block_inr()
     return {
         "month": quota.month,
         "plan_tier": quota.plan_tier,
@@ -1581,18 +1589,17 @@ def quota_payload(quota: AiQuota) -> dict[str, Any]:
         ),
         # ALWAYS published, so the modal quotes the server's figure and never a constant
         # compiled into the browser bundle.
-        "extra_block_inr": str(to_paise(AI_OVERAGE_BLOCK_INR)),
+        "extra_block_inr": str(to_paise(block)),
         # About how many assists the block is worth, derived HERE for the same reason
         # `requests_included` is: the browser must never divide a rupee amount, and the
         # reference price is not published precisely so nobody is tempted to.
-        "extra_block_requests": int(AI_OVERAGE_BLOCK_INR // quota.nominal_assist_inr),
+        "extra_block_requests": int(block // quota.nominal_assist_inr),
         "extra_available": quota.extra_unavailable is None,
         "extra_unavailable_reason": quota.extra_unavailable,
     }
 
 
 __all__ = [
-    "AI_OVERAGE_BLOCK_INR",
     "AI_QUOTA_INR",
     "ASSIST_META_KIND",
     "ASSIST_REF_PREFIX",
@@ -1613,6 +1620,7 @@ __all__ = [
     "AssistMetered",
     "ExtraPurchase",
     "PlatformAiSpend",
+    "ai_overage_block_inr",
     "alert_usage_incomplete",
     "assist_nominal_inr",
     "bump_platform_ai_spend",

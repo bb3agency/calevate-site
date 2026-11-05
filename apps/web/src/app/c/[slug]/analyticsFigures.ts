@@ -3,7 +3,7 @@ import type { MetricDelta } from "@/components/console/metric";
 import { formatDateShort } from "@/components/arc/ist-dates";
 import { formatCount, formatDecimal, formatDuration, formatPercent } from "@/components/ui";
 import type { Stats, StatsMetric } from "@/lib/api/analytics";
-import { callersWord, type BusinessCapabilities } from "@/lib/businessCapabilities";
+import { leadWords, type BusinessCapabilities } from "@/lib/businessCapabilities";
 
 type MetricKey = StatsMetric["key"];
 
@@ -18,12 +18,13 @@ const LABELS: Record<MetricKey, string> = {
 };
 
 /**
- * The labels a business's own words change: a business that sells nothing has no "leads",
- * it has interested users (`tenancy/caller_words.CallerWords.new_lead`, the emails' word).
+ * The labels a business's own words change: "New leads" only for a business judged to sell,
+ * else its interested callers (`leadWords`, the twin of `tenancy/caller_words`).
  */
 export function businessLabels(caps: BusinessCapabilities): Partial<Record<MetricKey, string>> {
-  if (caps.sells !== false) return {};
-  return { leads: `Interested ${callersWord(caps)}` };
+  if (caps.sells === true) return {};
+  const words = leadWords(caps).leads;
+  return { leads: words.charAt(0).toUpperCase() + words.slice(1) };
 }
 
 /** Hints that say what a figure counts, where the label alone could be misread. */

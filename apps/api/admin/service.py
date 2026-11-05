@@ -22,6 +22,7 @@ import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from hashlib import sha256
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -32,6 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.holds import NO_HOLDS, read_tenant_holds
+from apps.api.billing.lots import read_open_lots
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import get_balance, to_paise
 from apps.api.billing.trials import read_trial
@@ -1262,7 +1264,11 @@ async def tenant_overview(
 
 
 #: An invoiced account has no wallet, so it has no credit to quote: null, never a zero.
-_NO_CREDIT: Final[dict[str, Any]] = {"credit_inr": None, "minutes_left": None}
+_NO_CREDIT: Final[dict[str, Any]] = {
+    "credit_inr": None,
+    "minutes_left": None,
+    "credit_unpacked_inr": None,
+}
 
 
 async def _directory_credit(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Any]:
@@ -1277,7 +1283,15 @@ async def _directory_credit(session: AsyncSession, *, tenant_id: UUID) -> dict[s
     trial = await read_trial(session, tenant_id=tenant_id)
     on_trial = trial is not None and trial.is_active(at=datetime.now(UTC))
     minutes = None if on_trial else await tier_minutes(session, tenant_id=tenant_id)
+    # Minutes are summed pack by pack, so a balance held in no pack (an opening credit
+    # written straight to the ledger) shows as rupees with zero minutes. Said, not hidden.
+    in_packs = sum(
+        (lot.credits_remaining for lot in await read_open_lots(session, tenant_id=tenant_id)),
+        Decimal("0"),
+    )
+    unpacked = balance.amount_inr - in_packs
     return {
+        "credit_unpacked_inr": to_paise(unpacked) if unpacked > 0 else None,
         "credit_inr": to_paise(balance.amount_inr),
         "minutes_left": (
             None

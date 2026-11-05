@@ -7,7 +7,7 @@ and whenever a notice switch moves (`publishing.set_disclosure_posture`); a line
 not say exactly the notices switched on is written again by `workers/opening_notices`.
 
 Until it is, nothing is lost: `engine.join_first_words` keeps the stored sentence beside an
-opening that does not say a notice, so a call never goes out without one.
+opening that does not carry the woven words, so a call never goes out without one.
 """
 
 from __future__ import annotations
@@ -17,7 +17,14 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
-from calevate_shared.opening_notices import WovenNotices
+from calevate_shared.opening_notices import (
+    NONE_SAID,
+    OpeningNotices,
+    SaidNotices,
+    WovenNotices,
+    kept_by_owner,
+    said_in,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +46,8 @@ class OpeningToWeave:
     field: str
     placed: bool
     line: str
+    #: The words of `line` that already say a notice, as woven into it earlier.
+    said: SaidNotices = NONE_SAID
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,16 +63,28 @@ class WeaveState:
 def openings_to_weave(
     script: CallScript, *, direction: str, woven: WovenNotices
 ) -> tuple[OpeningToWeave, ...]:
-    """The opening lines of `script` that do not say exactly the notices `woven` names. An
-    empty line is the first-run writer's to fill, not this one's."""
+    """The opening lines of `script` that do not say, in words woven into them, exactly the
+    notices `woven` names. An empty line is the first-run writer's to fill, not this one's;
+    a line the owner put back over the writer's (Undo) is theirs and keeps the stored
+    sentences beside it."""
     fields = [("opening_line", False)]
     if direction == "both":
         fields.append(("outbound_opening_line", True))
-    return tuple(
-        OpeningToWeave(field=field, placed=placed, line=line)
-        for field, placed in fields
-        if (line := str(getattr(script, field)).strip()) and not woven.matches(line)
-    )
+    todo: list[OpeningToWeave] = []
+    for field, placed in fields:
+        line = str(getattr(script, field)).strip()
+        notices = notices_of(script, placed=placed)
+        if not line or kept_by_owner(notices, line):
+            continue
+        said = said_in(notices, line)
+        if not woven.matches(said, line):
+            todo.append(OpeningToWeave(field=field, placed=placed, line=line, said=said))
+    return tuple(todo)
+
+
+def notices_of(script: CallScript, *, placed: bool) -> OpeningNotices:
+    """The notice writer's record for one of `script`'s opening lines."""
+    return script.outbound_opening_notices if placed else script.opening_notices
 
 
 async def weave_state(session: AsyncSession, agent_id: UUID) -> WeaveState | None:
@@ -132,6 +153,7 @@ __all__ = [
     "WEAVE_NOTE",
     "OpeningToWeave",
     "WeaveState",
+    "notices_of",
     "openings_to_weave",
     "queue_opening_notices",
     "weave_state",

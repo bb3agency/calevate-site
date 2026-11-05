@@ -16,9 +16,10 @@ import {
   SECONDARY_BUTTON,
   Skeleton,
   formatCount,
+  formatCountOf,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { useActAccess, useMe } from "@/lib/api/hooks";
 import {
   ROLE_COPY,
@@ -32,6 +33,7 @@ import {
   type Member,
   type MemberRole,
 } from "@/lib/api/members";
+import { useBulkLeads } from "@/lib/api/leads";
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -103,6 +105,10 @@ export function TeamScreen() {
   });
   const remove = useRemoveMember(session);
   const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
+  // The removed person's leads, handed to the owner in one move (e2e audit OB-35): the
+  // same bulk action the Leads screen runs, scoped to the leads still assigned to them.
+  const handover = useBulkLeads(session);
+  const handoverFeedback = useActionFeedback(handover, { errorDisplay: "inline" });
   const revoke = useRevokeInvitation(session);
   // A cancelled invitation leaves the table, so its outcome is said in a toast.
   const revokeFeedback = useActionFeedback(revoke, {
@@ -313,21 +319,51 @@ export function TeamScreen() {
 
       {remove.data && (
         <NoticeBox
-          tone="warn"
+          tone={handover.isSuccess ? "ok" : "warn"}
           title="Access removed"
           action={
-            remove.data.leads_still_assigned > 0 ? (
-              <Link href={href(`/c/${session.orgSlug}/leads`)} className={SECONDARY_BUTTON}>
-                Reassign leads
-              </Link>
+            remove.data.leads_still_assigned > 0 && !handover.isSuccess ? (
+              <span className="flex flex-wrap gap-2">
+                {myId !== null && (
+                  <ActionButton
+                    variant="secondary"
+                    status={handoverFeedback.status}
+                    pendingLabel="Moving…"
+                    onClick={() => {
+                      const removed = remove.data;
+                      if (!removed) return;
+                      handover.mutate({
+                        lens: { assigned_to: removed.user_id },
+                        body: {
+                          scope: "filter",
+                          action: "assign",
+                          assign_to: myId,
+                          expected_count: removed.leads_still_assigned,
+                        },
+                      });
+                    }}
+                  >
+                    Give their leads to me
+                  </ActionButton>
+                )}
+                <Link
+                  href={href(`/c/${session.orgSlug}/leads`)}
+                  className={SECONDARY_BUTTON}
+                >
+                  Choose who gets them
+                </Link>
+              </span>
             ) : undefined
           }
         >
-          {remove.data.leads_still_assigned > 0
-            ? `${formatCount(remove.data.leads_still_assigned)} ${
-                remove.data.leads_still_assigned === 1 ? "lead is" : "leads are"
-              } still assigned to them.`
-            : "No leads to reassign."}
+          {handover.isSuccess
+            ? `${formatCountOf(handover.data.changed + handover.data.unchanged, "lead")} now with you.`
+            : remove.data.leads_still_assigned > 0
+              ? `${formatCount(remove.data.leads_still_assigned)} ${
+                  remove.data.leads_still_assigned === 1 ? "lead is" : "leads are"
+                } still assigned to them.`
+              : "No leads to reassign."}
+          {handover.error != null && <ProblemNotice error={handover.error} />}
         </NoticeBox>
       )}
 

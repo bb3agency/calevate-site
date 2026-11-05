@@ -187,3 +187,53 @@ def test_only_a_line_that_asks_for_something_can_be_a_gap() -> None:
     assert is_gap("What does it cost?", "Message us on WhatsApp for the price.") == (
         "deferred_channel"
     )
+
+
+#: The audit's probe lines (L5-05, 5 Nov 2026): agreements and plans, none of them a question.
+#: The Telugu two are the audit's own probe ("somehow I'll try", "saw it somewhere, I'll try"):
+#: a question word with an ending fused on is another word.
+NOT_QUESTIONS = (
+    "ఎలాగైనా ట్రై చేస్తాను",
+    "ఎక్కడో చూసాను, ట్రై చేస్తా",
+    "I will try when I get time",
+    "ok I will try what you said",
+    "naaku help kavali ante cheptanu",
+    "I will try.",
+)
+
+
+def test_a_question_word_inside_a_plan_or_a_longer_word_asks_nothing() -> None:
+    for said in NOT_QUESTIONS:
+        assert not caller_asked(said), said
+        assert is_gap(said, "Message us on WhatsApp if you need help.") is None, said
+
+
+def test_questions_are_still_heard_in_every_shape() -> None:
+    for said in (
+        "What is the price",
+        "ok, how do I add an expense",
+        "Is there parking",
+        "tell me the timings",
+        "I want to know the fee",
+        "price enta",
+        "delivery eppudu",
+        "Where is your office",
+    ):
+        assert caller_asked(said), said
+
+
+def test_sending_what_was_asked_for_is_the_answer_not_a_gap() -> None:
+    """L5-06: for a business whose answer is a link on WhatsApp, sending it answers."""
+    assert (
+        is_gap("How do I install the app?", "Sure, I'll send you the link on WhatsApp now.") is None
+    )
+    assert is_gap("How do I install the app?", "Please message us on WhatsApp.") == (
+        "deferred_channel"
+    )
+
+
+def test_a_call_back_the_caller_asked_for_is_not_a_punt() -> None:
+    assert is_gap("Can you call me back tomorrow?", "Sure, we will call you back tomorrow.") is None
+    assert is_gap("What is the warranty?", "The team will call you back about that.") == (
+        "deferred_channel"
+    )

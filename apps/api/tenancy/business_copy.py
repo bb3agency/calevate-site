@@ -14,8 +14,11 @@ and queueing a run. The run itself is `apps/workers/business_copy.py`.
 
 THE CAPABILITY PROFILE. The same run judges what the business does with its callers
 (`Capabilities`: bookings, orders, prices, premises, selling, health care), the objections its
-callers raise, what it calls them and what its owner would ask Pip. Every consumer reads it
-through `capabilities_for` and keeps today's behaviour for a capability not yet judged.
+callers raise, what it calls them, what its owner would ask Pip and the words its ready-made
+agents use (`StarterWords`). Every consumer reads it through `capabilities_for`. A capability
+not yet judged is unknown, and unknown is neutral (audit of 5 Nov 2026, G1-1): nothing is
+written as if the business books, sells, quotes prices or has a place to visit until it is
+judged to; what an owner may switch on stays on offer.
 
 WHY A CLIENT'S WORDS ARE NEVER OVERWRITTEN. Everything stored here is the AI's own text, in
 its own row. The screens show it where a field is empty (a placeholder) or as a suggestion
@@ -265,9 +268,11 @@ class Capabilities(_Strict):
     sells anything to callers at all (False for a free app helping its registered users, or a
     helpline). health_business: it gives health or medical care.
 
-    THE UNKNOWN RULE: `applies is None` means "not judged yet", and a consumer then behaves
-    exactly as it did before this profile existed. Only `applies is False` may withdraw
-    anything; never read None as False.
+    THE UNKNOWN RULE: `applies is None` means "not judged yet". Never read None as False
+    where False takes something away (a switch the owner may turn on, a check that keeps a
+    caller safe); never read it as True where True puts words in an agent's or a screen's
+    mouth (a booking offered, a price quoted, a sale assumed). `offered` and `assumed` are
+    the two readings.
     """
 
     takes_bookings: Capability
@@ -285,6 +290,14 @@ class Capabilities(_Strict):
     def judged(self) -> bool:
         return all(getattr(self, key).applies is not None for key in CAPABILITY_KEYS)
 
+    def offered(self, key: str) -> bool:
+        """Whether what `key` governs stays on offer: everything not judged False."""
+        return bool(getattr(self, key).applies is not False)
+
+    def assumed(self, key: str) -> bool:
+        """Whether words may take `key` for granted: only a judged True."""
+        return bool(getattr(self, key).applies is True)
+
 
 MAX_OBJECTIONS: Final = 3
 MAX_PIP_QUESTIONS: Final = 4
@@ -297,6 +310,26 @@ class CallerObjection(_Strict):
     caller_says: Line
     #: Guidance for the agent, in English.
     how_to_answer: Line
+
+
+class StarterWords(_Strict):
+    """The words a ready-made agent of THIS business uses, written by the copy run (G1-3), in
+    place of the per-trade table's (`agents/starters.TRADES`), which seeds the run."""
+
+    #: The name offered for the agent that answers calls, 1 to 4 words ("Help desk").
+    answer_name: Chip
+    #: The name offered for the agent that places calls ("User follow-up").
+    calling_name: Chip
+    #: What callers ask about, as words after "help callers with" ("the app, payments or
+    #: account set-up").
+    topics: Line
+    #: The details the agent asks for, in conversation order, as a clause.
+    capture: Line
+    #: The one thing its agent must never do, as an instruction ("Never ...").
+    caution: Line
+
+
+STARTER_WORD_KEYS: Final[tuple[str, ...]] = tuple(StarterWords.model_fields)
 
 
 #: What the business calls the people on its calls, English and singular: one to three plain
@@ -333,6 +366,8 @@ class GeneratedCopy(_Strict):
     caller_noun: CallerNoun | None = None
     #: Questions an owner of this business would ask Pip about its calls (English).
     pip_questions: list[Question] | None = Field(default=None, max_length=MAX_PIP_QUESTIONS)
+    # Added with prompt version 5 (G1-3), optional for the same reason.
+    starter_words: StarterWords | None = None
 
 
 # --- the text rules -------------------------------------------------------------------------
@@ -422,6 +457,11 @@ def _strings(copy: GeneratedCopy) -> list[tuple[str, str, bool]]:
     if copy.caller_noun is not None:
         out.append(("caller_noun", copy.caller_noun, False))
     out += [(f"pip_questions.{i}", v, False) for i, v in enumerate(copy.pip_questions or ())]
+    if copy.starter_words is not None:
+        out += [
+            (f"starter_words.{key}", str(value), False)
+            for key, value in copy.starter_words.model_dump().items()
+        ]
     return out
 
 
@@ -474,7 +514,7 @@ def profile_problems(copy: GeneratedCopy) -> list[str]:
     """The version-4 fields a new answer must carry (an empty list is an answer; absent is
     not), and the booking job's agreement with the capabilities."""
     problems = capability_problems(copy)
-    for key in ("objections", "caller_noun", "pip_questions"):
+    for key in ("objections", "caller_noun", "pip_questions", "starter_words"):
         if getattr(copy, key) is None:
             problems.append(f"{key}: missing")
     return problems + booking_job_problems(copy)
@@ -670,6 +710,7 @@ __all__ = [
     "PLACEHOLDER_KEYS",
     "REFRESH_EVERY",
     "RETIRED_PLACEHOLDERS",
+    "STARTER_WORD_KEYS",
     "STOP_MESSAGES",
     "VENDOR_WORDS",
     "CallerObjection",
@@ -680,6 +721,7 @@ __all__ = [
     "Placeholders",
     "ScreenGuide",
     "StarterLines",
+    "StarterWords",
     "StepSuggestion",
     "StopReason",
     "Trigger",

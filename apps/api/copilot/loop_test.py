@@ -19,6 +19,7 @@ import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 from calevate_shared.spoken_style import style_for
 
+from apps.api.copilot import actions as actions_module
 from apps.api.copilot import navigation, script_actions, service, write_tools
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.sanitize import has_invisible
@@ -45,7 +46,7 @@ PAYLOAD = CopilotAskIn.model_validate(
         ],
     }
 )
-#: A screen Pip cannot fill, where a turn's words stream as they arrive (`hold_text`).
+#: A screen Pip cannot fill.
 READ_ONLY_PAYLOAD = PAYLOAD.model_copy(update={"fields": [PAYLOAD.fields[1]]})
 
 
@@ -470,10 +471,10 @@ async def test_a_consumer_that_stops_early_can_still_meter_the_completed_turns(
         ],
     )
     paid = service.PaidTurns()
-    # A screen with nothing to fill, where the second turn's words stream before it ends.
+    # The consumer goes away at the first turn's refused step, before the second turn ends.
     run = cast(AsyncGenerator[Any, None], service.run_copilot(READ_ONLY_PAYLOAD, paid=paid))
     async for event in run:
-        if event.text is not None:
+        if event.step is not None:
             break
     await run.aclose()
     spend = paid.outstanding()
@@ -979,13 +980,19 @@ async def test_a_leg_that_dies_after_text_was_shown_still_meters_its_paid_turns(
     """FAILS IF: a leg that already showed the person some words and then died re-raises
     before handing over the turns it completed, so a paid turn reaches no ledger row."""
     paid = chat.TokenUsage(prompt_tokens=800, output_tokens=40)
-    first_turn = _turn(
-        content="Let me check. ",
-        arguments=json.dumps(
-            {"because": "set the opening time", "items": [{"field_id": "status", "value": "live"}]}
+    # A lookup turn: its words are shown when it ends (a turn that changes nothing has nothing
+    # to hold them for), and the lookup sends the run round again into the dying leg.
+    first_turn = [
+        chat.StreamEvent(text="Let me check. "),
+        chat.StreamEvent(
+            outcome=chat.ChatOutcome(
+                content="Let me check. ",
+                tool_calls=(chat.ToolCall(id="r1", name="no_such_lookup", arguments="{}"),),
+                finish_reason="tool_calls",
+                usage=paid,
+            )
         ),
-        usage=paid,
-    )
+    ]
     turns_served = 0
 
     def _stream(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
@@ -1924,3 +1931,148 @@ async def test_a_second_malformed_tool_call_is_answered_not_retried(
     events = await _drain_google()
 
     assert [e.text for e in events if e.text] == [service.NO_ANSWER_MESSAGE]
+
+
+# --- e2e audit 5 Nov 2026: what Pip says matches what it did ----------------------------
+
+
+def _agents_do(action: str, args: dict[str, Any], *, because: str | None) -> str:
+    body: dict[str, Any] = {"action": action, "args": args}
+    if because is not None:
+        body["because"] = because
+    return json.dumps(body)
+
+
+async def test_an_actions_claim_is_not_shown_when_the_action_is_refused(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: the words a model writes beside an action ("I've created the agent") reach
+    the person before the action ran and stay when it is refused (PIP-01), or the refused
+    step shows the model's reason, with its tool names, to the owner (PIP-03)."""
+    create = _agents_do(
+        "agent_create",
+        {"name": "Nightline", "direction": "outbound", "language_primary": "te-IN"},
+        because="set the opening time",
+    )
+    _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("agents_do", create), content="I've created the agent. "),
+            _turn(content="I could not create it from here."),
+        ],
+    )
+    events = await _drain()
+
+    said = "".join(e.text for e in events if e.text)
+    assert "I've created the agent" not in said
+    assert said == "I could not create it from here."
+    refused = [e.step for e in events if e.step is not None and e.step.status == "refused"]
+    assert [step.detail for step in refused] == [actions_module.REFUSED_PLAIN]
+
+
+async def test_a_lookups_words_are_shown_when_the_turn_ends(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the held-text rule: a turn that changes nothing has nothing to wait
+    for, so its words are shown, before the next turn's."""
+    _fake_tools(monkeypatch, {"calls_recent": "two calls"})
+    _scripted(
+        monkeypatch,
+        [_tool_turn(("calls_recent", "{}"), content="Let me look. "), _turn(content="Two.")],
+    )
+    events = await _drain_with_tools()
+
+    assert "".join(e.text for e in events if e.text) == "Let me look. Two."
+    first_text = next(i for i, e in enumerate(events) if e.text)
+    first_step = next(i for i, e in enumerate(events) if e.step is not None)
+    assert first_text < first_step
+
+
+async def test_a_misnamed_area_call_puts_no_schema_in_the_answer(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: running out of turns on a misnamed area call appends the area's schema
+    (backticks, argument names) to the owner's answer (PIP-04), or the run is charged to
+    the client's allowance though it answered nothing (PIP-16)."""
+    wrong = _agents_do("agent_fly", {}, because=None)
+    _scripted(monkeypatch, [_tool_turn(("agents_do", wrong)) for _ in range(service.MAX_TURNS + 2)])
+    events = await _drain()
+
+    said = "".join(e.text for e in events if e.text)
+    assert said == service.EXHAUSTED_MESSAGE
+    spend = events[-1].spend
+    assert spend is not None and spend.unused is True
+
+
+async def test_a_run_whose_writes_our_guards_refused_is_not_charged(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: a run whose only fill our own guard refused, ending in an explanation, is
+    counted against the client's AI allowance like a good answer (PIP-16)."""
+    refused = json.dumps(
+        {"because": "set the opening time", "items": [{"field_id": "status", "value": "x"}]}
+    )
+    _scripted(
+        monkeypatch, [_turn(arguments=refused), _turn(content="Status cannot be changed here.")]
+    )
+    events = await _drain()
+    spend = events[-1].spend
+    assert spend is not None and spend.unused is True
+
+
+async def test_a_repaired_fill_is_charged_and_its_refusal_reads_as_tried_again(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: an accepted fill emits no step, so the panel shows the refused attempt
+    before it as a failure the repair never undid (founder, F-1); or a run that did land a
+    change is treated as wasted."""
+    refused = json.dumps(
+        {"because": "set the opening time", "items": [{"field_id": "status", "value": "x"}]}
+    )
+    repaired = json.dumps(
+        {"because": "set the opening time", "items": [{"field_id": "open", "value": "09:00"}]}
+    )
+    _scripted(
+        monkeypatch,
+        [_turn(arguments=refused), _turn(content="Filled it.", arguments=repaired)],
+    )
+    events = await _drain()
+
+    steps = [(e.step.tool, e.step.status) for e in events if e.step is not None]
+    assert steps == [("set_fields", "refused"), ("set_fields", "done")]
+    done = [e.step for e in events if e.step is not None and e.step.status == "done"]
+    assert done[0].args == "" and done[0].detail == ""
+    spend = events[-1].spend
+    assert spend is not None and spend.unused is False
+
+
+@pytest.mark.parametrize(
+    ("answer", "claims"),
+    [
+        ("I've updated the opening line.", True),
+        ("I have changed the goal for you.", True),
+        ("I just set it to 9am.", True),
+        ("Your script has been saved.", True),
+        ("The agent is now live.", True),
+        ("I have not changed anything.", False),
+        ("I can update the opening line if you want.", False),
+        ("Your opening line says hello.", False),
+    ],
+)
+def test_claims_a_change_reads_a_past_tense_change(answer: str, claims: bool) -> None:
+    assert service.claims_a_change(answer) is claims
+
+
+async def test_a_claimed_change_with_no_tool_call_is_corrected(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: an answer that says it changed something, from a run that changed nothing
+    and tried nothing, reaches the person unchallenged (PIP-05)."""
+    _scripted(monkeypatch, [_turn(content="I've updated the opening line.")])
+    events = await _drain()
+    said = "".join(e.text for e in events if e.text)
+    assert said == "I've updated the opening line." + service.NOTHING_CHANGED_LINE
+
+    _scripted(monkeypatch, [_turn(content="Your opening line says hello.")])
+    events = await _drain()
+    assert "".join(e.text for e in events if e.text) == "Your opening line says hello."

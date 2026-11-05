@@ -28,9 +28,10 @@ import {
 
 import { formatCallCap } from "@/components/ui";
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
-import type { Agent, AgentLanguage } from "@/lib/api/agents";
+import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
 import type { FirstRun, FirstRunBuildStep, FirstRunDocument, FirstRunJob } from "@/lib/api/firstRun";
+import { founderLine } from "@/lib/founderLines";
 import { lookup } from "@/lib/lookup";
 
 /** The greeting the card counts as done: short, and ending on a question that hands the turn
@@ -168,20 +169,19 @@ export const LANGUAGES: readonly { tag: string; label: string }[] = LANGUAGE_CHO
   label,
 }));
 
-/** Each language's mark: a syllable in its own script, so an owner finds theirs by sight.
- *  Over the generated union, so a language added to the API without a mark fails typecheck. */
-const LANGUAGE_GLYPHS: Readonly<Record<AgentLanguage, string>> = {
-  "te-IN": "తె",
-  "hi-IN": "हि",
-  "en-IN": "En",
-  "ta-IN": "த",
-  "kn-IN": "ಕ",
-  "ml-IN": "മ",
-  "mr-IN": "म",
-};
-
+/** Each language's mark: the first letter of its own name in its own script, so an owner
+ *  finds theirs by sight. The names are the founder's data (`founderLines.json`); English,
+ *  whose name is not in another script, reads "En". */
 export function languageGlyph(tag: string): string {
-  return lookup(LANGUAGE_GLYPHS, tag) ?? tag.slice(0, 2);
+  if (tag.startsWith("en")) return "En";
+  let name: string;
+  try {
+    name = founderLine(`language.endonym.${tag}`);
+  } catch {
+    return tag.slice(0, 2);
+  }
+  const first = new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(name)[Symbol.iterator]().next();
+  return first.done ? tag.slice(0, 2) : first.value.segment;
 }
 
 /** The language's name without the region the picker does not need ("English (India)"). */

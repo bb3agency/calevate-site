@@ -185,9 +185,10 @@ _LEADS_OBJECTIONS: Final[tuple[_Tagged, ...]] = (
 
 
 def _offer_or_next_step(step: PlayStep, fit: BusinessFit, instruction: str) -> PlayStep:
-    """`step`, the offer, unless the business is judged to book and order nothing: then the
-    step that agrees what happens next, in the same place."""
-    if fit.books is not False:
+    """`step`, the offer, once the business is judged to book or take orders; otherwise,
+    unjudged too (audit of 5 Nov 2026, G1-1), the step that agrees what happens next, in the
+    same place."""
+    if fit.assumes_booking:
         return step
     return PlayStep(
         title=NEXT_STEP_TITLE,
@@ -230,9 +231,7 @@ def _answer_calls(
         ),
         PlayStep(
             title="Confirm and close",
-            instruction=(
-                _CLOSE_INSTRUCTION if fit.books is not False else _AGREED_CLOSE_INSTRUCTION
-            ),
+            instruction=(_CLOSE_INSTRUCTION if fit.assumes_booking else _AGREED_CLOSE_INSTRUCTION),
             exit_when="They have nothing else.",
         ),
     )
@@ -298,7 +297,7 @@ def _call_leads(
         PlayStep(
             title="Confirm and close",
             instruction=(
-                _LEAD_CLOSE_INSTRUCTION if fit.books is not False else _AGREED_CLOSE_INSTRUCTION
+                _LEAD_CLOSE_INSTRUCTION if fit.assumes_booking else _AGREED_CLOSE_INSTRUCTION
             ),
             exit_when="They have nothing else.",
         ),
@@ -419,20 +418,23 @@ TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
 
 
 def neutral_words(fit: BusinessFit) -> TradeWords:
-    """The "something else" row, fitted to what the business is judged to do: no "where it
-    is" for a business callers never visit. Its objection is used only while no copy has
-    named the business's own (`objections_for`)."""
+    """The "something else" row, fitted to what the business is judged to do: "where it is"
+    only for a business callers are judged to visit. Its objection, which asks a price, is used
+    only for a business judged to quote prices while no copy has named its own
+    (`objections_for`)."""
     row = TRADE_WORDS[NEUTRAL_TRADE]
-    if fit.has_premises is not False:
+    if fit.assumes_premises:
         return row
     return TradeWords(value_topics="what the business does", objection=row.objection)
 
 
 def _fits(assumes: str, fit: BusinessFit) -> bool:
+    """Whether an objection's assumption holds: only once the business is judged to meet it,
+    so an unjudged business is not practised against a price or a sale (G2-3)."""
     if assumes == _SALE:
-        return fit.sells is not False
+        return fit.assumes_sale
     if assumes == _PRICE:
-        return fit.sells is not False and fit.quotes_prices is not False
+        return fit.assumes_prices
     return True
 
 
@@ -442,7 +444,12 @@ def objections_for(
     """The job's objections that fit the business, then the business's own: the ones its
     copy names (`BusinessFit.objections`, the caller's words in its call language), or the
     trade's one objection while no copy has named any."""
-    own = (words.objection,) if fit.objections is None else fit.objections
+    if fit.objections is not None:
+        own = fit.objections
+    elif words.objection == TRADE_WORDS[NEUTRAL_TRADE].objection and not fit.assumes_prices:
+        own = ()
+    else:
+        own = (words.objection,)
     return (
         *((said, does) for said, does, assumes in _JOB_OBJECTIONS[job] if _fits(assumes, fit)),
         *own,

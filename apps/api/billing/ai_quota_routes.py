@@ -45,7 +45,6 @@ from pydantic import Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import (
-    AI_OVERAGE_BLOCK_INR,
     purchase_ai_overage,
     quota_payload,
     read_ai_quota,
@@ -224,4 +223,4 @@ async def buy_ai_extra(
     return AiQuotaOut.model_validate(quota_payload(result.quota))
 
 
-__all__ = ["AI_OVERAGE_BLOCK_INR", "AiExtraIn", "AiQuotaOut", "router"]
+__all__ = ["AiExtraIn", "AiQuotaOut", "router"]

@@ -252,6 +252,14 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "The job queue is unreachable",
         "Background work is waiting. Nothing is lost; it is sent once the queue is back.",
     ),
+    "outbox_bulk_consumer_missing": _s(
+        "Slow background work is waiting for its worker",
+        "Document reads, AI-written copy and account walks wait until the bulk worker is up.",
+    ),
+    "webhook_event_without_job": _s(
+        "A call-platform event was accepted but nothing will act on it",
+        "One opt-out, erasure, lead or escalation may need acting on by hand.",
+    ),
     "webhook_intake_unavailable": _s(
         "Call events from the voice platform are being refused",
         "Every client: finished calls are not reaching us, and the voice platform turns the "

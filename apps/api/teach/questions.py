@@ -37,6 +37,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.test_conversations import PRICE_PATTERN
 from apps.api.agents.test_conversations import missing_facts
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
@@ -125,10 +126,15 @@ _GAPS_SQL: Final = (
     "GROUP BY g.topic_key ORDER BY calls DESC, last_seen DESC LIMIT :limit"
 )
 
+#: A topic is covered when the facts, the live documents, or an agent's own script says it
+#: (A-20): an owner whose script states the hours was being asked for the hours again.
 _COVERED_SQL: Final = (
     "SELECT EXISTS (SELECT 1 FROM kb_facts WHERE removed_at IS NULL AND text ~* :pattern) "
     "OR EXISTS (SELECT 1 FROM kb_documents d JOIN kb_sources s ON s.id = d.source_id "
-    "WHERE s.is_active AND s.published_at IS NOT NULL AND d.content ~* :pattern)"
+    "WHERE s.is_active AND s.published_at IS NOT NULL AND d.content ~* :pattern) "
+    "OR EXISTS (SELECT 1 FROM agents a JOIN prompt_versions pv "
+    "ON pv.id = COALESCE(a.system_prompt_id, a.live_prompt_id) "
+    "WHERE a.deleted_at IS NULL AND pv.body ~* :pattern)"
 )
 
 #: What a draft is written from, as change markers: any edit to the facts, the profile, the
@@ -188,7 +194,11 @@ async def _open_questions(
     # quotes none, no address from one callers never visit (`Capabilities`, False only).
     extra: list[Question] = []
     quotes_prices = (await fact_words(session, tenant_id=tenant_id)).quotes_prices
-    if quotes_prices and "prices" in await missing_facts(session):
+    if (
+        quotes_prices
+        and "prices" in await missing_facts(session)
+        and not await _covered(session, PRICE_PATTERN)
+    ):
         extra.append(_asked("pricing", "Pricing", "practice"))
     profile = await load_profile(session, tenant_id=tenant_id)
     if not profile.hours and not await _covered(session, _HOURS_PATTERN):

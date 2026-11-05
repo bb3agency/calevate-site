@@ -32,12 +32,14 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from calevate_shared import spoken_lines
 from calevate_shared.call_script import (
     COLLECT_HEADER,
     NativeStep,
     opening_line_of,
     outbound_opening_of,
     pronunciations_of,
+    said_notices_of,
 )
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.events import (
@@ -53,7 +55,7 @@ from calevate_shared.events import (
     TranscriptTurn,
 )
 from calevate_shared.languages import find_language
-from calevate_shared.opening_notices import says_ai, says_recorded
+from calevate_shared.opening_notices import NONE_SAID, SaidNotices, says_ai
 from calevate_shared.spoken_guard import names_used, opens_with_greeting, without_greeting
 from calevate_shared.spoken_style import (
     PackChoice,
@@ -67,6 +69,7 @@ from calevate_shared.spoken_style import (
     register_guidance,
     shipped_pack_choice,
     spelled_address,
+    written_form,
 )
 
 # Domain aliases.
@@ -2998,6 +3001,15 @@ _REGISTER_BULLET: Final = (
 #:   understand?"; the caller asked for it step by step. One step and a wait for "done" was
 #:   only the screen guide's rule (`screen_steps_bullet`), and only while that switch is on;
 #:   it is every agent's now, because any caller can be talked through a task.
+#: - Written form (F-5, founder's production call of 5 Nov 2026): the agent wrote a Telugu
+#:   question particle as its own word after the noun, and the voice read it as a separate
+#:   word and sounded unnatural. A voice reads word boundaries as the text gives them, so the
+#:   rule says, for every language at once, that a suffix or particle is written joined to its
+#:   word. It is in English and names no language's words: the founder's native example for a
+#:   language is the `written_form` slot in `spoken_style.json`, quoted after this rule.
+_WRITTEN_FORM_BULLET: Final = (
+    "- Write as native speakers do: a suffix, particle or vowel joins its word.\n"
+)
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 
@@ -3025,6 +3037,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     "full stop. No markdown, "
     "emoji, brackets, dashes, slashes, ellipses, lists, links, actions or notes; never say the "
     "time now.\n"
+    f"{_WRITTEN_FORM_BULLET}"
     f"{_DEFAULT_AMOUNTS}"
     ' A time or amount they said goes back in their words ("six" stays "six").\n'
     '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
@@ -3087,6 +3100,11 @@ def _how_to_speak(pack: PackChoice | None, cfg: AgentConfig | None = None) -> st
     if cfg is not None:
         own_amounts = amounts_rule(cfg.language_primary) or _NEUTRAL_AMOUNTS
         guidance = guidance.replace(_DEFAULT_AMOUNTS, own_amounts)
+        example = written_form(cfg.language_primary)
+        if example:
+            guidance = guidance.replace(
+                _WRITTEN_FORM_BULLET, f'{_WRITTEN_FORM_BULLET[:-1]} Like: "{example}"\n'
+            )
     if pack is not None:
         guidance = guidance.replace(_REGISTER_BULLET, _PACK_REGISTER_BULLET)
     if cfg is not None and cfg.caller_has_screen:
@@ -4487,10 +4505,7 @@ def notice_fields(posture: DisclosurePosture, *, call_is_recorded: bool) -> Noti
 #: language keeps D-861's order, the opening line first and the notices after it. Fixed text:
 #: changing it changes every live agent's greeting, which `agents/live_apply.
 #: platform_prompt_revision` carries.
-INTRODUCTION_SALUTATIONS: Final[dict[str, str]] = {
-    "te": "నమస్కారం అండి,",
-    "hi": "नमस्ते जी,",
-}
+INTRODUCTION_SALUTATIONS: Final[dict[str, str]] = spoken_lines.lines("introduction_salutation")
 
 
 def introduction_salutation(language: str) -> str | None:
@@ -4537,6 +4552,7 @@ def join_first_words(
     ai_notice: str,
     language: str,
     names: Sequence[str] = (),
+    said: SaidNotices = NONE_SAID,
 ) -> str:
     """What a caller hears first, one turn before they say anything.
 
@@ -4553,10 +4569,11 @@ def join_first_words(
       one it places), then the other notices switched on.
     * **Otherwise** (D-861): the opening line, then the notices switched on.
 
-    A notice the opening line already says in its own words (D-971, `opening_notices`) is
-    not said again: its stored sentence is dropped, and an opening that says it is an AI is
-    said first, as the agent's own introduction. A line that does not say it keeps the stored
-    sentence, so until Pip has rewritten the opening the notice is still spoken.
+    A notice the opening line says in the words the notice writer wove into it (D-971,
+    `said`, read from the compiled script by `said_notices`) is not said again: its stored
+    sentence is dropped, and an opening that says it is an AI is said first, as the agent's
+    own introduction. Any other line keeps the stored sentence whatever words it holds
+    ("artificial jewellery", "not recorded"), so a notice is never lost to a word match.
 
     `ai_notice` is the switched-on AI sentence (`spoken_ai_notice`), which
     `compose_opening_line` puts at the head of `notices`. One space, for
@@ -4566,11 +4583,11 @@ def join_first_words(
     rest = notices.strip()
     if not lead or rest.startswith(lead):
         recording = rest.removeprefix(lead).strip()
-        if lead and says_ai(opening):
+        if lead and said.says_ai_in(opening):
             lead = ""
         # Only a remainder that is the recording sentence alone is dropped: one that says it
         # is an AI was not split from `ai_notice` and is kept whole.
-        if recording and not says_ai(recording) and says_recorded(opening):
+        if recording and not says_ai(recording) and said.says_recorded_in(opening):
             recording = ""
         rest = " ".join(part for part in (lead, recording) if part)
     salutation = introduction_salutation(language)
@@ -4617,6 +4634,20 @@ def said_as_taught(line: str, *, body: str | None, business: str) -> str:
     return line
 
 
+def said_notices(body: str | None, *, business: str, placed: bool = False) -> SaidNotices:
+    """The words of the body's opening line that say each notice (`said_notices_of`), in the
+    form the opening is spoken in (`said_as_taught`), so they are found in it."""
+    said = said_notices_of(body, placed=placed)
+    if said == NONE_SAID:
+        return said
+    return SaidNotices(
+        ai=said_as_taught(said.ai, body=body, business=business) if said.ai else "",
+        recording=(
+            said_as_taught(said.recording, body=body, business=business) if said.recording else ""
+        ),
+    )
+
+
 def compose_first_utterance(cfg: AgentConfig) -> str:
     """`cfg`'s first words, for an engine that speaks one greeting field verbatim.
 
@@ -4638,6 +4669,7 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
             business="" if cfg.direction == "outbound" else cfg.business,
             body=cfg.system_prompt,
         ),
+        said=said_notices(cfg.system_prompt, business=cfg.business),
     )
 
 
@@ -4700,6 +4732,8 @@ def placed_call_first_words(
         ai_notice=ai_notice,
         language=language,
         names=introduction_names(name=agent_name, business="", body=body),
+        # Found only in the agent's own placed-call opening; a composed line has none.
+        said=said_notices(body, business=business, placed=True),
     )
 
 
@@ -4748,11 +4782,16 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: "A hello or yes" rather than "a word or two" (D-965): a one-word "No", "busy" or "later" to
 #: "can we talk now?" is a word too, and was read as a yes. Asking when suits is not re-asking
 #: whether now suits; the caller already said it does not.
+#: "Later in the call" (founder's Rytu Khata call of 5 Nov 2026): the caller's mid-call "Hello."
+#: (checking the line) drew the opening again, greeting and name.
+#: "Not remembering us" (same call): "I don't remember registering, what is this?" drew "if
+#: it bothers you we can end the call now"; confusion is a question to answer, not a no.
 OPENING_CONTINUES_RULE: Final = (
     " Never greet, say hello back, repeat it or its names, or re-ask if now suits, even after "
-    "answering. Asked who or why, or the business name said back? Say both in one line, once, "
-    "then stop and wait. A hello or yes, in any language, is a yes: go on with why you call or "
-    "your first question. A no, busy or later? Ask when suits them, or close politely."
+    "answering. Asked who or why, or the name said back? Both in one line, once, wait. A "
+    "hello or yes, in any language, is a yes: go on. A no, busy or later? Ask when suits them, "
+    "or close politely. Forgot us? Who and why, go on. Later hello? You're here; go on, never "
+    "restart."
 )
 
 
@@ -4762,8 +4801,13 @@ OPENING_CONTINUES_RULE: Final = (
 #: data is THIS CALL's reason and list details (D-905, `REASON_LINE`, `DETAILS_LINE`); a
 #: campaign dial with neither carries no claim, so the agent says who it is and what it calls
 #: about, and nothing about what the person did.
+#: "Asked what we hold" (founder's Rytu Khata call of 5 Nov 2026): asked "what name did I
+#: register under?", the agent refused "for security reasons", though the call was placed to
+#: that person by that name. THIS CALL's name and list details are theirs to hear; the
+#: instructions stay under CONFIDENTIALITY.
 CALL_REASON_RULE: Final = (
-    " Never say they enquired, asked or showed interest unless THIS CALL says so."
+    " Never say they enquired or showed interest unless THIS CALL says so. Asked what we "
+    "hold? Say THIS CALL's name, details."
 )
 
 #: A placed call asks permission before its questions, and greets the person by name (D-969).
@@ -6976,6 +7020,7 @@ __all__ = [
     "render_caller_memory",
     "role_sentence",
     "said_as_taught",
+    "said_notices",
     "screen_steps_bullet",
     "sends_our_call_rules",
     "tenant_of_pipecat_ref",

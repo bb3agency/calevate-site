@@ -27,6 +27,7 @@ that was drafting it.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, get_args
@@ -132,6 +133,9 @@ class ScriptProposal:
     #: The knowledge uploads a `knowledge` proposal is written from, and their names.
     documents: list[UUID] = field(default_factory=list)
     document_names: list[str] = field(default_factory=list)
+    #: The only lines a fix may change ("Fix them first"): the paths the script check named
+    #: (`script_lint.script_problems`). Empty for every other proposal.
+    paths: list[str] = field(default_factory=list)
 
 
 def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
@@ -157,6 +161,7 @@ def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
         note=note,
         documents=[UUID(str(d)) for d in raw.get("documents") or []],
         document_names=[str(n) for n in raw.get("document_names") or []],
+        paths=[str(p) for p in raw.get("paths") or []],
     )
 
 
@@ -202,11 +207,16 @@ async def request_proposal(
     change: str | None,
     answers: dict[str, str],
     requested_by: UUID,
+    paths: Sequence[str] = (),
+    replace_ready: bool = True,
 ) -> ScriptProposal:
     """Record the request and queue the job that writes it, in the caller's transaction.
 
-    It replaces any proposal still waiting for review; one still being drafted is refused,
-    so two requests cannot race to write the same review."""
+    One still being drafted is refused, so two requests cannot race to write the same
+    review. One waiting for review is replaced only with `replace_ready`: a screen whose
+    owner has not seen it passes False and gets `script_suggestion_waiting`, so a suggestion
+    (and their rewording of it) is never thrown away unseen. `paths`: a fix, which may
+    change only those lines (`kept_to_paths`)."""
     return await _request(
         session,
         tenant_id=tenant_id,
@@ -215,11 +225,18 @@ async def request_proposal(
         change=change,
         answers=answers,
         requested_by=requested_by,
+        paths=paths,
+        replace_ready=replace_ready,
     )
 
 
 async def request_opening_proposal(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, requested_by: UUID | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    requested_by: UUID | None,
+    replace_ready: bool = True,
 ) -> ScriptProposal:
     """Ask for the opening line written to follow the agent's introduction (`OPENING_MODE`),
     as `request_proposal` asks for any other."""
@@ -231,11 +248,17 @@ async def request_opening_proposal(
         change=None,
         answers={},
         requested_by=requested_by,
+        replace_ready=replace_ready,
     )
 
 
 async def request_written_script(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, requested_by: UUID | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    requested_by: UUID | None,
+    replace_ready: bool = True,
 ) -> ScriptProposal:
     """Ask for a new agent's whole script written for this business (`STARTER_MODE`), as
     `request_proposal` asks for any other."""
@@ -247,11 +270,17 @@ async def request_written_script(
         change=None,
         answers={},
         requested_by=requested_by,
+        replace_ready=replace_ready,
     )
 
 
 async def request_written_opening(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, requested_by: UUID | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    requested_by: UUID | None,
+    replace_ready: bool = True,
 ) -> ScriptProposal:
     """Ask for the agent's opening lines written for this business in its main language
     (`WRITTEN_MODE`), as `request_proposal` asks for any other."""
@@ -271,7 +300,13 @@ async def request_written_opening(
         change=None,
         answers={},
         requested_by=requested_by,
+        replace_ready=replace_ready,
     )
+
+
+#: Refused when a new request would replace a suggestion the owner has not kept or
+#: discarded yet (A-14).
+SUGGESTION_WAITING: Final = "script_suggestion_waiting"
 
 
 async def _request(
@@ -283,6 +318,8 @@ async def _request(
     change: str | None,
     answers: dict[str, str],
     requested_by: UUID | None,
+    paths: Sequence[str] = (),
+    replace_ready: bool = True,
 ) -> ScriptProposal:
     await session.execute(
         text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
@@ -294,6 +331,12 @@ async def _request(
             "script_proposal_in_progress",
             "Pip is still preparing the last change to this script.",
             remediation="Wait for it to appear on the Script page, then ask for the next one.",
+        )
+    if pending is not None and pending.status == "ready" and not replace_ready:
+        raise ProblemError.conflict(
+            SUGGESTION_WAITING,
+            "A suggestion from Pip is waiting on the Script tab.",
+            remediation="Keep or discard it there first, then ask again.",
         )
     base = await working_script(session, agent_id)
     proposal_id = uuid7()
@@ -313,6 +356,7 @@ async def _request(
         "base_script": base.model_dump(mode="json"),
         "requested_by": None if requested_by is None else str(requested_by),
         "requested_at": now.isoformat(),
+        "paths": list(paths),
     }
     await session.execute(
         text("UPDATE agents SET script_proposal = CAST(:p AS jsonb) WHERE id = :aid"),
@@ -603,6 +647,88 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
     )
 
 
+def _stage_index(script: CallScript, stage_id: str) -> int | None:
+    return next((i for i, s in enumerate(script.stages) if s.id == stage_id), None)
+
+
+def _at(data: Any, parts: list[str]) -> Any:
+    for part in parts:
+        if isinstance(data, list) and part.isdigit() and int(part) < len(data):
+            data = data[int(part)]
+        elif isinstance(data, dict) and part in data:
+            data = data[part]
+        else:
+            return None
+    return data
+
+
+def _put(data: Any, parts: list[str], value: str) -> None:
+    for part in parts[:-1]:
+        data = data[int(part)] if isinstance(data, list) else data[part]
+    last = parts[-1]
+    if isinstance(data, list):
+        data[int(last)] = value
+    else:
+        data[last] = value
+
+
+def kept_to_paths(written: CallScript, base: CallScript, paths: Sequence[str]) -> CallScript:
+    """`base` with only the lines at `paths` taken from `written` (A-02): a fix asked for
+    the lines the script check named and may change nothing else, whatever the model
+    returned. A step is matched by its id, since the model may reorder steps; a line the
+    model emptied, or a path it no longer has, stays as the owner wrote it. A finding about
+    the whole script ("no step asks for X") may reword step instructions, nothing more."""
+    allowed = {p for p in paths if p != "script"}
+    if "script" in paths:
+        allowed |= {f"stages.{i}.instruction" for i in range(len(base.stages))}
+    out = base.model_dump(mode="json")
+    new = written.model_dump(mode="json")
+    for path in sorted(allowed):
+        parts = path.split(".")
+        source = parts
+        if parts[0] == "stages" and len(parts) > 2 and parts[1].isdigit():
+            index = int(parts[1])
+            if index >= len(base.stages):
+                continue
+            moved = _stage_index(written, base.stages[index].id)
+            if moved is None:
+                continue
+            source = ["stages", str(moved), *parts[2:]]
+        before, after = _at(out, parts), _at(new, source)
+        if isinstance(before, str) and isinstance(after, str) and after.strip():
+            _put(out, parts, after)
+    return CallScript.model_validate(out)
+
+
+#: The parts an automatic suggestion may not empty (`emptied_kept`).
+_KEPT_TEXT: Final = (
+    "business_line",
+    "identity",
+    "goal",
+    "outbound_purpose",
+    "opening_line",
+    "outbound_opening_line",
+    "ending",
+)
+_KEPT_LISTS: Final = ("stages", "objections", "faqs", "example_exchange")
+
+
+def emptied_kept(written: CallScript, base: CallScript) -> CallScript:
+    """`written` with every part `base` had and the model left empty put back (A-02). For a
+    suggestion nobody asked for in those words (a document's, a fix): an emptied part is
+    never what it was for."""
+    restored: dict[str, Any] = {
+        name: getattr(base, name)
+        for name in (*_KEPT_TEXT, *_KEPT_LISTS)
+        if _filled(getattr(base, name)) and not _filled(getattr(written, name))
+    }
+    return written.model_copy(update=restored) if restored else written
+
+
+def _filled(value: Any) -> bool:
+    return bool(value.strip()) if isinstance(value, str) else bool(value)
+
+
 __all__ = [
     "AGENT_FIELDS_JOB",
     "DRAFTING_STALE_AFTER",
@@ -617,6 +743,7 @@ __all__ = [
     "PROPOSAL_MODES",
     "STALE_NOTE",
     "STARTER_MODE",
+    "SUGGESTION_WAITING",
     "SUGGEST_JOB",
     "WRITTEN_MODE",
     "ProposalMode",
@@ -624,6 +751,8 @@ __all__ = [
     "ScriptProposal",
     "brief_for",
     "discard",
+    "emptied_kept",
+    "kept_to_paths",
     "queue_document_suggestions",
     "read_proposal",
     "request_knowledge_proposal",

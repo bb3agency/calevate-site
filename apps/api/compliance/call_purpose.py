@@ -90,6 +90,9 @@ class PromoReport:
     findings: tuple[Finding, ...]
     #: True when more findings matched than `MAX_FINDINGS`.
     truncated: bool
+    #: The languages of wording this checker cannot read (`unread_languages`), by English
+    #: name. Never "clear" while any is listed (G5-3).
+    not_checked_in: tuple[str, ...] = ()
 
     @property
     def blocks_launch(self) -> bool:
@@ -396,12 +399,42 @@ def first_finding(text: str) -> Finding | None:
     return found[0] if found else None
 
 
+#: Letters whose words this checker has no list for, by the Unicode name of the script's
+#: letters, with the language a script means to an owner. Latin, Telugu and Devanagari are
+#: read (`Language`). A script full of "தள்ளுபடி" would otherwise read "clear" on a launch
+#: gate (audit of 5 Nov 2026, G5-3).
+_UNREAD_SCRIPTS: Final[dict[str, str]] = {
+    "TAMIL": "Tamil",
+    "KANNADA": "Kannada",
+    "MALAYALAM": "Malayalam",
+    "BENGALI": "Bengali",
+    "GUJARATI": "Gujarati",
+    "GURMUKHI": "Punjabi",
+    "ORIYA": "Odia",
+    "ARABIC": "Urdu",
+}
+
+
+def unread_languages(text: str) -> tuple[str, ...]:
+    """The languages of `text`'s letters this checker cannot read, in first-seen order."""
+    seen: dict[str, None] = {}
+    for ch in text:
+        if ch.isascii() or not ch.isalpha():
+            continue
+        script = unicodedata.name(ch, "").split(" ")[0]
+        if script in _UNREAD_SCRIPTS:
+            seen.setdefault(_UNREAD_SCRIPTS[script], None)
+    return tuple(seen)
+
+
 def lint(parts: Sequence[ScriptPart]) -> PromoReport:
-    """Every finding in every part, and the verdict they add up to."""
+    """Every finding in every part, and the verdict they add up to. Wording in a language the
+    checker cannot read makes the verdict at least `check`, never `clear`."""
     findings = [finding for part in parts if part.text.strip() for finding in _part_findings(part)]
+    unread = unread_languages(" ".join(part.text for part in parts))
     if any(finding.severity == "strong" for finding in findings):
         verdict: Verdict = "promotional"
-    elif findings:
+    elif findings or unread:
         verdict = "check"
     else:
         verdict = "clear"
@@ -411,6 +444,7 @@ def lint(parts: Sequence[ScriptPart]) -> PromoReport:
         verdict=verdict,
         findings=tuple(findings[:MAX_FINDINGS]),
         truncated=len(findings) > MAX_FINDINGS,
+        not_checked_in=unread,
     )
 
 
