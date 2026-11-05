@@ -255,8 +255,8 @@ export function organizationCallHandling() {
   };
 }
 
-/** The hot-lead list's reads (D-904, D-967): no team address yet, and an agent whose rule adds
- * nothing to its hot outcome. */
+/** The alert list's reads (D-904, D-967): no team address yet, and an agent whose rule the
+ * owner has not saved, so its one positive outcome comes ticked. */
 export function teamAlertReads(agentId = "agent-1") {
   return {
     "/v1/team-alerts/contacts": {
@@ -265,14 +265,15 @@ export function teamAlertReads(agentId = "agent-1") {
       whatsapp_accounts: [],
     } satisfies TeamContacts,
     [`/v1/agents/${agentId}/team-alert`]: {
-      on_outcomes: [],
+      on_outcomes: ["ready"],
       on_fields: [],
       in_call: false,
+      saved: false,
       team_addresses: 0,
       in_call_live: false,
       outcomes: [
-        { key: "ready", label: "Ready to buy", values: [], hot: true },
-        { key: "booked", label: "Booked", values: [], hot: false },
+        { key: "ready", label: "Ready to buy", values: [], positive: true, goal: true },
+        { key: "booked", label: "Booked", values: [], positive: false, goal: false },
       ],
       fields: [],
     } satisfies TeamAlertRule,

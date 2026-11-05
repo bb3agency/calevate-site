@@ -8,13 +8,13 @@ import { renderClientPage, type ApiCall } from "./harness";
 import { OWNER_ME, teamAlertReads } from "./fixtures/sharedReads";
 
 /**
- * WHO HEARS ABOUT HOT LEADS (D-904, D-967): the team half of the one list on Settings → Alerts
- * (each address confirmed by a code), and on an agent only WHEN: a hot outcome always counts,
- * the owner may add more. WhatsApp is offered only when the account has its own WhatsApp
+ * WHO HEARS ABOUT A CALL (D-904, D-967): the team half of the one list on Settings → Alerts
+ * (each address confirmed by a code), and on an agent only WHEN: exactly the ticked outcomes,
+ * positive ones ticked until the owner saves. WhatsApp is offered only when the account has its own WhatsApp
  * connected; otherwise one line says why it is not there.
  */
 
-const AGENT = { id: "agent-1" };
+const AGENT = { id: "agent-1", name: "Varsha" };
 
 function routes(overrides: Record<string, unknown> = {}) {
   return { "/v1/me": OWNER_ME, ...teamAlertReads(), ...overrides };
@@ -82,8 +82,8 @@ describe("the team on the hot-lead list", () => {
   });
 });
 
-describe("what an agent tells the hot-lead list about", () => {
-  it("keeps a hot outcome ticked and saves what the owner adds", async () => {
+describe("what an agent tells the list about", () => {
+  it("ticks the positive outcome, lets the owner untick it, and saves exactly what is ticked", async () => {
     const reads = teamAlertReads();
     const { calls } = await renderClientPage(
       <TeamAlertsPanel agent={AGENT} />,
@@ -94,11 +94,18 @@ describe("what an agent tells the hot-lead list about", () => {
             : reads["/v1/agents/agent-1/team-alert"],
       }),
     );
-    const hot = (await screen.findByLabelText(/Ready to buy/)) as HTMLInputElement;
-    expect(hot.checked && hot.disabled).toBe(true);
-    expect(screen.getByText("You hear about these. No team yet.")).toBeTruthy();
+    const goal = (await screen.findByLabelText(/Ready to buy/)) as HTMLInputElement;
+    expect(goal.checked).toBe(true);
+    expect(goal.disabled).toBe(false);
+    expect(screen.queryByText(/Hot lead/)).toBeNull();
+    expect(screen.getByText("Only you hear these. No one from your team yet.")).toBeTruthy();
+    expect(screen.getByText("Tell me after a call that ends with")).toBeTruthy();
+    fireEvent.click(goal);
     fireEvent.click(screen.getByLabelText("Booked"));
-    fireEvent.click(screen.getByLabelText(/Tell the team during the call, too/));
+    const inCall = screen.getByLabelText(/Message my team while the caller is on the line/);
+    expect(inCall.getAttribute("aria-describedby")).toBeTruthy();
+    expect(screen.getByText(/If Varsha can.t help, your team gets the caller.s details/)).toBeTruthy();
+    fireEvent.click(inCall);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}")).toEqual({

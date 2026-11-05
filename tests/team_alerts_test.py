@@ -1,10 +1,13 @@
-"""Who hears about hot leads (D-904): verified team addresses, per-agent triggers, the in-call
+"""Who hears about a call (D-904): verified team addresses, per-agent triggers, the in-call
 action, and one alert per person per call, the team's with the caller's full number."""
 
 from __future__ import annotations
 
+import importlib.util
+import json
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -675,6 +678,7 @@ async def test_the_routes_serve_the_owner_and_refuse_a_stranger() -> None:
         assert put.status_code == 200, put.text
         rule = put.json()
         assert rule["team_addresses"] == 1 and rule["in_call_live"] is True
+        assert rule["saved"] is True and rule["on_outcomes"] == []
 
         assert (
             await client.get(f"/v1/agents/{t.agent_id}/team-alert", headers=stranger.headers)
@@ -685,3 +689,129 @@ async def test_the_routes_serve_the_owner_and_refuse_a_stranger() -> None:
             f"/v1/team-alerts/contacts/{contact['id']}", headers=stranger.headers
         )
         assert gone.status_code == 404
+
+
+# ------------------------------------------------------------------ the rule is what is ticked
+
+#: An agent like Rytu Khata's, whose best outcome is not a sale: one Hot, one Interested, and
+#: two that move the lead no further than contacted.
+_ONBOARDING_OUTCOMES: list[dict[str, Any]] = [
+    {"key": "app_installed", "label": "App installed", "meaning": "", "lead_status": "hot"},
+    {"key": "considering", "label": "Considering it", "meaning": "", "lead_status": "interested"},
+    {"key": "not_interested", "label": "Not interested", "meaning": "", "lead_status": "contacted"},
+    {"key": "helped", "label": "Helped with the app", "meaning": "", "lead_status": "contacted"},
+]
+
+
+async def _set_outcomes(t: Tenant, outcomes: list[dict[str, Any]]) -> None:
+    """What the AI draft, or the owner's edit, writes to the agent."""
+    async with tenant_session(t.tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET business_outcomes = CAST(:o AS jsonb) WHERE id = :aid"),
+            {"o": json.dumps(outcomes), "aid": t.agent_id},
+        )
+
+
+async def _after_outcome(t: Tenant, key: str, *, hot: bool = False) -> str:
+    call_id = await _call(t)
+    async with tenant_session(t.tenant_id) as session:
+        return await service.queue_after_call(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            call_id=call_id,
+            lead_id=uuid7(),
+            hot=hot,
+            outcome_key=key,
+            outcome_label=key,
+            data={},
+            labels={},
+        )
+
+
+async def test_an_unsaved_rule_ticks_every_positive_outcome_the_agent_has_now() -> None:
+    t = await _tenant()
+    async with tenant_session(t.tenant_id) as session:
+        fresh = await service.read_rule(session, agent_id=t.agent_id)
+    assert not fresh.saved
+    assert set(fresh.rule.on_outcomes) == {"wants_to_buy", "interested"}, (
+        "a new agent reads the starting set, and its positive outcomes are ticked"
+    )
+
+    await _set_outcomes(t, _ONBOARDING_OUTCOMES)
+    async with tenant_session(t.tenant_id) as session:
+        drafted = await service.read_rule(session, agent_id=t.agent_id)
+    assert not drafted.saved
+    assert drafted.rule.on_outcomes == ("app_installed", "considering")
+    assert [(o.key, o.positive, o.goal) for o in drafted.outcomes] == [
+        ("app_installed", True, True),
+        ("considering", True, False),
+        ("not_interested", False, False),
+        ("helped", False, False),
+    ]
+    assert await _after_outcome(t, "considering") == "queued"
+    assert await _after_outcome(t, "helped") == "not_worth_telling"
+
+
+async def test_a_hot_outcome_the_owner_unticked_tells_nobody_and_survives_a_redraft() -> None:
+    t = await _tenant()
+    await _set_outcomes(t, _ONBOARDING_OUTCOMES)
+    async with tenant_session(t.tenant_id) as session:
+        await service.save_rule(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            rule=Rule(on_outcomes=("helped",)),
+        )
+    assert await _after_outcome(t, "app_installed", hot=True) == "not_worth_telling", (
+        "no outcome alerts unless it is ticked, Hot included"
+    )
+    assert await _after_outcome(t, "helped") == "queued"
+
+    await _set_outcomes(t, [*_ONBOARDING_OUTCOMES, {**_ONBOARDING_OUTCOMES[0], "key": "paid"}])
+    async with tenant_session(t.tenant_id) as session:
+        redrafted = await service.read_rule(session, agent_id=t.agent_id)
+    assert redrafted.saved and redrafted.rule.on_outcomes == ("helped",), (
+        "a new list of outcomes never re-ticks over the owner's saved choice"
+    )
+
+
+def _migration() -> Any:
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    path = next(versions.glob("678b07d5cccf_*.py"))
+    spec = importlib.util.spec_from_file_location("_alerts_migration", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+async def test_the_migration_writes_hot_outcomes_into_saved_rules_and_back_out() -> None:
+    migration = _migration()
+    t = await _tenant()
+    await _set_outcomes(t, _ONBOARDING_OUTCOMES)
+    async with tenant_session(t.tenant_id) as session:
+        await service.save_rule(
+            session,
+            tenant_id=t.tenant_id,
+            agent_id=t.agent_id,
+            rule=Rule(on_outcomes=("considering",)),
+        )
+
+    async def _listed() -> tuple[str, ...]:
+        async with tenant_session(t.tenant_id) as session:
+            rule = await service.load_rule(session, t.agent_id)
+        assert rule is not None
+        return rule.on_outcomes
+
+    for _ in range(2):
+        async with tenant_session(t.tenant_id) as session:
+            await session.execute(text(migration._ADD_HOT))
+        assert await _listed() == ("considering", "app_installed"), (
+            "an agent that alerted on its Hot outcome keeps alerting, now that it is listed"
+        )
+    assert await _after_outcome(t, "app_installed", hot=True) == "queued"
+
+    async with tenant_session(t.tenant_id) as session:
+        await session.execute(text(migration._REMOVE_HOT))
+    assert await _listed() == ("considering",)

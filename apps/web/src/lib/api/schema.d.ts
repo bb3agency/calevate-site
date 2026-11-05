@@ -33408,12 +33408,14 @@ export interface components {
         };
         /** TeamAlertChoiceOut */
         TeamAlertChoiceOut: {
-            /** Hot */
-            hot: boolean;
+            /** Goal */
+            goal: boolean;
             /** Key */
             key: string;
             /** Label */
             label: string;
+            /** Positive */
+            positive: boolean;
             /** Values */
             values: string[];
         };
@@ -33443,6 +33445,8 @@ export interface components {
             on_outcomes: string[];
             /** Outcomes */
             outcomes: components["schemas"]["TeamAlertChoiceOut"][];
+            /** Saved */
+            saved: boolean;
             /** Team Addresses */
             team_addresses: number;
         };

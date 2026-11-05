@@ -53461,8 +53461,8 @@
       "TeamAlertChoiceOut": {
         "additionalProperties": false,
         "properties": {
-          "hot": {
-            "title": "Hot",
+          "goal": {
+            "title": "Goal",
             "type": "boolean"
           },
           "key": {
@@ -53472,6 +53472,10 @@
           "label": {
             "title": "Label",
             "type": "string"
+          },
+          "positive": {
+            "title": "Positive",
+            "type": "boolean"
           },
           "values": {
             "items": {
@@ -53485,7 +53489,8 @@
           "key",
           "label",
           "values",
-          "hot"
+          "positive",
+          "goal"
         ],
         "title": "TeamAlertChoiceOut",
         "type": "object"
@@ -53558,6 +53563,10 @@
             "title": "Outcomes",
             "type": "array"
           },
+          "saved": {
+            "title": "Saved",
+            "type": "boolean"
+          },
           "team_addresses": {
             "title": "Team Addresses",
             "type": "integer"
@@ -53567,6 +53576,7 @@
           "on_outcomes",
           "on_fields",
           "in_call",
+          "saved",
           "team_addresses",
           "in_call_live",
           "outcomes",

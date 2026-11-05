@@ -1,12 +1,15 @@
-"""Who hears about hot leads: one list, one rule of when, one queue.
+"""Who hears about a call: one list, one rule of when, one queue.
 
 The list is the account owner (email to the account's email, WhatsApp once they opt in; the
 `notify_hot_lead` job) and the team addresses below. Everyone on it hears about the same calls,
 and each person once per channel per call, whatever told them first. Three ways in:
 
-* **After the call** (`queue_after_call`, post-call pipeline): when the call made its lead hot
-  (the agent's outcome for it moves the lead to Hot), when the agent's own rule matched (an
-  outcome or an answer the owner chose), or when the agent already told the team during it.
+* **After the call** (`queue_after_call`, post-call pipeline): when the agent's rule matched
+  (an outcome or an answer the owner ticked), or when the agent already told the team during
+  it. The rule is exactly what is ticked: an outcome that moves a lead to Hot used to alert
+  whatever the owner chose, which a business whose best outcome is not a sale ("App
+  installed") could not switch off (founder, 5 Nov 2026). Until the owner saves a rule, it is
+  every positive outcome the agent has now (`default_rule`).
 * **During the call** (`queue_in_call`, the agent's `tell_the_team` action): the agent says what
   the problem is and the team addresses are told at once; the owner hears after the call, once
   there is a lead to open. The action exists on an agent only while that agent's rule allows it
@@ -153,13 +156,19 @@ class Choice:
     key: str
     label: str
     values: tuple[str, ...] = ()
-    #: Outcomes only: this outcome moves the lead to Hot, so the list always hears of it.
-    hot: bool = False
+    #: Outcomes only: it makes the caller a lead (`crm/lead_definition.LEAD_BAND`), so it is
+    #: ticked until the owner saves a rule of their own.
+    positive: bool = False
+    #: Outcomes only: it moves the lead to Hot, the business's goal
+    #: (`analytics/proof.goal_labels`).
+    goal: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class RuleView:
     rule: Rule
+    #: Whether the owner has saved this agent's rule; until then `rule` is `default_rule`.
+    saved: bool = False
     outcomes: list[Choice] = field(default_factory=list)
     fields: list[Choice] = field(default_factory=list)
     #: Confirmed team addresses that hear now (the owner is told besides).
@@ -529,21 +538,50 @@ async def _agent_choices(
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
+    # Local: `crm.schemas` reaches this module through `agents.service`, a cycle at import.
+    from apps.api.crm.lead_definition import LEAD_BAND
+
     outcomes, _starting = call_outcomes.outcomes_in_use(row[0])
     fields = [
         Choice(f.key, f.label, tuple(f.enum_values or ()))
         for f in with_core(row[1], await core_labels(session))
         if f.type == "enum" and f.enum_values
     ]
-    return [Choice(o.key, o.label, hot=o.lead_status == "hot") for o in outcomes], fields
+    choices = [
+        Choice(o.key, o.label, positive=o.lead_status in LEAD_BAND, goal=o.lead_status == "hot")
+        for o in outcomes
+    ]
+    return choices, fields
+
+
+def default_rule(outcomes: list[Choice]) -> Rule:
+    """An agent's rule until its owner saves one: every positive outcome it has now.
+
+    Derived on every read rather than written when the agent is made or its outcomes are
+    drafted, because the outcomes change under it (the starting set, then the AI draft, then
+    the owner's edits) and a stored copy would hold the keys of a list that is gone. Once the
+    owner saves, the row is theirs and no redraft touches it.
+    """
+    return Rule(on_outcomes=tuple(o.key for o in outcomes if o.positive))
+
+
+async def effective_rule(session: AsyncSession, agent_id: UUID) -> Rule:
+    """The rule a call is judged by: the owner's saved one, else `default_rule`."""
+    saved = await load_rule(session, agent_id)
+    if saved is not None:
+        return saved
+    outcomes, _fields = await _agent_choices(session, agent_id)
+    return default_rule(outcomes)
 
 
 async def read_rule(session: AsyncSession, *, agent_id: UUID) -> RuleView:
     outcomes, fields = await _agent_choices(session, agent_id)
-    rule = await load_rule(session, agent_id) or Rule()
+    saved = await load_rule(session, agent_id)
+    rule = saved or default_rule(outcomes)
     heard_by = len(await live_contacts(session))
     return RuleView(
         rule=rule,
+        saved=saved is not None,
         outcomes=outcomes,
         fields=fields,
         team_addresses=heard_by,
@@ -818,15 +856,17 @@ async def queue_after_call(
     data: dict[str, Any],
     labels: dict[str, str],
 ) -> str:
-    """STEP 6 of the post-call pipeline: tell the list when the call made its lead hot, when
-    the agent's rule matched, or when the agent told the team during the call (the owner
-    hears of that here, once there is a lead). Returns what happened, for the stage span."""
-    rule = await load_rule(session, agent_id) or Rule()
+    """STEP 6 of the post-call pipeline: tell the list when the agent's rule matched, or when
+    the agent told the team during the call (the owner hears of that here, once there is a
+    lead). Returns what happened, for the stage span.
+
+    `hot` decides nothing here: a Hot outcome alerts only when it is ticked, like any other.
+    It stays in the signature for the pipeline's call."""
+    del hot
+    rule = await effective_rule(session, agent_id)
     reasons = after_call_reasons(
         rule, outcome_key=outcome_key, outcome_label=outcome_label, data=data, labels=labels
     )
-    if hot and outcome_key and outcome_key not in rule.on_outcomes:
-        reasons.insert(0, {"kind": "outcome", "key": outcome_key, "label": outcome_label or ""})
     if not reasons and await _told_in_call(session, call_id):
         reasons = [{"kind": "in_call"}]
     if not reasons:
@@ -926,6 +966,8 @@ __all__ = [
     "after_call_reasons",
     "agents_with_rules",
     "clean_problem",
+    "default_rule",
+    "effective_rule",
     "in_call_live",
     "list_contacts",
     "live_contacts",

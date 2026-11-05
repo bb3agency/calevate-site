@@ -307,7 +307,9 @@ async def test_an_agents_team_alert_is_saved_and_shown_in_its_handover_part() ->
         "in_call": True,
     }
     proposal = await _propose(tenant_id, token, "agent_team_alert_set", args)
-    assert proposal.current == "only for hot leads"
+    assert proposal.current == (
+        "after a call ending Wants to buy or book; after a call ending Interested"
+    ), "an unsaved rule is every positive outcome"
     done = await _confirm(tenant_id, _user_of(token), proposal.token)
     assert done.applied is True
     assert "once a team address is confirmed" in done.detail
@@ -316,7 +318,7 @@ async def test_an_agents_team_alert_is_saved_and_shown_in_its_handover_part() ->
     )
     assert saved[0] == 1
     part = await _read("agent_settings", tenant_id, {"agent_id": str(agent_id), "part": "handover"})
-    assert "hears about every hot lead" in part
+    assert "hears from this agent about exactly these" in part
     assert "Outcomes it can watch:" in part
 
 

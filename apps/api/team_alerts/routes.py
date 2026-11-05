@@ -140,8 +140,10 @@ class TeamAlertChoiceOut(BaseModel):
     key: str
     label: str
     values: list[str]
-    #: Outcomes only: it moves the lead to Hot, so the list always hears of it.
-    hot: bool
+    #: Outcomes only: it makes the caller a lead, so it is ticked until the owner saves.
+    positive: bool
+    #: Outcomes only: it moves the lead to Hot, the business's goal.
+    goal: bool
 
 
 class TeamAlertRuleOut(BaseModel):
@@ -150,6 +152,8 @@ class TeamAlertRuleOut(BaseModel):
     on_outcomes: list[str]
     on_fields: list[FieldTriggerIO]
     in_call: bool
+    #: Whether the owner saved this rule; until then it is every positive outcome.
+    saved: bool
     #: Confirmed team addresses that hear now; the owner hears besides.
     team_addresses: int
     #: Whether the agent can tell the team during a call now.
@@ -183,14 +187,19 @@ def _rule_out(view: RuleView) -> TeamAlertRuleOut:
         on_outcomes=list(view.rule.on_outcomes),
         on_fields=[FieldTriggerIO(key=f.key, values=list(f.values)) for f in view.rule.on_fields],
         in_call=view.rule.in_call,
+        saved=view.saved,
         team_addresses=view.team_addresses,
         in_call_live=view.in_call_live,
         outcomes=[
-            TeamAlertChoiceOut(key=o.key, label=o.label, values=[], hot=o.hot)
+            TeamAlertChoiceOut(
+                key=o.key, label=o.label, values=[], positive=o.positive, goal=o.goal
+            )
             for o in view.outcomes
         ],
         fields=[
-            TeamAlertChoiceOut(key=f.key, label=f.label, values=list(f.values), hot=False)
+            TeamAlertChoiceOut(
+                key=f.key, label=f.label, values=list(f.values), positive=False, goal=False
+            )
             for f in view.fields
         ],
     )
