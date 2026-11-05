@@ -56,7 +56,7 @@ export function Row({ item, to }: { item: AttentionItem; to: string | null }) {
         <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${copy?.dot ?? "bg-ink-faint"}`} />
         {copy?.label ?? item.kind.replace(/_/g, " ")}
         <span aria-hidden>·</span>
-        <span className="whitespace-nowrap text-ink-faint">{formatIST(item.occurred_at)}</span>
+        <span className="whitespace-nowrap font-semibold text-ink">{formatIST(item.occurred_at)}</span>
       </span>
       {/* `break-words`: the title can carry an E.164 number, which has no space to wrap at. */}
       <span className="mt-0.5 block min-w-0 break-words text-body font-medium text-ink">{item.title}</span>
