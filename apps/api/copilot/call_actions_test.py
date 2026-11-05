@@ -31,6 +31,7 @@ from tests.swipe_actions_test import _grant_whatsapp_consent, _stub_whatsapp
 
 from apps.api.billing.plans import IST
 from apps.api.copilot import areas, call_actions, plans, write_tools
+from apps.api.copilot.actions import WriteRefusedError
 from apps.api.copilot.write_tools_test import _actor, _audit, _confirm, _principal, _user_of
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -390,8 +391,32 @@ async def test_a_screen_proposes_the_same_plan_and_nothing_runs_until_approved()
         )
     assert unknown.status_code == 422, unknown.text
     assert empty.status_code == 422 and empty.json()["type"].endswith("copilot_plan_refused")
-    assert "tell the person" not in empty.json()["detail"]
+    assert empty.json()["detail"] == "Nobody matches that choice, so there is nothing to do."
     assert proposed.status_code == 201, proposed.text
     body = proposed.json()
     assert body["status"] == "proposed" and body["origin"] == "console"
     assert [status for status, _at in await _statuses(tenant_id, ids)] == ["scheduled"]
+
+
+async def test_a_screen_shows_the_refusals_plain_sentence_never_the_models_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PIP-03: `reason` is written for the model (argument keys, tool names, what to do
+    next); the person reads `plain`, the sentence the refusal carries for them."""
+
+    async def refuse(*_args: object, **_kwargs: object) -> None:
+        raise WriteRefusedError(
+            "`lead_ids` takes at most 200 ids; use `lens` for more",
+            plain="Choose fewer people.",
+        )
+
+    monkeypatch.setattr(plans, "build_plan", refuse)
+    _tenant_id, slug, token = await _make_tenant()
+    async with _client() as http:
+        refused = await http.post(
+            "/v1/copilot/plans",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            json={"tool": "callbacks_change_bulk", "args": {"change": "cancel"}},
+        )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == "Choose fewer people."

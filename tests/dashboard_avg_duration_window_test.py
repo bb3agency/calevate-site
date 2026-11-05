@@ -200,7 +200,7 @@ def test_the_bound_is_on_the_statement_so_the_index_can_serve_it() -> None:
     Measured: 27.2 ms / 1,017 buffers → 0.84 ms / 61 buffers, 45,000 tenant calls.
     """
     source = inspect.getsource(dashboard)
-    assert "FROM calls WHERE started_at >= :since" in source, (
+    assert "FROM calls c WHERE started_at >= :since" in source, (
         "the dashboard's counts statement lost its WHERE clause; the numbers may still "
         "be right and the scan is unbounded again (D-215)"
     )

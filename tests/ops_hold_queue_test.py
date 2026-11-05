@@ -298,6 +298,43 @@ async def test_a_client_realm_session_sees_zero_rows_of_another_tenant() -> None
     assert response.status_code in (401, 403), response.text
 
 
+async def test_the_queue_reads_every_record_in_one_scan_under_each_tenants_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A7-21: the queue opens no session per tenant, and its scan widens nothing. Run from
+    tenant B's session with tenant A named as a candidate, `kyc_hold_scan` returns B's own
+    row only and leaves B's tenant scope as it found it."""
+    from apps.api.admin import holds
+
+    held = await _tenant("self_serve")
+    clear = await _tenant("self_serve")
+    await _record_kyc(clear)
+
+    def _no_session(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the queue opened a tenant session")
+
+    monkeypatch.setattr(holds, "tenant_session", _no_session, raising=False)
+    async with admin_session() as directory:
+        queue = {row.tenant_id: row.rules for row in await holds.held_tenants(directory)}
+    assert queue.get(uuid.UUID(str(held["id"]))) == ("kyc_missing",)
+    assert uuid.UUID(str(clear["id"])) not in queue
+
+    b = uuid.UUID(str(clear["id"]))
+    async with tenant_session(b) as session:
+        seen = (
+            await session.execute(
+                text(
+                    "SELECT scanned_tenant_id, recorded, status "
+                    "FROM kyc_hold_scan(CAST(:ids AS uuid[]))"
+                ),
+                {"ids": [uuid.UUID(str(held["id"])), b]},
+            )
+        ).all()
+        after = (await session.execute(text("SELECT current_setting('app.tenant_id')"))).scalar()
+    assert [(row[0], row[1], row[2]) for row in seen] == [(b, True, "verified")]
+    assert after == str(b)
+
+
 # ----------------------------------------------------------------------------- D-22
 
 

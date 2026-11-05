@@ -11,7 +11,8 @@ import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { selectionFact, selectionSummary, MAX_SELECTED_IDS } from "@/lib/copilot/selection";
 import { noFill } from "@/lib/copilot/types";
-import { clockWords, scheduleWords } from "@/lib/copilot/workspace";
+import { clockWords } from "@/lib/clock";
+import { scheduleWords } from "@/lib/copilot/workspace";
 
 import { expectNoA11yViolations } from "./a11y";
 import {
@@ -48,14 +49,14 @@ function LeadsLike() {
 describe("the words the workspace uses", () => {
   it("says a schedule the way a person would", () => {
     expect(scheduleWords({ days: ["mon", "tue", "wed", "thu", "fri"], time: "09:30" })).toBe(
-      "Weekdays at 9:30 am",
+      "Weekdays at 9:30am",
     );
-    expect(scheduleWords({ days: ["fri"], time: "17:00" })).toBe("Every Friday at 5:00 pm");
+    expect(scheduleWords({ days: ["fri"], time: "17:00" })).toBe("Every Friday at 5pm");
     expect(
       scheduleWords({ days: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"], time: "00:05" }),
-    ).toBe("Every day at 12:05 am");
-    expect(scheduleWords({ days: ["sat", "sun"], time: "12:00" })).toBe("Weekends at 12:00 pm");
-    expect(scheduleWords({ days: ["mon", "thu"], time: "10:00" })).toBe("Mon, Thu at 10:00 am");
+    ).toBe("Every day at 12:05am");
+    expect(scheduleWords({ days: ["sat", "sun"], time: "12:00" })).toBe("Weekends at 12pm");
+    expect(scheduleWords({ days: ["mon", "thu"], time: "10:00" })).toBe("Mon, Thu at 10am");
     expect(clockWords("nonsense")).toBe("nonsense");
   });
 
@@ -231,7 +232,7 @@ describe("routines", () => {
       },
     );
     await screen.findByText(ROUTINE_ON.name);
-    expect(screen.getByText(/Weekdays at 9:30 am/)).toBeTruthy();
+    expect(screen.getByText(/Weekdays at 9:30am/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "New routine" }));
     const drawer = await screen.findByRole("dialog", { name: "New routine" });
     fireEvent.click(within(drawer).getByRole("button", { name: "Friday summary" }));

@@ -22860,6 +22860,8 @@ export interface components {
             attested_at: string | null;
             /** Billable */
             billable: boolean;
+            /** Billed In Seconds */
+            billed_in_seconds: number;
             /** Effective From */
             effective_from: string | null;
             /** Engine */

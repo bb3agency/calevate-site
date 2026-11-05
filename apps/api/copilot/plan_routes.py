@@ -10,7 +10,6 @@ plan's hash, so the approval is for the plan the person was shown.
 
 from __future__ import annotations
 
-import re
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -69,11 +68,6 @@ async def list_copilot_plans(
     return CopilotPlanPageOut(plans=[plan_out(row) for row in rows])
 
 
-#: The tail Pip's refusals carry for the model ("...; tell the person ..."); a screen shows
-#: the refusal to the person directly, so it stops before that instruction.
-_TO_THE_MODEL = re.compile(r"[;.]\s*(?:tell|ask) the person\b.*$", re.IGNORECASE | re.DOTALL)
-
-
 async def _may_act_or_refuse(session: AsyncSession, actor: ToolActor, tool: str) -> None:
     registered = write_tools.tool_named(tool)
     permission = None if registered is None else registered.permission
@@ -122,12 +116,13 @@ async def propose_copilot_plan(
             session, actor, tool=payload.tool, action=action, args=payload.args, origin="console"
         )
     except WriteRefusedError as refused:
-        detail = _TO_THE_MODEL.sub("", refused.reason).strip() or refused.reason
+        # `plain` is the person's sentence; `reason` is written for the model (tool names,
+        # argument keys, what to do next) and never reaches a screen.
         raise ProblemError(
             kind="business_rule",
             code="copilot_plan_refused",
             title="That plan could not be made",
-            detail=detail[:1].upper() + detail[1:] + ("" if detail.endswith(".") else "."),
+            detail=refused.plain,
             remediation="Change the choice and try again.",
         ) from refused
     return plan_out(built)

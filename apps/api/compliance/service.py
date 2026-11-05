@@ -98,6 +98,7 @@ from apps.api.compliance.engine_dnc import queue_engine_dnc_push
 from apps.api.compliance.kyc import (
     DIGILOCKER_REQUIRED_REASON,
     KYC_MISSING_REASON,
+    KycRecord,
     kyc_not_verified_reason,
     read_kyc,
 )
@@ -566,7 +567,13 @@ async def kyc_blocker(session: AsyncSession, *, tenant_id: UUID) -> tuple[str, s
     The third rule is the admin's "require DigiLocker" override, which holds outbound
     until a run completes after the requirement was set (`KycRecord.digilocker_outstanding`).
     """
-    record = await read_kyc(session, tenant_id=tenant_id)
+    return kyc_rule(await read_kyc(session, tenant_id=tenant_id))
+
+
+def kyc_rule(record: KycRecord) -> tuple[str, str] | None:
+    """`kyc_blocker`'s decision on a record already read: the held-accounts queue reads every
+    self-serve client's record in one scan (`admin/holds.py`) and asks this, so the queue and
+    the dial gate cannot disagree."""
     if not record.recorded or record.status == "not_started":
         return ("kyc_missing", KYC_MISSING_REASON)
     if not record.is_verified:
@@ -1349,6 +1356,7 @@ __all__ = [
     "credits_exhausted",
     "ist_now",
     "kyc_blocker",
+    "kyc_rule",
     "latest_call_consent",
     "outbound_pledge_blocker",
     "outbound_requires_consent",

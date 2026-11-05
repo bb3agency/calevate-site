@@ -24,16 +24,15 @@ shapes were available:
 2. **Surface the state on the tenant DIRECTORY instead.** This is half of what this module does:
    `admin.service.tenant_overview` now carries `holds` on every row, from
    the function below, so the screen an operator already reads shows the flag.
-3. **The queue itself: the directory, then the tenant's own RLS session.** Which is
-   shape 2's mechanism, and the mechanism `tenant_overview` has always used to count a
-   client's calls: enumerate tenants under `app.admin`, then enter each tenant with
-   `tenant_session()` and ask the ordinary gate. Nothing is widened, no policy changes,
-   and the answer comes from the same predicate that refuses the client's dial.
+3. **The queue itself: the directory, then each tenant's record under its own policy.**
+   Enumerate tenants under `app.admin`, then read every candidate's KYC record with
+   `kyc_hold_scan()` (migration f2c6a8d4b1e3), a SECURITY INVOKER function that sets
+   `app.tenant_id` to one tenant at a time, and ask `compliance.service.kyc_rule` — the
+   decision `kyc_blocker` makes for the dial. Nothing is widened, no policy changes, and
+   the answer comes from the same predicate that refuses the client's dial.
 
-The cost is N+1 by construction — the same trade `tenant_overview` documents, bounded
-here by the tier pre-filter below, and payable at M1 scale (one to a few dozen
-self-serve accounts) against widening RLS for a work list. A materialized queue is the
-answer if it ever gets long enough to notice; it is not the answer today.
+This was a `tenant_session()` per tenant until the KYC review queue measured that shape at
+26 s for 7.7k tenants (A7-21); the scan is two statements whatever the tenant count.
 
 WHAT IS ON IT, AND WHAT DELIBERATELY IS NOT (hard rule 6)
 ---------------------------------------------------------
@@ -48,18 +47,16 @@ one click away on the account's own screen, behind the permission that opens it.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
+from typing import Final
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.service import (
-    SELF_SERVE_TIERS,
-    kyc_blocker,
-)
-from apps.api.db.session import tenant_session
+from apps.api.compliance.kyc import NOT_RECORDED, KycRecord, read_kyc
+from apps.api.compliance.service import SELF_SERVE_TIERS, kyc_rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,15 +84,20 @@ NO_HOLDS = TenantHolds(rules=())
 async def read_tenant_holds(session: AsyncSession, *, tenant_id: UUID) -> TenantHolds:
     """THE "is this tenant waiting on us" predicate, on the caller's RLS-scoped session.
 
-    Composed of the gate itself rather than re-derived: `kyc_blocker` is what refuses the
-    dial, so a queue built from it cannot tell an operator an account is clear while the
-    client is staring at a refusal. It fails CLOSED to held (absence of a record IS the
-    held state), so this function adds no judgement of its own.
+    Composed of the gate itself rather than re-derived: `kyc_rule` is the decision
+    `kyc_blocker` makes to refuse the dial, so a queue built from it cannot tell an
+    operator an account is clear while the client is staring at a refusal. It fails
+    CLOSED to held (absence of a record IS the held state), so this function adds no
+    judgement of its own.
 
     The `reason` half of each blocker is discarded on purpose — see the module
     docstring, hard rule 6.
     """
-    blockers = (await kyc_blocker(session, tenant_id=tenant_id),)
+    return _holds(await read_kyc(session, tenant_id=tenant_id))
+
+
+def _holds(record: KycRecord) -> TenantHolds:
+    blockers = (kyc_rule(record),)
     # `blocker[0]` is the rule name; `blocker[1]` is the client-facing reason, which
     # stops here.
     return TenantHolds(rules=tuple(blocker[0] for blocker in blockers if blocker is not None))
@@ -127,25 +129,47 @@ _DIRECTORY = (
     "ORDER BY created_at"
 )
 
+#: Each candidate's KYC record, read under that tenant's own policy (migration f2c6a8d4b1e3).
+_HOLD_SCAN: Final = (
+    "SELECT scanned_tenant_id, recorded, status, digilocker_required, digilocker_required_at, "
+    "digilocker_verified_at FROM kyc_hold_scan(CAST(:ids AS uuid[]))"
+)
+
 
 async def held_tenants(directory: AsyncSession) -> list[HeldTenant]:
     """Every account waiting on a human, oldest signup first.
 
     `directory` must be an `admin_session()` — the only session that can enumerate
-    tenants (b57e2f9c4a13). Each tenant is then ENTERED with its own GUC, so the
-    compliance rows are read under ordinary RLS and this function holds no cross-tenant
-    view of the table at any point.
+    tenants (b57e2f9c4a13). The KYC records come from `kyc_hold_scan()` (migration
+    f2c6a8d4b1e3), which reads each tenant's record with `app.tenant_id` set to that tenant
+    alone, so they are read under ordinary RLS, in one statement rather than a session per
+    tenant, and this function holds no cross-tenant view of the table at any point. A
+    tenant the scan did not return is one the directory listed and the scan could not see
+    (deleted between the two statements); it is left off rather than guessed at.
 
     Oldest first because that is the triage order: the account nobody has looked at for
     three weeks is the one that has quietly stopped trying.
     """
     rows = (await directory.execute(text(_DIRECTORY), {"tiers": list(SELF_SERVE_TIERS)})).all()
+    records = {
+        UUID(str(r[0])): replace(
+            NOT_RECORDED,
+            recorded=bool(r[1]),
+            status=r[2],
+            digilocker_required=bool(r[3]),
+            digilocker_required_at=r[4],
+            digilocker_verified_at=r[5],
+        )
+        for r in await directory.execute(text(_HOLD_SCAN), {"ids": [org[0] for org in rows]})
+    }
 
     queue: list[HeldTenant] = []
     for org in rows:
         tenant_id = UUID(str(org[0]))
-        async with tenant_session(tenant_id) as scoped:
-            holds = await read_tenant_holds(scoped, tenant_id=tenant_id)
+        record = records.get(tenant_id)
+        if record is None:
+            continue
+        holds = _holds(record)
         if not holds.held:
             continue
         queue.append(

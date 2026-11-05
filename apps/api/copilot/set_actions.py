@@ -67,7 +67,8 @@ async def chosen_leads(session: AsyncSession, args: Mapping[str, Any]) -> tuple[
     if raw_ids:
         if not isinstance(raw_ids, list) or len(raw_ids) > MAX_NAMED_LEADS:
             raise WriteRefusedError(
-                f"`lead_ids` takes at most {MAX_NAMED_LEADS} ids; use `lens` for more"
+                f"`lead_ids` takes at most {MAX_NAMED_LEADS} ids; use `lens` for more",
+                plain=f"Choose at most {MAX_NAMED_LEADS} people at a time, or use a filter.",
             )
         try:
             ids = [UUID(str(value)) for value in raw_ids]
@@ -188,7 +189,8 @@ async def _member_name(session: AsyncSession, user_id: UUID | None) -> str:
     ).first()
     if row is None:
         raise WriteRefusedError(
-            "that person is not on this account's team, so look them up with team_members"
+            "that person is not on this account's team, so look them up with team_members",
+            plain="That person is not on your team.",
         )
     return strip_invisible(str(row[0] or "a team member"))
 
@@ -328,7 +330,8 @@ async def _campaign_name(session: AsyncSession, campaign_id: UUID) -> str:
         raise ProblemError.not_found("Campaign")
     if str(row[1]) not in ("draft", "scheduled"):
         raise WriteRefusedError(
-            f"that campaign is {row[1]}; leads are added only before it is launched"
+            f"that campaign is {row[1]}; leads are added only before it is launched",
+            plain="People can be added to a campaign only before it starts.",
         )
     return strip_invisible(str(row[0]))
 
@@ -451,7 +454,9 @@ def _ist_instant(raw: str) -> datetime:
     try:
         check_schedule_time(instant, now=datetime.now(UTC))
     except ProblemError as problem:
-        raise WriteRefusedError(f"{problem.detail} Ask the person for another time") from problem
+        raise WriteRefusedError(
+            f"{problem.detail} Ask the person for another time", plain=problem.detail
+        ) from problem
     return instant.astimezone(UTC)
 
 
@@ -615,11 +620,16 @@ async def _prepare_dial(
     if agent is None:
         raise ProblemError.not_found("Agent")
     if str(agent[2]) == "inbound":
-        raise WriteRefusedError("that agent only answers calls; pick one that places them")
+        raise WriteRefusedError(
+            "that agent only answers calls; pick one that places them",
+            plain="That agent only answers calls. Pick one that makes them.",
+        )
     blockers = await account_dial_blockers(session, tenant_id=actor.tenant_id, trial_call=False)
     if blockers:
+        reasons = " ".join(reason for _, reason in blockers)
         raise WriteRefusedError(
-            "this account cannot place calls yet: " + "; ".join(reason for _, reason in blockers)
+            "this account cannot place calls yet: " + "; ".join(reason for _, reason in blockers),
+            plain=reasons,
         )
     await refuse_promotional_without_registration(session, classification=change.classification)
     targets, lens_text = await chosen_leads(session, args)

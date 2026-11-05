@@ -50,6 +50,7 @@ import { ApiProblem, type Session } from "@/lib/api/client";
 import { makeCallHref } from "@/lib/api/oneCall";
 import { useClientRealm } from "@/lib/api/session";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { minuteOfDayWords } from "@/lib/clock";
 import {
   SWIPE_LEAD_STATUS,
   useMarkCallFollowUp,
@@ -127,14 +128,6 @@ function hhmm(minutes: number): string {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
-function slotLabel(minutes: number): string {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  const suffix = h < 12 ? "am" : "pm";
-  const twelve = h % 12 === 0 ? 12 : h % 12;
-  return `${twelve}:${String(m).padStart(2, "0")} ${suffix}`;
-}
-
 /** Every bookable slot on `day`, India time; today's start a little after now. */
 export function callbackSlots(day: ISODate, today: ISODate = todayIST(), nowMin: number = istMinutesNow()): number[] {
   const out: number[] = [];
@@ -192,7 +185,7 @@ export function useCallbackWhen(): { fields: ReactNode; check: () => string | nu
             {slots.length === 0 ? <option value="">No time left that day</option> : null}
             {slots.map((slot) => (
               <option key={slot} value={slot}>
-                {slotLabel(slot)}
+                {minuteOfDayWords(slot)}
               </option>
             ))}
           </select>

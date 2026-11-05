@@ -156,13 +156,19 @@ async def _record_hours(
 
 
 async def _call(
-    session: AsyncSession, tenant_id: uuid.UUID, agent_id: uuid.UUID, at: datetime
+    session: AsyncSession,
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    at: datetime,
+    *,
+    trial_call: bool = False,
+    paid_test_call: bool = False,
 ) -> None:
     await session.execute(
         text(
             "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
-            "started_at, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, 'inbound', "
-            "'completed', :at, now(), now())"
+            "started_at, trial_call, paid_test_call, created_at, updated_at) VALUES (:id, "
+            ":tid, :aid, :ecid, 'inbound', 'completed', :at, :trial, :paid_test, now(), now())"
         ),
         {
             "id": uuid7(),
@@ -170,6 +176,8 @@ async def _call(
             "aid": agent_id,
             "ecid": f"ah-{uuid.uuid4().hex}",
             "at": at,
+            "trial": trial_call,
+            "paid_test": paid_test_call,
         },
     )
 
@@ -185,6 +193,18 @@ async def test_the_after_hours_captured_metric_counts_by_the_clients_own_hours()
         await _call(session, tenant_id, agent_id, _ist(2026, 8, 9, 11, 0))  # sun, closed
         counted = await count_after_hours_calls(session, since=_ist(2026, 8, 1, 0, 0))
     assert counted == 2, "one evening call and one Sunday call"
+
+
+async def test_the_metric_leaves_out_test_calls() -> None:
+    """The owner ringing their own agent at night is not business captured after hours."""
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await _record_hours(session, tenant_id, CLINIC)
+        await _call(session, tenant_id, agent_id, _ist(2026, 8, 10, 20, 0))
+        await _call(session, tenant_id, agent_id, _ist(2026, 8, 10, 20, 5), trial_call=True)
+        await _call(session, tenant_id, agent_id, _ist(2026, 8, 10, 20, 9), paid_test_call=True)
+        counted = await count_after_hours_calls(session, since=_ist(2026, 8, 1, 0, 0))
+    assert counted == 1
 
 
 async def test_the_metric_counts_nothing_for_a_business_with_no_hours() -> None:

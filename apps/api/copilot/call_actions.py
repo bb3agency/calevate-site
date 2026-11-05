@@ -474,7 +474,9 @@ def _move_time(raw: str | None) -> datetime:
     try:
         swipe.check_schedule_time(instant, now=datetime.now(UTC))
     except ProblemError as problem:
-        raise WriteRefusedError(f"{problem.detail} Ask the person for another time") from problem
+        raise WriteRefusedError(
+            f"{problem.detail} Ask the person for another time", plain=problem.detail
+        ) from problem
     return instant.astimezone(UTC)
 
 
@@ -490,7 +492,8 @@ async def _chosen_callbacks(
     if raw_ids:
         if not isinstance(raw_ids, list) or len(raw_ids) > MAX_NAMED_CALLBACKS:
             raise WriteRefusedError(
-                f"`callback_ids` takes at most {MAX_NAMED_CALLBACKS}; use `lens` for more"
+                f"`callback_ids` takes at most {MAX_NAMED_CALLBACKS}; use `lens` for more",
+                plain=f"Choose at most {MAX_NAMED_CALLBACKS} call-backs at a time.",
             )
         try:
             wanted = [UUID(str(value)) for value in raw_ids]
