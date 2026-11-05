@@ -404,7 +404,9 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "campaigns",
         "end for good; for now: campaign_pause; draft: campaign_delete",
     ),
-    AreaEntry("campaign_delete", "campaigns", "delete a draft; launched: campaign_stop"),
+    AreaEntry("campaign_delete", "campaigns", "delete a draft; launched: campaign_archive"),
+    AreaEntry("campaign_archive", "campaigns", "put any campaign away, everything kept"),
+    AreaEntry("campaign_restore", "campaigns", "bring an archived campaign back"),
     AreaEntry(
         "campaign_contacts_add",
         "campaigns",
@@ -438,7 +440,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "account_model_tier_set", "settings", "AI model tier of agents with none of their own"
     ),
     AreaEntry("agent_team_alert_set", "agents", "which calls it tells the owner and team about"),
-    AreaEntry("team_alert_contact", "team", "add or remove a team email on the hot-lead list"),
+    AreaEntry("team_alert_contact", "team", "add or remove a team email on the lead alert list"),
     AreaEntry("knowledge_refresh", "knowledge", "approve a waiting file or link, or read it again"),
     AreaEntry("connection_disconnect", "integrations", "disconnect a connected account"),
     AreaEntry(

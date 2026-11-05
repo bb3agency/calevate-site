@@ -68,7 +68,9 @@ async def test_each_kind_is_built_from_the_accounts_own_rows() -> None:
 
     status = await _build(tenant_id, "leads_by_status")
     assert status.kind == "bar" and status.x is not None
-    assert dict(zip(status.x.labels, status.series[0].values, strict=True))["hot"] == "1"
+    # Stages by the names the screens use: `hot` reads "Goal reached" (G6).
+    labels = dict(zip(status.x.labels, status.series[0].values, strict=True))
+    assert labels["Goal reached"] == "1" and "hot" not in labels
 
     source = await _build(tenant_id, "leads_by_source")
     assert source.x is not None and "inbound call" in source.x.labels
@@ -148,7 +150,8 @@ async def test_the_model_gets_text_and_the_browser_gets_the_spec() -> None:
         registry=service._read_tool_registry("client"),
     )
     # Outside a turn's collector the spec is dropped and the text still answers.
-    assert "Hot leads" in answer and "Ravi" in answer
+    assert "Goal reached" in answer and "Ravi" in answer
+    assert "Hot" not in answer
 
 
 async def test_an_unknown_or_other_realm_chart_is_refused() -> None:

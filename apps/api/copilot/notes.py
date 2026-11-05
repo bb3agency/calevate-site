@@ -61,6 +61,7 @@ from apps.api.crm import attention
 from apps.api.crm.service import dashboard
 from apps.api.db.base import uuid7
 from apps.api.tenancy import business_profile as bp
+from apps.api.tenancy.caller_words import CallerWords, caller_words_for
 from apps.api.tenancy.models import PROFILE_STEPS
 from apps.api.tenancy.setup_nudges import GAP_TOPIC_STEP
 
@@ -455,13 +456,18 @@ def _plural(n: int, one: str, many: str) -> str:
 
 
 def _compose(
-    kind: str, payload: Mapping[str, Any], *, role: str | None, gap_labels: Mapping[str, str]
+    kind: str,
+    payload: Mapping[str, Any],
+    *,
+    role: str | None,
+    gap_labels: Mapping[str, str],
+    words: CallerWords,
 ) -> tuple[str, Button, Literal["info", "success", "warning", "critical"]] | None:
     if kind == "hot_lead_waiting":
         n, hours = int(payload.get("count", 0)), int(payload.get("hours", 0))
         button = _open("Leads", "Open leads", role)
         line = (
-            f"{_plural(n, 'hot lead has', 'hot leads have')} waited over "
+            f"{_plural(n, f'{words.hot_lead} has', f'{words.hot_leads} have')} waited over "
             f"{_plural(hours, 'hour', 'hours')} for a call back."
         )
         return (line, button, "warning") if button else None
@@ -483,7 +489,7 @@ def _compose(
         calls, leads = int(payload.get("calls", 0)), int(payload.get("leads", 0))
         line = (
             f"Good week: {_plural(calls, 'call', 'calls')} and "
-            f"{_plural(leads, 'new lead', 'new leads')}, both up on the week before."
+            f"{_plural(leads, words.new_lead, words.new_leads)}, both up on the week before."
         )
         ask = Button(
             kind="ask", label="See the week", prompt="How did this week go compared with last week?"
@@ -576,7 +582,11 @@ async def _linked(session: AsyncSession, *, role: str | None, now: datetime) -> 
 
 
 async def read_notes(
-    session: AsyncSession, *, role: str | None, now: datetime | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    role: str | None,
+    now: datetime | None = None,
 ) -> list[NoteView]:
     """Open notes this reader's role can act on, newest first, then the linked items."""
     at = now or datetime.now(UTC)
@@ -610,9 +620,13 @@ async def read_notes(
                 )
             ).all()
         }
+    # The lines name the people as this business does ("most interested users", G6-6).
+    words = await caller_words_for(session, tenant_id) if rows else CallerWords()
     notes: list[NoteView] = []
     for note_id, kind, _payload, created_at, seen_at in rows:
-        composed = _compose(str(kind), payloads[str(note_id)], role=role, gap_labels=labels)
+        composed = _compose(
+            str(kind), payloads[str(note_id)], role=role, gap_labels=labels, words=words
+        )
         if composed is None:
             continue
         line, button, tone = composed

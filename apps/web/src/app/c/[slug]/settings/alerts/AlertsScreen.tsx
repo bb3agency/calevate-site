@@ -19,6 +19,7 @@ import {
   formatISTStamp,
 } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { leadWords, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { useClientRealm } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -48,6 +49,9 @@ import { GrantControl, WithdrawControl } from "./consentControls";
  */
 export function AlertsScreen() {
   const { session, href } = useClientRealm();
+  // "hot leads" only for a business that sells; otherwise its own words (G6).
+  const words = leadWords(useBusinessCapabilities());
+  const heading = `Who hears about ${words.hotLeads}`;
   const state = useMyAlertOptIn(session);
   const record = useRecordMyAlertOptIn(session);
   const recordFeedback = useActionFeedback(record, { errorDisplay: "inline" });
@@ -60,7 +64,7 @@ export function AlertsScreen() {
    * `org:manage`, which only the owner holds: agreeing to receive WhatsApp is the owner's own
    * consent, and choosing who else receives a caller's full number is the owner's decision.
    */
-  const write = useWriteAccess(session, "org:manage", "change who hears about hot leads");
+  const write = useWriteAccess(session, "org:manage", `change who hears about ${words.hotLeads}`);
 
   const current = state.data;
 
@@ -71,7 +75,7 @@ export function AlertsScreen() {
    */
   useCopilotSurface({
     route: "/c/{slug}/settings/alerts",
-    title: "Who hears about hot leads",
+    title: heading,
     realm: "client",
     fields: [],
     facts: [
@@ -79,7 +83,7 @@ export function AlertsScreen() {
         key: "state",
         label: "What is on screen",
         value: current
-          ? "the hot-lead list below has loaded"
+          ? "the alert list below has loaded"
           : state.error != null
             ? "the settings failed to load — this is NOT evidence that alerts are off"
             : "still loading",
@@ -88,7 +92,7 @@ export function AlertsScreen() {
         ? [
             {
               key: "messageable",
-              label: "Are hot-lead alerts going to the owner's WhatsApp?",
+              label: "Are these alerts going to the owner's WhatsApp?",
               value: current.messageable ? "yes" : "no",
             },
             { key: "opt_in_status", label: "Recorded consent status", value: current.status },
@@ -113,13 +117,13 @@ export function AlertsScreen() {
 
   return (
     <div className="max-w-2xl space-y-10 pb-12">
-      <PageHeader description="Who hears about hot leads, and your daily summary." />
+      <PageHeader description={`${heading}, and your daily summary.`} />
 
       <RestrictionNote reason={write.reason} />
 
       <Section
-        title="Who hears about hot leads"
-        description="Each person once per hot lead, within two minutes."
+        title={heading}
+        description={`Each person once per ${words.hotLead}, within two minutes.`}
         info={
           <p>
             You get the caller&apos;s name and a link. Your team gets their full number too,
@@ -194,7 +198,7 @@ export function AlertsScreen() {
           <TeamList canWrite={write.allowed} reason={write.reason} />
         </ul>
         <p className="mt-3 flex flex-wrap items-center gap-x-3 text-meta text-ink-muted">
-          <span>What counts as hot is set on each agent.</span>
+          <span>Each agent sets what counts.</span>
           <Link href={href(`/c/${session.orgSlug}/agents`)} className={TEXT_ACTION}>
             Open agents
           </Link>

@@ -194,6 +194,8 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     "campaign_repeat": _l("Preparing the repeat", "Prepared the repeat"),
     "campaign_stop": _l("Preparing to stop the campaign", "Prepared to stop the campaign"),
     "campaign_delete": _l("Preparing to delete the draft", "Prepared to delete the draft"),
+    "campaign_archive": _l("Preparing to archive the campaign", "Prepared to archive it"),
+    "campaign_restore": _l("Preparing to restore the campaign", "Prepared to restore it"),
     "campaign_contacts_add": _l("Preparing the people to add", "Prepared the people to add"),
     "campaign_contacts_remove": _l(
         "Preparing the people to take off", "Prepared the people to take off"

@@ -186,12 +186,6 @@ async def queue_pass(
     )
 
 
-async def enqueue_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> None:
-    """Promise the pass job, with no state change. `queue_pass` decides whether one is due;
-    the worker calls this to re-run a pass asked for while it was running."""
-    await agent_pass.promise(session, SLOT, tenant_id=tenant_id, agent_id=agent_id)
-
-
 async def queue_first_pass(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> bool:
     """At publish: the agent's first pass, once. Later publishes change nothing a pass reads
     that a script, details or facts save has not already queued one for."""
@@ -363,7 +357,6 @@ __all__ = [
     "apply",
     "current_fields",
     "dismiss",
-    "enqueue_pass",
     "normalise",
     "queue_account",
     "queue_collect_rebuild",

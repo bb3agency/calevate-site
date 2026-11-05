@@ -81,7 +81,7 @@ export function describeVerification(record: KycRecord): string {
  *  the file reference beside it is what a client quotes to us. */
 export const UNNAMED_STATUS_LABEL = "Being checked";
 
-export function stateLabel(record: KycRecord): string {
+export function stateLabel(record: Pick<KycRecord, "is_verified" | "status">): string {
   const status = record.status;
   if (status !== null && isKnownKycStatus(status)) return KYC_STATUS_COPY[status].label;
   if (status === null) return NOT_RECORDED.label;

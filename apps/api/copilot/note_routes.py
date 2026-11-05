@@ -108,7 +108,8 @@ def _not_found() -> ProblemError:
 async def list_copilot_notes(
     session: Annotated[AsyncSession, Depends(db)], principal: NotesReader
 ) -> CopilotNotesOut:
-    views = await notes.read_notes(session, role=principal.role)
+    assert principal.tenant_id is not None
+    views = await notes.read_notes(session, tenant_id=principal.tenant_id, role=principal.role)
     return CopilotNotesOut(
         notes=[_out(v) for v in views],
         unread=sum(1 for v in views if v.source == "pip" and v.unread),

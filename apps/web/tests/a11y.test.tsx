@@ -82,6 +82,7 @@ import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
 import PreferenceScrubPage from "@/app/admin/tenants/[tenantId]/dnd-scrub/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import TenantCampaignSetupPage from "@/app/admin/tenants/[tenantId]/campaign-setup/page";
+import TenantCampaignsPage from "@/app/admin/tenants/[tenantId]/campaigns/page";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import NewAgentPage from "@/app/c/[slug]/agents/new/page";
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
@@ -5093,6 +5094,42 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <TenantCampaignSetupPage params={tenant} />,
     routes: TENANT_ROUTES,
+  },
+  {
+    // A live campaign and a draft, so the Archive and Delete actions are both swept.
+    file: "admin/tenants/[tenantId]/campaigns/page.tsx",
+    realm: "admin",
+    element: () => <TenantCampaignsPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/campaigns/page?limit=100": {
+        items: [
+          {
+            id: "c-draft",
+            name: "Draft list",
+            classification: "service",
+            status: "draft",
+            contacts: 3,
+            connected: 0,
+            launched_at: null,
+            created_at: "2026-11-01T04:00:00Z",
+          },
+          {
+            id: "c-live",
+            name: "Renewals",
+            classification: "service",
+            status: "running",
+            contacts: 10,
+            connected: 4,
+            launched_at: "2026-11-01T05:00:00Z",
+            created_at: "2026-11-01T04:00:00Z",
+          },
+        ],
+        total: 2,
+        status_counts: {},
+        archived_total: 0,
+      },
+    },
   },
   {
     // Populated with a priced agreement AND a history row: the form, the "in effect"

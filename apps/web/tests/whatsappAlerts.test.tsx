@@ -289,10 +289,12 @@ describe("the client's own WhatsApp alert opt-in", () => {
     await waitFor(() => {
       // `useWriteAccess`'s own sentence — the one place in this app that answers "may
       // this session write", so the wording is its and not this screen's.
+      // In this business's own words: no copy yet reads neutrally, never "hot leads" (G6).
       expect(container.textContent).toContain(
-        "Only an account owner can change who hears about hot leads",
+        "Only an account owner can change who hears about most interested callers",
       );
     });
+    expect(container.textContent).not.toMatch(/hot lead/i);
   });
 });
 

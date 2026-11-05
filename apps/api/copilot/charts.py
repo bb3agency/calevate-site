@@ -55,11 +55,17 @@ from apps.api.copilot.tools import ReadTool, ToolContext, _clean
 from apps.api.core.rbac import Permission, role_has
 from apps.api.crm import lens as crm_lens
 from apps.api.crm import service as crm_service
+from apps.api.crm.lead_definition import GOAL_STAGE_NAME, LEAD_BAND, stage_name
 from apps.api.crm.schemas import LeadLensIn
 from apps.api.db.session import tenant_session
 from apps.api.teach import questions as teach_questions
 
 ChartRealm = Literal["client", "admin"]
+
+#: The lead stages by the names the screens use: "Interested, Goal reached or Won".
+_LEAD_STAGES: Final = (
+    ", ".join(stage_name(s) for s in LEAD_BAND[:-1]) + f" or {stage_name(LEAD_BAND[-1])}"
+)
 
 #: Builds one spec from a session already scoped for the chart's realm.
 Builder = Callable[[AsyncSession, ToolContext, ChartArgs], Awaitable[ChartSpec]]
@@ -285,7 +291,7 @@ async def _leads_by_day(session: AsyncSession, ctx: ToolContext, args: ChartArgs
             ChartSeries(key="leads", label="New leads", values=[_n(d.leads) for d in line.days])
         ],
         total=_n(line.leads),
-        counted=f"People who became a lead (interested, hot or won) {_span(window)}, by the "
+        counted=f"People who became a lead ({_LEAD_STAGES}) {_span(window)}, by the "
         "IST day they did; each person once.",
         window_from=window.start,
         window_to=window.end,
@@ -305,7 +311,7 @@ async def _leads_by_status(session: AsyncSession, ctx: ToolContext, args: ChartA
         kind="bar",
         title="People by status",
         unit="count",
-        x=ChartAxis(label="Status", bucket="category", labels=[n.replace("_", " ") for n in names]),
+        x=ChartAxis(label="Status", bucket="category", labels=[stage_name(n) for n in names]),
         series=[
             ChartSeries(
                 key="leads", label="People", values=[_n(page.status_counts[n]) for n in names]
@@ -313,7 +319,7 @@ async def _leads_by_status(session: AsyncSession, ctx: ToolContext, args: ChartA
         ],
         total=_n(sum(page.status_counts.values())),
         counted=f"Everyone called or calling first recorded {_span(window)}, by their status "
-        "now. Interested, hot and won are leads.",
+        f"now. {_LEAD_STAGES} are leads.",
         window_from=window.start,
         window_to=window.end,
         open=ChartOpen(screen="Leads", path="/leads"),
@@ -378,7 +384,7 @@ async def _hot_leads(session: AsyncSession, ctx: ToolContext, args: ChartArgs) -
         chart="hot_leads",
         args=args,
         kind="table",
-        title="Hot leads",
+        title=GOAL_STAGE_NAME,
         unit="leads",
         columns=[
             ChartColumn(key="lead", label="Lead"),
@@ -388,7 +394,7 @@ async def _hot_leads(session: AsyncSession, ctx: ToolContext, args: ChartArgs) -
         ],
         rows=rows,
         total=_n(page.total),
-        counted="Every lead whose status is hot now, most recently changed first.",
+        counted=f"Every lead at {GOAL_STAGE_NAME} now, most recently changed first.",
         open=ChartOpen(screen="Leads", path="/leads", query={"status": "hot"}),
         shown=_shown(len(rows), page.total),
         of=_of(len(rows), page.total),
@@ -538,7 +544,7 @@ async def _cost_per_result(session: AsyncSession, ctx: ToolContext, args: ChartA
         rows=rows,
         total=_n(cost.spent_inr),
         counted=f"What left your credit {_span(window)}, divided by each count. A lead is a "
-        "person who became interested, hot or won, counted once." + goal_note + " '-' means "
+        f"person who reached {_LEAD_STAGES}, counted once." + goal_note + " '-' means "
         "none to divide by.",
         window_from=window.start,
         window_to=window.end,

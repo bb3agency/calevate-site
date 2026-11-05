@@ -128,7 +128,8 @@ describe("Phone numbers > Your existing number", () => {
 
   it("offers the save-our-number switch, off by default", async () => {
     await renderClientPage(<SaveNumberSetting />, settingsRoutes());
-    const toggle = await screen.findByRole("switch", { name: /Send one message after a booking/ });
+    // No business copy yet: named for a call back, never an assumed booking (G1-1).
+    const toggle = await screen.findByRole("switch", { name: /Send one message after a call back/ });
     expect((toggle as HTMLInputElement).checked).toBe(false);
   });
 });

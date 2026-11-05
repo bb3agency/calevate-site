@@ -127,7 +127,11 @@ from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.call_actions import CALL_ACTIONS
-from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, CAMPAIGN_CONSENT_SET
+from apps.api.copilot.campaign_actions import (
+    CAMPAIGN_ACTIONS,
+    CAMPAIGN_ARCHIVE_ACTIONS,
+    CAMPAIGN_CONSENT_SET,
+)
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
@@ -151,6 +155,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.crm import service as crm_service
+from apps.api.crm.lead_definition import GOAL_STAGE_NAME
 from apps.api.crm.schemas import LeadStatus
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
@@ -296,7 +301,7 @@ _LEAD_STATUS_LABELS: Final[dict[str, str]] = {
     "new": "New",
     "contacted": "Contacted",
     "interested": "Interested",
-    "hot": "Hot",
+    "hot": GOAL_STAGE_NAME,
     "won": "Won",
     "lost": "Lost",
 }
@@ -974,6 +979,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *PIN_ACTIONS,
     # D-940: Pip builds, publishes, pauses and starts Follow-ups (`follow_up_actions.py`).
     *FOLLOW_UP_ACTIONS,
+    # F-10: archive and restore a campaign, through the service the screen buttons use.
+    *CAMPAIGN_ARCHIVE_ACTIONS,
 )
 
 _BY_NAME: Final[dict[str, WriteTool]] = {tool.name: tool for tool in WRITE_TOOLS}

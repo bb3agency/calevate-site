@@ -98,10 +98,10 @@ export const JOBS: readonly JobCard[] = [
   {
     job: "answer_calls",
     title: "Answer my calls",
-    line: "Picks up when customers ring your number, day or night.",
+    line: "Picks up when people ring your number, day or night.",
     icon: PhoneIncoming,
     flow: [
-      { icon: Phone, label: "A customer rings" },
+      { icon: Phone, label: "Someone rings" },
       { icon: MessagesSquare, label: "It answers" },
       { icon: NotebookPen, label: "Notes what they need" },
     ],
@@ -158,7 +158,7 @@ export function jobsTitle(jobs: readonly FirstRunJob[]): string | null {
 }
 
 /** How the test call is introduced when the agent has several jobs: answering comes first,
- *  because the test call plays the part of a customer ringing in. */
+ *  because the test call plays the part of a caller ringing in. */
 export function callIntroFor(jobs: readonly FirstRunJob[], business: string): string {
   return jobCard(sortJobs(jobs)[0])?.callIntro(business) ?? "It rings you and talks to you as it would to a caller.";
 }

@@ -597,8 +597,8 @@ async def _plan_delete(session: AsyncSession, actor: ToolActor, args: Mapping[st
     name, status = await _campaign(session, parsed.campaign_id)
     if status != "draft":
         raise WriteRefusedError(
-            f"“{name}” is {status}; only a draft can be deleted, the others are stopped with "
-            "campaign_stop"
+            f"“{name}” is {status}; only a draft can be deleted; put the others away with "
+            "campaign_archive"
         )
     contacts = int(
         (
@@ -648,13 +648,155 @@ CAMPAIGN_DELETE: Final = ActionTool(
     where="on the Campaigns screen",
     schema=action_schema(
         "campaign_delete",
-        "Propose deleting a draft campaign and its list. A launched one: `campaign_stop`."
+        "Propose deleting a draft campaign and its list. A launched one: `campaign_archive`."
         + PROPOSES_ONLY,
         {"campaign_id": _ID},
     ),
     plan=_plan_delete,
     execute=_execute_delete,
 )
+
+
+# =========================================================================================
+# campaign_archive and campaign_restore (confirm) — `campaigns.archive`, the one service
+# the client's buttons and the operator's routes call (F-10)
+# =========================================================================================
+
+
+async def _archived(session: AsyncSession, campaign_id: UUID) -> bool:
+    return bool(
+        (
+            await session.execute(
+                text("SELECT archived_at IS NOT NULL FROM campaigns WHERE id = :cid"),
+                {"cid": campaign_id},
+            )
+        ).scalar()
+    )
+
+
+async def _plan_archive(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
+    del actor
+    parsed = parse_args(_IdArgs, args)
+    name, status = await _campaign(session, parsed.campaign_id)
+    if await _archived(session, parsed.campaign_id):
+        raise WriteRefusedError(f"“{name}” is already archived; campaign_restore brings it back")
+    first = {
+        "running": " It is paused first; a call already ringing finishes.",
+        "scheduled": " Its schedule is cancelled first, so it does not start.",
+    }.get(status, "")
+    return Plan(
+        object_id=str(parsed.campaign_id),
+        title="Archive this campaign",
+        summary=(
+            f"Put “{name}” away under Archived.{first} Its calls, leads and charges are kept."
+        ),
+        current=status,
+        proposed="archived",
+        cost=None,
+        reversal="Restore it from Archived on the Campaigns screen.",
+        args={"campaign_id": str(parsed.campaign_id)},
+    )
+
+
+async def _execute_archive(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    """`campaigns.archive.archive_campaign`, as `POST /v1/campaigns/{id}/archive` calls it."""
+    parsed = parse_args(_IdArgs, args)
+    result = await campaign_archive.archive_campaign(
+        session, campaign_id=parsed.campaign_id, by=actor.user_id, realm="client"
+    )
+    return Executed(
+        applied=result.changed,
+        detail="Archived; its calls, leads and charges are kept."
+        if result.changed
+        else "Already archived.",
+        audit_summary={
+            "from": result.status_before,
+            "to": result.status_after,
+            "by": "client",
+        },
+    )
+
+
+CAMPAIGN_ARCHIVE: Final = ActionTool(
+    name="campaign_archive",
+    tier="confirm",
+    undo=None,
+    permission="leads:dispatch",
+    object_type="campaign",
+    audit_action="campaign.archived",
+    where="on the Campaigns screen",
+    schema=action_schema(
+        "campaign_archive",
+        "Propose putting any campaign away under Archived: never dialled again, everything it "
+        "made kept; a running one is paused first. Back: `campaign_restore`." + PROPOSES_ONLY,
+        {"campaign_id": _ID},
+    ),
+    plan=_plan_archive,
+    execute=_execute_archive,
+)
+
+
+async def _plan_restore(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
+    del actor
+    parsed = parse_args(_IdArgs, args)
+    name, status = await _campaign(session, parsed.campaign_id)
+    if not await _archived(session, parsed.campaign_id):
+        raise WriteRefusedError(f"“{name}” is not archived, so there is nothing to restore")
+    return Plan(
+        object_id=str(parsed.campaign_id),
+        title="Restore this campaign",
+        summary=(
+            f"Bring “{name}” back to the Campaigns list as {status}. It does not start "
+            "calling; resume or launch it when you are ready."
+        ),
+        current="archived",
+        proposed=status,
+        cost=None,
+        reversal="Archive it again from the Campaigns screen.",
+        args={"campaign_id": str(parsed.campaign_id)},
+    )
+
+
+async def _execute_restore(
+    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
+) -> Executed:
+    """`campaigns.archive.restore_campaign`, as `POST /v1/campaigns/{id}/restore` calls it."""
+    del actor
+    parsed = parse_args(_IdArgs, args)
+    result = await campaign_archive.restore_campaign(session, campaign_id=parsed.campaign_id)
+    return Executed(
+        applied=result.changed,
+        detail=f"Restored as {result.status_after}." if result.changed else "Not archived.",
+        audit_summary={
+            "status": result.status_after,
+            "archived_by": str(result.undid[0]) if result.undid[0] else None,
+            "archived_by_realm": result.undid[1],
+        },
+    )
+
+
+CAMPAIGN_RESTORE: Final = ActionTool(
+    name="campaign_restore",
+    tier="confirm",
+    undo=None,
+    permission="leads:dispatch",
+    object_type="campaign",
+    audit_action="campaign.restored",
+    where="on the Campaigns screen, under Archived",
+    schema=action_schema(
+        "campaign_restore",
+        "Propose bringing an archived campaign back to the list, paused or as a draft; it "
+        "never starts calling by itself." + PROPOSES_ONLY,
+        {"campaign_id": _ID},
+    ),
+    plan=_plan_restore,
+    execute=_execute_restore,
+)
+
+#: Appended after every other write tool (wire order is APPEND only).
+CAMPAIGN_ARCHIVE_ACTIONS: Final[tuple[ActionTool, ...]] = (CAMPAIGN_ARCHIVE, CAMPAIGN_RESTORE)
 
 
 # =========================================================================================

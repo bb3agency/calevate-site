@@ -21,13 +21,17 @@ export const SPAM_COPY = {
   title: "If callers see “Suspected spam”",
   closed: "Steps that help your number be known",
   save: "Ask them to save your number.",
-  saveWhy: "If they blocked it, ask them to take it off their blocked list too.",
   register: "Register your number with Hiya, free.",
-  registerWhy:
-    "Many Android phones label calls using Hiya. Register in your business's name. Hiya may not take Indian numbers yet; its form will tell you.",
   registerAction: "Register with Hiya",
   pause: "Pause calls from that number until the label goes.",
-  pauseWhy: "Each blocked call counts against the number.",
+} as const;
+
+/** The reasons, each shown only behind its "Why?" tap. */
+export const SPAM_WHY = {
+  save: "If they blocked it, ask them to take it off their blocked list too.",
+  register:
+    "Many Android phones label calls using Hiya. Register in your business's name. Hiya may not take Indian numbers yet; its form will tell you.",
+  pause: "Each blocked call counts against the number.",
 } as const;
 
 /** Hiya's own number-registration form (linked from hiya.com/products/connect/number-registration). */
@@ -45,12 +49,12 @@ export function SpamLabels() {
       <ol className="list-decimal space-y-3 pl-5 text-body text-ink">
         <li>
           {SPAM_COPY.save}
-          <Why>{SPAM_COPY.saveWhy}</Why>
+          <Why>{SPAM_WHY.save}</Why>
         </li>
         <li className="space-y-2">
           <span>
             {SPAM_COPY.register}
-            <Why>{SPAM_COPY.registerWhy}</Why>
+            <Why>{SPAM_WHY.register}</Why>
           </span>
           <a
             href={HIYA_REGISTRATION_URL}
@@ -64,7 +68,7 @@ export function SpamLabels() {
         </li>
         <li>
           {SPAM_COPY.pause}
-          <Why>{SPAM_COPY.pauseWhy}</Why>
+          <Why>{SPAM_WHY.pause}</Why>
         </li>
       </ol>
     </Disclosure>

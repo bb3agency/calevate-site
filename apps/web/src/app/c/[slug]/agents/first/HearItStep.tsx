@@ -591,7 +591,7 @@ function CallInProgress({
           phase={phase}
           name={agent.name}
           title="Your phone is ringing"
-          detail="Pick up and talk to it like a customer would."
+          detail="Pick up and talk to it like a caller would."
         />
       );
     case "talking":

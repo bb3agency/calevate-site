@@ -18,6 +18,7 @@ from apps.api.copilot.notes import Thresholds, run_detectors
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from apps.api.tenancy.caller_words import CallerWords
 from apps.api.tenancy.models import PROFILE_STEPS
 from apps.workers import pip_notes
 from sqlalchemy import text
@@ -385,3 +386,23 @@ async def test_the_job_runs_the_detectors_in_the_accounts_own_session() -> None:
     await _hot_lead(tenant_id, hours_ago=30)
     await pip_notes.detect_pip_notes({}, str(tenant_id))
     assert [r[0] for r in await _notes(tenant_id)] == ["hot_lead_waiting"]
+
+
+def test_the_waiting_and_good_week_lines_use_the_businesss_own_words() -> None:
+    """G6-6: "hot lead" only for a business judged to sell; otherwise its own caller noun."""
+    waiting = {"count": 2, "hours": 4}
+    week = {"calls": 9, "leads": 3}
+    app_words = CallerWords(sells=False, caller_noun="user")
+    shop = CallerWords(sells=True)
+
+    def line(kind: str, payload: dict[str, int], words: CallerWords) -> str:
+        composed = notes._compose(kind, payload, role="owner", gap_labels={}, words=words)
+        assert composed is not None
+        return composed[0]
+
+    assert line("hot_lead_waiting", waiting, app_words) == (
+        "2 most interested users have waited over 4 hours for a call back."
+    )
+    assert line("hot_lead_waiting", waiting, shop).startswith("2 hot leads have waited")
+    assert "3 interested users" in line("good_week", week, app_words)
+    assert "3 new leads" in line("good_week", week, shop)

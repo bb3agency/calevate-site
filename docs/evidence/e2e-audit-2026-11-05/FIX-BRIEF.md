@@ -19,7 +19,7 @@ consolidate and forget things", "don't assume anything at all", "fix all and eve
 4. **Test it.** A test that fails without the fix. Python via Docker only (never on the
    Windows host):
    `MSYS_NO_PATHCONV=1 docker run --rm --network calevate-dev_default -w /app -v "<your worktree>:/app" -v "D:\Agency\calevate\.env:/repoenv/.env:ro" -v "C:\Users\jumes\AppData\Local\Temp\claude\a50a3f0a872c1724\0c51a750-0b23-4950-961e-84972febca40\scratchpad\lane:/lane:ro" -v calevate-test-venv:/opt/venv ghcr.io/astral-sh/uv:python3.12-bookworm-slim sh /lane/lane-tests.sh <lane-name> <your redis db> <test paths> -q`
-   (read `/lane/lane-tests.sh` first). Web: `pnpm -C apps/web vitest run <files>` and
+   (read `/lane/lane-tests.sh` first). Web: `pnpm -C apps/web test <files>` (the `test` script is `vitest run`) and
    `pnpm -C apps/web typecheck` from your worktree (run `pnpm install --frozen-lockfile`
    in the worktree first if node_modules is missing).
 5. **Update the memory** (`update_memory`) with: fixed / not changed and why, the commit sha,

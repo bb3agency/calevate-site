@@ -6,6 +6,7 @@
  */
 
 import { clientNavigation } from "./clientNav";
+import { lookup } from "./lookup";
 import { currentNavItem } from "./nav";
 
 /** Screens reached from a flow rather than the sidebar, by the path segment after the slug. */
@@ -15,7 +16,8 @@ const UNLISTED: Readonly<Record<string, string>> = {
 
 export function clientPageTitle(slug: string, pathname: string): string {
   const segment = pathname.slice(`/c/${slug}/`.length).split("/")[0] ?? "";
-  if (pathname.startsWith(`/c/${slug}/`) && Object.hasOwn(UNLISTED, segment)) return UNLISTED[segment];
+  const unlisted = pathname.startsWith(`/c/${slug}/`) ? lookup(UNLISTED, segment) : undefined;
+  if (unlisted !== undefined) return unlisted;
   const items = clientNavigation(slug).flatMap((group) => group.items);
   return currentNavItem(items, pathname)?.label ?? "Dashboard";
 }

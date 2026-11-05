@@ -9,6 +9,7 @@ import { SegmentedControl } from "@/components/interior/segmented-control";
 import { ProblemNotice, Skeleton, formatCount, formatINR, hasNonZeroDigit } from "@/components/ui";
 import type { Session } from "@/lib/api/client";
 import { useCostPerResult, type CostWindow } from "@/lib/api/proof";
+import { GOAL_STAGE } from "@/lib/goalStage";
 
 /**
  * WHAT EACH RESULT COST (D-944): rupees per answered call, per lead and per goal reached,
@@ -42,7 +43,7 @@ export function CostPerResult({
         <>
           <p>All credit used in these days (calls, number rental, AI help), divided by results.</p>
           <p>
-            A lead is a person who became interested, hot or won, counted once. Everyone else
+            A lead is a person who reached Interested, {GOAL_STAGE} or Won, counted once. Everyone else
             your agent spoke to is not counted as a lead.
           </p>
           {labels.length > 0 && <p>{goalSentence(labels)}</p>}

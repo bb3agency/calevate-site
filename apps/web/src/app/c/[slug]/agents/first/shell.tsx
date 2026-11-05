@@ -228,7 +228,7 @@ const ROW = {
 
 const COLUMN = {
   nav: "",
-  list: "grid gap-1.5 lg:grid-cols-1 lg:gap-1",
+  list: "grid grid-cols-1 gap-1.5 lg:gap-1",
   item: "flex min-w-0 flex-col gap-1.5 lg:block",
   joined: "",
   line: "",

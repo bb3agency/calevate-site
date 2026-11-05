@@ -51,7 +51,7 @@ const HIDDEN: Hidden = {
     "DltOnFile",
   ]),
   /** Constants rendered only inside an ⓘ. */
-  constants: /^OWNER_SENTENCE$/,
+  constants: /^(OWNER_SENTENCE|SPAM_WHY)$/,
 };
 
 /**

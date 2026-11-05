@@ -16,12 +16,8 @@ import { describe, expect, it } from "vitest";
 const SRC = resolve(__dirname, "../src");
 
 const ROUTED: Readonly<Record<string, number>> = {
-  // Lane G (admin console): the demo kit's sample chart labels.
-  "app/admin/ops/kit/sections/charts.tsx": 1,
-  // Lane B: Unicode ranges that tell which script a reply is in (a detector, not words).
+  // Unicode ranges that tell which script a reply is in (a detector, not words).
   "app/c/[slug]/agents/[agentId]/test/testCopy.ts": 4,
-  // Lane F (OB-23): the sign-in page's demo call cards.
-  "components/marketing/home/mockups/callCards.tsx": 5,
 };
 
 const INDIC_LETTER =

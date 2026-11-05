@@ -120,6 +120,37 @@ def test_a_returning_clause_counts_as_a_read(tmp_path: Path) -> None:
     assert guard.write_only_columns(roots=[tmp_path], baseline={}) == []
 
 
+def test_a_pass_slot_declaration_reads_the_columns_the_shared_queue_formats(
+    tmp_path: Path,
+) -> None:
+    """`agent_pass.PassSlot("caller_help", JOB)` is read through `_on_slot`'s `{inputs}`
+    placeholder, which no string scan can see; the declaration is the reader. Without the
+    slot, the same write is still a finding."""
+    models = (
+        "from sqlalchemy.orm import Mapped, mapped_column\n\n"
+        "class Agent:\n"
+        '    __tablename__ = "agents"\n'
+        "    caller_help_inputs: Mapped[str] = mapped_column()\n"
+    )
+    writer = (
+        "from sqlalchemy import text\n\n"
+        "async def done(session, h):\n"
+        '    await session.execute(text("UPDATE agents SET caller_help_inputs = :h"), {"h": h})\n'
+    )
+    _write(tmp_path, "models.py", models)
+    _write(tmp_path, "worker.py", writer)
+    assert [
+        line.split(":")[0] for line in guard.write_only_columns(roots=[tmp_path], baseline={})
+    ] == ["Agent.caller_help_inputs"]
+
+    _write(
+        tmp_path,
+        "slot.py",
+        'from x import agent_pass\nSLOT = agent_pass.PassSlot("caller_help", "job")\n',
+    )
+    assert guard.write_only_columns(roots=[tmp_path], baseline={}) == []
+
+
 def test_the_column_baseline_may_not_outlive_its_reason() -> None:
     """An entry for a column that has since gained a reader is a standing excuse for a
     solved problem, and an entry naming no column is a hole for the next one to land in.

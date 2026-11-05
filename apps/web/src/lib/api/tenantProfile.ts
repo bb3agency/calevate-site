@@ -76,7 +76,7 @@ export const EDIT_FIELD_COPY: Record<keyof EditTenantIn, FieldCopy> = {
   },
   billing_email: {
     label: "Where this account's notices go",
-    hint: "The invoice, the hot-lead alert and the closure notice are all addressed from here. It is NOT a sign-in address — nobody gains or loses access by changing it — but it does move a channel, so it takes a confirmation and the address being replaced is told.",
+    hint: "The invoice, the lead alerts and the closure notice are all addressed from here. It is NOT a sign-in address — nobody gains or loses access by changing it — but it does move a channel, so it takes a confirmation and the address being replaced is told.",
   },
   vertical_template: {
     label: "Business type",

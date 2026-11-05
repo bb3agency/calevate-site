@@ -30,6 +30,7 @@ import {
   SpendingLimitMock,
 } from "@/components/marketing/pricing/billingMockups";
 import { RateCard } from "@/components/marketing/rateCard";
+import { stepExample, stepPhrase } from "@/lib/billingStep";
 
 import {
   ClosingCta,
@@ -83,11 +84,11 @@ export const metadata: Metadata = publicPageMetadata({
 });
 
 /** What you are billed FOR. Each is a real meter, not a package name. */
-const METERED: readonly { title: string; body: string }[] = [
+const metered = (step: number | null): readonly { title: string; body: string }[] => [
   {
     title: "Talk time",
     body:
-      "The minutes your agents spend on calls, counted in 30-second steps — not seats " +
+      `The minutes your agents spend on calls, counted ${stepPhrase(step)} — not seats ` +
       "or agents. A quiet month costs less than a busy one.",
   },
   {
@@ -182,6 +183,7 @@ export default async function PricingPage() {
   // operator's save and the route's minute of edge cache is a cache of a constant rather
   // than a staleness window on a live price.
   const rateCard = await fetchPublicRateCard();
+  const step = rateCard?.billing_step_seconds ?? null;
   // The voice the mockups name is the one an agent can be put on today, by the card's name.
   const lead = rateCard === null ? null : headlineVoice(rateCard);
   const other: VoiceTier | null = lead === null ? null : lead === "studio" ? "clear" : "studio";
@@ -219,8 +221,8 @@ export default async function PricingPage() {
         }
         lede={
           rateCard === null
-            ? "Not per seat, not per agent — you pay for the minutes your agents actually talk, in 30-second steps, and a monthly fee for each phone number, shown before you buy. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} ${feeLine} — you are billed for the minutes your agents actually talk, in 30-second steps, and ${rateCard.credit_expiry_months ? `credit you buy lasts ${rateCard.credit_expiry_months} months from the day it is added` : "credit does not expire"}.`
+            ? "Not per seat, not per agent — you pay for the minutes your agents actually talk, and a monthly fee for each phone number, shown before you buy. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
+            : `The ${tierLabel(rateCard, other ?? "clear")} voice is ${bandSentence(rateCard, other ?? "clear")} on the same card. ${voiceNotOfferedNotice(rateCard) ?? ""} ${feeLine} — you are billed for the minutes your agents actually talk, ${stepPhrase(step)}, and ${rateCard.credit_expiry_months ? `credit you buy lasts ${rateCard.credit_expiry_months} months from the day it is added` : "credit does not expire"}.`
         }
       >
         <div className="mt-8 flex flex-wrap gap-3">
@@ -286,9 +288,9 @@ export default async function PricingPage() {
               <div className="mt-8 rounded-2xl border border-line bg-surface p-4 shadow-card sm:mt-10 sm:p-8 [&>fieldset:first-child]:mt-0">
                 <RateCard card={rateCard} />
                 <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
-                  Calls are billed in 30-second steps, rounded up: a 40-second call is one
-                  minute, a 10-second call is half a minute. A call nobody answers costs
-                  nothing. Credit is spent oldest purchase first, at the rates that purchase
+                  Calls are billed {stepPhrase(step)}, rounded up
+                  {stepExample(step) ? `: ${stepExample(step)}.` : "."} A call nobody answers
+                  costs nothing. Credit is spent oldest purchase first, at the rates that purchase
                   was made at.
                 </p>
               </div>
@@ -413,7 +415,7 @@ export default async function PricingPage() {
               one surface (UX-DOCTRINE §1), as the homepage's cost chapter does it. */}
           <Reveal className="mt-10 overflow-hidden rounded-2xl border border-line sm:mt-12">
             <div className="grid grid-cols-1 gap-px bg-line lg:grid-cols-3">
-              {METERED.map(({ title, body }) => (
+              {metered(step).map(({ title, body }) => (
                 <section key={title} className="bg-surface p-5 sm:p-8">
                   <h3 className="text-[17px] font-semibold text-ink sm:text-xl">{title}</h3>
                   <p className="mt-2 text-sm text-pretty text-ink-muted sm:text-base">{body}</p>

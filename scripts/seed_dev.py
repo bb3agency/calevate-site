@@ -133,6 +133,9 @@ TENANT_PLAN_TIER = "prepaid"
 SEED_OPENING_CREDIT_INR = Decimal("5000.00")
 SEED_CREDIT_REF = "seed-dev-opening-balance"
 
+#: The demo calls' `engine_call_id` prefix; the key that makes a re-run insert nothing.
+SEED_CALL_PREFIX = "seed-dev-"
+
 
 @dataclass(frozen=True, slots=True)
 class DemoCall:
@@ -557,7 +560,7 @@ async def _seed_calls(*, tenant_id: UUID, agent_id: UUID, owner_user_id: UUID) -
     written = 0
     async with tenant_session(tenant_id) as session:
         for n, demo in enumerate(DEMO_CALLS, start=1):
-            engine_call_id = f"seed-dev-{n}"
+            engine_call_id = f"{SEED_CALL_PREFIX}{n}"
             started = now - timedelta(minutes=demo.minutes_ago)
             ended = started + timedelta(seconds=demo.duration_s)
             our_number = "+919900000100"
@@ -652,6 +655,23 @@ async def _seed_calls(*, tenant_id: UUID, agent_id: UUID, owner_user_id: UUID) -
                     "assigned_to = COALESCE(assigned_to, :owner) WHERE id = :lead"
                 ),
                 {"c": call_id, "owner": owner_user_id, "lead": lead_id},
+            )
+            # The lead's History entry for this call, the row `workers/pipeline.py` writes
+            # when a call settles its lead; without it the lead reads "Nothing has happened
+            # yet" beside a call (L3-26).
+            await session.execute(
+                text(
+                    "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
+                    "created_at, updated_at) VALUES (:id, :t, :lead, 'call', "
+                    "CAST(:payload AS jsonb), 'system', :at, :at)"
+                ),
+                {
+                    "id": uuid7(),
+                    "t": tenant_id,
+                    "lead": lead_id,
+                    "payload": json.dumps({"call_id": str(call_id), "status": demo.lead_status}),
+                    "at": ended,
+                },
             )
 
             for idx, (speaker, line) in enumerate(demo.turns):

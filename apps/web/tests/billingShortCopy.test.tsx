@@ -282,7 +282,8 @@ describe("billing copy: one short line per item", () => {
 
   it("the Usage view, with a cap hit, a fee unpaid and a payment unfinished", async () => {
     const { container } = await renderBillingHub(routes());
-    await screen.findByText("Front desk");
+    // The agent is named in the usage table and on its own card; either means it rendered.
+    await screen.findAllByText("Front desk");
     await screen.findByText("Outgoing calls paused. Spending limit reached.");
     await screen.findByText("Unfinished payments");
     await screen.findByRole("button", { name: /Pay ₹999/ });

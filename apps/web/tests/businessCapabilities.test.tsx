@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Actions } from "@/app/c/[slug]/agents/actions/Actions";
 import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
 import { costFigure } from "@/app/c/[slug]/CostPerLead";
+import { teachPrompts } from "@/app/c/[slug]/knowledge/TeachBox";
 import type { ActionsSettings } from "@/lib/api/actions";
 import type { BusinessCopy } from "@/lib/api/businessCopy";
 import type { CostWindow } from "@/lib/api/proof";
@@ -311,5 +312,23 @@ describe("the booking job", () => {
 
   it("is offered while the profile is unknown", async () => {
     expect(await offeredJobs(UNKNOWN)).toContain("Take bookings");
+  });
+});
+
+describe("the teach box's prompts (G6-7)", () => {
+  it("offers prices, hours and delivery only to a business they fit", () => {
+    const shop = teachPrompts(capabilitiesOf(SHOP));
+    expect(shop.starters).toContain("Our prices: ");
+    expect(shop.placeholder).toBe("Prices, timings, where you deliver, what never to promise…");
+
+    const app = teachPrompts(capabilitiesOf(HELPS_USERS));
+    expect(app.starters).not.toContain("Our prices: ");
+    expect(app.starters).not.toContain("We are open ");
+    expect(app.placeholder).toBe("What you offer, what never to promise…");
+
+    // Unknown keeps prices and hours on offer and names no delivery.
+    const unknown = teachPrompts(capabilitiesOf(UNKNOWN));
+    expect(unknown.starters).toContain("Our prices: ");
+    expect(unknown.placeholder).toBe("Prices, timings, what never to promise…");
   });
 });

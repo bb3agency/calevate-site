@@ -38,8 +38,9 @@ this product supplies numbers at all, and under Model B it does not — the clie
 connection on their own operator account and stays the subscriber of record
 (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §9). It comes from
 `campaigns.provisioning.number_purchase_available()` — the SAME selector
-`POST /v1/numbers/purchase` asks — so this screen can never offer a button that route
-refuses. It is false for every account in every deployment, and the screen renders a
+`assert_number_supply_authorized` asks before any number is bought (`campaigns/number_supply`;
+the client's own purchase route is retired, D-693) — so this screen can never offer a button
+the buying path refuses. It is false for every account in every deployment, and the screen renders a
 sentence rather than a control because of it.
 
 Hard rule 1: the session is `deps.db`, so the row is scoped by RLS rather than by a

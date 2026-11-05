@@ -490,7 +490,7 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
         <MonoValue>{volume.plans[volume.plans.length - 1]?.plan_id ?? "—"}</MonoValue> plan
         becomes the cheaper one. A card is refused below{" "}
         <span className="tabular-nums">{formatRupeeRateExact(volume.refusal_floor_inr_per_min)}</span>
-        , which is deliberately frozen at ₹{volume.refusal_usd_inr} to the dollar so a currency
+        , which is deliberately frozen at {formatRupeeRateExact(volume.refusal_usd_inr)} to the dollar so a currency
         tick can never make the card that is on sale un-recordable.
       </p>
 

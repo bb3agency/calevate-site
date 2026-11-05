@@ -35,9 +35,9 @@ describe("the ops status strip", () => {
   });
 
   it("does not call a zero from a server that sent no pending count green", () => {
-    const older: Partial<DeadLetterQueue> = { ...QUEUE };
+    const older: Pick<DeadLetterQueue, "depth"> & Partial<DeadLetterQueue> = { ...QUEUE };
     delete older.stalled_pending;
-    expect(stuckFact(older as DeadLetterQueue).tone).toBe("unknown");
+    expect(stuckFact(older).tone).toBe("unknown");
   });
 
   it("says not checked, never 0 drifted, when nothing was checked", () => {

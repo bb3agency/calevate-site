@@ -1,5 +1,6 @@
 /**
- * One client's pages, grouped as D-661 sets them out: Overview, Agents, Numbers, Money,
+ * One client's pages, grouped as D-661 sets them out (plus Campaigns, F-10): Overview,
+ * Agents, Numbers, Campaigns, Money,
  * Compliance, People, Settings, Activity. Every item is a ROUTE under
  * `/admin/tenants/<id>`, not a search param: each of these pages has its own reads, its own
  * audited writes and often its own unsaved state, so they cannot share one mounted screen
@@ -26,6 +27,7 @@ export const TENANT_SECTION_GROUPS: readonly TenantSectionGroup[] = [
   { label: "Overview", items: [{ path: "", label: "Overview" }] },
   { label: "Agents", items: [{ path: "/agents", label: "Agents" }] },
   { label: "Numbers", items: [{ path: "/numbers", label: "Numbers" }] },
+  { label: "Campaigns", items: [{ path: "/campaigns", label: "Campaigns" }] },
   {
     label: "Money",
     items: [

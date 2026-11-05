@@ -41,6 +41,7 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
   const access = useAdminAccess("ops:manage", "write a client's examples again");
   const tenantWrite = useAdminAccess("admin:tenants", "correct what this business does");
   const setCapability = useAdminSetCapability(tenantId);
+  const capabilityFeedback = useActionFeedback(setCapability, { errorDisplay: "inline" });
 
   if (copy.isError)
     return (
@@ -116,7 +117,7 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
                   label={label}
                   chosen={lookup(data.capability_overrides ?? {}, key)}
                   pending={setCapability.isPending}
-                  onChoose={(applies) => setCapability.mutate({ key, applies })}
+                  onChoose={(applies) => capabilityFeedback.run({ key, applies })}
                 />
               ) : null
             }

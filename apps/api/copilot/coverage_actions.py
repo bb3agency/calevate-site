@@ -354,7 +354,7 @@ async def _plan_contact(session: AsyncSession, actor: ToolActor, args: Mapping[s
     contact = await _live_contact(session, parsed.team_contact_id)
     shown = _masked(contact.address)
     summaries = {
-        "remove": f"{shown} stops hearing about hot leads.",
+        "remove": f"{shown} stops getting lead alerts.",
         "resend_code": f"A new code is sent to {shown}.",
     }
     return Plan(

@@ -879,3 +879,19 @@ describe("the ROI page", () => {
     expect(main?.textContent).toMatch(/slider you can move/i);
   });
 });
+
+describe("the pricing page's billing step (G8-3)", () => {
+  it("states the step the card serves, never a typed one", async () => {
+    stubApi({ "/v1/public/rate-card": { ...RATE_CARD, billing_step_seconds: 60 } });
+    const text = bodyText(render(await PricingPage()).container);
+    expect(text).toContain("60-second steps");
+    expect(text).toContain("a 70-second call is 120 seconds, a 10-second call is one minute");
+    expect(text).not.toContain("30-second");
+  });
+
+  it("prints no step when the card cannot be read", async () => {
+    stubApi({ "/v1/public/rate-card": noReply() });
+    const text = bodyText(render(await PricingPage()).container);
+    expect(text).not.toMatch(/\d+-second steps/);
+  });
+});

@@ -344,6 +344,27 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "(`kb.store._paged`), each chunk at most `kb.service.MAX_CHUNK_CHARS`."
         )
     ),
+    # One upload's `UploadOut`: its only list is `call_instructions`, cut at write to
+    # `kb.structured_text.MAX_INSTRUCTIONS` rows and `MAX_INSTRUCTION_CHARS` in all
+    # (`kb.service.instruction_rows`), and every verb below answers with that one row.
+    "GET /v1/kb/uploads/{upload_id}": BoundedByConstruction(
+        by="one upload; `call_instructions` capped at write by `kb.service.instruction_rows`."
+    ),
+    "PATCH /v1/kb/uploads/{upload_id}": BoundedByConstruction(
+        by="the same one upload as `GET /v1/kb/uploads/{upload_id}`."
+    ),
+    "POST /v1/kb/uploads": BoundedByConstruction(
+        by="the one upload just made, the shape of `GET /v1/kb/uploads/{upload_id}`."
+    ),
+    "POST /v1/kb/links": BoundedByConstruction(
+        by="the one link just made, the shape of `GET /v1/kb/uploads/{upload_id}`."
+    ),
+    "POST /v1/kb/uploads/{upload_id}/confirm": BoundedByConstruction(
+        by="the same one upload as `GET /v1/kb/uploads/{upload_id}`."
+    ),
+    "POST /v1/kb/uploads/{upload_id}/read": BoundedByConstruction(
+        by="the same one upload as `GET /v1/kb/uploads/{upload_id}`."
+    ),
     "GET /v1/teach/questions": BoundedByConstruction(
         by="`teach.questions.MAX_QUESTIONS` gap topics in the LIMIT plus at most three "
         "practice and setup questions."
@@ -427,6 +448,11 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     "POST /v1/admin/tenants/{tenant_id}/business-copy/refresh": BoundedByConstruction(
         by="the same render as `GET /v1/business-copy`, for one named tenant."
+    ),
+    "PUT /v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": (
+        BoundedByConstruction(
+            by="the same render as `GET /v1/business-copy`, for one named tenant."
+        )
     ),
     "GET /v1/admin/tenants/{tenant_id}/lead-fields": BoundedByConstruction(
         by="the same render as `GET /v1/lead-fields`, for one named tenant."

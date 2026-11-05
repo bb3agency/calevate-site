@@ -80,7 +80,10 @@ type FactValue = { value: string; tone: Tone };
  * moved in weeks. An older server that does not send the pending count cannot vouch for
  * "nothing stuck", so its zero is not green.
  */
-export function stuckFact(queue: DeadLetterQueue): FactValue {
+export function stuckFact(
+  // `stalled_pending` optional: an older server does not send it (the reason for "unknown").
+  queue: Pick<DeadLetterQueue, "depth"> & Partial<Pick<DeadLetterQueue, "stalled_pending">>,
+): FactValue {
   const stalled: number | undefined = queue.stalled_pending;
   const total = queue.depth + (stalled ?? 0);
   if (total > 0) return { value: formatCount(total), tone: "warn" };

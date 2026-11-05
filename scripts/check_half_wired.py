@@ -242,6 +242,19 @@ def sql_positions(statement: str) -> tuple[set[str], set[str]]:
     return written, read
 
 
+#: The columns `agent_pass._on_slot` builds from a slot's name; see `_positions_in`.
+PASS_SLOT_SUFFIXES = ("_state", "_at", "_inputs")
+
+
+def _called_name(node: ast.Call) -> str | None:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
 def _positions_in(path: Path, *, strings_are_evidence: bool = True) -> tuple[set[str], set[str]]:
     """`(written, read)` names in one Python file, by AST position.
 
@@ -259,6 +272,19 @@ def _positions_in(path: Path, *, strings_are_evidence: bool = True) -> tuple[set
     written: set[str] = set()
     read: set[str] = set()
     for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and _called_name(node) == "PassSlot"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            # `agents/agent_pass.PassSlot("<column>", JOB)`: the shared pass queue formats
+            # `<column>_state`, `_at` and `_inputs` into its SQL (`_on_slot`), so the
+            # slot's declaration is where those columns are read — `claim` RETURNs the
+            # inputs hash that lets an unchanged pass spend nothing.
+            column = node.args[0].value
+            read.update(f"{column}{suffix}" for suffix in PASS_SLOT_SUFFIXES)
         if isinstance(node, ast.Attribute):
             (written if isinstance(node.ctx, ast.Store) else read).add(node.attr)
         elif isinstance(node, ast.Name):

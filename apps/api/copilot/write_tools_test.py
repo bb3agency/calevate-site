@@ -328,6 +328,9 @@ def test_the_tool_schemas_are_the_same_bytes_for_every_caller() -> None:
         "follow_up_resume",
         "follow_up_turn_off",
         "follow_up_start",
+        # F-10: archive and restore a campaign APPEND.
+        "campaign_archive",
+        "campaign_restore",
     ]
     for schema in write_tools.write_tool_schemas():
         function = schema["function"]

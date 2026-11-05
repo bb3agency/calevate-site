@@ -1,4 +1,5 @@
 import data from "@/lib/founderLines.json";
+import { lookup } from "@/lib/lookup";
 
 /**
  * The founder's sample lines in Indian languages that the website shows (founder rule 2: never
@@ -8,7 +9,7 @@ import data from "@/lib/founderLines.json";
 const LINES: Readonly<Record<string, string>> = data.lines;
 
 export function founderLine(key: string): string {
-  const line = LINES[key];
+  const line = lookup(LINES, key);
   if (line === undefined) throw new Error(`founderLines.json has no line ${key}`);
   return line;
 }

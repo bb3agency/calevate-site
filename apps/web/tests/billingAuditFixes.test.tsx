@@ -6,7 +6,6 @@ import { monthTiles } from "@/app/c/[slug]/billing/UsageTab";
 import { toTier } from "@/app/c/[slug]/billing/VoiceTiers";
 import { UNNAMED_STATUS_LABEL, stateLabel } from "@/app/c/[slug]/verify-business/copy";
 import type { UsagePanel } from "@/lib/api/hooks";
-import type { KycRecord } from "@/lib/api/kyc";
 import type { VoiceTierCompare } from "@/lib/api/voiceTiers";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -16,18 +15,43 @@ import { OWNER_ME } from "./fixtures/sharedReads";
 /** E2E audit 5 Nov 2026, lane F: billing figures that told an owner something untrue. */
 
 function usage(over: Partial<UsagePanel>): UsagePanel {
-  return {
+  const panel: UsagePanel = {
+    month: "2026-11",
     plan_tier: "self_serve",
     minutes_used: "12.5000",
     calls: 6,
+    capped: false,
+    cap_minutes: null,
+    minutes_left: null,
+    clear_minutes: "12.50",
+    clear_charges_inr: "56.25",
+    clear_label: "Clear",
+    studio_minutes: "0.00",
+    studio_charges_inr: "0.00",
+    studio_label: "Studio",
     included_minutes: 0,
+    credit_balance_inr: "500.00",
+    monthly_fee_inr: "0.00",
     overage_minutes: "12.5000",
+    overage_minutes_base_rung: "12.5000",
+    overage_minutes_second_rung: "0.00",
+    overage_minutes_premium: "12.5000",
+    overage_minutes_value: "0.00",
     overage_cost_inr: "0.00",
     overage_rate_inr: "0.00",
+    overage_rate_second_inr: null,
+    overage_rate_value_inr: null,
+    llm_surcharge_rate_inr: null,
+    llm_surcharge_minutes: "0.00",
+    llm_surcharge_inr: "0.00",
+    llm_surcharge_tiers: [],
     month_charges_inr: "56.25",
+    spend_used_inr: "56.25",
     trial: { active: false, days_remaining: null, ends_at: null },
+    trial_absorbed_inr: "0.00",
     ...over,
-  } as UsagePanel;
+  };
+  return panel;
 }
 
 describe("the month's tiles (OB-4)", () => {
@@ -108,7 +132,7 @@ describe("what each result cost (OB-14)", () => {
 
 describe("a verification status this build cannot name (OB-28)", () => {
   it("reads as a plain word, never the code", () => {
-    const record = { recorded: true, status: "manual_hold_v3" } as unknown as KycRecord;
+    const record = { is_verified: false, status: "manual_hold_v3" };
     expect(stateLabel(record)).toBe(UNNAMED_STATUS_LABEL);
   });
 });

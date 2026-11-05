@@ -18,6 +18,7 @@ import { VoiceButton } from "@/components/voiceButton";
 import { useFormValidation } from "@/components/formValidation";
 import { useAgents } from "@/lib/api/agents";
 import { useBusinessCopy } from "@/lib/api/businessCopy";
+import { type BusinessCapabilities, capabilitiesOf, quotesPrices } from "@/lib/businessCapabilities";
 import { useClientSession } from "@/lib/api/session";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { openAssistant } from "@/lib/copilot/launcher";
@@ -43,9 +44,31 @@ export const READ_FILE_REQUEST = "Read the photo or file I attach and teach my a
 /** One row of the review, with what the owner decided about it. */
 type ReviewItem = TeachItem & { key: number; keep: boolean };
 
-/** Sentence starters offered before the account's own example has been written: they name
- *  what is worth teaching without putting a made-up price in the owner's box. */
-const STARTERS = ["Our prices: ", "We are open ", "We serve ", "Never promise "] as const;
+/**
+ * Sentence starters offered before the account's own example has been written, and the box's
+ * placeholder: they name what is worth teaching without putting a made-up price in the owner's
+ * box. Prices only for a business not judged to quote none, delivery only for one judged to
+ * take orders, opening hours only for one not judged to have no premises (G6-7).
+ */
+export function teachPrompts(caps: BusinessCapabilities): { starters: string[]; placeholder: string } {
+  const prices = quotesPrices(caps);
+  const open = caps.hasPremises !== false;
+  const starters = [
+    ...(prices ? ["Our prices: "] : []),
+    ...(open ? ["We are open "] : []),
+    "We serve ",
+    "Never promise ",
+  ];
+  const topics = [
+    ...(prices ? ["Prices"] : []),
+    open ? "timings" : "what you offer",
+    ...(caps.takesOrders === true ? ["where you deliver"] : []),
+    "what never to promise",
+  ];
+  const first = topics[0];
+  topics[0] = first.charAt(0).toUpperCase() + first.slice(1);
+  return { starters, placeholder: `${topics.join(", ")}…` };
+}
 
 /** The account's own example, one tappable sentence each; at most three, so the row stays one glance. */
 export function exampleSentences(note: string | null | undefined): string[] {
@@ -98,7 +121,8 @@ export function TeachBox({ allowed, reason }: { allowed: boolean; reason: string
   // Only the account's own written example is offered as sentences; the per-trade fallback
   // carries a sample price that would read as this business's own.
   const ownExample = copy.data?.placeholders?.teach_note?.trim() ? eg.teachNote : null;
-  const examples = ownExample ? exampleSentences(ownExample) : [...STARTERS];
+  const prompts = teachPrompts(capabilitiesOf(copy.data));
+  const examples = ownExample ? exampleSentences(ownExample) : prompts.starters;
   const addExample = (text: string) => {
     setWords((now) => {
       const before = now.trimEnd();
@@ -154,7 +178,7 @@ export function TeachBox({ allowed, reason }: { allowed: boolean; reason: string
               value={words}
               onChange={(event) => setWords(event.target.value)}
               disabled={locked}
-              placeholder="Prices, timings, where you deliver, what never to promise…"
+              placeholder={prompts.placeholder}
               className="block min-h-28 max-h-72 w-full resize-none rounded-t-card [field-sizing:content] bg-transparent px-4 pt-3 pb-2 text-body text-ink placeholder:text-ink-faint focus:outline-none disabled:cursor-not-allowed"
             />
             <div className="flex flex-wrap items-center gap-2 px-3 pb-3">

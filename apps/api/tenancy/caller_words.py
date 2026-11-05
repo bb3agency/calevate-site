@@ -70,6 +70,10 @@ class CallerWords:
         return "new lead" if self.sells is True else f"interested {self.caller}"
 
     @property
+    def new_leads(self) -> str:
+        return "new leads" if self.sells is True else f"interested {self.callers}"
+
+    @property
     def hot_lead(self) -> str:
         """The top of the ladder: "hot lead", or "most interested caller"."""
         return "hot lead" if self.sells is True else f"most interested {self.caller}"

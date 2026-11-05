@@ -43,10 +43,11 @@ DEMO_RANGE = "+91990000"
 #: (name, classification, consent source or None, contact count, calling hours or None)
 #: Three drafts covering the three launch-check stories: one answered and waiting only on
 #: the account's own setup, one with the list's origin unanswered, and one recorded as a
-#: bought list, which the gate refuses by name.
+#: bought list, which the gate refuses by name. Named for the seeded business, a property
+#: office (`seed_dev.DEMO_PROMPT`), so the demo never shows another trade's campaigns.
 DEMO_CAMPAIGNS: tuple[tuple[str, str, str | None, int, dict[str, str] | None], ...] = (
-    ("Six-month check-up reminders", "service", "existing_customer", 24, None),
-    ("Whitening enquiry follow-up", "service", None, 9, {"start": "10:00", "end": "18:00"}),
+    ("Site-visit reminders for past enquiries", "service", "existing_customer", 24, None),
+    ("Gachibowli 2BHK enquiry follow-up", "service", None, 9, {"start": "10:00", "end": "18:00"}),
     ("Diwali offer — purchased list", "promotional", "purchased_list", 12, None),
 )
 

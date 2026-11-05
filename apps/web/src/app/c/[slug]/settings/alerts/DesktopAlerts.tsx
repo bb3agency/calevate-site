@@ -4,6 +4,7 @@ import { Section, TEXT_ACTION } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SECONDARY_BUTTON } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
+import { leadWords, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { turnOffDesktopAlerts, turnOnDesktopAlerts, useDesktopAlertState } from "@/lib/desktopAlerts";
 
 /**
@@ -14,6 +15,7 @@ import { turnOffDesktopAlerts, turnOnDesktopAlerts, useDesktopAlertState } from 
 export function DesktopAlerts() {
   const session = useClientSession();
   const state = useDesktopAlertState(session.orgSlug);
+  const top = leadWords(useBusinessCapabilities()).hotLeads;
 
   return (
     <Section
@@ -28,7 +30,7 @@ export function DesktopAlerts() {
               ? "Blocked by your browser. Allow it in site settings."
               : state === "unsupported"
                 ? "This browser cannot show them."
-                : "Hot leads, failed calls, low credit."
+                : `${top.charAt(0).toUpperCase()}${top.slice(1)}, failed calls, low credit.`
           }
           value={state === "on" ? "On" : state === "off" ? "Off" : "Not available"}
           action={

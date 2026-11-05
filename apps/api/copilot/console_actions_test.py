@@ -34,7 +34,11 @@ from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
 from apps.api.copilot.agent_tool_actions import AGENT_TOOL_ACTIONS
 from apps.api.copilot.assist_actions import ASSIST_ACTIONS
 from apps.api.copilot.call_actions import CALL_ACTIONS
-from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, CAMPAIGN_CONSENT_SET
+from apps.api.copilot.campaign_actions import (
+    CAMPAIGN_ACTIONS,
+    CAMPAIGN_ARCHIVE_ACTIONS,
+    CAMPAIGN_CONSENT_SET,
+)
 from apps.api.copilot.console_actions import CONSOLE_ACTIONS
 from apps.api.copilot.coverage_actions import COVERAGE_ACTIONS
 from apps.api.copilot.fact_actions import FACT_ACTIONS
@@ -172,6 +176,8 @@ def test_the_console_actions_are_appended_after_the_earlier_ones() -> None:
         + len(PIN_ACTIONS)
         # D-940: the Follow-up actions APPEND.
         + len(FOLLOW_UP_ACTIONS)
+        # F-10: campaign archive and restore APPEND.
+        + len(CAMPAIGN_ARCHIVE_ACTIONS)
     )
     assert names[-len(console) - later : -later] == console
     assert len(set(names)) == len(names)

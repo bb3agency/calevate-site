@@ -9,10 +9,12 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
+import pytest
 from apps.api.billing.lots import read_open_lots
 from apps.api.billing.service import find_entry_by_ref, record_entry
 from apps.api.db.session import tenant_session
 from scripts import seed_dev
+from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
 
 
@@ -58,3 +60,34 @@ async def test_a_database_seeded_without_a_lot_gets_one_on_the_next_run() -> Non
     await seed_dev._ensure_opening_credit(tenant_id)
 
     assert await _lot_total(tenant_id) == seed_dev.SEED_OPENING_CREDIT_INR
+
+
+async def test_every_seeded_call_is_on_its_leads_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L3-26: the seed writes the `call` lead event the pipeline writes, so a seeded lead's
+    History is never "Nothing has happened yet" beside a call."""
+    # `engine_call_id` is globally unique; a prefix of this run's own keeps a database that
+    # was seeded before from swallowing the inserts.
+    monkeypatch.setattr(seed_dev, "SEED_CALL_PREFIX", f"seed-test-{uuid.uuid4().hex[:8]}-")
+    tenant_id = await _tenant()
+    agent_id = await seed_dev._tenant_agent(tenant_id)
+    owner = await seed_dev._upsert_user(
+        email=f"seed-{uuid.uuid4().hex[:8]}@example.com", name="Seed Owner"
+    )
+    written = await seed_dev._seed_calls(
+        tenant_id=tenant_id, agent_id=agent_id, owner_user_id=owner
+    )
+    assert written == len(seed_dev.DEMO_CALLS)
+
+    async with tenant_session(tenant_id) as session:
+        missing = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM calls c WHERE NOT EXISTS (SELECT 1 FROM lead_events e "
+                    "WHERE e.lead_id = c.lead_id AND e.type = 'call' "
+                    "AND e.payload->>'call_id' = c.id::text)"
+                )
+            )
+        ).scalar_one()
+    assert missing == 0

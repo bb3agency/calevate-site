@@ -244,7 +244,43 @@ async def test_delete_removes_a_draft_and_refuses_a_launched_one() -> None:
     running = await _make_campaign(tenant_id)
     with pytest.raises(write_tools.WriteRefusedError) as refused:
         await _propose(tenant_id, token, "campaign_delete", {"campaign_id": str(running)})
-    assert "campaign_stop" in refused.value.reason
+    assert "campaign_archive" in refused.value.reason
+
+
+async def test_archive_pauses_and_puts_away_and_restore_brings_it_back_paused() -> None:
+    """Pip's archive and restore are the screen's (`campaigns.archive`), with the same audit."""
+    tenant_id, _slug, token = await _make_tenant()
+    running = await _make_campaign(tenant_id)
+    proposal = await _propose(tenant_id, token, "campaign_archive", {"campaign_id": str(running)})
+    assert (proposal.current, proposal.proposed) == ("running", "archived")
+    assert "paused first" in proposal.summary
+    await _confirm(tenant_id, _user_of(token), proposal.token)
+    status, archived, realm = await _row(
+        tenant_id,
+        "SELECT status, archived_at IS NOT NULL, archived_by_realm FROM campaigns WHERE id = :i",
+        i=running,
+    )
+    assert (status, archived, realm) == ("paused", True, "client")
+    assert ("campaign.archived", "campaign", str(running)) in await _audit(tenant_id)
+
+    with pytest.raises(write_tools.WriteRefusedError) as again:
+        await _propose(tenant_id, token, "campaign_archive", {"campaign_id": str(running)})
+    assert "campaign_restore" in again.value.reason
+
+    back = await _propose(tenant_id, token, "campaign_restore", {"campaign_id": str(running)})
+    assert (back.current, back.proposed) == ("archived", "paused")
+    await _confirm(tenant_id, _user_of(token), back.token)
+    status, archived, _realm = await _row(
+        tenant_id,
+        "SELECT status, archived_at IS NOT NULL, archived_by_realm FROM campaigns WHERE id = :i",
+        i=running,
+    )
+    assert (status, archived) == ("paused", False)
+    assert ("campaign.restored", "campaign", str(running)) in await _audit(tenant_id)
+
+    with pytest.raises(write_tools.WriteRefusedError) as not_archived:
+        await _propose(tenant_id, token, "campaign_restore", {"campaign_id": str(running)})
+    assert "not archived" in not_archived.value.reason
 
 
 # --- contacts -----------------------------------------------------------------------------
@@ -416,6 +452,8 @@ async def test_a_neighbours_campaign_is_a_404_for_every_campaign_action() -> Non
         "campaign_repeat": {"campaign_id": foreign, "days": [1], "at": "10:00", "until": None},
         "campaign_stop": {"campaign_id": foreign},
         "campaign_delete": {"campaign_id": foreign},
+        "campaign_archive": {"campaign_id": foreign},
+        "campaign_restore": {"campaign_id": foreign},
         "campaign_contacts_add": {
             "campaign_id": foreign,
             "contacts": [{"phone": "9800000031", "name": None}],

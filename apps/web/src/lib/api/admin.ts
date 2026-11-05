@@ -910,6 +910,92 @@ export function useTenantCampaigns(slug: string): UseQueryResult<CampaignSummary
   });
 }
 
+/** What an operator's archive, restore or delete did (`campaigns/archive_admin_routes.py`). */
+export type AdminCampaignAct = Schemas["AdminArchiveOut"];
+type CampaignPageOut = Schemas["CampaignPageOut"];
+
+/** Mirrors `archive_admin_routes.archive_confirmation` / `delete_confirmation`. */
+export const archiveCampaignConfirmation = (campaignId: string) =>
+  `archive_campaign:${campaignId}`;
+export const deleteCampaignConfirmation = (campaignId: string) =>
+  `delete_campaign:${campaignId}`;
+
+/**
+ * One client's live or archived campaigns, newest first, through impersonation — the list
+ * the admin Campaigns page acts on. `GET /v1/campaigns/page` is `leads:read`, readable under
+ * view-as; the writes go through the admin-realm routes with the tenant in the path.
+ */
+export function useTenantCampaignPage(
+  slug: string,
+  archived: boolean,
+): UseQueryResult<CampaignPageOut> {
+  const search = archived ? "?limit=100&archived=true" : "?limit=100";
+  return useQuery({
+    queryKey: ["admin", "campaigns", slug, "page", archived],
+    queryFn: () =>
+      apiRequest<CampaignPageOut>(viewAsSession(slug), `/v1/campaigns/page${search}`),
+    enabled: Boolean(slug),
+  });
+}
+
+const adminCampaignPath = (tenantId: string, campaignId: string) =>
+  `/v1/admin/tenants/${tenantId}/campaigns/${campaignId}`;
+
+function useRefreshTenantCampaigns() {
+  const client = useQueryClient();
+  return () => void client.invalidateQueries({ queryKey: ["admin", "campaigns"] });
+}
+
+/** Archive with a reason the client reads; step-up, named for this campaign. */
+export function useAdminArchiveCampaign(tenantId: string) {
+  const refresh = useRefreshTenantCampaigns();
+  return useMutation({
+    mutationFn: ({ campaignId, reason }: { campaignId: string; reason: string }) =>
+      confirmedAdminRequest<AdminCampaignAct>(
+        `${adminCampaignPath(tenantId, campaignId)}/archive`,
+        {
+          method: "POST",
+          body: { reason },
+          confirmAction: archiveCampaignConfirmation(campaignId),
+        },
+        "Archiving this client's campaign.",
+      ),
+    onSuccess: refresh,
+  });
+}
+
+/** Restore to paused or draft. Gives something back, so no step-up and no notice. */
+export function useAdminRestoreCampaign(tenantId: string) {
+  const refresh = useRefreshTenantCampaigns();
+  return useMutation({
+    mutationFn: (campaignId: string) =>
+      apiRequest<AdminCampaignAct>(
+        adminSession(),
+        `${adminCampaignPath(tenantId, campaignId)}/restore`,
+        { method: "POST" },
+      ),
+    onSuccess: refresh,
+  });
+}
+
+/** Delete a draft that never dialled, with a reason the client reads; step-up. */
+export function useAdminDeleteCampaign(tenantId: string) {
+  const refresh = useRefreshTenantCampaigns();
+  return useMutation({
+    mutationFn: ({ campaignId, reason }: { campaignId: string; reason: string }) =>
+      confirmedAdminRequest<AdminCampaignAct>(
+        adminCampaignPath(tenantId, campaignId),
+        {
+          method: "DELETE",
+          body: { reason },
+          confirmAction: deleteCampaignConfirmation(campaignId),
+        },
+        "Deleting this client's draft campaign.",
+      ),
+    onSuccess: refresh,
+  });
+}
+
 /** The four modes `PlatformStateIn.load_shed_mode` accepts, from the GENERATED schema so
  * that a mode added server-side breaks `tsc` here rather than being silently unofferable. */
 export type LoadShedMode = NonNullable<Schemas["PlatformStateIn"]["load_shed_mode"]>;

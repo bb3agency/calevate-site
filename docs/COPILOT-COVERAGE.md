@@ -221,6 +221,8 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | campaign | Pause / resume | campaigns_do:campaign_pause / campaign_resume | confirm | COVERED |
 | campaign | Stop for good | campaigns_do:campaign_stop | confirm | COVERED |
 | campaign | Delete a draft | campaigns_do:campaign_delete | confirm | COVERED |
+| campaign | Archive (any status; a running one is paused first) | campaigns_do:campaign_archive | confirm | BUILT (F-10) |
+| campaign | Restore from Archived (paused or draft, never running) | campaigns_do:campaign_restore | confirm | BUILT (F-10) |
 | campaign | Confirm the complaint review | screen only | - | NEVER (legal attestation by a human) |
 | campaign | "Results per contact / opt-outs" | campaigns_find:campaign_detail | read | COVERED |
 
