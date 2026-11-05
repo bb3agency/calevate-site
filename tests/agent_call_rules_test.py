@@ -294,7 +294,18 @@ def test_the_improver_may_not_write_a_long_or_claiming_opening() -> None:
 # --- 4d. the owner hears about missing prices before the first run ---------------------------
 
 
-async def test_missing_prices_are_named_until_a_fact_gives_one() -> None:
+async def test_missing_prices_are_named_until_a_fact_gives_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """For a business judged to sell and quote prices; one not judged is never asked for
+    prices (G1-1, `business_words_guard`'s sibling `business_fit_agents_test`)."""
+    from apps.api.agents import test_conversations
+    from apps.api.agents.business_fit import BusinessFit
+
+    async def selling(_session: object, _tenant_id: object = None) -> BusinessFit:
+        return BusinessFit(sells=True, quotes_prices=True)
+
+    monkeypatch.setattr(test_conversations, "business_fit", selling)
     tenant_id, _agent_id = await _tenant_with_published_agent()
     async with tenant_session(tenant_id) as session:
         # The fixture's profile prices its services, and those reach every agent too.

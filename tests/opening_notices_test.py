@@ -189,21 +189,44 @@ def test_the_read_back_accepts_a_woven_greeting_and_refuses_one_without_the_noti
     assert judge(engine, held, _held(held, jewellery)).state == "not_applied"
 
 
-def _dial_row(opening: str, *, ai: bool) -> tuple[Any, ...]:
-    body = compile_call_script(CallScript(opening_line=opening), collect=[])
-    return (AI, "live", "outbound", "ag_1", ai, False, RECORDING, "en-IN", body)
+def _dial_row(
+    opening: str, *, ai: bool, words: str = "", business: str = "Raghava Organics"
+) -> tuple[Any, ...]:
+    script = CallScript(
+        opening_line=opening, opening_notices=OpeningNotices(line=opening, ai=words)
+    )
+    body = compile_call_script(script, collect=[])
+    return (AI, "live", "outbound", "ag_1", ai, False, RECORDING, "en-IN", body, business)
 
 
 def test_the_dial_gate_refuses_first_words_that_drop_the_ai_notice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     disclose = compliance_service._first_words_disclose
-    assert disclose(_dial_row(WOVEN, ai=True))  # type: ignore[arg-type]
+    assert disclose(_dial_row(WOVEN, ai=True, words=WOVEN_AI_WORDS))  # type: ignore[arg-type]
     assert disclose(_dial_row(PLAIN, ai=True))  # type: ignore[arg-type]
     assert disclose(_dial_row(PLAIN, ai=False))  # type: ignore[arg-type]
     # A composer that lost the stored sentence is refused, not dialled.
     monkeypatch.setattr(compliance_service, "join_first_words", lambda _n, o, **_k: o)
     assert not disclose(_dial_row(PLAIN, ai=True))  # type: ignore[arg-type]
+
+
+def test_the_dial_gate_checks_the_greeting_the_engine_speaks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A-03: the gate reads the woven words as `compose_first_utterance` does, so it checks the
+    woven opening alone (the stored sentence dropped), not a greeting nobody speaks."""
+    checked: list[str] = []
+    real = compliance_service.first_words_disclose
+
+    def spy(first_words: str, **kwargs: Any) -> bool:
+        checked.append(first_words)
+        return real(first_words, **kwargs)
+
+    monkeypatch.setattr(compliance_service, "first_words_disclose", spy)
+    row = _dial_row(WOVEN, ai=True, words=WOVEN_AI_WORDS)
+    assert compliance_service._first_words_disclose(row)  # type: ignore[arg-type]
+    assert checked == [WOVEN]
 
 
 # --- the writer -------------------------------------------------------------------------------

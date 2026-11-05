@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from calevate_shared.call_script import CallScript, extract_variable_names
+from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
 
 from apps.api.compliance.call_purpose import Finding, first_finding
@@ -143,38 +144,42 @@ _CONDITIONAL: Final = re.compile(
 )
 #: A clause that says the action will NOT happen ("I can't connect you now") promises nothing.
 #: The romanised Telugu forms are the negative verb endings ("pampinchalemu", "cheyalenu").
+#: Every Indian-language alternative below is the founder's (`call_words.json`); the English
+#: stays here.
 _NEGATED: Final = re.compile(
-    r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b|కుదరదు|లేరు|లేదు|"
-    r"చేయలేను|नहीं|कोई नहीं|\b\w+(?:lemu|lenu|ledu)\b|\bkudaradu\b|\bnahi?n?\b",
+    _extend(
+        r"\b(?:can'?t|cannot|won'?t|not|no one|nobody|never|unable)\b", "script_lint._NEGATED"
+    ),
     re.IGNORECASE,
 )
 #: Where one clause ends and the next begins. A negation is read only in the promise's own
 #: clause, so "ఇబ్బంది లేదు, WhatsApp lo pampistanu" ("no problem, I'll send it") still
 #: promises the send.
 _CLAUSE_BREAK: Final = re.compile(
-    r"\s*[,;:\N{EN DASH}\N{EM DASH}]\s*|\s+(?:and|but|so|kani|ani|lekapothe|par|lekin|aur|toh)\s+",
+    r"\s*[,;:\N{EN DASH}\N{EM DASH}]\s*|\s+(?:"
+    + _extend("and|but|so", "script_lint._CLAUSE_BREAK")
+    + r")\s+",
     re.IGNORECASE,
 )
-_WHATSAPP: Final = re.compile(r"whats\s?app|వాట్సాప్|వాట్సప్|व्हाट्सएप|व्हाट्सऐप", re.IGNORECASE)
+_WHATSAPP: Final = re.compile(_extend(r"whats\s?app", "script_lint._WHATSAPP"), re.IGNORECASE)
 #: Each verb also in the Latin-letter Telugu and Hindi that scripts are written in as often as
 #: the native scripts ("WhatsApp lo pampistanu", "bhej dunga").
 _SENDS: Final = re.compile(
-    r"\bsend|\bsent\b|\bshare|\bpamp(?:i|u)|\bbhej|పంపి|పంపు|పంపా|షేర్|भेज|शेयर", re.IGNORECASE
+    _extend(r"\bsend|\bsent\b|\bshare", "script_lint._SENDS"), re.IGNORECASE
 )
-_SMS: Final = re.compile(r"\bsms\b|\btext message|ఎస్ఎంఎస్|एसएमएस", re.IGNORECASE)
+_SMS: Final = re.compile(_extend(r"\bsms\b|\btext message", "script_lint._SMS"), re.IGNORECASE)
 _CALL_BACK: Final = re.compile(
-    r"call (?:you )?back|call-back|callback|తిరిగి కాల్|కాల్ బ్యాక్|మళ్ళీ కాల్|वापस कॉल|कॉल बैक|"
-    r"\b(?:malli|tirigi|tarvata|taruvata) call chest|\b(?:wapas|vapas|baad mein) call kar",
+    _extend(r"call (?:you )?back|call-back|callback", "script_lint._CALL_BACK"),
     re.IGNORECASE,
 )
 _BOOKS: Final = re.compile(
-    r"\b(?:i(?:'ll| will)|let me|we(?:'ll| will)) (?:book|confirm|fix)\b|"
-    r"బుక్ చేస్తాను|కన్ఫర్మ్ చేస్తాను|बुक कर (?:देत|दूँग|दूंग)",
+    _extend(
+        r"\b(?:i(?:'ll| will)|let me|we(?:'ll| will)) (?:book|confirm|fix)\b", "script_lint._BOOKS"
+    ),
     re.IGNORECASE,
 )
 _HANDS_OVER: Final = re.compile(
-    r"\b(?:transfer|connect|put) you\b|\bput you through\b|కనెక్ట్ చేస్తాను|ట్రాన్స్‌ఫర్|"
-    r"कनेक्ट कर|ट्रांसफर",
+    _extend(r"\b(?:transfer|connect|put) you\b|\bput you through\b", "script_lint._HANDS_OVER"),
     re.IGNORECASE,
 )
 

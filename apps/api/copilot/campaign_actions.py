@@ -82,8 +82,8 @@ BRIEF_SCHEMA: Final = {
     "goal": {
         "anyOf": [{"type": "string"}, {"type": "null"}],
         "description": (
-            f"What a good call ends with, e.g. book a visit; at most {brief.GOAL_MAX} "
-            "characters, plain words."
+            "What a good call ends with, in the owner's words, e.g. the next step agreed "
+            f"with the person; at most {brief.GOAL_MAX} characters, plain words."
         ),
     },
 }

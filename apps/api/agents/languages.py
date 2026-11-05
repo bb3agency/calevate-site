@@ -56,7 +56,7 @@ from datetime import date
 from typing import Annotated, Final, Literal, get_args
 from uuid import UUID
 
-from calevate_shared import spoken_lines
+from calevate_shared import call_words
 from calevate_shared.languages import (
     built_languages,
     find_language,
@@ -174,11 +174,11 @@ STAGED_LANGUAGE_READINESS: Final[Mapping[str, StagedLanguageReadiness]] = {
 
 def opt_out_phrases_recorded(tag: str) -> bool:
     """Whether the do-not-call detector can hear "don't call me" in this language: the
-    founder's phrases for it (`spoken_lines.json`, `optout.patterns`, read by
+    founder's phrases for it (`call_words.json`, `optout.patterns`, read by
     `compliance/optout`). A language without them may not reach a caller, or a caller's
     opt-out in it would never reach the do-not-call ledger (G5-2, TRAI)."""
     base = tag.split("-")[0].lower()
-    return base == "en" or bool(spoken_lines.by_language("optout.patterns").get(base))
+    return base == "en" or bool(call_words.table("optout.patterns").get(base))
 
 
 def _chosen(raw: str) -> list[str]:
