@@ -10,6 +10,8 @@ Lines here are English: the checks are language-free or read the English instruc
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -145,31 +147,15 @@ def test_different_lines_pass() -> None:
 # --- 4. an opening with no name --------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("text", "values", "spoken"),
-    [
-        (
-            "Hello {{lead_name}} sir, this is Asha from Acme. Can we talk now?",
-            {},
-            "Hello, this is Asha from Acme. Can we talk now?",
-        ),
-        (
-            "Hello {{lead_name}} sir, this is Asha.",
-            {"lead_name": "Ravi"},
-            "Hello Ravi sir, this is Asha.",
-        ),
-        ("Hello {{lead_name}}, this is Asha.", {"lead_name": None}, "Hello, this is Asha."),
-        ("{{lead_name}} sir, good morning.", {}, "good morning."),
-        ("Hi {{lead_name}}! Asha here.", {"lead_name": "  "}, "Hi! Asha here."),
-        # Two words before the break: only the field goes, never the speaker's own words.
-        ("Your order {{order_id}} is ready, {{lead_name}}.", {}, "Your order is ready."),
-        ("Hello {{lead_name}} we are calling about it.", {}, "Hello we are calling about it."),
-    ],
-)
-def test_an_unfilled_name_goes_with_its_title(
-    text: str, values: dict[str, str | None], spoken: str
-) -> None:
-    assert fill_spoken_line(text, values) == spoken
+#: Shared with the Script tab's preview (apps/web/tests/spokenName.test.ts).
+NAME_CASES = json.loads(
+    (Path(__file__).parent / "fixtures" / "spoken_name_cases.json").read_text(encoding="utf-8")
+)["cases"]
+
+
+@pytest.mark.parametrize("case", NAME_CASES, ids=[c["text"] for c in NAME_CASES])
+def test_an_unfilled_name_goes_with_its_title(case: dict[str, Any]) -> None:
+    assert fill_spoken_line(case["text"], case["values"]) == case["spoken"]
 
 
 async def test_the_dial_with_no_name_leaves_no_title_alone() -> None:

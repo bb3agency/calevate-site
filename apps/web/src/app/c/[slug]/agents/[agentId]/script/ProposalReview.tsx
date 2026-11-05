@@ -32,6 +32,7 @@ import {
   keptAtFirst,
   partText,
   removesContent,
+  renamedOnly,
   type Change,
   type PartKey,
 } from "./scriptDiff";
@@ -201,7 +202,9 @@ export function ProposalReview({
                 onOpen={(next) => setIn(setOpen, change.id, next)}
                 onReset={() => reset(change)}
               >
-                {change.kind === "part" ? (
+                {change.kind === "order" ? (
+                  <OrderBody change={change} />
+                ) : change.kind === "part" ? (
                   <PartBody
                     change={change}
                     edited={edited}
@@ -280,7 +283,7 @@ function Row({
   children: ReactNode;
 }) {
   const id = domId(change);
-  const editable = change.kind !== "section-removed";
+  const editable = change.kind !== "section-removed" && change.kind !== "order";
   return (
     // An unticked change fades, so what will be applied is visible at a glance.
     <li className={`flex items-start gap-3 py-3 transition-opacity duration-150 ${kept ? "" : "opacity-55"}`}>
@@ -368,6 +371,17 @@ function PartBody({
   );
 }
 
+/** A move: the steps in order now and as suggested, numbered as the step list numbers them. */
+function OrderBody({ change }: { change: Extract<Change, { kind: "order" }> }) {
+  const numbered = (names: string[]) => names.map((name, i) => `${i + 1}. ${name}`).join("\n");
+  return (
+    <div className="mt-1.5 space-y-1.5">
+      <Quote tone="before" text={numbered(change.before)} />
+      <Quote tone="after" text={numbered(change.after)} />
+    </div>
+  );
+}
+
 function SectionBody({
   change,
   edited,
@@ -377,7 +391,7 @@ function SectionBody({
   language,
   onChange,
 }: {
-  change: Exclude<Change, { kind: "part" }>;
+  change: Exclude<Change, { kind: "part" } | { kind: "order" }>;
   edited: CallScript;
   open: boolean;
   issues: Issue[];
@@ -445,7 +459,10 @@ export function kindLabel(change: Change): string {
     case "section-removed":
       return "Pip removes this step";
     case "section-changed":
-      return "Step changed";
+      if (renamedOnly(change)) return "Step renamed";
+      return change.before.name.trim() !== change.after.name.trim() ? "Step renamed and changed" : "Step changed";
+    case "order":
+      return "Steps moved";
   }
 }
 

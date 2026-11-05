@@ -244,3 +244,64 @@ describe("the opening Pip rewrote to say the notices (A-05)", () => {
     expect(rewrittenOpening(EMPTY_SCRIPT, "answers")).toBeNull();
   });
 });
+
+describe("a deletion, a rename and a move Pip made, each shown as itself", () => {
+  const step = (id: string, name: string): CallScript["stages"][number] => ({
+    id,
+    name,
+    mode: "guide",
+    instruction: `Do the ${name.toLowerCase()} part.`,
+    sounds_like: "",
+    branches: [],
+    otherwise: "",
+    collect: [],
+    position: null,
+  });
+  const OWNERS: CallScript = {
+    ...CURRENT,
+    stages: [step("a", "Ask"), step("b", "Help"), step("c", "Tips"), step("z", "Close")],
+  };
+
+  it("names a deleted step, starts it unticked and deletes it when kept", () => {
+    const onApply = vi.fn();
+    const proposal = { ...OWNERS, stages: OWNERS.stages.filter((s) => s.id !== "c") };
+    render(<ProposalReview current={OWNERS} proposal={proposal} onApply={onApply} onDiscard={() => undefined} />);
+    expect(screen.getByText("Tips")).toBeTruthy();
+    expect(screen.getByText("Pip removes this step")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Add it to my draft" }));
+    expect((onApply.mock.calls[0][0] as CallScript).stages.map((s) => s.id)).toEqual(["a", "b", "z"]);
+  });
+
+  it("says a renamed step was renamed, with both names", () => {
+    const onApply = vi.fn();
+    const proposal = {
+      ...OWNERS,
+      stages: OWNERS.stages.map((s) => (s.id === "b" ? { ...s, name: "Sowing help" } : s)),
+    };
+    render(<ProposalReview current={OWNERS} proposal={proposal} onApply={onApply} onDiscard={() => undefined} />);
+    expect(screen.getByText("Step renamed")).toBeTruthy();
+    expect(screen.getByText(/Name: Sowing help/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add it to my draft" }));
+    expect((onApply.mock.calls[0][0] as CallScript).stages[1].name).toBe("Sowing help");
+  });
+
+  it("shows a move as its own row with the order before and after, kept only if ticked", () => {
+    const onApply = vi.fn();
+    const [ask, help, tips, close] = OWNERS.stages;
+    const proposal = { ...OWNERS, stages: [ask, tips, help, close] };
+    render(<ProposalReview current={OWNERS} proposal={proposal} onApply={onApply} onDiscard={() => undefined} />);
+    expect(screen.getByRole("heading", { name: "1 suggested change" })).toBeTruthy();
+    expect(screen.getByText("Order of the steps")).toBeTruthy();
+    expect(screen.getByText("Steps moved")).toBeTruthy();
+    expect(screen.getByText(/1\. Ask\s+2\. Tips\s+3\. Help\s+4\. Close/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add it to my draft" }));
+    expect((onApply.mock.calls[0][0] as CallScript).stages.map((s) => s.id)).toEqual(["a", "c", "b", "z"]);
+  });
+
+  it("does not call a deletion a move", () => {
+    const proposal = { ...OWNERS, stages: OWNERS.stages.filter((s) => s.id !== "b") };
+    render(<ProposalReview current={OWNERS} proposal={proposal} onApply={() => undefined} onDiscard={() => undefined} />);
+    expect(screen.queryByText("Order of the steps")).toBeNull();
+  });
+});

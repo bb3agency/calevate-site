@@ -67,6 +67,39 @@ export function fillVariables(text: string, samples: Record<string, string>): st
   );
 }
 
+const BREAK = "[,.!?।]";
+const NAME_WITH_TITLE = new RegExp(
+  String.raw`\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}(?:[ \t]+[^\s,.!?।{}]+)?(?=[ \t]*[,.!?।])`,
+  "g",
+);
+
+/** Does `text` use a field holding a person's name (`{{lead_name}}`, a list's `{{name}}`)? */
+export function usesName(text: string): boolean {
+  return variablesIn(text).some((key) => key.includes("name"));
+}
+
+/**
+ * A line said word for word, filled the way a call we place fills it
+ * (`calevate_shared.call_script.fill_spoken_line`; both read `tests/fixtures/
+ * spoken_name_cases.json`): a name with no value goes with its title, any other field with
+ * no value goes alone, and the breaks left behind are tidied.
+ */
+export function fillSpokenLine(text: string, values: Record<string, string | null | undefined>): string {
+  const filled = (key: string) => {
+    const value = values[key];
+    return typeof value === "string" && value.trim() !== "" ? value : null;
+  };
+  return text
+    .replace(NAME_WITH_TITLE, (whole, key: string) => (key.includes("name") && filled(key) === null ? "" : whole))
+    .replace(VARIABLE_PATTERN, (_whole, key: string) => filled(key) ?? "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(new RegExp(`[ \\t]+(${BREAK})`, "g"), "$1")
+    .replace(new RegExp(`,[ \\t]*(${BREAK})`, "g"), "$1")
+    .replace(new RegExp(`(${BREAK})[ \\t]*,`, "g"), "$1")
+    .replace(/^[\s,]+/, "")
+    .trim();
+}
+
 /** Python's `len`: code points, so a counter agrees with the server on any script. */
 export function codePoints(text: string): number {
   return [...text].length;

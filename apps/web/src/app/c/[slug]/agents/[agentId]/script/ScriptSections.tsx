@@ -24,6 +24,7 @@ import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 
 import { ScriptEditor, type ScriptVariableOption } from "@/components/arc/script-editor";
+import { fillSpokenLine, VARIABLE_PATTERN } from "@/components/arc/spoken-text";
 import {
   FIELD,
   FIELD_HINT,
@@ -263,6 +264,25 @@ export function scriptVariables(
   ];
 }
 
+/**
+ * How an opening sounds on a call with no name for the person, other details at their
+ * samples. On a call it places the name goes with its title (`fillSpokenLine`, what the dial
+ * does); on one it answers the calling system fills the greeting and leaves out only the
+ * field, so a title after it is shown said alone, as the caller would hear it.
+ */
+export function withoutNameFor(variables: ScriptVariableOption[]): {
+  placed: (text: string) => string;
+  answered: (text: string) => string;
+} {
+  const samples = Object.fromEntries(
+    variables.filter((v) => !v.key.includes("name") && v.sample).map((v) => [v.key, v.sample as string]),
+  );
+  const placed = (text: string) => fillSpokenLine(text, samples);
+  const answered = (text: string) =>
+    placed(text.replace(VARIABLE_PATTERN, (whole, key: string) => (key.includes("name") ? "" : whole)));
+  return { placed, answered };
+}
+
 /** When a caller detail has a value on a call, which depends on who places the call. */
 export function variablesNote(direction?: string): string {
   const places = direction !== "inbound";
@@ -310,6 +330,8 @@ export function OpeningEditor({
   // A "both" agent has two openings (D-920): the one it answers with and one for the calls
   // it places, so neither thanks a person it rang for calling.
   const both = direction === "both";
+  const variables = scriptVariables(standardVariables, script.variables);
+  const nameless = withoutNameFor(variables);
   const sections = [
     {
       id: "opening_line",
@@ -322,6 +344,7 @@ export function OpeningEditor({
       maxChars: room,
       placeholder: "For example: Thanks for calling [business]. How can I help?",
       rows: 2,
+      withoutName: direction === "outbound" ? nameless.placed : nameless.answered,
     },
     ...(both
       ? [
@@ -333,6 +356,7 @@ export function OpeningEditor({
             maxChars: undefined,
             placeholder: "For example: [name] from [business]. Is now a good time?",
             rows: 2,
+            withoutName: nameless.placed,
           },
         ]
       : []),
@@ -368,7 +392,7 @@ export function OpeningEditor({
             value,
           )
         }
-        variables={scriptVariables(standardVariables, script.variables)}
+        variables={variables}
         previewAction={previewAction}
         strings={{
           left: (n) => `${n} ${n === "1" ? "character" : "characters"} left`,

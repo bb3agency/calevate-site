@@ -357,6 +357,8 @@ function changeTexts(change: Change): [string, string] {
       return ["", sectionReadable(change.after)];
     case "section-removed":
       return [sectionReadable(change.before), ""];
+    case "order":
+      return [change.before.join(", "), change.after.join(", ")];
   }
 }
 
