@@ -1422,11 +1422,17 @@ if [[ -n "$(python_services_in_plan)" ]]; then
   run_migrations
 fi
 
-# Order within the swap: workers, workers-bulk, then api, then voice-runtime.
+# Order within the swap: workers-bulk, workers, then api, then voice-runtime.
 #
 # Workers first because they are the only component with no reader waiting on them — a
 # job that lands during their gap is queued in Redis, not lost. Both workers before api,
 # so the bulk queue has a reader before a new api starts routing jobs onto it (D-929).
+# workers-bulk BEFORE workers: the new main worker's outbox dispatcher runs at startup and
+# publishes the bulk jobs this release added, and an old bulk worker reading `arq:bulk`
+# fails such a job at once as "function not found" with no retry (arq 0.28
+# `Worker.run_job`). The dispatcher also holds a bulk job until every live bulk worker
+# advertises it (`core/queue.bulk_jobs_served`), so this order is the fast path, not the
+# only guard.
 # voice-runtime LAST
 # because its gap is the only one that costs a call: a delivery arriving in that window
 # gets no ack, and whether it is ever redelivered is the sender's policy, not ours. Making that window the shortest-lived and the last thing to happen is
@@ -1450,7 +1456,7 @@ if in_plan api || in_plan workers || in_plan workers-bulk || in_plan voice-runti
   compose up -d redis
 fi
 
-for component in workers workers-bulk api voice-runtime; do
+for component in workers-bulk workers api voice-runtime; do
   if in_plan "$component"; then swap_service "$component"; fi
 done
 
