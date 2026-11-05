@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AGREEMENTS_COPY, acceptLabel, inForceFrom } from "@/app/c/[slug]/agreements/copy";
-import { AI_ASSIST_COPY, aboutMore, addedLine, ofAbout, overBy, prepJobs } from "@/app/c/[slug]/ai-assist/copy";
+import { AI_ASSIST_COPY, aboutMore, addedLine, usedOf, overBy, prepJobs } from "@/app/c/[slug]/ai-assist/copy";
 import { ASSISTANT_COPY } from "@/app/c/[slug]/assistant/copy";
 import { CALLER_NOTICE_COPY, CALLER_NOTICE_KEPT } from "@/app/c/[slug]/caller-notice/copy";
 import { DATA_RIGHTS_COPY, DATA_RIGHTS_KEPT, audioHeld, erasedOn, filedLine } from "@/app/c/[slug]/data-rights/copy";
@@ -69,7 +69,7 @@ const COMPOSED: string[] = [
   verdictLine(12, 120),
   monthEnding("30 September 2026"),
   tricky(18),
-  ofAbout("12,345"),
+  usedOf("₹12,345"),
   aboutMore("12,345"),
   prepJobs(12, "12"),
   overBy("₹1,23,456.78"),

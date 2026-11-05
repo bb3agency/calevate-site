@@ -103,9 +103,15 @@ describe("the allowance panel", () => {
     // Awaited on the anchor first, so a wrong figure fails on the assertion that
     // explains itself rather than on a "could not find the text" timeout.
     await screen.findByText("How AI help is billed");
-    // The count an owner plans around, and the word that keeps it honest.
-    expect(screen.getByText("82")).toBeTruthy();
-    expect(screen.getByText(/of about 416 this month/)).toBeTruthy();
+    // Rupees lead, and the estimate is about what is LEFT. The raw request count (82) is
+    // not shown beside the estimates: 82 used + 242 more is not 416, and the founder read
+    // exactly that mismatch as a bug.
+    expect(screen.getByText(/used of ₹100 this month/)).toBeTruthy();
+    expect(screen.getByText(/about 242 more uses/)).toBeTruthy();
+    expect(screen.queryByText("82")).toBeNull();
+    // The last row is what is left, not the allowance again.
+    expect(screen.getByText("Left this month")).toBeTruthy();
+    expect(screen.queryByText("Available this month")).toBeNull();
     // The rupee figures as the SERVER's digits, grouped and never parsed — read off the
     // whole screen because the allowance legitimately appears twice (the tile and the
     // table), and `getByText` would fail on the duplication rather than on the digits.
@@ -125,7 +131,7 @@ describe("the allowance panel", () => {
 
     expect(container.querySelector(".animate-pulse")).toBeTruthy();
     // §52: not a zero, not an empty state, and not the sentence about a ceiling.
-    expect(screen.queryByText(/of about/)).toBeNull();
+    expect(screen.queryByText(/used of/)).toBeNull();
     expect(screen.queryByText(/₹/)).toBeNull();
   });
 
@@ -141,7 +147,7 @@ describe("the allowance panel", () => {
     await screen.findByText("The billing service is not answering.");
     // A failed read that rendered ₹0.00 would say "you have none left" — the lie in the
     // expensive direction.
-    expect(screen.queryByText(/of about/)).toBeNull();
+    expect(screen.queryByText(/used of/)).toBeNull();
     expect(screen.queryByText("₹0")).toBeNull();
   });
 
@@ -157,7 +163,7 @@ describe("the allowance panel", () => {
 
     await screen.findByText("How AI help is billed");
     expect(container.textContent).toContain("₹12.4");
-    expect(screen.getByText(/of which, preparing what you added/)).toBeTruthy();
+    expect(screen.getByText(/of which, preparing your files and facts/)).toBeTruthy();
     expect(screen.getByText(/part of the amount used/)).toBeTruthy();
     // The sum of the two would be ₹54.10, and nothing on the screen may print it.
     expect(container.textContent).not.toContain("₹54.1");

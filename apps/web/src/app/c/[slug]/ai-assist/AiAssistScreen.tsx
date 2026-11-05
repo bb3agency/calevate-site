@@ -21,7 +21,7 @@ import { noFill } from "@/lib/copilot/types";
 
 import { Row, StateNotice } from "./notices";
 import { WhyTip } from "../agreements/_ui/WhyTip";
-import { AI_ASSIST_COPY as COPY, aboutMore, ofAbout, overBy, prepJobs } from "./copy";
+import { AI_ASSIST_COPY as COPY, aboutMore, overBy, prepJobs, usedOf } from "./copy";
 
 /**
  * AI help: what this month includes, what it has used, and what more costs (D-127 —
@@ -166,8 +166,11 @@ export function AiAssistScreen() {
         <>
           <StateNotice quota={data} session={session} />
 
-          {/* THE METER. Its length is the request COUNT against the included count — two
-              integers the server publishes — never a division of rupee strings. */}
+          {/* THE METER. Rupees lead because every figure on this screen shares that unit. The
+              bar's length is the server's two estimate counts (included minus remaining, over
+              included), on the same reference price as "about N more uses", never a division
+              of rupee strings. The raw request count beside those estimates read as a sum that
+              did not add up (39 used + 1,019 more is not 1,041). */}
           <section className="space-y-3 border-b border-line pb-6">
             <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
               <div>
@@ -179,10 +182,10 @@ export function AiAssistScreen() {
                 </p>
                 <p className="mt-1 flex flex-wrap items-baseline gap-x-2">
                   <span className="text-figure tabular-nums text-ink">
-                    {formatCount(data.requests_used)}
+                    {formatINR(data.used_inr)}
                   </span>
                   <span className="text-body text-ink-muted">
-                    {ofAbout(formatCount(data.requests_included))}
+                    {usedOf(formatINR(data.allowance_inr))}
                   </span>
                 </p>
               </div>
@@ -197,7 +200,7 @@ export function AiAssistScreen() {
             </div>
             {data.requests_included > 0 ? (
               <ProgressBar
-                value={data.requests_used}
+                value={Math.max(0, data.requests_included - data.requests_remaining)}
                 max={data.requests_included}
                 label={COPY.meterLabel}
                 completeLabel={COPY.meterDone}
@@ -230,6 +233,9 @@ export function AiAssistScreen() {
           <Section title={COPY.billedTitle}>
             <dl className="space-y-2 text-body">
               <Row label={COPY.rowIncluded} value={formatINR(data.included_inr)} />
+              {data.extra_purchased_inr !== null && (
+                <Row label={COPY.rowExtra} value={formatINR(data.extra_purchased_inr)} />
+              )}
               <Row label={COPY.rowUsed} value={formatINR(data.used_inr)} />
               {/* "of which" (D-608): the knowledge line is a COMPONENT of the amount used,
                   so it must never read as a second charge. */}
@@ -238,7 +244,7 @@ export function AiAssistScreen() {
                 value={formatINR(data.kb_used_inr)}
                 muted
               />
-              <Row label={COPY.rowAvailable} value={formatINR(data.allowance_inr)} emphasis />
+              <Row label={COPY.rowLeft} value={formatINR(data.remaining_inr)} emphasis />
             </dl>
             <p className="mt-3 text-meta text-ink-muted">{COPY.neverAffected}</p>
             {/* THE OVERDRAFT, IN WORDS, ONLY WHEN IT IS REAL (D-608). Uploading is not

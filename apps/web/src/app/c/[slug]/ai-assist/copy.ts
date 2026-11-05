@@ -13,7 +13,7 @@ export const AI_ASSIST_COPY = {
   notIncluded: "No AI help is included on your plan.",
   meterLabel: "Share of this month's included AI help used",
   meterDone: "All of this month's included AI help is used",
-  prepLabel: "Preparing what you add",
+  prepLabel: "Preparing your files and facts",
   prepNone: "part of the amount used · nothing added",
   extraLabel: "Extra added",
   extraNone: "None",
@@ -22,8 +22,9 @@ export const AI_ASSIST_COPY = {
   billedTitle: "How AI help is billed",
   rowIncluded: "Included with your plan",
   rowUsed: "Used so far",
-  rowPrep: "— of which, preparing what you added",
-  rowAvailable: "Available this month",
+  rowPrep: "of which, preparing your files and facts",
+  rowExtra: "Extra added",
+  rowLeft: "Left this month",
   neverAffected: "Calls, campaigns and leads are never affected.",
   overNothing: "Nothing is charged. What you send is still being prepared.",
   overWhy: "Mostly from preparing what you added. We'll tell you before anything changes.",
@@ -40,8 +41,8 @@ export const AI_ASSIST_COPY = {
   addedTitle: "Added",
 } as const;
 
-export const ofAbout = (included: string): string => `of about ${included} this month`;
-export const aboutMore = (count: string): string => `about ${count} more`;
+export const usedOf = (allowance: string): string => `used of ${allowance} this month`;
+export const aboutMore = (count: string): string => `about ${count} more uses`;
 export const prepJobs = (count: number, formatted: string): string =>
   `part of the amount used · ${formatted} ${count === 1 ? "job" : "jobs"}`;
 export const overBy = (amount: string): string => `You have used ${amount} more than this month's allowance.`;
