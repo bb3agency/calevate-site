@@ -52,7 +52,7 @@ from calevate_shared.spoken_guard import (
 )
 
 from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS, said_line_problem
-from apps.api.agents.script_lint import LintContext, spoken_line_problems
+from apps.api.agents.script_lint import NAME_PLACEMENT_RULE, LintContext, spoken_line_problems
 from apps.api.core.logging import get_logger
 from apps.api.tenancy.business_copy import provider_problem
 from apps.workers.extraction import ASSIST_LADDER_LEGS, ASSIST_TIMEOUT_S, TenantModelLeg
@@ -61,6 +61,8 @@ from apps.workers.script_assist import JsonAnswer, ScriptBrief, UnusableAnswerEr
 log = get_logger(__name__)
 
 OPENING_PATH: Final = "opening_line"
+#: Where a "both" agent's opening on the calls it places is kept (D-920).
+PLACED_PATH: Final = "outbound_opening_line"
 OPENING_MAX_CHARS: Final = OPENING_LINE_MAX_CHARS
 
 #: The longest the writer can take: one assist ladder. A caller with a job deadline starts it
@@ -200,7 +202,13 @@ def opening_rules(
 
 
 def _writer_problems(
-    line: str, brief: ScriptBrief, names: Sequence[str], lint: LintContext, said: SaidNotices
+    line: str,
+    brief: ScriptBrief,
+    names: Sequence[str],
+    lint: LintContext,
+    said: SaidNotices,
+    *,
+    placed: bool = False,
 ) -> list[str]:
     """`opening_problems`, plus the checks the script writer holds every spoken line to: no
     provider's name (D-679), no claim of a done order (D-849), the script lint (D-945)."""
@@ -218,7 +226,8 @@ def _writer_problems(
             said=said,
         ),
         *(problem for problem in extra if problem),
-        *spoken_line_problems(OPENING_PATH, line, lint),
+        # The opening of the calls a "both" agent places is held to the placed-call rules.
+        *spoken_line_problems(PLACED_PATH if placed else OPENING_PATH, line, lint),
     ]
 
 
@@ -228,7 +237,8 @@ def _writer_problems(
 PLACED_TASK: Final = (
     "This opening_line is the one the agent says on a call it PLACES: it rang the person, so "
     "it says which business is calling and what about, never that the person enquired or "
-    "asked, and asks whether now is a good time to talk. "
+    "asked, and asks whether now is a good time to talk. If it names the person, "
+    f"{NAME_PLACEMENT_RULE}. "
 )
 
 
@@ -300,7 +310,7 @@ async def write_opening(
             if brief.woven is not None
             else SaidNotices()
         )
-        found = _writer_problems(written, brief, names, lint, said)
+        found = _writer_problems(written, brief, names, lint, said, placed=placed)
         if found:
             # Counts only: the line is the business's words (hard rule 6).
             log.info("opening_line_sent_back", extra={"problems": len(found)})

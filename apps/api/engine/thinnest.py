@@ -52,7 +52,7 @@ from urllib.parse import quote, urlsplit
 import httpx
 from calevate_shared.call_script import (
     business_line_of,
-    substitute_variables,
+    fill_spoken_line,
 )
 from calevate_shared.calling_window import CALLING_HOURS_RULE, DEFAULT_WINDOW
 from calevate_shared.engine import (
@@ -630,16 +630,6 @@ def _test_chat_mode(stated: Any, *, asked_call: bool) -> TestChatMode | None:
     if stated in ("chat", "call"):
         return cast(TestChatMode, stated)
     return None if asked_call else "chat"
-
-
-def _tidy_spoken(text: str) -> str:
-    """A sentence with an unfilled `{{name}}` removed, without the gap it leaves.
-
-    "Hello {{lead_name}}, calling from …" with no name becomes "Hello, calling from …"
-    rather than "Hello , calling", which a voice reads as a pause in the wrong place.
-    """
-    collapsed = re.sub(r"[ \t]{2,}", " ", text)
-    return re.sub(r"[ \t]+([,.!?])", r"\1", collapsed).strip()
 
 
 def _dial_variables(to: str, ctx: CallContext) -> dict[str, str]:
@@ -3437,7 +3427,7 @@ class ThinnestEngine:
             raise _dial_precondition_failed(missing="published agent") from exc
         greeting = wire_str(data.get("greeting"))
         values: dict[str, str | None] = {**variables}
-        spoken = _tidy_spoken(substitute_variables(greeting or "", values))
+        spoken = fill_spoken_line(greeting or "", values)
         if not spoken:
             raise _dial_precondition_failed(missing="agent's opening line")
         return self._within(
@@ -3472,7 +3462,7 @@ class ThinnestEngine:
         # Its `{{name}}` fields are filled here, as `_outbound_opening` fills the greeting's: a
         # "both" agent's outbound opening may name the person (D-920).
         values: dict[str, str | None] = {**variables}
-        opening = _tidy_spoken(substitute_variables(ctx.opening or "", values))
+        opening = fill_spoken_line(ctx.opening or "", values)
         if len(opening) > PURPOSE_MAX_CHARS:
             log.warning("thinnest_call_opening_too_long", extra={"length": len(opening)})
             opening = ""

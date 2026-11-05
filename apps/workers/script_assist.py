@@ -90,8 +90,10 @@ from apps.api.agents.script_lint import (
     CapabilityManifest,
     LintContext,
     caller_paths,
+    flow_problems,
     instruction_fields,
     instruction_problems,
+    placeholder_instruction,
     spoken_fields,
     spoken_line_problems,
 )
@@ -208,13 +210,30 @@ CONVERT_INSTRUCTION = (
     "Return ONLY JSON matching the schema."
 )
 
-#: Making one change the owner asked for to the current script.
+#: Making one change the owner asked for to the current script. Every edit the owner can make
+#: by hand on the Script tab (`ScriptBuilder`, `SectionEditor`, `SectionList`: add, delete,
+#: rename and move a step, its mode, instruction, line, ways out, details and small steps,
+#: and every part) is named here as something the change may ask for, because a model told
+#: only to "keep every section" blanked the steps it was asked to delete ("Not needed.",
+#: founder, 6 Nov 2026). A deleted step is left out of `stages`; `edited_script` drops the
+#: ways to it as the hand delete does (`scriptModel.removeSection`), and the review shows the
+#: deletion, the rename and the move as such (`scriptDiff.diffScripts`).
 EDIT_INSTRUCTION = (
     "You edit the call script of an AI phone agent. You are given the current script as "
     "JSON and one change the owner wants. Return the WHOLE script as JSON in exactly the same "
     "shape, with only that change made: keep every other field, every section and every "
     "section id as it is, and give any new section a new short lowercase id. The steps of "
-    "the call are the `stages` list; leave the `steps` list exactly as it is. A field the "
+    "the call are the `stages` list, in call order; leave the `steps` list exactly as it is. "
+    "The change may ask to add a step, delete one, rename one (change its name, keep its "
+    "id), move one (change its place in the list, keep its id), make it say exact words "
+    '(mode "say") or guide (mode "guide"), or change its instruction, its sounds_like, where '
+    "it goes next (otherwise) and its other ways out (branches), the details it collects, "
+    "its small steps (procedure), or any other part. Do each only when the change asks for "
+    "it. To delete a step, leave it out of `stages` entirely and point the ways that led to "
+    "it at the step that came after it; never keep a step the change removes with an "
+    'instruction like "Not needed" or an empty line. A step the change keeps for some callers '
+    "only stays whole and is reached through a way out whose `when` says which callers. The "
+    "last step is the close and stays, with a real line. A field the "
     "change does not need stays exactly as it is, and an EMPTY field stays empty: do not fill "
     "in parts the owner did not ask about. Instructions "
     "(business_line, identity, goal, outbound_purpose, tone, address_form, stage "
@@ -337,6 +356,32 @@ def language_problems(
             problems += spoken_line_problems(path, text, lint)
         if woven is not None and path in _OPENING_PATHS and not owners and text.strip():
             problems += woven_notice_problems(path, text, woven)
+    if lint is not None:
+        problems += shape_problems(script, before)
+    return problems
+
+
+def shape_problems(script: CallScript, before: CallScript | None = None) -> list[str]:
+    """What the model got wrong in the call's shape (`script_lint.flow_problems`), a step it
+    wrote with no line, and, in an edit, a close it took out. With `before` (an edit), a
+    shape problem the owner's script already had is theirs and not the model's to fix."""
+    owned = set(flow_problems(before)) if before is not None else set()
+    problems = [problem for problem in flow_problems(script) if problem not in owned]
+    was = {stage.id: stage for stage in before.stages} if before is not None else {}
+    problems += [
+        f"stages.{i}.sounds_like: is empty; write one short line in the call language "
+        "showing how this step sounds."
+        for i, stage in enumerate(script.stages)
+        if stage.mode == "guide" and not stage.sounds_like.strip() and was.get(stage.id) != stage
+    ]
+    if before is not None and before.stages:
+        ids = {stage.id for stage in script.stages}
+        close = before.stages[-1]
+        if close.id not in ids and (not script.stages or script.stages[-1].id in was):
+            problems.append(
+                f'stages: the close ("{close.name}") was taken out; keep a last step that '
+                "thanks them and ends the call."
+            )
     return problems
 
 
@@ -395,6 +440,10 @@ def edited_script(
         {k: v for k, v in raw.items() if k in CallScript.model_fields and k not in NOTICE_RECORDS},
         current,
     )
+    if isinstance(fields.get("stages"), list):
+        # A step the change deleted leaves ways out pointing at it; they go as in a hand
+        # delete, so the deletion is a valid script rather than a refused answer.
+        fields = {**fields, "stages": ways_to_kept_steps(fields["stages"])}
     try:
         edited = CallScript.model_validate({**current.model_dump(), **fields})
     except ValidationError as invalid:
@@ -412,6 +461,10 @@ def edited_script(
         )
         log.warning("script_assist_edit_unusable", extra={"where": where, "count": len(errors)})
         raise UnusableAnswerError("; ".join(problems)) from invalid
+    if lenient:
+        # Blanked again after its repair: the step was meant to go, so it goes, and the
+        # review shows it as a step Pip removes, unticked until the owner keeps it.
+        edited = without_placeholder_steps(edited)
     problems = language_problems(
         edited,
         language,
@@ -459,22 +512,58 @@ def owners_where(edited: CallScript, current: CallScript, problems: Sequence[str
             update[part] = getattr(current, part)
     if not update:
         return edited
-    restored = edited.model_copy(update=update)
-    # A way out to a step that was dropped would be refused at save; it points nowhere now.
-    ids = {s.id for s in restored.stages} | SPECIAL_TARGETS
-    return restored.model_copy(
-        update={
-            "stages": [
-                s.model_copy(
-                    update={
-                        "otherwise": s.otherwise if s.otherwise in ids else "",
-                        "branches": [b for b in s.branches if b.target in ids],
+    return _with_kept_ways(edited.model_copy(update=update))
+
+
+def ways_to_kept_steps(stages: list[Any]) -> list[Any]:
+    """`stages` (as JSON) with every way out to a step not in the list removed, as the
+    Script tab's own delete does (`scriptModel.removeSection`): a branch to it goes, and an
+    `otherwise` to it falls back to the next step in the list. A way out to a step that is
+    gone would be refused at save. Items that are not steps are left for validation."""
+    ids = {s.get("id") for s in stages if isinstance(s, dict)} | SPECIAL_TARGETS
+    out: list[Any] = []
+    for stage in stages:
+        if not isinstance(stage, dict):
+            out.append(stage)
+            continue
+        branches = stage.get("branches")
+        out.append(
+            {
+                **stage,
+                **({"otherwise": ""} if stage.get("otherwise") not in ids | {None, ""} else {}),
+                **(
+                    {
+                        "branches": [
+                            b for b in branches if not isinstance(b, dict) or b.get("target") in ids
+                        ]
                     }
-                )
-                for s in restored.stages
-            ]
-        }
+                    if isinstance(branches, list)
+                    else {}
+                ),
+            }
+        )
+    return out
+
+
+def _with_kept_ways(script: CallScript) -> CallScript:
+    return CallScript.model_validate(
+        {**script.model_dump(), "stages": ways_to_kept_steps(script.model_dump()["stages"])}
     )
+
+
+def without_placeholder_steps(script: CallScript) -> CallScript:
+    """`script` without the steps whose instruction is only a placeholder ("Not needed."),
+    and without the ways to them. The last step is the close and is never taken out: a
+    placeholder there stays for `placeholder_problems` to refuse."""
+    last = len(script.stages) - 1
+    kept = [
+        stage
+        for i, stage in enumerate(script.stages)
+        if i == last or not placeholder_instruction(stage.instruction)
+    ]
+    if len(kept) == len(script.stages):
+        return script
+    return _with_kept_ways(script.model_copy(update={"stages": kept}))
 
 
 #: The ceiling on ONE draft answer, in tokens: a safety valve on a runaway generation, which
@@ -711,7 +800,13 @@ def _script_from_model_json(raw: dict[str, Any]) -> CallScript:
     refuse. A drafted example is marked as needing a native speaker's review.
     """
     rows = [r for r in _rows(raw, "stages") if _text(r, "instruction", STAGE_DETAIL_MAX)]
-    rows = rows[:MAX_SCRIPT_STAGES]
+    # A step written only as "Not needed." is one the model did not mean to have; the close
+    # stays, for `placeholder_problems` to send back.
+    rows = [
+        r
+        for i, r in enumerate(rows)
+        if i == len(rows) - 1 or not placeholder_instruction(_text(r, "instruction", 1000))
+    ][:MAX_SCRIPT_STAGES]
     stages: list[ConversationStage] = []
     for i, row in enumerate(rows, 1):
         name = _text(row, "name", 80) or f"Section {i}"
@@ -1481,4 +1576,8 @@ __all__ = [
     "drafted_script",
     "edited_script",
     "language_problems",
+    "owners_where",
+    "shape_problems",
+    "ways_to_kept_steps",
+    "without_placeholder_steps",
 ]

@@ -125,6 +125,42 @@ def substitute_variables(
     return _VARIABLE_PATTERN.sub(_replace, text)
 
 
+#: A name field with the one word after it (its title, if the language puts one after a name)
+#: when a break follows: the part of a spoken line that goes when the name is unknown.
+_NAME_WITH_TITLE: Final = re.compile(
+    r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}(?:[ \t]+[^\s,.!?।{}]+)?(?=[ \t]*[,.!?।])"
+)
+_BREAK: Final = "[,.!?।]"
+
+
+def fill_spoken_line(text: str, values: dict[str, str | None]) -> str:
+    """A line the agent says word for word, filled for one call (`substitute_variables`).
+
+    A name field with no value goes with its title ("Hello {{lead_name}} ji, ..." becomes
+    "Hello, ..."), because a title said with no name is the line a listener notices. The
+    calling system has no "if known" of its own: an unfilled field is left out and the rest
+    spoken (thinnest-findings/mirror/snapshots/2026-10-29/pages/channels/
+    voice-campaigns.md:201-205). The writers put the name right after the greeting with a
+    break after it (`script_lint.name_segment_problem`), so what is left reads. Language-
+    free: the title is the one word between the name and the break, whatever it is."""
+
+    def _drop(match: re.Match[str]) -> str:
+        key = match.group(1)
+        value = values.get(key)
+        if "name" not in key or (value is not None and value.strip()):
+            return match.group(0)
+        return ""
+
+    filled = substitute_variables(_NAME_WITH_TITLE.sub(_drop, text), values)
+    filled = re.sub(r"[ \t]{2,}", " ", filled)
+    filled = re.sub(rf"[ \t]+({_BREAK})", r"\1", filled)
+    # Two breaks left side by side where the name sat between them: the stronger one stays
+    # ("ready, ." is "ready.", "Hello. , we" is "Hello. we").
+    filled = re.sub(rf",[ \t]*({_BREAK})", r"\1", filled)
+    filled = re.sub(rf"({_BREAK})[ \t]*,", r"\1", filled)
+    return re.sub(r"^[\s,]+", "", filled).strip()
+
+
 # ---------------------------------------------------------------------------
 # The structured model.
 # ---------------------------------------------------------------------------
@@ -1355,6 +1391,7 @@ __all__ = [
     "call_backs_withheld",
     "compile_call_script",
     "extract_variable_names",
+    "fill_spoken_line",
     "native_steps",
     "opening_line_of",
     "outbound_opening_of",
