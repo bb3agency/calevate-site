@@ -211,19 +211,22 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: is the engine's fact — so a client who gives the notice in writing instead may switch
 #: off the spoken form. This one is different in kind: cross-call memory exists ONLY because
 #: `agents.caller_memory_enabled` is on, which is a choice this system records, so the
-#: sentence is bound to that switch instead of getting one of its own.
+#: sentence is bound to that switch instead of getting one of its own. There is no state
+#: in which an agent remembers a caller and does not say so.
 #:
-#: THE RISK OF NOT SPEAKING IT (why D-507 spoke it): an INBOUND caller has visited no
-#: website and agreed to no page, so the client's written notice may never reach the caller
-#: it is about. The founder chose the quiet note knowing this (D-969).
+#: WHY SPOKEN AT ALL, when `compliance/caller_notice.py` already puts it in the client's
+#: written draft: an INBOUND caller has visited no website and agreed to no page. The
+#: written notice reaches the people who came through the client's own funnel, and inbound
+#: is the product. A notice that misses the caller it is about is not a notice.
 #:
 #: Business-agnostic like the recording sentence, and for its reason: the AI sentence has
 #: already named the caller's counterparty.
 #:
-#: NOT SPOKEN since D-969 (founder, 4 Nov 2026): it moved from the opening to the goodbye
-#: (D-865) and then out of the call; the note is kept quietly and the client's written notice
-#: tells callers (`compliance/caller_notice`). The sentences stay on file because
-#: `agents.caller_memory_notice_line` is NOT NULL until its two-step retirement.
+#: SAID WITH THE GOODBYE, NOT IN THE OPENING (D-865, founder, 23 Oct 2026): the prompt tells
+#: the agent to say it once as it closes a call that ends normally
+#: (`calevate_shared.engine.memory_goodbye_rule`); the engine's 200-character first turn had
+#: no room for it beside a Telugu introduction and the recording notice. Since D-969 the
+#: agent says it in its own words and these sentences are no longer quoted.
 #:
 #: Deliberately says WHAT is kept and FOR ROUGHLY HOW LONG in the caller's own vocabulary
 #: — "a short note", not "a distilled fact", and never "an embedding". The period is not

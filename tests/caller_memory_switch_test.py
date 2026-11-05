@@ -32,7 +32,7 @@ import pytest
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.agents.publishing import set_caller_memory
 from apps.api.agents.roster import agent_by_id
-from apps.api.agents.service import _load_agent
+from apps.api.agents.service import _load_agent, posture_of
 from apps.api.compliance import caller_memory
 from apps.api.compliance.caller_memory import (
     CALLER_MEMORY_ATTESTATION,
@@ -46,11 +46,13 @@ from calevate_shared.engine import (
     CALLER_MEMORY_GUIDANCE,
     CALLER_MEMORY_SLOT,
     MAX_CALLER_MEMORY_CHARS,
+    MEMORY_GOODBYE_RULE,
     AgentConfig,
     DisclosurePosture,
     ModelConfig,
     compose_engine_prompt,
     compose_opening_line,
+    memory_goodbye_rule,
     render_caller_memory,
 )
 from sqlalchemy import text
@@ -326,9 +328,37 @@ async def test_switching_it_off_needs_no_attestation_and_is_idempotent() -> None
 # --- what the caller hears -------------------------------------------------------------
 
 
+async def test_the_spoken_notice_arrives_and_leaves_with_the_switch() -> None:
+    """ "Remembers a caller without saying so" is not constructible, nor its opposite. The
+    notice is the prompt's goodbye rule, said in the agent's own words (D-865, D-969)."""
+
+    async def goodbye() -> str:
+        async with tenant_session(tenant_id) as session:
+            agent = await _load_agent(session, tenant_id, agent_id)
+        return memory_goodbye_rule(
+            AgentConfig(
+                tenant_id=str(tenant_id),
+                agent_id=str(agent_id),
+                name="A",
+                direction="inbound",
+                system_prompt="S",
+                opening_line="",
+                caller_memory_enabled=posture_of(agent).caller_memory_enabled,
+            )
+        )
+
+    tenant_id, agent_id, owner = await _tenant()
+    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None)
+    assert await goodbye() == ""
+    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner)
+    assert await goodbye() == MEMORY_GOODBYE_RULE
+    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=False, attested_by=None)
+    assert await goodbye() == ""
+
+
 def test_the_memory_sentence_never_enters_the_opening_line() -> None:
     """Whatever `caller_memory_enabled` says, the opening is the AI and recording notices
-    only (D-865); the memory sentence is not said at all (D-969)."""
+    only (D-865)."""
     posture = DisclosurePosture(
         ai_disclosure_line="This is an AI assistant.",
         ai_disclosure_enabled=True,

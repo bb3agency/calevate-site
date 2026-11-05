@@ -1183,7 +1183,7 @@ def _drift_detail(verdict: PublishVerification) -> str:
             "Publish it again to apply it."
         )
     return (
-        "The voice platform is running a different script, opening line, "
+        "The voice platform is running a different script, opening line, memory notice, "
         "truthful-answer rule, confidentiality rule, voice or handover destination from "
         "the one this agent last published."
     )

@@ -1,5 +1,7 @@
-"""D-507 — the third sentence, an agent's memory notice, kept on file. It is not spoken since
-D-969 (founder, 4 Nov 2026): an agent that remembers callers keeps its note quietly.
+"""D-507 — the third sentence, an agent's memory notice, kept on file. Since D-969 it is not
+quoted on calls: the agent says the notice in its own words with its goodbye
+(`engine.memory_goodbye_rule`, tested in `ai_notice_introduction_test` and
+`caller_memory_switch_test`).
 
 WHAT THIS FILE HAS TO PROVE:
 

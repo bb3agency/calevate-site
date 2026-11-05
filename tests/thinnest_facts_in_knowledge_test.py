@@ -54,9 +54,11 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: answer gets help; before it D-961: a claim about the person needs THIS CALL, answer from
 #: knowledge before a call back).
 #: The screen switch, off here, adds nothing.
+#: D-969: numbers digit by digit, one step a turn, the call-back time rule, the placed-call
+#: permission rule and the memory notice in the agent's own words.
 PINNED = (
-    "41b57da5198e70743192bc023460e8cf45117da07dcfdec7a1fec4c3c3ca489a",
-    "3de5736df10441eeae91bac2db68678936c1dab6f879ba22cb3804d592528161",
+    "e2275da48ea91f832cc26e38d24d1a252e06293a1336652c5e9578f1597552e2",
+    "8ab6312b360da47353eb7996ae7032830f56be5555c7096ec32915d869a0234c",
 )
 
 

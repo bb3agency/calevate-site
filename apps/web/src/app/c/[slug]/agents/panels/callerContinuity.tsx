@@ -157,11 +157,11 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
 
         <HowItWorks
           items={[
-            "It says so as it says goodbye.",
+            "It says so in a few words of its own as it says goodbye.",
             "Kept: what they wanted, what happened, and preferences like language, call time or contact.",
             "Never kept: health details, amounts of money, or their exact words.",
             "Used only for that person's calls with you, never shared. Deleted after 180 days, or sooner if asked.",
-            "The goodbye sentence goes with this switch; it cannot be turned off on its own.",
+            "Saying so goes with this switch; it cannot be turned off on its own.",
             "If the statement you confirm changes, memory pauses on every agent until you accept the new one.",
           ]}
         />

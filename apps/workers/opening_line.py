@@ -64,10 +64,10 @@ OPENING_WRITER_INSTRUCTION: Final = (
     "one short question, so the caller hears at once they reached the right place; an agent "
     "that only places calls says which business is calling and what about, and asks whether "
     "now is a good time to talk, nothing else. Never a line any business could use, never a "
-    "list of products, an offer, a discount or a figure the owner's facts do not give, never that the person "
-    "enquired, asked or showed interest (only the call's own data may say that), and nothing "
-    "about being an AI or recording (the platform says those). Write it in the call "
-    "language as people say it on the phone, following the spoken-style guide in the "
+    "list of products, an offer, a discount or a figure the owner's facts do not give, never "
+    "that the person enquired, asked or showed interest (only the call's own data may say "
+    "that), and nothing about being an AI or recording (the platform says those). Write it in "
+    "the call language as people say it on the phone, following the spoken-style guide in the "
     "brief. The brief ends with the rules the line is checked against; a line that breaks "
     'one is not used. Return ONLY JSON: {"opening_line": "..."}.'
 )

@@ -25,12 +25,12 @@ a NOTICE question, and D-506 left it open because the two spoken sentences (SEC-
 §2.1/§2.2, D-163) are about being an AI and being recorded and said nothing about memory.
 D-507 answered it in three parts, and this module carries one of them:
 
-* **The client's written notice says it.** The agent said it too, first in its opening and
-  then with its goodbye (D-865), until the founder stopped the spoken sentence on 4 Nov 2026
-  (D-969): the note is kept quietly, and `compliance/caller_notice` tells callers in
-  writing. The attested statement below still says agents "say so before ending each
-  call"; replacing it is a new version, which pauses memory until each owner accepts it
-  (D-900), so it waits on the founder.
+* **The agent SAYS it.** `agents.caller_memory_notice_line` is NOT NULL and non-blank, and
+  `calevate_shared.engine.memory_goodbye_rule` has the agent say it with its goodbye, in
+  its own words since D-969 (D-865; it was the opening's third sentence before) — gated on
+  `caller_memory_enabled` and on NO switch of its own, so "remembers a caller without
+  saying so" is not a constructible state. An inbound caller has visited no website and
+  agreed to no page, which is why the written draft alone could not close this.
 * **It is REFUSED where a fact would be sensitive personal data** — `SPDI_REFUSED_VERTICALS`
   below, which is this module's share of the decision.
 * **It forgets on its own 180-day clock**, not the transcript's
@@ -297,7 +297,7 @@ def spdi_refuses_memory(vertical_template: str | None) -> bool:
 #: VERSIONED like the outbound pledge: the account's row keeps the version it accepted
 #: (`organizations.caller_memory_attestation_version`), and a published version is never
 #: edited. Version 2 (founder, 27 Oct 2026): the agent says the memory sentence as it says
-#: goodbye (D-865), so "at the start of every call" became
+#: goodbye (D-865, `engine.MEMORY_GOODBYE_RULE`), so "at the start of every call" became
 #: "before ending each call".
 CALLER_MEMORY_ATTESTATION_VERSION: Final = 2
 CALLER_MEMORY_ATTESTATIONS: Final[dict[int, str]] = {

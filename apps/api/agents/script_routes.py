@@ -475,7 +475,8 @@ SoundKind = Literal[
     "foreign_script",
     "repeated_turn",
     "opened_again",
-    # No longer found (D-969: the memory sentence is not said); kept so stored results read.
+    # No longer found: the memory notice is in the agent's own words since D-969, which a
+    # string match cannot find. Kept so stored results read.
     "memory_not_said",
 ]
 

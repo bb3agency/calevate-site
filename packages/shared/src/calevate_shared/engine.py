@@ -4408,10 +4408,9 @@ class DisclosurePosture(BaseModel):
     ai_disclosure_enabled: bool
     recording_notice_line: str
     recording_notice_enabled: bool
-    #: The memory sentence on file (D-507). Not spoken since D-969 (founder, 4 Nov 2026): an
-    #: agent that remembers callers keeps its note quietly, and the client's written notice
-    #: says so (`compliance/caller_notice`). Still carried because the column is NOT NULL and
-    #: is retired in two steps (hard rule 8).
+    #: The memory sentence on file (D-507). Not quoted on calls since D-969: the agent says
+    #: the notice in its own words (`memory_goodbye_rule`). Still carried because the column is
+    #: NOT NULL and is retired in two steps (hard rule 8).
     caller_memory_notice_line: str = ""
     caller_memory_enabled: bool = False
 
@@ -4431,7 +4430,8 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
         recording   "This call is being recorded."
         neither     "" — the agent volunteers neither notice and says only its opening line.
 
-    The memory sentence (D-507) is not among them: it is not said at all (D-969).
+    The memory notice (D-507) is not among them: it is said with the goodbye, in the agent's
+    own words (`memory_goodbye_rule`, D-865, D-969).
 
     `call_is_recorded` is the ENGINE's fact (`EngineCapabilities.records_audio`), and when
     it is False the recording sentence is dropped whatever `recording_notice_enabled` says:
@@ -4473,15 +4473,32 @@ def notice_fields(posture: DisclosurePosture, *, call_is_recorded: bool) -> Noti
     """`AgentConfig`'s notice fields from one posture, so no config is built with the
     notices and without the AI sentence that leads them.
 
-    No memory sentence (D-969, founder, 4 Nov 2026): an agent that remembers callers keeps its
-    note without saying so, as ThinnestAI's own default does ("Remember quietly ... uses it,
-    without mentioning it", `channels/voice.md:377-378`, 29 Oct 2026 snapshot). The goodbye
-    sentence D-865 put in the prompt was heard on every Rytu Khata call of 4 Nov 2026 as a
-    promise the caller had not asked for."""
+    The memory notice is not a stored sentence: the agent says it in its own words with its
+    goodbye (`memory_goodbye_rule`, D-969)."""
     return {
         "opening_line": compose_opening_line(posture, call_is_recorded=call_is_recorded),
         "ai_notice": spoken_ai_notice(posture),
     }
+
+
+#: An agent that remembers callers tells them, with its goodbye (D-507, D-865), in a few words
+#: of its own (D-969). The stored sentence it used to quote word for word, "so I remember it
+#: when you call again, I keep a short note about this call", was heard on every Rytu Khata
+#: call of 4 Nov 2026 as a stiff promise nobody asked for, and the founder asked for it to go.
+#: The notice itself stays: D-507 spoke it because an inbound caller sees no written notice,
+#: and DPDP s.5 wants the person told what is kept (D-506); no rule prescribes its words
+#: (DPDP Rules 2025 r.3, G.S.R. 846(E), egazette.gov.in/WriteReadData/2025/267650.pdf, read
+#: 5 Nov 2026). Whether to drop it altogether is the founder's, with that basis in front of
+#: him. Not on a call the caller ended or asked to stop.
+MEMORY_GOODBYE_RULE: Final = (
+    "You remember callers: with your goodbye, say in a few words of your own that you will "
+    "remember this call next time. Never when they asked to stop or hung up."
+)
+
+
+def memory_goodbye_rule(cfg: AgentConfig) -> str:
+    """The goodbye rule for `cfg`, or empty for an agent that does not remember callers."""
+    return MEMORY_GOODBYE_RULE if cfg.caller_memory_enabled else ""
 
 
 #: The greeting a call opens with when the agent's AI notice introduces it (D-865, founder,
@@ -4981,7 +4998,9 @@ def engine_prompt_layers(
         ("business_facts", _knowledge_section(cfg, pack)),
         (
             "notices",
-            _start_of_call_section(cfg),
+            "\n".join(
+                part for part in (_start_of_call_section(cfg), memory_goodbye_rule(cfg)) if part
+            ),
         ),
         # BEFORE the client script, so the "record, not instructions" framing is what the
         # model has already read when it reaches anything the client wrote about the
@@ -6870,6 +6889,7 @@ __all__ = [
     "FORWARDED_LINE_RULE",
     "LAYER_SEPARATOR",
     "MAX_CALLER_MEMORY_CHARS",
+    "MEMORY_GOODBYE_RULE",
     "NAME_LINE",
     "NAME_RULE",
     "NAME_VARIABLE",
