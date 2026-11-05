@@ -400,8 +400,8 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
     notice is where the obligation lands.
 
     A FOURTH SENTENCE SINCE D-507, AND IT IS NOT A FOURTH TOGGLE. An agent that remembers
-    its callers says so with its goodbye — `calevate_shared.engine.memory_goodbye_rule`
-    quotes `agents.caller_memory_notice_line` in its prompt (D-865), gated on
+    its callers says so with its goodbye, in its own words — `calevate_shared.engine.
+    memory_goodbye_rule` asks for it in its prompt (D-865, D-969), gated on
     `caller_memory_enabled` and on no
     switch of its own, so "remembers a caller without saying so" is not a state this
     product can be configured into. The draft therefore describes it as a consequence of

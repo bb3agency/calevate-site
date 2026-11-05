@@ -1,20 +1,14 @@
-"""D-507 — the third sentence: an agent that remembers callers says so, out loud (with its
-goodbye since D-865).
+"""D-507 — the third sentence, an agent's memory notice, kept on file. Since D-969 it is not
+quoted on calls: the agent says the notice in its own words with its goodbye
+(`engine.memory_goodbye_rule`, tested in `ai_notice_introduction_test` and
+`caller_memory_switch_test`).
 
-WHAT THIS FILE HAS TO PROVE, in falling order of what it costs to get wrong:
+WHAT THIS FILE HAS TO PROVE:
 
-1. **"Remembers a caller and does not say so" is not constructible.** The sentence has no
-   switch of its own: it is spoken exactly when `agents.caller_memory_enabled` is true.
-   That is the whole decision, so it is asked of the composer directly and then of every
-   surface that builds a `DisclosurePosture` — because a posture built WITHOUT the two new
-   fields composes a perfectly valid-looking opening that silently drops the sentence, and
-   nothing downstream can tell the difference.
-2. **Every constructor carries them, including the next one somebody writes.** Four call
-   sites were wired by hand (`agents/service.py::posture_of`, `agents/roster.py`,
-   `agents/script_builder.py`, `agents/publishing.py`); a fifth added later would be a
-   silent regression, so the constructors are enumerated from the AST rather than listed
-   here. `roster.py` reads its row POSITIONALLY (`r[17]`, `r[18]`), which is the shape that
-   breaks without erroring at all, so the indices are pinned against the query itself.
+1. **It is never in the opening**, and D-163's four postures are untouched by it.
+2. **The roster reads it where its query puts it.** `roster.py` reads its row POSITIONALLY
+   (`r[17]`, `r[18]`), which is the shape that breaks without erroring at all, so the
+   indices are pinned against the query itself.
 3. **The migration's copy of the sentences stays honest.** `e1a4d70c9b52._NOTICE` COPIES
    `compliance/disclosure.CALLER_MEMORY_NOTICE_TEMPLATES` rather than importing it — the
    right call for a migration, which must keep meaning what it meant on the day it ran —
@@ -39,20 +33,13 @@ import uuid
 from pathlib import Path
 
 import pytest
-from apps.api.agents import publishing, roster, script_builder
-from apps.api.agents.service import _load_agent, posture_of
+from apps.api.agents import roster
 from apps.api.compliance.disclosure import (
     CALLER_MEMORY_NOTICE_TEMPLATES,
     caller_memory_notice_for,
 )
 from apps.api.db.session import tenant_session
-from calevate_shared.engine import (
-    AgentConfig,
-    DisclosurePosture,
-    compose_opening_line,
-    memory_goodbye_rule,
-    notice_fields,
-)
+from calevate_shared.engine import DisclosurePosture, compose_opening_line
 from calevate_shared.languages import staged_language_tags
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -113,52 +100,10 @@ async def _remember(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, on: bool = Tru
 # --- 1. the composer -----------------------------------------------------------------
 
 
-def _goodbye(posture: DisclosurePosture) -> str:
-    """The goodbye rule a config built from `posture` carries (D-865)."""
-    return memory_goodbye_rule(
-        AgentConfig(
-            tenant_id="t",
-            agent_id="a",
-            name="A",
-            direction="inbound",
-            system_prompt="S",
-            caller_memory_enabled=posture.caller_memory_enabled,
-            **notice_fields(posture, call_is_recorded=True),
-        )
-    )
-
-
-def test_the_sentence_is_spoken_exactly_when_memory_is_on() -> None:
-    """The decision, asked directly: the flag is the switch, and there is no other. Since
-    D-865 it is said with the goodbye, so it is the prompt's goodbye rule that carries it."""
-    assert f'"{MEM}"' in _goodbye(_posture(memory=True))
-    assert _goodbye(_posture(memory=False)) == ""
-
-
 def test_the_sentence_is_never_in_the_opening() -> None:
-    """D-865 (founder, 23 Oct 2026): the opening says what the agent is and that the call is
-    recorded; what it keeps is said with the goodbye."""
+    """The opening says what the agent is and that the call is recorded (D-865)."""
     opening = compose_opening_line(_posture(memory=True), call_is_recorded=True)
     assert opening == f"{AI} {REC}"
-
-
-@pytest.mark.parametrize(
-    ("ai", "rec", "expected"),
-    [
-        (True, True, f"{AI} {REC}"),
-        (True, False, AI),
-        (False, True, REC),
-        # THE CASE THAT MATTERS MOST. D-163's empty opening is a legitimate posture; an
-        # agent that remembers callers still has to say so, with its goodbye.
-        (False, False, ""),
-    ],
-)
-def test_it_survives_both_other_toggles_in_every_combination(
-    ai: bool, rec: bool, expected: str
-) -> None:
-    posture = _posture(ai=ai, rec=rec, memory=True)
-    assert compose_opening_line(posture, call_is_recorded=True) == expected
-    assert f'"{MEM}"' in _goodbye(posture)
 
 
 @pytest.mark.parametrize(
@@ -181,44 +126,7 @@ def test_memory_off_leaves_d163s_four_postures_exactly_as_they_were(ai: bool, re
     assert with_field == without_field
 
 
-def test_a_blank_sentence_cannot_be_padded_into_the_opening() -> None:
-    """Whitespace is not a sentence. The column's CHECK is the real guard; this is the
-    composer refusing to emit a trailing space if one ever gets past it."""
-    assert _goodbye(_posture(memory=True, memory_line="   ")) == ""
-
-
-# --- 2. every constructor of the posture ---------------------------------------------
-
-
-def _posture_call_sites() -> list[tuple[str, ast.Call]]:
-    sites: list[tuple[str, ast.Call]] = []
-    for path in sorted((REPO_ROOT / "apps").rglob("*.py")):
-        tree = ast.parse(path.read_text())
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "DisclosurePosture"
-            ):
-                sites.append((f"{path.relative_to(REPO_ROOT)}:{node.lineno}", node))
-    return sites
-
-
-def test_every_posture_constructor_in_the_app_carries_the_third_sentence() -> None:
-    """ENUMERATED, NOT LISTED. Four call sites were wired by hand; the fifth one somebody
-    writes next month is the regression this catches, and it is the expensive kind — a
-    posture missing these two fields is valid, composes, and quietly drops the sentence for
-    whichever surface built it."""
-    sites = _posture_call_sites()
-    assert len(sites) >= 4, f"expected the four known constructors, found {len(sites)}"
-    missing = [
-        where
-        for where, call in sites
-        if not {"caller_memory_notice_line", "caller_memory_enabled"}.issubset(
-            {kw.arg for kw in call.keywords if kw.arg}
-        )
-    ]
-    assert not missing, f"posture built without the memory sentence at: {missing}"
+# --- 2. the roster -------------------------------------------------------------------
 
 
 def test_the_roster_indices_agree_with_the_roster_query() -> None:
@@ -252,7 +160,7 @@ def test_the_roster_indices_agree_with_the_roster_query() -> None:
 
 
 async def test_the_roster_shows_the_sentence_for_an_agent_that_remembers() -> None:
-    """With the goodbye, not in what callers hear first (D-865)."""
+    """On file, and not in what callers hear first."""
     tenant_id, agent_id = await _tenant()
     await _remember(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
@@ -269,53 +177,6 @@ async def test_the_roster_says_nothing_about_memory_when_it_is_off() -> None:
         listed = await roster.list_agents(session)
     row = next(a for a in listed if a.id == agent_id)
     assert CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"] not in row.opening_line
-
-
-async def test_the_engine_config_path_speaks_the_sentence() -> None:
-    """`posture_of` over `_load_agent` — the row the engine's `AgentConfig` is built from,
-    and therefore what the caller actually hears."""
-    tenant_id, agent_id = await _tenant()
-    await _remember(tenant_id, agent_id)
-    async with tenant_session(tenant_id) as session:
-        agent = await _load_agent(session, tenant_id, agent_id)
-    posture = posture_of(agent)
-    assert posture.caller_memory_enabled is True
-    assert posture.caller_memory_notice_line == CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]
-    assert f'"{CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]}"' in _goodbye(posture)
-
-
-async def test_the_script_preview_speaks_the_sentence() -> None:
-    """The builder's preview is what a client reads before publishing. An opening it shows
-    that the engine will not speak — or one it hides that the engine will — is the defect
-    the single composer exists to prevent."""
-    tenant_id, agent_id = await _tenant()
-    await _remember(tenant_id, agent_id)
-    async with tenant_session(tenant_id) as session:
-        row = await script_builder._agent_or_404(session, agent_id)
-    posture = script_builder._posture(row)
-    assert f'"{CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]}"' in _goodbye(posture)
-
-
-async def test_flipping_a_d163_toggle_does_not_drop_the_memory_sentence() -> None:
-    """THE REASON `set_disclosure_posture` SELECTS TWO COLUMNS IT CANNOT WRITE. It rebuilds
-    the opening from the row it locked; a rebuild that forgot the memory sentence would
-    republish an agent that still remembers callers and has stopped saying so — a silent
-    withdrawal of a notice nobody asked to withdraw."""
-    tenant_id, agent_id = await _tenant()
-    await _remember(tenant_id, agent_id)
-    # A new agent volunteers neither notice since D-669, so the flip that MOVES is
-    # switching the AI notice on.
-    result = await publishing.set_disclosure_posture(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        ai_disclosure_enabled=True,
-        recording_notice_enabled=None,
-    )
-    assert result.changed == ("ai_disclosure_enabled",)
-    assert CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"] not in result.opening_line
-    async with tenant_session(tenant_id) as session:
-        agent = await _load_agent(session, tenant_id, agent_id)
-    assert f'"{CALLER_MEMORY_NOTICE_TEMPLATES["te-IN"]}"' in _goodbye(posture_of(agent))
 
 
 # --- 3. the migration's copy of the sentences ----------------------------------------

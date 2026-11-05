@@ -177,6 +177,7 @@ def platform_prompt_revision() -> str:
     processes: no ids, clocks or settings go in.
     """
     from calevate_shared.call_script import (
+        COLLECT_HEADER,
         PRONOUNCE_LEAD,
         CallScript,
         Capabilities,
@@ -223,7 +224,8 @@ def platform_prompt_revision() -> str:
             direction=direction,
             language_primary=primary,
             languages_extra=list(extra),
-            system_prompt="S",
+            # With a collect section, so the rule composed for one (D-969) moves it too.
+            system_prompt=f"S\n{COLLECT_HEADER}\n- a",
             opening_line="O",
             call_is_recorded=True,
             facts_in_knowledge=in_knowledge,

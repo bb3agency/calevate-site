@@ -396,8 +396,8 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # Every prompt, for the floor's reason: it is ours, a `Final`, and a console-added
     # per-language prompt that lacks it is a language in which the agent will recite.
     confidential = snapshot.every_prompt_carries(CONFIDENTIALITY_MARKER)
-    # The memory sentence is said with the goodbye, from the prompt (D-865), so it is checked
-    # there, word for word, as the greeting check did while it was in the first turn.
+    # The memory notice is said with the goodbye, from the prompt (D-865, D-969), so the rule
+    # that asks for it is checked there.
     goodbye = memory_goodbye_rule(cfg)
     memory = snapshot.carries_prompt_marker(goodbye) if goodbye else True
     handoff = _handoff_verdict(engine, cfg, snapshot)

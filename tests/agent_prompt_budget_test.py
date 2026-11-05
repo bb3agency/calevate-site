@@ -236,8 +236,13 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: than a close, the name waits for a use, and "no clear reply twice" is to one question; paid
 #: for by merging the bare-"OK" and "Unclear?" rules, one talked-over/too-fast clause, no
 #: "anything else" in the close and shorter clauses elsewhere.
-PER_CALL_MAX = 7_444
-PER_CALL_ONE_LANGUAGE_MAX = 6_569
+#: D-969 (4 Nov 2026) RAISED both by 194 (7,638/6,763): on the Rytu Khata campaign calls a
+#: WhatsApp number was read fast and asked for twice, a how-to was given in one turn and
+#: then "did you understand?", and "call me later" got no day or time; every number digit by
+#: digit from the first time, one step a turn and the call-back time rule are new text. The
+#: memory goodbye rule went, but this reference agent remembers no one.
+PER_CALL_MAX = 7_638
+PER_CALL_ONE_LANGUAGE_MAX = 6_763
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

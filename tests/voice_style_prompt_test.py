@@ -83,9 +83,8 @@ def test_the_style_layer_states_the_directives_the_guide_specifies() -> None:
     extraction accuracy depends on — fails the build rather than the next live call."""
     block = VOICE_STYLE_GUIDANCE.lower()
     assert "markdown" in block
-    # PROMPT-GUIDE's HOW TO SPEAK list: "Take a number a few digits at a time; a mobile
-    # number has ten digits" (D-849 moved the prompt to it).
-    assert "a few digits at a time" in block
+    # Every number digit by digit, a mobile as five and five, from the first time (D-969).
+    assert "digit by digit, a comma after each, a mobile five, full stop, five" in block
     assert "under ten digits of a mobile" in block
     assert "read back" in block
     # D-883: "One two crores, sir" was echoed word for word on the call of 24 Oct 2026 and
@@ -131,7 +130,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     # D-965 only an "OK" to its own question is asked again, and one after a step goes on.
     unclear = bullet("- Unclear")
     assert 'a bare "OK" to your question? Ask one thing again, reworded' in unclear
-    assert '"OK" after you explain? Give the next step' in bullet("- Mid-task")
+    assert '"OK" after one: the next' in bullet("- Explaining steps? One a turn")
 
     pace = bullet("- Talked over")
     # "I'll speak slowly from now on" promised a speed the model cannot set (D-912).
@@ -142,7 +141,7 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     # (D-910).
     assert "A time or amount they said goes back in their words" in amounts
     assert '("six" stays "six")' in amounts
-    assert "a mobile a few digits at a time" in bullet("- Read back")
+    assert "a mobile five, full stop, five" in bullet("- Any number or code")
     # Given fewer than ten digits the agent asks for the rest, never reads them back or asks
     # to confirm them, and the rule comes before the read-back (D-910).
     partial = bullet("- Under ten digits of a mobile?")

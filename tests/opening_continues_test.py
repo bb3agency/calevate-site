@@ -108,8 +108,9 @@ def test_what_the_section_costs() -> None:
     print(f"START OF THE CALL: {len(start)} chars, of which the quoted opening {len(spoken)}")
     # 498 before D-958, which named a hello said back and the business name again (+40); D-961
     # added the rule that a claim about the person needs THIS CALL (+77); D-965 what a no,
-    # busy or later to the opening's question gets (+56).
-    assert len(start) - len(spoken) < 680
+    # busy or later to the opening's question gets (+56). D-969 a placed call whose first turn
+    # did not ask if now suits says the name, who and why and asks it next (+131).
+    assert len(start) - len(spoken) < 812
 
 
 # --- the turn check -----------------------------------------------------------------------

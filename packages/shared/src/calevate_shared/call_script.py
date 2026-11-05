@@ -357,6 +357,8 @@ BUSINESS_HEADER: Final = "[BUSINESS]"
 STYLE_HEADER: Final = "[SPEAKING STYLE]"
 EXAMPLE_HEADER: Final = "[EXAMPLE CALL]"
 QUICK_FACTS_HEADER: Final = "[QUICK FACTS]"
+#: The business's own questions, from the agent's extraction schema (`CollectField`).
+COLLECT_HEADER: Final = "[WHAT TO COLLECT]"
 QUICK_FACTS_LEAD: Final = f"{QUICK_FACTS_HEADER} These win over anything in your knowledge."
 #: The section a v1 script compiled its FAQ under. Splicing pinned facts drops it, so a v1
 #: agent never carries the old FAQ beside the business's quick facts.
@@ -1009,9 +1011,11 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
                 line += " — needed"
             lines.append(line)
         add(
-            # One question a turn, short turns and varied wording are ThinnestAI's own speaking
-            # rules (D-814), so no lead in this compiler repeats them (D-824).
-            "[WHAT TO COLLECT] Only these, when it fits.",
+            # "Ask them" rather than "only these, when it fits" (D-969): on the Rytu Khata calls
+            # of 4 Nov 2026 the business's own questions were never asked, because "when it
+            # fits" read as optional. When and how they are asked is WHAT YOU CAN DO's rule
+            # (`engine.COLLECT_RULE`), which also reaches scripts compiled before this line.
+            f"{COLLECT_HEADER} Ask these.",
             "\n".join(lines),
         )
 
@@ -1241,6 +1245,7 @@ __all__ = [
     "BUSINESS_HEADER",
     "CALL_BACK",
     "CODE_MIX_SENTENCES",
+    "COLLECT_HEADER",
     "DEFAULT_FAQ_FALLBACK",
     "END_OF_CALL",
     "EXAMPLE_HEADER",

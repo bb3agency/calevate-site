@@ -545,7 +545,6 @@ def speech_problems(
     turns: list[Turn],
     *,
     language: str = "",
-    memory_notice: str = "",
     known: str = "",
     manifest: CapabilityManifest | None = None,
     today: date | None = None,
@@ -554,8 +553,7 @@ def speech_problems(
 ) -> list[TurnProblem]:
     """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
     once, in the order they first appear. Each reply is judged against the caller line it
-    answered, which decides whether a longer reply was asked for. `memory_notice` is the
-    sentence a closing goodbye must carry (D-865), empty where none is owed. `known` is the
+    answered, which decides whether a longer reply was asked for. `known` is the
     agent's script and facts (D-888). `manifest` and `today` judge promises and weekdays
     (D-945). `opening` is what the agent opens a call with, whose question a reply must not
     ask again (D-912), and `prior_contact` whether the caller had contact before."""
@@ -572,7 +570,6 @@ def speech_problems(
         p
         for p in conversation_problems(
             turns,
-            memory_notice=memory_notice,
             known=known,
             manifest=manifest,
             today=today,
@@ -601,9 +598,6 @@ class RuleContext:
     call_backs: bool = True
     #: The account's agreements are outstanding, so platform changes cannot reach the agent.
     agreements_waiting: bool = False
-    #: The memory sentence the agent says with its goodbye, empty when it remembers no one
-    #: (D-865).
-    memory_notice: str = ""
     #: What the agent was given to say (its script and pinned facts), so a reply naming where
     #: the caller found the business is judged against it (D-888).
     known: str = ""
@@ -796,12 +790,9 @@ def hard_check(
             reason="It used the call-back step, which this account cannot use yet.",
             fix="platform",
         )
-    # A caller who asks to stop gets no memory sentence with the goodbye (D-865).
-    memory = "" if scenario.probe == "stop_calling" else rules.memory_notice
     problems = speech_problems(
         turns,
         language=language,
-        memory_notice=memory,
         known=rules.known,
         manifest=rules.manifest,
         today=rules.today,
@@ -1003,8 +994,6 @@ class AgentBrief:
     #: (knowledge gap id, topic, the caller's question, redacted) of open gaps on real calls,
     #: most frequent first: the questions a run asks again (`real_call_scenarios`).
     real_questions: tuple[tuple[str, str, str], ...] = ()
-    #: The memory sentence when the agent remembers callers, else empty (D-865).
-    memory_notice: str = ""
     #: (kind, what it does) of each action the agent can take during a call: what a
     #: suggested fix may never take away (`agent_test_ai.capability_problem`).
     actions: tuple[tuple[str, str], ...] = ()
@@ -1022,7 +1011,6 @@ class AgentBrief:
             hand_over_reason=self.hand_over_reason,
             call_backs=self.call_backs,
             agreements_waiting=agreements_waiting,
-            memory_notice=self.memory_notice,
             manifest=CapabilityManifest(
                 booking_tool=any(kind == "calendar" for kind, _ in self.actions),
                 whatsapp=any(kind == "whatsapp" for kind, _ in self.actions),
@@ -1146,8 +1134,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
             text(
                 "SELECT a.direction, a.language_primary, a.handoff_enabled, a.business_hours, "
                 "a.tenant_id, o.name, o.vertical_template, a.handoff_trigger, "
-                "CASE WHEN a.caller_memory_enabled THEN a.caller_memory_notice_line "
-                "ELSE '' END, a.caller_has_screen, "
+                "a.caller_has_screen, "
                 # The applied script's compiled body and the spoken AI sentence, for the
                 # opening a "both" agent places calls with (`engine.placed_call_line`).
                 "pv.body, CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line "
@@ -1216,14 +1203,13 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         last_failures=failures[:6],
         hand_over_reason=duty.reason,
         real_calls=await count_real_calls(session, agent_id),
-        memory_notice=str(row[8] or "").strip(),
-        caller_has_screen=bool(row[9]),
+        caller_has_screen=bool(row[8]),
         placed_opening=(
             placed_call_line(
-                body=row[10],
+                body=row[9],
                 language=language,
                 business=str(row[5] or ""),
-                ai_notice=str(row[11] or ""),
+                ai_notice=str(row[10] or ""),
             )[:300]
             if row[0] == "both"
             else ""

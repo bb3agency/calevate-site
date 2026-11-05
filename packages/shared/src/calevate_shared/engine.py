@@ -33,6 +33,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from calevate_shared.call_script import (
+    COLLECT_HEADER,
     NativeStep,
     opening_line_of,
     outbound_opening_of,
@@ -2706,9 +2707,9 @@ def neutralise_markers(text: str) -> str:
 
     Every such input passes it: the client's script (with its opening line, steps, FAQ,
     pinned and T0 facts), the first words quoted under START OF THE CALL (opening line and
-    the notices, which carry the business and agent names), the memory notice in the goodbye
-    rule, remembered caller facts (`render_caller_memory`), and the per-call values the
-    engine fills into the instructions (the dial's variables, the inbound lookup's answer).
+    the notices, which carry the business and agent names), remembered caller facts
+    (`render_caller_memory`), and the per-call values the engine fills into the instructions
+    (the dial's variables, the inbound lookup's answer).
     The business name in the role sentence has its own stricter cleaning (`_role_business`).
 
     Neutralised rather than refused: an agent saved before this existed must still publish,
@@ -2981,6 +2982,19 @@ _REGISTER_BULLET: Final = (
 #: Paid for by merging the bare-"OK" rule into "Unclear?", one talked-over/too-fast clause,
 #: dropping "anything else" from the close (the mid-task bullet says when it belongs) and
 #: shorter wording elsewhere, so the budget did not move.
+#: D-969, from the Rytu Khata campaign calls of 4 Nov 2026:
+#: - The business's WhatsApp number went out as two quick groups and the caller asked twice
+#:   for it slower. "A mobile a few digits at a time" covered only reading back the caller's
+#:   number, and the voice pauses only at a mark, so every number the agent says is digit by
+#:   digit with a comma after each, and a mobile as five and five, the way Indian mobiles are
+#:   written ("AAAAA-BBBBB", en.wikipedia.org/wiki/National_conventions_for_writing_
+#:   telephone_numbers#India, read 5 Nov 2026). Digit by digit is the OpenAI realtime
+#:   prompting guide's rule for "phone numbers, card numbers, 2FA codes"
+#:   (developers.openai.com/cookbook/examples/realtime_prompting_guide, read 5 Nov 2026).
+#: - Asked how to use the app, the agent explained everything in one turn and asked "did you
+#:   understand?"; the caller asked for it step by step. One step and a wait for "done" was
+#:   only the screen guide's rule (`screen_steps_bullet`), and only while that switch is on;
+#:   it is every agent's now, because any caller can be talked through a task.
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 
@@ -3012,13 +3026,16 @@ VOICE_STYLE_GUIDANCE: Final = (
     ' A time or amount they said goes back in their words ("six" stays "six").\n'
     '- Under ten digits of a mobile? Ask for the rest ("six more digits?"); never read back, '
     "confirm, act or end on part of one.\n"
-    "- Read back what you heard and wait for a yes, a mobile a few digits at a time; an "
-    "amount that could be a range or a decimal as which one.\n"
+    "- Read back what you heard and wait for a yes; an amount that could be a range or a "
+    "decimal as which one.\n"
+    "- Any number or code, first time too: digit by digit, a comma after each, a mobile five, "
+    "full stop, five; offer to repeat.\n"
     f"{_REGISTER_BULLET}"
     '- Unclear, or a bare "OK" to your question? Ask one thing again, reworded; never pick '
     "for them. Asked to repeat? Say it shorter.\n"
     "- Never narrate a search or a wait.\n"
-    '- Mid-task, or "OK" after you explain? Give the next step or check on it. '
+    '- Explaining steps? One a turn, wait until done, never "understood?"; "OK" after one: '
+    "the next. "
     '"Anything else?" only once a topic is done, never twice running.\n'
     "- Close: what happens next in one line, no recap, then one goodbye, nothing more. End "
     "only then or when asked, never while they talk."
@@ -3307,6 +3324,29 @@ NAME_RULE: Final = (
     "- No name in THIS CALL? Ask once, to book, call back or hand over, or at the close."
 )
 
+#: "Call me later" gets a day and time and a booked call back (D-969). On the Rytu Khata call
+#: of 4 Nov 2026 the caller said they would call again later and the agent said "call whenever
+#: convenient", so no call back was booked and its time was never asked. The call-back tool's
+#: own description says how to book (`reliability/engine_actions._CALLBACK_DESCRIPTION`); this
+#: says when, which nothing else did. Asking for a specific slot and saying it back is the
+#: common practice (callyzer.co/blog/how-to-handle-call-me-later-in-telecalling and
+#: developer.regal.ai/docs/schedule-callback, both read 5 Nov 2026). Composed only for an
+#: account that keeps call backs: a trial agent says the business will get back to them.
+CALL_BACK_TIME_RULE: Final = (
+    "- Later, or they will call? Ask what day and time, say it back, book the call back."
+)
+
+#: The business's own questions are ASKED, not only listened for (D-969). On the Rytu Khata
+#: calls of 4 Nov 2026 "Satisfaction level" and "Suggestions for features" were never asked:
+#: the script's "[WHAT TO COLLECT] Only these, when it fits." read as optional, and the close
+#: came as soon as the caller had nothing more. Composed only when the script has that section,
+#: and here rather than in the compiler so scripts compiled before it get it at the next
+#: platform republish (`agents/live_apply`). "One a turn" is the Vapi and Retell guides' rule
+#: (docs.vapi.ai/prompting-guide, community.retellai.com lesson 8, read 5 Nov 2026).
+COLLECT_RULE: Final = (
+    f"- Before closing, ask each {COLLECT_HEADER} item still open that fits, one a turn."
+)
+
 #: Reads `TODAY_LINE` (D-888). On 25 Oct 2026, a Sunday evening, an agent offered "this
 #: weekend, Saturday or Sunday" and repeated a caller's "tomorrow, Thursday" when tomorrow
 #: was Monday. After the client script, because the real-estate starter's own example line
@@ -3580,11 +3620,14 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
         # number undiallable; ending THIS call is not asking never to be called.
         "- Do-not-call tool: only when asked never to call again, not for no, later or ending "
         "this call.\n"
-        f"{ACTION_CLAIM_RULE}\n"
+        + (f"{CALL_BACK_TIME_RULE}\n" if cfg.callbacks_offered else "")
+        + f"{ACTION_CLAIM_RULE}\n"
         f"{CALL_NUMBER_RULE}\n"
         f"{NAME_RULE}\n"
         f"{DAYS_RULE}"
-    ) + (f"\n{FORWARDED_LINE_RULE}" if cfg.forwarded_line else "")
+        + (f"\n{COLLECT_RULE}" if COLLECT_HEADER in (cfg.system_prompt or "") else "")
+        + (f"\n{FORWARDED_LINE_RULE}" if cfg.forwarded_line else "")
+    )
 
 
 #: THE VARIABLE THE ENGINE FILLS WITH WHAT WE REMEMBER ABOUT THE PERSON ON THIS CALL.
@@ -4145,10 +4188,6 @@ class AgentConfig(BaseModel):
     #: `opening_line` (`notice_fields`). Excluded from every dump: `opening_line` already
     #: carries the sentence, so stored configs and their digests do not move.
     ai_notice: str = Field(default="", exclude=True)
-    #: The memory sentence when the agent remembers callers, else empty. Never in the first
-    #: turn: the prompt tells the agent to say it with its goodbye (`memory_goodbye_rule`,
-    #: D-865). Excluded from every dump, for `ai_notice`'s reason.
-    caller_memory_notice: str = Field(default="", exclude=True)
     #: Does a call on the engine that will run this agent produce a recording we store?
     #:
     #: **IT IS THE ENGINE'S FACT AND IT TRAVELS ON THE AGENT**, because the prompt is
@@ -4369,18 +4408,9 @@ class DisclosurePosture(BaseModel):
     ai_disclosure_enabled: bool
     recording_notice_line: str
     recording_notice_enabled: bool
-    #: Sentence three, and THE SWITCH IS NOT ITS OWN (D-507). There is no
-    #: `caller_memory_notice_enabled` beside this, deliberately: the two notices above are
-    #: switchable because their obligations hold whatever this product is configured to do,
-    #: so a client giving the notice in writing may switch off the spoken form. Cross-call
-    #: memory exists ONLY because `agents.caller_memory_enabled` is on — a choice this
-    #: system records — so the sentence is bound to that flag and the state "remembers a
-    #: caller without saying so" is not constructible.
-    #:
-    #: NEVER EMPTY, for `ai_disclosure_line`'s reason: the sentence is mandatory on file so
-    #: that switching memory on cannot be the moment somebody finds there is nothing to
-    #: say. Defaulted so that every existing constructor of this posture keeps working and
-    #: means what it meant — an agent that does not remember, saying nothing about memory.
+    #: The memory sentence on file (D-507). Not quoted on calls since D-969: the agent says
+    #: the notice in its own words (`memory_goodbye_rule`). Still carried because the column is
+    #: NOT NULL and is retired in two steps (hard rule 8).
     caller_memory_notice_line: str = ""
     caller_memory_enabled: bool = False
 
@@ -4400,8 +4430,8 @@ def compose_opening_line(posture: DisclosurePosture, *, call_is_recorded: bool) 
         recording   "This call is being recorded."
         neither     "" — the agent volunteers neither notice and says only its opening line.
 
-    The memory sentence (D-507) is not among them: it is said with the goodbye, from the
-    prompt (`memory_goodbye_rule`, D-865).
+    The memory notice (D-507) is not among them: it is said with the goodbye, in the agent's
+    own words (`memory_goodbye_rule`, D-865, D-969).
 
     `call_is_recorded` is the ENGINE's fact (`EngineCapabilities.records_audio`), and when
     it is False the recording sentence is dropped whatever `recording_notice_enabled` says:
@@ -4434,47 +4464,41 @@ def spoken_ai_notice(posture: DisclosurePosture) -> str:
     return posture.ai_disclosure_line.strip() if posture.ai_disclosure_enabled else ""
 
 
-def spoken_memory_notice(posture: DisclosurePosture) -> str:
-    """The memory sentence when the agent remembers callers, else empty:
-    `AgentConfig.caller_memory_notice`."""
-    return posture.caller_memory_notice_line.strip() if posture.caller_memory_enabled else ""
-
-
 class NoticeFields(TypedDict):
     opening_line: str
     ai_notice: str
-    caller_memory_notice: str
 
 
 def notice_fields(posture: DisclosurePosture, *, call_is_recorded: bool) -> NoticeFields:
     """`AgentConfig`'s notice fields from one posture, so no config is built with the
-    notices and without the AI sentence that leads them or the memory sentence its goodbye
-    carries."""
+    notices and without the AI sentence that leads them.
+
+    The memory notice is not a stored sentence: the agent says it in its own words with its
+    goodbye (`memory_goodbye_rule`, D-969)."""
     return {
         "opening_line": compose_opening_line(posture, call_is_recorded=call_is_recorded),
         "ai_notice": spoken_ai_notice(posture),
-        "caller_memory_notice": spoken_memory_notice(posture),
     }
 
 
-#: Said with the goodbye of a call that ends normally, by an agent that remembers callers
-#: (D-865, founder, 23 Oct 2026). It left the opening because the engine speaks at most 200
-#: characters there (`greeting` maxLength 200, `api-reference/agents/create-agent.md:776-778`,
-#: 19 Oct 2026 snapshot) and a Telugu agent introducing itself with the recording notice too
-#: had no room for it. Not on a call the
-#: caller ended or asked to stop: the notice is about what is kept, and a goodbye to a refusal
-#: is no place for it. `{sentence}` is the stored sentence, quoted so the publish read-back
-#: and the drift sweep can find it word for word.
+#: An agent that remembers callers tells them, with its goodbye (D-507, D-865), in a few words
+#: of its own (D-969). The stored sentence it used to quote word for word, "so I remember it
+#: when you call again, I keep a short note about this call", was heard on every Rytu Khata
+#: call of 4 Nov 2026 as a stiff promise nobody asked for, and the founder asked for it to go.
+#: The notice itself stays: D-507 spoke it because an inbound caller sees no written notice,
+#: and DPDP s.5 wants the person told what is kept (D-506); no rule prescribes its words
+#: (DPDP Rules 2025 r.3, G.S.R. 846(E), egazette.gov.in/WriteReadData/2025/267650.pdf, read
+#: 5 Nov 2026). Whether to drop it altogether is the founder's, with that basis in front of
+#: him. Not on a call the caller ended or asked to stop.
 MEMORY_GOODBYE_RULE: Final = (
-    "Before you end a call with a goodbye, say once, in the call's language: "
-    '"{sentence}" Never when the caller asked to stop or hung up.'
+    "You remember callers: with your goodbye, say in a few words of your own that you will "
+    "remember this call next time. Never when they asked to stop or hung up."
 )
 
 
 def memory_goodbye_rule(cfg: AgentConfig) -> str:
     """The goodbye rule for `cfg`, or empty for an agent that does not remember callers."""
-    sentence = quoted_client_words(cfg.caller_memory_notice) if cfg.caller_memory_enabled else ""
-    return MEMORY_GOODBYE_RULE.format(sentence=sentence) if sentence else ""
+    return MEMORY_GOODBYE_RULE if cfg.caller_memory_enabled else ""
 
 
 #: The greeting a call opens with when the agent's AI notice introduces it (D-865, founder,
@@ -4749,6 +4773,21 @@ CALL_REASON_RULE: Final = (
     " Never say they enquired, asked or showed interest unless THIS CALL says so."
 )
 
+#: A placed call asks permission before its questions, and greets the person by name (D-969).
+#: On the Rytu Khata campaign calls of 4 Nov 2026 the owner-written opening went straight to
+#: "have you installed the app?": no name though the list had one, and no "is this a good
+#: time". The first words are the script's and the engine speaks them verbatim, so the model
+#: can only make up for them in its next turn, which this tells it to do. Name, company and
+#: purpose first, then "is this a good time to talk?", is the outbound convention
+#: (leadsquared.com/learn/sales/cold-calling-scripts, read 5 Nov 2026); the US Telemarketing
+#: Sales Rule likewise wants the seller and the purpose before anything else
+#: (ftc.gov/business-guidance/resources/complying-telemarketing-sales-rule, read 5 Nov 2026).
+#: A name the engine already said (`named_lead_opening`) is not said again.
+PLACED_CALL_PERMISSION_RULE: Final = (
+    " Placed call, first turn not asking if now suits? Next, in one line, what it left out of "
+    "THIS CALL's name, who and why; then ask if it is a good time."
+)
+
 
 #: For an agent that only answers calls: on a free-trial test call it rings its owner, and the
 #: engine speaks a calling-you line from the dial (`CallContext.opening`) in place of the
@@ -4761,7 +4800,7 @@ TEST_CALL_OPENING_RULE: Final = (
 
 def quoted_client_words(text: str) -> str:
     """Client words as the platform quotes them outside the fence (the first words under
-    START OF THE CALL, the memory notice in the goodbye rule): one line, no straight double
+    START OF THE CALL): one line, no straight double
     quote, markers neutralised.
 
     Those sections are platform text, and the words inside the quote are the client's (a raw
@@ -4795,7 +4834,7 @@ def _start_of_call_section(cfg: AgentConfig) -> str:
     still gets both answers: the truthful-answer block binds last.
     """
     first_words = quoted_client_words(compose_first_utterance(cfg))
-    reason = CALL_REASON_RULE if places_calls(cfg) else ""
+    reason = f"{CALL_REASON_RULE}{PLACED_CALL_PERMISSION_RULE}" if places_calls(cfg) else ""
     placed = compose_placed_call_first_words(cfg)
     if placed is not None:
         # A "both" agent's two first turns differ (D-920): quoting only the answering one
@@ -6827,6 +6866,7 @@ __all__ = [
     "CALLER_MEMORY_GUIDANCE",
     "CALLER_MEMORY_SLOT",
     "CALLER_MEMORY_VARIABLE",
+    "CALL_BACK_TIME_RULE",
     "CALL_INSTRUCTIONS",
     "CALL_NUMBER_RULE",
     "CALL_REASON_RULE",
@@ -6834,6 +6874,7 @@ __all__ = [
     "CANNOT_HELP_HEADER",
     "CLIENT_SCRIPT_CLOSE",
     "CLIENT_SCRIPT_OPEN",
+    "COLLECT_RULE",
     "CONFIDENTIALITY_MARKER",
     "CONFIDENTIALITY_RULE",
     "DAYS_AHEAD",
@@ -6848,6 +6889,7 @@ __all__ = [
     "FORWARDED_LINE_RULE",
     "LAYER_SEPARATOR",
     "MAX_CALLER_MEMORY_CHARS",
+    "MEMORY_GOODBYE_RULE",
     "NAME_LINE",
     "NAME_RULE",
     "NAME_VARIABLE",
@@ -6856,6 +6898,7 @@ __all__ = [
     "PHONE_LINE",
     "PHONE_VARIABLE",
     "PIPECAT_REF_PREFIX",
+    "PLACED_CALL_PERMISSION_RULE",
     "PLATFORM_CALL_VARIABLES",
     "PLATFORM_RULES_HEADER",
     "PLATFORM_RULES_PREAMBLE",

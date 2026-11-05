@@ -75,7 +75,7 @@ def test_only_a_hello_or_yes_goes_on_and_a_no_asks_when_or_closes() -> None:
 
 def test_a_bare_ok_asks_again_only_after_a_question() -> None:
     assert 'Unclear, or a bare "OK" to your question? Ask one thing again' in VOICE_STYLE_GUIDANCE
-    assert '"OK" after you explain? Give the next step or check on it.' in VOICE_STYLE_GUIDANCE
+    assert '"OK" after one: the next.' in VOICE_STYLE_GUIDANCE
     assert 'A bare "OK"? Ask one thing' not in VOICE_STYLE_GUIDANCE
 
 

@@ -225,7 +225,8 @@ RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
 #: SAID WITH THE GOODBYE, NOT IN THE OPENING (D-865, founder, 23 Oct 2026): the prompt tells
 #: the agent to say it once as it closes a call that ends normally
 #: (`calevate_shared.engine.memory_goodbye_rule`); the engine's 200-character first turn had
-#: no room for it beside a Telugu introduction and the recording notice.
+#: no room for it beside a Telugu introduction and the recording notice. Since D-969 the
+#: agent says it in its own words and these sentences are no longer quoted.
 #:
 #: Deliberately says WHAT is kept and FOR ROUGHLY HOW LONG in the caller's own vocabulary
 #: — "a short note", not "a distilled fact", and never "an embedding". The period is not
