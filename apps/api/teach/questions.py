@@ -37,7 +37,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.test_conversations import _PRICE_PATTERN as PRICE_PATTERN
+from apps.api.agents.test_conversations import PRICE_PATTERN
 from apps.api.agents.test_conversations import missing_facts
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7

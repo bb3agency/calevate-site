@@ -150,6 +150,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A config problem (no Gemini leg) that silently stops every agent's judgement: someone
     # should look, but no call is affected.
     "caller_help_unavailable": "attention",
+    # Expected while one request computes the board; the operator just retries.
+    "client_health_computing": "record",
     "copilot_attachments_unavailable": "record",
     "copilot_pdf_unavailable": "record",
     "recording_unavailable": "record",
