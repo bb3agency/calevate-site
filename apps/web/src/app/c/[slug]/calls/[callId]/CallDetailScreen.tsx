@@ -370,6 +370,7 @@ export function CallDetailScreen({
             write={write}
             leadHref={leadHref}
             leadLabel={leadName ? `Open ${leadName}'s lead` : "Open the lead"}
+            bookedShown={detail.callback != null}
           />
         }
       />

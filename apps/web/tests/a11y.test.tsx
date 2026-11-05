@@ -2512,9 +2512,12 @@ const CLIENT_SCREENS: Screen[] = [
         disclosure_played: true,
         extraction: { name: "Ramesh Kumar" },
         captured: [
-          { key: "name", label: "Name", type: "text", core: true, current: true, value: "Ramesh Kumar" },
+          { key: "name", label: "Name", type: "text", core: true, current: true, source: "call", value: "Ramesh Kumar" },
         ],
         extraction_valid: true,
+        unclear_fields: [],
+        next_step_by: null,
+        goal: null,
         moments: [
           {
             at_ms: 2400,
@@ -2649,8 +2652,8 @@ const CLIENT_SCREENS: Screen[] = [
       },
       "/v1/leads/lead-a/captured": {
         fields: [
-          { key: "need", label: "What they want", type: "text", core: true, current: true, value: "A Tuesday slot" },
-          { key: "notes", label: "Notes", type: "text", core: true, current: true, value: null },
+          { key: "need", label: "What they want", type: "text", core: true, current: true, source: "call", value: "A Tuesday slot" },
+          { key: "notes", label: "Notes", type: "text", core: true, current: true, source: "call", value: null },
         ],
       },
     },
@@ -4632,6 +4635,9 @@ const ADMIN_SCREENS: Screen[] = [
           ],
           extraction: {},
           extraction_valid: true,
+          unclear_fields: [],
+          next_step_by: null,
+          goal: null,
           has_recording: false,
           disclosure_played: true,
         },

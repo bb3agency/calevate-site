@@ -977,6 +977,7 @@ describe("what a campaign is for", () => {
               next_attempt_at: null,
               call_id: "call-9",
               goal_reached: "yes",
+              goal_reason: "They booked a visit for Saturday before the call ended.",
             },
           ],
         }),
@@ -991,6 +992,8 @@ describe("what a campaign is for", () => {
     await screen.findByText("Priya");
     expect(container.textContent).toContain("They book a service visit");
     expect(container.textContent).toContain("Goal reached");
+    // The why sits under the verdict, so "Goal unclear" on a row says what was missing.
+    expect(container.textContent).toContain("They booked a visit for Saturday before the call ended.");
     expect(container.textContent).toContain("3 of 4");
     expect(container.textContent).toContain("1 unclear");
   });

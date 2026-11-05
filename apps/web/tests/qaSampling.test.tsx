@@ -101,6 +101,9 @@ const CALL = {
   ],
   extraction: {},
   extraction_valid: true,
+  unclear_fields: [],
+  next_step_by: null,
+  goal: null,
 };
 
 const QUEUE = queuePath(DEFAULT_FILTERS);

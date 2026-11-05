@@ -27,19 +27,13 @@ import {
   type ContactResult,
 } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
+import { GOAL_WORDS } from "@/lib/callReview";
 
 import { OUTCOME_ORDER, OUTCOME_WORDS } from "./CampaignResults";
 
 const PAGE_SIZE = 50;
 
 const CELL = "px-3 py-2.5 first:pl-4 last:pr-3 sm:first:pl-5";
-
-/** Whether the person's latest answered call reached the campaign's goal. */
-const GOAL_WORDS: Record<NonNullable<ContactResult["goal_reached"]>, string> = {
-  yes: "Goal reached",
-  no: "Goal not reached",
-  unclear: "Goal unclear",
-};
 
 const OUTCOME_TONE: Record<ContactOutcome, NoticeTone> = {
   connected: "ok",
@@ -295,6 +289,10 @@ function PersonOutcome({ row, maxAttempts }: { row: ContactResult; maxAttempts: 
         {OUTCOME_WORDS[row.outcome]}
       </StatusPill>
       {details.length > 0 ? <p className="text-meta text-ink-muted">{details.join(" · ")}</p> : null}
+      {/* The goal's why, so "Goal unclear" beside one person says what was missing. */}
+      {row.goal_reached && row.goal_reason ? (
+        <p className="max-w-prose text-meta text-ink-muted [text-wrap:pretty]">{row.goal_reason}</p>
+      ) : null}
     </div>
   );
 }

@@ -315,7 +315,7 @@ describe("a call row", () => {
         call({
           id: "c3",
           outcome_tag: "call_back_booked",
-          callback: { id: "cb", due_at: "2020-01-01T00:00:00Z", status: "scheduled" },
+          callback: { id: "cb", due_at: "2020-01-01T00:00:00Z", status: "scheduled", booked_by: "in_call", time_from: null, next_try_at: "2020-01-01T00:00:00Z" },
         }),
       ]),
     );
