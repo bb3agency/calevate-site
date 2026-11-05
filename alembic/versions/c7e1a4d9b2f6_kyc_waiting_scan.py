@@ -1,7 +1,7 @@
 """the KYC review queue stops opening a session per client (A7-21)
 
 Revision ID: c7e1a4d9b2f6
-Revises: a9d3f6c2e8b1
+Revises: c4a8e2f6b1d9
 Create Date: 2026-11-05 22:30:00.000000
 
 `compliance/kyc_review.waiting_reviews` opened one `tenant_session` per organization to ask
@@ -28,7 +28,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "c7e1a4d9b2f6"
-down_revision: str | Sequence[str] | None = "a9d3f6c2e8b1"
+down_revision: str | Sequence[str] | None = "c4a8e2f6b1d9"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

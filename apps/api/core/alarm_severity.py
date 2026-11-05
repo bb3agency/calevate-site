@@ -152,6 +152,11 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "caller_help_unavailable": "attention",
     # Expected while one request computes the board; the operator just retries.
     "client_health_computing": "record",
+    # An operator archived or deleted a client's campaign and the client could not be told.
+    "campaign_notice_exhausted": "attention",
+    "campaign_notice_no_channel": "attention",
+    "campaign_notice_tenant_missing": "attention",
+    "campaign_notice_unknown_event": "attention",
     "copilot_attachments_unavailable": "record",
     "copilot_pdf_unavailable": "record",
     "recording_unavailable": "record",
