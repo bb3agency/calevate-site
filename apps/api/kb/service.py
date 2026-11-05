@@ -71,6 +71,13 @@ from apps.api.kb.pdf_render import (
     UnrenderableTextError,
     render_knowledge_pdf,
 )
+from apps.api.kb.structured_text import (
+    MAX_INSTRUCTION_CHARS,
+    MAX_INSTRUCTIONS,
+    Group,
+    read_markdown,
+    with_title,
+)
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.retrieval.supermemory_index import refresh_indexed_source
 
@@ -344,6 +351,82 @@ def _wrap_long_sentence(sentence: str) -> list[str]:
     return pieces
 
 
+#: The longest section title a chunk repeats; a longer heading is a sentence, not a title.
+MAX_SECTION_TITLE_CHARS: Final = 120
+
+
+@dataclass(frozen=True, slots=True)
+class SectionChunk:
+    section: str | None
+    content: str
+
+
+def chunk_groups(groups: Iterable[Group]) -> list[SectionChunk]:
+    """One chunk per section where it fits, each starting with its section's title.
+
+    NOT PACKED ACROSS SECTIONS, unlike `chunk_text`: a chunk is one answer under one
+    heading, which is what retrieval returns and what "What it knows" shows as one item,
+    and a section is one line-joined paragraph, so `hot_facts` reads it as one fact. A
+    section past the cap is cut on its own lines, then sentences, then words, and every
+    piece carries the title again so none is retrieved without its context.
+    """
+    out: list[SectionChunk] = []
+    for group in groups:
+        section = (group.section or "")[:MAX_SECTION_TITLE_CHARS].strip() or None
+        whole = with_title(section, group.lines)
+        if len(whole) <= MAX_CHUNK_CHARS:
+            out.append(SectionChunk(section, whole))
+            continue
+        room = MAX_CHUNK_CHARS - len(with_title(section, [""]))
+        for piece in _pack_lines(group.lines, room):
+            out.append(SectionChunk(section, with_title(section, piece)))
+    return out
+
+
+def _pack_lines(lines: Iterable[str], room: int) -> list[list[str]]:
+    pieces: list[list[str]] = []
+    current: list[str] = []
+    size = 0
+    for line in lines:
+        for part in _fit(line, room):
+            added = len(part) + (1 if current else 0)
+            if current and size + added > room:
+                pieces.append(current)
+                current, size = [], 0
+                added = len(part)
+            current.append(part)
+            size += added
+    if current:
+        pieces.append(current)
+    return pieces
+
+
+def _fit(line: str, room: int) -> list[str]:
+    """`line` in pieces of at most `room`: whole sentences where they fit, else words."""
+    if len(line) <= room:
+        return [line]
+    out: list[str] = []
+    buffer = ""
+    for sentence in _SENTENCE_END_SPLIT.split(line):
+        while len(sentence) > room:
+            cut = sentence[: room + 1].rfind(" ")
+            cut = cut if cut > room // 4 else room
+            if buffer:
+                out.append(buffer)
+                buffer = ""
+            out.append(sentence[:cut].rstrip())
+            sentence = sentence[cut:].lstrip()
+        candidate = f"{buffer} {sentence}".strip()
+        if len(candidate) <= room:
+            buffer = candidate
+        else:
+            out.append(buffer)
+            buffer = sentence
+    if buffer:
+        out.append(buffer)
+    return [p for p in out if p]
+
+
 async def insert_source_version(
     session: AsyncSession,
     *,
@@ -534,10 +617,54 @@ async def submit_source(
     }
 
 
+@dataclass(frozen=True, slots=True)
+class StoredText:
+    chunks: int
+    instructions: int
+
+
 async def store_extracted_text(
-    session: AsyncSession, *, tenant_id: UUID, source_id: UUID, body: str
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    source_id: UUID,
+    body: str,
+    structured: bool = False,
 ) -> int:
+    """`store_document_text` for a caller that needs only the chunk count."""
+    stored = await store_document_text(
+        session, tenant_id=tenant_id, source_id=source_id, body=body, structured=structured
+    )
+    return stored.chunks
+
+
+def instruction_rows(groups: Iterable[Group]) -> list[dict[str, str | None]]:
+    """Call instructions as stored on `kb_uploads.call_instructions`, within their bounds."""
+    rows: list[dict[str, str | None]] = []
+    used = 0
+    for group in groups:
+        body = "\n".join(group.lines)
+        if len(rows) >= MAX_INSTRUCTIONS or used + len(body) > MAX_INSTRUCTION_CHARS:
+            break
+        used += len(body)
+        rows.append({"section": group.section, "text": body})
+    return rows
+
+
+async def store_document_text(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    source_id: UUID,
+    body: str,
+    structured: bool = False,
+) -> StoredText:
     """Chunk text READ OUT OF an uploaded document into an existing source version.
+
+    `structured` reads `body` as Markdown (`kb/structured_text.py`): sections become chunks
+    titled by their headings, and what the file tells the agent to DO on a call is stored on
+    the upload row (`call_instructions`) instead of as knowledge. A file that is nothing but
+    such instructions stores no chunk and answers `chunks=0`; the caller says so.
 
     The other half of `submit_source`: that one mints a version from text a client TYPED,
     this one fills a version that was minted at upload time, once the conversion lane has
@@ -559,8 +686,14 @@ async def store_extracted_text(
     must never do, and the retry that could have done it is exactly the caller.
     """
     _reject_invisible_characters(body, field="document text")
-    chunks = chunk_text(body)
-    if not chunks:
+    instructions: list[dict[str, str | None]] = []
+    if structured:
+        reading = read_markdown(body)
+        sections = chunk_groups(reading.facts)
+        instructions = instruction_rows(reading.instructions)
+    else:
+        sections = [SectionChunk(None, chunk) for chunk in chunk_text(body)]
+    if not sections and not instructions:
         raise ProblemError(
             kind="validation",
             code="kb_empty",
@@ -584,23 +717,40 @@ async def store_extracted_text(
     await session.execute(
         text("DELETE FROM kb_documents WHERE source_id = :sid"), {"sid": source_id}
     )
-    for idx, chunk in enumerate(chunks):
+    for idx, chunk in enumerate(sections):
         await session.execute(
             text(
-                "INSERT INTO kb_documents (id, tenant_id, source_id, idx, title, content, "
+                "INSERT INTO kb_documents (id, tenant_id, source_id, idx, title, content, meta, "
                 "created_at, updated_at) SELECT :id, :tid, :sid, :idx, s.name, :content, "
-                "now(), now() FROM kb_sources s WHERE s.id = :sid"
+                "CAST(:meta AS jsonb), now(), now() FROM kb_sources s WHERE s.id = :sid"
             ),
             {
                 "id": uuid7(),
                 "tid": tenant_id,
                 "sid": source_id,
                 "idx": idx,
-                "content": chunk,
+                "content": chunk.content,
+                "meta": None
+                if chunk.section is None
+                else json.dumps({"section": chunk.section}, ensure_ascii=False),
             },
         )
-    log.info("kb_text_extracted", extra={"source_id": str(source_id), "chunks": len(chunks)})
-    return len(chunks)
+    await session.execute(
+        text("UPDATE kb_uploads SET call_instructions = CAST(:ci AS jsonb) WHERE source_id = :sid"),
+        {
+            "sid": source_id,
+            "ci": json.dumps(instructions, ensure_ascii=False) if instructions else None,
+        },
+    )
+    log.info(
+        "kb_text_extracted",
+        extra={
+            "source_id": str(source_id),
+            "chunks": len(sections),
+            "instructions": len(instructions),
+        },
+    )
+    return StoredText(chunks=len(sections), instructions=len(instructions))
 
 
 def without_invisible_characters(value: str) -> str:

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.kb.models import READ_FAILED
 from apps.api.kb.service import upload_reaches_agents
+from apps.api.kb.structured_text import with_title
 
 DocumentState = Literal["reading", "read", "failed"]
 
@@ -33,7 +34,8 @@ _UNREADABLE: Final = ("conversion_unavailable", "conversion_failed", "error")
 _DOCUMENTS_SQL: Final = """
 SELECT u.id, s.name, u.source_kind, u.ingest_status, u.ingest_detail, u.read_state,
        u.read_detail, s.status,
-       EXISTS (SELECT 1 FROM kb_documents d WHERE d.source_id = u.source_id) AS has_words
+       (EXISTS (SELECT 1 FROM kb_documents d WHERE d.source_id = u.source_id)
+        OR u.call_instructions IS NOT NULL) AS has_words
 FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
 WHERE u.id = ANY(CAST(:ids AS uuid[]))
 """
@@ -92,8 +94,15 @@ async def read_documents(session: AsyncSession, ids: Sequence[UUID]) -> list[Doc
     return [found[i] for i in ids if i in found]
 
 
+#: Leads the instructions a guide gives the agent, after its facts, so a script writer reads
+#: them as how to run the call rather than as more facts to tell callers.
+INSTRUCTIONS_LEAD: Final = "How the agent should handle the call:"
+
+
 async def document_words(session: AsyncSession, upload_id: UUID) -> str:
-    """Every stored chunk of one upload, in reading order, unredacted."""
+    """Every stored chunk of one upload, in reading order, unredacted, then the call
+    instructions read out of it (`kb_uploads.call_instructions`): kept off the knowledge the
+    agents search, and exactly what a script is written from."""
     rows = await session.execute(
         text(
             "SELECT d.content FROM kb_documents d JOIN kb_uploads u ON u.source_id = d.source_id "
@@ -101,7 +110,20 @@ async def document_words(session: AsyncSession, upload_id: UUID) -> str:
         ),
         {"uid": upload_id},
     )
-    return "\n\n".join(str(r[0]) for r in rows.all())
+    parts = [str(r[0]) for r in rows.all()]
+    held = (
+        await session.execute(
+            text("SELECT call_instructions FROM kb_uploads WHERE id = :uid"), {"uid": upload_id}
+        )
+    ).scalar()
+    lines = [
+        with_title(str(item.get("section") or "") or None, [str(item.get("text") or "")])
+        for item in held or []
+        if isinstance(item, dict) and item.get("text")
+    ]
+    if lines:
+        parts.append("\n\n".join([INSTRUCTIONS_LEAD, *lines]))
+    return "\n\n".join(parts)
 
 
 __all__ = ["Document", "DocumentState", "document_words", "read_documents", "state_of"]

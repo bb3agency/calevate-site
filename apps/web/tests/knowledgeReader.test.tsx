@@ -137,3 +137,37 @@ describe("the reader", () => {
     await expectNoA11yViolations(dialog, "knowledge reader");
   });
 });
+
+describe("a guide's call instructions", () => {
+  const GUIDE: KbUpload = {
+    ...MENU,
+    source_kind: "txt",
+    reaches_agents: true,
+    read_state: null,
+    page_count: null,
+    call_instructions: [{ section: "If he says he is busy", text: "Ask when to call back." }],
+  };
+
+  it("are listed apart from the facts and handed to every script as a suggestion", async () => {
+    const { dialog, calls } = await openReader(
+      { ...OWNER, permissions: [...OWNER.permissions, "org:manage"] },
+      {
+        "/v1/kb/uploads": [GUIDE],
+        "POST /v1/kb/uploads/u1/call-instructions/use": { agents: 2, skipped: 0 },
+      },
+    );
+    expect(await within(dialog).findByText("1 call instruction in Menu.pdf. Not used as facts.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use in call scripts" }));
+    await waitFor(() => {
+      const sent = calls.find((call) => call.path === "/v1/kb/uploads/u1/call-instructions/use");
+      expect(sent?.method).toBe("POST");
+      expect(JSON.parse(sent?.body ?? "{}")).toEqual({});
+    });
+  });
+
+  it("offer no button to someone who cannot change scripts", async () => {
+    const { dialog } = await openReader(OWNER, { "/v1/kb/uploads": [GUIDE] });
+    await within(dialog).findByText("1 call instruction in Menu.pdf. Not used as facts.");
+    expect(within(dialog).queryByRole("button", { name: "Use in call scripts" })).toBeNull();
+  });
+});

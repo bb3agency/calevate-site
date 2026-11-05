@@ -9888,6 +9888,31 @@
         "title": "CallInsightsOut",
         "type": "object"
       },
+      "CallInstructionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "CallInstructionOut",
+        "type": "object"
+      },
       "CallLeadIn": {
         "additionalProperties": false,
         "description": "D-21: an owner may dispatch a single AI call from the Leads table, with an\noptional per-call note rendered into the agent's prompt.",
@@ -60003,6 +60028,13 @@
             ],
             "title": "Byte Size"
           },
+          "call_instructions": {
+            "items": {
+              "$ref": "#/components/schemas/CallInstructionOut"
+            },
+            "title": "Call Instructions",
+            "type": "array"
+          },
           "change_detected_at": {
             "anyOf": [
               {
@@ -60520,6 +60552,44 @@
           "ends_at"
         ],
         "title": "UsageTrialOut",
+        "type": "object"
+      },
+      "UseInstructionsIn": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          }
+        },
+        "title": "UseInstructionsIn",
+        "type": "object"
+      },
+      "UseInstructionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agents": {
+            "title": "Agents",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agents",
+          "skipped"
+        ],
+        "title": "UseInstructionsOut",
         "type": "object"
       },
       "VariableSuggestion": {
@@ -91965,6 +92035,57 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/kb/uploads/{upload_id}/call-instructions/use": {
+      "post": {
+        "description": "Queues a script suggestion written from this file, its call instructions included, for one agent or every agent. Nothing changes on a live agent: the owner keeps or discards the suggestion on the agent's Script page.",
+        "operationId": "use_call_instructions_v1_kb_uploads__upload_id__call_instructions_use_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UseInstructionsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UseInstructionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Write a file's call instructions into agents' call scripts, as a suggestion",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/kb/uploads/{upload_id}/confirm": {

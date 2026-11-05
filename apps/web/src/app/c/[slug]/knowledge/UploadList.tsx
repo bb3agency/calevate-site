@@ -12,6 +12,7 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
+  formatCountOf,
   formatIST,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -91,6 +92,12 @@ export function UploadRow({ upload }: { upload: KbUpload }) {
             )}
           </p>
           <p className="mt-1 text-xs text-ink-muted">{state.meaning}</p>
+          {(shown.call_instructions?.length ?? 0) > 0 ? (
+            <p className="mt-1 text-xs text-ink-muted">
+              {formatCountOf(shown.call_instructions?.length ?? 0, "call instruction")} kept for
+              call scripts. Open it to use them.
+            </p>
+          ) : null}
 
           {/* The SPECIFIC reason, when the server has one. It is written for a client
               (`kb/routes.py::UploadOut.ingest_detail`: "a sentence to show the client …

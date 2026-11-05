@@ -207,8 +207,22 @@ def candidates_of(
         # chunk is one paragraph, so a gloss never lends one paragraph another's words.
         gloss = chunk.gloss if len(paragraphs) == 1 else None
         for paragraph in paragraphs:
-            add(paragraph, "knowledge", gloss=gloss, written_at=chunk.written_at)
+            add(_flat(paragraph), "knowledge", gloss=gloss, written_at=chunk.written_at)
     return out
+
+
+_ENDS_CLAUSE: Final = re.compile(r"[.:;,?!।]$")
+
+
+def _flat(paragraph: str) -> str:
+    """A paragraph's lines as one line the model reads as separate statements: a line with
+    no closing mark gets a full stop, so "App address: x" and "Support: y" do not run
+    together into "x Support". A section's title line already ends in its colon."""
+    lines = [line.strip() for line in paragraph.split("\n") if line.strip()]
+    return " ".join(
+        line if n == len(lines) - 1 or _ENDS_CLAUSE.search(line) else f"{line}."
+        for n, line in enumerate(lines)
+    )
 
 
 async def gather_candidates(session: AsyncSession, *, tenant_id: UUID) -> list[Candidate]:

@@ -351,8 +351,25 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
+/** A guide whose call behaviour was kept out of the knowledge (`kb/structured_text.py`). */
+const GUIDE_UPLOAD = {
+  id: "u-guide",
+  source_id: "s-guide",
+  name: "Calling guide.md",
+  source_kind: "txt",
+  ingest_status: "processed",
+  review_state: "approved",
+  is_live: true,
+  version: 2,
+  call_instructions: [
+    { section: "If he says he is busy", text: "Ask when to call back." },
+    { section: "How the agent should speak", text: "Say who you are and ask whether now is a good time." },
+  ],
+};
+
 /** What the Training tab reads besides the screen's own: the knowledge, tests and wallet. */
 const TRAINING_READS = {
+  "/v1/kb/uploads": [GUIDE_UPLOAD],
   "/v1/kb/knows": {
     facts: [
       { id: "f1", text: "We deliver in Kukatpally.", pinned: false, origin: "taught", created_at: "2026-10-10T09:00:00Z" },
@@ -2443,15 +2460,35 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
     const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
     const panel = heading.closest("details") as HTMLElement;
     await within(panel).findAllByText("Red chilli powder is ₹120 for 250 g.");
-    // Folded to one line (D-893 §6): files and links are counted, never claimed as known,
-    // because a PDF's or a link's words do not reach the agents yet (D-868).
-    expect(panel.textContent).toContain("2 facts, 1 file or link");
+    // Folded to one line (D-893 §6), counted as the Knowledge page counts it: two facts, one
+    // file and one thing the business offers.
+    expect(panel.textContent).toContain("4 things");
     const facts = within(within(panel).getAllByRole("list")[0]!)
       .getAllByRole("listitem")
       .map((row) => row.textContent);
     expect(facts).toEqual(["Red chilli powder is ₹120 for 250 g.", "We deliver in Kukatpally."]);
     const link = within(panel).getByRole("link", { name: /Open What your agents know/ });
     expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
+  });
+
+  it("offers a file's call instructions to this agent's script, never as facts", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        ...TRAINING_READS,
+        "POST /v1/kb/uploads/u-guide/call-instructions/use": { agents: 1, skipped: 0 },
+      }),
+    );
+
+    const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
+    const panel = heading.closest("details") as HTMLElement;
+    await within(panel).findByText("2 call instructions in Calling guide.md. Not used as facts.");
+    fireEvent.click(within(panel).getByRole("button", { name: "Use in Reception's script" }));
+    await waitFor(() => {
+      const sent = calls.find((call) => call.path === "/v1/kb/uploads/u-guide/call-instructions/use");
+      expect(sent?.method).toBe("POST");
+      expect(JSON.parse(sent?.body ?? "{}")).toEqual({ agent_id: "agent-1" });
+    });
   });
 
   it("says which facts this agent knows by heart and how many it looks up (D-896)", async () => {
@@ -2839,7 +2876,7 @@ describe("progressive disclosure defaults", () => {
     await renderClientPage(page, routes(TRAINING_READS));
     await screen.findByRole("heading", { level: 3, name: "What it knows" });
     expect(disclosed("What it knows")).toBe(true);
-    expect(await screen.findByText("2 facts, 1 file or link")).toBeTruthy();
+    expect(await screen.findByText("4 things")).toBeTruthy();
   });
 
   it("states the tier in force on the Model section before any option", async () => {

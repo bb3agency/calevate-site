@@ -24,6 +24,7 @@ import {
 } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
 
+import { CallInstructions } from "./CallInstructions";
 import { ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, isReadCopy, reachesAgents, uploadState } from "./uploadCopy";
 
 /**
@@ -101,6 +102,7 @@ export function ReaderDrawer({
       <div className="space-y-4">
         <RestrictionNote reason={write.allowed ? null : write.reason} />
         <p className="text-meta text-ink-muted [text-wrap:pretty]">{state.meaning}</p>
+        <CallInstructions upload={upload} />
         {renaming ? <RenameForm upload={upload} onDone={() => setRenaming(false)} /> : null}
         {replacing ? <ReplaceFile upload={upload} onDone={onClose} /> : null}
 

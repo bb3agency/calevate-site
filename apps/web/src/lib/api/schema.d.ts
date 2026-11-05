@@ -10334,6 +10334,26 @@ export interface paths {
         patch: operations["rename_upload_v1_kb_uploads__upload_id__patch"];
         trace?: never;
     };
+    "/v1/kb/uploads/{upload_id}/call-instructions/use": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Write a file's call instructions into agents' call scripts, as a suggestion
+         * @description Queues a script suggestion written from this file, its call instructions included, for one agent or every agent. Nothing changes on a live agent: the owner keeps or discards the suggestion on the agent's Script page.
+         */
+        post: operations["use_call_instructions_v1_kb_uploads__upload_id__call_instructions_use_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/kb/uploads/{upload_id}/confirm": {
         parameters: {
             query?: never;
@@ -17112,6 +17132,13 @@ export interface components {
              * @enum {string}
              */
             outcome: "converted" | "interested" | "callback" | "promise_to_pay" | "not_interested" | "no_decision" | "wrong_person" | "do_not_call";
+        };
+        /** CallInstructionOut */
+        CallInstructionOut: {
+            /** Section */
+            section?: string | null;
+            /** Text */
+            text: string;
         };
         /**
          * CallLeadIn
@@ -35838,6 +35865,8 @@ export interface components {
         UploadOut: {
             /** Byte Size */
             byte_size?: number | null;
+            /** Call Instructions */
+            call_instructions?: components["schemas"]["CallInstructionOut"][];
             /** Change Detected At */
             change_detected_at?: string | null;
             /** Created At */
@@ -36024,6 +36053,18 @@ export interface components {
             days_remaining: number | null;
             /** Ends At */
             ends_at: string | null;
+        };
+        /** UseInstructionsIn */
+        UseInstructionsIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+        };
+        /** UseInstructionsOut */
+        UseInstructionsOut: {
+            /** Agents */
+            agents: number;
+            /** Skipped */
+            skipped: number;
         };
         /** VariableSuggestion */
         VariableSuggestion: {
@@ -56363,6 +56404,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    use_call_instructions_v1_kb_uploads__upload_id__call_instructions_use_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UseInstructionsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UseInstructionsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

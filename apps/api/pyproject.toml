@@ -53,6 +53,14 @@ dependencies = [
     # transitive dependencies of its own and declares no build or install hook; Apache-2.0;
     # latest release 0.0.32 (pypi.org/pypi/python-multipart/json, read 4 Sep 2026).
     "python-multipart>=0.0.20",
+    # A CommonMark parser for the Markdown a client uploads as knowledge
+    # (`kb/structured_text.py`): headings, emphasis, links, lists and GFM tables read as
+    # structure rather than stripped by line patterns. Already locked at 4.2.0 as
+    # import-linter's (via rich) dependency, so the lockfile gains no package: only this
+    # member's dependency edge. Pure Python, no build or install hook; MIT; one dependency,
+    # `mdurl` (also already locked); maintained by executablebooks
+    # (github.com/executablebooks/markdown-it-py, read 5 Nov 2026).
+    "markdown-it-py>=4.0",
 ]
 
 # Virtual member: run from the repo root as `apps.api.main:app`, never installed.
