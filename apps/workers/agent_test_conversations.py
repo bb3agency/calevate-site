@@ -375,7 +375,6 @@ async def new_test_set(
             s
             for s in specimen_scenarios(
                 language,
-                brief.business_type,
                 round_key=round_key,
                 business_name=brief.business_name,
                 fit=brief.fit,

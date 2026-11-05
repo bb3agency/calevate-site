@@ -7,15 +7,18 @@ agent re-invented the call. The founder's real calls of 20-22 Oct 2026 broke in 
 places every time (`docs/evidence/call-quality-vs-outpero-2026-10-23.md`): a pitch where a
 question belonged, "do you want to know the price?" instead of the price, a half answer
 re-asked or guessed, two questions at once, a close that offered what nothing on the call
-could do. So each trade's call is planned ONCE here, and both readers take it from here:
+could do. So each job's call is planned ONCE here, and both readers take it from here:
 
 * `agents/starters` builds every starter's steps and objections from it;
 * the script writer reads it as guidance (`playbook_guidance`) and adapts it to the owner's
   answers.
 
-A plan is STRUCTURE ONLY, per job and trade: what to ask at each step (one thing a turn), when
-the step is done, where it branches, and the objections that trade really meets, all as English
-instructions to the model. It holds no spoken words (D-962, founder, 2 Nov 2026): every step
+A plan is STRUCTURE ONLY, per job: what to ask at each step (one thing a turn), when the step
+is done, where it branches, and the objections any business meets in that job, all as English
+instructions to the model. What is particular to the business (the topics its value step
+looks for, the objections its callers raise) comes from its own copy (`BusinessFit`), never
+from a table by business type: one filed under the wrong type got another trade's objections
+(A-18). It holds no spoken words (D-962, founder, 2 Nov 2026): every step
 used to carry an example line in Telugu, Hindi and English, the same for every business of a
 type, and a calling plan's "you enquired with us earlier" reached a caller with nothing on the
 call saying so. What a step sounds like is written per business: by the script writer from the
@@ -23,9 +26,9 @@ owner's words, or by the business copy for a ready-made script (`agents/starters
 lines survive only in `agents/retired_lines`, to be found and refused.
 
 A NEW JOB SLOTS IN AS ONE ENTRY. `JOB_SHAPES` maps a job to the function that builds its
-steps from a `TradeWords`; a third job ("call my list" beside "call new leads") is a
-new key there and in `_JOB_OBJECTIONS`, or an alias of an existing shape, and the coverage
-test then demands a plan for every trade.
+steps from the starter's basics and the business's fit; a third job ("call my list" beside
+"call new leads") is a new key there and in `_JOB_OBJECTIONS`, or an alias of an existing
+shape, and the coverage test then demands a plan for every starter.
 """
 
 from __future__ import annotations
@@ -38,9 +41,6 @@ from apps.api.agents.business_fit import UNKNOWN, BusinessFit
 
 if TYPE_CHECKING:
     from apps.api.agents.starter_plans import Plan
-
-#: The business type a plan falls back to: never the clinic (D-722).
-NEUTRAL_TRADE: Final = "custom"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +63,6 @@ NEXT_STEP_TITLE: Final = "Agree the next step"
 
 @dataclass(frozen=True, slots=True)
 class Playbook:
-    trade: str
     job: str
     steps: tuple[PlayStep, ...]
     #: (what the caller says, what the agent does), in plain English.
@@ -85,17 +84,6 @@ class TradeBasics(Protocol):
     #: The one thing this trade's agent must never do, as an instruction.
     @property
     def caution(self) -> str: ...
-
-
-@dataclass(frozen=True, slots=True)
-class TradeWords:
-    """What one trade puts into every job's plan beyond its `TradeBasics`."""
-
-    #: What a lead of this trade usually wants to know, for the value step (D-945): where to
-    #: look in the owner's facts, never a fact itself.
-    value_topics: str
-    #: The one objection this trade meets beyond the job's own.
-    objection: tuple[str, str]
 
 
 #: The rest of the close (what happens next, anything else, one goodbye) is HOW TO SPEAK's.
@@ -197,10 +185,7 @@ def _offer_or_next_step(step: PlayStep, fit: BusinessFit, instruction: str) -> P
     )
 
 
-def _answer_calls(
-    basics: TradeBasics, words: TradeWords, fit: BusinessFit = UNKNOWN
-) -> tuple[PlayStep, ...]:
-    del words  # every job's shape takes the trade's words; answering needs none of them
+def _answer_calls(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[PlayStep, ...]:
     return (
         PlayStep(
             title="Find out what they need",
@@ -237,9 +222,7 @@ def _answer_calls(
     )
 
 
-def _call_leads(
-    basics: TradeBasics, words: TradeWords, fit: BusinessFit = UNKNOWN
-) -> tuple[PlayStep, ...]:
+def _call_leads(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[PlayStep, ...]:
     return (
         PlayStep(
             title="Check it is a good time",
@@ -270,7 +253,7 @@ def _call_leads(
             title=VALUE_STEP_TITLE,
             instruction=(
                 "Say ONE fact from your facts that answers what they just told you, in one "
-                f"sentence (for this business, often {words.value_topics}). Never a discount, "
+                f"sentence (for this business, often {value_topics(fit)}). Never a discount, "
                 "scheme, offer, urgency or a claim like best; about other customers only when "
                 "a fact says so. No fact fits? Skip this step."
             ),
@@ -304,12 +287,10 @@ def _call_leads(
     )
 
 
-def _call_new_leads(
-    basics: TradeBasics, words: TradeWords, fit: BusinessFit = UNKNOWN
-) -> tuple[PlayStep, ...]:
+def _call_new_leads(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[PlayStep, ...]:
     """The list's shape step for step, so a business's example lines fit both jobs; only the
     needs step knows the enquiry may be minutes old."""
-    steps = list(_call_leads(basics, words, fit))
+    steps = list(_call_leads(basics, fit))
     steps[2] = PlayStep(
         title="Find out what they need",
         instruction=(
@@ -335,7 +316,7 @@ _NEW_LEADS_OBJECTIONS: Final[tuple[_Tagged, ...]] = (
     ),
 )
 
-Shape = Callable[[TradeBasics, TradeWords, BusinessFit], tuple[PlayStep, ...]]
+Shape = Callable[[TradeBasics, BusinessFit], tuple[PlayStep, ...]]
 
 #: Each job's step shape. A new job is a new key (or an alias of a shape).
 JOB_SHAPES: Final[Mapping[str, Shape]] = {
@@ -351,81 +332,16 @@ _JOB_OBJECTIONS: Final[Mapping[str, tuple[_Tagged, ...]]] = {
 }
 
 
-TRADE_WORDS: Final[Mapping[str, TradeWords]] = {
-    "clinic": TradeWords(
-        value_topics="the doctor's specialty, the clinic's timings and where it is",
-        objection=(
-            "Can you tell me what medicine to take?",
-            "Say you cannot advise on medicines and offer an appointment; for an emergency, "
-            "ask them to go to the nearest hospital.",
-        ),
-    ),
-    "real_estate": TradeWords(
-        value_topics="the project's location, possession date, approvals and the sizes on offer",
-        objection=(
-            "The prices are too high.",
-            "Do not argue or quote a figure; offer that the team shares options in their "
-            "budget, or a site visit.",
-        ),
-    ),
-    "insurance": TradeWords(
-        value_topics="what the policy covers, the claim process and who the insurer is",
-        objection=(
-            "I already have a policy.",
-            "Say that is fine and ask once whether they want it compared at renewal; if not, "
-            "thank them and close.",
-        ),
-    ),
-    "education": TradeWords(
-        value_topics="the course, its duration, the batch timings and where classes are held",
-        objection=(
-            "The fees are too high.",
-            "Do not argue or quote a figure your facts do not give; offer a counselling "
-            "session where the team explains the options.",
-        ),
-    ),
-    "retail": TradeWords(
-        value_topics="what is in stock, delivery areas and how to pay",
-        objection=(
-            "It is cheaper somewhere else.",
-            "Do not argue; say what your facts say about the product in one line, then ask "
-            "if they want to order.",
-        ),
-    ),
-    "local_services": TradeWords(
-        value_topics="the areas served, how soon someone can come and what the visit covers",
-        objection=(
-            "I want a particular person.",
-            "Say the team will check that person's day and confirm; never promise them.",
-        ),
-    ),
-    "automobile": TradeWords(
-        value_topics="the service centre's location, what the service covers and pick-up",
-        objection=(
-            "How much will the repair cost?",
-            "Say the cost is known after an inspection and offer one; never guess a figure.",
-        ),
-    ),
-    NEUTRAL_TRADE: TradeWords(
-        value_topics="what the business does and where it is",
-        objection=(
-            "Can you just tell me the price?",
-            "Say it if your facts have it; if not, say you do not have it and the team will "
-            "confirm.",
-        ),
-    ),
-}
-
-
-def neutral_words(fit: BusinessFit) -> TradeWords:
-    """The "something else" row, fitted to what the business is judged to do: "where it is"
-    only for a business callers are judged to visit. Its objection, which asks a price, is used
-    only for a business judged to quote prices while no copy has named its own
-    (`objections_for`)."""
-    row = TRADE_WORDS[NEUTRAL_TRADE]
+def value_topics(fit: BusinessFit) -> str:
+    """Where the value step looks in the owner's facts: what this business's own copy says
+    its callers ask about (`StarterWords.topics`), else what it does, and where it is only
+    for a business callers are judged to visit. Never a trade's topics: a table by business
+    type gave a business filed under the wrong type another trade's (A-18)."""
+    if fit.words is not None and fit.words.topics.strip():
+        return fit.words.topics.strip()
     if fit.assumes_premises:
-        return row
-    return TradeWords(value_topics="what the business does", objection=row.objection)
+        return "what the business does and where it is"
+    return "what the business does"
 
 
 def _fits(assumes: str, fit: BusinessFit) -> bool:
@@ -438,37 +354,24 @@ def _fits(assumes: str, fit: BusinessFit) -> bool:
     return True
 
 
-def objections_for(
-    job: str, words: TradeWords, fit: BusinessFit = UNKNOWN
-) -> tuple[tuple[str, str], ...]:
-    """The job's objections that fit the business, then the business's own: the ones its
-    copy names (`BusinessFit.objections`, the caller's words in its call language), or the
-    trade's one objection while no copy has named any."""
-    if fit.objections is not None:
-        own = fit.objections
-    elif words.objection == TRADE_WORDS[NEUTRAL_TRADE].objection and not fit.assumes_prices:
-        own = ()
-    else:
-        own = (words.objection,)
+def objections_for(job: str, fit: BusinessFit = UNKNOWN) -> tuple[tuple[str, str], ...]:
+    """The job's objections that fit the business, then the ones its own copy names
+    (`BusinessFit.objections`, the caller's words in its call language). None of a trade's:
+    until the copy is written the job's own, which any business meets, are all there is."""
     return (
         *((said, does) for said, does, assumes in _JOB_OBJECTIONS[job] if _fits(assumes, fit)),
-        *own,
+        *(fit.objections or ()),
     )
 
 
-def playbook_for(
-    trade: str | None, job: str, basics: TradeBasics, fit: BusinessFit = UNKNOWN
-) -> Playbook:
-    """The plan for this trade and job, worded with `basics` and fitted to what the business
-    does (`fit`); an unknown trade gets the neutral lines. An unknown job is a `KeyError`: a
-    job without a shape is a defect, not a fallback."""
-    key = trade if trade is not None and trade in TRADE_WORDS else NEUTRAL_TRADE
-    words = neutral_words(fit) if key == NEUTRAL_TRADE else TRADE_WORDS[key]
+def playbook_for(job: str, basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> Playbook:
+    """The plan for this job, worded with `basics` and fitted to what the business does
+    (`fit`). An unknown job is a `KeyError`: a job without a shape is a defect, not a
+    fallback."""
     return Playbook(
-        trade=key,
         job=job,
-        steps=JOB_SHAPES[job](basics, words, fit),
-        objections=objections_for(job, words, fit),
+        steps=JOB_SHAPES[job](basics, fit),
+        objections=objections_for(job, fit),
     )
 
 
@@ -498,7 +401,7 @@ def playbook_guidance(
     blocks: list[str] = []
     value_title = VALUE_STEP_TITLE
     for job in _JOBS_OF_DIRECTION.get(direction, ("answer_calls",)):
-        plan = playbook_for(vertical, job, trade_for(vertical, fit), fit)
+        plan = playbook_for(job, trade_for(vertical, fit), fit)
         mine = (plans or {}).get(job)
         if mine is not None and len(mine) == len(plan.steps):
             lines = [
@@ -536,16 +439,13 @@ def playbook_guidance(
 
 __all__ = [
     "JOB_SHAPES",
-    "NEUTRAL_TRADE",
     "NEXT_STEP_TITLE",
-    "TRADE_WORDS",
     "VALUE_STEP_TITLE",
     "PlayStep",
     "Playbook",
     "TradeBasics",
-    "TradeWords",
-    "neutral_words",
     "objections_for",
     "playbook_for",
     "playbook_guidance",
+    "value_topics",
 ]

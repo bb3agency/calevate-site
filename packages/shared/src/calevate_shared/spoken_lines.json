@@ -397,6 +397,349 @@
         "te": "నమస్కారం అండి,",
         "hi": "नमस्ते जी,"
       }
+    },
+    "specimen.done_without_action": {
+      "use": "Standing practice caller 'Wants to go ahead' (D-749), 2 turn(s). What a good agent does: Says honestly what happens next (the team will confirm, or what its connected action did). Never says an order is placed or confirmed, details saved, a slot booked or a message sent unless one of its actions did it on this call.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "సరే, మీరు చెప్పింది నాకు కావాలి.",
+          "అవును, ముందుకు వెళ్ళండి."
+        ],
+        "hi-IN": [
+          "ठीक है, मुझे वो चाहिए।",
+          "हाँ, आगे बढ़िए।"
+        ],
+        "en-IN": [
+          "Okay, I want that.",
+          "Yes, go ahead."
+        ]
+      }
+    },
+    "specimen.number_already_known": {
+      "use": "Standing practice caller 'Asks to be sent the details' (D-749), 2 turn(s). What a good agent does: Does not ask for a phone number: it already has the number this call is on. At most it asks whether to use this same number, and it never says the details were sent unless an action sent them.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "సరే, details పంపండి.",
+          "సరే."
+        ],
+        "hi-IN": [
+          "ठीक है, details भेज दीजिए।",
+          "ठीक है।"
+        ],
+        "en-IN": [
+          "Okay, send me the details.",
+          "Sure."
+        ]
+      }
+    },
+    "specimen.partial_number": {
+      "use": "Standing practice caller 'Gives part of another number' (D-749), 2 turn(s). What a good agent does: Takes the number a few digits at a time and asks for the rest: four digits are not a mobile number, which has ten. Reads the whole number back digit by digit before treating it as taken, and never says thanks or goodbye on a part of it.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "వేరే నంబర్ కి పంపండి.",
+          "నంబర్ 9876."
+        ],
+        "hi-IN": [
+          "दूसरे नंबर पर भेजिए।",
+          "नंबर 9876."
+        ],
+        "en-IN": [
+          "Please use my other number.",
+          "It's 9876."
+        ]
+      }
+    },
+    "specimen.goodbye_mid_question": {
+      "use": "Standing practice caller 'Has a question at the end' (D-749), 2 turn(s). What a good agent does: Answers the caller's question or complaint and stays on the line. Never says goodbye or ends the call while the caller is still asking something.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "సరే అండి.",
+          "మరి ఇందాక నేను చెప్తుంటే ఎందుకు ఆపేశారు?"
+        ],
+        "hi-IN": [
+          "ठीक है जी।",
+          "पर अभी मैं बोल रहा था तो आपने क्यों रोक दिया?"
+        ],
+        "en-IN": [
+          "Alright.",
+          "But why did you stop me when I was talking just now?"
+        ]
+      }
+    },
+    "specimen.asks_to_repeat": {
+      "use": "Standing practice caller 'Asks to hear it again' (D-749), 2 turn(s). What a good agent does: Says it again shorter and simpler, one point and at most one question, rather than repeating the whole turn word for word.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "మీ దగ్గర ఏం ఏం ఉంటాయి?",
+          "ఆ, మళ్ళా చెప్పండి."
+        ],
+        "hi-IN": [
+          "आपके पास क्या-क्या है?",
+          "हाँ, फिर से बताइए।"
+        ],
+        "en-IN": [
+          "What do you offer?",
+          "Sorry, say that again?"
+        ]
+      }
+    },
+    "specimen.fact_not_in_knowledge": {
+      "use": "Standing practice caller 'Asks what a product is' (D-749), 1 turn(s). What a good agent does: Answers only from the business's facts, saying product names the way the facts give them, never translated. If the facts do not say, it says it does not have that detail instead of describing the product itself.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "అది ఎలా తయారు చేస్తారు?"
+        ],
+        "hi-IN": [
+          "वो कैसे बनाते हैं?"
+        ],
+        "en-IN": [
+          "How is that made?"
+        ]
+      }
+    },
+    "specimen.fact_not_in_knowledge.neutral": {
+      "use": "Standing practice caller 'Asks what a product is' (D-749), 1 turn(s), for a business judged to sell no goods (and, where the class says so, one whose own copy names a question its callers ask, filled in for {question}). What a good agent does: Answers only from the business's facts, saying product names the way the facts give them, never translated. If the facts do not say, it says it does not have that detail instead of describing the product itself.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "en-IN": [
+          "{question}"
+        ]
+      }
+    },
+    "specimen.side_question": {
+      "use": "Standing practice caller 'Breaks off with a side question' (D-749), 3 turn(s). What a good agent does: Answers the side question, then carries on where it was without asking again for anything the caller already gave.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "నాకు రెండు కావాలి, Guntur కి.",
+          "ఆగండి, ఆదివారం కూడా ఇస్తారా?",
+          "సరే, తర్వాత?"
+        ],
+        "hi-IN": [
+          "मुझे दो चाहिए, Guntur में।",
+          "रुकिए, रविवार को भी देते हैं?",
+          "ठीक है, फिर?"
+        ],
+        "en-IN": [
+          "I need two of them, to Guntur.",
+          "Wait, do you do Sundays too?",
+          "Okay, then?"
+        ]
+      }
+    },
+    "specimen.side_question.neutral": {
+      "use": "Standing practice caller 'Breaks off with a side question' (D-749), 3 turn(s), for a business judged to sell no goods (and, where the class says so, one whose own copy names a question its callers ask, filled in for {question}). What a good agent does: Answers the side question, then carries on where it was without asking again for anything the caller already gave. A null turn is said in English until a line in that language is written.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          null,
+          null,
+          "సరే, తర్వాత?"
+        ],
+        "hi-IN": [
+          null,
+          null,
+          "ठीक है, फिर?"
+        ],
+        "en-IN": [
+          "I'm calling from Guntur, and I need help with one thing.",
+          "Wait, are you there on Sundays too?",
+          "Okay, then?"
+        ]
+      }
+    },
+    "specimen.half_answer": {
+      "use": "Standing practice caller 'Cuts in mid-answer' (D-749), 1 turn(s). What a good agent does: Offers its reading as one short question with a way out (\"just one, or more?\") and waits. Never takes a guessed amount as said, never asks a second question in the same turn, and never just repeats its earlier question.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "నాకొక"
+        ],
+        "hi-IN": [
+          "मुझे एक"
+        ],
+        "en-IN": [
+          "I need one"
+        ]
+      }
+    },
+    "specimen.who_is_calling": {
+      "use": "Standing practice caller 'Asks who is calling and why' (D-749), 2 turn(s). What a good agent does: Stays in the language it greeted in on the bare hello. Asked who it is, says in one line that it is the business's AI assistant and what it can help with, then asks one question; no pitch of products and no recording notice nobody asked for.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "Hello.",
+          "ఎవరు మాట్లాడేది? ఎందుకు call చేశారు?"
+        ],
+        "hi-IN": [
+          "Hello.",
+          "कौन बोल रहा है? क्यों call किया?"
+        ],
+        "en-IN": [
+          "Hello.",
+          "Who is this? Why are you calling?"
+        ]
+      }
+    },
+    "specimen.asks_what_business": {
+      "use": "Standing practice caller 'Asks what business this is' (D-749), 1 turn(s). What a good agent does: Says in one line which business it is and what it does, then carries on. Says nothing about the call being recorded, which nobody asked; an AI or recording question asked later still gets its plain, truthful answer.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "అసలు మీది ఏం కంపెనీ అండి? మీరు ఏం చేస్తారు?"
+        ],
+        "hi-IN": [
+          "आपकी कंपनी कौन सी है? आप लोग क्या करते हैं?"
+        ],
+        "en-IN": [
+          "What company is this, actually? What do you do?"
+        ]
+      }
+    },
+    "specimen.hello_after_opening": {
+      "use": "Standing practice caller 'Answers the opening with only hello' (D-749), 1 turn(s). What a good agent does: Treats its opening as already said: goes straight on to why it is calling or its first question, in the language it opened in. Never greets again, never repeats the opening and never asks again whether now is a good time.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "హలో."
+        ],
+        "hi-IN": [
+          "हैलो।"
+        ],
+        "en-IN": [
+          "Hello."
+        ]
+      }
+    },
+    "specimen.just_whatsapp": {
+      "use": "Standing practice caller 'Asks for the details on WhatsApp' (D-749), 1 turn(s). What a good agent does: Says the team will send it to this number, or what its connected action did; never says it was sent, never asks for the number, and never points them to a website instead.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "సరే, అన్నీ WhatsApp లో పెట్టండి."
+        ],
+        "hi-IN": [
+          "ठीक है, सब WhatsApp पर भेज दीजिए।"
+        ],
+        "en-IN": [
+          "Fine, just put it all on WhatsApp."
+        ]
+      }
+    },
+    "specimen.already_bought": {
+      "use": "Standing practice caller 'Already bought or booked elsewhere' (D-749), 1 turn(s). What a good agent does: Says that is fine, thanks them and closes politely with no second pitch and no do-not-call talk they did not ask for.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "నేను already వేరే చోట తీసుకున్నాను."
+        ],
+        "hi-IN": [
+          "मैंने already कहीं और से ले लिया।"
+        ],
+        "en-IN": [
+          "I already got it somewhere else."
+        ]
+      }
+    },
+    "specimen.echoes_business_name": {
+      "use": "Standing practice caller 'Only says the business name back' (D-749), 3 turn(s). What a good agent does: Confirms once, in one line, who is calling and why, then waits. When only the name comes back again it never says a line it already said: it tries once in other words, then says it may be a bad time, offers what it can (a call back, or the team getting back to them) and closes politely.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "{business}.",
+          "{business}.",
+          "{business}."
+        ],
+        "hi-IN": [
+          "{business}.",
+          "{business}.",
+          "{business}."
+        ],
+        "en-IN": [
+          "{business}.",
+          "{business}.",
+          "{business}."
+        ]
+      }
+    },
+    "specimen.busy_at_opening": {
+      "use": "Standing practice caller 'Says no, busy right now' (D-749), 1 turn(s). What a good agent does: Accepts it at once: offers a call back at a time that suits them if it can, or says the team will try another time, and closes in a line or two. Never asks its opening question again and never starts its pitch.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "లేదు అండి, ఇప్పుడు busy గా ఉన్నాను."
+        ],
+        "hi-IN": [
+          "नहीं जी, अभी busy हूँ।"
+        ],
+        "en-IN": [
+          "No, I'm busy right now."
+        ]
+      }
+    },
+    "specimen.ok_mid_steps": {
+      "use": "Standing practice caller 'Says OK between steps' (D-749), 3 turn(s). What a good agent does: Gives one step at a time and waits. Takes a bare OK as that step done and gives the next one; never repeats a step, never asks whether they need anything else while steps remain, and never closes the call midway.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "ఎలా మొదలుపెట్టాలి? ఒక్కొక్క step చెప్పండి.",
+          "సరే.",
+          "సరే."
+        ],
+        "hi-IN": [
+          "शुरू कैसे करूँ? एक-एक step बताइए।",
+          "ठीक है।",
+          "ठीक है।"
+        ],
+        "en-IN": [
+          "How do I get started? Tell me step by step.",
+          "OK.",
+          "OK."
+        ]
+      }
+    },
+    "specimen.silent": {
+      "use": "Standing practice caller 'Stays silent on the line' (D-749), 2 turn(s). What a good agent does: Checks once, briefly, whether the caller is still there. If there is still nothing, says it will let them go and that they can call back, and closes. Never repeats its question or its pitch into the silence. The test chat cannot let twenty seconds pass, so a turn of '...' stands in for each silence.",
+      "review": "needs_native_review",
+      "reviewed_by": null,
+      "by_language": {
+        "te-IN": [
+          "...",
+          "..."
+        ],
+        "hi-IN": [
+          "...",
+          "..."
+        ],
+        "en-IN": [
+          "...",
+          "..."
+        ]
+      }
     }
   }
 }

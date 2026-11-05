@@ -508,13 +508,11 @@ _CALL_LEADS_ENDING: Final = (
 )
 
 
-def _planned_steps(
-    vertical: str, job: StarterJob, trade: Trade, fit: BusinessFit
-) -> tuple[StarterStep, ...]:
-    """The starter's steps from the trade's plan (D-856, `trade_playbooks`)."""
+def _planned_steps(job: StarterJob, trade: Trade, fit: BusinessFit) -> tuple[StarterStep, ...]:
+    """The starter's steps from its job's plan (D-856, `trade_playbooks`)."""
     return tuple(
         StarterStep(step.title, step.instruction, step.exit_when)
-        for step in playbook_for(vertical, job, trade, fit).steps
+        for step in playbook_for(job, trade, fit).steps
     )
 
 
@@ -572,8 +570,8 @@ def _answer_calls(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
         ),
         goal=goal,
         outbound_purpose="",
-        steps=_planned_steps(vertical, "answer_calls", trade, fit),
-        objections=playbook_for(vertical, "answer_calls", trade, fit).objections,
+        steps=_planned_steps("answer_calls", trade, fit),
+        objections=playbook_for("answer_calls", trade, fit).objections,
         ending=_ENDING,
     )
 
@@ -598,8 +596,8 @@ def _call_leads(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
         identity="You place calls for {business}. You are polite, brief and never pushy.",
         goal=_calling_goal(trade, fit, "Find out whether they are interested and, if they are,"),
         outbound_purpose=_CALLING_PURPOSE,
-        steps=_planned_steps(vertical, "call_leads", trade, fit),
-        objections=playbook_for(vertical, "call_leads", trade, fit).objections,
+        steps=_planned_steps("call_leads", trade, fit),
+        objections=playbook_for("call_leads", trade, fit).objections,
         ending=_CALL_LEADS_ENDING,
     )
 
@@ -622,8 +620,8 @@ def _call_new_leads(vertical: str, trade: Trade, fit: BusinessFit) -> Starter:
         ),
         goal=_calling_goal(trade, fit, "Help with what they need and, if they are interested,"),
         outbound_purpose=_CALLING_PURPOSE,
-        steps=_planned_steps(vertical, "call_new_leads", trade, fit),
-        objections=playbook_for(vertical, "call_new_leads", trade, fit).objections,
+        steps=_planned_steps("call_new_leads", trade, fit),
+        objections=playbook_for("call_new_leads", trade, fit).objections,
         ending=_CALL_LEADS_ENDING,
     )
 

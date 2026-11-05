@@ -113,10 +113,6 @@ INDIC_ALLOWED: dict[str, tuple[int, str]] = {
         13,
         "Unicode ranges naming each Indian script's block, not words",
     ),
-    "apps/api/agents/specimen_scenarios.py": (
-        50,
-        "per-type practice callers (G2-8): to move to the founder's data file",
-    ),
 }
 
 
