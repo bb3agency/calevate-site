@@ -34,6 +34,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import agent_pass
+from apps.api.agents.agent_pass import dead_sql
 from apps.api.agents.models import CALLER_HELP_ITEMS
 from apps.api.core.errors import ProblemError
 
@@ -100,7 +101,7 @@ class CallerHelpState:
 
 _SELECT: Final = (
     "SELECT caller_help, caller_help_state, caller_help_at, caller_help_dismissed, "
-    f"caller_has_screen, {SLOT.dead_sql()} FROM agents WHERE id = :aid AND deleted_at IS NULL"
+    f"caller_has_screen, {dead_sql(SLOT)} FROM agents WHERE id = :aid AND deleted_at IS NULL"
 )
 
 

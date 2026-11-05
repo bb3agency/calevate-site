@@ -70,6 +70,7 @@ from apps.api.campaigns import service
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, get_engine, tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
+from apps.api.tenancy.models import CALL_LINES_MAX
 from apps.workers import callbacks as callback_worker
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
@@ -866,6 +867,12 @@ async def test_two_campaigns_in_one_tenant_still_share_one_tenant_budget(
                 "created_at, updated_at) VALUES (:id, :tid, 3, now(), now(), now())"
             ),
             {"id": uuid7(), "tid": tenant_id},
+        )
+        # The account's own call lines (2 by default) also cap a tick; at their most, the
+        # plan's 3 is the ceiling under test.
+        await session.execute(
+            text("UPDATE organizations SET call_lines = :n WHERE id = :t"),
+            {"n": CALL_LINES_MAX, "t": tenant_id},
         )
     first = await _running_campaign(tenant_id, agent_id, concurrency=3, contacts=5)
     second = await _running_campaign(tenant_id, agent_id, concurrency=3, contacts=5)

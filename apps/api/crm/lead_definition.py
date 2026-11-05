@@ -27,7 +27,10 @@ from apps.api.crm.schemas import LeadStatus
 #: The statuses that make a contact a lead.
 LEAD_BAND: Final[tuple[LeadStatus, ...]] = ("interested", "hot", "won")
 
-_BAND_SQL: Final = repr(LEAD_BAND)
+#: Built by joining quoted literals rather than `repr(LEAD_BAND)`: the same text, but one
+#: `scripts/check_raw_sql.py` can trace to literals in this file, where `repr()` of a value
+#: is text it cannot vouch for.
+_BAND_SQL: Final = "(" + ", ".join(f"'{status}'" for status in LEAD_BAND) + ")"
 
 #: Every lead of the session's account, one row each: `id`, `agent_id`, `first_call_id`,
 #: `status`, `became_lead_at`. A derived table: `FROM {BECAME_LEADS_SQL} AS bl WHERE

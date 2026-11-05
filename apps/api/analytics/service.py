@@ -238,7 +238,14 @@ _GROUP_KEYS: Final[dict[str, str]] = {
     "outcome": _OUTCOME_KEY,
     "business_outcome": OUTCOME_GROUP_SQL.format(platform=_OUTCOME_KEY),
 }
-_GROUP_SOURCES: Final[dict[str, str]] = {"business_outcome": OUTCOME_SOURCE_SQL}
+#: Whose word each grouping's key is; NULL where the question does not arise. Every group is a
+#: key, so the read below subscripts rather than `.get()`s: `scripts/check_raw_sql.py` traces a
+#: subscript of literals and cannot vouch for a method call's default.
+_GROUP_SOURCES: Final[dict[str, str]] = {
+    "agent": "NULL",
+    "outcome": "NULL",
+    "business_outcome": OUTCOME_SOURCE_SQL,
+}
 
 _DURATIONS_FROM = (
     "FROM calls c WHERE c.status = 'completed' AND c.duration_s IS NOT NULL "
@@ -250,7 +257,7 @@ _DURATIONS_FROM = (
 
 def _durations_totals_sql(group_by: str) -> str:
     key = _GROUP_KEYS[group_by]
-    source = _GROUP_SOURCES.get(group_by, "NULL")
+    source = _GROUP_SOURCES[group_by]
     return (
         f"SELECT {key} AS key, count(*) AS n, "
         "percentile_disc(0.5) WITHIN GROUP (ORDER BY c.duration_s) AS median_s, "

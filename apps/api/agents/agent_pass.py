@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.db.transition import _identifier
 from apps.api.reliability.service import enqueue_outbox
 
 #: A pass `queued` or `running` longer than this has no live job behind it (a worker killed
@@ -47,11 +48,25 @@ class PassSlot:
     def inputs(self) -> str:
         return f"{self.column}_inputs"
 
-    def dead_sql(self) -> str:
-        return (
-            f"({self.state} IN ('queued', 'running') AND {self.at} < "
-            f"now() - interval '{STALE_MINUTES} minutes')"
-        )
+
+def _on_slot(slot: PassSlot, sql: str) -> str:
+    """`sql` with `{state}`, `{at}`, `{inputs}` and `{dead}` filled from the slot's columns.
+
+    Each column goes through `_identifier()` here, so the promise in `PassSlot`'s docstring is
+    checked at runtime and `scripts/check_raw_sql.py` can see it was: an attribute read such as
+    `slot.state` is text that check cannot trace to a literal."""
+    state = _identifier(slot.state, "pass state column")
+    at = _identifier(slot.at, "pass time column")
+    inputs = _identifier(slot.inputs, "pass inputs column")
+    dead = (
+        f"({state} IN ('queued', 'running') AND {at} < now() - interval '{STALE_MINUTES} minutes')"
+    )
+    return sql.format(state=state, at=at, inputs=inputs, dead=dead)
+
+
+def dead_sql(slot: PassSlot) -> str:
+    """True in SQL for a pass `queued` or `running` past `STALE_MINUTES`: no live job behind it."""
+    return _on_slot(slot, "{dead}")
 
 
 async def queue(
@@ -65,16 +80,20 @@ async def queue(
     on the row, not the job, because a pass already queued is the one that runs."""
     if force:
         await session.execute(
-            text(f"UPDATE agents SET {slot.inputs} = NULL WHERE id = :aid"), {"aid": agent_id}
+            text(_on_slot(slot, "UPDATE agents SET {inputs} = NULL WHERE id = :aid")),
+            {"aid": agent_id},
         )
     prev = (
         await session.execute(
             text(
-                f"WITH prev AS (SELECT {slot.state} AS state, {slot.dead_sql()} AS dead "
-                "  FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE) "
-                f"UPDATE agents a SET {slot.state} = 'queued', {slot.at} = now() FROM prev "
-                "WHERE a.id = :aid AND (prev.state IS DISTINCT FROM 'queued' OR prev.dead) "
-                "RETURNING prev.state, prev.dead"
+                _on_slot(
+                    slot,
+                    "WITH prev AS (SELECT {state} AS state, {dead} AS dead "
+                    "  FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE) "
+                    "UPDATE agents a SET {state} = 'queued', {at} = now() FROM prev "
+                    "WHERE a.id = :aid AND (prev.state IS DISTINCT FROM 'queued' OR prev.dead) "
+                    "RETURNING prev.state, prev.dead",
+                )
             ),
             {"aid": agent_id},
         )
@@ -102,7 +121,7 @@ async def queue_first(
     """The agent's first pass, once: a no-op when any pass was ever queued for it."""
     state = (
         await session.execute(
-            text(f"SELECT {slot.state} FROM agents WHERE id = :aid"), {"aid": agent_id}
+            text(_on_slot(slot, "SELECT {state} FROM agents WHERE id = :aid")), {"aid": agent_id}
         )
     ).first()
     if state is None or state[0] is not None:
@@ -118,9 +137,12 @@ async def claim(
     row = (
         await session.execute(
             text(
-                f"UPDATE agents SET {slot.state} = 'running', {slot.at} = now(), "
-                f"updated_at = now() WHERE id = :aid AND {slot.state} = 'queued' "
-                f"AND deleted_at IS NULL RETURNING {slot.inputs}"
+                _on_slot(
+                    slot,
+                    "UPDATE agents SET {state} = 'running', {at} = now(), "
+                    "updated_at = now() WHERE id = :aid AND {state} = 'queued' "
+                    "AND deleted_at IS NULL RETURNING {inputs}",
+                )
             ),
             {"aid": agent_id},
         )
@@ -135,8 +157,11 @@ async def finish(
     closed = (
         await session.execute(
             text(
-                f"UPDATE agents SET {slot.state} = :state, {slot.at} = now(), "
-                f"updated_at = now() WHERE id = :aid AND {slot.state} = 'running' RETURNING id"
+                _on_slot(
+                    slot,
+                    "UPDATE agents SET {state} = :state, {at} = now(), "
+                    "updated_at = now() WHERE id = :aid AND {state} = 'running' RETURNING id",
+                )
             ),
             {"state": state, "aid": agent_id},
         )
@@ -150,7 +175,7 @@ async def requeue_if_asked(
 ) -> None:
     again = (
         await session.execute(
-            text(f"SELECT {slot.state} FROM agents WHERE id = :aid"), {"aid": agent_id}
+            text(_on_slot(slot, "SELECT {state} FROM agents WHERE id = :aid")), {"aid": agent_id}
         )
     ).scalar()
     if again == "queued":
@@ -161,6 +186,7 @@ __all__ = [
     "STALE_MINUTES",
     "PassSlot",
     "claim",
+    "dead_sql",
     "enqueue",
     "finish",
     "queue",
