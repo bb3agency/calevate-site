@@ -2,7 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
-import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
+import { FixReview, fixOutcome } from "@/app/c/[slug]/agents/[agentId]/script/PutLive";
+import { EMPTY_SCRIPT, rewrittenOpening, type CallScript, type ScriptProposal } from "@/lib/api/script";
 
 const CURRENT: CallScript = { ...EMPTY_SCRIPT, goal: "Take orders." };
 const PROPOSAL: CallScript = {
@@ -162,5 +163,85 @@ describe("a suggestion reworded before it is kept (D-831)", () => {
     expect(screen.queryByText("Edited by you")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add all 2 to my draft" }));
     expect((onApply.mock.calls[0][0] as CallScript).stages[0].instruction).toBe(STEP.instruction);
+  });
+});
+
+describe("a suggestion that takes something away (A-04)", () => {
+  it("starts a removed step and an emptied part unticked, and says Pip removes them", () => {
+    const onApply = vi.fn();
+    const withStep: CallScript = { ...PROPOSAL, goal: "Take orders.", ending: "Thank them." };
+    render(
+      <ProposalReview
+        current={withStep}
+        proposal={{ ...withStep, stages: [], ending: "", identity: "A calm voice." }}
+        onApply={onApply}
+        onDiscard={() => undefined}
+      />,
+    );
+    expect(screen.getByText("Pip removes this step")).toBeTruthy();
+    expect(screen.getByText("Pip removes this")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 of 3 to my draft" }));
+    const kept = onApply.mock.calls[0][0] as CallScript;
+    expect(kept.identity).toBe("A calm voice.");
+    expect(kept.stages).toHaveLength(1);
+    expect(kept.ending).toBe("Thank them.");
+  });
+});
+
+describe("Fix them first, seen before it is used (A-02, A-15)", () => {
+  const proposal = (script: CallScript): ScriptProposal =>
+    ({
+      id: "p1",
+      mode: "change",
+      status: "ready",
+      base_script: CURRENT,
+      script,
+      unplaced: [],
+      documents: [],
+      request: null,
+      disclosure: null,
+      note: null,
+      requested_at: "2026-11-05T10:00:00Z",
+    }) as unknown as ScriptProposal;
+
+  it("shows each fixed line before and after, and uses it only on the owner's word", () => {
+    const onUse = vi.fn();
+    const fixed = { ...CURRENT, goal: "Take orders, one question at a time." };
+    expect(fixOutcome(proposal(fixed))).toEqual({ kind: "review" });
+    render(
+      <FixReview before={CURRENT} after={fixed} pending={false} error={null} onUse={onUse} onDiscard={() => undefined} />,
+    );
+    expect(screen.getByText("Take orders.")).toBeTruthy();
+    expect(screen.getByText("Take orders, one question at a time.")).toBeTruthy();
+    expect(onUse).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Use these fixes" }));
+    expect(onUse).toHaveBeenCalledOnce();
+  });
+
+  it("says plainly when the fix changed nothing", () => {
+    expect(fixOutcome(proposal(CURRENT))).toEqual({
+      kind: "nothing",
+      message: "Pip could not fix these. Edit them, or put it live anyway.",
+    });
+  });
+});
+
+describe("the opening Pip rewrote to say the notices (A-05)", () => {
+  it("is shown with the owner's line only while the opening is still Pip's", () => {
+    const woven: CallScript = {
+      ...EMPTY_SCRIPT,
+      opening_line: "Hello, I am the AI assistant at Sri Stores. What do you need?",
+      opening_notices: {
+        line: "Hello, I am the AI assistant at Sri Stores. What do you need?",
+        ai: "I am the AI assistant",
+        before: "Hello, Sri Stores here. What do you need?",
+      },
+    };
+    expect(rewrittenOpening(woven, "answers")).toEqual({
+      before: "Hello, Sri Stores here. What do you need?",
+      after: woven.opening_line,
+    });
+    expect(rewrittenOpening({ ...woven, opening_line: "Edited." }, "answers")).toBeNull();
+    expect(rewrittenOpening(EMPTY_SCRIPT, "answers")).toBeNull();
   });
 });

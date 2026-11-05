@@ -85,7 +85,7 @@ from decimal import Decimal
 from typing import Final, Literal
 from uuid import UUID
 
-from calevate_shared.call_script import opening_line_of
+from calevate_shared.call_script import opening_line_of, said_notices_of
 from calevate_shared.engine import (
     AgentConfig,
     DisclosurePosture,
@@ -94,7 +94,6 @@ from calevate_shared.engine import (
     introduces_itself,
     said_as_taught,
 )
-from calevate_shared.opening_notices import says_ai
 from calevate_shared.spoken_guard import introduced_opening_problem, without_greeting
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1365,6 +1364,7 @@ def _refuse_notices_without_room(
         opening=opening_line_of(body),
         language=language,
         cause=cause,
+        said=said_notices_of(body),
     )
 
 
@@ -1384,9 +1384,9 @@ def _refuse_introduction_twice(
     if not introduces_itself(ai_notice=ai_line, language=language):
         return
     opening = without_greeting(opening_line_of(body))
-    # An opening that says it is an AI is the introduction itself: nothing is said before it
-    # (`join_first_words`, D-971).
-    if not opening or says_ai(opening):
+    # An opening that says it is an AI in its woven words is the introduction itself: nothing
+    # is said before it (`join_first_words`, D-971).
+    if not opening or said_notices_of(body).says_ai_in(opening):
         return
     taught = tuple(said_as_taught(name, body=body, business="") for name in names)
     if introduced_opening_problem("opening_line", opening, names=(*names, *taught)) is None:

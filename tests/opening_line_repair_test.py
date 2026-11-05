@@ -26,6 +26,7 @@ from apps.workers import opening_line
 from apps.workers import script_proposal as proposal_worker
 from apps.workers.script_assist import ScriptBrief, UnusableAnswerError
 from calevate_shared.call_script import CallScript
+from calevate_shared.opening_notices import NONE_SAID
 from calevate_shared.spoken_guard import (
     INTRODUCED_NAMES_RULE,
     OWN_LETTERS_RULE,
@@ -95,9 +96,12 @@ def _drafted(opening: str, seen: list[ScriptBrief] | None = None, placed: str = 
     return drafted
 
 
-def _answer(value: str) -> SimpleNamespace:
+def _answer(value: str | opening_line.WrittenOpening) -> SimpleNamespace:
+    written = (
+        opening_line.WrittenOpening(line=value, said=NONE_SAID) if isinstance(value, str) else value
+    )
     return SimpleNamespace(
-        value=value, capability=SimpleNamespace(disclosure=None), earlier=(), model=None
+        value=written, capability=SimpleNamespace(disclosure=None), earlier=(), model=None
     )
 
 
@@ -156,7 +160,7 @@ async def test_a_drafted_opening_with_one_english_word_is_repaired_and_kept(
     assert "Guntur" in asked[0]["brief"].description, "the business's own words reach it"
     assert asked[0]["brief"].introduced
     # The script's draft and the opening's repair are both charged.
-    assert len(spent) == 2 and spent[1].value == REPAIRED
+    assert len(spent) == 2 and spent[1].value.line == REPAIRED
 
 
 async def test_after_the_writer_refuses_no_ready_made_line_is_put_in(
@@ -291,7 +295,9 @@ async def test_a_both_agents_placed_opening_with_english_letters_is_repaired(
     async with tenant_session(tenant_id) as session:
         script = (await load_agent_script(session, after.agent_id)).script
     assert script.outbound_opening_line == PLACED_REPAIRED
-    assert any(getattr(s, "value", None) == PLACED_REPAIRED for s in spent), "metered"
+    assert any(
+        getattr(getattr(s, "value", None), "line", None) == PLACED_REPAIRED for s in spent
+    ), "metered"
 
 
 async def test_a_both_agent_with_no_placed_opening_gets_one_written(
@@ -406,7 +412,7 @@ async def test_the_writer_asks_once_and_sends_back_a_broken_line_with_its_proble
         business_name=BUSINESS, agent_name="Anjali", language="te-IN", introduced=True
     )
     answer = await opening_line.write_opening(brief)
-    assert answer.value == REPAIRED and seen == ["ask"]
+    assert answer.value.line == REPAIRED and seen == ["ask"]
 
 
 async def test_pips_proposal_repairs_the_opening_it_wrote(

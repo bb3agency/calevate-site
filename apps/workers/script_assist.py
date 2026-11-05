@@ -50,6 +50,7 @@ from calevate_shared.call_script import (
     MAX_SCRIPT_FAQS,
     MAX_SCRIPT_OBJECTIONS,
     MAX_SCRIPT_STAGES,
+    NOTICE_RECORDS,
     PROCEDURE_STEP_MAX,
     PROCEDURE_WAIT_MAX,
     SCRIPT_SCHEMA_VERSION,
@@ -388,7 +389,8 @@ def edited_script(
     model changed must keep the language rules (`language_problems`); what the owner already
     had is never judged."""
     fields = _stages_where_they_belong(
-        {k: v for k, v in raw.items() if k in CallScript.model_fields}, current
+        {k: v for k, v in raw.items() if k in CallScript.model_fields and k not in NOTICE_RECORDS},
+        current,
     )
     try:
         edited = CallScript.model_validate({**current.model_dump(), **fields})
@@ -1352,7 +1354,7 @@ async def draft_script(
         instruction = EDIT_INSTRUCTION
         description = (
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
-            f"{edit_of.model_dump_json(exclude={'raw_override'})}"
+            f"{edit_of.model_dump_json(exclude={'raw_override', *NOTICE_RECORDS})}"
         )
         parse = partial(
             edited_script,

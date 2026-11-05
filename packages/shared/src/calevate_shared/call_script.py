@@ -46,6 +46,8 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from calevate_shared.opening_notices import NONE_SAID, OpeningNotices, SaidNotices, said_in
+
 # ---------------------------------------------------------------------------
 # The merge-field grammar.
 # ---------------------------------------------------------------------------
@@ -178,6 +180,54 @@ OPENING_HEADER: Final = "[OPENING]"
 #: The header above the line a "both" agent opens the calls it places with (D-920): the
 #: [OPENING] line thanks a caller for calling, which is wrong on a call the agent made.
 OUTBOUND_OPENING_HEADER: Final = "[OPENING ON CALLS YOU PLACE]"
+
+
+#: The `CallScript` fields only the notice writer sets (D-971). A script writer's or a
+#: model's copy of them is never taken: words it named could drop a stored notice.
+NOTICE_RECORDS: Final = frozenset({"opening_notices", "outbound_opening_notices"})
+
+#: The section naming the words of each opening line that say a notice (D-971). The composer
+#: of the first words reads it back (`said_notices_of`), for `opening_line_of`'s reason; the
+#: model reads it as what it already told the caller.
+NOTICES_HEADER: Final = "[NOTICES IN YOUR OPENING]"
+_SAID_LEADS: Final[dict[tuple[bool, str], str]] = {
+    (False, "ai"): "Your opening line tells the caller you are an AI in these words: ",
+    (False, "recording"): (
+        "Your opening line tells the caller the call is recorded in these words: "
+    ),
+    (True, "ai"): "Your opening on calls you place says you are an AI in these words: ",
+    (True, "recording"): (
+        "Your opening on calls you place says the call is recorded in these words: "
+    ),
+}
+
+
+def said_notices_of(body: str | None, *, placed: bool = False) -> SaidNotices:
+    """The words of the body's opening line (`placed`: its opening on calls it places) that
+    say each notice, or none. Only the compiler writes them, and only for the line they were
+    woven into (`_notices_section`)."""
+    lines = [ln.strip() for ln in _section_of(body, NOTICES_HEADER).splitlines()]
+
+    def words(kind: str) -> str:
+        lead = _SAID_LEADS[(placed, kind)].strip()
+        return next((ln[len(lead) :].strip() for ln in lines if ln.startswith(lead)), "")
+
+    said = SaidNotices(ai=words("ai"), recording=words("recording"))
+    return said if (said.ai or said.recording) else NONE_SAID
+
+
+def _notices_section(script: CallScript) -> str | None:
+    rows: list[str] = []
+    for placed, line, notices in (
+        (False, script.opening_line, script.opening_notices),
+        (True, script.outbound_opening_line, script.outbound_opening_notices),
+    ):
+        said = said_in(notices, line)
+        if said.ai:
+            rows.append(_SAID_LEADS[(placed, "ai")] + said.ai)
+        if said.recording:
+            rows.append(_SAID_LEADS[(placed, "recording")] + said.recording)
+    return f"{NOTICES_HEADER}\n" + "\n".join(rows) if rows else None
 
 
 def opening_line_of(body: str | None) -> str:
@@ -645,6 +695,10 @@ class CallScript(BaseModel):
     #: `opening_line`. Empty: a composed line is said (`engine.placed_call_line`). Unread for
     #: an agent of one direction.
     outbound_opening_line: str = Field(default="", max_length=1000)
+    #: The words of `opening_line` that say the AI and recording notices, as the notice writer
+    #: wove them in (D-971); they count only while the line is the one they were written for.
+    opening_notices: OpeningNotices = Field(default_factory=OpeningNotices)
+    outbound_opening_notices: OpeningNotices = Field(default_factory=OpeningNotices)
     steps: list[ScriptStep] = Field(default_factory=list, max_length=MAX_SCRIPT_STEPS)
     faqs: list[FaqEntry] = Field(default_factory=list, max_length=MAX_SCRIPT_FAQS)
     faq_fallback: str = Field(default=DEFAULT_FAQ_FALLBACK, max_length=500)
@@ -967,6 +1021,8 @@ def _compile_v2(script: CallScript, collect: Sequence[CollectField]) -> str:
     add("[GOAL]", goal)
     add(OPENING_HEADER, script.opening_line)
     add(OUTBOUND_OPENING_HEADER, script.outbound_opening_line)
+    if (said := _notices_section(script)) is not None:
+        sections.append(said)
 
     style = script.style
     style_lines: list[str] = []
@@ -1206,6 +1262,8 @@ def compile_call_script(script: CallScript, *, collect: Sequence[CollectField] =
     placed = script.outbound_opening_line.strip()
     if placed:
         sections.append(f"{OUTBOUND_OPENING_HEADER}\n{placed}")
+    if (said := _notices_section(script)) is not None:
+        sections.append(said)
 
     steps = [step.instruction.strip() for step in script.steps if step.instruction.strip()]
     if steps:
@@ -1255,6 +1313,8 @@ __all__ = [
     "KNOWN_FACTS_LEAD",
     "MAX_PROCEDURE_STEPS",
     "MAX_SCRIPT_STAGES",
+    "NOTICES_HEADER",
+    "NOTICE_RECORDS",
     "NO_CALL_BACKS_POLICY",
     "OPENING_HEADER",
     "OUTBOUND_OPENING_HEADER",
@@ -1303,6 +1363,7 @@ __all__ = [
     "pronunciations_of",
     "quick_fact_lines",
     "render_steps",
+    "said_notices_of",
     "script_text",
     "splice_known_facts",
     "splice_quick_facts",

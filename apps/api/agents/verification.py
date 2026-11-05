@@ -75,6 +75,7 @@ from calevate_shared.engine import (
     compose_first_utterance,
     neutralise_markers,
     quoted_client_words,
+    said_notices,
 )
 from calevate_shared.opening_notices import first_words_disclose
 
@@ -309,14 +310,15 @@ def _greeting_verdict(
         held = snapshot.carries_greeting_marker(expected)
         if held is not True or not snapshot.greeting_readable:
             return held
-        # The meaning, not only the text (D-971): an opening that says the notices in its own
-        # words stands in for the stored sentences, so what is checked is that the greeting
-        # the engine holds says each notice switched on.
+        # An opening that says a notice in the words woven into it stands in for the stored
+        # sentence (D-971), so the greeting the engine holds must carry, for each notice
+        # switched on, the stored sentence or those exact words.
         ai_notice = cfg.ai_notice.strip()
         return first_words_disclose(
             snapshot.greeting or "",
             ai_notice=ai_notice,
             recording_notice=cfg.opening_line.strip().removeprefix(ai_notice).strip(),
+            said=said_notices(cfg.system_prompt, business=cfg.business),
         )
     if not snapshot.greeting_readable:
         return None

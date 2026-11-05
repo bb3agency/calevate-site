@@ -37,7 +37,7 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
-from calevate_shared.call_script import opening_line_of, outbound_opening_of
+from calevate_shared.call_script import opening_line_of, outbound_opening_of, said_notices_of
 from calevate_shared.engine import (
     DisclosurePosture,
     compose_opening_line,
@@ -150,8 +150,14 @@ def agent_out(r: Any) -> AgentOut:
     )
     notices = compose_opening_line(posture, call_is_recorded=recorded)
     opening = opening_line_of(r[21])
+    said = said_notices_of(r[21])
     budget = greeting_budget(
-        get_engine(), posture=posture, opening=opening, direction=str(r[2]), language=str(r[4])
+        get_engine(),
+        posture=posture,
+        opening=opening,
+        direction=str(r[2]),
+        language=str(r[4]),
+        said=said,
     )
     # The switch on and the statement accepted out of date: `MEMORY_ON_SQL`'s other half.
     paused = bool(r[18]) and not statement_is_current(None if r[24] is None else int(r[24]))
@@ -203,6 +209,7 @@ def agent_out(r: Any) -> AgentOut:
                 business="" if r[2] == "outbound" else str(r[26] or ""),
                 body=r[21],
             ),
+            said=said,
         ),
         script_outbound_opening_line=outbound_opening_of(r[21]) if r[2] == "both" else None,
         first_words_when_calling=placed_call_first_words(

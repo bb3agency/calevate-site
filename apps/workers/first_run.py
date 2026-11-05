@@ -56,6 +56,7 @@ from uuid import UUID
 import httpx
 from calevate_shared.call_script import CallScript
 from calevate_shared.engine import introduces_itself
+from calevate_shared.opening_notices import OpeningNotices
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,6 +121,7 @@ from apps.workers.extraction import TenantModelLeg
 from apps.workers.opening_line import (
     OPENING_MAX_CHARS,
     OPENING_WRITER_BUDGET_S,
+    WrittenOpening,
     opening_problems,
     opening_rules,
     write_opening,
@@ -749,7 +751,7 @@ async def _written_opening(
     """Apply the opening line the opening writer gives for this business. None once applied;
     else why not: the writer's refusal code, or the engine's when it refuses the line. The
     spend is metered either way, in the transaction that applies the line."""
-    spent: JsonAnswer[str] | ProblemError
+    spent: JsonAnswer[WrittenOpening] | ProblemError
     try:
         spent = await write_opening(
             replace(writer.brief, introduced=introduced),
@@ -772,8 +774,9 @@ async def _written_opening(
                     session,
                     tenant_id=tenant_id,
                     agent_id=agent_id,
-                    opening_line=spent.value,
+                    opening_line=spent.value.line,
                     created_by=created_by,
+                    notices=spent.value.notices(),
                 )
         except ProblemError as refused:
             log.info("first_run_opening_refused", extra={"reason": refused.code})
@@ -887,7 +890,7 @@ async def _write_placed_opening(
     if time.monotonic() - started > OPENING_WRITER_LATEST_S:
         reason = "no_time"
     else:
-        spent: JsonAnswer[str] | ProblemError
+        spent: JsonAnswer[WrittenOpening] | ProblemError
         try:
             spent = await write_opening(
                 replace(writer.brief, introduced=introduced),
@@ -904,7 +907,9 @@ async def _write_placed_opening(
             await _meter(session, tenant_id, spent)
         if reason is None:
             assert not isinstance(spent, ProblemError)
-            reason = await _replace_placed(tenant_id, agent_id, spent.value, created_by)
+            reason = await _replace_placed(
+                tenant_id, agent_id, spent.value.line, created_by, spent.value.notices()
+            )
             if reason is None:
                 return {"state": "repaired" if line else "written"}
     log.warning("first_run_placed_opening_unwritten", extra={"reason": reason})
@@ -915,7 +920,11 @@ async def _write_placed_opening(
 
 
 async def _replace_placed(
-    tenant_id: UUID, agent_id: UUID, line: str, created_by: UUID | None
+    tenant_id: UUID,
+    agent_id: UUID,
+    line: str,
+    created_by: UUID | None,
+    notices: OpeningNotices | None = None,
 ) -> str | None:
     """Write the placed-call opening; None once written, else the refusal code."""
     try:
@@ -927,6 +936,7 @@ async def _replace_placed(
                 opening_line=line,
                 created_by=created_by,
                 placed=True,
+                notices=notices,
             )
     except ProblemError as refused:
         log.info("first_run_placed_opening_refused", extra={"reason": refused.code})

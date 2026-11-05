@@ -38,6 +38,7 @@ from calevate_shared.call_script import (
     opening_line_of,
     outbound_opening_of,
     pronunciations_of,
+    said_notices_of,
 )
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.events import (
@@ -53,7 +54,7 @@ from calevate_shared.events import (
     TranscriptTurn,
 )
 from calevate_shared.languages import find_language
-from calevate_shared.opening_notices import says_ai, says_recorded
+from calevate_shared.opening_notices import NONE_SAID, SaidNotices, says_ai
 from calevate_shared.spoken_guard import names_used, opens_with_greeting, without_greeting
 from calevate_shared.spoken_style import (
     PackChoice,
@@ -4537,6 +4538,7 @@ def join_first_words(
     ai_notice: str,
     language: str,
     names: Sequence[str] = (),
+    said: SaidNotices = NONE_SAID,
 ) -> str:
     """What a caller hears first, one turn before they say anything.
 
@@ -4553,10 +4555,11 @@ def join_first_words(
       one it places), then the other notices switched on.
     * **Otherwise** (D-861): the opening line, then the notices switched on.
 
-    A notice the opening line already says in its own words (D-971, `opening_notices`) is
-    not said again: its stored sentence is dropped, and an opening that says it is an AI is
-    said first, as the agent's own introduction. A line that does not say it keeps the stored
-    sentence, so until Pip has rewritten the opening the notice is still spoken.
+    A notice the opening line says in the words the notice writer wove into it (D-971,
+    `said`, read from the compiled script by `said_notices`) is not said again: its stored
+    sentence is dropped, and an opening that says it is an AI is said first, as the agent's
+    own introduction. Any other line keeps the stored sentence whatever words it holds
+    ("artificial jewellery", "not recorded"), so a notice is never lost to a word match.
 
     `ai_notice` is the switched-on AI sentence (`spoken_ai_notice`), which
     `compose_opening_line` puts at the head of `notices`. One space, for
@@ -4566,11 +4569,11 @@ def join_first_words(
     rest = notices.strip()
     if not lead or rest.startswith(lead):
         recording = rest.removeprefix(lead).strip()
-        if lead and says_ai(opening):
+        if lead and said.says_ai_in(opening):
             lead = ""
         # Only a remainder that is the recording sentence alone is dropped: one that says it
         # is an AI was not split from `ai_notice` and is kept whole.
-        if recording and not says_ai(recording) and says_recorded(opening):
+        if recording and not says_ai(recording) and said.says_recorded_in(opening):
             recording = ""
         rest = " ".join(part for part in (lead, recording) if part)
     salutation = introduction_salutation(language)
@@ -4617,6 +4620,20 @@ def said_as_taught(line: str, *, body: str | None, business: str) -> str:
     return line
 
 
+def said_notices(body: str | None, *, business: str, placed: bool = False) -> SaidNotices:
+    """The words of the body's opening line that say each notice (`said_notices_of`), in the
+    form the opening is spoken in (`said_as_taught`), so they are found in it."""
+    said = said_notices_of(body, placed=placed)
+    if said == NONE_SAID:
+        return said
+    return SaidNotices(
+        ai=said_as_taught(said.ai, body=body, business=business) if said.ai else "",
+        recording=(
+            said_as_taught(said.recording, body=body, business=business) if said.recording else ""
+        ),
+    )
+
+
 def compose_first_utterance(cfg: AgentConfig) -> str:
     """`cfg`'s first words, for an engine that speaks one greeting field verbatim.
 
@@ -4638,6 +4655,7 @@ def compose_first_utterance(cfg: AgentConfig) -> str:
             business="" if cfg.direction == "outbound" else cfg.business,
             body=cfg.system_prompt,
         ),
+        said=said_notices(cfg.system_prompt, business=cfg.business),
     )
 
 
@@ -4700,6 +4718,8 @@ def placed_call_first_words(
         ai_notice=ai_notice,
         language=language,
         names=introduction_names(name=agent_name, business="", body=body),
+        # Found only in the agent's own placed-call opening; a composed line has none.
+        said=said_notices(body, business=business, placed=True),
     )
 
 
@@ -6976,6 +6996,7 @@ __all__ = [
     "render_caller_memory",
     "role_sentence",
     "said_as_taught",
+    "said_notices",
     "screen_steps_bullet",
     "sends_our_call_rules",
     "tenant_of_pipecat_ref",

@@ -15,7 +15,7 @@ from apps.api.agents import script_builder, script_proposals
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.workers import script_proposal as worker
-from apps.workers.opening_line import rewrite_problem
+from apps.workers.opening_line import WrittenOpening, rewrite_problem
 from calevate_shared.call_script import (
     RETIRED_FAQ_FALLBACK,
     CallScript,
@@ -34,6 +34,7 @@ from calevate_shared.engine import (
     introduction_names,
     join_first_words,
 )
+from calevate_shared.opening_notices import NONE_SAID
 from tests.conftest import create_org_with_receptionist
 
 AI_NOTICE = "నేను రైతు ఖాతా నుండి లక్ష్మిని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి."
@@ -182,7 +183,7 @@ async def test_a_written_suggestion_rewrites_the_opening_for_the_business(
         seen["line"] = kwargs["line"]
         seen["problems"] = kwargs["problems"]
         return SimpleNamespace(
-            value="ఏ పంట గురించి అండి?",
+            value=WrittenOpening(line="ఏ పంట గురించి అండి?", said=NONE_SAID),
             capability=SimpleNamespace(disclosure=None),
             usage=None,
             model="gemini-2.5-flash-lite",
