@@ -50,7 +50,7 @@ export function LeadsPhoneList({ kit }: { kit: LeadRowKit }) {
               >
                 <span className="flex min-w-0 items-start justify-between gap-3">
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium text-ink">{target.name}</span>
+                    <span className="block font-medium text-ink [overflow-wrap:anywhere]">{target.name}</span>
                     {lead.name ? (
                       <MonoValue className="block text-meta tabular-nums text-ink-faint">{formatPhone(lead.phone_e164)}</MonoValue>
                     ) : null}

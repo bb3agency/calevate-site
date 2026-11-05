@@ -201,7 +201,7 @@ function OnACallRow({ person }: { person: ContactResult }) {
     <li className="flex items-center gap-3 py-2">
       <LiveDot />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-body font-medium text-ink">{who}</p>
+        <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{who}</p>
         <p className="text-meta tabular-nums text-ink-muted">
           {person.name?.trim() ? `${formatPhone(person.phone_e164)} · ` : ""}
           {elapsed === null ? "Calling" : formatDuration(elapsed)}

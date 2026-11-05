@@ -224,7 +224,9 @@ export function ContactResults({
                       What happened
                     </th>
                   )}
-                  <th scope="col" className={`${CELL} ${editable ? "w-14" : "w-14 sm:w-32"}`}>
+                  {/* `touch:w-17`: the ⋯ menu is 44px on a finger, and with the cell's 24px of padding a
+                      56px column pushed it past the card's clipped edge. */}
+                  <th scope="col" className={`${CELL} ${editable ? "w-14 touch:w-17" : "w-14 sm:w-32"}`}>
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -240,7 +242,7 @@ export function ContactResults({
                       className={`align-middle transition-opacity duration-(--duration-fast) ${removing(row) ? "opacity-50" : ""}`}
                     >
                       <td className={CELL}>
-                        <p className="truncate text-body font-medium text-ink">{who}</p>
+                        <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{who}</p>
                         {named ? (
                           <p className={`text-meta tabular-nums text-ink-muted ${editable ? "sm:hidden" : ""}`}>
                             {formatPhone(row.phone_e164)}
