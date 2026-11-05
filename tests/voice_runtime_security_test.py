@@ -1189,6 +1189,42 @@ async def test_a_claim_whose_job_arq_refused_is_not_left_silent(
     assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
 
 
+async def test_an_opt_out_claimed_with_no_job_behind_it_raises_an_alarm() -> None:
+    """L5-12: a call event is re-read by the execution poller whatever the receiver does; an
+    opt-out (or an erasure, a captured lead, an escalation) has no poller, so a claim arq
+    refused is work nobody will do, and a missed opt-out is hard rule 5. A warning line was
+    all it got."""
+    token = uuid.uuid4().hex[:12]
+    raised: list[str] = []
+
+    async def _refused(*_args: Any, **_kwargs: Any) -> str | None:
+        return None
+
+    work = webhook_routes.InboxWork(
+        provider="fake",
+        key_id=f"evt_{token}",
+        event_name="contact.opted_out",
+        payload_hash=body_hash({"evt": token}),
+        redis_key=f"calevate:wh:fake:evt_{token}:contact.opted_out",
+        job=webhook_routes.ENGINE_OPT_OUT_JOB,
+        job_id=f"{webhook_routes.ENGINE_OPT_OUT_JOB}:fake:evt_{token}",
+        job_payload={"engine": "fake", "execution_id": f"evt_{token}"},
+    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(webhook_routes, "enqueue", _refused)
+        patch.setattr(webhook_routes, "alert", lambda stage, code, **_: raised.append(code))
+        answer = await webhook_routes.settle(
+            work,
+            json.dumps({"evt": token}).encode(),
+            response=Response(),
+            started=time.perf_counter(),
+            meter=webhook_routes.WEBHOOK_ACK,
+            signed=True,
+        )
+    assert answer["status"] == "accepted"
+    assert "webhook_event_without_job" in raised
+
+
 # --- 16. the ack tells a stranger nothing about who exists -------------------
 
 

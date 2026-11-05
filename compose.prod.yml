@@ -254,8 +254,11 @@ services:
       WORKER_MAX_JOBS: ${WORKERS_BULK_MAX_JOBS:-1}
     depends_on:
       redis: {condition: service_healthy}
-    # `BulkWorkerSettings.job_completion_wait` (45s) drains inside this, as for `workers`.
-    stop_grace_period: 60s
+    # `BulkWorkerSettings.job_completion_wait` (300s, one whole job timeout) drains inside
+    # this: a bulk job cancelled by a deploy is re-queued at its next try, and a long one
+    # caught by three deploys was spent with no run finished. A swap waits only while a
+    # bulk job is actually running.
+    stop_grace_period: 330s
     # NO healthcheck, for the reason `workers` has none. `/healthz/ready` watches the bulk
     # queue's oldest job too.
 

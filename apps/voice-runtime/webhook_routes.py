@@ -1021,6 +1021,18 @@ async def settle(
             "webhook_claimed_without_job",
             extra={"engine": source, "execution_id": work.key_id},
         )
+        if work.job != INGEST_JOB:
+            # A call event is re-read by the execution poller whatever happens here. An
+            # opt-out, an erasure, a captured lead, an escalation, a call problem or a key
+            # change has no poller: if arq refused it for a failed earlier run, nothing
+            # will ever act on it, and an opt-out not acted on is hard rule 5. `alert()`
+            # never raises, so the ack is not at risk.
+            alert(
+                "ROUTE_HANDLER",
+                "webhook_event_without_job",
+                detail=f"{work.event_name} {work.key_id}"[:200],
+                engine=source,
+            )
 
     if not claimed:
         _log_redelivery(work)

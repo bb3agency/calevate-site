@@ -8,12 +8,15 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.insights.detection import RedactedTurn
 from apps.api.insights.service import record_call_gaps
 from apps.workers.call_quality_recheck import recheck_call_quality
+from arq import Retry
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from tests.call_mistakes_test import RYTU_KHATA_NUMBER, SRI_ESTATES
 from tests.conftest import create_org_with_receptionist
 
@@ -150,3 +153,43 @@ async def test_false_findings_go_and_true_ones_stay() -> None:
         )
     assert gaps == ["pricing"]
     assert mistakes == [looped_call]
+
+
+async def test_a_database_blip_asks_for_another_try_and_the_last_try_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L5-10: arq retries only `Retry`, so a lock timeout used to end the job on its first
+    try. The last try raises, and the outbox's unconsumed sweep puts the message back."""
+    from apps.workers import call_quality_recheck
+
+    async def _blip(_session: object) -> int:
+        raise OperationalError("SELECT ...", {}, Exception("lock timeout"))
+
+    monkeypatch.setattr(call_quality_recheck, "recheck_open_gaps", _blip)
+    payload = {"tenant_id": str(uuid.uuid4())}
+    with pytest.raises(Retry):
+        await recheck_call_quality({"job_try": 1}, payload)
+    with pytest.raises(OperationalError):
+        await recheck_call_quality({"job_try": WORKER_MAX_TRIES}, payload)
+
+
+async def test_the_recheck_reads_mistakes_in_the_agents_language(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L5-19: the pipeline passes the agent's language and the recheck passed none, so a
+    language-dependent kind added to `RECHECKED_KINDS` would be judged differently."""
+    from apps.api.agents import call_mistakes
+
+    tenant_id, agent_id = await _tenant()
+    call_id = await _call(tenant_id, agent_id, [(t.speaker, t.text) for t in RYTU_KHATA_NUMBER])
+    await _mistake(tenant_id, agent_id, call_id, "said_again")
+    seen: list[str] = []
+    real = call_mistakes.mistakes_in
+
+    def _spy(*args: object, language: str, **kwargs: object) -> object:
+        seen.append(language)
+        return real(*args, language=language, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(call_mistakes, "mistakes_in", _spy)
+    await call_mistakes.recheck_call_mistakes(tenant_id)
+    assert seen == ["te-IN"]

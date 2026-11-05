@@ -141,9 +141,9 @@ def only_mine(monkeypatch: pytest.MonkeyPatch) -> Any:
         wanted = set(ids)
 
         async def _claim(
-            session: Any, *, limit: int = rel.OUTBOX_BATCH, jobs: Any = None
+            session: Any, *, limit: int = rel.OUTBOX_BATCH, jobs: Any = None, **kw: Any
         ) -> list[Any]:
-            rows = await real(session, limit=limit, jobs=jobs)
+            rows = await real(session, limit=limit, jobs=jobs, **kw)
             return [row for row in rows if row.id in wanted]
 
         monkeypatch.setattr(dispatcher, "claim_outbox_batch", _claim)

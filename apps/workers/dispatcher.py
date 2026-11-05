@@ -28,16 +28,26 @@ from apps.api.compliance.processor_erasure import (
     OVERDUE_AFTER_DAYS,
 )
 from apps.api.core.alerting import alert
+from apps.api.core.health import image_revisions
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import enqueue, job_id_for
+from apps.api.core.queue import (
+    BULK_JOBS,
+    bulk_jobs_served,
+    earlier_run_failed,
+    enqueue,
+    get_queue,
+    job_id_for,
+)
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.reliability.service import (
+    OUTBOX_MAX_ATTEMPTS,
     claim_outbox_batch,
     defer_outbox_claim,
     mark_outbox_failed,
     mark_outbox_published,
     record_outbox_metrics,
     sweep_idempotency,
+    sweep_unconsumed_outbox,
 )
 from apps.workers.extraction import MODEL_FAILURE
 from apps.workers.extraction_reread import REREAD_FINISHED_SQL
@@ -87,6 +97,47 @@ POISON_PAYLOAD = (SerializationError, TypeError, ValueError)
 REGISTERED_JOBS = "registered_jobs"
 
 
+#: How long a bulk job may wait for a bulk worker that runs it before that is alarmed. A
+#: deploy's swap is under a minute; a bulk worker down, crash-looping or on an older image
+#: holds bulk work indefinitely, which is safe and must still be seen.
+BULK_HOLD_ALARM = timedelta(minutes=10)
+
+
+async def _bulk_jobs_held(session: AsyncSession, registered: Any) -> frozenset[str]:
+    """The bulk jobs this release would publish that not every live bulk worker runs.
+
+    The main worker's own registry says nothing about the bulk worker, which during a deploy
+    is another release: a job new to `BULK_JOBS` published onto `arq:bulk` while the old
+    bulk worker reads it is failed as "function not found" and never retried (L5-01). An
+    unreachable Redis holds every bulk job: the enqueue below meets the same outage and
+    reports it.
+    """
+    candidates = BULK_JOBS if registered is None else BULK_JOBS & frozenset(registered)
+    try:
+        served = await bulk_jobs_served(await get_queue())
+    except (RedisError, OSError):
+        return frozenset(candidates)
+    held = frozenset(candidates - served)
+    if held:
+        waiting = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages WHERE status = 'pending' "
+                    "AND job = ANY(CAST(:jobs AS text[])) AND created_at < now() - :after"
+                ),
+                {"jobs": sorted(held), "after": BULK_HOLD_ALARM},
+            )
+        ).scalar_one()
+        if waiting:
+            alert(
+                "OUTBOX_DISPATCH",
+                "outbox_bulk_consumer_missing",
+                detail=f"{waiting} bulk message(s) held: no live bulk worker runs "
+                f"{', '.join(sorted(held))[:160]}",
+            )
+    return held
+
+
 async def dispatch_outbox(ctx: dict[str, Any]) -> str:
     """Runs every few seconds. Publishes claimed rows; failures walk to the DLQ.
 
@@ -122,14 +173,29 @@ async def dispatch_outbox(ctx: dict[str, Any]) -> str:
     """
     published = 0
     async with untenanted_session() as session:
-        batch = await claim_outbox_batch(session, jobs=ctx.get(REGISTERED_JOBS))
+        await sweep_unconsumed_outbox(session)
+        registered = ctx.get(REGISTERED_JOBS)
+        held = await _bulk_jobs_held(session, registered)
+        batch = await claim_outbox_batch(
+            session, jobs=registered, held=held, revisions=await image_revisions()
+        )
         for index, message in enumerate(batch):
             try:
-                job_id = await enqueue(
-                    message.job,
-                    message.payload,
-                    job_id=job_id_for(message.job, str(message.id)),
-                )
+                message_job_id = job_id_for(message.job, str(message.id))
+                job_id = await enqueue(message.job, message.payload, job_id=message_job_id)
+                if job_id is None and await earlier_run_failed(message.job, message_job_id):
+                    # arq refused the id because it still holds a FAILED result for it (a
+                    # run dropped as "function not found", or one that raised for good):
+                    # nothing will run. Dead-lettered with its payload, replayable once
+                    # arq's result window has passed.
+                    await mark_outbox_failed(
+                        session,
+                        message_id=message.id,
+                        error="an earlier run of this message failed and arq still holds "
+                        "its result; replay it after an hour",
+                        attempt_count=OUTBOX_MAX_ATTEMPTS,
+                    )
+                    continue
                 await mark_outbox_published(
                     session, message_id=message.id, job_id=job_id or "deduped"
                 )

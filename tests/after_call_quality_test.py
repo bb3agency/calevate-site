@@ -431,3 +431,23 @@ def test_the_business_name_is_spelt_the_way_the_business_spells_it() -> None:
     assert spell_business_name(untouched, "Rytu Khata") == untouched
     assert spell_business_name("Raitu Khata", None) == "Raitu Khata"
     assert spell_business_name("Ramu", "Raju") == "Ramu", "short names are never rewritten"
+
+
+async def test_a_caller_who_will_call_themselves_is_not_rung_back() -> None:
+    """L5-17: "I'll call you when I'm free" read as a call-back request booked an outbound
+    call; the same reading's `next_step_by: caller` says nobody is waiting to be rung."""
+    from apps.workers.after_call_callbacks import book_requested_callback
+
+    reading = ExtractionOutput(callback_requested=True, next_step_by="caller")
+    booked = await book_requested_callback(
+        None,  # type: ignore[arg-type]  # refused before any read
+        tenant_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        call_id=uuid.uuid4(),
+        engine_call_id=None,
+        phone_e164="+919876501234",
+        call_at=datetime.now(UTC),
+        extraction=reading,
+        opted_out=False,
+    )
+    assert booked is None

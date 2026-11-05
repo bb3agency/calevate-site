@@ -250,7 +250,8 @@ new container restarted, exited or was not running at any sample in its 30-secon
 window (`SETTLE_S`). The status and restart count are in the message; the cause is in
 `docker compose -p calevate -f compose.prod.yml logs --tail=200 workers` (or `workers-bulk`), and it is almost
 always an import error or a configuration refusal at startup. api and voice-runtime have
-not been swapped yet when this fires — both workers go first (D-929).
+not been swapped yet when this fires — both workers go first, the bulk one before the main
+one (D-929; the main worker's dispatcher publishes bulk jobs at startup).
 
 `/healthz` checks Postgres and Redis. A 503 there with a healthy `/healthz/live` means the
 process is fine and a dependency is not — check host Postgres and the redis container
@@ -351,6 +352,30 @@ finished call is recorded. Calls themselves are unaffected (ThinnestAI runs them
 lost delivery is settled later by the reconciliation re-drive from `GET /calls/{id}`
 (alarm index, `engine_webhook_reenabled`), so expect transcripts, leads and costs to land
 late rather than go missing. Roll back rather than debug forward.
+
+### 4a. What a rollback does to queued work
+
+A rollback (`--checkout <older sha>`) puts older code on the queues. Three kinds of waiting
+work meet it differently:
+
+- **Outbox rows a migration of the newer release queued** carry that migration's revision
+  (`outbox_messages.min_revision`). The older image does not contain it, so they wait, and
+  after 30 minutes `outbox_held_for_release` says so. They run on the next forward deploy.
+- **Outbox rows for a job the older code does not have** are dead-lettered after 30 minutes
+  (`outbox_dead_letter`, "no worker runs job …"), payload intact; replay them after the
+  forward deploy.
+- **Jobs already on a Redis queue** (published before the rollback) for a function the
+  older code lacks are failed by arq at once (`job_function_not_registered`). An outbox
+  message among them is put back by the unconsumed sweep two hours later
+  (`outbox_unconsumed`); a job queued directly (not through the outbox) is lost and its
+  trigger must be repeated. To see what is queued before rolling back:
+
+```
+docker compose -p calevate -f compose.prod.yml exec redis redis-cli ZRANGE arq:queue 0 -1
+docker compose -p calevate -f compose.prod.yml exec redis redis-cli ZRANGE arq:bulk 0 -1
+```
+
+Each entry is `<job>:<key>`; the job name is the part before the first colon.
 
 ## 5. Failed at `deploy web` or the nginx steps
 

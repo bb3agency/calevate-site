@@ -649,12 +649,28 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Two of the three alarms `core/alerting.py` says this whole path exists for.
     "outbox_dead_letter": "page",
     "outbox_queue_unreachable": "page",
+    # Bulk work held because no live bulk worker runs it (L5-01): a document read or a walk
+    # a client is waiting on does not start until a person brings the worker back.
+    "outbox_bulk_consumer_missing": "page",
+    # A published message no run finished (L5-03). It is re-published automatically, and
+    # the one that spends its budget pages through `outbox_dead_letter`.
+    "outbox_unconsumed": "attention",
+    # Migration-queued work waiting for the release that queued it (L5-04): a rollback or
+    # a stopped deploy. Safe while it waits; the next forward deploy runs it.
+    "outbox_held_for_release": "attention",
+    # A knowledge-gap or call-mistake check raised on one call (L5-09): that call's two
+    # owner lists are missing; its lead and meter are already written.
+    "pipeline_insights_failed": "attention",
     # The unauthenticated edge. Named in `core/alerting.py`'s docstring as fireable "from
     # anywhere on the internet with no credential"; a stranger must not be able to choose
     # when the founder's phone buzzes.
     "webhook_source_rejected": "record",
     "webhook_payload_too_large": "record",
     "webhook_unkeyable": "attention",
+    # A non-call engine event (opt-out, erasure, lead, escalation, problem, key change)
+    # claimed while arq refused its job: no poller re-reads these, so the event may never
+    # be acted on (L5-12). An opt-out among them is hard rule 5.
+    "webhook_event_without_job": "page",
     # A SIGNED delivery we could not verify because OUR side failed (the intake key, the
     # secret lookup): every delivery 503s and counts towards the vendor switching the
     # endpoint off (D-678).

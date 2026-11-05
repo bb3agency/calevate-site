@@ -146,3 +146,56 @@ async def test_the_pipeline_records_a_redacted_knowledge_gap(
         agg = (await session.execute(text("SELECT occurrence_count FROM knowledge_gaps"))).scalar()
     assert occ == 1
     assert agg == 1
+
+
+async def test_a_check_that_raises_costs_its_list_and_never_the_meter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L5-09: the gap and mistake checks ran before the outcome, the lead and the meter, so a
+    defect in a string check failed the whole job on every retry and the call was never
+    metered (hard rule 7). They run after the meter now, and their failure is an alarm."""
+    from apps.workers import pipeline
+
+    reset_engine_cache()
+    tenant_id, agent_id = await _tenant()
+    execution_id = f"exec_{uuid.uuid4().hex[:12]}"
+    call_id = await _seed_call(tenant_id, agent_id, execution_id)
+    snapshot = _snapshot(execution_id)
+
+    async def _get(self: FakeEngine, cid: str) -> ExecutionSnapshot:
+        return snapshot
+
+    order: list[str] = []
+
+    async def _broken(**_kwargs: object) -> int:
+        order.append("gaps")
+        raise ValueError("a check met a turn shape it did not expect")
+
+    async def _meter(*_args: object) -> int:
+        order.append("meter")
+        return 1
+
+    raised: list[str] = []
+    monkeypatch.setattr(FakeEngine, "get_execution", _get)
+    monkeypatch.setattr(pipeline.gap_service, "record_call_gaps", _broken)
+    monkeypatch.setattr(pipeline, "_owes_usage", lambda _snapshot: True)
+    monkeypatch.setattr(pipeline, "_meter", _meter)
+    monkeypatch.setattr(pipeline, "alert", lambda stage, code, **_: raised.append(code))
+
+    await run_post_call_pipeline(
+        {},
+        {
+            "tenant_id": str(tenant_id),
+            "call_id": str(call_id),
+            "engine": "fake",
+            "execution_id": execution_id,
+        },
+    )
+
+    assert order[:2] == ["meter", "gaps"], "the meter comes first, and the run went on"
+    assert "pipeline_insights_failed" in raised
+    async with tenant_session(tenant_id) as session:
+        lead = (
+            await session.execute(text("SELECT lead_id FROM calls WHERE id = :c"), {"c": call_id})
+        ).scalar()
+    assert lead is not None, "the lead was written before the check ran"

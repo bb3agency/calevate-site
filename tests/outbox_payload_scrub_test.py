@@ -1,4 +1,9 @@
-"""A published outbox row keeps no payload — the promise `authn` was already making.
+"""A published credential keeps no payload — the promise `authn` was already making.
+
+Since L5-03 (5 Nov 2026) only `reliability.service.SCRUB_AT_PUBLISH_JOBS` are forgotten at
+publish; every other job keeps its payload until its run succeeds, so a message arq drops
+can be re-published (`tests/outbox_unconsumed_test.py`). The rest of this header is the
+argument for the credential jobs.
 
 `apps/api/authn/service._enqueue_auth_email` puts a LIVE one-time credential in
 `outbox_messages.payload`: a password-reset token, an invitation link, an OTP. Its
@@ -155,4 +160,8 @@ async def test_the_scrub_and_the_status_flip_are_one_statement() -> None:
     source = inspect.getsource(service.mark_outbox_published)
     statements = source.count("UPDATE outbox_messages")
     assert statements == 1, f"{statements} UPDATEs — the scrub must ride the status flip"
-    assert "payload = '{}'::jsonb" in source
+    assert "payload = CASE WHEN job = ANY(CAST(:scrub AS text[])) THEN '{}'::jsonb" in source
+    # Every other job keeps its payload until its run succeeds, and forgets it in the
+    # statement that records the success (L5-03, `tests/outbox_unconsumed_test.py`).
+    consumed = inspect.getsource(service.mark_outbox_consumed)
+    assert "consumed_at = now(), payload = '{}'::jsonb" in consumed

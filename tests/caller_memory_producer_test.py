@@ -104,6 +104,9 @@ async def _finished_call(
     *,
     turns: int = MIN_TURNS,
     enabled: bool = True,
+    direction: str = "inbound",
+    from_e164: str = CALLER,
+    to_e164: str | None = None,
 ) -> uuid.UUID:
     """A completed call with a redacted transcript, old enough for the settle window.
 
@@ -122,16 +125,18 @@ async def _finished_call(
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                "status, from_e164, ended_at, created_at, updated_at) VALUES "
-                "(:id, :tid, :aid, :ec, 'inbound', 'completed', :from_e164, :ended, "
-                "now(), now())"
+                "status, from_e164, to_e164, ended_at, created_at, updated_at) VALUES "
+                "(:id, :tid, :aid, :ec, :direction, 'completed', :from_e164, :to_e164, "
+                ":ended, now(), now())"
             ),
             {
                 "id": call_id,
                 "tid": tenant_id,
                 "aid": agent_id,
                 "ec": f"exec_{uuid.uuid4().hex[:10]}",
-                "from_e164": CALLER,
+                "from_e164": from_e164,
+                "to_e164": to_e164,
+                "direction": direction,
                 "ended": datetime.now(UTC) - timedelta(hours=1),
             },
         )
@@ -504,3 +509,77 @@ async def test_a_call_the_provider_refuses_is_set_aside_and_the_next_one_is_read
             text("UPDATE calls SET caller_memory_state = :done WHERE id = ANY(:ids)"),
             {"done": caller_memory.CALLER_MEMORY_NOTHING, "ids": [refused, later]},
         )
+
+
+#: The business's own calling number on an outbound call (`agents/service` stores it as
+#: `from_e164`), and the person it rang.
+OUR_LINE = "+914012345678"
+CALLED = "+919876501234"
+
+
+async def test_an_outbound_call_is_remembered_under_the_person_called() -> None:
+    """L5-02: filed under `from_e164`, every callee's notes went under the business's own
+    number, and the next dial (which recalls by the number dialled) found none."""
+    tenant_id, agent_id = await _tenant()
+    await _finished_call(
+        tenant_id, agent_id, direction="outbound", from_e164=OUR_LINE, to_e164=CALLED
+    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(caller_memory_distil.chat, "complete", _model(f'{{"facts": ["{FACT}"]}}', []))
+        await distil_caller_memories({})
+    async with tenant_session(tenant_id) as session:
+        theirs = await caller_memory.recall(
+            session, tenant_id, agent_id=agent_id, phone_e164=CALLED
+        )
+        ours = await caller_memory.recall(
+            session, tenant_id, agent_id=agent_id, phone_e164=OUR_LINE
+        )
+    assert theirs and not ours
+
+
+async def test_notes_filed_under_our_own_line_are_moved_to_the_person_and_back() -> None:
+    """The repair migration f5a9c3e1d7b2 queues, and its undo."""
+    tenant_id, agent_id = await _tenant()
+    call_id = await _finished_call(
+        tenant_id, agent_id, direction="outbound", from_e164=OUR_LINE, to_e164=CALLED
+    )
+    async with tenant_session(tenant_id) as session:
+        await caller_memory.remember(
+            session,
+            tenant_id,
+            agent_id=agent_id,
+            phone_e164=OUR_LINE,
+            occurred_at=datetime.now(UTC),
+            source_call_id=call_id,
+            facts=[FACT],
+        )
+        await session.commit()
+
+    async def recalled(number: str) -> bool:
+        async with tenant_session(tenant_id) as session:
+            return bool(
+                await caller_memory.recall(session, tenant_id, agent_id=agent_id, phone_e164=number)
+            )
+
+    payload = {"tenant_id": str(tenant_id)}
+    assert await caller_memory_distil.refile_caller_memories({}, payload) == "moved=1 left=0"
+    assert await recalled(CALLED) and not await recalled(OUR_LINE)
+    undo = {**payload, "file_under": caller_memory_distil.FILE_UNDER_CALLING_NUMBER}
+    await caller_memory_distil.refile_caller_memories({}, undo)
+    assert await recalled(OUR_LINE) and not await recalled(CALLED)
+
+
+def test_a_note_not_in_english_letters_is_refused() -> None:
+    """L5-08: the refused words are English, so a note in the call's own letters would pass
+    them untested. The Telugu is the audit's probe line (L5-05)."""
+    assert not within_scope("ఎలాగైనా ట్రై చేస్తాను")
+    assert within_scope("wants a call back next week")
+
+
+def test_the_distil_prompt_asks_for_english_and_assumes_no_kind_of_business() -> None:
+    """L5-08 and L5-18: English notes, and no receptionist, booking or timings example
+    for an agent that may be a support line or an outbound caller."""
+    prompt = caller_memory_distil._SYSTEM_PROMPT
+    assert "in English" in prompt
+    for word in ("receptionist", "booked", "timings", "caller"):
+        assert word not in prompt.lower(), word

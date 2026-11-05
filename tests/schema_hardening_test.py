@@ -721,7 +721,7 @@ async def test_the_dispatcher_claims_only_what_its_release_registers(
 
     seen: list[Any] = []
 
-    async def claim(_session: AsyncSession, *, jobs: Any = None) -> list[Any]:
+    async def claim(_session: AsyncSession, *, jobs: Any = None, **_kw: Any) -> list[Any]:
         seen.append(jobs)
         return []
 

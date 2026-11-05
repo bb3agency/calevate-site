@@ -17,12 +17,14 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-from collections.abc import Mapping
+import json
+from collections.abc import Collection, Mapping
 from typing import Any, Final
 
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 from arq.constants import default_queue_name
+from arq.jobs import Job
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -111,6 +113,57 @@ def queue_for(job: str) -> str:
     return BULK_QUEUE if job in BULK_JOBS else DEFAULT_QUEUE
 
 
+#: Where each live bulk worker process says which job names it runs. A producer on one
+#: release cannot know what the bulk worker on `arq:bulk` runs: during a deploy the two are
+#: different releases, and arq fails a job whose name its reader lacks at once, with no
+#: retry. So the outbox dispatcher publishes a bulk job only while EVERY live bulk worker
+#: lists it (`bulk_jobs_served`). One key per process, refreshed well inside its TTL, so a
+#: worker that dies without a shutdown stops counting within `BULK_CONSUMER_TTL_S`.
+BULK_CONSUMER_KEY_PREFIX: Final = "calevate:consumers:bulk:"
+BULK_CONSUMER_TTL_S: Final = 60
+BULK_CONSUMER_REFRESH_S: Final = 20
+
+
+async def advertise_bulk_consumer(redis: Any, instance: str, jobs: Collection[str]) -> None:
+    """Say, for `BULK_CONSUMER_TTL_S`, that this bulk worker process runs `jobs`."""
+    await redis.set(
+        BULK_CONSUMER_KEY_PREFIX + instance, json.dumps(sorted(jobs)), ex=BULK_CONSUMER_TTL_S
+    )
+
+
+async def withdraw_bulk_consumer(redis: Any, instance: str) -> None:
+    await redis.delete(BULK_CONSUMER_KEY_PREFIX + instance)
+
+
+async def bulk_jobs_served(redis: Any) -> frozenset[str]:
+    """The bulk job names every live bulk worker runs; empty when none is live.
+
+    The intersection, not the union: arq hands a queued job to whichever reader polls
+    first, so a name one live worker lacks can still be failed by that one.
+    """
+    keys = [key async for key in redis.scan_iter(match=BULK_CONSUMER_KEY_PREFIX + "*")]
+    if not keys:
+        return frozenset()
+    served: frozenset[str] | None = None
+    for raw in await redis.mget(keys):
+        if raw is None:  # expired between the scan and the read
+            continue
+        names = frozenset(str(name) for name in json.loads(raw))
+        served = names if served is None else served & names
+    return served or frozenset()
+
+
+async def earlier_run_failed(job: str, job_id: str) -> bool:
+    """Whether arq holds a FAILED result for `job_id`, which is why it refused the id.
+
+    `enqueue` returns None both for a run still queued or running (harmless) and for one
+    whose failure arq keeps for `keep_result` (the message's work never happened). Only
+    the second is a lost side effect.
+    """
+    result = await Job(job_id, await get_queue(), _queue_name=queue_for(job)).result_info()
+    return result is not None and not result.success
+
+
 def redis_settings() -> RedisSettings:
     """Worker-side settings: arq's defaults (5 connect retries, 1s apart) are exactly
     right for a worker booting alongside Redis in a compose/deploy race."""
@@ -168,12 +221,18 @@ async def enqueue(job: str, *args: Any, job_id: str | None = None, **kwargs: Any
 
 
 __all__ = [
+    "BULK_CONSUMER_KEY_PREFIX",
+    "BULK_CONSUMER_REFRESH_S",
+    "BULK_CONSUMER_TTL_S",
     "BULK_JOBS",
     "BULK_QUEUE",
     "DEFAULT_QUEUE",
     "QUEUES",
     "WORKER_JOB_TIMEOUT_S",
+    "advertise_bulk_consumer",
+    "bulk_jobs_served",
     "close_queue",
+    "earlier_run_failed",
     "enqueue",
     "enqueue_pool_settings",
     "get_queue",
@@ -181,4 +240,5 @@ __all__ = [
     "job_try",
     "queue_for",
     "redis_settings",
+    "withdraw_bulk_consumer",
 ]

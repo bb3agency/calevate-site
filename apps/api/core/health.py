@@ -190,6 +190,14 @@ def _image_migration_graph() -> tuple[frozenset[str], frozenset[str]] | None:
     return _migration_graph
 
 
+async def image_revisions() -> frozenset[str]:
+    """Every alembic revision this image ships, empty when the tree cannot be read. The
+    outbox dispatcher claims a migration-queued message only when its revision is in here,
+    and empty holds every such message rather than guessing (`claim_outbox_batch`)."""
+    graph = await asyncio.to_thread(_image_migration_graph)
+    return frozenset() if graph is None else graph[0]
+
+
 async def _check_schema_current() -> bool:
     """Is the database at a revision this image is happy to serve?
 
