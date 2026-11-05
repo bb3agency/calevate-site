@@ -45834,7 +45834,8 @@
           "actor": {
             "enum": [
               "client",
-              "calevate"
+              "calevate",
+              "outside"
             ],
             "title": "Actor",
             "type": "string"
@@ -55585,7 +55586,8 @@
           "actor": {
             "enum": [
               "client",
-              "calevate"
+              "calevate",
+              "outside"
             ],
             "title": "Actor",
             "type": "string"

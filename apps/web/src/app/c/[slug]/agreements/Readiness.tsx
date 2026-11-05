@@ -17,10 +17,11 @@ import { AGREEMENTS_COPY as COPY } from "./copy";
 import { DocumentRows } from "./documents";
 import { WhyTip } from "./_ui/WhyTip";
 
-/** Whose move a blocker is, in the two words its status says. */
+/** Whose move a blocker is, in the words its status says. */
 const ACTOR_STATUS: Record<ReadinessBlocker["actor"], { label: string; tone: NoticeTone }> = {
   client: { label: COPY.yourMove, tone: "warn" },
   calevate: { label: COPY.oursToDo, tone: "neutral" },
+  outside: { label: COPY.notYet, tone: "neutral" },
 };
 
 /** The server's rule name for the blocker this screen can clear itself. */

@@ -63,7 +63,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
-from apps.api.legal.readiness import readiness_rows
+from apps.api.legal.readiness import Actor, readiness_rows
 
 router = APIRouter(prefix="/v1/admin/tenants", tags=["admin"])
 
@@ -102,9 +102,9 @@ class TenantReadinessRowOut(BaseModel):
     #: the same one the dial gate returns. An operator on the phone and the client reading
     #: their screen are then quoting one sentence to each other.
     reason: str
-    #: Whose move: `client` or `calevate`. The column that turns a list of blockers into a
-    #: decision about who to chase.
-    actor: Literal["client", "calevate"]
+    #: Whose move: `client`, `calevate`, or `outside` (neither can clear it today). The
+    #: column that turns a list of blockers into a decision about who to chase.
+    actor: Actor
     next_step: str
 
 

@@ -30544,7 +30544,7 @@ export interface components {
              * Actor
              * @enum {string}
              */
-            actor: "client" | "calevate";
+            actor: "client" | "calevate" | "outside";
             /** Next Step */
             next_step: string;
             /** Reason */
@@ -34340,7 +34340,7 @@ export interface components {
              * Actor
              * @enum {string}
              */
-            actor: "client" | "calevate";
+            actor: "client" | "calevate" | "outside";
             /** Next Step */
             next_step: string;
             /** Reason */
