@@ -32,6 +32,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.call_outcomes import outcome_lead_move
 from apps.api.billing.display import display_inr
 from apps.api.billing.plans import IST
 from apps.api.billing.service import low_balance_line
@@ -41,6 +42,8 @@ from apps.api.core.logging import get_logger
 from apps.api.crm.schemas import AttentionKind
 from apps.api.db.session import session_tenant
 from apps.api.integrations.service import DELIVERY_TIMEOUT_S
+from apps.api.tenancy.caller_words import CallerWords, caller_words_for
+from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
@@ -663,10 +666,51 @@ async def broken_actions(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -
 FAILED_CALL_DAYS = 2
 
 
+#: What a goal-reached row asks of the owner. Neutral on purpose: what the goal was is the
+#: business's own outcome label, in the title.
+GOAL_REACHED_DETAIL = "Open the lead to follow up while it is fresh."
+
+
+def goal_title(name: str | None, outcome_label: str | None, words: CallerWords) -> str:
+    """A goal-reached row's title in the business's own words: the outcome its agent ended
+    the call on ("Ravi: App installed successfully"), else the neutral stage name. Never
+    "hot lead": `hot` is the platform's key, and a business that sells nothing has none."""
+    who = " ".join((name or "").split()) or f"A {words.caller}"
+    label = " ".join((outcome_label or "").split())
+    if label:
+        return f"{who}: {label}"
+    return f"{who} reached a goal"
+
+
+async def goal_outcome_labels(session: AsyncSession, lead_ids: Sequence[Any]) -> dict[Any, str]:
+    """Each lead's latest call that ended on a goal outcome, as that outcome's label. Whether
+    an outcome is a goal is read from the agent's own list (`outcome_lead_move`), as every
+    other goal count does, because the call keeps only the key and label."""
+    if not lead_ids:
+        return {}
+    rows = (
+        await session.execute(
+            text(
+                "SELECT c.lead_id, c.business_outcome, c.business_outcome_label, "
+                "a.business_outcomes FROM calls c JOIN agents a ON a.id = c.agent_id "
+                "WHERE c.lead_id = ANY(:ids) AND c.business_outcome IS NOT NULL "
+                "ORDER BY c.created_at DESC"
+            ),
+            {"ids": list(lead_ids)},
+        )
+    ).all()
+    labels: dict[Any, str] = {}
+    for lead_id, key, label, outcomes in rows:
+        if lead_id not in labels and label and outcome_lead_move(outcomes, key) == "hot":
+            labels[lead_id] = str(label)
+    return labels
+
+
 async def hot_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> AttentionSource:
-    """Leads marked hot in the window and still hot: someone to ring back while it matters.
-    The title is the captured name only, never the number, because the same item becomes a
-    desktop notification that can show on a locked screen."""
+    """Leads at the `hot` stage in the window and still there: someone to follow up while it
+    matters. Named by the outcome of the lead's latest call that reached the goal, the
+    business's own words. The title is the captured name only, never the number, because
+    the same item becomes a desktop notification that can show on a locked screen."""
     rows = (
         await session.execute(
             text(
@@ -678,14 +722,16 @@ async def hot_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> Att
             {"window": WINDOW_DAYS, "limit": limit},
         )
     ).all()
+    labels = await goal_outcome_labels(session, [row[0] for row in rows])
+    words = await caller_words_for(session, await session_tenant(session)) if rows else None
     return AttentionSource(
         kind="lead_hot",
         items=[
             AttentionItem(
                 kind="lead_hot",
                 id=str(row[0]),
-                title=f"{row[1]} is a hot lead" if row[1] else "A caller is a hot lead",
-                detail="They sounded ready to go ahead. Call them back while it is fresh.",
+                title=goal_title(row[1], labels.get(row[0]), words or CallerWords()),
+                detail=GOAL_REACHED_DETAIL,
                 rule=None,
                 occurred_at=row[2],
                 href=f"/leads/{row[0]}",
@@ -694,6 +740,51 @@ async def hot_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> Att
         ],
         total=_matching(rows),
     )
+
+
+#: A "Needs you" call nobody marked handled, when it carries no next step of its own.
+NEEDS_YOU_DETAIL = "Your agent could not finish this. Open the call to see what they need."
+
+
+async def calls_needing_you(
+    session: AsyncSession, *, limit: int = DEFAULT_LIMIT
+) -> AttentionSource:
+    """Calls that ended asking the business to act (`crm/outcomes`: `needs_you`), or that a
+    person marked as still needing them, and that nobody has marked handled since: the same
+    set as the call log's "Needs you" + "Not handled yet". The owner's own test calls are
+    left out. The detail is the call's next step, redacted, because the item can become a
+    desktop notification on a locked screen."""
+    rows = (
+        await session.execute(
+            text(
+                "SELECT c.id, l.name, c.next_step, c.created_at, count(*) OVER () AS matching "
+                "FROM calls c LEFT JOIN leads l ON l.id = c.lead_id AND l.deleted_at IS NULL "
+                "WHERE (c.outcome_tag = 'needs_you' OR c.follow_up_state = 'needs_you') "
+                "  AND c.follow_up_state IS DISTINCT FROM 'resolved' "
+                "  AND NOT (c.trial_call OR c.paid_test_call) "
+                "  AND c.created_at > now() - make_interval(days => :window) "
+                "ORDER BY c.created_at DESC, c.id LIMIT :limit"
+            ),
+            {"window": WINDOW_DAYS, "limit": limit},
+        )
+    ).all()
+    words = await caller_words_for(session, await session_tenant(session)) if rows else None
+    items: list[AttentionItem] = []
+    for call_id, name, next_step, created_at, _matched in rows:
+        who = " ".join((name or "").split()) or f"A {(words or CallerWords()).caller}"
+        step = " ".join(redact(next_step).text.split()) if next_step else ""
+        items.append(
+            AttentionItem(
+                kind="call_needs_you",
+                id=str(call_id),
+                title=f"{who} needs you",
+                detail=step or NEEDS_YOU_DETAIL,
+                rule=None,
+                occurred_at=created_at,
+                href=f"/calls/{call_id}",
+            )
+        )
+    return AttentionSource(kind="call_needs_you", items=items, total=_matching(rows))
 
 
 async def failed_calls(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> AttentionSource:
@@ -934,6 +1025,7 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await inbound_stopped(session, limit=limit),
         await broken_actions(session, limit=limit),
         await hot_leads(session, limit=limit),
+        await calls_needing_you(session, limit=limit),
         await failed_calls(session, limit=limit),
         await forwarded_line_quiet(session, limit=limit),
         await low_credit(session),
@@ -971,6 +1063,8 @@ __all__ = [
     "BLOCK_REMEDIES",
     "DEFAULT_LIMIT",
     "FAILED_CALL_DAYS",
+    "GOAL_REACHED_DETAIL",
+    "NEEDS_YOU_DETAIL",
     "SHEET_FAILURE_REMEDIES",
     "WINDOW_DAYS",
     "AttentionItem",
@@ -978,8 +1072,11 @@ __all__ = [
     "attention_queue",
     "blocked_leads",
     "caller_memory_paused",
+    "calls_needing_you",
     "failed_calls",
     "failed_deliveries",
+    "goal_outcome_labels",
+    "goal_title",
     "hot_leads",
     "knowledge_waiting",
     "low_credit",

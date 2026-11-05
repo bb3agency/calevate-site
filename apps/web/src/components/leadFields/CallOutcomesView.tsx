@@ -17,6 +17,7 @@ import type { UseMutationResult } from "@tanstack/react-query";
 import { Section } from "@/components/console/section";
 import { SavedTick } from "@/components/console/savedTick";
 import { useFormValidation } from "@/components/formValidation";
+import { GOAL_STAGE } from "@/lib/goalStage";
 import {
   FIELD,
   FIELD_LABEL,
@@ -43,7 +44,7 @@ type OutcomeExamples = Pick<VerticalExamples, "outcomeLabel" | "outcomeMeaning">
 export const LEAD_MOVE_WORDS: Readonly<Record<LeadMove, string>> = {
   contacted: "Contacted",
   interested: "Interested",
-  hot: "Hot",
+  hot: GOAL_STAGE,
 };
 
 /** One row being edited. `key` is the stored key, or null for a new outcome. */

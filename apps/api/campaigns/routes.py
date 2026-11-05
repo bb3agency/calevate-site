@@ -320,6 +320,7 @@ class CampaignResultsOut(Strict):
     sentiment: dict[str, int]
     #: Everyone the campaign's calls made a lead record for, interested or not.
     leads: int
+    #: Of `leads`, those that reached the business's goal (`crm/lead_definition.GOAL_BAND`).
     hot_leads: int
     #: People who became a lead: reached interested, hot or won (`crm/lead_definition`).
     interested_leads: int

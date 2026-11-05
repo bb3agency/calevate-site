@@ -13,6 +13,7 @@
 
 import { formatPhone } from "@/components/ui";
 import type { CallDetail, CallSummary } from "@/lib/api/client";
+import { GOAL_STAGE } from "@/lib/goalStage";
 import { lookup } from "@/lib/lookup";
 
 export type CallOutcome = NonNullable<CallSummary["outcome_tag"]>;
@@ -227,7 +228,7 @@ export type OutcomeKind =
 
 /** The legend's words for each kind, in the order an owner reads them. */
 export const OUTCOME_KIND_WORDS: Record<OutcomeKind, string> = {
-  hot: "Ready to act",
+  hot: GOAL_STAGE,
   interested: "Interested",
   call_back: "Call-back booked",
   transferred: "Handed to your team",

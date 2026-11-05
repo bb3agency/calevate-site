@@ -207,7 +207,7 @@ describe("'Clear the filters' clears the filters — all of them", () => {
     // Three filters at once, on three different axes: the chip, the question and the
     // owner. The old clear knew about one of them.
     await act(async () => {
-      fireEvent.click(screen.getByRole("radio", { name: /^Hot/ }));
+      fireEvent.click(screen.getByRole("radio", { name: /^Goal reached/ }));
     });
     await askQuestion("3BHK in Gachibowli");
     await filterByOwner();

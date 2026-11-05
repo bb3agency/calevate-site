@@ -97,7 +97,7 @@ export function ResultFigures({ results }: { results: ResultsRead }) {
       <Metric
         label="Interested"
         value={formatCount(r.interested_leads)}
-        hint={r.hot_leads ? `${formatCount(r.hot_leads)} hot` : "None hot yet"}
+        hint={r.hot_leads ? `${formatCount(r.hot_leads)} reached a goal` : "None reached a goal yet"}
       />
       <Metric
         label="Average call"
@@ -213,7 +213,7 @@ export function CampaignResults({
           </ul>
           {r.leads > r.recent_leads.length && (
             <p className="mt-2 text-meta text-ink-muted">
-              Showing {formatCount(r.recent_leads.length)} of {formatCount(r.leads)}, hot leads first.
+              Showing {formatCount(r.recent_leads.length)} of {formatCount(r.leads)}, goals reached first.
             </p>
           )}
         </Section>

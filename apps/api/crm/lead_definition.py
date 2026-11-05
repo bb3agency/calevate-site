@@ -37,6 +37,17 @@ from apps.api.crm.schemas import LeadStatus
 #: The statuses that make a contact a lead.
 LEAD_BAND: Final[tuple[LeadStatus, ...]] = ("interested", "hot", "won")
 
+#: The statuses of a lead that reached the business's goal: `hot` is set when a call ends on
+#: an outcome the business marked as its goal (D-836, `analytics/proof.reaches_goal`) or by a
+#: person, and `won` lies past it. Every "reached a goal" count reads this.
+GOAL_BAND: Final[tuple[LeadStatus, ...]] = ("hot", "won")
+
+#: What an owner reads for the `hot` stage. `hot` is the platform's internal key and a sales
+#: word: a business that sells nothing (an app calling its registered users) has no "hot
+#: lead", so no client-facing text says it. "Goal reached" is true for every business, and
+#: the specific goal is named by the business's own outcome label wherever one call is meant.
+GOAL_STAGE_NAME: Final = "Goal reached"
+
 #: Built by joining quoted literals rather than `repr(LEAD_BAND)`: the same text, but one
 #: `scripts/check_raw_sql.py` can trace to literals in this file, where `repr()` of a value
 #: is text it cannot vouch for.
@@ -75,4 +86,17 @@ BECAME_LEADS_SQL: Final = (
     f"AND t.payload ->> 'status' IN {_BAND_SQL}))))"
 )
 
-__all__ = ["BECAME_LEADS_SQL", "LEAD_BAND", "REAL_CALL_SQL"]
+__all__ = [
+    "BECAME_LEADS_SQL",
+    "GOAL_BAND",
+    "GOAL_STAGE_NAME",
+    "LEAD_BAND",
+    "REAL_CALL_SQL",
+    "stage_name",
+]
+
+
+def stage_name(status: str) -> str:
+    """A stage as an owner reads it: its word capitalised, `hot` as `GOAL_STAGE_NAME`. The
+    web's `stageLabel` spells the same mapping for the screens."""
+    return GOAL_STAGE_NAME if status == "hot" else status.replace("_", " ").capitalize()

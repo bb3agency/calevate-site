@@ -6481,6 +6481,7 @@
               "inbound_stopped",
               "action_broken",
               "lead_hot",
+              "call_needs_you",
               "call_failed",
               "credit_low",
               "forwarded_line_quiet",

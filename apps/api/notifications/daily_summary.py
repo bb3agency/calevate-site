@@ -7,7 +7,8 @@ billing address, and by WhatsApp to the owner where their WhatsApp opt-in is on 
 WHAT EACH CHANNEL CARRIES, AND WHY THEY DIFFER. The WhatsApp template carries counts and
 rupees only: Calevate's WhatsApp account goes through a foreign processor, and the platform's
 templates carry no caller's details (`workers/whatsapp.py`, the hot-lead reasoning). The email
-also names the top three hot leads, the name whole and the number masked to its last two
+also names the top three people who reached a goal and are waiting, each by the business's
+own outcome for their call, the name whole and the number masked to its last two
 digits, the hot-lead email's rule (`workers/notifications._compose`): a name is what makes the
 lead recognisable and nobody can ring it; the full number stays behind the dashboard login.
 
@@ -34,12 +35,13 @@ from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.errors import ProblemError
-from apps.api.crm.lead_definition import BECAME_LEADS_SQL
+from apps.api.crm.attention import goal_outcome_labels
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL, GOAL_BAND, GOAL_STAGE_NAME
 from apps.api.crm.performance import CONNECTED_SQL
 from apps.api.tenancy.caller_words import CallerWords, caller_words_for
 from apps.workers.redaction import redact
 
-#: Hot leads named in the email.
+#: People who reached a goal and are waiting, named in the email.
 TOP_HOT_LEADS: Final = 3
 #: A name is cut to this many characters in the email.
 NAME_MAX: Final = 40
@@ -51,6 +53,8 @@ class HotLead:
     name: str | None
     #: The number masked to its last two digits (`redaction.PHONE_MASK`).
     phone_masked: str
+    #: The business's own outcome their latest goal call ended on, or None.
+    goal: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +65,7 @@ class DailySummary:
     answered: int
     missed: int
     leads: int
+    #: Of `leads`, those that reached the business's goal (`GOAL_BAND`).
     hot_leads: int
     top_hot: tuple[HotLead, ...]
     spent_inr: Decimal
@@ -102,13 +107,17 @@ _CALLS_SQL: Final = text(
     "FROM calls WHERE started_at >= :start AND started_at < :end "
     "AND NOT (trial_call OR paid_test_call)"
 )
-#: People who became a lead that day (`crm/lead_definition`) and how many of them are hot.
+#: People who became a lead that day (`crm/lead_definition`) and how many of them reached a
+#: goal (`GOAL_BAND`, the definition the stats band and campaign results count too).
 _LEADS_SQL: Final = text(
-    f"SELECT count(*), count(*) FILTER (WHERE bl.status = 'hot') FROM {BECAME_LEADS_SQL} AS bl "
+    "SELECT count(*), count(*) FILTER (WHERE bl.status = ANY(:goal)) "
+    f"FROM {BECAME_LEADS_SQL} AS bl "
     "WHERE bl.became_lead_at >= :start AND bl.became_lead_at < :end"
 )
+#: The day's people still waiting at the goal stage (`hot`; a `won` one needs no follow-up).
 _TOP_HOT_SQL: Final = text(
-    f"SELECT l.name, l.phone_e164 FROM {BECAME_LEADS_SQL} AS bl JOIN leads l ON l.id = bl.id "
+    f"SELECT l.name, l.phone_e164, l.id FROM {BECAME_LEADS_SQL} AS bl "
+    "JOIN leads l ON l.id = bl.id "
     "WHERE bl.status = 'hot' AND bl.became_lead_at >= :start AND bl.became_lead_at < :end "
     "ORDER BY l.status_set_at DESC NULLS LAST, bl.became_lead_at DESC LIMIT :n"
 )
@@ -125,8 +134,9 @@ async def build_summary(session: AsyncSession, *, tenant_id: UUID, day: date) ->
         raise ProblemError.not_found("Organization")
     binds = _bounds(day)
     answered, missed = (await session.execute(_CALLS_SQL, binds)).one()
-    leads, hot = (await session.execute(_LEADS_SQL, binds)).one()
+    leads, hot = (await session.execute(_LEADS_SQL, {**binds, "goal": list(GOAL_BAND)})).one()
     top = (await session.execute(_TOP_HOT_SQL, {**binds, "n": TOP_HOT_LEADS})).all()
+    goals = await goal_outcome_labels(session, [row[2] for row in top])
     follow_ups = int((await session.execute(_FOLLOW_UPS_SQL)).scalar_one())
     spent = (await spend_series(session, tenant_id=tenant_id, start=day, end=day)).spent_inr
     return DailySummary(
@@ -138,7 +148,12 @@ async def build_summary(session: AsyncSession, *, tenant_id: UUID, day: date) ->
         leads=int(leads),
         hot_leads=int(hot),
         top_hot=tuple(
-            HotLead(name=_one_line(row[0]), phone_masked=redact(str(row[1])).text) for row in top
+            HotLead(
+                name=_one_line(row[0]),
+                phone_masked=redact(str(row[1])).text,
+                goal=goals.get(row[2]),
+            )
+            for row in top
         ),
         spent_inr=spent,
         per_lead_inr=per_unit(spent, int(leads)),
@@ -170,10 +185,10 @@ def email_subject(summary: DailySummary) -> str:
 
 
 def email_lines(summary: DailySummary) -> list[str]:
-    hot = "hot" if summary.words.sells is not False else "most interested"
     return [
         f"{_count(summary.answered, 'call')} answered and {summary.missed} missed today.",
-        f"{_count(summary.leads, summary.words.new_lead)}, {summary.hot_leads} of them {hot}.",
+        f"{_count(summary.leads, summary.words.new_lead)}, "
+        f"{summary.hot_leads} of them reached a goal.",
         f"{_count(summary.follow_ups_waiting, 'call-back')} waiting for you.",
     ]
 
@@ -191,7 +206,7 @@ def email_facts(summary: DailySummary) -> list[tuple[str, str]]:
     ]
     facts += [
         (
-            words.hot_lead.capitalize(),
+            lead.goal or GOAL_STAGE_NAME,
             f"{lead.name or 'Name not captured'} ({lead.phone_masked})",
         )
         for lead in summary.top_hot

@@ -3,6 +3,7 @@ import type { MetricDelta } from "@/components/console/metric";
 import { formatDateShort } from "@/components/arc/ist-dates";
 import { formatCount, formatDecimal, formatDuration, formatPercent } from "@/components/ui";
 import type { Stats, StatsMetric } from "@/lib/api/analytics";
+import { callersWord, type BusinessCapabilities } from "@/lib/businessCapabilities";
 
 type MetricKey = StatsMetric["key"];
 
@@ -11,15 +12,25 @@ const LABELS: Record<MetricKey, string> = {
   answered: "Answered",
   answer_rate_pct: "Answer rate",
   leads: "New leads",
-  hot_leads: "Hot leads",
+  hot_leads: "Reached a goal",
   avg_duration_s: "Average call length",
   talk_minutes: "Talk time",
 };
 
+/**
+ * The labels a business's own words change: a business that sells nothing has no "leads",
+ * it has interested users (`tenancy/caller_words.CallerWords.new_lead`, the emails' word).
+ */
+export function businessLabels(caps: BusinessCapabilities): Partial<Record<MetricKey, string>> {
+  if (caps.sells !== false) return {};
+  return { leads: `Interested ${callersWord(caps)}` };
+}
+
 /** Hints that say what a figure counts, where the label alone could be misread. */
 const HINTS: Partial<Record<MetricKey, string>> = {
-  answer_rate_pct: "Calls that reached a real conversation",
-  leads: "People who became interested, hot or won",
+  answer_rate_pct: "Calls someone picked up",
+  leads: "People who showed interest",
+  hot_leads: "People whose call ended on a goal you set",
   avg_duration_s: "Completed calls",
   talk_minutes: "Minutes spent talking on answered calls",
 };
@@ -77,8 +88,13 @@ function delta(change: number, magnitude: string, metric: StatsMetric, context: 
 export function statItems(
   stats: Stats,
   keys: MetricKey[],
-  { context, trends = {} }: { context: string; trends?: Partial<Record<MetricKey, number[]>> },
+  {
+    context,
+    trends = {},
+    caps,
+  }: { context: string; trends?: Partial<Record<MetricKey, number[]>>; caps?: BusinessCapabilities },
 ): StatItem[] {
+  const labels = { ...LABELS, ...(caps ? businessLabels(caps) : {}) };
   const byKey = new Map(stats.metrics.map((metric) => [metric.key, metric]));
   return keys.flatMap((key) => {
     const metric = byKey.get(key);
@@ -87,7 +103,7 @@ export function statItems(
     const nothingBefore = change === undefined && metric.value !== null && (metric.previous === null || Number(metric.previous) === 0);
     return [
       {
-        label: LABELS[key],
+        label: labels[key],
         value: statValue(metric),
         flashValue: metric.value,
         delta: change,

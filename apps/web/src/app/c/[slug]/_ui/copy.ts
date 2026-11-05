@@ -17,8 +17,10 @@ export const HOME = {
   seeAll: "See all",
   groupNow: "Needs you now",
   groupBetter: "Make your agents better",
-  hotLeads: (n: number) => `${plural(n, "hot lead", "hot leads")} to call back`,
-  hotLeadsAction: "Call back",
+  // `one`/`many` are the business's own caller noun (`callersWord`); "hot lead" is a sales
+  // word a business that sells nothing does not have (founder, 5 Nov 2026).
+  goalReached: (n: number, one: string, many: string) => `${plural(n, one, many)} reached a goal`,
+  goalReachedAction: "Follow up",
   missed: (n: number) => `${plural(n, "missed call", "missed calls")} today`,
   missedAction: "See missed calls",
   gaps: (n: number) => `${plural(n, "question", "questions")} not answered`,

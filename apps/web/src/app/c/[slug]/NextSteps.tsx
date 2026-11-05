@@ -6,7 +6,6 @@ import {
   Bot,
   CheckCircle2,
   CircleAlert,
-  Flame,
   Gauge,
   MessageCircleQuestion,
   PhoneMissed,
@@ -47,6 +46,7 @@ import type { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
 import type { AccountReadiness, ReadinessFix } from "@/lib/api/readiness";
 import { QUESTION_PARAM, QUESTIONS_TAB } from "@/lib/api/teachQuestions";
 import { activeTrial, walletState, type useWallet } from "@/lib/api/wallet";
+import { callersWord, useBusinessCapabilities } from "@/lib/businessCapabilities";
 
 import { readinessBand } from "./agents/AgentReadiness";
 import { HOME, READINESS_WHY } from "./_ui/copy";
@@ -198,6 +198,7 @@ export function NextSteps({
   folded?: boolean;
 }) {
   const [opened, setOpened] = useState<boolean | null>(null);
+  const caps = useBusinessCapabilities();
   const steps: Step[] = [];
   const hide = useSetupAction(session);
   // On success the step leaves with the button that hid it, so the toast is the only place
@@ -343,17 +344,17 @@ export function NextSteps({
     steps.push({
       key: "hot",
       rank: "opportunity",
-      // Green, as on the call log: a lead ready to act is good news that wants a call.
+      // Green, as on the call log: a goal reached is good news that wants a follow-up.
       tone: "ok",
-      icon: Flame,
+      icon: Target,
       text: (
         <>
           <span className="font-semibold tabular-nums">{formatCount(data.hot_leads_open)}</span>{" "}
-          {HOME.hotLeads(data.hot_leads_open)}
+          {HOME.goalReached(data.hot_leads_open, caps.callerNoun ?? "person", callersWord(caps, "people"))}
         </>
       ),
       to: "/leads",
-      label: HOME.hotLeadsAction,
+      label: HOME.goalReachedAction,
     });
   }
 

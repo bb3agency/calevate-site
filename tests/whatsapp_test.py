@@ -271,7 +271,7 @@ def test_the_template_variable_carries_no_consumer_data() -> None:
     reaches a third-party processor is WHY the lead is hot, drawn from our own trigger
     vocabulary — never caller-supplied text."""
     assert whatsapp._compose_variables(["urgency"]) == ("urgency",)
-    assert whatsapp._compose_variables([]) == ("marked hot",)
+    assert whatsapp._compose_variables([]) == ("goal reached",)
     assert len(whatsapp._compose_variables(["urgency"])) == whatsapp.TEMPLATE_VARIABLE_COUNT
 
 

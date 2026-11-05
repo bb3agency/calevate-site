@@ -19,7 +19,7 @@ import { PERFORMANCE_COPY as COPY, funnelTitle } from "./copy";
 
 /** What each panel's figures mean, behind the panel's ⓘ. */
 export const FUNNEL_NOTE =
-  "Answered means the call reached a real conversation — not voicemail or a missed call. " +
+  "Answered means someone picked up, even if they hung up early — not voicemail or a missed call. " +
   "Interested counts people, not calls: three calls to the same person count once.";
 export const OUTCOMES_NOTE =
   "The tag your agent recorded, or how the call ended when it recorded none.";

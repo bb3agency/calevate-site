@@ -1,6 +1,9 @@
 "use client";
 
 import type { LeadStatus } from "@/lib/api/leads";
+import { stageLabel } from "@/lib/goalStage";
+
+export { stageLabel };
 
 /**
  * ONE spelling of the pipeline stages, shared by the table, the board and the lead's own
@@ -12,14 +15,6 @@ import type { LeadStatus } from "@/lib/api/leads";
  * starts.
  */
 export const STATUSES: LeadStatus[] = ["new", "contacted", "interested", "hot", "won", "lost"];
-
-/**
- * A stage as a reader sees it ("Hot"). Spelled in the text rather than by CSS
- * `capitalize`, which a native `<select>`'s option list does not reliably honour.
- */
-export function stageLabel(stage: string): string {
-  return stage.charAt(0).toUpperCase() + stage.slice(1);
-}
 
 /**
  * The stage control. The caller supplies the accessible name (each row's names its own

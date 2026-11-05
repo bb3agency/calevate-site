@@ -44,6 +44,7 @@ _ATTENTION_TONE: Final[dict[str, Tone]] = {
     "inbound_stopped": "critical",
     "credit_low": "critical",
     "call_failed": "warning",
+    "call_needs_you": "warning",
     "lead_blocked": "warning",
     "delivery_failed": "warning",
     "campaign_stalled": "warning",

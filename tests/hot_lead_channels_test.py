@@ -710,6 +710,6 @@ def test_the_alert_names_the_agent_not_a_receptionist() -> None:
     body = notifications._compose(
         "Ravi", CALLER_TEST_E164, "hot", None, [], slug="acme", lead_id=uuid.uuid4()
     )
-    assert "by your AI agent." in body
+    assert body.startswith("Your AI agent flagged")
     assert "receptionist" not in body.lower()
     assert "receptionist" not in notifications.HOT_LEAD_SUBJECT.lower()

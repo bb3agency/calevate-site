@@ -199,14 +199,15 @@ def _summary(words: CallerWords) -> DailySummary:
 def test_a_business_that_sells_nothing_hears_about_interested_users_not_leads() -> None:
     app = CallerWords(sells=False, caller_noun="user")
     assert email_subject(_summary(app)) == "Today: 3 calls answered, 2 interested users"
-    assert email_lines(_summary(app))[1] == "2 interested users, 1 of them most interested."
+    assert email_lines(_summary(app))[1] == "2 interested users, 1 of them reached a goal."
     assert email_facts(_summary(app))[1][0] == "Cost per interested user today"
-    assert hot_lead_subject(app, None) == "Most interested user from your AI agent"
+    assert hot_lead_subject(app, None) == HOT_LEAD_SUBJECT
     assert hot_lead_subject(app, "Using the app") == "Using the app: a call your AI agent flagged"
     body = _compose(
         "Ravi", "+919000000001", "hot", None, [], slug="rytu", lead_id=uuid.uuid4(), words=app
     )
     assert body.startswith("Your AI agent flagged this interested user for you.")
+    assert "Stage: Goal reached" in body
 
 
 @pytest.mark.parametrize("words", [CallerWords(), CallerWords(sells=True, caller_noun="customer")])
@@ -217,7 +218,44 @@ def test_a_selling_or_unjudged_business_keeps_its_lead_words(words: CallerWords)
     body = _compose(
         "Ravi", "+919000000001", "hot", None, [], slug="s", lead_id=uuid.uuid4(), words=words
     )
-    assert body.startswith("A lead was flagged")
+    assert body.startswith("Your AI agent flagged this lead for you.")
+
+
+@pytest.mark.parametrize(
+    "words", [CallerWords(), CallerWords(sells=False, caller_noun="user"), CallerWords(sells=True)]
+)
+def test_no_alert_or_summary_says_hot_to_any_business(words: CallerWords) -> None:
+    """E-HOT (founder, 5 Nov 2026): `hot` is the platform's stage key. A business that sells
+    nothing has no hot leads, so no email or summary line names one, judged or not."""
+    from apps.api.notifications.daily_summary import HotLead
+
+    summary = _summary(words)
+    summary = type(summary)(
+        **{
+            **{f: getattr(summary, f) for f in summary.__dataclass_fields__},
+            "top_hot": (
+                HotLead(name="Ravi", phone_masked="[phone ••01]", goal="App installed"),
+                HotLead(name="Sita", phone_masked="[phone ••02]"),
+            ),
+        }
+    )
+    body = _compose(
+        "Ravi", "+919000000001", "hot", None, [], slug="s", lead_id=uuid.uuid4(), words=words
+    )
+    text_out = " ".join(
+        [
+            hot_lead_subject(words, None),
+            body,
+            email_subject(summary),
+            *email_lines(summary),
+            *(label + " " + value for label, value in email_facts(summary)),
+        ]
+    ).lower()
+    assert "hot" not in text_out
+    assert "ready to go ahead" not in text_out
+    facts = dict(email_facts(summary))
+    assert facts["App installed"].startswith("Ravi")
+    assert facts["Goal reached"].startswith("Sita")
 
 
 # --- C1/C2 profile ------------------------------------------------------------------------

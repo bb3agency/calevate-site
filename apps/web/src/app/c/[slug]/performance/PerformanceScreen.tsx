@@ -89,7 +89,8 @@ export function clampRange(next: DateRange): DateRange {
 export function PerformanceScreen() {
   const session = useClientSession();
   const me = useMe(session);
-  const callers = callersWord(useBusinessCapabilities(), "customers");
+  const caps = useBusinessCapabilities();
+  const callers = callersWord(caps, "customers");
   const [range, setRange] = useState<DateRange>(defaultRange);
   const [testCalls, setTestCalls] = useState(true);
   const [heatmapMetric, setHeatmapMetric] = useState<"calls" | "leads">("calls");
@@ -213,6 +214,7 @@ export function PerformanceScreen() {
           label={COPY.glance}
           items={statItems(stats.data, ["calls", "answer_rate_pct", "leads", "avg_duration_s"], {
             context: `vs the previous ${formatCount(stats.data.window.days)} days`,
+            caps,
           })}
         />
       )}

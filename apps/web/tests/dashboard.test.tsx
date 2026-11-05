@@ -322,7 +322,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/business-profile": businessProfileFixture(),
     "/v1/healer/incidents?days=30&limit=20": { open: 0, items: [] },
     "/v1/business-copy": NO_BUSINESS_COPY,
-    "/v1/analytics/stats": stats(),
+    "/v1/analytics/stats?test_calls=false": stats(),
     "/v1/readiness": NO_READINESS,
     // D-944: the owner's daily summary (already on, so no offer) and rupees per result.
     "/v1/notifications/daily-summary": { enabled: true, email_addresses: 1, whatsapp: false },
@@ -985,7 +985,7 @@ describe("this week", () => {
   it("reads a busy week as the page's one block of figures, each against the week before", async () => {
     const card = await recap({
       "/v1/dashboard": BUSY_WEEK,
-      "/v1/analytics/stats": stats({
+      "/v1/analytics/stats?test_calls=false": stats({
         calls: { value: "29", previous: "17", change_pct: "70.6" },
         answer_rate_pct: { value: "69.0", previous: "64.5" },
         leads: { value: "6", previous: "2", change_pct: "200.0" },
@@ -1010,7 +1010,7 @@ describe("this week", () => {
   it("does not invent a comparison in a first week", async () => {
     const card = await recap({
       "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 8, calls_connected_7d: 8 },
-      "/v1/analytics/stats": stats({ calls: { value: "8", previous: "0", change_pct: null } }),
+      "/v1/analytics/stats?test_calls=false": stats({ calls: { value: "8", previous: "0", change_pct: null } }),
       "/v1/agents": [agentRow()],
     });
     expect(await figure(card, "Calls")).toContain("None in the previous 7 days");
@@ -1020,7 +1020,7 @@ describe("this week", () => {
   it("says the figures could not load rather than showing zeros", async () => {
     const card = await recap({
       "/v1/dashboard": BUSY_WEEK,
-      "/v1/analytics/stats": problem(503, { title: "Service unavailable" }),
+      "/v1/analytics/stats?test_calls=false": problem(503, { title: "Service unavailable" }),
       "/v1/agents": [agentRow()],
     });
     await within(card).findByRole("alert");
@@ -1452,8 +1452,11 @@ describe("next steps", () => {
     // The button names the step it opens, so no line under the row repeats it.
     expect(stepLinks(card)).toEqual([
       { name: "Verify business", href: "/c/acme/go-live", primary: true },
-      { name: "Call back", href: "/c/acme/leads", primary: false },
+      { name: "Follow up", href: "/c/acme/leads", primary: false },
     ]);
+    // E-HOT: the `hot` stage is internal; no business reads "hot lead" (founder, 5 Nov 2026).
+    expect(card.textContent).toContain("2 people reached a goal");
+    expect(card.textContent?.toLowerCase()).not.toContain("hot");
   });
 
   const GAP = {

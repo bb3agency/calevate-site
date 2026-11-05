@@ -342,7 +342,7 @@ describe("how calls end (D-836)", () => {
     expect(screen.getByDisplayValue("Wants to buy or book")).toBeTruthy();
     // How far it moves the lead, in the owner's words, never Won or Lost.
     const moves = screen.getAllByRole("combobox", { name: "Moves the lead to" })[0] as HTMLSelectElement;
-    expect([...moves.options].map((o) => o.text)).toEqual(["Contacted", "Interested", "Hot"]);
+    expect([...moves.options].map((o) => o.text)).toEqual(["Contacted", "Interested", "Goal reached"]);
   });
 
   it("saves the owner's list with known keys kept and a new one without a key", async () => {

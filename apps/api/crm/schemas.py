@@ -1473,6 +1473,8 @@ AttentionKind = Literal[
     "inbound_stopped",
     "action_broken",
     "lead_hot",
+    # L3-03: a call that ended asking the business to act, not yet marked handled.
+    "call_needs_you",
     "call_failed",
     "credit_low",
     "forwarded_line_quiet",

@@ -16187,7 +16187,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_failed" | "credit_low" | "forwarded_line_quiet" | "caller_memory_paused" | "rights_request_due";
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped" | "action_broken" | "lead_hot" | "call_needs_you" | "call_failed" | "credit_low" | "forwarded_line_quiet" | "caller_memory_paused" | "rights_request_due";
             /**
              * Occurred At
              * Format: date-time

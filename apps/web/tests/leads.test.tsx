@@ -568,7 +568,7 @@ describe("the counts come from the server or are not shown", () => {
     );
     // The stage filter is a segmented control (D-655), so each stage is a radio whose
     // name carries the server's count after the label.
-    fireEvent.click(screen.getByRole("radio", { name: /^Hot/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Goal reached/ }));
     return rendered;
   }
 

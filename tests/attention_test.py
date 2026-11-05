@@ -15,6 +15,7 @@ than merely to pass on the new ones.
 
 from __future__ import annotations
 
+import json
 import uuid
 
 import pytest
@@ -395,9 +396,87 @@ async def test_a_hot_lead_appears_by_name_and_never_by_number() -> None:
         queue = await attention_queue(session)
     assert queue["counts"] == {"lead_hot": 1}
     item = queue["items"][0]
-    assert item["title"] == "Asha is a hot lead"
+    # The stage key is internal: no "hot lead" in what the owner reads (founder, 5 Nov 2026).
+    assert item["title"] == "Asha reached a goal"
+    assert "hot" not in (item["title"] + item["detail"]).lower()
     assert "98765" not in item["title"] + item["detail"]
     assert item["href"] == f"/leads/{lead_id}"
+
+
+async def test_a_goal_lead_is_named_by_the_business_own_outcome() -> None:
+    """A support business (an app calling its registered users) has no "hot lead": the row
+    says the outcome its own agent ended the call on."""
+    tenant_id, agent_id = await _tenant()
+    lead_id = uuid7()
+    installed = {
+        "key": "app_installed",
+        "label": "App installed successfully",
+        "meaning": "x",
+        "lead_status": "hot",
+    }
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET business_outcomes = CAST(:o AS jsonb) WHERE id = :a"),
+            {"o": json.dumps([installed]), "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                "created_at, updated_at) VALUES (:i, :t, :a, '+919876543210', 'Ravi', "
+                "'outbound_call', 'hot', now(), now())"
+            ),
+            {"i": lead_id, "t": tenant_id, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, lead_id, engine_call_id, direction, "
+                "status, business_outcome, business_outcome_label, created_at, updated_at) "
+                "VALUES (:i, :t, :a, :l, :e, 'outbound', 'completed', 'app_installed', "
+                "'App installed successfully', now(), now())"
+            ),
+            {"i": uuid7(), "t": tenant_id, "a": agent_id, "l": lead_id, "e": f"e-{uuid7()}"},
+        )
+        queue = await attention_queue(session)
+    item = next(i for i in queue["items"] if i["kind"] == "lead_hot")
+    assert item["title"] == "Ravi: App installed successfully"
+    assert "ready to go ahead" not in item["detail"]
+
+
+async def test_a_needs_you_call_appears_until_it_is_marked_handled() -> None:
+    """L3-03: a call that ended asking the business to act reaches the queue and the bell;
+    one marked handled, and the owner's own test call, do not."""
+    tenant_id, agent_id = await _tenant()
+    open_call, handled, test_call = uuid7(), uuid7(), uuid7()
+    async with tenant_session(tenant_id) as session:
+        for call_id, follow_up, trial in (
+            (open_call, None, False),
+            (handled, "resolved", False),
+            (test_call, None, True),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, outcome_tag, next_step, follow_up_state, trial_call, created_at, "
+                    "updated_at) VALUES (:i, :t, :a, :e, 'inbound', 'completed', 'needs_you', "
+                    "'Call back after Diwali on +919876543210', :f, :trial, now(), now())"
+                ),
+                {
+                    "i": call_id,
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "e": f"e-{uuid7()}",
+                    "f": follow_up,
+                    "trial": trial,
+                },
+            )
+        queue = await attention_queue(session)
+    assert queue["counts"] == {"call_needs_you": 1}
+    item = queue["items"][0]
+    assert item["id"] == str(open_call)
+    assert item["href"] == f"/calls/{open_call}"
+    assert item["title"] == "A caller needs you"
+    assert item["detail"].startswith("Call back after Diwali")
+    assert "98765" not in item["detail"], "the next step is redacted before the bell shows it"
 
 
 async def test_a_failed_call_appears_and_an_unanswered_one_does_not() -> None:

@@ -111,9 +111,9 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
           // Said aloud only for what a person would turn round for (D-774); every other
           // arrival is visible, not spoken.
           announceArrivals={(arrived) => {
-            const hot = arrived.filter((lead) => lead.status === "hot").length;
-            if (hot === 0) return null;
-            return hot === 1 ? "A new hot lead arrived." : `${hot} new hot leads arrived.`;
+            const goal = arrived.filter((lead) => lead.status === "hot").length;
+            if (goal === 0) return null;
+            return goal === 1 ? "Someone new reached a goal." : `${goal} new people reached a goal.`;
           }}
         />
       ) : filtered || askTerm ? (

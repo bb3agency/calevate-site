@@ -460,7 +460,7 @@ describe("the stage control", () => {
   it("offers each stage as a word, not the wire value", () => {
     render(<StatusSelect value="hot" label="Stage" disabled={false} onChange={() => {}} className="" />);
     const options = Array.from(screen.getByRole("combobox", { name: "Stage" }).querySelectorAll("option"));
-    expect(options.map((o) => o.textContent)).toEqual(["New", "Contacted", "Interested", "Hot", "Won", "Lost"]);
+    expect(options.map((o) => o.textContent)).toEqual(["New", "Contacted", "Interested", "Goal reached", "Won", "Lost"]);
     expect(options.map((o) => o.value)).toEqual(["new", "contacted", "interested", "hot", "won", "lost"]);
   });
 });

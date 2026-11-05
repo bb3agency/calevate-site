@@ -20,7 +20,11 @@ export const KIND_COPY: Record<AttentionKind, { label: string; dot: string; acti
   inbound_stopped: { label: "Calls not being answered", dot: "bg-danger", action: "Add credits", rank: 0 },
   credit_low: { label: "Credit low", dot: "bg-warn", action: "Add credits", rank: 1 },
   action_broken: { label: "Action needs a connection", dot: "bg-danger", action: "Reconnect", rank: 2 },
-  lead_hot: { label: "Hot lead", dot: "bg-brand", action: "Open the lead", rank: 3 },
+  // The `hot` stage is the platform's key; owners read "Goal reached" and, in the title,
+  // the business's own outcome (`crm/attention.goal_title`).
+  lead_hot: { label: "Goal reached", dot: "bg-brand", action: "Open the lead", rank: 3 },
+  // L3-03: a call that ended asking the business to act, not yet marked handled.
+  call_needs_you: { label: "Needs you", dot: "bg-warn", action: "Open the call", rank: 3 },
   call_failed: { label: "Call failed", dot: "bg-danger", action: "Open the call", rank: 4 },
   delivery_failed: { label: "Delivery failed", dot: "bg-danger", action: "Check the connection", rank: 5 },
   campaign_stalled: { label: "Campaign stalled", dot: "bg-warn", action: "Open campaigns", rank: 6 },

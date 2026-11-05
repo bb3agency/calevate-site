@@ -93,8 +93,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
   const attention = useAttention(session);
   const agents = useAgents(session);
   const agentStats = useAgentStats(session);
-  // Last 7 IST days against the 7 before, the server's default window.
-  const stats = useAnalyticsStats(session);
+  // Last 7 IST days against the 7 before, the server's default window, without the owner's
+  // own test calls: the cost-per-lead tile beside it leaves them out too (L3-05).
+  const stats = useAnalyticsStats(session, { testCalls: false });
   const readiness = useAccountReadiness(session);
   // "This week" offers only the actions this reader may take; the endpoints still refuse.
   const campaigns = useCampaigns(session);
@@ -196,7 +197,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
             },
             { key: "leads_new_7d", label: "New leads in the last 7 days", value: String(dashboard.data.leads_new_7d) },
             { key: "leads_new_prev_7d", label: "New leads in the 7 days before that", value: String(dashboard.data.leads_new_prev_7d) },
-            { key: "hot_leads_open", label: "Hot leads waiting", value: String(dashboard.data.hot_leads_open) },
+            { key: "hot_leads_open", label: "People at Goal reached, waiting for a follow-up", value: String(dashboard.data.hot_leads_open) },
             {
               key: "after_hours_captured_7d",
               label: "Captured after hours, last 7 days",

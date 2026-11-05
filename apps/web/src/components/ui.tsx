@@ -15,6 +15,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
+import { stageLabel } from "@/lib/goalStage";
 import { lookup } from "@/lib/lookup";
 import { InfoTip } from "@/components/console/infoTip";
 import { NOTICE_DOT, STATE_DOT, StatusPill } from "@/components/console/statusPill";
@@ -582,7 +583,7 @@ const LEAD_STATUS_TONES: Record<string, NoticeTone> = {
 /**
  * One dot per lead stage, so a column of stages reads at a glance (founder, Nov 2026: colour
  * that helps). The colours are the call log's outcome dots where the meaning is the same
- * (`calls/callColumns.OUTCOME_DOT`): hot is the green of "ready to act", interested the
+ * (`calls/callColumns.OUTCOME_DOT`): hot is the green of "Goal reached", interested the
  * blue of an interested caller, lost the orange of "said no". A new lead nobody has worked
  * is a hollow ring, and a won one the success green. The word still carries the stage.
  */
@@ -639,7 +640,7 @@ export function StatusBadge({
   const tones = kind === "lead" ? LEAD_STATUS_TONES : CALL_STATUS_TONES;
   return (
     <StatusPill tone={lookup(tones, value) ?? "neutral"} dot={kind === "lead" ? lookup(LEAD_STAGE_DOT, value) : undefined}>
-      {sentenceCase(value)}
+      {kind === "lead" ? stageLabel(value) : sentenceCase(value)}
     </StatusPill>
   );
 }

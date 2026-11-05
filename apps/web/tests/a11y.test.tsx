@@ -2434,7 +2434,7 @@ const CLIENT_SCREENS: Screen[] = [
         total: 1,
       },
       // Figures with changes both ways, and a readiness score with fixes to make.
-      "/v1/analytics/stats": ANALYTICS_STATS,
+      "/v1/analytics/stats?test_calls=false": ANALYTICS_STATS,
       "/v1/readiness": {
         score: 62,
         // One scored agent, so the readiness meter and its ⓘ in "Next steps" are swept too.

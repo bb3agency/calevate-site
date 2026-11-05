@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing.rates import ROUNDING
 from apps.api.compliance.optout import OPTOUT_PURPOSE
 from apps.api.core.errors import ProblemError
-from apps.api.crm.lead_definition import BECAME_LEADS_SQL
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL, GOAL_BAND
 from apps.api.crm.outcomes import normalise as normalise_outcome
 from apps.api.db.like import contains_pattern, suffix_pattern
 
@@ -388,13 +388,13 @@ async def summary(
         await session.execute(
             text(
                 "SELECT count(DISTINCT l.id), "
-                "count(DISTINCT l.id) FILTER (WHERE l.status = 'hot'), "
+                "count(DISTINCT l.id) FILTER (WHERE l.status = ANY(:goal)), "
                 "count(DISTINCT bl.id) "
                 "FROM calls k JOIN leads l ON l.id = k.lead_id "
                 f"LEFT JOIN {BECAME_LEADS_SQL} AS bl ON bl.id = l.id "
                 "WHERE k.campaign_id = :cid AND l.deleted_at IS NULL"
             ),
-            {"cid": campaign_id},
+            {"cid": campaign_id, "goal": list(GOAL_BAND)},
         )
     ).one()
     recent = (

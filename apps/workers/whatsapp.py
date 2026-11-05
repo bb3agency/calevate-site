@@ -179,6 +179,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
+from apps.api.crm.lead_definition import GOAL_STAGE_NAME
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
@@ -203,8 +204,12 @@ RETRY_BACKOFF_S: tuple[float, ...] = (15.0, 45.0)
 # The template body a human must submit for approval, kept next to the code that fills
 # it so the two cannot drift:
 #
-#     "Calevate: a hot lead just came in ({{1}}). Open your dashboard to see the
-#      details and call them back."
+#     "Calevate: your AI agent flagged a call ({{1}}). Open your dashboard to see the
+#      details and follow up."
+#
+# The approved template on file before 5 Nov 2026 said "a hot lead just came in"; a business
+# that sells nothing has no hot leads, so the template above must be submitted for approval
+# and `whatsapp_template_hot_lead` pointed at it (an operator step).
 #
 # ONE variable, no consumer name, no phone number, no call summary. Meta rejects
 # templates whose variables could be arbitrary content, and we would fail a DPDP
@@ -561,7 +566,7 @@ def _compose_variables(triggers: list[str]) -> tuple[str, ...]:
     from the business's own details, never caller-supplied text, so nothing here can carry
     a caller's name, number or words into a third party's system.
     """
-    return (", ".join(triggers) if triggers else "marked hot",)
+    return (", ".join(triggers) if triggers else GOAL_STAGE_NAME.lower(),)
 
 
 async def notify_hot_lead_whatsapp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:

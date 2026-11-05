@@ -11,6 +11,7 @@ import type { Stats } from "@/lib/api/analytics";
 import type { CampaignSummary } from "@/lib/api/campaigns";
 import type { Dashboard } from "@/lib/api/client";
 import { activeTrial, walletState, type Wallet } from "@/lib/api/wallet";
+import { useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { canDialOut, isAnsweringNow, isDeleted } from "@/lib/agentState";
 
 import { statItems } from "./analyticsFigures";
@@ -70,7 +71,7 @@ export function WeekRecap({
   return (
     <Section title="This week">
       <div className="space-y-6">
-        {data.calls_7d > 0 ? (
+        {weekHadCalls(data, stats.data) ? (
           <WeekFigures data={data} stats={stats} />
         ) : (
           <QuietWeek data={data} noAgent={current?.length === 0} />
@@ -91,17 +92,35 @@ export function WeekRecap({
 
 const WEEK_KEYS = ["calls", "answer_rate_pct", "leads", "avg_duration_s"] as const;
 
+/**
+ * Whether the figures have anything to show: the band's own call count once it has loaded
+ * (7 IST days, test calls left out, like the cost-per-lead tile), so a week of nothing but
+ * the owner's test calls reads as quiet rather than as a row of zeroes. Until then, the
+ * dashboard's count decides.
+ */
+export function weekHadCalls(data: Pick<Dashboard, "calls_7d">, stats: Stats | undefined): boolean {
+  const calls = stats?.metrics.find((metric) => metric.key === "calls");
+  if (calls) return Number(calls.value ?? 0) > 0;
+  return data.calls_7d > 0;
+}
+
 function WeekFigures({ data, stats }: { data: Dashboard; stats: UseQueryResult<Stats> }) {
   if (stats.error) {
     return <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} />;
   }
   if (!stats.data) return <Skeleton rows={2} label="Loading this week's figures" />;
+  return <WeekBand data={data} stats={stats.data} />;
+}
+
+function WeekBand({ data, stats }: { data: Dashboard; stats: Stats }) {
+  const caps = useBusinessCapabilities();
   return (
     <StatsBand
-      label="The last 7 days"
-      items={statItems(stats.data, [...WEEK_KEYS], {
+      label="The last 7 days, not counting your test calls"
+      items={statItems(stats, [...WEEK_KEYS], {
         context: "vs the previous 7 days",
         trends: { calls: data.daily_7d.map((day) => day.total) },
+        caps,
       })}
     />
   );

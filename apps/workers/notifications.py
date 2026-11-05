@@ -56,6 +56,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.transport import EmailPurpose, get_transport
+from apps.api.crm.lead_definition import stage_name
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
@@ -68,20 +69,20 @@ from apps.workers.whatsapp import enqueue_hot_lead_whatsapp
 
 log = get_logger(__name__)
 
-HOT_LEAD_SUBJECT = "Hot lead from your AI agent"
+#: The subject when the call carries no outcome of the business's own. No "hot lead": `hot`
+#: is the platform's internal stage, and a business that sells nothing has no hot leads
+#: (founder, 5 Nov 2026). True of every business.
+HOT_LEAD_SUBJECT = "A call your AI agent flagged for you"
 
 
 def hot_lead_subject(words: CallerWords, outcome_label: str | None) -> str:
-    """The alert's subject, in this business's words. The call's own outcome names it when
-    the agent read one ("Wants a site visit: a call your AI agent flagged"); otherwise a
-    business that sells nothing is told about its most interested user, never a "hot lead",
-    and every other business reads `HOT_LEAD_SUBJECT` as before. Headline style, with no
-    article to get wrong in front of the business's own noun ("a user")."""
+    """The alert's subject, in this business's words: the call's own outcome when the agent
+    read one ("Wants a site visit: a call your AI agent flagged"), else `HOT_LEAD_SUBJECT`.
+    `words` is kept for the body, which names the lead with the business's own noun."""
+    del words
     label = _one_line(outcome_label)
     if label:
         return f"{label}: a call your AI agent flagged"
-    if words.sells is False:
-        return f"{words.hot_lead.capitalize()} from your AI agent"
     return HOT_LEAD_SUBJECT
 
 
@@ -395,17 +396,12 @@ def _compose(
     """
     masked = redact(phone).text
     words = words or CallerWords()
-    opening = (
-        f"Your AI agent flagged this {words.lead} for you."
-        if words.sells is False
-        else "A lead was flagged for you by your AI agent."
-    )
     lines = [
-        opening,
+        f"Your AI agent flagged this {words.lead} for you.",
         "",
         f"Name: {_one_line(name) or 'not captured'}",
         f"Phone: {masked}",
-        f"Status: {status}",
+        f"Stage: {stage_name(status)}",
     ]
     if triggers:
         lines.append(f"Why: {_one_line(', '.join(triggers))}")
@@ -465,8 +461,8 @@ async def _send_email(to: str, subject: str, body: str) -> bool:
     # two-minute SLO and its reader is on a phone.
     message = from_text(
         subject=subject,
-        preheader="A lead your AI agent marked hot is waiting for a call back.",
-        heading="A lead is waiting for you",
+        preheader="Your AI agent flagged a call for you to follow up.",
+        heading="Someone is waiting for you",
         text=body,
         cta="Open the lead",
     )

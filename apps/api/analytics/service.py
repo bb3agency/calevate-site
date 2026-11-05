@@ -57,7 +57,7 @@ from apps.api.analytics.schemas import (
 from apps.api.billing.history import spend_series
 from apps.api.billing.plans import IST
 from apps.api.core.errors import ProblemError
-from apps.api.crm.lead_definition import BECAME_LEADS_SQL
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL, GOAL_BAND
 from apps.api.crm.performance import (
     CONNECTED_SQL,
     IST_ZONE,
@@ -81,8 +81,8 @@ MAX_DURATION_GROUPS: Final = 12
 
 MAX_CAMPAIGN_SERIES: Final = 10
 
-#: Of the range's leads, those now a win in waiting or a win: the stats band's "hot leads".
-HOT_STATUSES: Final = ("hot", "won")
+#: Of the range's leads, those that reached the business's goal (`crm/lead_definition.GOAL_BAND`).
+HOT_STATUSES: Final = GOAL_BAND
 
 _ONE_DP = Decimal("0.1")
 
