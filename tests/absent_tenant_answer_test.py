@@ -327,6 +327,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     # The client's AI-written examples (D-827).
     "GET /v1/admin/tenants/{tenant_id}/business-copy": None,
     "POST /v1/admin/tenants/{tenant_id}/business-copy/refresh": None,
+    "PUT /v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {"applies": True},
 }
 
 

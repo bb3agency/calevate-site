@@ -4,10 +4,11 @@ import { useAdminAccess } from "@/app/admin/access";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section } from "@/components/console/section";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { ProblemNotice, Skeleton, formatINRExact, formatISTStamp } from "@/components/ui";
+import { FIELD, ProblemNotice, Skeleton, formatINRExact, formatISTStamp } from "@/components/ui";
 import {
   useAdminBusinessCopy,
   useAdminRefreshBusinessCopy,
+  useAdminSetCapability,
   type AdminBusinessCopy,
   type Capabilities,
   type Capability,
@@ -31,6 +32,8 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
   const refresh = useAdminRefreshBusinessCopy(tenantId);
   const refreshFeedback = useActionFeedback(refresh, { errorDisplay: "inline" });
   const access = useAdminAccess("ops:manage", "write a client's examples again");
+  const tenantWrite = useAdminAccess("admin:tenants", "correct what this business does");
+  const setCapability = useAdminSetCapability(tenantId);
 
   if (copy.isError)
     return (
@@ -76,16 +79,62 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
             key={key}
             label={label}
             value={capabilityLine(data.capabilities?.[key])}
+            hint={key in (data.capability_overrides ?? {}) ? "Set by us" : undefined}
+            action={
+              tenantWrite.allowed ? (
+                <CapabilityChoice
+                  label={label}
+                  chosen={data.capability_overrides?.[key]}
+                  pending={setCapability.isPending}
+                  onChoose={(applies) => setCapability.mutate({ key, applies })}
+                />
+              ) : null
+            }
           />
         ))}
       </SettingRows>
       <ProblemNotice error={refresh.error} />
+      <ProblemNotice error={setCapability.error} />
     </Section>
   );
 }
 
-/** The capability profile (D-827, prompt version 4), read-only: what the screens and the
- * agents' plans will follow for this client. */
+/**
+ * One capability's correction: the AI's judgement, or Yes / No decided by us (A7-08). Saved
+ * at once and audited; a regeneration keeps it, and "AI's judgement" restores the AI's.
+ */
+function CapabilityChoice({
+  label,
+  chosen,
+  pending,
+  onChoose,
+}: {
+  label: string;
+  chosen: boolean | undefined;
+  pending: boolean;
+  onChoose: (applies: boolean | null) => void;
+}) {
+  const value = chosen === undefined ? "ai" : chosen ? "yes" : "no";
+  return (
+    <select
+      aria-label={`${label}: who decides`}
+      className={`${FIELD} w-auto`}
+      value={value}
+      disabled={pending}
+      onChange={(event) => {
+        const next = event.target.value;
+        onChoose(next === "ai" ? null : next === "yes");
+      }}
+    >
+      <option value="ai">AI&apos;s judgement</option>
+      <option value="yes">Yes</option>
+      <option value="no">No</option>
+    </select>
+  );
+}
+
+/** The capability profile (D-827, prompt version 4): what the screens and the agents' plans
+ * follow for this client, each correctable by an operator. */
 const CAPABILITY_ROWS: readonly (readonly [keyof Capabilities, string])[] = [
   ["takes_bookings", "Takes bookings"],
   ["takes_orders", "Takes orders"],

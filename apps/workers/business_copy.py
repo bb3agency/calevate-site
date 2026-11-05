@@ -43,6 +43,7 @@ from calevate_shared.spoken_guard import generation_guidance
 from pydantic import ValidationError
 from sqlalchemy import text
 
+from apps.api.admin.capability_overrides import apply_overrides
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.lead_fields import agents_with_fields
 from apps.api.agents.starters import CATALOGUE, LINE_SETS, STARTER_LANGUAGE, vertical_of
@@ -623,10 +624,20 @@ async def _store(
             model=answer.model,
             service_tier=answer.service_tier,
         )
+        # An operator's capability decisions are written over the fresh verdicts, so a
+        # regeneration never reverts a correction (`admin/capability_overrides`).
+        overrides = (
+            await session.execute(
+                text("SELECT capability_overrides FROM business_copies WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            )
+        ).scalar_one_or_none()
+        generated, overrides = apply_overrides(answer.value.model_dump(mode="json"), overrides)
         stored = (
             await session.execute(
                 text(
                     "UPDATE business_copies SET generated = CAST(:generated AS jsonb), "
+                    "capability_overrides = CAST(:overrides AS jsonb), "
                     "language = :language, model = :model, inputs_hash = :hash, "
                     "prompt_version = :version, generated_at = now(), cost_inr = :cost, "
                     "absorbed = :absorbed, "
@@ -634,7 +645,8 @@ async def _store(
                     "WHERE running_since = :at RETURNING id"
                 ),
                 {
-                    "generated": json.dumps(answer.value.model_dump(mode="json")),
+                    "generated": json.dumps(generated),
+                    "overrides": json.dumps(overrides),
                     "language": inputs.language,
                     "model": answer.model,
                     "hash": inputs.inputs_hash,

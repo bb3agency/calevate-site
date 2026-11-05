@@ -1307,3 +1307,55 @@ async def test_worker_start_queues_the_upgrade_walk_once_per_version() -> None:
         getattr(f, "coroutine", None) is worker.upgrade_business_copies
         for f in WorkerSettings.functions
     )
+
+
+# --- 9. an operator's correction of the capability profile (A7-08) -----------------------
+
+
+async def test_an_operator_corrects_a_capability_and_a_refresh_keeps_it(
+    model: FakeModel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILS IF: a profile the AI judged wrongly can only be regenerated, a regeneration
+    reverts the correction, or clearing it does not bring the AI's verdict back."""
+    from apps.api.admin.capability_overrides import OVERRIDE_REASON
+
+    _trial(monkeypatch, False)
+    tenant_id, _slug, _token = await _make_tenant()
+    await _seed_row(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        ai_verdict = (await business_copy.capabilities_for(session, tenant_id)).sells
+    wanted = not ai_verdict.applies
+    headers = await _superadmin()
+    path = f"/v1/admin/tenants/{tenant_id}/business-copy/capabilities/sells"
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        decided = await http.put(path, headers=headers, json={"applies": wanted})
+    assert decided.status_code == 200, decided.text
+    assert decided.json()["capability_overrides"] == {"sells": wanted}
+    async with tenant_session(tenant_id) as session:
+        now = (await business_copy.capabilities_for(session, tenant_id)).sells
+    assert now.applies is wanted and now.reason == OVERRIDE_REASON
+
+    assert await _run(tenant_id, "refresh") == "stored"
+    async with tenant_session(tenant_id) as session:
+        kept = (await business_copy.capabilities_for(session, tenant_id)).sells
+    assert kept.applies is wanted, "a regeneration reverted the correction"
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        cleared = await http.put(path, headers=headers, json={"applies": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["capability_overrides"] == {}
+    async with tenant_session(tenant_id) as session:
+        back = (await business_copy.capabilities_for(session, tenant_id)).sells
+    assert back.reason != OVERRIDE_REASON
+
+
+async def test_an_unknown_capability_is_refused() -> None:
+    tenant_id, _slug, _token = await _make_tenant()
+    headers = await _superadmin()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        refused = await http.put(
+            f"/v1/admin/tenants/{tenant_id}/business-copy/capabilities/grows_crops",
+            headers=headers,
+            json={"applies": True},
+        )
+    assert refused.status_code == 404, refused.text

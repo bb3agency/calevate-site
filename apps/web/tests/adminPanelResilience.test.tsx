@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH } from "@/app/admin/access";
@@ -42,6 +42,32 @@ describe("a client overview panel", () => {
     expect(await screen.findByText("Takes bookings")).toBeTruthy();
     expect(screen.getAllByText("Not judged yet").length).toBeGreaterThan(0);
     expect(capabilityLine(undefined)).toBe("Not judged yet");
+  });
+
+  it("lets an operator correct a capability, and says when it is set by us (A7-08)", async () => {
+    const copy = {
+      ...NO_BUSINESS_COPY,
+      model: null,
+      cost_inr: null,
+      absorbed: false,
+      last_trigger: null,
+      last_attempt_at: null,
+      capability_overrides: { sells: false },
+    };
+    const path = `/v1/admin/tenants/${TENANT}/business-copy`;
+    const { calls } = renderAdminPage(<BusinessCopyPanel tenantId={TENANT} />, {
+      [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "admin:tenants"] },
+      [path]: copy,
+      [`PUT ${path}/capabilities/takes_bookings`]: copy,
+    });
+    expect(await screen.findByText("Set by us")).toBeTruthy();
+    const choice = screen.getByRole("combobox", { name: "Takes bookings: who decides" });
+    fireEvent.change(choice, { target: { value: "no" } });
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "PUT" && c.path === `${path}/capabilities/takes_bookings`)).toBe(true),
+    );
+    const put = calls.find((c) => c.method === "PUT");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ applies: false });
   });
 
   it("keeps a crash inside the panel that crashed", () => {

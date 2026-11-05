@@ -86,3 +86,24 @@ export function useAdminRefreshBusinessCopy(
     },
   });
 }
+
+/**
+ * An operator's correction of one capability the AI judged (`PUT .../capabilities/{key}`):
+ * `true`/`false` decides it, `null` goes back to the AI's verdict. Every screen that reads
+ * the profile reads the corrected value, so the client's own copy is re-read too.
+ */
+export function useAdminSetCapability(
+  tenantId: string,
+): UseMutationResult<AdminBusinessCopy, Error, { key: keyof Capabilities; applies: boolean | null }> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ key, applies }) =>
+      apiRequest<AdminBusinessCopy>(adminSession(), `${adminPath(tenantId)}/capabilities/${key}`, {
+        method: "PUT",
+        body: { applies },
+      }),
+    onSuccess: (data) => {
+      client.setQueryData(businessCopyKeys.admin(tenantId), data);
+    },
+  });
+}

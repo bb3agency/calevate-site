@@ -2323,6 +2323,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Correct one capability the AI judged for this client, or go back to the AI's
+         * @description Sets what the business does with its callers (for example `takes_bookings`) where the AI judged it wrongly. A regeneration keeps the correction. `applies: null` restores the AI's verdict. Audited.
+         */
+        put: operations["admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/business-copy/refresh": {
         parameters: {
             query?: never;
@@ -14414,6 +14434,10 @@ export interface components {
             /** Caller Noun */
             caller_noun: string | null;
             capabilities: components["schemas"]["Capabilities"];
+            /** Capability Overrides */
+            capability_overrides: {
+                [key: string]: boolean;
+            };
             /** Cost Inr */
             cost_inr: string | null;
             /** Example Questions */
@@ -18517,6 +18541,11 @@ export interface components {
             applies: boolean | null;
             /** Reason */
             reason: string;
+        };
+        /** CapabilityOverrideIn */
+        CapabilityOverrideIn: {
+            /** Applies */
+            applies: boolean | null;
         };
         /**
          * CapsIn
@@ -42027,6 +42056,42 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBusinessCopyOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CapabilityOverrideIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

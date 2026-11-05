@@ -823,6 +823,11 @@ class BusinessCopy(PKMixin, TimestampMixin, Base):
     last_trigger: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     stop_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: An operator's override of the AI's capability verdicts and the verdicts it replaced
+    #: (`admin/capability_overrides.py`, migration a9d3f6c2e8b1).
+    capability_overrides: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
 
 
 #: A client's request for more calls at once (`tenancy/call_line_requests`, migration

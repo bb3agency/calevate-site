@@ -899,6 +899,13 @@
           "capabilities": {
             "$ref": "#/components/schemas/Capabilities"
           },
+          "capability_overrides": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "Capability Overrides",
+            "type": "object"
+          },
           "cost_inr": {
             "anyOf": [
               {
@@ -1072,7 +1079,8 @@
           "cost_inr",
           "absorbed",
           "last_trigger",
-          "last_attempt_at"
+          "last_attempt_at",
+          "capability_overrides"
         ],
         "title": "AdminBusinessCopyOut",
         "type": "object"
@@ -13326,6 +13334,27 @@
           "applies"
         ],
         "title": "Capability",
+        "type": "object"
+      },
+      "CapabilityOverrideIn": {
+        "additionalProperties": false,
+        "properties": {
+          "applies": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies"
+          }
+        },
+        "required": [
+          "applies"
+        ],
+        "title": "CapabilityOverrideIn",
         "type": "object"
       },
       "CapsIn": {
@@ -72065,6 +72094,66 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/business-copy/capabilities/{capability}": {
+      "put": {
+        "description": "Sets what the business does with its callers (for example `takes_bookings`) where the AI judged it wrongly. A regeneration keeps the correction. `applies: null` restores the AI's verdict. Audited.",
+        "operationId": "admin_set_capability_v1_admin_tenants__tenant_id__business_copy_capabilities__capability__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "capability",
+            "required": true,
+            "schema": {
+              "title": "Capability",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CapabilityOverrideIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBusinessCopyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Correct one capability the AI judged for this client, or go back to the AI's",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/business-copy/refresh": {
