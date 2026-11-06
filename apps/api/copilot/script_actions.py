@@ -285,8 +285,8 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
         "`change`, naming steps as the script does). `set_fields` only types a dictated "
         "value on screen, never a step. `change`: the change in their words. "
         "`whole`: a script from nothing; ask the six questions together first, then copy "
-        "each answer from their words. `steps`: a hand-written script into steps. Failed tests: `agent_tests_fix`."
-        + PROPOSES_ONLY,
+        "each answer from their words. `steps`: a hand-written script into steps. "
+        "Failed tests: `agent_tests_fix`." + PROPOSES_ONLY,
         {
             "agent_id": {
                 "type": "string",
