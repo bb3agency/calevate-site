@@ -250,6 +250,9 @@ async def test_a_whole_script_before_the_owner_answered_is_refused(
             tenant_id, token, _args(agent_id, mode="whole", answers=answers), ASKED_ONLY
         )
     assert reason in refused.value.reason
+    # A fix to a script that already has steps is a `change`; the refusal says so, so the
+    # model switches mode instead of asking the person to retype the script.
+    assert "mode `change`" in refused.value.reason
 
 
 async def test_a_whole_script_from_answers_the_owner_typed_is_proposed() -> None:

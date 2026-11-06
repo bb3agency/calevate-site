@@ -93,7 +93,16 @@ class _ScriptSuggestArgs(BaseModel):
     answers: _Answers | None
 
 
-NO_ANSWERS_REASON: Final = "no answers were given, so ask the person the six questions first"
+#: `whole` drafts from nothing; a fix, rewrite, reorder or deletion in a script that already
+#: has steps is `change`. Without this, a model refused here asks the person to retype the
+#: whole script instead of switching mode.
+ONLY_CHANGE_FITS: Final = (
+    "; but if the person wants the EXISTING script fixed, rewritten, reordered or steps "
+    "deleted, call again now with mode `change` and their whole request as `change`"
+)
+NO_ANSWERS_REASON: Final = (
+    "no answers were given, so ask the person the six questions first" + ONLY_CHANGE_FITS
+)
 
 
 def _whole_rests_on_the_owner(args: Mapping[str, Any], said: Sequence[str]) -> str | None:
@@ -123,7 +132,7 @@ def _whole_rests_on_the_owner(args: Mapping[str, Any], said: Sequence[str]) -> s
     return (
         f"the answers to {', '.join(f'`{key}`' for key in invented)} are not the person's own "
         "words, so ask the person the six questions together and copy each answer from "
-        "what they wrote"
+        "what they wrote" + ONLY_CHANGE_FITS
     )
 
 
@@ -275,8 +284,8 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
         "details or small steps; any opening, reason or close (pass the brief whole as "
         "`change`, naming steps as the script does). `set_fields` only types a dictated "
         "value on screen, never a step. `change`: the change in their words. "
-        "`whole`: ask the six questions together first, then copy each answer from their "
-        "words. `steps`: a hand-written script into steps. Failed tests: `agent_tests_fix`."
+        "`whole`: a script from nothing; ask the six questions together first, then copy "
+        "each answer from their words. `steps`: a hand-written script into steps. Failed tests: `agent_tests_fix`."
         + PROPOSES_ONLY,
         {
             "agent_id": {
