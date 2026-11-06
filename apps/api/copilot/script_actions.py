@@ -270,11 +270,11 @@ AGENT_SCRIPT_SUGGEST: Final = ActionTool(
     schema=action_schema(
         "agent_script_suggest",
         "Write a suggested change to an agent's call script; the person reviews it on its "
-        "Script tab. For rewriting, adding to or drafting the script, and for any brief that "
-        "changes what the call does or its steps, including adding, deleting, renaming or "
-        "reordering steps (pass the brief whole as `change`, naming steps as the script "
-        "does); `set_fields` only types a dictated value into a field on screen and cannot "
-        "add, rename or remove a step. `change`: the change in their words. "
+        "Script tab, each deleted, renamed or moved step its own change. For drafting or any "
+        "edit: add, delete, rename or reorder steps; a step's words, exact words, ways out, "
+        "details or small steps; any opening, reason or close (pass the brief whole as "
+        "`change`, naming steps as the script does). `set_fields` only types a dictated "
+        "value on screen, never a step. `change`: the change in their words. "
         "`whole`: ask the six questions together first, then copy each answer from their "
         "words. `steps`: a hand-written script into steps. Failed tests: `agent_tests_fix`."
         + PROPOSES_ONLY,

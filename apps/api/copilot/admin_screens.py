@@ -120,6 +120,13 @@ ADMIN_SCREENS: Final[tuple[AdminScreen, ...]] = (
         "ops:manage",
     ),
     AdminScreen(
+        "/admin/ops/call-words",
+        "Call words",
+        "Platform",
+        "The words the call checks listen for.",
+        "ops:manage",
+    ),
+    AdminScreen(
         "/admin/ops/maintenance",
         "Planned maintenance",
         "Platform",

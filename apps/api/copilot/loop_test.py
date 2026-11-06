@@ -1481,7 +1481,8 @@ async def test_a_turn_stopped_by_a_content_filter_says_so(
     _scripted(monkeypatch, [_contentless(finish_reason="content_filter")])
     events = await _drain()
     said = [e.text for e in events if e.text]
-    assert said and "filter" in said[-1].lower()
+    # Said in the person's words, never the provider's ("content filter").
+    assert said and "safety check" in said[-1] and "filter" not in said[-1].lower()
     assert events[-1].spend is not None
 
 

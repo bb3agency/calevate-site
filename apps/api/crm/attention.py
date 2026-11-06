@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
+from calevate_shared.extraction import owner_step
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -772,7 +773,7 @@ async def calls_needing_you(
     items: list[AttentionItem] = []
     for call_id, name, next_step, created_at, _matched in rows:
         who = " ".join((name or "").split()) or f"A {(words or CallerWords()).caller}"
-        step = " ".join(redact(next_step).text.split()) if next_step else ""
+        step = owner_step(" ".join(redact(next_step).text.split())) if next_step else ""
         items.append(
             AttentionItem(
                 kind="call_needs_you",

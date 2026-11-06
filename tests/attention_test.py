@@ -479,6 +479,38 @@ async def test_a_needs_you_call_appears_until_it_is_marked_handled() -> None:
     assert "98765" not in item["detail"], "the next step is redacted before the bell shows it"
 
 
+async def test_a_stored_third_person_step_reads_as_the_owners_instruction() -> None:
+    """A step stored before `owner_step` existed ("The business needs to ...") reaches the
+    bell and the leads list as the owner's own instruction."""
+    from apps.api.crm.service import list_leads
+
+    tenant_id, agent_id = await _tenant()
+    call_id, lead_id = uuid7(), uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, "
+                "direction, status, outcome_tag, next_step, trial_call, created_at, "
+                "updated_at) VALUES (:i, :t, :a, :e, 'inbound', 'completed', 'needs_you', "
+                "'The business needs to call back after Diwali.', false, now(), now())"
+            ),
+            {"i": call_id, "t": tenant_id, "a": agent_id, "e": f"e-{uuid7()}"},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                "last_call_id, created_at, updated_at) VALUES (:l, :t, :a, '+919800000001', "
+                "'inbound_call', 'new', :i, now(), now())"
+            ),
+            {"l": lead_id, "t": tenant_id, "a": agent_id, "i": call_id},
+        )
+        queue = await attention_queue(session)
+        leads, _total = await list_leads(session)
+    item = next(i for i in queue["items"] if i["kind"] == "call_needs_you")
+    assert item["detail"] == "Call back after Diwali."
+    assert [lead.next_step for lead in leads] == ["Call back after Diwali."]
+
+
 async def test_a_failed_call_appears_and_an_unanswered_one_does_not() -> None:
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:

@@ -1588,7 +1588,7 @@ def _lead_out(r: Any) -> LeadOut:
         status_set_by=r[15],
         last_call_headline=r[16],
         last_call_outcome=normalise_outcome(r[17]),
-        next_step=r[18],
+        next_step=owner_step(r[18]) if r[18] else None,
         next_callback_at=r[19],
         last_call_business_outcome_label=r[20],
         last_call_at=r[21],
