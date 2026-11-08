@@ -294,7 +294,8 @@ function Rename({ agent }: { agent: Agent }) {
             // The step's own form would take Enter as "Hear it".
             if (event.key === "Enter" && !isImeComposing(event)) {
               event.preventDefault();
-              if (clean && !rename.isPending) rename.mutate({ name: clean }, { onSuccess: () => setEditing(false) });
+              if (clean === agent.name) setEditing(false);
+              else if (clean && !rename.isPending) rename.mutate({ name: clean }, { onSuccess: () => setEditing(false) });
             }
           }}
           className={`${FIELD_INLINE} flex-1 basis-48 text-[16px]`}
@@ -308,6 +309,20 @@ function Rename({ agent }: { agent: Agent }) {
         >
           Save name
         </ActionButton>
+        {/* The way back out: Save stays disabled while the name is unchanged, so without
+            this an owner who opened the box and changed their mind had no control left. */}
+        <button
+          type="button"
+          className={TEXT_ACTION}
+          disabled={rename.isPending}
+          onClick={() => {
+            setName(agent.name);
+            rename.reset();
+            setEditing(false);
+          }}
+        >
+          Keep {agent.name}
+        </button>
       </div>
       {rename.error ? <ProblemNotice error={rename.error} /> : null}
     </div>

@@ -1,11 +1,12 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { BuildStep } from "@/app/c/[slug]/agents/first/BuildStep";
 import FirstAgentPage from "@/app/c/[slug]/agents/first/page";
 import type { FirstRun } from "@/lib/api/firstRun";
 
 import { businessProfileFixture } from "./businessProfileFixture";
-import { OWNER_ME } from "./fixtures/sharedReads";
+import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
 import { NO_BUSINESS_COPY, renderClientPage } from "./harness";
 
 /** Frontend audit lane W7 (8 Nov 2026): the first-agent wizard. */
@@ -129,5 +130,40 @@ describe("the brief's microphone", () => {
     await waitFor(() => expect(box.value).toBe(own));
     fireEvent.click(screen.getByRole("button", { name: "Record" }));
     await waitFor(() => expect(box.value).toBe(`${own}\nWe also sell seeds.`));
+  });
+});
+
+describe("renaming the agent before its first call", () => {
+  it("lets an owner who opened the name box keep the name", async () => {
+    const agentId = "0192f3a4-0000-7000-8000-00000000a001";
+    const built = run({
+      agent_id: agentId,
+      brief: "We sell flats.",
+      questions: { status: "ready", items: [], disclosure: null },
+      build: {
+        status: "built",
+        steps: STEPS.map((step) => ({ step, state: "done", label: null, not_female: false, documents_used: 0 })),
+        disclosure: null,
+        builds_left: 2,
+      },
+    });
+    await renderClientPage(
+      <BuildStep
+        run={built}
+        agent={agentRow({ id: agentId, name: "Anjali", status: "draft", published: false, script_opening_line: "Namaskaram!" })}
+        onBack={() => undefined}
+        onDone={() => undefined}
+      />,
+      {
+        "/v1/me": OWNER_ME,
+        "/v1/business-copy": NO_BUSINESS_COPY,
+        "/v1/agents/engine-catalogue": { available: true, voices: [], models: [] },
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Change its name" }));
+    expect(screen.getByRole("textbox", { name: "Its name" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Keep Anjali" }));
+    expect(screen.queryByRole("textbox", { name: "Its name" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Change its name" })).toBeTruthy();
   });
 });
