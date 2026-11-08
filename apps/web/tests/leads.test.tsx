@@ -289,9 +289,9 @@ describe("what the screen says when it could not read the leads", () => {
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    // "No leads yet" is a statement about the business. We do not know it — we could not
+    // "Nobody here yet" is a statement about the business. We do not know it — we could not
     // even read the list — so it must not be on screen next to the notice saying so.
-    expect(container.textContent).not.toContain("No leads yet");
+    expect(container.textContent).not.toContain("Nobody here yet");
     expect(container.textContent).not.toContain("Showing");
     expect(container.textContent).not.toContain("by stage");
   });
@@ -657,7 +657,7 @@ describe("the counts come from the server or are not shown", () => {
     // is a visible duplicate, and the copy that drifts when the nav entry is renamed.
     const { container } = await renderClientPage(<LeadsPage />, routes());
 
-    await screen.findByText(/No leads yet/);
+    await screen.findByText(/Nobody here yet/);
     expect(container.querySelectorAll("h1")).toHaveLength(0);
   });
 });

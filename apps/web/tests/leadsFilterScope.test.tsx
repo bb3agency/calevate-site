@@ -147,16 +147,16 @@ async function askQuestion(text: string): Promise<void> {
 }
 
 describe("the empty state belongs to the filters, not to the business", () => {
-  it("does not say 'No leads yet' when the OWNER filter is what emptied the table", async () => {
+  it("does not say 'Nobody here yet' when the OWNER filter is what emptied the table", async () => {
     const { container } = await renderClientPage(<LeadsPage />, routes());
     await screen.findByRole("button", { name: "Assigned to me" });
 
     await filterByOwner();
 
     // The defect, in the words a client read.
-    expect(container.textContent).not.toContain("No leads yet");
+    expect(container.textContent).not.toContain("Nobody here yet");
     expect(container.textContent).not.toContain(
-      "Each answered call becomes a lead.",
+      "Each answered call adds the caller here.",
     );
     expect(screen.getByText("No people match these filters")).toBeTruthy();
     // And the way out is OFFERED, not merely named (ux-audit F-18).
@@ -165,7 +165,7 @@ describe("the empty state belongs to the filters, not to the business", () => {
     ).toBeTruthy();
   });
 
-  it("does not say 'No leads yet' when a QUESTION is what emptied the table", async () => {
+  it("does not say 'Nobody here yet' when a QUESTION is what emptied the table", async () => {
     const { container } = await renderClientPage(<LeadsPage />, routes());
     await screen.findByLabelText("Find leads by what they asked for");
 
@@ -178,19 +178,19 @@ describe("the empty state belongs to the filters, not to the business", () => {
       "No answers match that question",
     );
     expect(container.textContent).not.toContain(
-      "Each answered call becomes a lead.",
+      "Each answered call adds the caller here.",
     );
     expect(
       screen.getByRole("button", { name: "Clear the filters" }),
     ).toBeTruthy();
   });
 
-  it("still says 'No leads yet' when nothing is filtering — the sentence is not deleted", async () => {
+  it("still says 'Nobody here yet' when nothing is filtering — the sentence is not deleted", async () => {
     const { container } = await renderClientPage(<LeadsPage />, routes());
 
-    expect(await screen.findByText("No leads yet")).toBeTruthy();
+    expect(await screen.findByText("Nobody here yet")).toBeTruthy();
     expect(container.textContent).toContain(
-      "Each answered call becomes a lead.",
+      "Each answered call adds the caller here.",
     );
     // Nothing to clear, so nothing is offered.
     expect(
@@ -233,7 +233,7 @@ describe("'Clear the filters' clears the filters — all of them", () => {
     });
 
     // And the screen agrees with the request it just made.
-    expect(await screen.findByText("No leads yet")).toBeTruthy();
+    expect(await screen.findByText("Nobody here yet")).toBeTruthy();
   });
 });
 
