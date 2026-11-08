@@ -1291,6 +1291,13 @@ _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str],
     ("POST", "/v1/lead-fields/replace", {"agent_ids": ["{agent_id}"]}, {}, "Agent"),
     (
         "POST",
+        "/v1/one-calls",
+        {"phone": "+919000012345", "agent_id": "{agent_id}", "reason": "Hi"},
+        {"Idempotency-Key": "idor-body-one-call"},
+        "Agent",
+    ),
+    (
+        "POST",
         "/v1/leads/{lead_id}/callbacks",
         {"at": _TOMORROW_NOON_IST, "agent_id": "{agent_id}"},
         {"Idempotency-Key": "idor-body-callback"},
