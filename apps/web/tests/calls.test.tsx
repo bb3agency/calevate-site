@@ -483,3 +483,21 @@ describe("saved views of the call log (D-893)", () => {
     });
   });
 });
+
+describe("a poll that fails after the log has arrived", () => {
+  it("keeps the calls on screen under the notice rather than blanking the log", async () => {
+    const table: Record<string, unknown> = routes([call()]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByText("Caller asked for a Tuesday slot.")).toBeTruthy();
+
+    table["/v1/calls?limit=100"] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries();
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    // The rows were true when read; a failed re-read says so above them, it does not hide them.
+    expect(screen.getByText("Caller asked for a Tuesday slot.")).toBeTruthy();
+  });
+});

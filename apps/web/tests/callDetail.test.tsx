@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
@@ -688,5 +688,22 @@ describe("the call screen's layout and robustness", () => {
     const at = (title: string) => order.findIndex((t) => t?.startsWith(title));
     expect(at("Captured details")).toBeGreaterThan(-1);
     expect(at("Captured details")).toBeLessThan(at("Conversation"));
+  });
+});
+
+describe("a poll that fails after the call has arrived", () => {
+  it("keeps the call on screen under the notice, so a recording being played is not unmounted", async () => {
+    const table: Record<string, unknown> = routes(detail());
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByText("My number is [redacted].")).toBeTruthy();
+
+    table["/v1/calls/c1"] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["call"] });
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText("My number is [redacted].")).toBeTruthy();
   });
 });

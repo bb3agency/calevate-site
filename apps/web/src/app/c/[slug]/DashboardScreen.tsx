@@ -278,7 +278,7 @@ export function DashboardScreen({ slug }: { slug: string }) {
    * owner they are the same sentence and it is not "nothing happened today". `!data`
    * covers a query TanStack has PAUSED (offline): not loading, no error, no data.
    */
-  if (dashboard.error || !dashboard.data) {
+  if (!dashboard.data) {
     return (
       <ProblemNotice
         error={dashboard.error ?? new Error("Your dashboard did not load.")}
@@ -312,6 +312,9 @@ export function DashboardScreen({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-10 pb-12">
+      {/* A poll that failed after the figures arrived: they stay (they were true when read)
+          and this says they may be behind. */}
+      {dashboard.error ? <ProblemNotice error={dashboard.error} onRetry={() => void dashboard.refetch()} /> : null}
       {/* What needs the owner first: notices, setup and the trial, each rendering nothing
           when there is nothing to say. */}
       <div className="space-y-4 empty:hidden">

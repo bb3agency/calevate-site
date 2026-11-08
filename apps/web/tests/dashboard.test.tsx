@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DashboardPage from "@/app/c/[slug]/page";
@@ -1674,5 +1675,22 @@ describe("next steps", () => {
     const card = await nextSteps();
     expect(await within(card).findByText("Couldn't check how ready your agents are")).toBeTruthy();
     expect(card.textContent).not.toContain("All clear. Nothing needs you.");
+  });
+});
+
+describe("a poll that fails after the dashboard has arrived", () => {
+  it("keeps the figures on screen under the notice rather than replacing the page", async () => {
+    const table: Record<string, unknown> = routes();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByRole("heading", { name: "This week" })).toBeTruthy();
+
+    table["/v1/dashboard"] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["dashboard"] });
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "This week" })).toBeTruthy();
   });
 });
