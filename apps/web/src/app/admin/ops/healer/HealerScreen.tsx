@@ -397,7 +397,7 @@ function StatusPost() {
         }}
       >
         <p className="text-body text-ink-muted">
-          The public reads this at status.calevate.tech. Name no client and no supplier.
+          The public reads this at calevate.tech/status. Name no client and no supplier.
         </p>
         <label className="block">
           <span className={FIELD_LABEL}>What the public reads</span>
