@@ -28,7 +28,10 @@ export function TrialLinePanel({ line }: { line: TrialLine }) {
     errorDisplay: "inline",
     successToast: "Trial line set up",
   });
-  const shown = setUp.data ?? line;
+  // The config read, never the set-up's answer: the mutation waits for that read to come
+  // back, and its answer would otherwise hide every later one (a line changed in the
+  // engine's console afterwards still read "ready").
+  const shown = line;
   return (
     <NoticeBox
       tone={shown.state === "ready" ? "neutral" : "warn"}
