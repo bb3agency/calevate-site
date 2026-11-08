@@ -210,6 +210,39 @@ async def test_a_second_live_invitation_for_one_address_is_refused() -> None:
     assert second.json()["type"].endswith("/invitation_already_pending")
 
 
+async def test_two_invites_of_one_address_at_once_mint_one_and_neither_is_a_500() -> None:
+    """A double tap on Invite: both requests reach the pending-invitation check together.
+    One invitation is minted, the other is told one is already pending."""
+    import asyncio
+
+    from apps.api.admin import service as admin_service
+    from apps.api.core.errors import ProblemError
+    from tests.team_alerts_test import _MeetFirst
+
+    tenant_id, _slug, _token = await _make_tenant("owner")
+    address = f"race-{uuid.uuid4().hex[:8]}@example.com"
+    barrier = asyncio.Barrier(2)
+
+    async def invite() -> object:
+        async with tenant_session(tenant_id) as session:
+            return await admin_service.create_invitation(
+                _MeetFirst(session, barrier),  # type: ignore[arg-type]
+                tenant_id=tenant_id,
+                email=address,
+                role="staff",
+                created_by=None,
+            )
+
+    results = await asyncio.gather(invite(), invite(), return_exceptions=True)
+    minted = [r for r in results if isinstance(r, tuple)]
+    refused = [r for r in results if isinstance(r, ProblemError)]
+    assert len(minted) == 1, results
+    assert [r.code for r in refused] == ["invitation_already_pending"], results
+    async with tenant_session(tenant_id) as session:
+        count = (await session.execute(text("SELECT count(*) FROM invitations"))).scalar_one()
+    assert count == 1
+
+
 async def test_inviting_someone_already_on_the_team_is_refused() -> None:
     tenant_id, slug, token = await _make_tenant("owner")
     owner_id = await _owner_user_id(tenant_id)

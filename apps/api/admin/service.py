@@ -482,6 +482,13 @@ async def create_invitation(
     was a 500 and an invitation into a closed account was a 201.
     """
     await assert_account_open(session, tenant_id=tenant_id)
+    # Per account and address, held to commit, before the two reads the INSERT depends on:
+    # no unique index covers "one live invitation per address" (expiry is a clock, not a
+    # column an index can name), so two presses at once both found none and both minted one.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"invitation:{tenant_id}:{email.strip().lower()}"},
+    )
 
     already = (
         await session.execute(
