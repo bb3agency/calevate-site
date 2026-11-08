@@ -281,13 +281,20 @@ function OutcomesEditor({
                 </div>
                 <label className="mt-3 block">
                   <span className={FIELD_LABEL}>What it means</span>
-                  <input
+                  {/* A box that grows with its text (two lines where the browser cannot), not a
+                      one-line input: the meaning is a sentence of up to 200 letters, and a
+                      one-line box showed a phone only its first thirty. It stays one line of
+                      text: a typed or pasted line break becomes a space. */}
+                  <textarea
+                    rows={2}
                     maxLength={200}
                     value={row.meaning}
                     disabled={disabled}
-                    onChange={(event) => patch(row.uid, { meaning: event.target.value })}
+                    onChange={(event) =>
+                      patch(row.uid, { meaning: event.target.value.replace(/\s*\r?\n\s*/g, " ") })
+                    }
                     placeholder={`e.g. ${examples.outcomeMeaning}`}
-                    className={FIELD}
+                    className={`${FIELD} field-sizing-content min-h-16 resize-none`}
                   />
                 </label>
               </li>

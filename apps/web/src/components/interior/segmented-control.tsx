@@ -50,6 +50,11 @@ export function SegmentedControl({
   fill = false,
 }: SegmentedControlProps) {
   const count = Math.max(1, options.length);
+  // Two options sharing a phone's width wrap their labels inside equal halves. Scrolling
+  // them left the second label cut mid-word at 320px ("Your existing numbe") behind an edge
+  // cue the track's own fill paints over; more options keep scrolling, since splitting
+  // three words three ways leaves cells too narrow for one word each.
+  const wrap = fill && count <= 2;
   const index = options.findIndex((o) => o.value === value);
   const buttons = useRef<(HTMLButtonElement | null)[]>([]);
   const reduced = useReducedMotion();
@@ -109,8 +114,8 @@ export function SegmentedControl({
       <div
         role="radiogroup"
         aria-label={label}
-        className={`relative inline-grid ${fill ? "w-full min-w-max sm:w-max" : "w-max"} select-none rounded-[10px] bg-ink/[0.05] p-[3px] shadow-[inset_0_0_0_1px_var(--line)]`}
-        style={{ gridTemplateColumns: `repeat(${count}, 1fr)`, touchAction: "manipulation" }}
+        className={`relative inline-grid ${wrap ? "w-full sm:w-max" : fill ? "w-full min-w-max sm:w-max" : "w-max"} select-none rounded-[10px] bg-ink/[0.05] p-[3px] shadow-[inset_0_0_0_1px_var(--line)]`}
+        style={{ gridTemplateColumns: `repeat(${count}, ${wrap ? "minmax(0, 1fr)" : "1fr"})`, touchAction: "manipulation" }}
       >
         <motion.div
           aria-hidden
@@ -139,7 +144,7 @@ export function SegmentedControl({
                 onValueChange(option.value);
               }}
               onKeyDown={(e) => onKeyDown(e, i)}
-              className={`relative z-raised flex items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] px-3 py-1.5 text-[13px] leading-[18px] transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 ${
+              className={`relative z-raised flex items-center justify-center gap-1.5 ${wrap ? "text-center max-sm:whitespace-normal sm:whitespace-nowrap" : "whitespace-nowrap"} rounded-[7px] px-3 py-1.5 text-[13px] leading-[18px] transition-colors duration-(--duration-fast) ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand touch:min-h-11 ${
                 option.disabled
                   ? "cursor-not-allowed text-ink-faint/60"
                   : checked

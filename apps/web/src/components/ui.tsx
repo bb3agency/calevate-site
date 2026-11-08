@@ -353,8 +353,10 @@ export function Disclosure({
             <Heading className="text-[15px] font-semibold leading-5 text-ink">{title}</Heading>
             {subtitle && <span className="mt-0.5 block text-meta text-ink-muted">{subtitle}</span>}
           </span>
+          {/* Capped and wrapping, not shrink-0: a long status ("Call when you open") held its
+              full width and squeezed the title to a word a line on a phone. */}
           {status !== undefined && status !== null && (
-            <span className="shrink-0 text-meta tabular-nums text-ink-muted">{status}</span>
+            <span className="max-w-[45%] text-right text-meta tabular-nums text-ink-muted">{status}</span>
           )}
         </summary>
         <div className="px-4 pb-6 pt-1 sm:pl-12 sm:pr-5">{children}</div>
@@ -1198,9 +1200,9 @@ export const PRIMARY_BUTTON_LG =
 
 /** The same buttons at the size an inline action wants. */
 export const PRIMARY_BUTTON_SM =
-  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center justify-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white [&:not(:disabled)]:hover:bg-brand-deep disabled:cursor-not-allowed disabled:bg-ink/[0.08] disabled:text-ink-faint touch:min-h-11 touch:min-w-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 export const SECONDARY_BUTTON_SM =
-  "inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
+  "inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 touch:min-w-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";
 // Both sizes label in ink: a muted label reads as disabled beside a primary button (D-771).
 export const SECONDARY_BUTTON =
   "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink [&:not(:disabled)]:hover:bg-black/5 disabled:cursor-not-allowed disabled:border-line disabled:bg-ink/[0.04] disabled:text-ink-faint dark:[&:not(:disabled)]:hover:bg-white/5 touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 press";

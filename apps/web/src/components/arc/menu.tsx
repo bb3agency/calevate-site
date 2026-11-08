@@ -181,7 +181,7 @@ export function RowMenu({
           type="button"
           aria-label={`More actions for ${label}`}
           className={clsx(
-            "press relative z-raised inline-flex h-8 w-8 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand data-[state=open]:bg-ink/[0.06] data-[state=open]:text-ink touch:h-11 touch:w-11",
+            "press relative z-raised inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-ink/[0.06] hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand data-[state=open]:bg-ink/[0.06] data-[state=open]:text-ink touch:h-11 touch:w-11",
             className,
           )}
         >
