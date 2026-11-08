@@ -1543,14 +1543,12 @@ async def test_an_identical_repeated_lookup_is_refused_rather_than_run_again(
     # issued call has no answer at all.
     assert [message["tool_call_id"] for message in tool_messages] == ["call-0", "call-0"]
     assert [e.text for e in events if e.text] == ["You had no calls last week."]
-    # And the person sees it as a step, refused rather than silently missing.
-    refused = [e.step for e in events if e.step][-1]
-    assert refused.status == "refused"
-    # WITH NO TIME ON IT. Nothing ran, so there is nothing to time — this used to pass
-    # `time.monotonic()` at the moment the frame was BUILT and report "0 ms" beside steps
-    # that really took 240, which is a fabricated measurement in the one column a person
-    # reads to tell a slow answer from a stuck one.
-    assert refused.elapsed_ms is None
+    # The person sees the same lookup, done: nothing failed, so the step list must not
+    # count it as a step that did not finish, and the model's note is not theirs to read.
+    repeat = [e.step for e in events if e.step][-1]
+    assert repeat.status == "done" and repeat.detail == ""
+    # WITH NO TIME ON IT. Nothing ran, so there is nothing to time.
+    assert repeat.elapsed_ms is None
 
 
 async def test_a_lookup_that_hangs_is_stopped_and_answered_with_a_sentence(
@@ -1723,6 +1721,8 @@ async def test_a_screen_the_person_cannot_open_is_refused_and_the_model_is_told_
     assert "account owner" in str(tool_messages[-1]["content"])
     refused = [event.step for event in events if event.step and event.step.status == "refused"]
     assert refused and refused[0].tool == "open_screen"
+    # The person reads their sentence; "do not open it. Tell them..." is the model's.
+    assert refused[0].detail == "Only the account owner can open AI help."
 
 
 async def test_one_answer_opens_at_most_one_screen(
@@ -1742,6 +1742,47 @@ async def test_one_answer_opens_at_most_one_screen(
 
     moved = [event.navigate for event in events if event.navigate is not None]
     assert [frame.screen for frame in moved] == ["Leads"]
+    refused = [event.step for event in events if event.step and event.step.status == "refused"]
+    assert [step.detail for step in refused] == [service.NAVIGATION_CAP_PLAIN]
+
+
+async def test_a_lookup_the_role_may_not_read_shows_no_permission_code_on_the_step(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The refusal names a permission and tells the model what to say; the step list is the
+    person's, so it carries no line, and the model still reads the whole refusal."""
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("billing_settings", "{}")), _turn(content="That is the owner's to see.")],
+    )
+    staff = tools_module.ToolContext(tenant_id=TOOL_CONTEXT.tenant_id, role="staff")
+    events = [event async for event in service.run_copilot(PAYLOAD, tool_context=staff)]
+
+    done = [event.step for event in events if event.step and event.step.status == "done"]
+    assert done and done[0].detail == ""
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "Refused" in str(tool_messages[-1]["content"])
+
+
+def test_a_platform_refusal_hands_the_model_each_setting_it_names() -> None:
+    """A screen highlights `fields`; Pip's panel has nothing to highlight, so the sentences
+    travel in the tool result or the model can only relay "check the highlighted settings"."""
+    problem = ProblemError(
+        kind="validation",
+        code="x_invalid",
+        title="That is not set up correctly",
+        detail="Some of the settings need another look.",
+        fields=[
+            {
+                "field": "template",
+                "label": "Template",
+                "rule": "missing",
+                "message": "Add the template name.",
+            }
+        ],
+        remediation="Check the highlighted settings and save again.",
+    )
+    assert "Add the template name." in service._problem_result(problem)
 
 
 async def test_a_turn_that_fills_a_field_and_opens_a_screen_does_neither(

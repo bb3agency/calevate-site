@@ -79,6 +79,7 @@ from apps.api.copilot.identity import (
     question_touches_model_identity,
 )
 from apps.api.copilot.model_tiers import LONG_QUESTION_CHARS
+from apps.api.copilot.owner_words import machine_words
 from apps.api.copilot.quotes import owners_wording, quoted_in
 from apps.api.copilot.sanitize import clean_value, strip_invisible
 from apps.api.copilot.schemas import (
@@ -431,6 +432,12 @@ _REPEAT_RESULT: Final = (
     "this question, and its result is earlier in this conversation. Use that result, or ask "
     "for something different."
 )
+
+#: The person's line for a lookup stopped at `READ_TOOL_BUDGET_S` (the model is told more).
+READ_TIMED_OUT_PLAIN: Final = "That took too long to look up."
+
+#: The person's line for a second screen change in one answer (the model is told why).
+NAVIGATION_CAP_PLAIN: Final = f"{ASSISTANT_NAME} opens one screen per answer."
 
 #: How many TIER 1 actions one question may perform. D-500.
 #:
@@ -1517,7 +1524,8 @@ async def _run_one_read_tool(
             f"`{call.name}` took too long to answer and was stopped. Tell the user you "
             "could not look that up just now, and do not invent the answer."
         )
-        return _step_end(call, status="failed", detail=timed_out, started_at=started_at), timed_out
+        frame = _step_end(call, status="failed", detail=READ_TIMED_OUT_PLAIN, started_at=started_at)
+        return frame, timed_out
     if not result.strip():
         # A BLANK TOOL RESULT IS SILENCE ONE LAYER DOWN. `run_read_tool` contracts to
         # return a sentence the model can act on, so this is its bug rather than a state —
@@ -1537,9 +1545,23 @@ async def _run_one_read_tool(
     # A REFUSAL FROM A READ TOOL IS STILL A `done` STEP, and that is honest rather than
     # lazy: `run_read_tool` answers a permission refusal, an unknown tool and an empty
     # result with the same kind of sentence, and this function cannot tell them apart
-    # without parsing our own prose. The sentence itself is in `detail`, where the person
-    # reads it. A TIMEOUT is different — we know that one, so it is `failed`.
-    return _step_end(call, status="done", detail=result, started_at=started_at), result
+    # without parsing our own prose. A TIMEOUT is different — we know that one, so it is
+    # `failed`. The result is the step's line only when it is in the person's words: a
+    # refusal names a permission or a tool and tells the model what to do, and the answer
+    # already says it plainly.
+    frame = _step_end(call, status="done", detail=_owner_line(result), started_at=started_at)
+    return frame, result
+
+
+#: The `[agent_id <uuid>]` tags a lookup gives the model so its actions can name a row.
+_ID_TAG: Final = re.compile(r"\s*\[[a-z_]+ [0-9a-fA-F-]{8,}\]")
+
+
+def _owner_line(text: str) -> str:
+    """`text` as a step's line: without its id tags, and nothing at all when what is left
+    still names Pip's machinery (`owner_words`)."""
+    shown = _ID_TAG.sub("", text)
+    return "" if machine_words(shown) else shown
 
 
 async def _run_read_tools(
@@ -1609,13 +1631,9 @@ async def _run_read_tools(
         contents[index], frames[index] = result, frame
     for index in repeats:
         contents[index] = _REPEAT_RESULT
-        frames[index] = _step_end(
-            # NOTHING RAN, SO NOTHING IS TIMED — see `_step_end`.
-            calls[index],
-            status="refused",
-            detail=_REPEAT_RESULT,
-            started_at=None,
-        )
+        # The model already holds the answer, so to the person this is the same lookup, not
+        # a step that did not finish. NOTHING RAN, SO NOTHING IS TIMED — see `_step_end`.
+        frames[index] = _step_end(calls[index], status="done", detail="", started_at=None)
     for index, _ in over_cap:
         contents[index] = (
             f"Not run: you asked for more than {tools_module.MAX_CALLS_PER_TURN} "
@@ -2025,6 +2043,10 @@ def _problem_result(problem: ProblemError) -> str:
     either — every string is authored by this repository (hard rule 6).
     """
     parts = [f"REFUSED, and NOTHING was changed. {problem.title}: {problem.detail}"]
+    if problem.fields:
+        # The per-setting sentences a screen highlights; without them "check the
+        # highlighted settings" names nothing the person can find in this panel.
+        parts.append(" ".join(entry.get("message", "") for entry in problem.fields[:8]))
     if problem.remediation:
         parts.append(f"What would fix it: {problem.remediation}")
     parts.append(
@@ -2807,19 +2829,20 @@ async def _run_tool_loop(
             started_at = time.monotonic()
             yield CopilotEvent(step=_step_start(call))
             if navigations_run >= navigation.MAX_NAVIGATIONS_PER_RUN:
-                refusal_reasons = ("you have already opened a screen answering this question",)
+                refusal_reasons = (NAVIGATION_CAP_PLAIN,)
                 log.info("copilot_navigation_cap", extra={"turn": turn_index})
                 yield CopilotEvent(
                     step=_step_end(
-                        call, status="refused", detail=refusal_reasons[0], started_at=started_at
+                        call, status="refused", detail=NAVIGATION_CAP_PLAIN, started_at=started_at
                     )
                 )
                 messages = _with_tool_result(
                     messages,
                     outcome,
                     call,
-                    "NOBODY was moved. " + refusal_reasons[0] + ", and one answer opens at "
-                    "most one screen. Tell them where the other screen is instead.",
+                    "NOBODY was moved. You have already opened a screen answering this "
+                    "question, and one answer opens at most one screen. Tell them where the "
+                    "other screen is instead.",
                 )
                 continue
             try:
@@ -2841,13 +2864,13 @@ async def _run_tool_loop(
                     current_route=payload.screen.route,
                 )
             except navigation.NavigationRefusedError as refused:
-                refusal_reasons = (refused.reason,)
+                refusal_reasons = (refused.plain,)
                 # The tool NAME and the turn. The reason names a screen and a role and no
                 # value, but a log line is the cheapest place for one to end up by accident.
                 log.info("copilot_navigation_refused", extra={"turn": turn_index})
                 yield CopilotEvent(
                     step=_step_end(
-                        call, status="refused", detail=refused.reason, started_at=started_at
+                        call, status="refused", detail=refused.plain, started_at=started_at
                     )
                 )
                 messages = _with_tool_result(

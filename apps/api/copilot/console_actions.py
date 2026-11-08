@@ -503,7 +503,8 @@ async def _plan_call_place(
     if not decision.allowed:
         raise WriteRefusedError(
             "this call cannot be placed right now and nothing was proposed — "
-            f"{decision.rule}: {decision.reason}. Tell the person exactly this"
+            f"{decision.rule}: {decision.reason}. Tell the person exactly this",
+            plain=decision.reason,
         )
     note = None if parsed.note is None else (strip_invisible(parsed.note.strip()) or None)
     attempt = str(uuid4())
@@ -3284,7 +3285,8 @@ async def _plan_test_call(session: AsyncSession, actor: ToolActor, args: Mapping
     if not decision.allowed:
         raise WriteRefusedError(
             "this test call cannot be placed and nothing was proposed — "
-            f"{decision.rule}: {decision.reason}. Tell the person exactly this"
+            f"{decision.rule}: {decision.reason}. Tell the person exactly this",
+            plain=decision.reason,
         )
     return Plan(
         object_id=str(parsed.agent_id),

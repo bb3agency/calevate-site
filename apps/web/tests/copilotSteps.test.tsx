@@ -98,6 +98,27 @@ describe("the assistant's steps, as the person sees them", () => {
     expect(screen.queryByText(/Could not finish/)).toBeNull();
   });
 
+  it("reads an area call asked again in the right form as tried again, not a failure", () => {
+    render(
+      <StepList
+        steps={[
+          step({
+            id: "a",
+            tool: "leads_do",
+            status: "refused",
+            label: "Working on your leads…",
+            detail: "Asked in the wrong form; Pip is asking again.",
+          }),
+          step({ id: "b", tool: "lead_set_status", status: "done", label: "Updated a lead", detail: "" }),
+        ]}
+      />,
+    );
+    expect(screen.getByText("Checked 1 thing")).toBeTruthy();
+    open();
+    expect(screen.getByText("Tried again")).toBeTruthy();
+    expect(screen.queryByText(/Could not finish/)).toBeNull();
+  });
+
   it("reads a refused fill that a repair landed as tried again, without the old reason (F-1)", () => {
     render(
       <StepList

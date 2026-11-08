@@ -135,11 +135,20 @@ function recoveredSteps(steps: CopilotStep[]): Set<string> {
   const recovered = new Set<string>();
   steps.forEach((step, index) => {
     if (!isProblem(step)) return;
-    if (steps.slice(index + 1).some((later) => later.tool === step.tool && later.status === "done")) {
+    const later = steps.slice(index + 1).filter((next) => next.status === "done");
+    // An area call written in the wrong form (`leads_do`) is refused under the area's name,
+    // and its corrected retry is framed under the action it resolves to, so the two never
+    // share a tool name.
+    if (later.some((next) => next.tool === step.tool || isAreaCall(step.tool))) {
       recovered.add(step.id);
     }
   });
   return recovered;
+}
+
+/** `<area>_find` / `<area>_do`, the server's area tools (`apps/api/copilot/areas.py`). */
+function isAreaCall(tool: string): boolean {
+  return /^[a-z]+_(find|do)$/.test(tool);
 }
 
 /** The server's words for the step, in the tense of its status. */

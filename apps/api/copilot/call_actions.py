@@ -80,7 +80,8 @@ async def _plan_call_back(session: AsyncSession, actor: ToolActor, args: Mapping
     if not check.eligible:
         raise WriteRefusedError(
             f"this call-back cannot be placed and nothing was proposed — {check.rule}: "
-            f"{check.reason}. Tell the person exactly this"
+            f"{check.reason}. Tell the person exactly this",
+            plain=check.reason,
         )
     return Plan(
         object_id=str(parsed.call_id),
@@ -352,7 +353,8 @@ async def _plan_whatsapp(session: AsyncSession, actor: ToolActor, args: Mapping[
     if not options.available:
         raise WriteRefusedError(
             f"no WhatsApp message can be sent to this lead now — {options.rule}: "
-            f"{options.reason}. Tell the person exactly this"
+            f"{options.reason}. Tell the person exactly this",
+            plain=options.reason,
         )
     chosen = next((t for t in options.templates if t.id == parsed.template_id), None)
     if chosen is None:

@@ -187,7 +187,11 @@ async def _plan_script_suggest(
     if len(written) < MIN_REQUEST_CHARS:
         raise WriteRefusedError(
             {
-                "change": "the change was missing or too short, so ask the person what to change",
+                "change": (
+                    "the change was missing or too short; pass the person's whole request, in "
+                    "their words, as `change`, and ask them what to change only if they have "
+                    "not said"
+                ),
                 "whole": NO_ANSWERS_REASON,
                 "steps": "this agent has no hand-written script to turn into steps",
             }[parsed.mode],

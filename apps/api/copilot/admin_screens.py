@@ -260,11 +260,13 @@ def resolve_admin_destination(
     if role is None or not role_has(role, screen.permission):
         raise NavigationRefusedError(
             f"{screen.name} needs a role this operator does not hold, so do not open it. Tell "
-            "them which screen it is and that a superadmin can open it"
+            "them which screen it is and that a superadmin can open it",
+            plain=f"{screen.name} needs a superadmin.",
         )
     if current_route.rstrip("/") == screen.route:
         raise NavigationRefusedError(
-            f"they are already on {screen.name}, so there is nowhere to take them"
+            f"they are already on {screen.name}, so there is nowhere to take them",
+            plain=f"You are already on {screen.name}.",
         )
     return CopilotNavigateEvent(
         tool=OPEN_SCREEN_TOOL_NAME,
