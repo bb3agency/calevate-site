@@ -83,6 +83,14 @@ MAX_OCR_PAGES: Final = MAX_OCR_IMAGES
 #: thread keeps parsing, and arq's retry starts a second one on the same file. A crafted page
 #: costs at most one page past this, not the remaining pages times the retries.
 MAX_PDF_READ_S: Final = 60.0
+#: The wall-clock seconds one reading's model calls (scanned pages, then pictures) may take
+#: together. Each scanned page is its own request of up to `OCR_TIMEOUT_S`, so twenty of them
+#: alone could run 900 s; past `job_timeout` arq cancels the job with no retry, the
+#: `reading` the request committed is never settled, and Read it again stays hidden. A page
+#: or a picture batch is started only when a whole request still fits, so with
+#: `MAX_PDF_READ_S` and the store this stays inside 300 s; pages left over are reported as
+#: not read, the way a refused page is.
+READ_MODEL_BUDGET_S: Final = 180.0
 #: Read through the module so a test can move time instead of waiting for it.
 _clock = time.monotonic
 
@@ -297,6 +305,23 @@ UPDATE kb_uploads u
  WHERE u.source_id = :sid AND u.read_state = 'reading'
 """
 
+#: The same settlement for every reading of one account left `reading` since before
+#: `:cutoff` (`interrupted_work`): a job killed outright (a worker lost mid-read, or its
+#: tries spent on deploys) never reaches the handler above, and the request's committed
+#: `reading` would hide Read it again for good.
+SETTLE_STALE_READS_SQL: Final = """
+UPDATE kb_uploads u
+   SET read_state = CASE WHEN EXISTS (
+           SELECT 1 FROM kb_documents d WHERE d.source_id = u.source_id
+       ) THEN 'ready' ELSE 'failed' END,
+       read_detail = CASE WHEN EXISTS (
+           SELECT 1 FROM kb_documents d WHERE d.source_id = u.source_id
+       ) THEN 'We could not read it again just now. Agents still use the earlier reading.'
+       ELSE 'We could not read it just now. Tap Read it again in a few minutes.' END,
+       updated_at = now()
+ WHERE u.read_state = 'reading' AND u.updated_at < :cutoff
+"""
+
 
 async def _mark(
     session: AsyncSession,
@@ -331,17 +356,32 @@ OCR_OFF_DETAIL: Final = (
 
 
 async def _read_scans(
-    session: AsyncSession, *, tenant_id: UUID, scans: list[tuple[int, bytes, str]]
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    scans: list[tuple[int, bytes, str]],
+    deadline: float,
 ) -> ScanReading:
     """Read scanned pages with the Gemini reader, metering each call to the client's AI
     usage (`kb_ingest._meter_ocr`, priced by `billing/rates.llm_inr_per_ktok`, which refuses
-    an unattested model, so the reader is `unavailable` rather than unbilled)."""
-    from apps.workers.document_ocr import OcrImage, PaidOcrUnusableError, ocr_images
+    an unattested model, so the reader is `unavailable` rather than unbilled). A page is
+    started only while a whole request fits before `deadline` (`READ_MODEL_BUDGET_S`)."""
+    from apps.workers.document_ocr import (
+        OCR_TIMEOUT_S,
+        OcrImage,
+        PaidOcrUnusableError,
+        ocr_images,
+    )
     from apps.workers.kb_ingest import _meter_ocr
 
     reading = ScanReading(missed=max(0, len(scans) - MAX_OCR_PAGES))
     read = reading.pages
-    for number, data, mime in scans[:MAX_OCR_PAGES]:
+    wanted = scans[:MAX_OCR_PAGES]
+    for index, (number, data, mime) in enumerate(wanted):
+        if _clock() + OCR_TIMEOUT_S > deadline:
+            reading.missed += len(wanted) - index
+            log.info("kb_read_scan_budget_spent", extra={"pages_left": len(wanted) - index})
+            break
         try:
             extracted = await ocr_images([OcrImage(data=data, mime_type=mime, position=number)])
         except OcrUnavailableError as unavailable:
@@ -423,6 +463,7 @@ async def read_saved_copy(
     detail: str | None = None
     pages: int | None = None
     if kind == "pdf":
+        from apps.workers.document_ocr import OCR_TIMEOUT_S
         from apps.workers.storage import read_kb_object
 
         data = await read_kb_object(str(key)) if key else None
@@ -439,15 +480,20 @@ async def read_saved_copy(
         except UnreadablePdfError as unreadable:
             await _mark(session, upload_id, READ_FAILED, detail=unreadable.detail)
             return "failed"
-        scanned = await _read_scans(session, tenant_id=tenant_id, scans=reading.scans)
+        deadline = _clock() + READ_MODEL_BUDGET_S
+        scanned = await _read_scans(
+            session, tenant_id=tenant_id, scans=reading.scans, deadline=deadline
+        )
         # Scanned pages and pictures share one document's reads (`MAX_OCR_IMAGES`, the
-        # bound the OCR cost assertion is stated over); the scans are the pages' own words,
-        # so they come first.
+        # bound the OCR cost assertion is stated over) and one model budget; the scans are
+        # the pages' own words, so they come first.
         pictures = await read_pictures(
             session,
             tenant_id=tenant_id,
             collector=reading.pictures,
             budget=MAX_OCR_IMAGES - min(len(reading.scans), MAX_OCR_PAGES),
+            # The reader starts no batch past its deadline, and one batch is one request.
+            deadline_s=deadline - _clock() - OCR_TIMEOUT_S,
         )
         sections = _with_pictures([*reading.pages, *scanned.pages], pictures.blocks)
         pages = reading.page_count
@@ -554,6 +600,7 @@ async def read_kb_upload(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
 __all__ = [
     "MAX_OCR_PAGES",
     "MAX_PDF_PAGES",
+    "SETTLE_STALE_READS_SQL",
     "PdfReading",
     "ScanReading",
     "UnreadablePdfError",

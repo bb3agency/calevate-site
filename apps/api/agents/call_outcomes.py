@@ -140,12 +140,16 @@ def with_keys(
 #: under `business_outcomes_draft.DRAFT_TIMEOUT_S` inside the worker's five-minute job limit;
 #: a worker killed or timed out mid-run (`asyncio` cancellation is not an `Exception`, so the
 #: run's own `failed` write never happens) leaves the state at `running` with nothing left to
-#: finish it. Read from `agents.updated_at`, which the claim stamps.
+#: finish it. Read from `agents.updated_at`, which the claim stamps. `queued` ages out the
+#: same way: a run that died before its claim (a failed first statement, its tries spent)
+#: left the state at `queued`, which "Write them for me" refused for good. The worker's
+#: claim is a compare-and-swap from `queued`, so a late first run and a re-asked one cannot
+#: both draft.
 DRAFT_STALE_MINUTES: Final = 15
 
 #: A draft whose run died: reported as `failed` and may be asked for again.
 _DRAFT_DEAD_SQL: Final = (
-    "(business_outcomes_draft = 'running' "
+    "(business_outcomes_draft IN ('queued', 'running') "
     "AND updated_at < now() - make_interval(mins => :stale_minutes))"
 )
 

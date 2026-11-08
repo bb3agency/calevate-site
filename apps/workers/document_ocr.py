@@ -537,10 +537,12 @@ async def ocr_pictures(
     images: Sequence[OcrImage],
     *,
     client: httpx.AsyncClient | None = None,
+    deadline_s: float = OCR_DEADLINE_S,
 ) -> PictureTranscripts:
     """Pictures found inside a document → one `PictureText` each, `PICTURES_PER_REQUEST` to
     a request. Raises `OcrUnavailableError` before any call when the reader is off (no key,
     no attested price, no data-use attestation), and `DocumentTooLargeError` past the caps.
+    No request starts after `deadline_s`, so the last one ends at most `OCR_TIMEOUT_S` later.
 
     Unlike `ocr_images` nothing here is a refusal: a document's own text stands without its
     pictures, so a picture that could not be read is a code beside it, not an error."""
@@ -557,7 +559,7 @@ async def ocr_pictures(
     leg = ocr_leg()
     owns_client = client is None
     http = client or httpx.AsyncClient(timeout=OCR_TIMEOUT_S, follow_redirects=False)
-    deadline = time.monotonic() + OCR_DEADLINE_S
+    deadline = time.monotonic() + deadline_s
     results: list[PictureText] = []
     answered: list[chat.TokenUsage | None] = []
     try:
@@ -569,8 +571,12 @@ async def ocr_pictures(
             if read is None and len(batch) > 1 and failed.startswith("provider_rejected_4"):
                 # Several images in one compatibility-surface message is REPORTED, not
                 # shown by Google (module docstring): a refusal of the batch is asked again
-                # one picture at a time rather than losing all of them.
+                # one picture at a time rather than losing all of them. Each of those is a
+                # request of its own, so each is held to the deadline too.
                 for image in batch:
+                    if time.monotonic() >= deadline:
+                        results.append(PictureText(image.position, "", "not_attempted"))
+                        continue
                     one, one_usage, one_failed = await _read_batch(leg, [image], http)
                     if one is not None:
                         answered.append(one_usage)

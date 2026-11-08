@@ -1204,22 +1204,21 @@ CRON_JOBS = [
     # THE RECURRING COST OF A PHONE NUMBER (D-537), and the only cost in this system that
     # no event produces: the vendor debits its wallet on a renewal date we do not observe
     # and issues nothing, so the only way a monthly rental enters the ledger is that we go
-    # and write it. Once per IST billing month, on the 1st, before anybody draws a
-    # statement for it — `record_number_rental` is idempotent in the database on
-    # `number_rental:<number_id>:<YYYY-MM>`, so a re-run costs nothing and a missed run is
-    # recovered by running it again inside the month.
+    # and write it. It writes the current IST billing month, and `record_number_rental` is
+    # idempotent in the database on `number_rental:<number_id>:<YYYY-MM>`.
+    #
+    # DAILY, not only on the 1st: arq never runs a cron tick it missed, so a worker that
+    # was down or mid-deploy at 07:28 on the 1st lost the whole month's number costs with
+    # nothing to say so. Every later day of the month is a replay (one conflicting insert
+    # per number) on the good path and the catch-up on the bad one.
     #
     # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
-    # `WorkerSettings.max_tries` does not reach a function carrying its own. This one
-    # matters more than most — a failed attempt on a MONTHLY job is a whole month of a
-    # client's number costs missing from the margin, and there is no next tick to
-    # self-heal on until the 1st of the following month.
+    # `WorkerSettings.max_tries` does not reach a function carrying its own.
     _cron(
         traced_job(meter_number_rentals),
         walk=fleet_wide(
             "one tenant_session per organization, then one usage event per bought number"
         ),
-        day={1},
         hour={7},
         # :28, not :20: `draw_qa_samples` walks every organization on Monday 07:20, and a
         # 1st that falls on a Monday put two fleet walks in one minute twelve times a year
