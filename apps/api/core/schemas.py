@@ -27,7 +27,10 @@ def _has_a_utc_instant(value: datetime) -> datetime:
 #: outside what `datetime` holds: the first raises `OverflowError` in any `astimezone`
 #: (a 500), and the second is stored by Postgres as a year-1-BC `timestamptz` that psycopg
 #: cannot read back, so every later read of that row is a 500 too.
-Instant = Annotated[AwareDatetime, AfterValidator(_has_a_utc_instant)]
+#: The same check for a `datetime` field whose own validator refuses a naive value with
+#: its own wording: `Annotated[datetime, HAS_UTC_INSTANT]`.
+HAS_UTC_INSTANT: Final = AfterValidator(_has_a_utc_instant)
+Instant = Annotated[AwareDatetime, HAS_UTC_INSTANT]
 
 
 class Strict(BaseModel):

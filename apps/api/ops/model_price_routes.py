@@ -65,6 +65,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import HAS_UTC_INSTANT
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
@@ -448,7 +449,7 @@ class EmbeddingPriceAttestIn(BaseModel):
     input_usd_per_mtok: str
     #: When this price becomes authoritative. Omit for "from now on"; supply an earlier
     #: instant to correct the record for a period already elapsed. MUST be timezone-aware.
-    effective_from: datetime | None = None
+    effective_from: Annotated[datetime, HAS_UTC_INSTANT] | None = None
     #: WHERE the figure came from, in the operator's words — "Google Cloud billing
     #: 2026-11, gemini-embedding-2 input tokens". It is the evidence that makes this an
     #: attestation rather than a guess, and the reason recorded in `audit_log`.
@@ -512,7 +513,7 @@ class ModelPriceAttestIn(BaseModel):
     cached_input_usd_per_mtok: str | None = None
     #: When this price becomes authoritative. Omit for "from now on"; supply an earlier
     #: instant to correct the record for a period already elapsed. MUST be timezone-aware.
-    effective_from: datetime | None = None
+    effective_from: Annotated[datetime, HAS_UTC_INSTANT] | None = None
     #: WHERE the figure came from, in the operator's words — the evidence that makes this an
     #: attestation and not a guess, and the reason recorded in `audit_log`.
     source_note: str = Field(min_length=3, max_length=500)
@@ -559,7 +560,7 @@ class TtsPriceAttestIn(BaseModel):
     inr_per_1k_chars: str
     #: When this price becomes authoritative. Omit for "from now on"; supply an earlier
     #: instant to correct the record for a period already elapsed. MUST be timezone-aware.
-    effective_from: datetime | None = None
+    effective_from: Annotated[datetime, HAS_UTC_INSTANT] | None = None
     #: WHICH PLAN, WHICH PERIOD, AND THE DIVISION — "Cartesia Startup plan, invoice
     #: 2026-09, ₹4,312 / 1.25M characters". The figure is the plan's MARGINAL rate inside
     #: its allotment, so a reader a year later has to be able to tell which regime it
@@ -621,7 +622,7 @@ class TtsPlanFeeAttestIn(BaseModel):
     #: earlier instant to correct the record as of a past moment. MUST be timezone-aware.
     #: It is NOT the month: a September invoice is normally attested in October, and
     #: resolving the fee at September's own last instant would make it invisible.
-    effective_from: datetime | None = None
+    effective_from: Annotated[datetime, HAS_UTC_INSTANT] | None = None
     #: WHICH PLAN AND WHICH INVOICE — "Cartesia Startup plan, invoice INV-2026-09-014,
     #: ₹4,312". It is the evidence that makes this an attestation rather than a guess, the
     #: only thing that lets a reader a year later re-check the figure rather than re-make
@@ -1443,7 +1444,7 @@ class InrLlmPriceAttestIn(BaseModel):
     #: Omit for a vendor with no cached-input rung.
     cached_in_inr_per_mtok: str | None = None
     out_inr_per_mtok: str
-    effective_from: datetime | None = None
+    effective_from: Annotated[datetime, HAS_UTC_INSTANT] | None = None
     source_note: str = Field(min_length=3, max_length=500)
 
     @field_validator("source_note")

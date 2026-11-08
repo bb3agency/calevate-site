@@ -14,12 +14,14 @@ import uuid
 
 import pytest
 from apps.api.admin.routes import DltRegistrationIn
+from apps.api.announcements.schemas import AnnouncementIn
 from apps.api.callbacks.routes import CallbackMoveIn
 from apps.api.core.rbac import iter_api_routes
 from apps.api.core.schemas import MAX_OFFSET, Instant
 from apps.api.crm.one_call import OneCallIn
 from apps.api.crm.swipe import ScheduleCallbackIn
 from apps.api.main import app
+from apps.api.ops.engine_minute_routes import EngineMinutePriceAttestIn
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from tests.api_security_test import _make_tenant
@@ -87,6 +89,11 @@ def test_an_ordinary_instant_still_passes() -> None:
         (CallbackMoveIn, {"at": TOO_FAR}),
         (CallbackMoveIn, {"at": TOO_EARLY}),
         (ScheduleCallbackIn, {"at": TOO_FAR}),
+        (AnnouncementIn, {"message": "Maintenance tonight", "starts_at": TOO_EARLY}),
+        (
+            EngineMinutePriceAttestIn,
+            {"inr_per_min": "2.00", "source_note": "invoice 12", "effective_from": TOO_FAR},
+        ),
         (OneCallIn, {"agent_id": str(uuid.uuid4()), "phone": "+919000000001", "at": TOO_FAR}),
         (
             DltRegistrationIn,
@@ -97,8 +104,16 @@ def test_an_ordinary_instant_still_passes() -> None:
 def test_route_models_refuse_an_out_of_range_time(model: type[BaseModel], body: dict) -> None:
     with pytest.raises(ValidationError) as excinfo:
         model.model_validate(body)
-    time_field = next(k for k in body if k in ("at", "registered_at"))
+    time_field = next(
+        k for k in body if k in ("at", "registered_at", "starts_at", "effective_from")
+    )
     assert [e["loc"][0] for e in excinfo.value.errors()] == [time_field]
+
+
+def test_a_naive_announcement_time_keeps_its_own_wording() -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        AnnouncementIn.model_validate({"message": "Hello", "starts_at": "2026-11-20T10:00:00"})
+    assert "offset" in excinfo.value.errors()[0]["msg"]
 
 
 async def test_moving_a_call_back_to_the_end_of_time_is_a_422_not_a_500() -> None:
