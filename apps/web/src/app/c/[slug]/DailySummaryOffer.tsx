@@ -10,7 +10,7 @@ import { useDailySummary, useSetDailySummary } from "@/lib/api/proof";
  * The daily summary, OFFERED (D-944): one line and one button on the home screen while the
  * owner has not turned it on. Off by default for every account, so nobody gets a message
  * they did not ask for; shown only to the owner, who may switch it, and gone once it is on.
- * Turning it off again is on Notification settings.
+ * Turning it off again is on Settings, Alerts.
  */
 export function DailySummaryOffer({ session }: { session: Session }) {
   const write = useWriteAccess(session, "org:manage", "turn the daily summary on");
@@ -20,7 +20,7 @@ export function DailySummaryOffer({ session }: { session: Session }) {
   const saveFeedback = useActionFeedback(save, {
     errorDisplay: "inline",
     successToast: "Daily summary on",
-    successDescription: "Turn it off in Notification settings.",
+    successDescription: "Turn it off in Settings, Alerts.",
   });
   if (!write.allowed) return null;
   if (state.isError) {
