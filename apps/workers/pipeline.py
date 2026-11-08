@@ -79,6 +79,7 @@ from apps.api.agents import call_outcomes as agent_outcomes
 from apps.api.agents.field_suggestions import queue_on_repeat
 from apps.api.agents.lead_fields import business_type_label
 from apps.api.agents.llm_models import resolve_llm_model
+from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX, unconfirmed_engine_call_id
 from apps.api.agents.turn_checks import claims_done
 from apps.api.agents.voices import voice_tier
 from apps.api.billing.ai_quota import cache_log_fields, new_assist_ref, record_ai_assist_usage
@@ -170,6 +171,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.recording_source import EngineRecordingSource
 from apps.api.engine.thinnest_workspace import in_workspace
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.forwarding.save_number import queue_if_booked
 from apps.api.forwarding.testing import (
     claim_inbound_call,
@@ -200,6 +202,7 @@ from apps.workers.engine_delivery import (
     UNSTATED_STATUS,
     awaiting_transcript,
     execution_truth,
+    placed_call_id,
     post_call_truth,
     seal_listing,
     talked,
@@ -407,13 +410,12 @@ RETRY_BACKOFF_S: tuple[float, ...] = (30.0, 120.0)
 # and `engine_rate_limited` is `kind="transient"`, which the error ladder defines as
 # "identical retry can work".
 #
-# Deliberately NOT here: `engine_rejected`. That is the engine answering, and its answer
-# is a verdict on the request — most often a 404 for an execution it has never heard of
-# (a replayed webhook, a hand-typed id, an execution on another account). Re-fetching it
-# fails identically three times, thirty seconds and two minutes apart, and the only thing
-# the ladder buys is a later terminal alert. The adapter collapses 4xx and 5xx into that
-# one code, so a genuine engine-side 500 is not retried here either; the reconciliation
-# poller (D-31) is what re-drives it, and it is the guarantee of record regardless.
+# Deliberately NOT here: `engine_rejected`. A 4xx is the engine's verdict on the request —
+# most often a 404 for an execution it has never heard of (a replayed webhook, a hand-typed
+# id, an execution on another account) — and re-fetching it fails identically three times.
+# A 5xx under the same code is the engine failing, not refusing, and `_is_transient` reads
+# it off `EngineRejectedError.vendor_status`: left unretried, one 502 on Get Call ended the
+# job with a "permanent" terminal page and the call waited for the poller.
 TRANSIENT_ENGINE_CODES = frozenset({"engine_unreachable", "engine_rate_limited"})
 
 
@@ -425,6 +427,8 @@ def _is_transient(exc: BaseException) -> bool:
     hiccup — and those are blips by nature; a genuine bug retries three times and stops,
     which is a cheap price for not dropping an at-most-once call on a transient fault.
     """
+    if isinstance(exc, EngineRejectedError) and exc.vendor_status >= 500:
+        return True
     if isinstance(exc, ProblemError):
         return exc.kind == "transient" or exc.code in TRANSIENT_ENGINE_CODES
     return True
@@ -614,7 +618,9 @@ async def _ingest_stages(
         return "unmapped"
 
     tenant_id, agent_id = resolved
-    call_id = await _upsert_call(tenant_id, agent_id, snapshot, agent_ref)
+    call_id = await _upsert_call(
+        tenant_id, agent_id, snapshot, agent_ref, placed_as=placed_call_id(engine, snapshot)
+    )
 
     # WHEN THE RECORD IS READY: the engine settles its execution record after disconnect,
     # so terminal is not ready and `billable_ready` is (D-31).
@@ -654,12 +660,22 @@ async def _ingest_stages(
 
 
 async def _upsert_call(
-    tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot, engine_agent_ref: str | None
+    tenant_id: UUID,
+    agent_id: UUID,
+    snapshot: ExecutionSnapshot,
+    engine_agent_ref: str | None,
+    *,
+    placed_as: UUID | None = None,
 ) -> UUID:
     """Idempotent by `engine_call_id`. Status only ever moves forward: a late `ringing`
-    webhook arriving after `completed` must not un-complete a finished call."""
+    webhook arriving after `completed` must not un-complete a finished call.
+
+    `placed_as` is our `calls.id` the engine echoes on a call we placed
+    (`engine_delivery.placed_call_id`)."""
     with span("pipeline.call_upsert", tenant_id=str(tenant_id), agent_id=str(agent_id)) as stage:
-        resolved = await _upsert_call_row(tenant_id, agent_id, snapshot, engine_agent_ref)
+        resolved = await _upsert_call_row(
+            tenant_id, agent_id, snapshot, engine_agent_ref, placed_as=placed_as
+        )
         set_span_attributes(stage, call_id=str(resolved))
     return resolved
 
@@ -690,13 +706,47 @@ _INBOUND_NUMBER_SQL: Final = (
 )
 
 
+#: A dial whose answer we lost (`agents.service.dispatch_call`: a timeout or a 502 after
+#: the vendor placed the call) leaves its intent row under our placeholder id. The engine
+#: echoes our `calls.id` on the call, so the first event about it stamps the vendor's id
+#: onto that row, which the INSERT below then updates. Without it the call got a second,
+#: unlinked row (no lead, no campaign contact, none of the in-call actions
+#: `worker/engine_actions.call_locator` filed under the intent row), and the intent row sat
+#: `queued` for ever, holding an outbound line until `ENGINE_LINE_HORIZON`. Same guard as
+#: `agents.service._confirm_dial`, which races it to the same value.
+_ADOPT_UNCONFIRMED_DIAL_SQL: Final = (
+    "UPDATE calls SET engine_call_id = :ecid, updated_at = now() "
+    "WHERE id = :placed AND direction = 'outbound' AND engine_call_id = :local "
+    "AND NOT EXISTS (SELECT 1 FROM calls o WHERE o.engine_call_id = :ecid)"
+)
+
+
 async def _upsert_call_row(
-    tenant_id: UUID, agent_id: UUID, snapshot: ExecutionSnapshot, engine_agent_ref: str | None
+    tenant_id: UUID,
+    agent_id: UUID,
+    snapshot: ExecutionSnapshot,
+    engine_agent_ref: str | None,
+    *,
+    placed_as: UUID | None = None,
 ) -> UUID:
     direction = snapshot.direction
     call_id = uuid7()
     quality_json = snapshot.quality.model_dump_json() if snapshot.quality else None
     async with tenant_session(tenant_id) as session:
+        if placed_as is not None and direction == "outbound":
+            adopted = await session.execute(
+                text(_ADOPT_UNCONFIRMED_DIAL_SQL),
+                {
+                    "ecid": snapshot.engine_call_id,
+                    "placed": placed_as,
+                    "local": unconfirmed_engine_call_id(placed_as),
+                },
+            )
+            if rowcount_of(adopted):
+                log.warning(
+                    "unconfirmed_dial_adopted",
+                    extra={"call_id": str(placed_as), "execution_id": snapshot.engine_call_id},
+                )
         row = (
             await session.execute(
                 text(
@@ -5740,6 +5790,12 @@ _OUTSTANDING_CALLS_SQL = (
     "  AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) "
     "  AND NOT EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id))) "
     "AND NOT (c.engine_call_id = ANY(CAST(:set_aside AS text[]))) "
+    # A dial the engine never named holds our placeholder, which no engine can answer for:
+    # asked anyway, it was a 404 counted as `outstanding_probe_incomplete` every sweep for a
+    # day. It is adopted when the engine's own record of the call arrives (the listing
+    # carries it, `_ADOPT_UNCONFIRMED_DIAL_SQL`), and its contact is settled by the dial
+    # path and `campaign_dispatch._reap_stuck_dialing`.
+    "AND c.engine_call_id NOT LIKE :unconfirmed "
     "ORDER BY began LIMIT :cap"
 )
 
@@ -5782,6 +5838,7 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
                             "horizon": OUTSTANDING_PROBE_HORIZON,
                             "cap": OUTSTANDING_PROBE_PER_TENANT,
                             "set_aside": excluded,
+                            "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
                         },
                     )
                 ).all()

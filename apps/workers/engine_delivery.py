@@ -80,6 +80,24 @@ class ReadsDeliveries(Protocol):
     def snapshot_from_delivery(self, payload: dict[str, Any]) -> ExecutionSnapshot: ...
 
 
+@runtime_checkable
+class NamesPlacedCalls(Protocol):
+    """An adapter whose call record echoes the id we placed the call under."""
+
+    def placed_reference(self, snapshot: ExecutionSnapshot) -> str | None: ...
+
+
+def placed_call_id(engine: VoiceEngine, snapshot: ExecutionSnapshot) -> UUID | None:
+    """Our `calls.id` for an outbound call the engine says we placed, or None."""
+    if snapshot.direction != "outbound" or not isinstance(engine, NamesPlacedCalls):
+        return None
+    reference = engine.placed_reference(snapshot)
+    try:
+        return UUID(reference) if reference else None
+    except ValueError:
+        return None
+
+
 def _unreadable(detail: str) -> ProblemError:
     return ProblemError(
         kind="validation",
@@ -277,11 +295,13 @@ async def post_call_truth(
 
 __all__ = [
     "UNSTATED_STATUS",
+    "NamesPlacedCalls",
     "ReadsDeliveries",
     "awaiting_transcript",
     "content_final",
     "delivered_document",
     "execution_truth",
+    "placed_call_id",
     "post_call_truth",
     "seal_listing",
     "snapshot_of_document",
