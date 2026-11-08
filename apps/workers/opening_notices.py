@@ -117,8 +117,6 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
                         placed=line.placed,
                         notes=WEAVE_NOTE,
                         notices=value.notices(before=line.line),
-                        # The owner may have put another line live while it was written.
-                        replacing=line.line,
                     )
                 applied += 1
             except ProblemError as refused:

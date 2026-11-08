@@ -410,8 +410,7 @@ def _limits() -> ScriptLimitsOut:
 async def preview_script(
     agent_id: UUID, payload: PreviewIn, session: Session, _: ScriptReader
 ) -> PreviewOut:
-    script = await script_builder.platform_notice_records(session, agent_id, payload.script)
-    return preview_out(await script_builder.compiled_preview(session, agent_id, script))
+    return preview_out(await script_builder.compiled_preview(session, agent_id, payload.script))
 
 
 class ScriptCheckOut(BaseModel):
@@ -454,13 +453,12 @@ async def save_script(
     principal: ScriptWriter,
 ) -> SaveScriptOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
-    script = await script_builder.platform_notice_records(session, agent_id, payload.script)
-    await script_builder.refuse_if_too_long(session, agent_id, script)
+    await script_builder.refuse_if_too_long(session, agent_id, payload.script)
     saved = await script_builder.save_agent_script(
         session,
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
-        script=script,
+        script=payload.script,
         notes=payload.notes,
         created_by=principal.user_id,
         check_version="expected_version" in payload.model_fields_set,
@@ -1481,13 +1479,12 @@ async def save_script_draft(
     agent_id: UUID, payload: SaveDraftIn, session: Session, principal: ScriptWriter
 ) -> DraftSavedOut:
     # Not audited: an autosave per pause in typing is not a decision. Putting it live is.
-    script = await script_builder.platform_notice_records(session, agent_id, payload.script)
     if "base_saved_at" in payload.model_fields_set:
         saved_at = await script_builder.save_draft(
-            session, agent_id, script, base_saved_at=payload.base_saved_at
+            session, agent_id, payload.script, base_saved_at=payload.base_saved_at
         )
     else:
-        saved_at = await script_builder.save_draft(session, agent_id, script)
+        saved_at = await script_builder.save_draft(session, agent_id, payload.script)
     return DraftSavedOut(saved_at=saved_at)
 
 
@@ -1576,13 +1573,12 @@ async def fix_script_lines(
             "The check finds nothing to fix in this script.",
             remediation="Put it live as it is.",
         )
-    sent = await script_builder.platform_notice_records(session, agent_id, payload.script)
     if "base_saved_at" in payload.model_fields_set:
         saved_at = await script_builder.save_draft(
-            session, agent_id, sent, base_saved_at=payload.base_saved_at
+            session, agent_id, payload.script, base_saved_at=payload.base_saved_at
         )
     else:
-        saved_at = await script_builder.save_draft(session, agent_id, sent)
+        saved_at = await script_builder.save_draft(session, agent_id, payload.script)
     change = (
         "Fix only these problems the script check found, and change nothing else: "
         + " ".join(plain(problem) for problem in problems)

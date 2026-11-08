@@ -4591,7 +4591,6 @@ def join_first_words(
     """
     lead = ai_notice.strip()
     rest = notices.strip()
-    dropped_recording = ""
     if not lead or rest.startswith(lead):
         recording = rest.removeprefix(lead).strip()
         if lead and said.says_ai_in(opening):
@@ -4599,7 +4598,7 @@ def join_first_words(
         # Only a remainder that is the recording sentence alone is dropped: one that says it
         # is an AI was not split from `ai_notice` and is kept whole.
         if recording and not says_ai(recording) and said.says_recorded_in(opening):
-            dropped_recording, recording = recording, ""
+            recording = ""
         rest = " ".join(part for part in (lead, recording) if part)
     salutation = introduction_salutation(language)
     introduced = introduces_itself(ai_notice=lead, language=language) and rest.startswith(lead)
@@ -4607,10 +4606,6 @@ def join_first_words(
         return " ".join(part for part in (opening.strip(), rest) if part)
     others = rest.removeprefix(lead).strip()
     line = _without_introduction(without_greeting(opening), names)
-    # The woven recording words may sit in the greeting or a sentence naming the agent, which
-    # this order leaves out: then the stored sentence is said after all.
-    if dropped_recording and not said.says_recorded_in(line):
-        others = " ".join(part for part in (others, dropped_recording) if part)
     return " ".join(part for part in (salutation, lead, line, others) if part)
 
 

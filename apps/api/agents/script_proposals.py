@@ -181,10 +181,7 @@ async def read_proposal(session: AsyncSession, agent_id: UUID) -> ScriptProposal
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
-    # A `cleared` entry is only the records a kept proposal leaves behind (`discard`).
-    if not row[0] or row[0].get("status") == "cleared":
-        return None
-    return _parse(row[0], now=datetime.now(UTC))
+    return _parse(row[0], now=datetime.now(UTC)) if row[0] else None
 
 
 async def working_script(session: AsyncSession, agent_id: UUID) -> CallScript:
@@ -592,26 +589,13 @@ async def agent_own_fields(session: AsyncSession, agent_id: UUID) -> list[dict[s
 
 async def discard(session: AsyncSession, *, agent_id: UUID, proposal_id: UUID) -> bool:
     """Clear this proposal (kept into the draft, or not wanted). False when it is no longer
-    the agent's pending one, which is the same outcome to the person: it is gone.
-
-    The notice writer's records in its script stay behind as a `cleared` entry, which
-    `read_proposal` never returns: the Script tab clears a proposal before its kept parts
-    reach the draft, and `script_builder.platform_notice_records` accepts a record in a
-    saved draft only when the platform wrote it."""
+    the agent's pending one, which is the same outcome to the person: it is gone."""
     await script_builder.assert_agent_visible(session, agent_id)
     cleared = (
         await session.execute(
             text(
-                "UPDATE agents SET script_proposal = CASE "
-                "WHEN jsonb_typeof(script_proposal -> 'script') = 'object' THEN "
-                "jsonb_build_object('id', script_proposal -> 'id', 'status', 'cleared', "
-                "'script', jsonb_strip_nulls(jsonb_build_object("
-                "'opening_notices', script_proposal -> 'script' -> 'opening_notices', "
-                "'outbound_opening_notices', "
-                "script_proposal -> 'script' -> 'outbound_opening_notices'))) "
-                "ELSE NULL END "
-                "WHERE id = :aid AND script_proposal->>'id' = :pid "
-                "AND script_proposal->>'status' IS DISTINCT FROM 'cleared' RETURNING id"
+                "UPDATE agents SET script_proposal = NULL "
+                "WHERE id = :aid AND script_proposal->>'id' = :pid RETURNING id"
             ),
             {"aid": agent_id, "pid": str(proposal_id)},
         )

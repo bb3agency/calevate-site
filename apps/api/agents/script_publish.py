@@ -72,8 +72,6 @@ async def put_draft_live(
             if draft_saved_at is not None and draft.saved_at != draft_saved_at:
                 raise draft_moved()
             script = draft.script
-        # Either way, a notice record only the platform wrote reaches the call (hard rule 5).
-        script = await script_builder.platform_notice_records(session, agent_id, script)
         # Before the version is stored or anything reaches the calling system: a script that
         # cannot fit is refused here with its length, and the draft is kept.
         await script_builder.refuse_if_too_long(session, agent_id, script)

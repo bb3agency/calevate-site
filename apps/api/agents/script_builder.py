@@ -32,7 +32,6 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.call_script import (
-    NOTICE_RECORDS,
     CallScript,
     Capabilities,
     CollectField,
@@ -51,7 +50,6 @@ from calevate_shared.engine import (
     notice_fields,
 )
 from calevate_shared.opening_notices import OpeningNotices, said_in
-from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -694,50 +692,6 @@ async def clear_draft(session: AsyncSession, agent_id: UUID) -> None:
     )
 
 
-#: Every record of the notice writer this agent holds: its saved and live versions, its
-#: draft, and Pip's suggestion (pending, or just kept into the draft: `script_proposals.
-#: discard` leaves the records behind for this reason).
-_PLATFORM_RECORDS_SQL: Final = (
-    "SELECT pv.structured_script FROM agents a JOIN prompt_versions pv "
-    "ON pv.id IN (a.system_prompt_id, a.live_prompt_id) WHERE a.id = :aid "
-    "UNION ALL SELECT script_draft FROM agents WHERE id = :aid "
-    "UNION ALL SELECT script_proposal -> 'script' FROM agents WHERE id = :aid"
-)
-
-
-async def platform_notice_records(
-    session: AsyncSession, agent_id: UUID, script: CallScript
-) -> CallScript:
-    """`script` with each opening's notice record (D-971) kept only when the platform wrote
-    that exact record; any other is reset, so the stored sentence is said beside the line.
-
-    A record names the words of the line that say each notice, and those words drop the
-    stored sentence from the first words, so a record a client sent could withdraw a notice
-    that is switched on (hard rule 5). Checking the words themselves would be a word match,
-    which A-03 removed; checking where the record came from is not. Every client door that
-    takes a whole script (save, autosave, fix, put live) passes it through here."""
-    sent = {name: getattr(script, name) for name in NOTICE_RECORDS}
-    if all(record == OpeningNotices() for record in sent.values()):
-        return script
-    known: dict[str, list[OpeningNotices]] = {name: [] for name in NOTICE_RECORDS}
-    for stored in (await session.execute(text(_PLATFORM_RECORDS_SQL), {"aid": agent_id})).scalars():
-        if not isinstance(stored, dict):
-            continue
-        for name in NOTICE_RECORDS:
-            raw = stored.get(name)
-            if isinstance(raw, dict):
-                try:
-                    known[name].append(OpeningNotices.model_validate(raw))
-                except ValidationError:
-                    continue
-    reset = {
-        name: OpeningNotices()
-        for name, record in sent.items()
-        if record != OpeningNotices() and record not in known[name]
-    }
-    return script.model_copy(update=reset) if reset else script
-
-
 @dataclass(frozen=True, slots=True)
 class VersionEntry:
     version: int
@@ -824,13 +778,8 @@ async def replace_opening_line(
     placed: bool = False,
     notes: str | None = None,
     notices: OpeningNotices | None = None,
-    replacing: str | None = None,
 ) -> ReplacedOpening:
     """Put a new opening line into the script callers hear and keep the rest of it (D-846).
-
-    `replacing`: the line this one was written to replace. A writer that read the script
-    earlier passes it, and is refused with `opening_line_moved` when the line is no longer
-    that one, so a rewrite of an old line never lands over one the owner put live since.
 
     `placed` replaces the opening a "both" agent says on the calls it places (D-920) instead
     of the one it answers with, under the same rules.
@@ -905,12 +854,6 @@ async def replace_opening_line(
     record_field = "outbound_opening_notices" if placed else "opening_notices"
     script = CallScript.model_validate(row.structured_script)
     old_line = str(getattr(script, field)).strip()
-    if replacing is not None and old_line.split() != replacing.split():
-        raise ProblemError.conflict(
-            "opening_line_moved",
-            "The opening line was changed while this one was being written.",
-            remediation="Open the Script tab to see the opening line callers hear now.",
-        )
     update = {field: line, record_field: record}
     version = await rewrite_script(
         session,
@@ -975,7 +918,6 @@ async def put_back_opening_line(
         placed=placed,
         notes=PUT_BACK_NOTE,
         notices=OpeningNotices(kept_own=before),
-        replacing=line,
     )
 
 
@@ -996,7 +938,6 @@ __all__ = [
     "compiled_preview",
     "list_versions",
     "load_agent_script",
-    "platform_notice_records",
     "put_back_opening_line",
     "read_draft",
     "recompile_collect",
