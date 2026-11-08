@@ -135,7 +135,7 @@ from apps.workers.script_assist import (
     draft_script,
 )
 from apps.workers.speech_to_text import meter_clip, transcribe
-from apps.workers.storage import delete_objects, read_kb_object
+from apps.workers.storage import StorageUnavailableError, delete_objects, read_kb_object
 
 log = get_logger(__name__)
 
@@ -221,16 +221,34 @@ QUESTIONS_INSTRUCTION: Final = (
 # --------------------------------------------------------------------------- hear
 
 
-async def _recording_failed(tenant_id: UUID, recording_id: UUID, code: str) -> None:
+async def _recording_failed(
+    tenant_id: UUID, recording_id: UUID, code: str, *, audio_gone: bool = True
+) -> None:
+    """Mark the clip failed. The key is cleared only once its audio is gone: a cleared key
+    to a surviving object is an orphan nothing reaches again, while a kept one is still
+    found by the account erasure's sweep of the upload folder."""
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE first_run_recordings SET status = 'failed', error_code = :code, "
-                "object_key = NULL, updated_at = now() "
+                "object_key = CASE WHEN :gone THEN NULL ELSE object_key END, "
+                "updated_at = now() "
                 "WHERE id = :id AND status = 'hearing'"
             ),
-            {"id": recording_id, "code": code},
+            {"id": recording_id, "code": code, "gone": audio_gone},
         )
+
+
+async def _discard_audio(key: object) -> bool:
+    """Delete one clip's audio; False when the object store would not."""
+    if not key:
+        return True
+    try:
+        await delete_objects([str(key)])
+    except StorageUnavailableError as failure:
+        log.warning("first_run_audio_delete_deferred", extra={"error": type(failure).__name__})
+        return False
+    return True
 
 
 async def hear_first_run_recording(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -257,15 +275,20 @@ async def hear_first_run_recording(ctx: dict[str, Any], payload: dict[str, Any])
         if data is None:
             await _recording_failed(tenant_id, recording_id, "upload_missing")
             return "failed"
+        heard: str | None = None
         try:
-            words = await transcribe(data, str(content_type or ""), language=str(language))
+            heard = await transcribe(data, str(content_type or ""), language=str(language))
         except (httpx.HTTPError, RuntimeError, ValueError) as failure:
             log.warning("first_run_stt_failed", extra={"error": type(failure).__name__})
+        finally:
+            # The audio has done its job either way; only the words are kept. Deleted before
+            # the row is marked, so a delete that fails reaches the crash path below while
+            # the row still names the object.
+            await delete_objects([str(key)])
+        if heard is None:
             await _recording_failed(tenant_id, recording_id, "voice_unreadable")
             return "failed"
-        finally:
-            # The audio has done its job either way; only the words are kept.
-            await delete_objects([str(key)])
+        words = heard
         await meter_clip(tenant_id, feature=ASSIST_FEATURE_FIRST_RUN_VOICE)
         words = " ".join(words.split())[:MAX_RECORDING_WORDS]
         if not words:
@@ -282,7 +305,10 @@ async def hear_first_run_recording(ctx: dict[str, Any], payload: dict[str, Any])
             )
     except Exception:
         log.exception("first_run_hear_crashed", extra={"recording_id": str(recording_id)})
-        await _recording_failed(tenant_id, recording_id, "crashed")
+        # The crash may have come before the audio was deleted, or from the delete itself.
+        await _recording_failed(
+            tenant_id, recording_id, "crashed", audio_gone=await _discard_audio(key)
+        )
         return "failed"
     return "heard"
 

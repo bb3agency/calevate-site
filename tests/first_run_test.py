@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, Final
 
+import httpx
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle
@@ -655,6 +656,81 @@ async def test_a_recording_is_heard_and_its_audio_deleted(
                 {"id": recording_id},
             )
         ).scalar_one() is None
+
+
+async def _posted_clip(tenant_id: uuid.UUID) -> tuple[str, str]:
+    """(recording id, object key) of one clip posted by the owner."""
+    headers = await _owner(tenant_id)
+    async with _client() as http:
+        posted = await http.post(
+            "/v1/first-run/recordings",
+            headers=headers,
+            files={"file": ("brief.webm", b"opus-bytes", "audio/webm")},
+            data={"language": "te-IN"},
+        )
+    assert posted.status_code == 201, posted.text
+    recording_id = posted.json()["id"]
+    async with tenant_session(tenant_id) as session:
+        key = (
+            await session.execute(
+                text("SELECT object_key FROM first_run_recordings WHERE id = :id"),
+                {"id": recording_id},
+            )
+        ).scalar_one()
+    return recording_id, str(key)
+
+
+async def test_a_clip_whose_audio_could_not_be_deleted_keeps_its_key(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """The store went down between hearing and deleting. Clearing the key would leave the
+    owner's voice in the bucket with nothing pointing at it."""
+    tenant_id = await _tenant()
+    recording_id, key = await _posted_clip(tenant_id)
+
+    async def unheard(_data: bytes, _ctype: str, *, language: str | None = None) -> str:
+        s3.fail = True
+        raise httpx.ConnectError("stt down")
+
+    monkeypatch.setattr(worker, "transcribe", unheard)
+    result = await worker.hear_first_run_recording(
+        {}, {"tenant_id": str(tenant_id), "recording_id": recording_id}
+    )
+
+    assert result == "failed"
+    assert key in s3.objects
+    async with tenant_session(tenant_id) as session:
+        status, kept = (
+            await session.execute(
+                text("SELECT status, object_key FROM first_run_recordings WHERE id = :id"),
+                {"id": recording_id},
+            )
+        ).one()
+    assert status == "failed" and kept == key
+
+
+async def test_the_account_erasure_deletes_brief_clips_with_no_knowledge_uploads(
+    s3: FakeS3,
+) -> None:
+    """The clips sit under the knowledge-upload folder with no `kb_uploads` row."""
+    from apps.api.compliance import tenant_erasure
+    from apps.workers.retention import execute_tenant_erasure
+
+    tenant_id = await _tenant()
+    _recording_id, key = await _posted_clip(tenant_id)
+    assert key in s3.objects
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET status = 'churned' WHERE id = :tid"),
+            {"tid": tenant_id},
+        )
+        record = await tenant_erasure.request_tenant_erasure(
+            session, tenant_id=tenant_id, reason="offboarding"
+        )
+
+    await execute_tenant_erasure({}, {"tenant_id": str(tenant_id), "request_id": str(record.id)})
+
+    assert key not in s3.objects
 
 
 async def test_a_fourth_recording_is_refused(s3: FakeS3) -> None:

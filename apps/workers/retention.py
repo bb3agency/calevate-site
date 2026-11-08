@@ -2633,6 +2633,46 @@ async def _erase_team_alert_reasons(session: AsyncSession, *, call_ids: Sequence
         await session.execute(text(_TEAM_ALERT_ERASE_SQL), {"ids": list(call_ids)})
 
 
+#: Pip's activity log names the lead or call it acted on in `object_id`, and its sentence,
+#: arguments and Undo states can carry that person's name ("Change this lead's name to
+#: ..."). Redaction on write removes digits, not names, so the ids are the predicate. A
+#: waiting approval is expired with its arguments, so it can no longer run, and the Undo
+#: states go so an Undo cannot write an erased name back.
+_COPILOT_ACTION_ERASE_SQL = """
+UPDATE copilot_actions SET
+    summary = CASE WHEN summary IS NULL THEN NULL ELSE :mark END,
+    args_redacted = CASE WHEN args_redacted IS NULL THEN NULL ELSE '{}'::jsonb END,
+    prior_state = NULL,
+    result_state = NULL,
+    pending_args = NULL,
+    undoable_until = NULL,
+    decided_at = CASE WHEN status = 'pending_approval' THEN now() ELSE decided_at END,
+    status = CASE WHEN status = 'pending_approval' THEN 'expired' ELSE status END,
+    updated_at = now()
+WHERE ((object_type = 'lead' AND object_id = ANY(:leads))
+       OR (object_type = 'call' AND object_id = ANY(:calls)))
+  AND (summary IS DISTINCT FROM :mark OR prior_state IS NOT NULL OR result_state IS NOT NULL
+       OR pending_args IS NOT NULL OR args_redacted <> '{}'::jsonb)
+"""
+
+
+async def _erase_copilot_actions(
+    session: AsyncSession, *, lead_ids: Sequence[UUID], call_ids: Sequence[UUID]
+) -> int:
+    """Empty Pip's activity rows about these leads and calls. Returns the row count."""
+    if not lead_ids and not call_ids:
+        return 0
+    result = await session.execute(
+        text(_COPILOT_ACTION_ERASE_SQL),
+        {
+            "mark": REDACTED_MARK,
+            "leads": [str(lead) for lead in lead_ids],
+            "calls": [str(call) for call in call_ids],
+        },
+    )
+    return int(rowcount_of(result) or 0)
+
+
 async def _erase_handoff_briefs(session: AsyncSession, *, call_ids: Sequence[UUID]) -> int:
     """Clear the model's account of what these calls were about. Returns the row count.
 
@@ -3009,6 +3049,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 text("DELETE FROM lead_call_holds WHERE lead_id = ANY(:ids)"),
                 {"ids": list(leads)},
             )
+
+        # What Pip did about this person's leads and calls, by their ids (the log holds a
+        # name where a number was redacted away).
+        await _erase_copilot_actions(
+            session, lead_ids=[*{*leads, *linked_leads}], call_ids=list(calls)
+        )
 
         # KEYED ON THE NUMBER, not on `calls` or `leads`, and that is the point. A
         # campaign contact this person is on may have been uploaded and never dialled, so
@@ -3697,8 +3743,12 @@ async def _erase_tenant_leads(session: AsyncSession, *, tenant_id: UUID) -> tupl
 
 #: Does this account hold anything under the knowledge-upload prefix? Scoped by RLS like
 #: every other read here — the question is about THIS tenant, and `LIMIT 1` because the
-#: answer is only ever "is it worth a list call".
-_HAS_KB_UPLOAD_SQL: Final = "SELECT 1 FROM kb_uploads LIMIT 1"
+#: answer is only ever "is it worth a list call". The first run's spoken brief is stored
+#: under the same prefix (`first_run/routes.py`, `kb_object_key`) with no `kb_uploads` row,
+#: so its table answers too; it is read before that table's rows are deleted below.
+_HAS_KB_UPLOAD_SQL: Final = (
+    "SELECT 1 FROM kb_uploads UNION ALL SELECT 1 FROM first_run_recordings LIMIT 1"
+)
 
 #: The same question for the carrier compliance paperwork.
 _HAS_CARRIER_DOCUMENT_SQL: Final = "SELECT 1 FROM carrier_compliance_applications LIMIT 1"
@@ -3904,6 +3954,7 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # The first run (D-855): the owner's brief and the words heard from its recordings
         # (the audio was deleted when heard; any left sits under the account's upload prefix
         # swept below).
+        holds_kb_objects = (await session.execute(text(_HAS_KB_UPLOAD_SQL))).first() is not None
         await session.execute(text("DELETE FROM first_run_recordings"))
         await session.execute(text("DELETE FROM first_runs"))
         # The go-live guide and the agents' move records (D-859): ids and our codes only,
@@ -3944,7 +3995,7 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # them through a loop variable, which the guard also cannot trace to a literal — and
         # a guard that cannot trace the text is a guard that has stopped working. Two
         # spelled-out pairs are duller and are the only version either of us can verify.
-        if (await session.execute(text(_HAS_KB_UPLOAD_SQL))).first() is not None:
+        if holds_kb_objects:
             uploaded = await storage.keys_under(storage.kb_tenant_prefix(tenant_id=tenant_id))
             if uploaded:
                 await storage.delete_objects(uploaded)
