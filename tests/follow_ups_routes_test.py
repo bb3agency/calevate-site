@@ -322,3 +322,51 @@ async def test_every_write_is_audited() -> None:
             ).scalars()
         )
     assert {"follow_up.created", "follow_up.published", "follow_up.paused"} <= actions
+
+
+async def test_two_saves_of_call_new_leads_at_once_make_one_and_neither_is_a_500(
+    monkeypatch: Any,
+) -> None:
+    """A double tap on the starter: both requests pass the "already has one" check together.
+    One Follow-up is made and the other is told it exists, never
+    `uq_follow_ups_call_new_leads`."""
+    import asyncio
+
+    from apps.api.core.errors import ProblemError
+    from apps.api.follow_ups import definition as d
+    from apps.api.follow_ups import service
+
+    t = await _tenant()
+    barrier = asyncio.Barrier(2)
+    checked = service._exists
+
+    async def both_at_once(session: Any, sql: str, params: dict[str, Any]) -> bool:
+        found = await checked(session, sql, params)
+        await asyncio.wait_for(barrier.wait(), timeout=10)
+        return found
+
+    monkeypatch.setattr(service, "_exists", both_at_once)
+
+    async def save() -> Any:
+        async with tenant_session(t.tenant_id) as session:
+            return await service.create(
+                session,
+                tenant_id=t.tenant_id,
+                name="Call new leads",
+                trigger=d.NewLeadTrigger(kind="new_lead"),
+                steps=d.load_steps(STEPS),
+                settings=None,
+                starter="call_new_leads",
+                user_id=None,
+            )
+
+    results = await asyncio.gather(save(), save(), return_exceptions=True)
+    refused = [r for r in results if isinstance(r, ProblemError)]
+    assert [r.code for r in refused] == ["follow_up_starter_exists"], results
+    async with tenant_session(t.tenant_id) as session:
+        count = (
+            await session.execute(
+                text("SELECT count(*) FROM follow_ups WHERE starter = 'call_new_leads'")
+            )
+        ).scalar_one()
+    assert count == 1
