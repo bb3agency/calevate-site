@@ -10,6 +10,7 @@ import { AgentsScreen } from "@/app/admin/tenants/[tenantId]/agents/AgentsScreen
 import TenantLayout from "@/app/admin/tenants/[tenantId]/layout";
 import { MarginPanel } from "@/app/admin/tenants/[tenantId]/MarginPanel";
 import { LotOrigin } from "@/app/admin/tenants/[tenantId]/credits/lots";
+import { KnowledgeQueue } from "@/app/admin/tenants/[tenantId]/KnowledgeQueue";
 import { KycReviewPanel } from "@/app/admin/tenants/[tenantId]/kyc/KycReviewPanel";
 import type { AdminKyc } from "@/lib/api/kycReview";
 import { planLabel, useRevokeTenantInvitation, type Margin, type TenantSummary } from "@/lib/api/admin";
@@ -249,5 +250,27 @@ describe("a credit lot's origin line", () => {
     );
     expect(container.textContent).toContain("from a top-up");
     expect(container.textContent).not.toMatch(/· topup/);
+  });
+});
+
+describe("the knowledge approval queue", () => {
+  it("names what kind of source each one is", async () => {
+    renderAdminPage(<KnowledgeQueue tenantId={TENANT} slug={SLUG} />, {
+      [ADMIN_ME_PATH]: ME,
+      "/v1/kb/sources?status=pending_approval": [
+        {
+          id: "0192f0aa-9999-7000-8000-0000000000b1",
+          name: "Price page",
+          kind: "url",
+          status: "pending_approval",
+          version: 1,
+          chunks: 4,
+          is_active: false,
+          published_at: null,
+        },
+      ],
+      "/v1/kb/sources?status=approved": [],
+    });
+    expect(await screen.findByText("4 chunks · Link")).toBeTruthy();
   });
 });

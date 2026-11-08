@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { lookup } from "@/lib/lookup";
+
 import { HAIRLINE_LIST } from "@/components/admin/kit";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
@@ -39,6 +41,14 @@ import {
 export function unpublishedSources(sources: readonly KbSource[]): KbSource[] {
   return sources.filter((source) => !source.is_active);
 }
+
+/** `kb_sources.kind` as an operator reads it; an unknown kind is shown as itself. */
+const SOURCE_KIND: Readonly<Record<string, string>> = {
+  file: "File",
+  url: "Link",
+  text: "Typed",
+  call_corpus: "From calls",
+};
 
 export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: string }) {
   const queue = useTenantKbQueue(slug);
@@ -100,7 +110,7 @@ export function KnowledgeQueue({ tenantId, slug }: { tenantId: string; slug: str
                         {source.name} <span className="text-meta font-normal text-ink-muted">v{source.version}</span>
                       </p>
                       <p className="text-meta text-ink-muted">
-                        {source.chunks} chunks · {source.kind}
+                        {source.chunks} chunks · {lookup(SOURCE_KIND, source.kind) ?? source.kind}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
