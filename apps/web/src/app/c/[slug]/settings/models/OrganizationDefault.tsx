@@ -4,7 +4,8 @@ import Link from "next/link";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ModelTierSetting } from "@/components/modelTierSetting";
-import { Disclosure, NoticeBox } from "@/components/ui";
+import { Disclosure, NoticeBox, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   platformDefaultTier,
@@ -74,7 +75,13 @@ export function OrganizationDefault({
         notice={
           defaults.effective_is_available ? undefined : (
             <NoticeBox tone="warn" title={`${defaults.effective_tier_label} is not on yet`}>
-              Calls use our standard model. Ask us to turn it on.
+              <p>Calls use our standard model. Ask us to turn it on.</p>
+              <a
+                className={`${SECONDARY_BUTTON_SM} mt-2`}
+                href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent(`Turn on ${defaults.effective_tier_label}`)}`}
+              >
+                Contact us
+              </a>
             </NoticeBox>
           )
         }
