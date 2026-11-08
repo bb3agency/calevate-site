@@ -32,6 +32,7 @@
  */
 
 import type { IngestActivityItem } from "@/lib/api/leadSources";
+import { lookup } from "@/lib/lookup";
 
 export function deliveryRowKeys(
   items: readonly IngestActivityItem[],
@@ -43,4 +44,33 @@ export function deliveryRowKeys(
     seen.set(identity, nth + 1);
     return [item, nth === 0 ? identity : `${identity}#${nth}`];
   });
+}
+
+/**
+ * The delivery log's reason, in the owner's words. The server sends the CODE it recorded
+ * on the inbox row (`apps/api/ingest/meta.py`, `graph.py`, `routes.py`, and the verdicts
+ * `ingest/service.ingest_lead` raises); a code on a client screen is internal speak, so a
+ * code with no sentence here gets the general one rather than its own spelling.
+ */
+const DELIVERY_PROBLEM: Record<string, string> = {
+  ingest_no_phone: "No phone number came with this lead, so there was no one to call.",
+  ingest_no_agent: "No agent is set to call leads from this source.",
+  agent_not_published: "The agent for this source is not live yet.",
+  push_not_a_lead: "This did not look like a lead, so nothing was saved.",
+  meta_lead_retrieval_unavailable: "We could not read this lead yet. Finish Meta setup to fetch it.",
+  meta_page_token_not_configured: "We could not read this lead yet. Finish Meta setup to fetch it.",
+  meta_page_token_invalid: "Your Meta connection stopped working. Connect your Page again in Meta setup.",
+  meta_leads_retrieval_denied: "Meta did not let us read this lead. Check your Page's lead access in Meta setup.",
+  meta_lead_not_readable: "Meta would not give us this lead. It may have been deleted.",
+  meta_lead_had_no_answers: "This lead came with no answers, so there was no one to call.",
+  meta_graph_malformed_response: "Meta sent this lead in a form we could not read.",
+  meta_rate_limited: "Meta was busy. It will send this lead again.",
+  meta_graph_unavailable: "Meta was busy. It will send this lead again.",
+  meta_graph_unreachable: "Meta did not answer. It will send this lead again.",
+  meta_lead_interrupted: "This lead was interrupted. Meta will send it again.",
+};
+
+export function deliveryProblem(code: string | null | undefined): string | null {
+  if (!code) return null;
+  return lookup(DELIVERY_PROBLEM, code) ?? "We could not use this lead.";
 }

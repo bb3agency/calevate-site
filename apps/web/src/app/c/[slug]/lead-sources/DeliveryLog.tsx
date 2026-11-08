@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { Section } from "@/components/console/section";
 import { ProblemNotice, Skeleton, formatCount, formatIST } from "@/components/ui";
 import type { IngestActivityItem, useIngestActivity } from "@/lib/api/leadSources";
-import { deliveryRowKeys } from "@/lib/leadSourceRows";
+import { deliveryProblem, deliveryRowKeys } from "@/lib/leadSourceRows";
 import { lookup } from "@/lib/lookup";
 
 import { sourceLabel } from "./sourceKinds";
@@ -63,7 +63,7 @@ export function DeliveryLog({ activity }: { activity: ReturnType<typeof useInges
           >
             {item.outcome}
           </StatusPill>
-          {item.error && <p className="text-meta text-danger">{item.error}</p>}
+          {item.error && <p className="text-meta text-danger">{deliveryProblem(item.error)}</p>}
           {/* SERVER-derived: only the server knows which reasons the re-drive acts on. */}
           {item.recoverable && (
             <p className="flex items-center gap-1 text-meta text-ink-muted">

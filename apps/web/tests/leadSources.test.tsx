@@ -36,6 +36,8 @@ import { problem, renderClientPage, stillLoading } from "./harness";
  */
 
 const ACTIVITY_PATH = "/v1/lead-sources/activity";
+/** `ingest_no_phone` as the owner reads it (`leadSourceRows.deliveryProblem`). */
+const NO_PHONE_SENTENCE = "No phone number came with this lead, so there was no one to call.";
 const SOURCES_PATH = "/v1/lead-sources";
 const AGENTS_PATH = "/v1/agents";
 /** One path, two verbs: the list is a GET and creation is a POST. */
@@ -208,16 +210,32 @@ describe("the delivery log", () => {
     const { container } = await renderPage({
       [ACTIVITY_PATH]: {
         items: [
-          delivery({ outcome: "rejected", error: "no dialable phone number" }),
+          delivery({ outcome: "rejected", error: "ingest_no_phone" }),
           delivery({ source: "meta_lead_ads", deduplicated: 15 }),
         ],
       },
     });
 
-    await screen.findByText("no dialable phone number");
+    await screen.findByText(NO_PHONE_SENTENCE);
     expect(container.textContent).toContain("rejected");
     // The dedupe column is the answer to "you got fifteen requests, why one call?".
     expect(retriesCell("Meta Lead Ads (Facebook / Instagram)")).toBe("15");
+  });
+
+  it("names a rejection in words, never by the code the server recorded", async () => {
+    const { container } = await renderPage({
+      [ACTIVITY_PATH]: {
+        items: [
+          delivery({ outcome: "rejected", error: "meta_page_token_invalid" }),
+          delivery({ outcome: "rejected", error: "some_code_added_later" }),
+        ],
+      },
+    });
+
+    await screen.findByText(/Your Meta connection stopped working/);
+    await screen.findByText("We could not use this lead.");
+    expect(container.textContent).not.toContain("meta_page_token_invalid");
+    expect(container.textContent).not.toContain("some_code_added_later");
   });
 
   it("renders zero absorbed retries as a dash, not as a zero", async () => {
@@ -258,14 +276,14 @@ describe("the delivery log", () => {
             // keyspaces produce — differing only in what the row is for.
             delivery({
               outcome: "rejected",
-              error: "no dialable phone number",
+              error: "ingest_no_phone",
             }),
             delivery({ deduplicated: 15 }),
           ],
         },
       });
 
-      await screen.findByText("no dialable phone number");
+      await screen.findByText(NO_PHONE_SENTENCE);
       const log = screen.getByRole("table", { name: "Ingest activity" });
       expect(log.querySelectorAll("tbody tr").length).toBe(2);
       expect(container.textContent).toContain("15");
