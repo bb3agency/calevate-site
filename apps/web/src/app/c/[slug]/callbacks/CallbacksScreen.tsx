@@ -247,6 +247,21 @@ export function CallbacksScreen() {
             {formatIST(row.requested_at)}
             <DueMark row={row} />
           </p>
+          {/* Who it is for, and the call it placed (its latest attempt), when there are. */}
+          {row.lead_id || row.last_call_id ? (
+            <p className="mt-0.5 flex flex-wrap gap-x-3 text-meta">
+              {row.lead_id ? (
+                <Link href={href(`/c/${session.orgSlug}/leads/${row.lead_id}`)} className={TEXT_ACTION_SM}>
+                  Open lead
+                </Link>
+              ) : null}
+              {row.last_call_id ? (
+                <Link href={href(`/c/${session.orgSlug}/calls/${row.last_call_id}`)} className={TEXT_ACTION_SM}>
+                  Open call
+                </Link>
+              ) : null}
+            </p>
+          ) : null}
         </div>
       ),
     },
