@@ -23,6 +23,7 @@ import {
 import { agentKeys } from "./agents";
 import { callHandlingKeys, callerHelpKeys } from "./callHandling";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import { publishingKeys } from "./publishing";
 import type { components } from "./schema";
 
@@ -47,7 +48,7 @@ export function useCallerHelp(
     queryKey: callerHelpKeys.agent(session.orgSlug, agentId),
     queryFn: () => apiRequest<CallerHelp>(session, `/v1/agents/${agentId}/caller-help`),
     enabled: enabled && Boolean(agentId),
-    refetchInterval: (q) => (judging(q.state.data) ? JUDGING_POLL_MS : false),
+    refetchInterval: untilRefused((q) => (judging(q.state.data) ? JUDGING_POLL_MS : false)),
   });
 }
 

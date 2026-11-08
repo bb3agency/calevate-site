@@ -12,6 +12,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -51,7 +52,7 @@ export function useGoLive(session: Session, enabled = true): UseQueryResult<GoLi
     queryKey: goLiveKey(session.orgSlug),
     queryFn: () => apiRequest<GoLive>(session, GO_LIVE_PATH),
     enabled,
-    refetchInterval: (query) => pollMs(query.state.data),
+    refetchInterval: untilRefused((query) => pollMs(query.state.data)),
   });
 }
 

@@ -44,6 +44,7 @@ import {
   type Me,
   type Session,
 } from "./client";
+import { untilRefused } from "./queryRetry";
 
 /** The post-call SLO is "lead visible within 2 minutes"; 20s leaves plenty of room. */
 const LIVE_INTERVAL_MS = 20_000;
@@ -386,11 +387,11 @@ export function useCall(
     // The summary is bounded by age, so one that was never written is not re-read forever.
     // English asked for later is not (`englishOnItsWay`): its `pending` always ends, as
     // `workers/call_translation` settles it `failed` on give-up.
-    refetchInterval: (q) =>
+    refetchInterval: untilRefused((q) =>
       englishOnItsWay(q.state.data) ||
       (callStillFillingIn(q.state.data) && recentCall(q.state.data))
         ? LIVE_INTERVAL_MS
-        : false,
+        : false),
   });
 }
 

@@ -1,5 +1,10 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
+import { relPosix } from "./repoPaths";
 import { ApiProblem } from "@/lib/api/client";
 import { queryRetryDelay, shouldRetryQuery, untilRefused } from "@/lib/api/queryRetry";
 import { livePoll } from "@/lib/live/liveStatus";
@@ -50,5 +55,52 @@ describe("a poll stops once its read is refused for good", () => {
   it("a live feed stops on a refusal too", () => {
     expect(livePoll<unknown>(20_000)(refused(notFound))).toBe(false);
     expect(livePoll<unknown>(20_000)({ state: { status: "success" } })).toBe(20_000);
+  });
+});
+
+describe("every poll in the app stops once its read is refused for good", () => {
+  // A `refetchInterval` keeps firing through errors while the cache keeps the last good
+  // answer, so a status poll ("drafting", "running", "pending") whose resource was deleted
+  // in another tab, or that this seat may no longer read, asked every few seconds for as
+  // long as the page stayed open. One wrapper for all of them, held here by source.
+  const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src");
+
+  function sources(dir: string, out: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name);
+      if (statSync(path).isDirectory()) sources(path, out);
+      else if (/\.tsx?$/.test(name) && !name.endsWith(".d.ts")) out.push(path);
+    }
+    return out;
+  }
+
+  it("wraps every refetchInterval in untilRefused or livePoll", () => {
+    const polls: string[] = [];
+    const bare: string[] = [];
+    for (const file of sources(SRC)) {
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, index) => {
+          const code = line.trimStart();
+          if (!code.startsWith("refetchInterval:")) return;
+          const where = `${relPosix(SRC, file)}:${index + 1}`;
+          polls.push(where);
+          if (!/^refetchInterval:\s*(untilRefused|livePoll)\(/.test(code)) bare.push(where);
+        });
+    }
+    expect(polls.length).toBeGreaterThan(40);
+    expect(bare).toEqual([]);
+  });
+
+  it("a status poll stops on a 404 while the cache still says the job is running", () => {
+    const poll = untilRefused<{ state: { status: string; error?: unknown; data?: { status: string } } }>(
+      (q) => (q.state.data?.status === "drafting" ? 3_000 : false),
+    );
+    expect(poll({ state: { status: "success", data: { status: "drafting" } } })).toBe(3_000);
+    expect(
+      poll({
+        state: { status: "error", error: new ApiProblem(404, { retryable: false }), data: { status: "drafting" } },
+      }),
+    ).toBe(false);
   });
 });

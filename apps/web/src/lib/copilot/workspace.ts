@@ -13,6 +13,7 @@ import { livePoll } from "@/lib/live/liveStatus";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "@/lib/api/client";
+import { untilRefused } from "@/lib/api/queryRetry";
 import { withAccountCode } from "@/lib/api/accountCode";
 import { confirmActionFor, refreshAfterConfirm } from "@/lib/api/copilot";
 import type { components } from "@/lib/api/schema";
@@ -161,10 +162,10 @@ export function useCopilotJobs(session: Session) {
   return useQuery<CopilotJobPageOut>({
     queryKey: key.jobs(session.orgSlug),
     queryFn: () => apiRequest<CopilotJobPageOut>(session, "/v1/copilot/jobs"),
-    refetchInterval: (query) =>
+    refetchInterval: untilRefused((query) =>
       query.state.data?.jobs.some((job) => job.status === "queued" || job.status === "running")
         ? 3_000
-        : WORKSPACE_POLL_MS,
+        : WORKSPACE_POLL_MS),
   });
 }
 

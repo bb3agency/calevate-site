@@ -10,6 +10,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
+import { untilRefused } from "./queryRetry";
 
 import type { components } from "./schema";
 
@@ -30,10 +31,10 @@ export function usePlatformLiveApply(): UseQueryResult<Schemas["LiveApplyRunsOut
         `${OPS_LIVE_APPLY_PATH}?scope=platform&limit=3`,
       ),
     // A pass over the fleet finishes in minutes; poll while one may be moving.
-    refetchInterval: (query) =>
+    refetchInterval: untilRefused((query) =>
       query.state.data?.runs.some((run) => run.status === "pending" || run.status === "running")
         ? 5_000
-        : 60_000,
+        : 60_000),
   });
 }
 

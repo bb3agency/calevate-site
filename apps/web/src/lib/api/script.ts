@@ -27,6 +27,7 @@ import {
 
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import { publishingKeys } from "./publishing";
 import { readinessKeys } from "./readiness";
 import type { components } from "./schema";
@@ -604,7 +605,7 @@ export function useScriptProposal(
     queryKey: proposalKey(session.orgSlug, agentId),
     queryFn: async () =>
       (await apiRequest<PendingProposal>(session, `${base(agentId)}/proposal`)).proposal,
-    refetchInterval: (query) => (query.state.data?.status === "drafting" ? 3000 : false),
+    refetchInterval: untilRefused((query) => (query.state.data?.status === "drafting" ? 3000 : false)),
   });
 }
 
@@ -944,11 +945,11 @@ export function useTestConversations(
   return useQuery({
     queryKey: testsKey(session.orgSlug, agentId),
     queryFn: () => apiRequest<TestConversations>(session, `${base(agentId)}/tests`),
-    refetchInterval: (query) => {
+    refetchInterval: untilRefused((query) => {
       const latest = query.state.data?.latest;
       const busy = latest?.status === "queued" || latest?.status === "running" || latest?.improving === true;
       return busy ? 3000 : false;
-    },
+    }),
   });
 }
 

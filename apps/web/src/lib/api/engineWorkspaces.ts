@@ -23,6 +23,7 @@ import {
   workspaceProvisionConfirmation,
 } from "./admin";
 import { apiRequest } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -90,16 +91,16 @@ export function useWorkspacesSummary(enabled = true) {
 }
 
 export function useTenantWorkspace(tenantId: string) {
-  return useQuery({
+  return useQuery<TenantWorkspace>({
     queryKey: tenantKey(tenantId),
     queryFn: () => apiRequest<TenantWorkspace>(adminSession(), WORKSPACE_PATHS.tenant(tenantId)),
     enabled: Boolean(tenantId),
     // Set-up and offboarding run in the background; read again until they settle, so the
     // status and the buttons that wait on it move without a reload.
-    refetchInterval: (query) =>
+    refetchInterval: untilRefused((query) =>
       query.state.data?.status === "pending" || query.state.data?.status === "offboarding"
         ? WORKSPACE_BUSY_POLL_MS
-        : false,
+        : false),
   });
 }
 

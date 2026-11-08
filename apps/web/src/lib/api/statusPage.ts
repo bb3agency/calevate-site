@@ -7,6 +7,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -24,7 +25,7 @@ export function usePublicStatus(): UseQueryResult<StatusPage> {
   return useQuery({
     queryKey: ["public", "status"],
     queryFn: () => apiRequest<StatusPage>(NOBODY, PUBLIC_STATUS_PATH),
-    refetchInterval: 60_000,
+    refetchInterval: untilRefused(60_000),
   });
 }
 

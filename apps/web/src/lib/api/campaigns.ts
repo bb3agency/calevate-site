@@ -20,6 +20,7 @@ import {
 
 import { attentionKey } from "./attention";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import { lensBody, type LeadLens } from "./leads";
 import type { components, paths } from "./schema";
 
@@ -216,14 +217,14 @@ export function useLaunchCheck(
 }
 
 export function useCampaignProgress(session: Session, campaignId: string | null) {
-  return useQuery({
+  return useQuery<CampaignProgress>({
     queryKey: ["campaign", session.orgSlug, campaignId],
     queryFn: () => apiRequest<CampaignProgress>(session, `/v1/campaigns/${campaignId}`),
     enabled: Boolean(campaignId),
     // Poll only while the campaign is actually dispatching, and no faster than the
     // dispatcher ticks (30s) — a completed campaign polled every 15s is pure noise on
     // a phone connection, which is what most of these clients are on.
-    refetchInterval: (query) => {
+    refetchInterval: untilRefused((query) => {
       const status = query.state.data?.status;
       // `scheduled` polls for the same reason `running` does: the thing the client is
       // watching for is a change they did not cause. A scheduled campaign flips to
@@ -232,7 +233,7 @@ export function useCampaignProgress(session: Session, campaignId: string | null)
       return status === "running" || status === "paused" || status === "scheduled"
         ? 15_000
         : false;
-    },
+    }),
   });
 }
 

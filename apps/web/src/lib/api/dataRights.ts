@@ -36,6 +36,7 @@ import {
 } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -143,10 +144,10 @@ export function useDeletionRequests(
         session,
         `/v1/compliance/deletion-requests?limit=${DELETION_REQUEST_LIST_LIMIT}`,
       ),
-    refetchInterval: (query) =>
+    refetchInterval: untilRefused((query) =>
       query.state.data?.some((request) => request.status === "pending")
         ? ERASURE_POLL_MS
-        : false,
+        : false),
   });
 }
 
@@ -165,8 +166,8 @@ export function useDeletionRequest(
     queryKey: dataRightsKeys.deletionRequest(session.orgSlug, requestId),
     queryFn: () =>
       apiRequest<DeletionRequest>(session, `/v1/compliance/deletion-requests/${requestId}`),
-    refetchInterval: (query) =>
-      query.state.data?.status === "pending" ? ERASURE_POLL_MS : false,
+    refetchInterval: untilRefused((query) =>
+      query.state.data?.status === "pending" ? ERASURE_POLL_MS : false),
   });
 }
 

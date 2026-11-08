@@ -21,6 +21,7 @@ import {
 import { adminSession } from "./admin";
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import { leadFieldsKeys } from "./leadFields";
 import type { components } from "./schema";
 
@@ -87,10 +88,10 @@ function useAnswers(
 export function useLeadSuggestions(session: Session, agentId: string): LeadSuggestionsApi {
   const client = useQueryClient();
   const base = `/v1/agents/${encodeURIComponent(agentId)}/lead-suggestions`;
-  const query = useQuery({
+  const query = useQuery<LeadSuggestions>({
     queryKey: leadSuggestionKeys.client(session.orgSlug, agentId),
     queryFn: () => apiRequest<LeadSuggestions>(session, base),
-    refetchInterval: (q) => (checking(q.state.data) ? PASS_POLL_MS : false),
+    refetchInterval: untilRefused((q) => (checking(q.state.data) ? PASS_POLL_MS : false)),
   });
   const answers = useAnswers(session, base, leadSuggestionKeys.client(session.orgSlug, agentId), () =>
     Promise.all([
@@ -106,10 +107,10 @@ export function useAdminLeadSuggestions(tenantId: string, agentId: string): Lead
   const client = useQueryClient();
   const session = adminSession();
   const base = `/v1/admin/tenants/${encodeURIComponent(tenantId)}/agents/${encodeURIComponent(agentId)}/lead-suggestions`;
-  const query = useQuery({
+  const query = useQuery<LeadSuggestions>({
     queryKey: leadSuggestionKeys.admin(tenantId, agentId),
     queryFn: () => apiRequest<LeadSuggestions>(session, base),
-    refetchInterval: (q) => (checking(q.state.data) ? PASS_POLL_MS : false),
+    refetchInterval: untilRefused((q) => (checking(q.state.data) ? PASS_POLL_MS : false)),
   });
   const answers = useAnswers(session, base, leadSuggestionKeys.admin(tenantId, agentId), () =>
     client.invalidateQueries({ queryKey: leadFieldsKeys.admin(tenantId) }),

@@ -21,6 +21,7 @@ import {
 
 import { adminSession } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -59,7 +60,7 @@ export function useBusinessCopy(
     queryFn: () => apiRequest<BusinessCopy>(session, "/v1/business-copy"),
     // The copy changes once a fortnight at most; every screen shares this one read.
     staleTime: 5 * 60_000,
-    refetchInterval: (query) => (query.state.data?.refreshing ? REFRESH_POLL_MS : false),
+    refetchInterval: untilRefused((query) => (query.state.data?.refreshing ? REFRESH_POLL_MS : false)),
   });
 }
 
@@ -67,7 +68,7 @@ export function useAdminBusinessCopy(tenantId: string): UseQueryResult<AdminBusi
   return useQuery({
     queryKey: businessCopyKeys.admin(tenantId),
     queryFn: () => apiRequest<AdminBusinessCopy>(adminSession(), adminPath(tenantId)),
-    refetchInterval: (query) => (query.state.data?.refreshing ? REFRESH_POLL_MS : false),
+    refetchInterval: untilRefused((query) => (query.state.data?.refreshing ? REFRESH_POLL_MS : false)),
   });
 }
 

@@ -40,6 +40,7 @@ import { lookup } from "@/lib/lookup";
 import { agreementsKey } from "./agreements";
 import { capsKey } from "./caps";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import { goLiveKey } from "./goLive";
 
 import type { components } from "./schema";
@@ -205,23 +206,23 @@ export function useCreditLanding(session: Session, awaited: AwaitedCredit | null
     return () => clearTimeout(timer);
   }, [awaited]);
 
-  const attempts = useQuery({
+  const attempts = useQuery<TopUpAttempt[]>({
     queryKey: walletAttemptsKey(session.orgSlug),
     queryFn: () => apiRequest<TopUpAttempt[]>(session, TOPUP_ATTEMPTS_PATH),
     enabled: awaited !== null,
-    refetchInterval: (query) =>
+    refetchInterval: untilRefused((query) =>
       awaited !== null && !captured(query.state.data, awaited.receipt) && Date.now() < awaited.until
         ? CREDIT_POLL_MS
-        : false,
+        : false),
   });
-  const ledger = useQuery({
+  const ledger = useQuery<WalletLedger>({
     queryKey: walletLedgerKey(session.orgSlug),
     queryFn: () => apiRequest<WalletLedger>(session, `/v1/billing/wallet/ledger?limit=${WALLET_LEDGER_LIMIT}`),
     enabled: awaited !== null,
-    refetchInterval: (query) =>
+    refetchInterval: untilRefused((query) =>
       awaited !== null && !onLedger(query.state.data, awaited.paymentId) && Date.now() < awaited.until
         ? CREDIT_POLL_MS
-        : false,
+        : false),
   });
   const landed =
     awaited !== null && (captured(attempts.data, awaited.receipt) || onLedger(ledger.data, awaited.paymentId));

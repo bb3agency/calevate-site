@@ -18,6 +18,7 @@ import {
 
 import { adminSession } from "./admin";
 import { apiRequest } from "./client";
+import { untilRefused } from "./queryRetry";
 import { leadFieldsKeys } from "./leadFields";
 import type { components } from "./schema";
 
@@ -87,10 +88,10 @@ export function useBusinessTypePoll(
     queryKey: businessTypeKeys.admin(tenantId),
     queryFn: () => apiRequest<BusinessTypeState>(adminSession(), path(tenantId)),
     enabled: since !== null,
-    refetchInterval: (query) => {
+    refetchInterval: untilRefused((query) => {
       if (since === null || Date.now() - since > 60_000) return false;
       const at = query.state.data?.unconfirmed?.suggested_at;
       return at && Date.parse(at) >= since ? false : 3_000;
-    },
+    }),
   });
 }
