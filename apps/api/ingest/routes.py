@@ -691,6 +691,41 @@ async def _absorb_leadgen(
         if claim.state == "duplicate":
             return "duplicate"
 
+    try:
+        return await _absorb_claimed(
+            webhook_id=webhook_id,
+            config=config,
+            notification=notification,
+            received_at=received_at,
+            row_id=claim.row_id,
+        )
+    except Exception:
+        # Anything that is not a verdict (a database error, a Graph client bug). Left
+        # `processing`, Meta's redelivery inside `CLAIM_LEASE` would be answered as a
+        # duplicate and the lead lost; released as failed and deferred, the 503 brings
+        # it back and the claim is taken again. Ids only (hard rule 6).
+        log.exception("meta_lead_absorb_crashed", extra={"webhook_id": str(webhook_id)})
+        try:
+            async with tenant_session(config.tenant_id) as session:
+                await mark_inbox_failed(session, row_id=claim.row_id, error=INTERRUPTED_REASON)
+        except Exception as release:
+            log.warning("meta_lead_claim_unreleased", extra={"error": type(release).__name__})
+        return _DEFERRED
+
+
+#: The reason a lead whose handling broke off is recorded under until Meta redelivers it.
+INTERRUPTED_REASON: Final = "meta_lead_interrupted"
+
+
+async def _absorb_claimed(
+    *,
+    webhook_id: UUID,
+    config: IngestConfig,
+    notification: meta.LeadNotification,
+    received_at: float,
+    row_id: UUID,
+) -> Literal["accepted", "refused", "deferred"]:
+    """`_absorb_leadgen` past its claim: read the answers, then write the lead."""
     # ONE lookup for "may we read this client's leads" and "with what" — the capability
     # carries the retriever precisely so a second read cannot disagree with the first.
     # The question is per LEAD SOURCE, not per deployment: an adapter that holds no
@@ -703,7 +738,7 @@ async def _absorb_leadgen(
         # and re-claimable by CAS the moment a credential is attached.
         return await _record_refusal(
             config,
-            claim.row_id,
+            row_id,
             webhook_id=webhook_id,
             reason=capability.reason or meta.NO_RETRIEVER_REASON,
         )
@@ -715,13 +750,11 @@ async def _absorb_leadgen(
         # Mark the claim failed — which is what makes it RE-CLAIMABLE by CAS — and defer.
         # Not `mark_inbox_processed`: a row recorded as done is a lead nobody will ever
         # look at again, and this one is coming back.
-        await _record_refusal(
-            config, claim.row_id, webhook_id=webhook_id, reason=retrieved.reason or ""
-        )
+        await _record_refusal(config, row_id, webhook_id=webhook_id, reason=retrieved.reason or "")
         return _DEFERRED
     if retrieved.status is meta.RetrievalStatus.PERMANENT:
         return await _record_refusal(
-            config, claim.row_id, webhook_id=webhook_id, reason=retrieved.reason or ""
+            config, row_id, webhook_id=webhook_id, reason=retrieved.reason or ""
         )
 
     answers = retrieved.answers
@@ -730,7 +763,7 @@ async def _absorb_leadgen(
         # nothing to put in a row. Distinct from a Graph refusal, because the fix is
         # different — this one is about the client's form.
         return await _record_refusal(
-            config, claim.row_id, webhook_id=webhook_id, reason=meta.NO_ANSWERS_REASON
+            config, row_id, webhook_id=webhook_id, reason=meta.NO_ANSWERS_REASON
         )
 
     try:
@@ -747,13 +780,13 @@ async def _absorb_leadgen(
                 require_form_consent=True,
                 provenance={config.source: notification.provenance()},
             )
-            await mark_inbox_processed(session, row_id=claim.row_id)
+            await mark_inbox_processed(session, row_id=row_id)
     except ProblemError as exc:
         # An unusable lead (no dialable number, no agent attached, agent unpublished) is
         # a VERDICT, not a transient. Meta would retry a 5xx for ~36 hours and then
         # unsubscribe the Page, so the refusal is recorded and acked instead — the code
         # that names the fix lands in the activity view where the client can read it.
-        return await _record_refusal(config, claim.row_id, webhook_id=webhook_id, reason=exc.code)
+        return await _record_refusal(config, row_id, webhook_id=webhook_id, reason=exc.code)
     return "accepted"
 
 
