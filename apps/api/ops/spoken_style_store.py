@@ -8,7 +8,7 @@ revisions up to the latest publication's `through_revision`, layered over the fi
 HOW THE PUBLISHED LAYER REACHES A PROMPT. `calevate_shared` cannot import this, and the
 prompt is composed synchronously, so each process holds the layer in memory and refreshes it
 off the request path: `refresh_spoken_style` rides `ops/pricing_snapshot`'s 30-second poll,
-which the API and the worker both start, and it reads one integer (the newest publication)
+which the API and the worker both start, and it reads the publications' count and newest seq
 before deciding whether to read anything else. The live-apply walk calls it before it
 publishes (`apps/workers/live_apply.apply_live_settings`), so a publish never reaches
 agents with the previous words, and the publishing route refreshes its own process after
@@ -40,8 +40,8 @@ log = get_logger(__name__)
 #: How many publications the review screen lists per language.
 HISTORY_LIMIT = 10
 
-#: The newest publication this process installed, or None before the first read.
-_installed: int | None = None
+#: `(publications, newest seq)` as this process installed them, or None before the first read.
+_installed: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -246,14 +246,16 @@ async def refresh_spoken_style() -> None:
     global _installed
     try:
         async with untenanted_session() as session:
-            newest = int(
-                (
-                    await session.execute(
-                        text("SELECT coalesce(max(seq), 0) FROM spoken_style_publications")
-                    )
-                ).scalar()
-                or 0
-            )
+            # The count with the newest seq, not the seq alone: an identity value is taken
+            # at INSERT, so a publication holding seq 5 can commit after one holding seq 6,
+            # and a process that installed at 6 would never install 5. The table is
+            # append-only, so every committed publication moves the count.
+            row = (
+                await session.execute(
+                    text("SELECT count(*), coalesce(max(seq), 0) FROM spoken_style_publications")
+                )
+            ).one()
+            newest = (int(row[0]), int(row[1]))
             if newest == _installed:
                 return
             layer = await published_layer(session)
@@ -262,7 +264,10 @@ async def refresh_spoken_style() -> None:
         return
     install_published(layer)
     _installed = newest
-    log.info("spoken_style_installed", extra={"publication": newest, "languages": len(layer)})
+    log.info(
+        "spoken_style_installed",
+        extra={"publication": newest[1], "publications": newest[0], "languages": len(layer)},
+    )
 
 
 def reset_for_test() -> None:

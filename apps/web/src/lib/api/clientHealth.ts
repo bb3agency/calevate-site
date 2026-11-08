@@ -172,7 +172,7 @@ export function signalCopy(rule: string): SignalCopy | null {
  * so an operator reading this board and a client reading their own campaign screen are
  * naming one condition identically.
  *
- * The R-11 gates (`kyc_missing`, `kyc_not_verified`) are
+ * The KYC gates (`kyc_missing`, `kyc_not_verified`, `kyc_digilocker_required`) are
  * deliberately ABSENT: `holds.ts::HOLD_RULES` already carries their operator wording AND
  * the screen that clears each one, and a second table here would be a second set of words
  * for one condition — exactly the drift `admin/holds.py` composes its predicates to avoid,
@@ -186,7 +186,6 @@ const CAUSE_LABELS: Record<string, string> = {
   trial_daily_cap: "Today's test calls used",
   trial_ended: "Free trial ended: needs to add credit",
   trial_minutes_used: "Free trial minutes used: needs to add credit",
-  kyc_digilocker_required: "DigiLocker check required",
   outbound_pledge_missing: "No-cold-calls pledge not accepted",
   outbound_pledge_outdated: "No-cold-calls pledge needs accepting again",
   // The gate does not say whether this is a first acceptance or a re-acceptance of a
@@ -207,7 +206,6 @@ const CAUSE_LABELS: Record<string, string> = {
  * conditions (verified KYC and the no-cold-calls pledge) that replaced the DLT entity chain.
  */
 const KYC_SCREEN_CAUSES = new Set([
-  "kyc_digilocker_required",
   "outbound_pledge_missing",
   "outbound_pledge_outdated",
 ]);

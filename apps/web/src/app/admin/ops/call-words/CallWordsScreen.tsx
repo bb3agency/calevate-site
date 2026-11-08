@@ -45,6 +45,15 @@ export function entryName(key: string): string {
   return rest.replace(/^_+/, "").replace(/[._]+/g, " ").trim().toLowerCase();
 }
 
+/**
+ * Whether a list still waits for the founder's words. `asked_for` is the shipped file's
+ * request and a save never changes the file, so a list he has already written is not
+ * waiting any more; its request stays on the row, muted, as what was asked.
+ */
+export function needsWords(entry: Pick<CallWord, "asked_for" | "edited">): boolean {
+  return Boolean(entry.asked_for) && !entry.edited;
+}
+
 function groupLabel(group: string): string {
   return lookup(GROUP_LABELS, group) ?? group.replace(/_/g, " ");
 }
@@ -183,7 +192,7 @@ function EntryRow({
           <p className="text-body font-medium text-ink">{name}</p>
           <p className="break-words font-mono text-meta text-ink-muted">{preview(entry)}</p>
         </div>
-        {entry.asked_for ? <StatusPill tone="warn">Needs your words</StatusPill> : null}
+        {needsWords(entry) ? <StatusPill tone="warn">Needs your words</StatusPill> : null}
         <StatusPill tone={entry.edited ? "ok" : "neutral"}>{entry.edited ? "Edited" : "As shipped"}</StatusPill>
         {!editing ? (
           <button
@@ -196,7 +205,9 @@ function EntryRow({
           </button>
         ) : null}
       </div>
-      {entry.asked_for ? <p className="text-body text-ink">{entry.asked_for}</p> : null}
+      {entry.asked_for ? (
+        <p className={`text-body ${needsWords(entry) ? "text-ink" : "text-ink-muted"}`}>{entry.asked_for}</p>
+      ) : null}
       {entry.note && editing ? <p className="text-meta text-ink-muted">{entry.note}</p> : null}
       {editing ? <EntryEditor entry={entry} onClose={onClose} /> : null}
     </li>
@@ -216,12 +227,12 @@ export function CallWordsScreen() {
   const [editing, setEditing] = useState<string | null>(null);
 
   const entries = useMemo(() => list.data?.entries ?? [], [list.data]);
-  const asked = entries.filter((entry) => entry.asked_for).length;
+  const asked = entries.filter(needsWords).length;
   const groups = useMemo(() => {
     const needle = search.trim().toLowerCase();
     const shown = entries.filter(
       (entry) =>
-        (show === "all" || (show === "asked" ? Boolean(entry.asked_for) : entry.edited)) &&
+        (show === "all" || (show === "asked" ? needsWords(entry) : entry.edited)) &&
         (!needle || entry.key.toLowerCase().includes(needle) || entryName(entry.key).includes(needle)),
     );
     const byGroup = new Map<string, CallWord[]>();

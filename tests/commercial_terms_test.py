@@ -354,6 +354,23 @@ async def test_a_row_dated_into_a_closed_month_is_refused() -> None:
     assert await _plan_rows(tenant_id) == [], "a refused write must write nothing"
 
 
+async def test_a_date_without_a_timezone_is_refused_not_a_500() -> None:
+    """`effective_from` decides which billing month a price falls in, so a bare local time
+    is refused rather than read in some zone; the closed-month check used to raise a
+    TypeError on it."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+    naive = (datetime.now(UTC) + timedelta(days=40)).replace(tzinfo=None, microsecond=0)
+
+    response = await _post(
+        token, tenant_id, {"llm_model_surcharge_inr": "1.0000", "effective_from": naive.isoformat()}
+    )
+
+    assert response.status_code == 422, response.text
+    assert "effective_from" in response.text
+    assert await _plan_rows(tenant_id) == []
+
+
 async def test_a_window_that_ends_before_it_starts_is_refused() -> None:
     """A row whose `effective_to` is at or before its `effective_from` matches at NO
     instant — an agreement that prices nothing, silently. Refused here, and by

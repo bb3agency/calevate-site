@@ -180,6 +180,17 @@ describe("the client's voice workspace panel", () => {
     await waitFor(() => expect(posts(calls, WORKSPACE_PATHS.provision(TENANT))).toHaveLength(1));
   });
 
+  it("says a free-trial client waits on its first payment before a number", async () => {
+    // `purchase_readiness` asks the trial gate first, so a trial client's step is
+    // `add_credit`; the panel said "Not known" and printed the rule twice.
+    await render(
+      workspace({ purchase_step: "add_credit", purchase_blockers: ["trial_numbers_unavailable"] }),
+    );
+    expect(await screen.findByText("Waiting on the client's first payment")).toBeTruthy();
+    expect(screen.getByText(/on a free trial\. Numbers open once they pay\./)).toBeTruthy();
+    expect(screen.queryByText("Not known")).toBeNull();
+  });
+
   it("offers no retry for an active workspace", async () => {
     await render(workspace());
     const retry = (await screen.findByRole("button", { name: "Retry provisioning" })) as HTMLButtonElement;

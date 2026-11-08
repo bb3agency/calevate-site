@@ -31,7 +31,15 @@ from uuid import UUID
 
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER, RecordableNumberProvider
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -2164,7 +2172,7 @@ class DltRegistrationIn(BaseModel):
     # registration that cannot say which registration it is, is a claim, not a fact.
     pe_id: str | None = Field(default=None, max_length=120)
     entity_name: str | None = Field(default=None, max_length=200)
-    registered_at: datetime | None = None
+    registered_at: AwareDatetime | None = None
 
 
 class KycRecordIn(BaseModel):
@@ -2876,8 +2884,8 @@ class CommercialTermsIn(BaseModel):
     # `null` from = "since forever", `null` to = "until further notice" — which is what
     # an open-ended retainer is, and what every plan row in the database already looks
     # like.
-    effective_from: datetime | None = None
-    effective_to: datetime | None = None
+    effective_from: AwareDatetime | None = None
+    effective_to: AwareDatetime | None = None
 
     @field_validator(
         "setup_fee_inr",

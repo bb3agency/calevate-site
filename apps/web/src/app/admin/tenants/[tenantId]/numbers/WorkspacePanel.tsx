@@ -65,7 +65,9 @@ const WORKSPACE_STATUS: Record<string, string> = {
 };
 
 
+/** Every `PurchaseStep` and blocker `campaigns/engine_number_purchase.purchase_readiness` serves. */
 const STEP_COPY: Record<string, string> = {
+  add_credit: "Waiting on the client's first payment",
   workspace: "Waiting on the workspace",
   verify_business: "Waiting on KYC",
   business_details: "Waiting on business-details approval",
@@ -74,6 +76,7 @@ const STEP_COPY: Record<string, string> = {
 };
 
 const BLOCKER_COPY: Record<string, string> = {
+  trial_numbers_unavailable: "The client is on a free trial. Numbers open once they pay.",
   engine_workspace_not_provisioned: "The client's workspace is not active.",
   kyc_not_verified: "The client's KYC is not verified.",
   business_details_not_approved: "The business details are not approved by ThinnestAI.",

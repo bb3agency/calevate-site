@@ -42,7 +42,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
@@ -117,8 +117,8 @@ def maintenance_confirmation(action: str, window_id: UUID | None = None) -> str:
 class MaintenanceScheduleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    starts_at: datetime
-    ends_at: datetime
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
     #: CLIENT-FACING, VERBATIM. It is the body of three emails and the `detail` of every
     #: 503 a locked-out client gets, which is why it has a floor as well as a ceiling: a
     #: lockout page reading "maintenance" is the generic error this whole feature exists to
@@ -145,8 +145,8 @@ class MaintenanceAmendIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    starts_at: datetime | None = None
-    ends_at: datetime | None = None
+    starts_at: AwareDatetime | None = None
+    ends_at: AwareDatetime | None = None
     reason: str | None = Field(default=None, min_length=10, max_length=500)
     max_drain_minutes: int | None = Field(default=None, ge=1, le=240)
 

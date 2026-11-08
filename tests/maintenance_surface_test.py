@@ -316,6 +316,29 @@ async def test_the_confirmations_are_bound_to_the_action_and_the_window() -> Non
     assert len(strings) == 3
 
 
+async def test_a_window_without_a_timezone_is_refused_not_a_500() -> None:
+    """A bare "2026-12-01T02:00:00" is somebody's wall clock, and which one is a guess; the
+    span check compared it with an aware `now` and raised a TypeError."""
+    token = await _make_admin()
+    start = (datetime.now(UTC) + timedelta(days=1)).replace(tzinfo=None, microsecond=0)
+    body = {
+        "starts_at": start.isoformat(),
+        "ends_at": (start + timedelta(hours=1)).isoformat(),
+        "reason": "A window with no timezone, which must not be created.",
+    }
+    async with _client() as http:
+        response = await http.post(
+            "/v1/ops/maintenance",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": maintenance_confirmation("schedule_maintenance"),
+            },
+            json=body,
+        )
+    assert response.status_code == 422, response.text
+    assert "starts_at" in response.text
+
+
 async def test_a_stale_or_wrong_confirmation_authorises_nothing() -> None:
     """Refusals only — nothing here schedules anything, so it runs beside every suite."""
     token = await _make_admin()
