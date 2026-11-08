@@ -197,6 +197,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               label="Campaign name"
               textClassName="text-xl font-semibold tracking-tight"
               maxLength={120}
+              wrap
               validate={(next) => (next.length < 2 ? "Use at least 2 characters." : null)}
               status={renameFeedback.status}
               errorMessage={problemToast(rename.error, "That name did not save").description}
