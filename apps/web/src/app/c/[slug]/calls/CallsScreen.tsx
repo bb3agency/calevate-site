@@ -537,7 +537,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           <CallAgain
             session={session}
             dialers={dialers}
-            scope={{ direction, fromDay: dates?.start, toDay: dates?.end, testCalls }}
+            scope={{ direction, fromDay: dates?.start, toDay: dates?.end, testCalls, agentId, campaignId }}
           />
         ) : null}
         {live.isError ? (

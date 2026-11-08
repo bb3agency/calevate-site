@@ -51,6 +51,9 @@ export type CallAgainScope = {
   fromDay?: string;
   toDay?: string;
   testCalls: boolean;
+  /** The log narrowed by a link chip to one agent's or one campaign's calls. */
+  agentId?: string;
+  campaignId?: string;
 };
 
 export function CallAgain({
@@ -143,6 +146,8 @@ function CallAgainDialog({
             ...(scope.fromDay ? { last_call_from: scope.fromDay } : {}),
             ...(scope.toDay ? { last_call_to: scope.toDay } : {}),
             ...(scope.testCalls ? {} : { test_calls: false }),
+            ...(scope.agentId ? { agent_id: scope.agentId } : {}),
+            ...(scope.campaignId ? { campaign_id: scope.campaignId } : {}),
           },
           lead_ids: null,
           agent_id: agentId,
