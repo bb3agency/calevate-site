@@ -205,9 +205,10 @@ export function PerformanceScreen() {
         />
       </div>
 
-      {stats.error ? (
-        <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} />
-      ) : !stats.data ? (
+      {/* A failed refresh keeps the figures it had, under the notice. */}
+      {stats.error ? <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} /> : null}
+      {!stats.data ? (
+        stats.error ? null :
         <Skeleton rows={2} label={COPY.loadingFigures} />
       ) : (
         <StatsBand

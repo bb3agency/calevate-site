@@ -669,7 +669,8 @@ async def _seed_calls(*, tenant_id: UUID, agent_id: UUID, owner_user_id: UUID) -
                     "id": uuid7(),
                     "t": tenant_id,
                     "lead": lead_id,
-                    "payload": json.dumps({"call_id": str(call_id), "status": demo.lead_status}),
+                    # The CALL's status, as the pipeline writes it, not the lead's stage.
+                    "payload": json.dumps({"call_id": str(call_id), "status": "completed"}),
                     "at": ended,
                 },
             )

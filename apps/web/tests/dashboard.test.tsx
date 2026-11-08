@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DashboardPage from "@/app/c/[slug]/page";
@@ -1674,5 +1675,46 @@ describe("next steps", () => {
     const card = await nextSteps();
     expect(await within(card).findByText("Couldn't check how ready your agents are")).toBeTruthy();
     expect(card.textContent).not.toContain("All clear. Nothing needs you.");
+  });
+});
+
+describe("a poll that fails after the dashboard has arrived", () => {
+  it("keeps the figures on screen under the notice rather than replacing the page", async () => {
+    const table: Record<string, unknown> = routes();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByRole("heading", { name: "This week" })).toBeTruthy();
+
+    table["/v1/dashboard"] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["dashboard"] });
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "This week" })).toBeTruthy();
+  });
+});
+
+describe("a refresh of this week's figures or the cost per lead that fails", () => {
+  it("keeps both figures on screen under their notices", async () => {
+    const table: Record<string, unknown> = routes({
+      "/v1/me": { ...ME, permissions: [...ME.permissions, "org:manage", "billing:read"] },
+      "/v1/dashboard": { ...EMPTY_DASHBOARD, calls_7d: 8, calls_connected_7d: 8 },
+      "/v1/analytics/stats?test_calls=false": stats({ calls: { value: "8", previous: "2", change_pct: "300.0" } }),
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByText("₹30")).toBeTruthy();
+    expect(await screen.findByText("Answer rate")).toBeTruthy();
+
+    table["/v1/analytics/stats?test_calls=false"] = problem(503, { title: "Service unavailable" });
+    table[COST_PER_RESULT_ROUTE] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries();
+    });
+
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByText("₹30")).toBeTruthy();
+    expect(screen.getByText("Answer rate")).toBeTruthy();
   });
 });

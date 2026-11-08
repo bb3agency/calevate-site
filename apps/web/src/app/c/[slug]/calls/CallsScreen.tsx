@@ -537,7 +537,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           <CallAgain
             session={session}
             dialers={dialers}
-            scope={{ direction, fromDay: dates?.start, toDay: dates?.end, testCalls }}
+            scope={{ direction, fromDay: dates?.start, toDay: dates?.end, testCalls, agentId, campaignId }}
           />
         ) : null}
         {live.isError ? (
@@ -555,12 +555,15 @@ export function CallsScreen({ slug }: { slug: string }) {
             <Skeleton rows={6} />
           </div>
         ) : /* A PAUSED query (offline) is neither loading nor failed and has no data;
-               `!calls.data` keeps it from printing "No calls yet" (§52). With an error the
-               notice above is the whole answer. */
-        calls.error ? null : !calls.data ? (
-          <div className="p-4">
-            <ProblemNotice error={new Error("Your calls did not load.")} onRetry={() => void calls.refetch()} />
-          </div>
+               `!calls.data` keeps it from printing "No calls yet" (§52). With an error and
+               no rows the notice above is the whole answer; rows that survive a failed
+               poll are real and stay under it, as on the Leads page. */
+        !calls.data ? (
+          calls.error ? null : (
+            <div className="p-4">
+              <ProblemNotice error={new Error("Your calls did not load.")} onRetry={() => void calls.refetch()} />
+            </div>
+          )
         ) : rows.length && phone ? (
           <CallsPhoneList
             rows={rows}

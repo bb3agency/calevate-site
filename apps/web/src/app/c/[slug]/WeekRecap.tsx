@@ -105,11 +105,15 @@ export function weekHadCalls(data: Pick<Dashboard, "calls_7d">, stats: Stats | u
 }
 
 function WeekFigures({ data, stats }: { data: Dashboard; stats: UseQueryResult<Stats> }) {
-  if (stats.error) {
-    return <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} />;
-  }
-  if (!stats.data) return <Skeleton rows={2} label="Loading this week's figures" />;
-  return <WeekBand data={data} stats={stats.data} />;
+  const notice = stats.error ? <ProblemNotice error={stats.error} onRetry={() => void stats.refetch()} /> : null;
+  if (!stats.data) return notice ?? <Skeleton rows={2} label="Loading this week's figures" />;
+  // A failed refresh keeps the figures it had, under the notice (as the dashboard does).
+  return (
+    <>
+      {notice}
+      <WeekBand data={data} stats={stats.data} />
+    </>
+  );
 }
 
 function WeekBand({ data, stats }: { data: Dashboard; stats: Stats }) {

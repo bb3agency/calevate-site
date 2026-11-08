@@ -187,3 +187,26 @@ describe("calling the unanswered again", () => {
     ).toBe(true);
   });
 });
+
+describe("a call-back row", () => {
+  it("links to its lead and to the call it placed, and to neither when it has none", async () => {
+    const linked: ScheduledCallback = {
+      ...waiting(1),
+      status: "completed",
+      lead_id: "0192f0aa-4444-7000-8000-000000000001",
+      last_call_id: "0192f0aa-5555-7000-8000-000000000001",
+      settled_at: "2026-09-29T10:31:00Z",
+    };
+    await renderClientPage(<CallbacksPage />, { "/v1/me": OWNER, [LIST]: [linked, waiting(2)] });
+
+    expect((await screen.findByRole("link", { name: "Open lead" })).getAttribute("href")).toBe(
+      `/c/acme/leads/${linked.lead_id}`,
+    );
+    expect(screen.getByRole("link", { name: "Open call" }).getAttribute("href")).toBe(
+      `/c/acme/calls/${linked.last_call_id}`,
+    );
+    // The waiting row has neither, so each link appears once.
+    expect(screen.getAllByRole("link", { name: "Open lead" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Open call" })).toHaveLength(1);
+  });
+});

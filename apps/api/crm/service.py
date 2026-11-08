@@ -2635,7 +2635,9 @@ def _project_event(
         status = _code(payload, "status")
         if call_id is None:
             return ("Call placed", None, None)
-        return (f"Call {status}" if status else "Call", None, call_id)
+        # The owner's word for the call's status ("Call no answer"), never the key.
+        words = export_words.call_status(status)
+        return (f"Call {words.lower()}" if words else "Call", None, call_id)
 
     if event_type == "note":
         if _code(payload, "kind") == "blocked":

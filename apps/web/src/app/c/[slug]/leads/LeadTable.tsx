@@ -128,8 +128,10 @@ export function LeadTable({ kit, partialNote }: { kit: LeadRowKit; partialNote?:
       ) : (
         <EmptyState
           illustration={<EmptySketch kind="leads" />}
-          message="No leads yet"
-          hint="Each answered call becomes a lead."
+          // People, not leads: a lead is only someone who showed interest
+          // (crm/lead_definition.py), so "every answered call becomes a lead" was untrue.
+          message="Nobody here yet"
+          hint="Each answered call adds the caller here."
         />
       )}
     </div>

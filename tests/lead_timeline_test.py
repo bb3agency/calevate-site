@@ -457,3 +457,22 @@ async def test_the_actor_of_a_colleagues_edit_is_named_for_everyone_on_the_team(
     item = response.json()["items"][0]
     assert item["title"] == "Assigned to Kiran Babu"
     assert item["actor_name"] == "Anitha Rao"
+
+
+def test_a_call_row_names_the_calls_status_in_the_owners_words() -> None:
+    """The pipeline writes the engine's call status (`no_answer`, `busy`, ...) on the row;
+    the title says it as the call log does, never as the key."""
+    from apps.api.crm.service import _project_event
+
+    call_id = str(uuid.uuid4())
+    titles = {
+        status: _project_event("call", {"call_id": call_id, "status": status}, {})[0]
+        for status in ("completed", "no_answer", "failed", "voicemail")
+    }
+    assert titles == {
+        "completed": "Call completed",
+        "no_answer": "Call no answer",
+        "failed": "Call did not connect",
+        "voicemail": "Call voicemail",
+    }
+    assert all("_" not in title for title in titles.values())

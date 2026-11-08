@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { cloneElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,7 +7,10 @@ import CallsPage from "@/app/c/[slug]/calls/page";
 import type { CallSummary, Me } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
 
+import { dltRegistrationRoute } from "./campaignFixtures";
+import { agentRow } from "./fixtures/sharedReads";
 import { browserOffline, csv, problem, renderClientPage, stubDownloads } from "./harness";
+import { PLAN_ID, planFixture } from "./planFixture";
 
 /**
  * The call log — the screen a client opens when they want to know what actually
@@ -481,5 +484,52 @@ describe("saved views of the call log (D-893)", () => {
       name: "Incoming",
       filters: { direction: "inbound", test_calls: true, when: null },
     });
+  });
+});
+
+describe("a poll that fails after the log has arrived", () => {
+  it("keeps the calls on screen under the notice rather than blanking the log", async () => {
+    const table: Record<string, unknown> = routes([call()]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByText("Caller asked for a Tuesday slot.")).toBeTruthy();
+
+    table["/v1/calls?limit=100"] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries();
+    });
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    // The rows were true when read; a failed re-read says so above them, it does not hide them.
+    expect(screen.getByText("Caller asked for a Tuesday slot.")).toBeTruthy();
+  });
+});
+
+describe("calling the unanswered again from one campaign's calls", () => {
+  it("plans over that campaign's people, not every unanswered person on the account", async () => {
+    window.history.replaceState(null, "", "/?campaign_id=cmp-1");
+    const { calls } = await renderClientPage(page, {
+      "/v1/me": { ...ME, permissions: ["calls:read", "leads:read", "leads:dispatch"] },
+      "/v1/agents": [agentRow({ id: "agent-out", direction: "outbound" })],
+      "/v1/calls/views": { items: [] },
+      "/v1/calls?campaign_id=cmp-1&limit=100": [call()],
+      "/v1/calls?campaign_id=cmp-1&outcome=missed&limit=100": [call({ outcome_tag: "missed" })],
+      ...dltRegistrationRoute(),
+      "POST /v1/copilot/plans": planFixture({ tool: "calls_place_bulk" }),
+      [`/v1/copilot/plans/${PLAN_ID}`]: planFixture({ tool: "calls_place_bulk" }),
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Missed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Call them again" }));
+    const dialog = await screen.findByRole("dialog", { name: "Call them again" });
+    fireEvent.change(within(dialog).getByLabelText(/How did these people agree/), {
+      target: { value: "inbound_enquiry" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Show me the plan" }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/v1/copilot/plans")).toBe(true));
+    const posted = calls.find((c) => c.method === "POST" && c.path === "/v1/copilot/plans");
+    const body = JSON.parse(posted?.body ?? "{}") as { args: { lens: Record<string, unknown> } };
+    expect(body.args.lens).toMatchObject({ last_outcome: "missed", campaign_id: "cmp-1" });
   });
 });

@@ -67,7 +67,8 @@ export function CostPerLead({ session, href }: { session: Session; href: string 
   const caps = useBusinessCapabilities();
   const pendingLabel = caps.sells === false ? "Cost per result, 7 days" : LEAD_LABEL;
   if (!allowed) return null;
-  if (cost.error) {
+  // Only with nothing to show: a failed refresh keeps the figure it had, under the notice.
+  if (cost.error && !cost.data) {
     return (
       <MoneyRowPending label={pendingLabel}>
         <ProblemNotice error={cost.error} onRetry={() => void cost.refetch()} />
@@ -85,7 +86,7 @@ export function CostPerLead({ session, href }: { session: Session; href: string 
   const week = cost.data.windows.find((w) => w.days === 7);
   if (!week) return null;
   const figure = costFigure(week, cost.data.goal_labels, caps);
-  return (
+  const metric = (
     <Metric
       className="py-4"
       label={figure.label}
@@ -99,5 +100,13 @@ export function CostPerLead({ session, href }: { session: Session; href: string 
         </Link>
       }
     />
+  );
+  return cost.error ? (
+    <div>
+      {metric}
+      <ProblemNotice error={cost.error} onRetry={() => void cost.refetch()} />
+    </div>
+  ) : (
+    metric
   );
 }

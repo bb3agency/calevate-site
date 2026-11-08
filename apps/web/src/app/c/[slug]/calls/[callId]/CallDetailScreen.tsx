@@ -321,7 +321,10 @@ export function CallDetailScreen({
 
   if (call.isLoading) return <CallDetailSkeleton />;
   const back = { href: href(`/c/${slug}/calls`), label: "All calls" };
-  if (call.error) {
+  // Only with nothing to show: the page polls while a call is live or its summary is on
+  // the way, and a poll that fails after an answer must not take the call (and a playing
+  // recording) off the screen. That case is a notice above the call instead.
+  if (call.error && !call.data) {
     return (
       <div className="space-y-8 pb-12">
         <PageHeader back={back} />
@@ -372,6 +375,7 @@ export function CallDetailScreen({
     <div className="space-y-8 pb-12">
       {/* No <h1>: the app shell renders the page title from the nav list. */}
       <PageHeader back={back} />
+      {call.error ? <ProblemNotice error={call.error} onRetry={() => void call.refetch()} /> : null}
 
       <CallHeader
         detail={detail}
