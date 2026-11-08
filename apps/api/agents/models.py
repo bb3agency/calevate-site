@@ -184,8 +184,10 @@ TURN_SILENCE_MAX_MS = 3000
 # The client's voice settings of founder decisions F3 and F9 (12 Oct 2026), ThinnestAI's `voice`
 # ranges (ThinnestAI email of 12 Oct 2026, VENDOR-STATED). NULL inherits
 # (`agents/call_handling`); migration e7c3a1f9d2b4 carries the same ranges on `organizations`.
-#: Ask "are you still there?" after this many seconds; 0 is "never ask".
-NUDGE_AFTER_MIN_S = 5
+#: Ask "are you still there?" after this many seconds; 0 is "never ask". The engine accepts 5,
+#: but the floor is 10: the founder's ruling of 6 Nov 2026 is that an agent waits "at least 10
+#: secs" before asking (migration a7d3e9c1b5f2 raised stored values and the CHECKs).
+NUDGE_AFTER_MIN_S = 10
 NUDGE_AFTER_MAX_S = 180
 NUDGE_NEVER = 0
 NUDGE_COUNT_MIN = 1
