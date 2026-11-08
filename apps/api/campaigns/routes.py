@@ -80,7 +80,7 @@ class ConsentProvenanceIn(Strict):
         "offline_form_optin",
         "purchased_list",
     ]
-    collected_at: datetime
+    collected_at: AwareDatetime
 
 
 #: What a client may file a campaign as. `transactional` is not offered (D-773): a campaign
