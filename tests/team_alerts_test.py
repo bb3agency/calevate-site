@@ -815,3 +815,48 @@ async def test_the_migration_writes_hot_outcomes_into_saved_rules_and_back_out()
     async with tenant_session(t.tenant_id) as session:
         await session.execute(text(migration._REMOVE_HOT))
     assert await _listed() == ("considering",)
+
+
+class _MeetFirst:
+    """A session whose first statement waits for the other request's, so two adds of one
+    address run their reads side by side, as a double click does."""
+
+    def __init__(self, session: Any, barrier: Any) -> None:
+        self._session, self._barrier, self._met = session, barrier, False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        if not self._met:
+            import asyncio
+
+            self._met = True
+            await asyncio.wait_for(self._barrier.wait(), timeout=10)
+        return await self._session.execute(*args, **kwargs)
+
+
+async def test_two_adds_of_one_address_at_once_add_one_and_neither_is_a_500() -> None:
+    import asyncio
+
+    t = await _tenant()
+    barrier = asyncio.Barrier(2)
+
+    async def add() -> Any:
+        async with tenant_session(t.tenant_id) as session:
+            return await service.add_contact(
+                _MeetFirst(session, barrier),  # type: ignore[arg-type]
+                tenant_id=t.tenant_id,
+                address="desk@example.com",
+            )
+
+    results = await asyncio.gather(add(), add(), return_exceptions=True)
+    assert all(isinstance(r, service.Contact) for r in results), results
+    assert results[0].id == results[1].id  # type: ignore[union-attr]
+    async with tenant_session(t.tenant_id) as session:
+        count = (
+            await session.execute(
+                text("SELECT count(*) FROM team_alert_contacts WHERE removed_at IS NULL")
+            )
+        ).scalar_one()
+    assert count == 1

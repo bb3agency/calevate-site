@@ -315,6 +315,13 @@ async def add_contact(
         cleaned = number
     else:
         cleaned = _normalise(address)
+    # Per client, held to commit, before the reads the insert depends on: two adds at once (a
+    # double click) both found no such address, and the second then failed on
+    # `uq_team_alert_contacts_live_address` as a 500, or both passed MAX_CONTACTS.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"team-alert-contacts:{tenant_id}"},
+    )
     existing = (
         await session.execute(
             text(
