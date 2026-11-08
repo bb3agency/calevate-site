@@ -198,7 +198,7 @@ from apps.api.billing.engine_minutes import (
     attested_rate_keys,
     record_engine_rate_key,
 )
-from apps.api.compliance.caller_memory import MEMORY_ON_SQL, recall
+from apps.api.compliance.caller_memory import MEMORY_ON_SQL, spdi_refuses_memory
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.compliance.trial_access import (
     TRIAL_MIN_CALL_SECONDS,
@@ -664,7 +664,9 @@ async def _load_agent(
                 # An operator's turn detection for this agent alone (D-901).
                 "a.turn_detection, "
                 # Whether the caller follows the agent's steps on a screen (D-906).
-                "a.caller_has_screen "
+                "a.caller_has_screen, "
+                # The business type the SPDI refusal reads (D-507(b)).
+                "COALESCE(o.vertical_template, o.unconfirmed_business_type) "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -724,7 +726,11 @@ async def _load_agent(
         "recording_notice_line": row[17],
         "recording_notice_enabled": row[18],
         "caller_memory_notice_line": row[19],
-        "caller_memory_enabled": row[20],
+        # The engine keeps caller memory (D-973), so the SPDI refusal (D-507(b)) is applied
+        # here, where the switch becomes `pastConversations`: a clinic's agent starts every
+        # call fresh however its switch was set before the business type was known.
+        "caller_memory_enabled": bool(row[20])
+        and not spdi_refuses_memory(None if row[_AFTER + 11] is None else str(row[_AFTER + 11])),
         "handoff_enabled": row[21],
         "handoff_trigger": row[22],
         "business_hours": row[23],
@@ -3898,48 +3904,6 @@ async def choose_caller_line(
     return lines[0] if lines else None
 
 
-async def _recall_for_dial(
-    session: AsyncSession,
-    tenant_id: UUID,
-    *,
-    agent: AgentRow,
-    phone_e164: str,
-) -> tuple[str, ...]:
-    """What this agent remembers about the person about to be dialled. Empty is normal.
-
-    **IT FAILS OPEN, AND THAT IS THE DECISION.** A returning caller greeted generically is
-    a missed nicety; a dial that did not happen because a memory lookup raised is a broken
-    product, and the failure would land on the one path a client watches. So every failure
-    here — a number that is not canonical E.164 (`CallerRefError`), a KEK ring that cannot
-    derive, a slow read — becomes an empty tuple and a log line, never an exception through
-    the dial. `CALLER_MEMORY_GUIDANCE` tells the model that an empty block means a caller it
-    does not know, so the degraded state is a correct call rather than a confused one.
-
-    THE SWITCH IS READ OFF THE ROW WE ALREADY HAVE, so an agent that does not remember its
-    callers — every agent by default — costs this path nothing at all, not even a query.
-    `recall()` checks again for itself; that arm is the one that matters if the switch moves
-    between `_load_agent` and here, and a read-side check is not redundant with a write-side
-    one (`compliance/caller_memory.recall`'s own argument).
-
-    HARD RULE 6: ids and a count. Never the number, never a fact.
-    """
-    if not bool(agent["caller_memory_enabled"]):
-        return ()
-    try:
-        facts = await recall(session, tenant_id, agent_id=agent["id"], phone_e164=phone_e164)
-    except Exception:
-        log.warning(
-            "caller_memory_recall_failed_open",
-            extra={"agent_id": str(agent["id"])},
-        )
-        return ()
-    log.info(
-        "caller_memory_recalled_for_dial",
-        extra={"agent_id": str(agent["id"]), "facts": len(facts)},
-    )
-    return facts
-
-
 async def _assert_dialling_tenant_owns_the_session(
     session: AsyncSession, *, tenant_id: UUID
 ) -> None:
@@ -3947,7 +3911,7 @@ async def _assert_dialling_tenant_owns_the_session(
 
     `dispatch_call` is the one function in this tree that takes BOTH a tenant-scoped
     session and a `tenant_id`, and it uses them for different halves of the same call:
-    the agent row, the caller ID and the caller memory are read under the SESSION's
+    the agent row and the caller ID are read under the SESSION's
     `app.tenant_id`, while the `calls` intent row, the experiment assignment and the
     unplaced-dial settlement are written under `tenant_session(tenant_id)`. RLS cannot
     notice the difference — each half is individually legal — so a mismatch dials tenant
@@ -4388,14 +4352,6 @@ async def dispatch_call(
                 fields=prefill.variables,
                 contact_details=details,
                 context_note=context_note,
-                # WHAT THIS AGENT ALREADY KNOWS ABOUT THE PERSON BEING DIALLED (D-513).
-                # Resolved HERE because this function is the platform's single outbound
-                # entry point — the property `scripts/check_compliance_invariants` asserts
-                # — so the campaign dispatcher, the D-21 "call this lead" button and the
-                # callback path all get it without any of them knowing the feature exists.
-                caller_memory=await _recall_for_dial(
-                    session, tenant_id, agent=agent, phone_e164=phone_e164
-                ),
                 # The per-call prompt with `{{ }}` merge fields resolved from THIS lead's
                 # data (structured builder, D-script). Only the values known at dial time
                 # are supplied; an unfilled field collapses to nothing rather than being

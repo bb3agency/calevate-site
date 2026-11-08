@@ -16,11 +16,9 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from calevate_shared.engine import (
     CALL_VARIABLE_VALUE_MAX,
-    CALLER_MEMORY_VARIABLE,
     DETAILS_LINE,
     NAME_LINE,
     PHONE_LINE,
-    PLATFORM_CALL_VARIABLES,
     REASON_LINE,
     THIS_CALL_HEADER,
     TODAY_LINE,
@@ -56,7 +54,6 @@ def test_columns_become_variables_without_the_platforms_names_or_blank_cells() -
     assert contact_call_variables(
         {"Village": " Kondapur\n", "phone": "999", "Today": "x", "Crop": "", "ఊరు": "x"}
     ) == {"village": "Kondapur"}
-    assert CALLER_MEMORY_VARIABLE in PLATFORM_CALL_VARIABLES
 
 
 def test_the_details_line_keeps_whole_items_within_the_vendors_cut() -> None:

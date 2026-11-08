@@ -252,6 +252,10 @@ class CallerChunk(PKMixin, TimestampMixin, Base):
 class CallerMemory(PKMixin, TimestampMixin, Base):
     """ONE durable fact about a repeat caller, learned on a call and kept past it.
 
+    RETIRED (D-973): nothing writes or reads these rows any more, because caller memory is
+    the engine's. Existing rows are still erased, expired and exported until the follow-up
+    migration drops the table (hard rule 8).
+
     THE SOURCE ROW `CallerChunk` PROJECTS, and it exists because `caller_chunks` stores no
     content: a distilled fact needs a home the way a transcript turn and a lead already
     have one.

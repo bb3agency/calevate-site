@@ -411,6 +411,44 @@ ACCEPT_CALLER_MEMORY_STATEMENT = text(
 )
 
 
+async def insert_caller_memory(
+    tenant_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    *,
+    phone: str,
+    fact: str,
+    occurred_at: datetime | None = None,
+    source_call_id: uuid.UUID | None = None,
+) -> None:
+    """One `caller_memories` row as the retired store wrote it (D-973): nothing in the code
+    writes one now, and the erasure, expiry and export of existing rows are still tested."""
+    from apps.api.compliance.caller_ref import active_caller_ref
+    from apps.api.db.base import uuid7
+    from apps.api.db.session import tenant_session
+
+    handle = active_caller_ref(tenant_id, phone)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO caller_memories (id, tenant_id, agent_id, subject_ref, "
+                "subject_ref_kek_id, fact, source_call_id, occurred_at, created_at, "
+                "updated_at) VALUES (:id, :tid, :aid, :ref, :kek, :fact, :call, :at, "
+                "now(), now())"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "aid": agent_id,
+                "ref": handle.ref,
+                "kek": handle.kek_id,
+                "fact": fact,
+                "call": source_call_id,
+                "at": occurred_at or datetime.now(UTC),
+            },
+        )
+        await session.commit()
+
+
 async def accept_agreements(
     tenant_id: uuid.UUID,
     user_id: uuid.UUID | None = None,

@@ -1237,8 +1237,8 @@ be pointed at a hosted API (`SUPERMEMORY_EMBEDDING_PROVIDER` and siblings,
 upstream issue #1336 reports the variables ignored. Issues #1336, #1315 (empty searches on
 Linux in 0.0.6) and #1320 (segfault under concurrent embedding) bear on which release is
 pinned; their current state is **UNVERIFIED** (`supermemory.ai` is egress-blocked here). They
-are a version gate, not a verdict. Caller memory is NOT behind this seam: its reader is
-`compliance/caller_memory.recall` over our own `caller_memories` table, and a data principal's
+are a version gate, not a verdict. Caller memory is NOT behind this seam: it is the voice engine's own (D-973), and
+our retired `caller_memories` table is read only by erasure, export and retention; a data principal's
 durable profile does not go to a store whose local build cannot enforce tenancy.
 
 **What stays in our Postgres whatever the T3 store is.** The document LEDGER, `kb_documents`:
@@ -2306,9 +2306,8 @@ base (D-689), and caller lookups at call start read our own tables. Our embeddin
   (`gemini-embedding-2` on our Google key, §6, D-952). A 50-page knowledge
   base is roughly 25,000 tokens (ESTIMATE).
 - **Dashboard and CRM search**, one query embedding per search that reaches the dense arm.
-- **Caller memory buys no embedding.** Its write, `workers/caller_memory_distil.py`, is an
-  hourly chat completion after the call, metered through `record_ai_assist_usage`, so it
-  reaches the client's bill and their spend cap can stop it.
+- **Caller memory buys nothing of ours.** The voice engine keeps it (`voice.pastConversations`);
+  our own distiller was removed (D-973).
 
 **Hard rule 7 gates every one of them.** An embedding is bought only once its model's price is
 attested (`retrieval/embedding.embedding_price_is_billable`); until then the leg is a no-op and

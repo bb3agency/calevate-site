@@ -4154,8 +4154,7 @@
           "caller_memory": {
             "enum": [
               "off",
-              "kept_by_engine",
-              "in_prompt"
+              "kept_by_engine"
             ],
             "title": "Caller Memory",
             "type": "string"

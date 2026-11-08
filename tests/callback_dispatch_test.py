@@ -33,7 +33,7 @@ from apps.api.agents import prompts
 from apps.api.agents.publishing import set_caller_memory
 from apps.api.agents.service import publish_agent
 from apps.api.callbacks import service as callbacks
-from apps.api.compliance import caller_memory, dnc
+from apps.api.compliance import dnc
 from apps.api.core import loadshed
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -53,7 +53,6 @@ from tests.conftest import (
 pytestmark = pytest.mark.anyio
 
 CALLER = "+919812345674"
-FACT = "asked about a two-bedroom flat in Gachibowli"
 
 
 @pytest.fixture(autouse=True)
@@ -150,26 +149,14 @@ async def _row(tenant_id: uuid.UUID, callback_id: uuid.UUID) -> dict[str, object
     return found
 
 
-async def test_a_callback_dials_through_the_one_entry_point_carrying_what_we_remember(
+async def test_a_callback_dials_through_the_one_entry_point(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """THE INHERITANCE CLAIM, MEASURED AT THE ENGINE. Nothing here tells the call-back path
-    that cross-call memory exists — it arrives because the dial goes through the same
-    function the campaign tick and the "call this lead" button call."""
+    """MEASURED AT THE ENGINE: the call-back goes through the same function the campaign
+    tick and the "call this lead" button call."""
     tenant_id, agent_id = await _dialable_tenant()
     owner = await _owner_of(tenant_id)
     await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner)
-    async with tenant_session(tenant_id) as session:
-        await caller_memory.remember(
-            session,
-            tenant_id,
-            agent_id=agent_id,
-            phone_e164=CALLER,
-            occurred_at=datetime.now(UTC),
-            source_call_id=None,
-            facts=[FACT],
-        )
-        await session.commit()
 
     callback_id = await _book(tenant_id, agent_id)
 
@@ -187,8 +174,7 @@ async def test_a_callback_dials_through_the_one_entry_point_carrying_what_we_rem
     assert outcome["dialled"] == 1, outcome
     assert len(seen) == 1
     ctx = seen[0]
-    assert FACT in ctx.caller_memory, "the call-back dialled without what we remember"
-    # AND THE AGENT IS TOLD WHAT THE CALL IS FOR, on the field the "call this lead" button
+    # THE AGENT IS TOLD WHAT THE CALL IS FOR, on the field the "call this lead" button
     # already uses rather than a second channel into the prompt.
     assert ctx.context_note and "call-back" in ctx.context_note
 
@@ -441,46 +427,6 @@ async def test_a_refusal_that_waiting_can_lift_is_deferred_and_not_settled(
     assert row["last_refusal_rule"] == "calling_hours"
     assert row["last_refusal_reason"], "a refusal with no sentence is a blank cell"
     assert row["settled_at"] is None
-
-
-async def test_a_memory_store_that_raises_does_not_stop_the_promised_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`_recall_for_dial` FAILS OPEN, and this is the test that says so out loud.
-
-    A returning caller greeted generically is a missed nicety. A call-back that never
-    happened because a KEK ring could not derive, or a read was slow, is a broken promise
-    to a person who is sitting by a phone — and it would land on the one path a client
-    watches. So every failure of the recall becomes an empty tuple and a log line, never
-    an exception through the dial, and `CALLER_MEMORY_GUIDANCE` tells the model that an
-    empty block means a caller it does not know. Asserted at the ENGINE, on the context
-    the call was really placed with, because a helper returning `()` proves nothing about
-    whether the dial survived.
-    """
-    tenant_id, agent_id = await _dialable_tenant()
-    owner = await _owner_of(tenant_id)
-    await set_caller_memory(tenant_id=tenant_id, agent_id=agent_id, enabled=True, attested_by=owner)
-    callback_id = await _book(tenant_id, agent_id)
-
-    async def _broken(*_args: object, **_kwargs: object) -> tuple[str, ...]:
-        raise RuntimeError("the caller-memory key ring could not derive")
-
-    monkeypatch.setattr("apps.api.agents.service.recall", _broken)
-
-    seen: list[CallContext] = []
-    engine = get_engine()
-    original = engine.start_outbound_call
-
-    async def _spy(ref: str, to: str, ctx: CallContext):  # type: ignore[no-untyped-def]
-        seen.append(ctx)
-        return await original(ref, to, ctx)
-
-    monkeypatch.setattr(engine, "start_outbound_call", _spy)
-
-    outcome = await dispatch_due_callbacks(tenant_id, slots=5)
-    assert outcome["dialled"] == 1, "a nicety that failed stopped a promised call"
-    assert seen and seen[0].caller_memory == ()
-    assert (await _row(tenant_id, callback_id))["status"] == "dialing"
 
 
 async def test_a_halt_the_memo_has_not_seen_still_stops_the_callback(

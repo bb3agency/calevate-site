@@ -24,8 +24,8 @@ from apps.api.admin.routes import CreateOrgIn
 from apps.api.agents import lead_fields
 from apps.api.agents.extraction_routes import write_schema
 from apps.api.agents.script_builder import load_agent_script, save_agent_script, save_draft
+from apps.api.agents.service import _load_agent
 from apps.api.agents.starters import StarterJob, apply_starter, starter_vertical_of
-from apps.api.compliance.caller_memory import memory_enabled
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.main import app
@@ -37,7 +37,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from scripts.seed import VERTICAL_TEMPLATES
 from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
+from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
 
 CLINIC_KEYS = [f["key"] for f in VERTICAL_TEMPLATES["clinic"]]
 RETAIL_KEYS = [f["key"] for f in VERTICAL_TEMPLATES["retail"]]
@@ -199,6 +199,7 @@ async def test_an_account_given_clinic_by_default_runs_on_the_core_only(
             text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
             {"aid": agent_id},
         )
+        await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
     await _given_clinic_by_default(tenant_id)
     asked = _suggests(monkeypatch, "retail")
 
@@ -217,7 +218,7 @@ async def test_an_account_given_clinic_by_default_runs_on_the_core_only(
         ).scalar_one()
         state = await business_type.read_state(session, tenant_id=tenant_id)
         # An unconfirmed clinic is refused cross-call memory exactly as a confirmed one is.
-        assert not await memory_enabled(session, agent_id=agent_id)
+        assert not (await _load_agent(session, tenant_id, agent_id))["caller_memory_enabled"]
     for label in ("Symptom", "Preferred doctor", "Insurance"):
         assert label not in body
     assert state.business_type is None

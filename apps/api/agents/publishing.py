@@ -1629,9 +1629,9 @@ async def set_caller_memory(
     **ONE SWITCH, TWO ABILITIES, AND THAT IS THE FOUNDER'S DECISION RATHER THAN A
     SHORTCUT.** The client-facing copy calls cross-call memory and auto-reschedule callbacks
     "two linked abilities, always on or off together", so `agents.caller_memory_enabled` is
-    the ONE column both read and `compliance.caller_memory.memory_enabled` is the ONE reader
-    (D-514's callback path uses it too). A second column would let a client switch off the
-    thing their callers were told about and keep the thing that reuses it.
+    the ONE column both read, through `compliance.caller_memory.MEMORY_ON_SQL`. A second
+    column would let a client switch off the thing their callers were told about and keep
+    the thing that reuses it.
 
     **THE ATTESTATION IS REQUIRED TO TURN IT ON AND IS NOT REQUIRED TO TURN IT OFF.** It is
     a permission, and a permission is asked for when the risk is taken, never when it is
@@ -1641,10 +1641,7 @@ async def set_caller_memory(
     reason it is not an agent column.
 
     **THE SPDI REFUSAL SITS ABOVE THE ATTESTATION AND CANNOT BE ATTESTED PAST** (D-507(b)).
-    A tenant on a refused vertical is told no here rather than being allowed to set a column
-    that `remember()` would then silently ignore — the state "the switch reads true and the
-    store stays empty" is an operator mystery, and it is one this route can simply not
-    create.
+    A tenant on a refused vertical is told no here, before the switch reaches the engine.
 
     **FAST LANE, AND THE REPUBLISH IS INSIDE THE TRANSACTION**, exactly as
     `set_disclosure_posture` and `set_call_cap`: a live agent whose column moved is

@@ -60,11 +60,6 @@ MODEL_CALLS: Final[Mapping[str, ModelCall]] = MappingProxyType(
         "copilot_memory": ModelCall(
             "flex", "hourly sweep distilling Pip's past conversations into facts it recalls"
         ),
-        "caller_memory": ModelCall(
-            "flex",
-            "hourly sweep distilling finished calls into caller facts (returns early on an "
-            "engine that keeps its own memory, which ThinnestAI does)",
-        ),
         "business_copy_scheduled": ModelCall(
             "flex",
             "the daily check's refresh of an account's examples, 15 days after the last; "

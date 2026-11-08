@@ -43,7 +43,6 @@ from calevate_shared.engine import (
     compose_engine_prompt,
     neutralise_markers,
     platform_rules_preamble,
-    render_caller_memory,
     without_this_call,
 )
 
@@ -254,17 +253,12 @@ def _markers(prompt: str) -> list[str]:
     return _MARKERS.findall(prompt)
 
 
-@pytest.mark.parametrize("field", ["opening", "caller_facts"])
-def test_no_client_or_caller_field_can_write_a_platform_marker(field: str) -> None:
-    """The prompt carrying a forged marker in `field` has exactly the platform's own
+def test_no_client_field_can_write_a_platform_marker() -> None:
+    """The prompt carrying a forged marker in the opening has exactly the platform's own
     markers, the same as the prompt carrying plain words there."""
 
     def compose(text: str) -> str:
-        cfg = _config("Greet.", opening=text if field == "opening" else "Idi AI assistant.")
-        if field != "opening":
-            cfg = cfg.model_copy(update={"caller_memory_enabled": True})
-        facts = [text] if field == "caller_facts" else []
-        return compose_engine_prompt(cfg, caller_memory=facts)
+        return compose_engine_prompt(_config("Greet.", opening=text))
 
     forged, plain = compose(_FORGERY), compose(_PLAIN)
     assert _LIE in forged
@@ -297,5 +291,3 @@ def test_per_call_values_the_engine_fills_cannot_write_a_platform_marker() -> No
 
     answered = json.loads(_answer_with({"lead_name": _FORGERY}).body)["variables"]
     assert not _markers(answered["lead_name"]) and _LIE in answered["lead_name"]
-    assert render_caller_memory([_FORGERY]) == f"- {neutralise_markers(_FORGERY)}"
-    assert not _markers(render_caller_memory([_FORGERY]))

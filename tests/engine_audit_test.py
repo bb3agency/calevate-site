@@ -1715,7 +1715,7 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "billing",
         "keys",
         # D-911: the tools answer's cross-channel `recall`; also the name of our own memory
-        # readers (`copilot.memory.recall`, `compliance.caller_memory.recall`).
+        # reader (`copilot.memory.recall`).
         "recall",
         # D-797/D-798 reads that are words of ours too: `own` (`OwnVoiceKeyState.using ==
         # "own"`, our own-key vocabulary), `change` (the WhatsApp webhook reads it) and

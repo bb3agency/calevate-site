@@ -232,8 +232,8 @@ def platform_prompt_revision() -> str:
             knowledge_tool="search_knowledge" if in_knowledge else None,
             callbacks_offered=callbacks,
             forwarded_line=not callbacks,
-            # Memory on with our section (the third agent) and with the engine's (the first),
-            # so a change to either rendering moves the revision.
+            # Memory on with the engine's (the first agent) and on an engine that keeps none
+            # (the third), so a change to either rendering moves the revision.
             caller_memory_enabled=callbacks,
             caller_memory_in_engine=in_knowledge,
             # Our hand-over rule (D-847) is composed only under `ownRules`.

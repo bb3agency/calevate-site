@@ -39,11 +39,6 @@ ROOTS = (
 #: (file, words it may hold, reason). `words` is matched against the clinic word found.
 ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
     (
-        "apps/workers/caller_memory_distil.py",
-        frozenset({"symptom", "prescription", "patient", "doctor", "hospital", "medical"}),
-        "the sensitive-word filter that keeps health details out of caller memory",
-    ),
-    (
         "apps/api/retrieval/routing.py",
         frozenset({"doctor", "dentist", "which doctor", "appointment"}),
         "multi-trade vocabulary that routes a caller's question to the business's own facts",

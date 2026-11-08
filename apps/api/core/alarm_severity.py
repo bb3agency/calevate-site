@@ -551,7 +551,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # suppression that is late by one pipeline is not a suppression that did not happen.
     "in_call_optout_unattributable": "attention",
     "opt_out_unattributable": "attention",
-    "caller_memory_distil_worklist_failed": "attention",
     # A retention policy that would delete below the regulatory floor. Statutory.
     "retention_below_trai_floor": "page",
     "retention_sweep_truncated": "attention",
@@ -603,7 +602,6 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "kb_embed_sweep_incomplete": "attention",
     "caller_embed_sweep_incomplete": "attention",
     "copilot_distil_sweep_incomplete": "attention",
-    "caller_memory_distil_sweep_incomplete": "attention",
     "kb_gloss_sweep_incomplete": "attention",
     "closure_erasure_stuck": "attention",
     "tenant_erasure_redriven": "attention",

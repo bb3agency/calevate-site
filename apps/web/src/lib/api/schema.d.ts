@@ -15567,7 +15567,7 @@ export interface components {
              * Caller Memory
              * @enum {string}
              */
-            caller_memory: "off" | "kept_by_engine" | "in_prompt";
+            caller_memory: "off" | "kept_by_engine";
             /** Drift Checked At */
             drift_checked_at: string | null;
             /** Drift State */

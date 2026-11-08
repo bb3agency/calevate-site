@@ -23,7 +23,6 @@ from calevate_shared.call_script import (
     compile_call_script,
 )
 from calevate_shared.engine import (
-    CALLER_MEMORY_GUIDANCE,
     ENGINE_MEMORY_RULE,
     NAME_RULE,
     OPENING_CONTINUES_RULE,
@@ -86,7 +85,6 @@ def test_a_bare_ok_asks_again_only_after_a_question() -> None:
 def test_an_engine_that_recaps_still_carries_the_no_invented_past_rule() -> None:
     kept = compose_engine_prompt(_cfg(caller_memory_enabled=True, caller_memory_in_engine=True))
     assert ENGINE_MEMORY_RULE in kept
-    assert CALLER_MEMORY_GUIDANCE not in kept
     assert "never invent one" in ENGINE_MEMORY_RULE
     assert ENGINE_MEMORY_RULE not in compose_engine_prompt(_cfg())
 
