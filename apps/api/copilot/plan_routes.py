@@ -33,6 +33,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import Permission, permission_meta
+from apps.api.core.schemas import MAX_OFFSET
 
 router = APIRouter(prefix="/v1", tags=["copilot"])
 
@@ -151,7 +152,7 @@ async def get_copilot_plan_targets(
     session: Session,
     principal: CopilotUser,
     limit: int = Query(25, ge=1, le=plans.MAX_TARGET_PAGE),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     status: Literal["pending", "done", "skipped", "failed"] | None = None,
 ) -> CopilotPlanTargetPageOut:
     plan = await plans.plan_of(session, plan_id, user_id=_user(principal))

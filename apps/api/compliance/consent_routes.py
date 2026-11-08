@@ -32,7 +32,7 @@ from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import AwareDatetime, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import consent
@@ -43,7 +43,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
-from apps.api.core.schemas import Strict
+from apps.api.core.schemas import Instant, Strict
 
 router = APIRouter(prefix="/v1/compliance/messaging-consent", tags=["compliance"])
 # The VOICE leg, on its own path rather than as a `purpose` field on the router above.
@@ -112,7 +112,7 @@ class RecordCallConsentIn(Strict):
     # there is none, because a default validity period for VOICE consent is counsel's
     # decision rather than code's (LEGAL-OPS-PLAYBOOK §10.7/§20). This field is how a
     # client states the one their own opt-in wording actually gave.
-    expires_at: AwareDatetime | None = None
+    expires_at: Instant | None = None
 
 
 class CallConsentOut(Strict):

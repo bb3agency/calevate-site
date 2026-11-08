@@ -32,7 +32,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.callbacks import service as callbacks
@@ -42,6 +42,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Instant
 from apps.api.crm import swipe
 
 router = APIRouter(prefix="/v1/callbacks", tags=["callbacks"])
@@ -285,7 +286,7 @@ class CallbackMoveIn(BaseModel):
 
     #: The new time, with its offset (IST: +05:30). Between 09:00 and 21:00 IST, at least two
     #: minutes from now and at most 30 days ahead.
-    at: AwareDatetime
+    at: Instant
 
 
 @router.patch(
@@ -329,7 +330,7 @@ class CallbacksBulkIn(BaseModel):
     #: The rows ticked on the Call-backs screen; at most one page of it.
     callback_ids: list[UUID] = Field(min_length=1, max_length=MAX_PAGE)
     #: With `move`: the new time for every one of them, as for a single move.
-    at: AwareDatetime | None = None
+    at: Instant | None = None
 
 
 class CallbacksBulkOut(BaseModel):

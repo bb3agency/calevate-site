@@ -23,6 +23,7 @@ from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import MAX_OFFSET
 from apps.api.insights import service
 from apps.api.insights.schemas import KnowledgeGapListOut
 
@@ -44,7 +45,7 @@ async def list_knowledge_gaps(
         description="open (default, the urgent set) · taught · dismissed · all",
     ),
     limit: int = Query(default=50, ge=1, le=service.MAX_PAGE),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
     _: Principal = Depends(requires("calls:read")),
 ) -> KnowledgeGapListOut:
     # "all" is the escape hatch for the history view; any other value is passed through as

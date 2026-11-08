@@ -32,7 +32,6 @@ from uuid import UUID
 from calevate_shared.carrier import ENGINE_NUMBER_PROVIDER, RecordableNumberProvider
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import (
-    AwareDatetime,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -77,6 +76,7 @@ from apps.api.core.impersonation import (
 )
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
+from apps.api.core.schemas import MAX_OFFSET, Instant
 from apps.api.core.settings import get_settings
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session, untenanted_session
@@ -404,7 +404,7 @@ async def list_tenants(
     # and that defence does not depend on a caller being well-behaved.
     sort: service.DirectorySort = Query(service.DEFAULT_DIRECTORY_SORT),
     limit: int = Query(25, ge=1, le=service.MAX_DIRECTORY_PAGE),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     _: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> TenantDirectoryPage:
     rows = await service.tenant_overview(
@@ -2172,7 +2172,7 @@ class DltRegistrationIn(BaseModel):
     # registration that cannot say which registration it is, is a claim, not a fact.
     pe_id: str | None = Field(default=None, max_length=120)
     entity_name: str | None = Field(default=None, max_length=200)
-    registered_at: AwareDatetime | None = None
+    registered_at: Instant | None = None
 
 
 class KycRecordIn(BaseModel):
@@ -2884,8 +2884,8 @@ class CommercialTermsIn(BaseModel):
     # `null` from = "since forever", `null` to = "until further notice" — which is what
     # an open-ended retainer is, and what every plan row in the database already looks
     # like.
-    effective_from: AwareDatetime | None = None
-    effective_to: AwareDatetime | None = None
+    effective_from: Instant | None = None
+    effective_to: Instant | None = None
 
     @field_validator(
         "setup_fee_inr",

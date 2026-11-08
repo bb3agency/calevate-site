@@ -33,6 +33,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
+from apps.api.core.schemas import MAX_OFFSET
 from apps.api.core.stepup import ActionCode, ClientActionCode, client_confirmation
 from apps.api.crm import columns as lead_column_registry
 from apps.api.crm import export_tickets, lead_search, lens, saved_views, service, translation
@@ -121,7 +122,7 @@ async def get_dashboard(
 async def get_calls(
     session: Session,
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     status: str | None = None,
     agent_id: UUID | None = None,
     outcome: OutcomeTag | None = None,
@@ -792,7 +793,7 @@ async def _leads_page(session: AsyncSession, lens: LeadSearchIn, *, tenant_id: U
 async def get_leads(
     session: Session,
     limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     status: str | None = None,
     # DECLARED SO IT CAN BE REFUSED. The parameter is gone as a feature and kept as a
     # 400: a client still sending it is asking for a narrowed table and would otherwise
@@ -1550,7 +1551,7 @@ async def lead_timeline(
     lead_id: UUID,
     session: Session,
     limit: int = Query(50, ge=1, le=service.MAX_TIMELINE_PAGE),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     _: Principal = Depends(requires("leads:read")),
 ) -> LeadTimelineOut:
     """The record existed and nobody could read it.

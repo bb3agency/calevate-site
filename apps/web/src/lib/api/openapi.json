@@ -50254,7 +50254,7 @@
       },
       "ScheduleIn": {
         "additionalProperties": false,
-        "description": "When a one-time start should happen.\n\n`AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,\nso the generated TypeScript client cannot send \"2026-08-17T10:00\" and have the\nserver decide which 10 o'clock it meant. A client picking 10am IST sends\n`2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen\nrenders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is\npinned at the type level and re-checked in `scheduling.schedule_campaign` for\ncallers that are not HTTP requests.",
+        "description": "When a one-time start should happen.\n\n`Instant`, not `datetime`: the wire type itself refuses a bare local string,\nso the generated TypeScript client cannot send \"2026-08-17T10:00\" and have the\nserver decide which 10 o'clock it meant. A client picking 10am IST sends\n`2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen\nrenders IST again. Getting this wrong dials households at 15:30 or 02:30, so it is\npinned at the type level and re-checked in `scheduling.schedule_campaign` for\ncallers that are not HTTP requests.",
         "properties": {
           "start_at": {
             "format": "date-time",
@@ -71137,6 +71137,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -71382,6 +71383,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -84711,6 +84713,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -85944,6 +85947,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -86357,6 +86361,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -89643,6 +89648,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -94787,6 +94793,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -95642,6 +95649,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -96686,6 +96694,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
