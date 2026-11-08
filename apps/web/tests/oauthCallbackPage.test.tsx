@@ -26,4 +26,11 @@ describe("the connect callback when the provider refused", () => {
     const link = screen.getByRole("link", { name: "Open your console" });
     expect(link.getAttribute("href")).toBe("/c");
   });
+
+  it("has one page heading in every state", async () => {
+    window.history.replaceState(null, "", "/oauth/callback/google?error=access_denied");
+    await mount();
+    await screen.findByText("Not connected");
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+  });
 });
