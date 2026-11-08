@@ -301,9 +301,9 @@ def _stub_whatsapp(monkeypatch: pytest.MonkeyPatch) -> tuple[uuid.UUID, list[Any
     async def _token(*_a: Any, **_k: Any) -> str:
         return "token"
 
-    async def _send(request: Any) -> int:
+    async def _send(request: Any) -> tuple[int, str | None]:
         sent.append(request)
-        return 200
+        return 200, "wamid.stub"
 
     async def _allowed(*_a: Any, **_k: Any) -> DispatchDecision:
         return DispatchDecision(allowed=True)
@@ -364,7 +364,18 @@ async def test_whatsapp_is_sent_only_with_consent_and_once_per_key(
             .scalars()
             .all()
         )
+        # Meta's id for the accepted message is kept, so a failed-delivery report finds it.
+        kept_id = (
+            await session.execute(
+                text(
+                    "SELECT payload->>'message_id' FROM lead_events WHERE lead_id = :l "
+                    "AND payload->>'status' = 'sent'"
+                ),
+                {"l": lead_id},
+            )
+        ).scalar()
     assert statuses == ["blocked", "sent"]
+    assert kept_id == "wamid.stub"
     assert await _audit(str(lead_id), "lead.whatsapp_follow_up") == 2
 
 

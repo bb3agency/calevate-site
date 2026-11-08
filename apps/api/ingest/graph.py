@@ -115,6 +115,7 @@ id is phone-shaped and the redactor cannot tell it from a number it must mask.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any, Final
@@ -294,12 +295,15 @@ class GraphLeadRetriever:
             follow_redirects=False,
         )
         try:
-            response = await http.get(
-                f"{GRAPH_HOST}/{GRAPH_API_VERSION}/{leadgen_id}",
-                params={"fields": LEAD_FIELDS},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        except httpx.HTTPError as exc:
+            # A whole-read deadline as well as httpx's: its read timeout bounds one chunk
+            # and restarts on every byte, so a trickling answer could outlast it many times.
+            async with asyncio.timeout(REQUEST_TIMEOUT_S):
+                response = await http.get(
+                    f"{GRAPH_HOST}/{GRAPH_API_VERSION}/{leadgen_id}",
+                    params={"fields": LEAD_FIELDS},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+        except (httpx.HTTPError, TimeoutError) as exc:
             # The exception TYPE, never the exception: httpx puts the request URL in the
             # message, and a timeout on a lead read is not a sentence worth a credential.
             log.warning("meta_graph_transport_error", extra={"error": type(exc).__name__})
