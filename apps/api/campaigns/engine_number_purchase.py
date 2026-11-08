@@ -321,6 +321,7 @@ async def purchase_engine_number(
                 )
             workspace = str(row[5])
             resumed = True
+            lost_race = False
         else:
             readiness = await purchase_readiness(session, tenant_id=tenant_id)
             if readiness.blocker is not None:
@@ -336,12 +337,16 @@ async def purchase_engine_number(
                 raise _price_changed(price.inr_per_month)
             await assert_can_afford(session, tenant_id=tenant_id, amount=price.inr_per_month)
             purchase_id = uuid7()
-            await session.execute(
+            # Two first presses of one key both find no row above. ON CONFLICT makes the
+            # second wait for the first's row and insert nothing, instead of a unique
+            # violation (a 500); it then reads that row like any repeat, below.
+            claimed = await session.execute(
                 text(
                     "INSERT INTO engine_number_purchases (id, tenant_id, idempotency_key, "
                     "vendor_number, workspace_id, agent_id, direction, status, requested_by, "
                     "created_at, updated_at) VALUES (:id, :tid, :key, :num, :ws, :aid, :dir, "
-                    "'renting', :by, now(), now())"
+                    "'renting', :by, now(), now()) "
+                    "ON CONFLICT (tenant_id, idempotency_key) DO NOTHING RETURNING id"
                 ),
                 {
                     "id": purchase_id,
@@ -354,7 +359,19 @@ async def purchase_engine_number(
                     "by": requested_by,
                 },
             )
+            lost_race = claimed.first() is None
             resumed = False
+    if lost_race:
+        # The other press's row is committed now, so this call takes the repeat branch.
+        return await purchase_engine_number(
+            tenant_id=tenant_id,
+            number=number,
+            agent_id=agent_id,
+            direction=direction,
+            idempotency_key=idempotency_key,
+            requested_by=requested_by,
+            quoted_inr_per_month=quoted_inr_per_month,
+        )
 
     numbers = thinnest_numbers()
     handle = scoped_handle(wanted, workspace)

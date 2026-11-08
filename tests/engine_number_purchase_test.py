@@ -225,6 +225,54 @@ async def test_a_purchase_rents_in_the_clients_name_charges_our_price_and_attach
     assert await _balance(tenant_id) == before - price
 
 
+async def test_two_first_presses_of_one_key_buy_once_and_neither_is_a_500(
+    account: FakeAccount, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both presses read "no purchase yet" before either writes one (held there by a
+    barrier). The second used to hit the unique key as an uncaught IntegrityError; it now
+    reads the first's purchase like any repeat."""
+    import asyncio
+
+    from apps.api.campaigns import engine_number_purchase as module
+
+    price = await _attested()
+    tenant_id, _workspace = await _client(account)
+    before = await _balance(tenant_id)
+    number = account.available[0]
+    key = f"key-{uuid.uuid4().hex}"
+    real_readiness = module.purchase_readiness
+    arrived: list[None] = []
+    both_read = asyncio.Event()
+
+    async def held_readiness(session: Any, *, tenant_id: UUID) -> Any:
+        arrived.append(None)
+        if len(arrived) >= 2:
+            both_read.set()
+        await asyncio.wait_for(both_read.wait(), timeout=10)
+        return await real_readiness(session, tenant_id=tenant_id)
+
+    monkeypatch.setattr(module, "purchase_readiness", held_readiness)
+
+    def press() -> Any:
+        return purchase_engine_number(
+            tenant_id=tenant_id,
+            number=number,
+            agent_id=None,
+            direction="both",
+            idempotency_key=key,
+            requested_by="client",
+        )
+
+    results = await asyncio.gather(press(), press(), return_exceptions=True)
+    assert len(arrived) == 2, "both presses passed the read before either wrote"
+    for result in results:
+        assert not isinstance(result, Exception) or isinstance(result, ProblemError), result
+    bought = [r for r in results if not isinstance(r, BaseException)]
+    assert bought, results
+    assert await _purchase_status(tenant_id, key) == "recorded"
+    assert await _balance(tenant_id) == before - price
+
+
 async def test_a_rent_still_in_flight_is_never_settled_as_nothing_bought(
     account: FakeAccount,
 ) -> None:
