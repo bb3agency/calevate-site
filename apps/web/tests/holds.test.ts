@@ -57,6 +57,17 @@ describe("holdRule", () => {
     }
   });
 
+  it("names every rule the hold queue serves, the DigiLocker requirement included", () => {
+    // `admin/holds.py` serves whatever `compliance/service.kyc_rule` returns, and that has
+    // three answers. The third was missing here, so an account an operator had asked for a
+    // DigiLocker check showed the raw code and "This console does not know this rule".
+    for (const rule of ["kyc_missing", "kyc_not_verified", "kyc_digilocker_required"]) {
+      expect(holdRule(rule), rule).not.toBeNull();
+    }
+    expect(holdRule("kyc_digilocker_required")?.label).toBe("DigiLocker check required");
+    expect(holdRule("kyc_digilocker_required")?.screen("t-1")).toBe("/admin/tenants/t-1/kyc");
+  });
+
   it("keeps `kyc_missing` and `kyc_not_verified` as two rules on one screen", () => {
     // Different work — "we have never heard from them" versus "we owe them a review" —
     // so collapsing them would lose the distinction the queue is triaged on.

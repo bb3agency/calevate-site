@@ -66,8 +66,8 @@ export interface HoldRule {
 }
 
 /**
- * The four rule names the two gates emit (`compliance/service.py`), each with the
- * screen that clears it.
+ * The three rule names `compliance/service.kyc_rule` emits, which is every rule the hold
+ * queue serves (`admin/holds.py`), each with the screen that clears it.
  *
  * A `Record<string, …>` rather than a `Record<Rule, …>`, because `holds` is `string[]`
  * on the wire — the API deliberately did not narrow it to a Literal, since the set grows
@@ -103,6 +103,18 @@ export const HOLD_RULES: Record<string, HoldRule> = {
     tone: "warn",
     item: "Identity (KYC)",
     status: "Not verified",
+    rowStatus: "waiting",
+    action: "Open",
+  },
+  kyc_digilocker_required: {
+    label: "DigiLocker check required",
+    blocks: "Outbound calling. Answering inbound calls is unaffected.",
+    remedy: "We asked for a DigiLocker check. The owner completes it on Verify your business.",
+    screen: (tenantId) => `/admin/tenants/${tenantId}/kyc`,
+    cta: "Identity (KYC)",
+    tone: "warn",
+    item: "DigiLocker check",
+    status: "Waiting on the owner",
     rowStatus: "waiting",
     action: "Open",
   },
