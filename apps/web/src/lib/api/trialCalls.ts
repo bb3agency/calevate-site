@@ -16,6 +16,7 @@ import { livePoll } from "@/lib/live/liveStatus";
 
 import { apiRequest, type Session } from "./client";
 import { queryKeys } from "./hooks";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -87,10 +88,10 @@ export function useTestCall(session: Session, callId: string): UseQueryResult<Te
   return useQuery({
     queryKey: testCallKey(session.orgSlug, callId),
     queryFn: () => apiRequest<TestCall>(session, `/v1/trial/calls/${callId}`),
-    refetchInterval: (query) => {
+    refetchInterval: untilRefused((query) => {
       const base = testCallPollMs(query.state.data);
       return base === TEST_CALL_POLL_MS ? base : livePoll(base)(query);
-    },
+    }),
   });
 }
 

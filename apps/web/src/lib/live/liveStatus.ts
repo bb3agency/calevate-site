@@ -12,6 +12,8 @@
  * scheduler, outside any render.
  */
 
+import { untilRefused } from "@/lib/api/queryRetry";
+
 import { ALL_LIVE_FAMILIES, familyOf } from "./topics";
 
 /** The slow poll that stays on under a healthy stream: what a lost note can cost at most. */
@@ -48,11 +50,13 @@ type Interval<Q> = number | false | undefined | ((query: Q) => number | false | 
 
 /**
  * A feed's `refetchInterval`, stretched to the safety poll while the stream is healthy.
- * `false` stays `false`: a query that stopped polling (a finished job) stays stopped.
+ * `false` stays `false`: a query that stopped polling (a finished job) stays stopped, and
+ * so does one whose read was refused for good (`untilRefused`).
  */
 export function livePoll<Q>(interval: Interval<Q>): (query: Q) => number | false | undefined {
+  const own = untilRefused(interval);
   return (query) => {
-    const base = typeof interval === "function" ? interval(query) : interval;
+    const base = own(query);
     if (base === false || base === undefined) return base;
     return healthy ? Math.max(base, LIVE_SAFETY_POLL_MS) : base;
   };

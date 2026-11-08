@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
 import { queryKeys } from "./hooks";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 import { knowsKey } from "./teach";
 
@@ -175,7 +176,9 @@ export function useKbUpload(session: Session, upload: KbUpload): UseQueryResult<
       return fresh;
     },
     enabled: !uploadSettled(upload),
-    refetchInterval: (query) => (query.state.data && uploadSettled(query.state.data) ? false : UPLOAD_POLL_MS),
+    refetchInterval: untilRefused((query) =>
+      query.state.data && uploadSettled(query.state.data) ? false : UPLOAD_POLL_MS,
+    ),
   });
 }
 
