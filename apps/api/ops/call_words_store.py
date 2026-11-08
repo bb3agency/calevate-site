@@ -2,13 +2,14 @@
 installs them into `calevate_shared.call_words` in every API and worker process.
 
 One append-only table (`ops/models.CallWordRevision`). The newest revision of each entry is
-in force; a NULL value puts the shipped entry back. The newest `seq` is the version.
+in force; a NULL value puts the shipped entry back. `version()` is the row count with the
+newest `seq`.
 
 HOW AN EDIT REACHES A RUNNING CHECK. `calevate_shared` cannot import this, and the checks run
 synchronously inside the post-call pipeline, so each process holds the entries in memory and
 refreshes them off the request path: `refresh_call_words` rides `ops/pricing_snapshot`'s
-30-second poll, which the API and the worker both start, and reads one integer (the newest
-`seq`) before deciding whether to read anything else. `call_words.install` then bumps the
+30-second poll, which the API and the worker both start, and reads `version()` before
+deciding whether to read anything else. `call_words.install` then bumps the
 process's generation, and each check's `Live` rebuilds its pattern the next time it is used.
 The saving route also refreshes its own process after commit.
 """
@@ -33,8 +34,8 @@ log = get_logger(__name__)
 #: How many past revisions the editor shows for one entry.
 HISTORY_LIMIT = 20
 
-#: The newest revision this process installed, or None before the first read.
-_installed: int | None = None
+#: The `version()` this process installed, or None before the first read.
+_installed: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,12 +89,19 @@ async def history(session: AsyncSession, *, key: str) -> list[Revision]:
     return [_revision(r) for r in rows]
 
 
-async def version(session: AsyncSession) -> int:
-    """The newest revision of any entry, 0 when nothing was ever edited."""
-    value = (
-        await session.execute(text("SELECT coalesce(max(seq), 0) FROM call_word_revisions"))
-    ).scalar()
-    return int(value or 0)
+async def version(session: AsyncSession) -> tuple[int, int]:
+    """`(revisions, newest seq)`, `(0, 0)` when nothing was ever edited.
+
+    The newest `seq` alone is not a version: an identity value is taken at INSERT, so a save
+    holding seq 5 can commit after one holding seq 6, and a process that installed at 6
+    would never see 5. The table is append-only, so every committed save moves the count.
+    """
+    row = (
+        await session.execute(
+            text("SELECT count(*), coalesce(max(seq), 0) FROM call_word_revisions")
+        )
+    ).one()
+    return int(row[0]), int(row[1])
 
 
 async def add_revision(
@@ -138,7 +146,10 @@ async def refresh_call_words() -> None:
         return
     call_words.install(entries)
     _installed = newest
-    log.info("call_words_installed", extra={"revision": newest, "entries": len(entries)})
+    log.info(
+        "call_words_installed",
+        extra={"revision": newest[1], "revisions": newest[0], "entries": len(entries)},
+    )
 
 
 def reset_for_test() -> None:

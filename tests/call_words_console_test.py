@@ -181,3 +181,34 @@ async def test_a_save_reaches_the_running_check_and_can_be_undone() -> None:
             .all()
         )
     assert audits == ["platform.call_words_changed", "platform.call_words_reset"]
+
+
+async def test_a_save_that_commits_after_a_newer_seq_still_reaches_the_check() -> None:
+    """An identity `seq` is taken at INSERT, not at COMMIT, so a save can land with a lower
+    seq than one already installed. Polling `max(seq)` alone never installed it."""
+    _token, admin_id = await _make_admin()
+    async with untenanted_session() as session:
+        top = int(
+            (
+                await session.execute(text("SELECT coalesce(max(seq), 0) FROM call_word_revisions"))
+            ).scalar_one()
+        )
+        # The save that took the HIGHER seq and committed first.
+        await session.execute(
+            text(
+                "INSERT INTO call_word_revisions (seq, entry_key, value, note, created_by) "
+                "OVERRIDING SYSTEM VALUE VALUES (:seq, :key, NULL, NULL, :by)"
+            ),
+            {"seq": top + 100_000, "key": HOURS, "by": admin_id},
+        )
+    await call_words_store.refresh_call_words()
+    shipped = call_words.shipped()[STALLS]
+    assert detection._NONANSWER_RE.search(f"well {MARKER} now") is None
+
+    # The save that took the LOWER seq and committed second.
+    async with untenanted_session() as session:
+        await call_words_store.add_revision(
+            session, key=STALLS, value=f"{shipped}|{MARKER}", note=None, actor_id=admin_id
+        )
+    await call_words_store.refresh_call_words()
+    assert detection._NONANSWER_RE.search(f"well {MARKER} now") is not None
