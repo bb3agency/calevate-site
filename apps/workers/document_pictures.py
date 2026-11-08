@@ -252,10 +252,12 @@ async def read_pictures(
     tenant_id: UUID,
     collector: PictureCollector,
     budget: int = MAX_OCR_IMAGES,
+    deadline_s: float | None = None,
 ) -> PictureReading:
     """Read the collected pictures within `budget`, metering what the reader was paid for in
     the caller's transaction (`kb_ingest._meter_ocr`, priced by
-    `billing/rates.llm_inr_per_ktok`; an unattested price keeps the reader `unavailable`)."""
+    `billing/rates.llm_inr_per_ktok`; an unattested price keeps the reader `unavailable`).
+    `deadline_s` is the seconds left of the caller's own model budget, when it has one."""
     from apps.workers import document_ocr
     from apps.workers.kb_ingest import _meter_ocr
 
@@ -268,7 +270,10 @@ async def read_pictures(
         for i, p in enumerate(pictures, start=1)
     ]
     try:
-        transcripts = await document_ocr.ocr_pictures(images)
+        transcripts = await document_ocr.ocr_pictures(
+            images,
+            deadline_s=document_ocr.OCR_DEADLINE_S if deadline_s is None else deadline_s,
+        )
     except OcrUnavailableError as unavailable:
         log.error("document_pictures_reader_unavailable", extra={"reason": unavailable.reason})
         reading.unavailable = unavailable

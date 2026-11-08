@@ -1,7 +1,7 @@
 """The jobs that keep a bought phone number from costing money nobody can see (D-537),
 and the one that collects its rental from the client (D-665).
 
-    meter_number_rentals      once a month, on the 1st, IST — records what each number cost
+    meter_number_rentals      daily, IST — records what each number cost this month, once
     reconcile_engine_numbers  daily — finds a rental nothing here knows about
     renew_number_rentals      daily — collects each client-priced number's current period
 
@@ -21,13 +21,14 @@ job, two workers, or a manual re-run all produce one row per number per month. T
 own report distinguishes rows it WROTE from replays, because a job that says "metered 40"
 when 39 were replays is a job whose output means nothing.
 
-**THE MONTH IS THE ONE THE JOB IS RUNNING IN, IST, AND IT IS BILLED ON DAY ONE.** The
+**THE MONTH IS THE ONE THE JOB IS RUNNING IN, IST, RECORDED ON ITS FIRST RUN IN IT.** The
 vendor charges a whole month on the number's own renewal date, which differs per number
 and which `GET /phone-numbers/all` reports only as a human string ("17th Dec, 2024",
 `get_all.md:88-91`). Metering on each number's own renewal date would need that string
-parsed, which is a vendor format nobody has verified; metering the whole estate on the
-first of the IST billing month costs the same rupees over any number's lifetime, lands in
-the month a client's statement is drawn for, and needs no unverified parsing. What it is
+parsed, which is a vendor format nobody has verified; metering the whole estate once per
+IST billing month costs the same rupees over any number's lifetime, lands in the month a
+client's statement is drawn for, and needs no unverified parsing. The cron runs daily so a
+missed 1st is caught up the next day; every other run of the month is a replay. What it is
 NOT is a proration: a number bought on the 28th is charged a full month, because the
 vendor charged us a full month.
 

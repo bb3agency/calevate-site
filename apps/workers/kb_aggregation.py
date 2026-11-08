@@ -79,6 +79,7 @@ from sqlalchemy import text
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
+from apps.api.core.redis import get_redis
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.insights import insights_for_agent, render_digest
@@ -169,6 +170,31 @@ _RECIPIENT_SQL = (
     "JOIN organizations o ON o.id = a.tenant_id "
     "WHERE a.id = :aid AND a.status = 'live'"
 )
+
+
+#: One digest per agent per closed week: claimed before the send, released when the send
+#: fails. Outlives the week so a re-run on any later day of it still finds the claim.
+_SENT_KEY = "kb_digest:sent:{agent_id}:{week}"
+_SENT_TTL_S = 8 * 86_400
+
+
+async def _claim_week(agent_id: UUID, since: datetime) -> bool:
+    """Whether this run may send the agent's digest for the week starting `since`. Fails
+    towards sending: a Redis that cannot answer costs a possible duplicate on a re-run, never
+    a week's digest."""
+    key = _SENT_KEY.format(agent_id=agent_id, week=since.date().isoformat())
+    try:
+        return bool(await get_redis().set(key, "1", nx=True, ex=_SENT_TTL_S))
+    except Exception as exc:
+        log.warning("kb_digest_claim_unavailable", extra={"error": type(exc).__name__})
+        return True
+
+
+async def _release_week(agent_id: UUID, since: datetime) -> None:
+    try:
+        await get_redis().delete(_SENT_KEY.format(agent_id=agent_id, week=since.date().isoformat()))
+    except Exception as exc:
+        log.warning("kb_digest_claim_unreleased", extra={"error": type(exc).__name__})
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,7 +359,13 @@ async def _digest_one(target: _Target, *, since: datetime, until: datetime) -> s
         # thread raised — and an exception escaping here escapes `_sweep`, which puts the
         # tick back on the retry ladder and re-mails every client already reached in this
         # pass. See the module docstring's invariant.
+        if not await _claim_week(target.agent_id, since):
+            # A re-run of this week's tick (arq retries a deploy's cancellation from the
+            # top of the ordering) reaching an agent whose digest already went.
+            return "skipped"
         delivered = await _send(str(billing_email), body)
+        if not delivered:
+            await _release_week(target.agent_id, since)
     except CallContentLeakError:
         alert(
             "WORKER_TERMINAL",

@@ -1,4 +1,5 @@
-"""Ends Pip background jobs and teach-box teachings that a worker abandoned mid-run.
+"""Ends Pip background jobs, teach-box teachings and knowledge readings ("Read it again",
+`kb_uploads.read_state = 'reading'`) that a worker abandoned mid-run.
 
 Both workers claim a row by moving it out of `queued` (`copilot/jobs.claim_job`,
 `kb_teach.run_kb_teaching`). A redeploy cancels the attempt and arq retries it, and the
@@ -35,7 +36,9 @@ from apps.api.copilot.jobs import COPILOT_JOB
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.kb.reading import READ_KB_UPLOAD_JOB
 from apps.api.teach.teaching import TEACH_JOB
+from apps.workers.kb_read import SETTLE_STALE_READS_SQL
 
 log = get_logger(__name__)
 
@@ -102,7 +105,7 @@ async def tenants_with_recent_work(now: datetime) -> list[UUID]:
             await session.execute(
                 text(_TENANTS_SQL),
                 {
-                    "jobs": [COPILOT_JOB, TEACH_JOB],
+                    "jobs": [COPILOT_JOB, TEACH_JOB, READ_KB_UPLOAD_JOB],
                     "since": now - TENANT_LOOKBACK,
                     "limit": MAX_TENANTS_PER_TICK,
                 },
@@ -117,7 +120,7 @@ async def end_interrupted_work(ctx: dict[str, Any]) -> str:
     now = datetime.now(UTC)
     cutoff = now - STALE_AFTER
     tenants = await tenants_with_recent_work(now)
-    jobs_ended = teachings_ended = failed = 0
+    jobs_ended = teachings_ended = readings_ended = failed = 0
     for tenant_id in tenants:
         # One account's lock timeout must not leave every account after it stuck; the
         # failed account is tried again on the next tick.
@@ -139,20 +142,26 @@ async def end_interrupted_work(ctx: dict[str, Any]) -> str:
                         {"code": INTERRUPTED_TEACHING_CODE, "cutoff": cutoff},
                     )
                 )
+                readings_ended += rowcount_of(
+                    await session.execute(text(SETTLE_STALE_READS_SQL), {"cutoff": cutoff})
+                )
         except Exception as failure:
             failed += 1
             log.warning(
                 "copilot_work_interrupted_sweep_failed",
                 extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
             )
-    if jobs_ended or teachings_ended:
+    if jobs_ended or teachings_ended or readings_ended:
         # An operator signal, not a page: each row is one person's request that a hung
         # provider or database call swallowed, and the person has been told on the row.
         log.warning(
             "copilot_work_interrupted",
-            extra={"jobs": jobs_ended, "teachings": teachings_ended},
+            extra={"jobs": jobs_ended, "teachings": teachings_ended, "readings": readings_ended},
         )
-    return f"tenants={len(tenants)} jobs={jobs_ended} teachings={teachings_ended} failed={failed}"
+    return (
+        f"tenants={len(tenants)} jobs={jobs_ended} teachings={teachings_ended} "
+        f"failed={failed} readings={readings_ended}"
+    )
 
 
 __all__ = [

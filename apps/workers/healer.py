@@ -1238,6 +1238,10 @@ async def _page_founder(tally: Counter[str]) -> None:
         tally["founder_paged"] += int(result.delivered)
 
 
+class NoticeDeliveryError(RuntimeError):
+    """One tick left client notices unsent: counts by kind, ids are on the log lines."""
+
+
 async def _deliver_client_notices(tally: Counter[str]) -> None:
     async with untenanted_session() as session:
         tenants = [
@@ -1253,15 +1257,22 @@ async def _deliver_client_notices(tally: Counter[str]) -> None:
                 )
             ).all()
         ]
+    failures: Counter[str] = Counter()
     for tenant_id in tenants:
         try:
-            tally["notices"] += await _notify_tenant(tenant_id)
+            tally["notices"] += await _notify_tenant(tenant_id, failures)
         except Exception as exc:
-            tally["notice_failed"] += 1
+            failures["notice_failed"] += 1
             log.warning(
                 "healer_notice_failed",
                 extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
+    tally.update(failures)
+    if failures:
+        # Caught per account so one cannot stop the rest, which also kept every failure
+        # here from `run_healer`'s step alarm: an owner re-sent the same notice every
+        # minute read as a warning line. Raised after the loop, so the alarm counts it.
+        raise NoticeDeliveryError(dict(failures))
 
 
 async def _owner_emails(session: Any, tenant_id: UUID) -> list[str]:
@@ -1283,7 +1294,7 @@ async def _owner_emails(session: Any, tenant_id: UUID) -> list[str]:
     return [seen[key] for key in sorted(seen)]
 
 
-async def _notify_tenant(tenant_id: UUID) -> int:
+async def _notify_tenant(tenant_id: UUID, failures: Counter[str] | None = None) -> int:
     from apps.api.core.transport import EmailPurpose, get_transport
     from apps.workers.email_render import from_text
     from apps.workers.whatsapp import WhatsAppMessage, get_whatsapp_transport, resolve_destination
@@ -1318,124 +1329,146 @@ async def _notify_tenant(tenant_id: UUID) -> int:
         transport = get_transport(EmailPurpose.NOTIFICATIONS)
         outage_told: set[str] = set()
         for row in rows:
-            (
-                row_id,
-                kind,
-                prot,
-                state,
-                paused,
-                missed,
-                requeued,
-                must_act,
-                notified_at,
-                _notified_by,
-                agent_name,
-                slug,
-                last_outcome,
-                opened_at,
-                resolved_at,
-            ) = row
-            restored = notified_at is not None
-            line_changed = prot != "none" or kind == "platform_outage"
-            # One message per platform outage, not one per agent of the same client.
-            repeat = kind == "platform_outage" and f"{kind}:{restored}" in outage_told
-            loud = not repeat and (line_changed if restored else (must_act or line_changed))
-            if not loud:
-                # Nothing was taken off the line, nothing is asked of them, or they were
-                # just told: the dashboard notice is enough.
-                await session.execute(
-                    text(
-                        "UPDATE heal_client_incidents SET notified_at = COALESCE(notified_at, "
-                        "now()), notified_by = COALESCE(notified_by, 'dashboard'), "
-                        "restored_notified_at = CASE WHEN state = 'resolved' THEN now() "
-                        "ELSE restored_notified_at END WHERE id = :id"
-                    ),
-                    {"id": row_id},
-                )
-                continue
-            notice = notices.line_notice(
-                kind=str(kind),
-                protection=str(prot),
-                agent_name=agent_name,
-                campaigns_paused=int(paused),
-                fallback_phone=fallback,
-                state=str(state),
-                missed_calls=int(missed),
-                requeued=int(requeued),
-                worst_signal=(last_outcome or "").removeprefix("signal:") or None,
-                has_proposal=has_proposal,
-            )
-            email = from_text(
-                subject=notice.headline,
-                preheader=notice.what_we_did,
-                heading=notice.headline,
-                text=notice.as_text(link=notices.incident_link(str(slug))),
-            )
-            delivered = [
-                address
-                for address in recipients
-                if await asyncio.to_thread(
-                    transport.send,
-                    to=address,
-                    subject=email.subject,
-                    body=email.text,
-                    html=email.html,
-                )
-            ]
-            channels = ["dashboard"] + (["email"] if delivered else [])
-            whatsapp_ok = settings.whatsapp_enabled and destination is not None and line_changed
-            if destination is None or destination.opt_in_at is None:
-                # An opt-in we cannot evidence is not an opt-in (SEC-COMP §4).
-                whatsapp_ok = False
-            if whatsapp_ok and destination is not None:
-                template = (
-                    settings.whatsapp_template_line_restored
-                    if restored
-                    else settings.whatsapp_template_line_notice
-                )
-                result = await get_whatsapp_transport().send(
-                    WhatsAppMessage(
-                        to_e164=destination.to_e164,
-                        template=template,
-                        locale=settings.whatsapp_template_locale,
-                        variables=(str(agent_name or "your agent"),),
+            # A SAVEPOINT PER INCIDENT. Every row is stamped in this one transaction, so a
+            # row that raises (a send that throws, a stamp or ledger write) used to roll back
+            # the stamps of the rows already delivered, and the owner was sent those notices
+            # again on every tick. Now only the failing row is left for the next tick, and
+            # the failure reaches the step alarm through `failures`.
+            try:
+                async with session.begin_nested():
+                    (
+                        row_id,
+                        kind,
+                        prot,
+                        state,
+                        paused,
+                        missed,
+                        requeued,
+                        must_act,
+                        notified_at,
+                        _notified_by,
+                        agent_name,
+                        slug,
+                        last_outcome,
+                        opened_at,
+                        resolved_at,
+                    ) = row
+                    restored = notified_at is not None
+                    line_changed = prot != "none" or kind == "platform_outage"
+                    # One message per platform outage, not one per agent of the same client.
+                    repeat = kind == "platform_outage" and f"{kind}:{restored}" in outage_told
+                    loud = not repeat and (line_changed if restored else (must_act or line_changed))
+                    if not loud:
+                        # Nothing was taken off the line, nothing is asked of them, or they were
+                        # just told: the dashboard notice is enough.
+                        await session.execute(
+                            text(
+                                "UPDATE heal_client_incidents SET "
+                                "notified_at = COALESCE(notified_at, now()), "
+                                "notified_by = COALESCE(notified_by, 'dashboard'), "
+                                "restored_notified_at = CASE WHEN state = 'resolved' THEN now() "
+                                "ELSE restored_notified_at END WHERE id = :id"
+                            ),
+                            {"id": row_id},
+                        )
+                        continue
+                    notice = notices.line_notice(
+                        kind=str(kind),
+                        protection=str(prot),
+                        agent_name=agent_name,
+                        campaigns_paused=int(paused),
+                        fallback_phone=fallback,
+                        state=str(state),
+                        missed_calls=int(missed),
+                        requeued=int(requeued),
+                        worst_signal=(last_outcome or "").removeprefix("signal:") or None,
+                        has_proposal=has_proposal,
                     )
-                )
-                if result.delivered:
-                    channels.append("whatsapp")
-            if len(channels) == 1:
-                # Nothing reached them. Left unstamped, the next tick (every minute) sends it
-                # again, inside `NOTICE_RETRY_WINDOW`. Past it the row is stamped with
-                # `undelivered` rather than plain `dashboard`, which is the quiet-row marker
-                # and would make the selection above skip this incident's restored notice.
-                since = resolved_at if restored else opened_at
-                if since is not None and _now() - since < NOTICE_RETRY_WINDOW:
-                    log.warning(
-                        "healer_notice_retrying",
-                        extra={"tenant_id": str(tenant_id), "incident_id": str(row_id)},
+                    email = from_text(
+                        subject=notice.headline,
+                        preheader=notice.what_we_did,
+                        heading=notice.headline,
+                        text=notice.as_text(link=notices.incident_link(str(slug))),
                     )
-                    continue
-                channels.append("undelivered")
-            if kind == "platform_outage":
-                outage_told.add(f"{kind}:{restored}")
-            column = "restored_notified_at" if restored else "notified_at"
-            await session.execute(
-                text(
-                    f"UPDATE heal_client_incidents SET {column} = now(), notified_by = :by, "
-                    "updated_at = now() WHERE id = :id"
-                ),
-                {"id": row_id, "by": ",".join(channels)},
-            )
-            await ledger.record(
-                session,
-                playbook="client_notice",
-                step="notify",
-                outcome="ok" if delivered else "failed",
-                tenant_id=tenant_id,
-                detail=f"{'restored' if restored else 'opened'} via {','.join(channels)} "
-                f"to {len(delivered)} address(es)",
-            )
-            sent += 1
+                    delivered = [
+                        address
+                        for address in recipients
+                        if await asyncio.to_thread(
+                            transport.send,
+                            to=address,
+                            subject=email.subject,
+                            body=email.text,
+                            html=email.html,
+                        )
+                    ]
+                    channels = ["dashboard"] + (["email"] if delivered else [])
+                    whatsapp_ok = (
+                        settings.whatsapp_enabled and destination is not None and line_changed
+                    )
+                    if destination is None or destination.opt_in_at is None:
+                        # An opt-in we cannot evidence is not an opt-in (SEC-COMP §4).
+                        whatsapp_ok = False
+                    if whatsapp_ok and destination is not None:
+                        template = (
+                            settings.whatsapp_template_line_restored
+                            if restored
+                            else settings.whatsapp_template_line_notice
+                        )
+                        result = await get_whatsapp_transport().send(
+                            WhatsAppMessage(
+                                to_e164=destination.to_e164,
+                                template=template,
+                                locale=settings.whatsapp_template_locale,
+                                variables=(str(agent_name or "your agent"),),
+                            )
+                        )
+                        if result.delivered:
+                            channels.append("whatsapp")
+                    if len(channels) == 1:
+                        # Nothing reached them. Left unstamped, the next tick (every minute)
+                        # sends it again, inside `NOTICE_RETRY_WINDOW`. Past it the row is
+                        # stamped with `undelivered` rather than plain `dashboard`, which is the
+                        # quiet-row marker and would make the selection above skip this
+                        # incident's restored notice.
+                        since = resolved_at if restored else opened_at
+                        if since is not None and _now() - since < NOTICE_RETRY_WINDOW:
+                            log.warning(
+                                "healer_notice_retrying",
+                                extra={"tenant_id": str(tenant_id), "incident_id": str(row_id)},
+                            )
+                            continue
+                        channels.append("undelivered")
+                    if kind == "platform_outage":
+                        outage_told.add(f"{kind}:{restored}")
+                    column = "restored_notified_at" if restored else "notified_at"
+                    await session.execute(
+                        text(
+                            f"UPDATE heal_client_incidents SET {column} = now(), "
+                            "notified_by = :by, updated_at = now() WHERE id = :id"
+                        ),
+                        {"id": row_id, "by": ",".join(channels)},
+                    )
+                    await ledger.record(
+                        session,
+                        playbook="client_notice",
+                        step="notify",
+                        outcome="ok" if delivered else "failed",
+                        tenant_id=tenant_id,
+                        detail=f"{'restored' if restored else 'opened'} via {','.join(channels)} "
+                        f"to {len(delivered)} address(es)",
+                    )
+                    sent += 1
+            except Exception as exc:
+                if failures is not None:
+                    failures["notice_row_failed"] += 1
+                log.warning(
+                    "healer_notice_row_failed",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "incident_id": str(row[0]),
+                        "error": type(exc).__name__,
+                    },
+                )
     return sent
 
 

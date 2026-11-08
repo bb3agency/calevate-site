@@ -149,7 +149,14 @@ async def draft_teach_question(ctx: dict[str, Any], payload: dict[str, Any]) -> 
     tenant_id = UUID(str(payload["tenant_id"]))
     key = str(payload["question_key"])
     fingerprint = str(payload["inputs_hash"])
-    outcome = await _draft(tenant_id, key, fingerprint)
+    try:
+        outcome = await _draft(tenant_id, key, fingerprint)
+    except Exception:
+        # arq does not retry a plain exception and the job is queued once per inputs, so
+        # the row is settled here, or the owner's list shows it being drafted until the
+        # staleness window (`questions.DRAFT_STALE_MINUTES`). Raised on for the alarm.
+        await _store_none(tenant_id, key, fingerprint)
+        raise
     log.info("teach_question_drafted", extra={"tenant_id": str(tenant_id), "outcome": outcome})
     return outcome
 

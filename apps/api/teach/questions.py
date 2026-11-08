@@ -59,6 +59,11 @@ DRAFT_JOB: Final = "draft_teach_question"
 MAX_QUESTIONS: Final = 50
 #: Drafts one read may queue: the top of the list is what the owner answers first.
 MAX_DRAFTS_PER_READ: Final = 10
+#: Minutes a draft may stay `queued` before the list stops showing it as being written. A
+#: run that died outright (no try left, a worker lost) never settles its row, and the job is
+#: queued once per inputs, so without this the question shimmered "drafting" for ever. The
+#: draft is one model call, well inside the worker's 5-minute job limit.
+DRAFT_STALE_MINUTES: Final = 15
 
 Why = Literal["callers", "practice", "setup"]
 SourceKind = Literal["profile", "fact", "answer", "file"]
@@ -294,9 +299,11 @@ async def list_questions(
         for r in await session.execute(
             text(
                 "SELECT question_key, inputs_hash, draft_status, draft, draft_source_kind, "
-                "draft_source_label FROM teach_questions WHERE question_key = ANY(:keys)"
+                "draft_source_label, "
+                "updated_at < now() - make_interval(mins => :stale) AS draft_stale "
+                "FROM teach_questions WHERE question_key = ANY(:keys)"
             ),
-            {"keys": [q.key for q in questions]},
+            {"keys": [q.key for q in questions], "stale": DRAFT_STALE_MINUTES},
         )
     }
     out: list[Question] = []
@@ -318,7 +325,7 @@ async def list_questions(
                     draft_source_kind=row.draft_source_kind,
                     draft_source_label=row.draft_source_label,
                 )
-            elif row.draft_status == "queued":
+            elif row.draft_status == "queued" and not row.draft_stale:
                 question = replace(question, drafting=True)
         elif queue_drafts and queued < MAX_DRAFTS_PER_READ:
             await _queue_draft(
