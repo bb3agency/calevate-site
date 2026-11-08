@@ -121,6 +121,7 @@ from apps.api.copilot.actions import (
     assistant_closed_to,
     may_act,
     parse_args,
+    staged_approver,
 )
 from apps.api.copilot.agent_actions import AGENT_ACTIONS
 from apps.api.copilot.agent_setup_actions import AGENT_SETUP_ACTIONS
@@ -2074,7 +2075,7 @@ async def approve(
         )
     assert row.pending_args is not None
     try:
-        plan = await tool.plan(session, actor, row.pending_args)
+        plan = await tool.plan(session, staged_approver(actor, row.pending_args), row.pending_args)
     except WriteRefusedError as refused:
         await action_log.decide_approval(
             session, action_id=action_id, status="refused", by=actor.user_id, reason=refused.reason

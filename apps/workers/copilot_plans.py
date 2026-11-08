@@ -63,6 +63,21 @@ async def _actor(tenant_id: UUID, user_id: UUID) -> ToolActor | None:
     return ToolActor(tenant_id=tenant_id, user_id=user_id, role=role, impersonating=False)
 
 
+async def _approver(tenant_id: UUID, user_id: UUID, tool_name: str) -> ToolActor | tuple[str, str]:
+    """The approver as they stand now, or (outcome, reason) when the plan must stop."""
+    from apps.api.copilot import write_tools
+
+    tool = write_tools.tool_named(tool_name)
+    actor = await _actor(tenant_id, user_id)
+    if actor is None:
+        return "member_gone", "The person who approved it is no longer on the account."
+    async with tenant_session(tenant_id) as session:
+        allowed = tool is not None and await may_act(session, actor, tool.permission)
+    if not allowed:
+        return "forbidden", "The approver's role no longer allows this."
+    return actor
+
+
 async def _close(tenant_id: UUID, plan_id: UUID, *, skip_reason: str | None, note: str) -> None:
     async with tenant_session(tenant_id) as session:
         if skip_reason is not None:
@@ -91,34 +106,17 @@ async def run_copilot_plan(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             note="Nothing was done.",
         )
         return "unknown_tool"
-    actor = await _actor(tenant_id, plan.user_id)
-    if actor is None:
-        await _close(
-            tenant_id,
-            plan_id,
-            skip_reason="The person who approved it is no longer on the account.",
-            note="Nothing more was done.",
-        )
-        return "member_gone"
-    async with tenant_session(tenant_id) as session:
-        allowed = await may_act(session, actor, tool.permission)
-    if not allowed:
-        await _close(
-            tenant_id,
-            plan_id,
-            skip_reason="The approver's role no longer allows this.",
-            note="Nothing more was done.",
-        )
-        return "forbidden"
-
-    if action.dial is not None:
-        return await _run_dial(tenant_id, plan, actor, action)
-    return await _run_each(tenant_id, plan_id, actor, action)
+    if action.dial is None:
+        return await _run_each(tenant_id, plan_id, plan.user_id, action)
+    checked = await _approver(tenant_id, plan.user_id, plan.tool)
+    if not isinstance(checked, ToolActor):
+        outcome, reason = checked
+        await _close(tenant_id, plan_id, skip_reason=reason, note="Nothing more was done.")
+        return outcome
+    return await _run_dial(tenant_id, plan, checked, action)
 
 
-async def _run_each(
-    tenant_id: UUID, plan_id: UUID, actor: ToolActor, action: plans.SetAction
-) -> str:
+async def _run_each(tenant_id: UUID, plan_id: UUID, user_id: UUID, action: plans.SetAction) -> str:
     assert action.run_one is not None
     plan = None
     while True:
@@ -129,6 +127,15 @@ async def _run_each(
             batch = await plans.pending_batch(session, plan_id, size=plans.BATCH)
         if not batch or plan is None:
             break
+        # The approver is re-read before every batch, not only at the start: a plan over
+        # thousands of targets outlives a deactivation or a demotion, and only its approver
+        # can cancel it, so nobody else could stop it.
+        checked = await _approver(tenant_id, user_id, plan.tool)
+        if not isinstance(checked, ToolActor):
+            outcome, reason = checked
+            await _close(tenant_id, plan_id, skip_reason=reason, note="Nothing more was done.")
+            return outcome
+        actor = checked
         for target_id in batch:
             await _run_target(tenant_id, plan_id, actor, action, plan.args, target_id)
         async with tenant_session(tenant_id) as session:

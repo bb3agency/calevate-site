@@ -28,6 +28,7 @@ from apps.api.copilot.actions import (
     actor_for,
     assistant_closed_to,
     may_act,
+    staged_approver,
 )
 from apps.api.copilot.routine_schemas import CopilotApprovalPreviewOut
 from apps.api.copilot.sanitize import strip_invisible
@@ -79,7 +80,7 @@ async def preview_approval(
             "Your role does not allow this change. Ask an owner or manager.",
         )
     try:
-        plan = await tool.plan(session, actor, row.pending_args)
+        plan = await tool.plan(session, staged_approver(actor, row.pending_args), row.pending_args)
     except WriteRefusedError as refusal:
         return refused("This no longer applies", _said(refusal.plain))
     return CopilotApprovalPreviewOut(
