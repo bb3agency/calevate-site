@@ -235,6 +235,20 @@ function ToastViewport({
   const [focused, setFocused] = useState(false);
   const paused = hidden || hovered || focused;
   const visible = toasts.slice(0, MAX_VISIBLE);
+  const region = useRef<HTMLElement>(null);
+  // Closing a toast removes the element the pointer or the focus was on, and a removed
+  // element is not guaranteed to send `pointerout` or `focusout`, so the pause is re-read
+  // from the page once a closed card has left. Without this, a toast closed with its X could
+  // pause every later toast until the stack was hovered again. A frame later, because
+  // `onExitComplete` runs before the card's node is detached.
+  const recheckPause = useCallback(() => {
+    requestAnimationFrame(() => {
+      const el = region.current;
+      if (el === null) return;
+      if (!el.contains(document.activeElement)) setFocused(false);
+      if (!el.matches(":hover")) setHovered(false);
+    });
+  }, []);
   // Portalled into <body> once mounted, so no stacking context in a shell can trap the layer.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -250,6 +264,7 @@ function ToastViewport({
   if (!mounted) return null;
   return createPortal(
     <section
+      ref={region}
       aria-label={label}
       onPointerOver={() => setHovered(true)}
       onPointerOut={(e) => {
@@ -270,7 +285,7 @@ function ToastViewport({
       <span role="alert" aria-live="assertive" className="sr-only">
         {assertive}
       </span>
-      <AnimatePresence initial={false}>
+      <AnimatePresence initial={false} onExitComplete={recheckPause}>
         {visible.map((t) => (
           <ToastCard
             key={t.id}
