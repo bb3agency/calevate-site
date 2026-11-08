@@ -33,7 +33,8 @@
  * hostnames and one bundle (`lib/consoleOrigin.ts` sets that out in full): the apex serves
  * the marketing site and the three auth screens, and nginx answers 404 there for `/admin`
  * and `/c/`. Every page in `PUBLIC_ROUTES` below is served on the apex and only on the
- * apex, so the apex is the canonical origin for all of them.
+ * apex, so the apex is the canonical origin for all of them — except a `host: "app"`
+ * page, which nginx sends to the client console host instead.
  *
  * NOT AN ENVIRONMENT VARIABLE, deliberately. A
  * `NEXT_PUBLIC_SITE_ORIGIN` would be inlined at build time and would ship as the empty
@@ -69,6 +70,14 @@ export interface PublicRoute {
   readonly changeFrequency: ChangeFrequency;
   /** Why this page is in the list — read by nobody until it needs to change. */
   readonly why: string;
+  /**
+   * `"app"` for a page served only on the client console host. nginx answers it on the
+   * apex with a 301 to `app.` (D-732, `infra/nginx/calevate.conf.template`), so its
+   * canonical is the `app.` URL and the apex sitemap leaves it out: a sitemap lists URLs
+   * from its own host only (sitemaps.org/protocol.html#location), and an entry that
+   * redirects is not a canonical URL.
+   */
+  readonly host?: "app";
 }
 
 /**
@@ -146,6 +155,7 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
     priority: 0.7,
     changeFrequency: "monthly",
     why: "the header call to action, and the first form a client meets",
+    host: "app",
   },
   {
     path: "/legal",
@@ -197,6 +207,18 @@ export const DISALLOWED_PREFIXES: readonly { readonly prefix: string; readonly w
       "ahead of the day it is, because a crawler that finds a JSON endpoint indexes it",
   },
 ];
+
+/**
+ * The client console host, for the canonical of a public page nginx serves only there
+ * (`PublicRoute.host`). A constant beside `SITE_ORIGIN`, for that constant's reason.
+ */
+export const CLIENT_SITE_ORIGIN = "https://app.calevate.tech";
+
+/** An absolute URL on the client console host, for a `host: "app"` page's canonical. */
+export function clientSiteUrl(path: string): string {
+  if (!path.startsWith("/")) throw new Error(`clientSiteUrl expects a rooted path, got ${path}`);
+  return `${CLIENT_SITE_ORIGIN}${path}`;
+}
 
 /** An absolute URL on the public site, for a canonical tag or a sitemap entry. */
 export function siteUrl(path: string): string {

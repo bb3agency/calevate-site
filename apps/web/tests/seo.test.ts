@@ -18,7 +18,7 @@ import { metadata as whyCalevateMetadata } from "@/app/why-calevate/page";
 import { NAV_ROUTES } from "@/components/marketing/siteHeader";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { organizationJsonLd, siteJsonLd, websiteJsonLd } from "@/lib/seo/structuredData";
-import { DISALLOWED_PREFIXES, PUBLIC_ROUTES, SITE_ORIGIN, siteUrl } from "@/lib/site";
+import { DISALLOWED_PREFIXES, PUBLIC_ROUTES, SITE_ORIGIN, clientSiteUrl, siteUrl } from "@/lib/site";
 
 /**
  * THE TECHNICAL-SEO FLOOR, and one of its four assertions is a compliance assertion.
@@ -63,6 +63,12 @@ function titleOf(meta: Metadata): string {
   const title = meta.title;
   expect(typeof title, `title is not a plain string: ${JSON.stringify(title)}`).toBe("string");
   return String(title);
+}
+
+/** Where a public page is canonically served: the apex, or `app.` for a `host: "app"` page. */
+function servedAt(path: string): string {
+  const route = PUBLIC_ROUTES.find((r) => r.path === path);
+  return route?.host === "app" ? clientSiteUrl(path) : siteUrl(path);
 }
 
 function canonicalOf(meta: Metadata): string {
@@ -110,11 +116,17 @@ describe("sitemap.xml", () => {
     expect(urls.filter((url) => url.includes("/admin"))).toEqual([]);
   });
 
-  it("lists every public marketing page, once", () => {
+  it("lists every public marketing page served on this host, once", () => {
     for (const route of PUBLIC_ROUTES) {
-      expect(urls, `missing ${route.path}`).toContain(siteUrl(route.path));
+      if (route.host === undefined) expect(urls, `missing ${route.path}`).toContain(siteUrl(route.path));
     }
     expect(new Set(urls).size, "a duplicate URL").toBe(urls.length);
+  });
+
+  it("leaves out signup, which nginx redirects from the apex to app. (D-732)", () => {
+    // A sitemap lists its own host's URLs only, and a redirecting URL is not canonical.
+    expect(urls).not.toContain(siteUrl("/signup"));
+    expect(PUBLIC_ROUTES.find((r) => r.path === "/signup")?.host).toBe("app");
   });
 
   it("lists all eight legal documents, with their published effective date", () => {
@@ -216,7 +228,7 @@ describe("every public page's metadata", () => {
 
   it("declares its own absolute canonical URL", () => {
     for (const [path, meta] of Object.entries(STATIC_METADATA)) {
-      expect(canonicalOf(meta), `${path} has the wrong canonical`).toBe(siteUrl(path));
+      expect(canonicalOf(meta), `${path} has the wrong canonical`).toBe(servedAt(path));
     }
   });
 
@@ -226,7 +238,7 @@ describe("every public page's metadata", () => {
       expect(og, `${path} has no openGraph`).toBeTruthy();
       expect(String(og?.title)).toBe(titleOf(meta));
       expect(String((og as { description?: string })?.description)).toBe(String(meta.description));
-      expect(String((og as { url?: string })?.url)).toBe(siteUrl(path));
+      expect(String((og as { url?: string })?.url)).toBe(servedAt(path));
       expect((og as { siteName?: string })?.siteName).toBe("Calevate");
       expect((og as { type?: string })?.type).toBe("website");
       expect((og as { locale?: string })?.locale).toBe("en_IN");

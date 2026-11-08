@@ -44,7 +44,8 @@ import { PUBLIC_ROUTES, isDisallowedPath, siteUrl } from "@/lib/site";
  * the field is optional in the protocol.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const marketing: MetadataRoute.Sitemap = PUBLIC_ROUTES.map((route) => ({
+  // A `host: "app"` page redirects off this host, so it is not one of this sitemap's URLs.
+  const marketing: MetadataRoute.Sitemap = PUBLIC_ROUTES.filter((route) => route.host === undefined).map((route) => ({
     url: siteUrl(route.path),
     changeFrequency: route.changeFrequency,
     priority: route.priority,

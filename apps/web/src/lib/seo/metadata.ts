@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { siteUrl } from "@/lib/site";
+import { clientSiteUrl, siteUrl } from "@/lib/site";
 
 /**
  * ONE WAY TO DESCRIBE A PUBLIC PAGE TO A SEARCH ENGINE AND TO A LINK PREVIEW.
@@ -36,6 +36,8 @@ export interface PublicPageMetadata {
   readonly title: string;
   /** One or two sentences, under ~160 characters where possible. Shown in a search result. */
   readonly description: string;
+  /** `"app"` for a page served only on the client console host (`PublicRoute.host`). */
+  readonly host?: "app";
 }
 
 /** The site's name, as it should appear in a link preview and in `WebSite` structured data. */
@@ -77,8 +79,8 @@ export const OG_IMAGE = {
 } as const;
 
 /** The metadata a public marketing page ships, from the three facts only the page knows. */
-export function publicPageMetadata({ path, title, description }: PublicPageMetadata): Metadata {
-  const url = siteUrl(path);
+export function publicPageMetadata({ path, title, description, host }: PublicPageMetadata): Metadata {
+  const url = host === "app" ? clientSiteUrl(path) : siteUrl(path);
   return {
     title,
     description,
