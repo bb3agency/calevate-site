@@ -418,7 +418,7 @@ function rateOptions(
     ...card.packs.map((pack) => ({
       id: pack.pack_id,
       label: `${formatINR(pack.amount_inr)} pack — ${formatINR(packRate(pack, voice))}/min`,
-      caption: `${packMinutes(pack, voice).toLocaleString("en-IN")} min of talk time${pack.best_value ? " · best value" : ""}`,
+      caption: `${packMinutes(pack, voice).toLocaleString("en-IN")} min of talk time`,
     })),
   ];
 }

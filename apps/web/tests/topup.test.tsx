@@ -406,9 +406,11 @@ describe("the top-up panel", () => {
     // tenant and no provider state, so it is exactly as true on a bank-transfer
     // deployment as on a card one.
     expect(
-      screen.getByText("Best value"),
+      screen.getByRole("radio", { name: /^₹50,000/ }),
       "the rate card is gone",
     ).toBeTruthy();
+    // Every pack sells the minute at one rate (D-728), so no pack is called the best value.
+    expect(container.textContent).not.toMatch(/best value/i);
     // BOTH RATES AND BOTH TALK TIMES, each under the name a client reads for that quality
     // (D-547). A pack is no longer one price: what a minute costs depends on the voice the
     // agent that takes the call speaks with, and a card that showed one number would be
@@ -560,7 +562,7 @@ describe("the top-up panel", () => {
 
     // The rate card renders every pack with its server-priced figures — two rates, two
     // talk times, none of them computed in the browser.
-    await screen.findByText("Best value");
+    await screen.findByRole("radio", { name: /^₹50,000/ });
     expect(container.textContent).toContain("11,111 min Clear · 8,333 min Studio"); // max
     expect(container.textContent).toContain("400 min Clear · 250 min Studio"); // entry rung
     // THE RATES ARE STATED ONCE, for the selection, not repeated on six cards.
@@ -712,7 +714,7 @@ describe("the top-up panel", () => {
       "Credits",
     );
 
-    await screen.findByText("Best value");
+    await screen.findByRole("radio", { name: /^₹50,000/ });
     // The packs still render — a client can still buy — and every amount is still there.
     expect(screen.getAllByRole("radio", { name: /^₹/ })).toHaveLength(6);
     expect(container.textContent).toContain("50,000 credits of calling");

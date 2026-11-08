@@ -586,10 +586,6 @@ function PackPicker({
                     <span className="text-meta font-semibold text-brand-strong dark:text-brand-bright">
                       Fits your month
                     </span>
-                  ) : pack.best_value ? (
-                    <span className="text-meta font-semibold text-brand-strong dark:text-brand-bright">
-                      Best value
-                    </span>
                   ) : null}
                 </span>
                 <span className="mt-0.5 block text-meta tabular-nums text-ink-muted">
