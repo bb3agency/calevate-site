@@ -317,6 +317,35 @@ async def test_credential(
         )
     if resolved is None:
         raise ProblemError.not_found("Credential")
+    try:
+        return await _probe_credential(resolved)
+    except httpx.HTTPError as exc:
+        # No answer is not a verdict on the connection: saying "not accepted, reconnect"
+        # here would send the owner to redo a connection that works.
+        log.warning(
+            "credential_test_unreachable",
+            extra={"kind": resolved.kind, "error": type(exc).__name__},
+        )
+        return CredentialTestOut(ok=False, message=UNREACHABLE_TEST_MESSAGE)
+
+
+#: The connection test's answer when the provider did not reply.
+UNREACHABLE_TEST_MESSAGE = "We couldn't reach it just now. Try the test again in a minute."
+
+
+def vendor_unreachable(label: str) -> ProblemError:
+    """A provider that did not answer an owner's request, as a refusal they can act on
+    rather than a 500."""
+    return ProblemError(
+        kind="dependency",
+        code="integration_unreachable",
+        title=f"{label} did not answer",
+        detail=f"We couldn't reach {label} just now. Nothing was changed.",
+        remediation="Try again in a minute.",
+    )
+
+
+async def _probe_credential(resolved: creds.ResolvedCredential) -> CredentialTestOut:
     async with egress_client(timeout=8.0) as http:
         if resolved.kind == "razorpay":
             req = rzp.probe(
@@ -431,9 +460,13 @@ async def complete_oauth(
             remediation="Start the connection again from the Connections screen.",
         )
     req = oauth.exchange_request(kind, code=payload.code, accounts_server=accounts)
-    async with egress_client(timeout=10.0) as http:
-        resp = await http.post(req.url, headers=req.headers, data=req.form_body)
     label = oauth.label(kind)
+    try:
+        async with egress_client(timeout=10.0) as http:
+            resp = await http.post(req.url, headers=req.headers, data=req.form_body)
+    except httpx.HTTPError as exc:
+        log.warning("oauth_exchange_unreachable", extra={"kind": kind, "error": type(exc).__name__})
+        raise vendor_unreachable(label) from exc
     if resp.status_code != 200:
         log.info("oauth_exchange_refused", extra={"kind": kind, "status": resp.status_code})
         if kind == "google_calendar":
@@ -592,8 +625,14 @@ async def sheets_picker(
         resolved = None
     token = None
     if resolved is not None:
-        async with egress_client(timeout=10.0) as http:
-            token = await access_token_for(resolved, credential_id=credential_id, client=http)
+        try:
+            async with egress_client(timeout=10.0) as http:
+                token = await access_token_for(resolved, credential_id=credential_id, client=http)
+        except (httpx.HTTPError, TimeoutError) as exc:
+            # Not a lapsed connection: the token endpoint did not answer, so "reconnect"
+            # below would be the wrong instruction.
+            log.warning("sheets_picker_token_unreachable", extra={"error": type(exc).__name__})
+            raise vendor_unreachable(oauth.label("google_sheets")) from exc
     if token is None:
         raise ProblemError(
             kind="business_rule",
