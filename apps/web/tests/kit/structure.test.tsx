@@ -281,6 +281,28 @@ describe("AnnouncementBar", () => {
     render(<AnnouncementBar tone="critical" title="Outbound calling is paused." />);
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("lets a phone read a link label cut to two lines, through the same More (audit 8 Nov W4-13)", () => {
+    // jsdom lays nothing out: give only the long link label the overflow a phone measures.
+    const label = "Read what changes for your account during the maintenance window";
+    const scroll = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockImplementation(function (this: HTMLElement) {
+        return this.tagName === "SPAN" && this.textContent === label ? 60 : 0;
+      });
+    const client = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(40);
+    try {
+      render(<AnnouncementBar title="Planned maintenance on Sunday." action={{ href: "/billing", label }} />);
+      const more = screen.getByRole("button", { name: "More" });
+      const text = screen.getByText(label);
+      expect(text.className).toContain("line-clamp-2");
+      fireEvent.click(more);
+      expect(text.className).not.toContain("line-clamp-2");
+    } finally {
+      scroll.mockRestore();
+      client.mockRestore();
+    }
+  });
 });
 
 describe("ButtonGroup and SplitButton", () => {

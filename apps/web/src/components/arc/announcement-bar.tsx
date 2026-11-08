@@ -95,17 +95,20 @@ export function AnnouncementBar({
   // On a phone a long announcement would push the screen it sits above out of view, so it
   // shows two lines and "More" opens the rest. Measured, so a short one gets no control.
   const text = useRef<HTMLParagraphElement>(null);
+  const link = useRef<HTMLSpanElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [clipped, setClipped] = useState(false);
   useLayoutEffect(() => {
     const el = text.current;
     if (!el || expanded) return undefined;
-    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    const cut = (node: HTMLElement | null) => node !== null && node.scrollHeight > node.clientHeight + 1;
+    const measure = () => setClipped(cut(el) || cut(link.current));
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(el);
+    if (link.current) observer?.observe(link.current);
     return () => observer?.disconnect();
-  }, [title, detail, expanded]);
+  }, [title, detail, expanded, action?.label]);
   return (
     <div
       role={role}
@@ -133,7 +136,11 @@ export function AnnouncementBar({
         </div>
         {action ? (
           <Link href={action.href} className={clsx(TEXT_ACTION, "max-w-[40%] shrink-0")}>
-            <span className="line-clamp-2 break-words">{action.label}</span>
+            {/* Cut to two lines like the headline, and opened by the same "More": a long
+                link label used to stay cut with no way to read it. */}
+            <span ref={link} className={clsx("break-words", !expanded && "line-clamp-2")}>
+              {action.label}
+            </span>
           </Link>
         ) : null}
         {onDismiss ? (
