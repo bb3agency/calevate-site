@@ -18,6 +18,7 @@ import { Drawer } from "@/components/console/drawer";
 import { useAdminAccess } from "@/app/admin/access";
 import { adminSession } from "@/lib/api/admin";
 import {
+  trialStatusLabel,
   useEndTrial,
   useStartTrial,
   useTenantTrial,
@@ -161,7 +162,7 @@ function TrialFacts({ state }: { state: TrialStatus }) {
       title={
         state.active
           ? `On us for ${formatCountOf(state.days_remaining ?? 0, "more day", "more days")}, until ${formatIST(state.ends_at)}`
-          : `Their trial ended ${state.ended_at ? formatIST(state.ended_at) : ""} (${state.status})`
+          : `Their trial ended ${state.ended_at ? formatIST(state.ended_at) : ""} (${trialStatusLabel(state.status)})`
       }
     >
       <p className="mt-1">

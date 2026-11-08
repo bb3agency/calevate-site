@@ -7,7 +7,7 @@ import { ActionButton, type FeedbackStatus } from "@/components/arc/feedback";
 import { FIELD, NoticeBox, RestrictionNote, formatIST } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { useAdminAccess } from "@/app/admin/access";
-import { useEndTrial, type TrialOutcome } from "@/lib/api/trials";
+import { trialStatusLabel, useEndTrial, type TrialOutcome } from "@/lib/api/trials";
 
 import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
@@ -137,7 +137,7 @@ export function EndTrialForm({
       {end.data && (
         <NoticeBox
           tone="ok"
-          title={`Trial ended: ${end.data.status}`}
+          title={`Trial ended: ${trialStatusLabel(end.data.status)}`}
         >
           <p className="mt-1">
             {end.data.erase_after
