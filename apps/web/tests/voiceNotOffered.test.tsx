@@ -52,10 +52,16 @@ describe("a deployment where Studio is held back and Clear is sold", () => {
   });
 
   it("opens the public rate card on the voice the headline quotes, both ways round", () => {
-    for (const [card, opens] of [
+    const CLEAR_HELD_BACK: PublicRateCard = {
+      ...RATE_CARD,
+      voice_not_offered: "clear",
+      voice_not_offered_notice: HELD_BACK_NOTICE,
+    };
+    const cases: [PublicRateCard, string][] = [
       [STUDIO_HELD_BACK, "Clear voice"],
-      [{ ...RATE_CARD, voice_not_offered: "clear", voice_not_offered_notice: HELD_BACK_NOTICE }, "Studio voice"],
-    ] as const) {
+      [CLEAR_HELD_BACK, "Studio voice"],
+    ];
+    for (const [card, opens] of cases) {
       const { unmount } = render(<RateCard card={card} />);
       expect((screen.getByLabelText(opens) as HTMLInputElement).checked).toBe(true);
       unmount();
