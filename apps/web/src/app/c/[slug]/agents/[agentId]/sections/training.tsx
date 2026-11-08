@@ -281,7 +281,9 @@ function TestYourAgent({ agent, slug, canWrite }: { agent: Agent; slug: string; 
         headingLevel={3}
         title="Test your agent"
         subtitle={subtitle}
-        defaultOpen={busy || waiting}
+        // `shown`, not `busy || waiting`: <details open> follows its prop, so the bare
+        // condition shut the panel on the owner the moment their run finished.
+        defaultOpen={shown}
         onToggle={setOpen}
       >
         <div className="space-y-8">

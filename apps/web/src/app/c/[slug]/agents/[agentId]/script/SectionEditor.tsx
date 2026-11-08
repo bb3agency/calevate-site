@@ -69,6 +69,16 @@ export function SectionEditor({
   const routeErrors =
     section.branches.some((_, i) => errors(`branch-${i}`).length > 0) || errors("otherwise").length > 0;
   const stepIssues = issuesFor(issues, section.id).filter((i) => i.field.startsWith("procedure"));
+  // `open` on <details> is reactive: passing the issue state straight in shut the panel the
+  // moment the owner finished the field that opened it. So a needed fix opens it, and only
+  // the owner closes it.
+  const needsFix = routeErrors || stepIssues.length > 0;
+  const [optionsOpen, setOptionsOpen] = useState(needsFix);
+  const [neededFix, setNeededFix] = useState(needsFix);
+  if (needsFix !== neededFix) {
+    setNeededFix(needsFix);
+    if (needsFix) setOptionsOpen(true);
+  }
   const counted = section.procedure.length > 0 ? "counting the example line and the small steps note" : "counting the example line";
 
   const setBranch = (i: number, patch: Partial<Section["branches"][number]>) =>
@@ -151,7 +161,8 @@ export function SectionEditor({
         headingLevel={4}
         title="More options"
         subtitle={optionsLine(section, sections, index, context)}
-        defaultOpen={routeErrors || stepIssues.length > 0}
+        defaultOpen={optionsOpen}
+        onToggle={setOptionsOpen}
         className="border-t border-line"
       >
         <div className="space-y-5 pb-2 pt-2">

@@ -3066,6 +3066,39 @@ describe("Training is the checklist first, the rest folded (D-893 §6)", () => {
     expect(screen.getByRole("link", { name: "Save a test from a call" })).toBeTruthy();
   });
 
+  it("keeps Test your agent open when the run it opened for finishes (audit W2)", async () => {
+    const run = (status: "running" | "done") => ({
+      available: true,
+      unavailable_reason: null,
+      cost_note: null,
+      history: [],
+      latest: {
+        id: "run-1",
+        status,
+        prompt_version: 3,
+        is_current: true,
+        round: 1,
+        retest_of: null,
+        auto_improve: false,
+        score: { passed: 0, judged: 0, total: 0 },
+        results: [],
+        improvement: null,
+        note: null,
+        improving: false,
+        created_at: "2026-11-08T10:00:00Z",
+        completed_at: status === "done" ? "2026-11-08T10:05:00Z" : null,
+      },
+    });
+    let answer = run("running");
+    await renderClientPage(page, routes({ ...TRAINING_READS, "/v1/agents/agent-1/script/tests": () => answer }));
+    const panel = (await screen.findByRole("heading", { name: "Test your agent" })).closest("details") as HTMLDetailsElement;
+    await waitFor(() => expect(panel.open).toBe(true));
+    answer = run("done");
+    // The tab polls while a run is going; the finished run is what the owner opened it to read.
+    await waitFor(() => expect(screen.queryByText("Running now")).toBeNull(), { timeout: 6000 });
+    expect(panel.open).toBe(true);
+  }, 10000);
+
   it("opens on the question a link named", async () => {
     nav.params = new URLSearchParams("section=training&question=timings");
     await renderClientPage(page, routes({ ...TRAINING_READS, ...OPEN_QUESTION }));
