@@ -27,6 +27,7 @@ const TRIGGER: Record<string, string> = {
   refresh: "the owner asked",
   scheduled: "scheduled check",
   operator: "an operator asked",
+  first_run: "first setup",
 };
 
 /**

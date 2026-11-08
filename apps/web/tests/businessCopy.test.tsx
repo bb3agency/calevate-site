@@ -251,6 +251,8 @@ describe("the operator's lines", () => {
     expect(costLine(admin)).toContain("paid by us");
     expect(costLine({ ...admin, absorbed: false })).toContain("from the client's AI allowance");
     expect(writtenLine(admin)).toContain("account created");
+    // `tenancy/business_copy.Trigger` has five values; first setup is one of them.
+    expect(writtenLine({ ...admin, last_trigger: "first_run" })).toContain("(first setup)");
     expect(writtenLine({ ...admin, generated_at: null })).toMatch(/^Not yet/);
   });
 
