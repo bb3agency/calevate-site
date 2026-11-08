@@ -331,19 +331,23 @@ async def create(
 ) -> Row:
     """A new Follow-up, as a draft. Nothing runs until it is published."""
     follow_up_id = uuid7()
+    exists = ProblemError.conflict(
+        "follow_up_starter_exists",
+        "This account already has Call new leads.",
+        remediation="Open it from the list instead.",
+    )
     if starter == "call_new_leads" and await _exists(
         session, "SELECT 1 FROM follow_ups WHERE starter = 'call_new_leads'", {}
     ):
-        raise ProblemError.conflict(
-            "follow_up_starter_exists",
-            "This account already has Call new leads.",
-            remediation="Open it from the list instead.",
-        )
-    await session.execute(
+        raise exists
+    # ON CONFLICT because the check above cannot see a twin request's uncommitted row: a
+    # double tap on the starter otherwise failed on `uq_follow_ups_call_new_leads` as a 500.
+    made = await session.execute(
         text(
             "INSERT INTO follow_ups (id, tenant_id, name, status, trigger, settings, draft, "
             "starter, created_by) VALUES (:id, :tid, :name, 'draft', CAST(:trigger AS jsonb), "
-            "CAST(:settings AS jsonb), CAST(:draft AS jsonb), :starter, :by)"
+            "CAST(:settings AS jsonb), CAST(:draft AS jsonb), :starter, :by) "
+            "ON CONFLICT (tenant_id) WHERE starter = 'call_new_leads' DO NOTHING RETURNING id"
         ),
         {
             "id": follow_up_id,
@@ -356,6 +360,8 @@ async def create(
             "by": user_id,
         },
     )
+    if made.first() is None:
+        raise exists
     return await get(session, follow_up_id)
 
 

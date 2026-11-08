@@ -320,9 +320,15 @@ async def record_document(
     the caller to delete once this commits (`delete_requested_documents`) — only the current
     file of a slot is kept.
 
-    Supersede-then-insert under the partial unique index: two concurrent uploads to one
-    slot cannot both become current; the loser's INSERT fails on the index.
+    Supersede-then-insert under a per-slot lock held to commit: two uploads at once (a double
+    tap) run one after the other, so the later supersedes the earlier. Without it both
+    superseded the same old row and the second INSERT failed on
+    `ux_kyc_documents_current_per_slot` as a 500.
     """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"kyc-document:{tenant_id}:{slot}"},
+    )
     superseded = (
         await session.execute(
             text(
