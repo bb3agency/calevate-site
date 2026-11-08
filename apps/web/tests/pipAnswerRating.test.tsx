@@ -68,11 +68,37 @@ describe("thumbs on a Pip answer (D-937)", () => {
     expect(up.getAttribute("aria-pressed")).toBe("true");
 
     fireEvent.click(screen.getByRole("button", { name: "Not helpful" }));
-    await screen.findByText("Couldn't save. Try again.");
-    // The server's own reason shows under the thumbs (BUILD-LOG §52).
-    expect(screen.getByRole("alert").textContent).toContain("Answer not found");
+    // The server's own reason shows under the thumbs (BUILD-LOG §52), said ONCE (audit 8 Nov
+    // W4-05: a second "Couldn't save. Try again." line with no button used to sit beside it).
+    expect((await screen.findByRole("alert")).textContent).toContain("Answer not found");
+    expect(screen.queryByText(/Couldn't save/)).toBeNull();
+    // A refusal trying again cannot fix offers no Try again.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(up.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Not helpful" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("offers Try again on a passing failure, and it sends the same choice again (audit 8 Nov W4-05)", async () => {
+    const { calls } = renderAdminPage(
+      <AnswerRating turnId={TURN} session={SESSION} realm="client" />,
+      {
+        [PUT]: problem(503, {
+          type: "https://calevate.tech/problems/unavailable",
+          title: "Busy right now",
+          status: 503,
+          retryable: true,
+        }),
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Helpful" }));
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    fireEvent.click(retry);
+    await waitFor(() => expect(bodies(calls)).toHaveLength(2));
+    expect(bodies(calls)).toEqual([
+      { vote: "up", reason: null, note: null },
+      { vote: "up", reason: null, note: null },
+    ]);
   });
 
   it("never sends a reason with a thumbs up or a note without Other", () => {

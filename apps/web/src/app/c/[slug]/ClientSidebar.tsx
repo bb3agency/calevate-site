@@ -22,6 +22,7 @@ import { Avatar } from "@/components/ui";
 import { clientAuthn, CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { useAgreementsReadiness } from "@/lib/api/agreements";
 import { useMe } from "@/lib/api/hooks";
+import { seatLabel } from "@/lib/api/members";
 import { BELL_ROWS, unseenAttention, useNotifications } from "@/lib/api/notifications";
 import { useClientRealm } from "@/lib/api/session";
 import { clientNavigation, type NavGroup, type NavItem } from "@/lib/clientNav";
@@ -220,8 +221,8 @@ export function ClientSidebar({
                 >
                   {me.data?.organization?.name ?? "—"}
                 </span>
-                <span className="block truncate text-xs capitalize text-ink-muted">
-                  {me.data?.role ?? "—"}
+                <span className="block truncate text-xs text-ink-muted">
+                  {seatLabel(me.data) ?? "—"}
                 </span>
               </>
             )}

@@ -25,7 +25,7 @@ import {
   workspaceRoutes,
 } from "./copilotWorkspaceFixture";
 import { JobCard } from "@/components/copilot/JobCard";
-import { renderClientPage, type ApiCall } from "./harness";
+import { NeverAnswers, renderClientPage, type ApiCall } from "./harness";
 import { PLAN_ID, planFixture } from "./planFixture";
 import { TasksList } from "@/components/copilot/workspace/TasksList";
 
@@ -317,5 +317,22 @@ describe("plans in the workspace (D-893)", () => {
     const plans = await screen.findByRole("region", { name: "Plans" });
     expect(await within(plans).findByText("70 of 140 done")).toBeTruthy();
     await expectNoA11yViolations(view.container, "tasks with a running plan");
+  });
+});
+
+describe("the tasks tab while plans are still arriving (audit 8 Nov W4-09)", () => {
+  it("shows it is loading rather than a blank tab", async () => {
+    await renderClientPage(
+      <WithSession>
+        {(session) => <TasksList session={session} onOpenApprovals={() => undefined} />}
+      </WithSession>,
+      {
+        ...workspaceRoutes(),
+        "/v1/copilot/jobs": { jobs: [] },
+        "/v1/copilot/plans?limit=10": new NeverAnswers(),
+      },
+    );
+    expect(await screen.findByText("Loading plans…")).toBeTruthy();
+    expect(screen.queryByText("No tasks yet.")).toBeNull();
   });
 });

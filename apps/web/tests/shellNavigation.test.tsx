@@ -13,6 +13,7 @@ import { OPEN_CALL_LINE_REQUESTS_PATH } from "@/lib/api/callLines";
 import { KYC_REVIEWS_PATH } from "@/lib/api/kycReview";
 import { CLIENT_ACCOUNT_PATH } from "@/lib/authn/clientAuthn";
 import { currentNavItem } from "@/lib/nav";
+import { seatLabel } from "@/lib/api/members";
 
 import {
   browserOffline,
@@ -366,6 +367,24 @@ describe("the account name is readable, not merely present", () => {
       "the sidebar's account name is truncated with no way to read it",
     ).toBeTruthy();
     expect(named?.className).toContain("truncate");
+  });
+});
+
+describe("whose seat this is, in words (audit 8 Nov W4-08)", () => {
+  it("names the role as the team screen does, never the raw value", async () => {
+    const container = await renderClientShell("/c/acme");
+    const seat = [...container.querySelectorAll<HTMLElement>("span")].find(
+      (el) => el.textContent === "Owner",
+    );
+    expect(seat, "the sidebar shows the raw role value").toBeTruthy();
+  });
+
+  it("says an operator is viewing rather than their own role, and never invents one", () => {
+    expect(seatLabel({ role: "superadmin", impersonating: true })).toBe("Operator, viewing");
+    expect(seatLabel({ role: "staff", impersonating: false })).toBe("Staff");
+    expect(seatLabel({ role: "billing_manager_external", impersonating: false })).toBe("Team member");
+    expect(seatLabel({ role: null, impersonating: false })).toBeNull();
+    expect(seatLabel(undefined)).toBeNull();
   });
 });
 
