@@ -1017,3 +1017,25 @@ describe("what a campaign is for", () => {
     expect(container.textContent).toContain("1 unclear");
   });
 });
+
+describe("deleting a draft", () => {
+  it("does not re-read the deleted campaign, so its page never flashes a not-found before it moves on", async () => {
+    const PROGRESS = `/v1/campaigns/${CAMPAIGN_ID}`;
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture(), { [`DELETE ${PROGRESS}`]: { outcome: "deleted" } }),
+    );
+    fireEvent.click((await screen.findAllByRole("button", { name: "More actions for Diwali offer" }))[1]);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete draft…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete draft" }));
+
+    await vi.waitFor(() => expect(rendered.calls.some((c) => c.method === "DELETE")).toBe(true));
+    const deletedAt = rendered.calls.findIndex((c) => c.method === "DELETE");
+    // Give any re-read the invalidation would start time to go out.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const rereads = rendered.calls
+      .slice(deletedAt + 1)
+      .filter((c) => c.method === "GET" && c.path.startsWith(PROGRESS));
+    expect(rereads.map((c) => c.path)).toEqual([]);
+  });
+});

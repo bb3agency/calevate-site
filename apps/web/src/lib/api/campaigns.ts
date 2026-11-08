@@ -567,7 +567,17 @@ export function useDeleteCampaign(session: Session, campaignId: string) {
       apiRequest<Schemas["DeleteCampaignOut"]>(session, `/v1/campaigns/${campaignId}`, {
         method: "DELETE",
       }),
-    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+    onSuccess: () => {
+      const org = session.orgSlug;
+      void client.invalidateQueries({ queryKey: ["campaigns", org] });
+      void client.invalidateQueries({ queryKey: attentionKey(org) });
+      // The deleted campaign's own reads are marked stale but NOT re-read: its page is still
+      // mounted until the caller navigates away, and a re-read answers 404, which that page
+      // would draw as a not-found error for a moment.
+      for (const family of ["campaign", "campaign-check"]) {
+        void client.invalidateQueries({ queryKey: [family, org, campaignId], refetchType: "none" });
+      }
+    },
   });
 }
 
