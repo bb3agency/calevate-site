@@ -51,7 +51,11 @@ const listeners = new Set<Listener>();
 let state: StepUpPromptState = null;
 
 /** The one in-flight ask. Every concurrent caller awaits this exact promise. */
-let pending: { promise: Promise<boolean>; settle: (proved: boolean) => void } | null = null;
+let pending: {
+  promise: Promise<boolean>;
+  settle: (proved: boolean) => void;
+  action?: string;
+} | null = null;
 
 function publish(next: StepUpPromptState): void {
   state = next;
@@ -66,14 +70,20 @@ function publish(next: StepUpPromptState): void {
  * than having the sentence change under the person reading it.
  */
 export function requireStepUp(reason: string, action?: string): Promise<boolean> {
-  if (pending) return pending.promise;
+  if (pending) {
+    // A code answered for one action is a single-use proof for THAT action (D-730), so a
+    // caller waiting on a different one would retry, be refused again and fail. It waits
+    // for this prompt to close and then asks for its own; a dismissed prompt asks nothing.
+    if (action === undefined || pending.action === action) return pending.promise;
+    return pending.promise.then((proved) => (proved ? requireStepUp(reason, action) : false));
+  }
   let settle!: (proved: boolean) => void;
   const promise = new Promise<boolean>((resolve) => {
     settle = resolve;
   });
   // Installed BEFORE anything is published, so a synchronous subscriber reacting to the
   // open state cannot observe a prompt with no promise behind it.
-  pending = { promise, settle };
+  pending = { promise, settle, action };
   publish(action === undefined ? { reason } : { reason, action });
   return promise;
 }

@@ -305,6 +305,39 @@ describe("the ask is single-flighted, whoever asks", () => {
     expect(await Promise.all([first, second])).toEqual([true, true]);
   });
 
+  it("a caller waiting on a DIFFERENT action gets its own prompt after the first closes", async () => {
+    const calls = mountPrompt({
+      [`POST ${STEP_UP_PATH}`]: {},
+      [`POST ${VERIFY_PATH}`]: SESSION_OUT,
+    });
+
+    const first = requireStepUp("Recording KYC.", "record_kyc:t-1");
+    const second = requireStepUp("Waiving the fee.", "waive_platform_fee:t-1");
+
+    const answer = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /email me a code/i }));
+      fireEvent.change(await screen.findByLabelText(/six-digit code/i), {
+        target: { value: "123456" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
+    };
+
+    await screen.findByRole("alertdialog");
+    await answer();
+    expect(await first).toBe(true);
+
+    // The proof just recorded is for `record_kyc` only, so the fee waiver asks again.
+    await waitFor(() =>
+      expect(screen.getByRole("alertdialog").textContent).toContain("Waiving the fee."),
+    );
+    await answer();
+    expect(await second).toBe(true);
+    const verified = calls
+      .filter((c) => c.path === VERIFY_PATH)
+      .map((c) => (JSON.parse(c.body ?? "{}") as { action?: string }).action);
+    expect(verified).toEqual(["record_kyc:t-1", "waive_platform_fee:t-1"]);
+  });
+
   it("settles waiters `false` when the shell unmounts and nobody can answer", async () => {
     const { unmount } = renderAdminPage(<StepUpPrompt />, {});
     const waiting = requireStepUp("Opening one thing.");
