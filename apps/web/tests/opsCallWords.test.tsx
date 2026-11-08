@@ -54,10 +54,9 @@ function confirmHeader(call: { headers?: Record<string, string> } | undefined): 
 describe("Ops > Call words", () => {
   it("opens on the lists that need the founder's words, grouped by what reads them", async () => {
     renderAdminPage(<CallWordsPage />, routes());
-    expect(await screen.findByText("2 lists need your words")).toBeTruthy();
+    expect(await screen.findByText("1 list needs your words")).toBeTruthy();
     expect(screen.getByText("Questions to answer")).toBeTruthy();
     expect(screen.getByText("stalls")).toBeTruthy();
-    expect(screen.getByText("topic pricing")).toBeTruthy();
     // Not waiting for words, so hidden until "All lists".
     expect(screen.queryByText("not now")).toBeNull();
     fireEvent.change(screen.getByLabelText("Show"), { target: { value: "all" } });
@@ -65,9 +64,24 @@ describe("Ops > Call words", () => {
     expect(screen.getByText("Do not call me again")).toBeTruthy();
   });
 
+  it("stops asking for words on a list the founder has already written", async () => {
+    // `asked_for` is the shipped file's request, which a save never changes. The pricing
+    // list was edited, so it is not waiting: no pill, not in the count, not in the default
+    // view, and its request is still readable as what was asked.
+    renderAdminPage(<CallWordsPage />, routes());
+    await screen.findByText("1 list needs your words");
+    expect(screen.queryByText("topic pricing")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Show"), { target: { value: "edited" } });
+    expect(screen.getByText("topic pricing")).toBeTruthy();
+    expect(screen.queryByText("Needs your words")).toBeNull();
+    expect(screen.getByText(/Each topic's trigger words/)).toBeTruthy();
+  });
+
   it("saves a list as one word per line with the server's confirmation string", async () => {
     const page = renderAdminPage(<CallWordsPage />, routes());
-    fireEvent.click(await screen.findByRole("button", { name: "Edit: topic pricing" }));
+    await screen.findByText("1 list needs your words");
+    fireEvent.change(screen.getByLabelText("Show"), { target: { value: "all" } });
+    fireEvent.click(screen.getByRole("button", { name: "Edit: topic pricing" }));
     fireEvent.change(screen.getByLabelText(/^Words/), { target: { value: "price\ncost\n\nrate\n\n" } });
     fireEvent.change(screen.getByLabelText(/^Why/), { target: { value: " asked often " } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -84,6 +98,7 @@ describe("Ops > Call words", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit: stalls" }));
     expect(screen.queryByRole("button", { name: "Use the shipped words" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.change(screen.getByLabelText("Show"), { target: { value: "all" } });
     fireEvent.click(screen.getByRole("button", { name: "Edit: topic pricing" }));
     expect(await screen.findByText(/rate is asked often/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Use the shipped words" }));
@@ -94,7 +109,7 @@ describe("Ops > Call words", () => {
 
   it("refuses to send a table that is not JSON, and says why", async () => {
     const page = renderAdminPage(<CallWordsPage />, routes());
-    await screen.findByText("2 lists need your words");
+    await screen.findByText("1 list needs your words");
     fireEvent.change(screen.getByLabelText("Show"), { target: { value: "all" } });
     fireEvent.click(screen.getByRole("button", { name: "Edit: not now" }));
     fireEvent.change(screen.getByLabelText(/^Words/), { target: { value: "{ te: " } });
