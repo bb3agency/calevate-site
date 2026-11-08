@@ -35,11 +35,12 @@ export const CLIENT_FORGOT_PATH = "/auth/forgot-password";
 export const CLIENT_RESET_PATH = "/auth/reset-password";
 export const CLIENT_ACCEPT_INVITE_PATH = "/auth/accept-invitation";
 
-/** What redeeming an invitation gets you — all three fields the server's own. */
+/** What redeeming an invitation gets you — every field the server's own. */
 export interface AcceptedInvitation {
   tenant_id: string;
   slug: string;
   role: string;
+  business_name?: string | null;
 }
 
 /**

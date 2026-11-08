@@ -31921,6 +31921,17 @@
       "InviteAcceptWithPasswordOut": {
         "additionalProperties": false,
         "properties": {
+          "business_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Name"
+          },
           "role": {
             "title": "Role",
             "type": "string"

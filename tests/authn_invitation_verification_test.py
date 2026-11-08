@@ -391,6 +391,14 @@ async def test_a_first_time_invitee_is_unaffected(planted: Planted) -> None:
 
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["tenant_id"] == str(tenant_id)
+    # "You joined <business>" names the business, not the URL slug.
+    async with tenant_session(tenant_id) as session:
+        org_name = (
+            await session.execute(
+                text("SELECT name FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+    assert accepted.json()["business_name"] == org_name
     assert await _memberships(tenant_id, address) == 1
     assert await _verified_at(address) is not None, (
         "the token reached this mailbox and nowhere else, so redeeming it proves the address"

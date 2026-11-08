@@ -151,6 +151,24 @@ describe("the client's line protection screen", () => {
     );
   });
 
+  it("does not carry a refusal into the next time the dialog opens", async () => {
+    await renderClientPage(
+      <LineProtectionPage />,
+      routes({
+        "POST /v1/healer/incidents/inc-1/restore": problem(409, {
+          title: "Not now",
+          detail: "That line is still failing its checks.",
+        }),
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Turn line back on" }));
+    fireEvent.click(screen.getByRole("button", { name: "Turn it back on" }));
+    expect(await screen.findByText("That line is still failing its checks.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Turn line back on" }));
+    expect(screen.queryByText("That line is still failing its checks.")).toBeNull();
+  });
+
   it("asks before applying a suggested script rollback", async () => {
     const { calls } = await renderClientPage(
       <LineProtectionPage />,

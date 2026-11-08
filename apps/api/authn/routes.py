@@ -259,6 +259,8 @@ class InviteAcceptWithPasswordOut(BaseModel):
     tenant_id: UUID
     slug: str
     role: str
+    #: The business's name, for "You joined <name>"; the slug is a URL part, not a name.
+    business_name: str | None = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -837,7 +839,10 @@ async def accept_invitation_with_password(
         absolute_expires_at=accepted.session.absolute_expires_at,
     )
     return InviteAcceptWithPasswordOut(
-        tenant_id=accepted.tenant_id, slug=accepted.slug, role=accepted.role
+        tenant_id=accepted.tenant_id,
+        slug=accepted.slug,
+        role=accepted.role,
+        business_name=accepted.business_name,
     )
 
 

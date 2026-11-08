@@ -38,7 +38,9 @@ import { formatINR, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 
 import { agreementsKey } from "./agreements";
+import { capsKey } from "./caps";
 import { apiRequest, type Session } from "./client";
+import { goLiveKey } from "./goLive";
 
 import type { components } from "./schema";
 
@@ -227,10 +229,14 @@ export function useCreditLanding(session: Session, awaited: AwaitedCredit | null
   useEffect(() => {
     if (!landed) return;
     // The wallet prefix covers the balance, the ledger, the lots and this list; readiness
-    // carries the `no_credits` blocker a first top-up clears.
+    // carries the `no_credits` blocker a first top-up clears. The callback refreshes these
+    // too, but before the credit has landed, so this is the refresh that shows it: the spend
+    // caps, and the go-live guide a first payment opens.
     void client.invalidateQueries({ queryKey: walletKey(session.orgSlug) });
     void client.invalidateQueries({ queryKey: ["usage", session.orgSlug] });
     void client.invalidateQueries({ queryKey: agreementsKey(session.orgSlug) });
+    void client.invalidateQueries({ queryKey: capsKey(session.orgSlug) });
+    void client.invalidateQueries({ queryKey: goLiveKey(session.orgSlug) });
   }, [landed, client, session.orgSlug]);
 
   if (awaited === null) return null;

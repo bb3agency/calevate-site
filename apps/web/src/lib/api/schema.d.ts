@@ -25587,6 +25587,8 @@ export interface components {
         };
         /** InviteAcceptWithPasswordOut */
         InviteAcceptWithPasswordOut: {
+            /** Business Name */
+            business_name?: string | null;
             /** Role */
             role: string;
             /** Slug */

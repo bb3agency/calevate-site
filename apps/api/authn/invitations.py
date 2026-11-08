@@ -141,6 +141,7 @@ class AcceptedInvitation:
     role: str
     user_id: UUID
     session: IssuedSession
+    business_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -283,11 +284,12 @@ async def accept_with_password(
                 text("SELECT role FROM memberships WHERE user_id = :u"), {"u": user_id}
             )
         ).scalar()
-        slug = (
+        org = (
             await scoped.execute(
-                text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
+                text("SELECT slug, name FROM organizations WHERE id = :t"), {"t": tenant_id}
             )
-        ).scalar()
+        ).one()
+        slug, business_name = org[0], org[1]
         # In the tenant transaction, as the Clerk-era path did, so the membership
         # and its evidence commit together.
         await write_audit(
@@ -320,6 +322,7 @@ async def accept_with_password(
         role=str(role or "owner"),
         user_id=user_id,
         session=issued,
+        business_name=str(business_name) if business_name else None,
     )
 
 

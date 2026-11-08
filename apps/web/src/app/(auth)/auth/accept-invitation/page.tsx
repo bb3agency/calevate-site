@@ -89,7 +89,10 @@ function Joined({ result }: { result: AcceptedInvitation }) {
   return (
     <div>
       <div className="space-y-3 text-body text-ink-muted">
-        <NoticeBox tone="ok" title={`You joined ${result.slug} as ${role?.label ?? result.role}`}>
+        <NoticeBox
+          tone="ok"
+          title={`You joined ${result.business_name ?? "the team"} as ${role?.label ?? result.role}`}
+        >
           {role && <p className="mt-1">{role.can}</p>}
         </NoticeBox>
         <p>You are signed in. This invite link is now used up.</p>
