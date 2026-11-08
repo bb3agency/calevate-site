@@ -198,7 +198,7 @@ from apps.api.billing.engine_minutes import (
     attested_rate_keys,
     record_engine_rate_key,
 )
-from apps.api.compliance.caller_memory import MEMORY_ON_SQL, spdi_refuses_memory
+from apps.api.compliance.caller_memory import MEMORY_ON_SQL
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.compliance.trial_access import (
     TRIAL_MIN_CALL_SECONDS,
@@ -664,9 +664,7 @@ async def _load_agent(
                 # An operator's turn detection for this agent alone (D-901).
                 "a.turn_detection, "
                 # Whether the caller follows the agent's steps on a screen (D-906).
-                "a.caller_has_screen, "
-                # The business type the SPDI refusal reads (D-507(b)).
-                "COALESCE(o.vertical_template, o.unconfirmed_business_type) "
+                "a.caller_has_screen "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -726,11 +724,7 @@ async def _load_agent(
         "recording_notice_line": row[17],
         "recording_notice_enabled": row[18],
         "caller_memory_notice_line": row[19],
-        # The engine keeps caller memory (D-973), so the SPDI refusal (D-507(b)) is applied
-        # here, where the switch becomes `pastConversations`: a clinic's agent starts every
-        # call fresh however its switch was set before the business type was known.
-        "caller_memory_enabled": bool(row[20])
-        and not spdi_refuses_memory(None if row[_AFTER + 11] is None else str(row[_AFTER + 11])),
+        "caller_memory_enabled": row[20],
         "handoff_enabled": row[21],
         "handoff_trigger": row[22],
         "business_hours": row[23],

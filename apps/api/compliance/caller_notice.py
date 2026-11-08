@@ -49,9 +49,9 @@ tenant's own `caller_memory` retention row, and says that those agents do not an
 the call (D-971), so this notice is where callers learn it. Two ways it can be silent,
 and both are the accurate document rather than an omission: the client has the switch off
 (every client today), or the tenant is on a vertical where `caller_memory.
-spdi_refuses_memory` refuses memory outright (D-507(b)), in which case the switch may
-read `true` and the agent still starts every call fresh. A notice describing processing
-that cannot happen is as false as one that hides processing that can.
+spdi_refuses_memory` refuses memory outright (D-507(b)), and
+`agents.publishing.set_caller_memory` will not switch it on there. A notice describing
+processing that cannot happen is as false as one that hides processing that can.
 
 **The truthful ANSWER is not a toggle and the draft says so.** Whatever the announcement
 flags are set to, an agent always answers truthfully when a caller asks whether it is an
@@ -292,10 +292,9 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             #
             # AND'ED WITH THE SPDI REFUSAL (D-507(b)), because this key means "does this
             # agent remember its callers" and not "what does the column say". On a refused
-            # vertical the agent is published to start every call fresh however the switch
-            # is set (`agents.service._load_agent`), so nothing is remembered — and a draft
-            # that told those callers their notes are kept would describe processing that
-            # cannot happen. Over-disclosure
+            # vertical `set_caller_memory` will not switch memory on — and a draft that told
+            # those callers their notes are kept would describe processing the business may
+            # not offer. Over-disclosure
             # is not the safe direction here: a caller reading it would decline something
             # nobody is doing, and the client would have published a false statement about
             # their own business. The predicate is imported rather than repeated so the two

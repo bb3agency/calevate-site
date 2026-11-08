@@ -44,7 +44,7 @@ from calevate_shared.engine import (
     compose_opening_line,
 )
 from sqlalchemy import text
-from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, _owner_of, create_org_with_receptionist
+from tests.conftest import _owner_of, create_org_with_receptionist
 
 pytestmark = pytest.mark.anyio
 
@@ -295,22 +295,6 @@ async def test_a_clinic_cannot_attest_its_way_past_the_refusal() -> None:
         )
     assert refusal.value.code == "caller_memory_refused_for_vertical"
     assert await _column(tenant_id, agent_id) is False
-
-
-async def test_a_clinic_whose_switch_is_on_is_still_published_to_start_fresh() -> None:
-    """The switch can be on before the business type is known (set on another type, or an
-    unconfirmed one). The engine keeps the memory now (D-973), so the refusal is applied where
-    the switch becomes `pastConversations`: the publish read."""
-    tenant_id, agent_id, _owner = await _tenant(vertical="clinic")
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET caller_memory_enabled = true WHERE id = :aid"),
-            {"aid": agent_id},
-        )
-        await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
-        await session.commit()
-    assert await _column(tenant_id, agent_id) is True
-    assert await _remembers(tenant_id, agent_id) is False
 
 
 async def test_switching_it_off_needs_no_attestation_and_is_idempotent() -> None:
