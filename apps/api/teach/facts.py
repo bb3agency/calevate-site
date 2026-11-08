@@ -84,20 +84,25 @@ async def list_facts(session: AsyncSession, *, pinned: bool | None = None) -> li
 
 
 async def facts_state(session: AsyncSession) -> FactsState:
-    """Whether the newest version of the facts source has reached the agents."""
+    """Whether the newest version of the facts source has reached the agents.
+
+    A newest version that was rejected or refused leaves the one before it live, so the
+    answer is then whether ANY version is live, not "none"."""
     row = (
         await session.execute(
             text(
-                "SELECT status, is_active FROM kb_sources WHERE name = :name "
-                "ORDER BY version DESC LIMIT 1"
+                "SELECT status, is_active, bool_or(is_active) OVER () FROM kb_sources "
+                "WHERE name = :name ORDER BY version DESC LIMIT 1"
             ),
             {"name": FACTS_SOURCE_NAME},
         )
     ).first()
-    if row is None or row[0] in ("rejected", "archived"):
+    if row is None:
         return "none"
     if row[1]:
         return "live"
+    if row[0] in ("rejected", "archived"):
+        return "live" if row[2] else "none"
     return "in_review" if row[0] == "pending_approval" else "publishing"
 
 
@@ -182,6 +187,11 @@ async def add_facts(
             session, tenant_id=tenant_id, submitted_by=created_by, auto_approve=auto_approve
         )
     return ids
+
+
+async def is_pinned(session: AsyncSession, fact_id: UUID) -> bool:
+    """Whether this live fact is pinned. 404 for one that is gone or not this tenant's."""
+    return (await _fact(session, fact_id)).pinned
 
 
 async def _fact(session: AsyncSession, fact_id: UUID) -> Fact:
@@ -307,6 +317,7 @@ __all__ = [
     "add_facts",
     "clean_fact",
     "facts_state",
+    "is_pinned",
     "list_facts",
     "remove_fact",
     "update_fact",
