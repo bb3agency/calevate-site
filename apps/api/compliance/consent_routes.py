@@ -32,7 +32,7 @@ from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import Field
+from pydantic import AwareDatetime, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import consent
@@ -112,7 +112,7 @@ class RecordCallConsentIn(Strict):
     # there is none, because a default validity period for VOICE consent is counsel's
     # decision rather than code's (LEGAL-OPS-PLAYBOOK §10.7/§20). This field is how a
     # client states the one their own opt-in wording actually gave.
-    expires_at: datetime | None = None
+    expires_at: AwareDatetime | None = None
 
 
 class CallConsentOut(Strict):

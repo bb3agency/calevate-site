@@ -566,7 +566,26 @@ def copy_problems(
         problem = _message_body_problem(body)
         if problem:
             problems.append(f"placeholders.message_body: {problem}")
+    if claims_earlier_contact(copy.placeholders.outbound_purpose):
+        problems.append(f"placeholders.outbound_purpose: {EARLIER_CONTACT_RULE}")
     return problems
+
+
+#: A reason for calling that says the person reached the business first. It is the example
+#: for every call's reason (the script's "Why you are calling", Make a call), and that claim
+#: is false for anyone on a list or registered elsewhere: "you enquired with us earlier"
+#: reached a caller with nothing on file and is a retired line (`agents/retired_lines.py`).
+_EARLIER_CONTACT: Final = re.compile(
+    r"\b(?:enquir\w*|inquir\w*|you\s+(?:had\s+|have\s+)?(?:asked|contacted|called|"
+    r"requested|reached\s+out|got\s+in\s+touch|booked|filled|signed\s+up))\b",
+    re.IGNORECASE,
+)
+EARLIER_CONTACT_RULE: Final = "say why we call, never that the person enquired or asked first"
+
+
+def claims_earlier_contact(text: str | None) -> bool:
+    """Does this reason for calling say the person contacted the business first?"""
+    return text is not None and _EARLIER_CONTACT.search(text) is not None
 
 
 def _message_body_problem(body: str) -> str | None:
@@ -703,6 +722,7 @@ __all__ = [
     "CAPABILITY_KEYS",
     "CLAIM_TTL",
     "CLINIC_WORDS",
+    "EARLIER_CONTACT_RULE",
     "JOB",
     "MAX_OBJECTIONS",
     "MAX_PIP_QUESTIONS",
@@ -729,6 +749,7 @@ __all__ = [
     "capabilities_for",
     "capability_problems",
     "claim_is_live",
+    "claims_earlier_contact",
     "copy_for",
     "copy_problems",
     "health_allowed",

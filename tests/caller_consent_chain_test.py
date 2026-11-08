@@ -756,3 +756,30 @@ async def test_a_grant_recalls_nothing() -> None:
             )
         ).scalar_one()
     assert queued == 0
+
+
+async def test_an_expiry_without_a_zone_is_refused_by_name() -> None:
+    """FAILS IF: a bare local `expires_at` is stored as if it were UTC, so a grant lapses
+    five and a half hours away from the instant the client meant (audit 8 Nov 2026)."""
+    tenant_id = await _tenant("naive-expiry")
+    _user_id, token = await _member_with_dispatch(tenant_id)
+    body = {
+        "phone": " 90000 00123 ",
+        "status": "granted",
+        "source": "web_form_optin",
+        "evidence": {"form_version": "v1"},
+    }
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as client:
+        refused = await client.post(
+            "/v1/compliance/call-consent",
+            headers={"Authorization": f"Bearer {token}"},
+            json={**body, "expires_at": "2027-01-31T18:00:00"},
+        )
+        accepted = await client.post(
+            "/v1/compliance/call-consent",
+            headers={"Authorization": f"Bearer {token}"},
+            json={**body, "expires_at": "2027-01-31T18:00:00+05:30"},
+        )
+    assert refused.status_code == 422, refused.text
+    assert "expires_at" in refused.text
+    assert accepted.status_code == 201, accepted.text

@@ -74,7 +74,7 @@ V2_PLACEHOLDERS: dict[str, str] = {
     "business_line": "a cold-pressed oil shop in Kukatpally",
     "agent_role": "You answer the phone for the oil shop. You help callers choose and order.",
     "call_goal": "Answer their question and take the order with the delivery area.",
-    "outbound_purpose": "You asked about our groundnut oil last week, so I am calling to help.",
+    "outbound_purpose": "Our fresh groundnut oil is in, so I am calling to tell you.",
     "call_ending": "Confirm the order and the delivery area, thank them and say goodbye.",
     "pronounce_word": "Kukatpally",
     "pronounce_say_as": "Koo-kut-pul-lee",
@@ -242,6 +242,8 @@ def test_the_placeholder_keys_are_the_web_tables_keys_less_the_two_shown_before_
         (("placeholders", "message_body"), "Hi {{1}}, {{2}} is ready.", "exactly one {{1}}"),
         (("placeholders", "message_body"), "{{1}}, your order is ready.", "inside the sentence"),
         (("placeholders", "message_body"), "Your order is ready, {{1}}.", "inside the sentence"),
+        (("placeholders", "outbound_purpose"), "You enquired with us last week.", "enquired"),
+        (("placeholders", "outbound_purpose"), "You had asked about our oil.", "enquired"),
     ],
 )
 def test_a_broken_rule_is_sent_back_by_path_never_by_text(
@@ -253,6 +255,33 @@ def test_a_broken_rule_is_sent_back_by_path_never_by_text(
         worker.parse_answer(raw, inputs=_inputs())
     assert rule in unusable.value.problems
     assert value not in unusable.value.problems
+
+
+def test_a_stored_reason_for_calling_that_claims_an_enquiry_is_not_shown() -> None:
+    """FAILS IF: a copy written before the rule still teaches "you enquired with us" as the
+    example reason for every call (audit 8 Nov 2026, D-01)."""
+    from apps.api.tenancy.business_copy_routes import render
+
+    raw = copy_dict()
+    raw["placeholders"]["outbound_purpose"] = "You enquired with us last week, so I am calling."
+    stored = business_copy.GeneratedCopy.model_validate(raw)
+    state = business_copy.CopyState(
+        copy=stored,
+        language="te-IN",
+        model=MODEL,
+        generated_at=datetime.now(UTC),
+        cost_inr=None,
+        absorbed=False,
+        running=False,
+        last_trigger=None,
+        last_attempt_at=None,
+        stop_reason=None,
+    )
+    shown = render(state).placeholders
+    assert shown is not None
+    assert shown.outbound_purpose is None
+    assert shown.knowledge_title == stored.placeholders.knowledge_title
+    assert worker.PLACEHOLDER_MEANINGS["outbound_purpose"].count("never say") == 1
 
 
 def test_a_spoken_line_says_numbers_in_words() -> None:

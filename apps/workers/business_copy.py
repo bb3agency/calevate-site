@@ -163,7 +163,10 @@ PLACEHOLDER_MEANINGS: Final[dict[str, str]] = {
     "business_line": "the business in one line, lower case, like 'a family-run bakery in Guntur'",
     "agent_role": "two sentences in the second person telling the agent its role on the phone",
     "call_goal": "one sentence: what a good call achieves for this business",
-    "outbound_purpose": "one sentence the agent says to explain why it is calling a past enquirer",
+    "outbound_purpose": (
+        "one sentence the agent says to explain why it is calling, true of anyone this "
+        "business calls; never say the person enquired, asked, booked or contacted it"
+    ),
     "call_ending": "one sentence: how the agent should end a call",
     "pronounce_word": "a product, place or person name callers of this business say",
     "pronounce_say_as": "how to say that name aloud, in hyphenated syllables",

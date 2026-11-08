@@ -100,7 +100,8 @@ const NEUTRAL_UNTIL_GENERATED = {
   businessLine: "a family-run business in the city centre",
   agentRole: "You answer the phone for the business. You help callers with what they need and take their details.",
   callGoal: "Answer their question and, if they want to go ahead, take their name and a good time to call back.",
-  outboundPurpose: "You enquired with us last week, so I am calling to help you with it.",
+  // Never "you enquired with us": false for anyone on a list (`agents/retired_lines.py`).
+  outboundPurpose: "I am calling to see if there is anything we can help you with.",
   callEnding: "Repeat what was agreed, thank them by name and say goodbye.",
   pronounceWord: "Your business name",
   pronounceSayAs: "How to say it out loud",

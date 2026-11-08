@@ -15,6 +15,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import rights_desk
@@ -50,8 +51,9 @@ class RightsRequestIn(Strict):
     kind: Kind
     channel: Channel
     phone: SubjectPhone
-    #: When the person asked. Empty: now. The 90 days run from here.
-    received_at: datetime | None = None
+    #: When the person asked. Empty: now. The 90 days run from here. With its zone: a bare
+    #: local time would be guessed as UTC and move the deadline by five and a half hours.
+    received_at: AwareDatetime | None = None
 
 
 class RightsRequestCloseIn(Strict):
