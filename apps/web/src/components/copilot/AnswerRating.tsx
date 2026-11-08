@@ -41,6 +41,12 @@ export function AnswerRating({
   const [picking, setPicking] = useState(false);
   const [note, setNote] = useState("");
   const [status, setStatus] = useState<"idle" | "saved" | "failed">("idle");
+  // What the last save tried to record, so Try again sends the same choice.
+  const [attempt, setAttempt] = useState<{
+    vote: AnswerVote | null;
+    reason: VoteReason | null;
+    note: string;
+  } | null>(null);
   const noteId = useId();
 
   // A newer stored page (another device voted) wins over what this one last showed.
@@ -54,6 +60,7 @@ export function AnswerRating({
     setVote(next);
     setReason(nextReason);
     setStatus("idle");
+    setAttempt({ vote: next, reason: nextReason, note: nextNote });
     rate.mutate(
       { vote: next, reason: nextReason, note: nextNote },
       {
@@ -119,12 +126,16 @@ export function AnswerRating({
         </button>
         <span role="status" className="ml-1">
           {status === "saved" && vote !== null && !picking ? "Thanks" : null}
-          {status === "failed" ? "Couldn't save. Try again." : null}
         </span>
       </div>
+      {/* ONE message for a failed save: the server's sentence, with Try again (sending the
+          same choice) wherever trying again can help. */}
       {status === "failed" && rate.error ? (
         <div className="mt-1">
-          <ProblemNotice error={rate.error} />
+          <ProblemNotice
+            error={rate.error}
+            onRetry={attempt === null ? undefined : () => save(attempt.vote, attempt.reason, attempt.note)}
+          />
         </div>
       ) : null}
       {picking && vote === "down" && (

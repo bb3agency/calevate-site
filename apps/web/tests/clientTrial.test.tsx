@@ -89,6 +89,15 @@ describe("the trial strip above the top bar", () => {
     expect(again.container.textContent).toBe("");
   });
 
+  it("says the free minutes are used up, never 'Only 0 free minutes left' (audit 8 Nov W4-12)", () => {
+    const wallet = onTrial({ test_calls_only: true, free_minutes: 100, minutes_left: 0 });
+    const { container } = render(
+      <TrialStrip wallet={wallet} slug="acme" creditsHref={CREDITS} now={hoursBefore(70)} />,
+    );
+    expect(container.textContent).toContain("Your free minutes are used up.");
+    expect(container.textContent).not.toContain("Only 0");
+  });
+
   it("does not ask an invoiced account to top up a wallet it does not have", () => {
     const { container } = render(
       <TrialStrip

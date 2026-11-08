@@ -107,9 +107,11 @@ const CARD_ROW = "max-sm:block max-sm:px-3 max-sm:py-3";
 // table, and as a block that pair collapses it to nothing.
 const CARD_TITLE =
   "max-sm:block max-sm:w-auto max-sm:max-w-none max-sm:p-0 max-sm:pb-1 max-sm:text-left max-sm:font-medium";
+// `max-sm:empty:hidden`: a cell that rendered nothing (a row with no actions) would still
+// draw its column's name from `data-label`, a label with nothing beside it.
 const CARD_FIELD =
-  "max-sm:flex max-sm:items-baseline max-sm:justify-between max-sm:gap-4 max-sm:p-0 max-sm:py-0.5 max-sm:text-right max-sm:before:shrink-0 max-sm:before:text-left max-sm:before:text-[12px] max-sm:before:text-ink-faint max-sm:before:content-[attr(data-label)]";
-const CARD_BLOCK = "max-sm:block max-sm:p-0 max-sm:pt-1.5 max-sm:text-left";
+  "max-sm:flex max-sm:items-baseline max-sm:justify-between max-sm:gap-4 max-sm:p-0 max-sm:py-0.5 max-sm:text-right max-sm:before:shrink-0 max-sm:before:text-left max-sm:before:text-[12px] max-sm:before:text-ink-faint max-sm:before:content-[attr(data-label)] max-sm:empty:hidden";
+const CARD_BLOCK = "max-sm:block max-sm:p-0 max-sm:pt-1.5 max-sm:text-left max-sm:empty:hidden";
 
 /**
  * The same phone-card layout for a table that cannot be a `DataTable` (one with a

@@ -82,6 +82,7 @@ function urgencyHeadline(urgency: TrialUrgency): string {
       // The last 24 hours can cross midnight in India, so "today" is said only when it is.
       return urgency.endsToday ? "Your trial ends today." : "Your trial ends tomorrow.";
     case "low-minutes":
+      if (urgency.minutesLeft <= 0) return "Your free minutes are used up.";
       return `Only ${urgency.minutesLeft} free ${urgency.minutesLeft === 1 ? "minute" : "minutes"} left.`;
   }
 }

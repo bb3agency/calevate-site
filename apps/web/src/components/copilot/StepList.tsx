@@ -51,7 +51,12 @@ export function StepList({
   answer?: string;
   realm?: "client" | "admin";
 }) {
-  const [open, setOpen] = useState(false);
+  // Open for ONE exchange's list, named by its first step: the panel keeps this component
+  // mounted across questions, and a plain boolean opened the next answer's list unasked.
+  const first = steps[0]?.id ?? null;
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const open = first !== null && openFor === first;
+  const setOpen = (toggle: (was: boolean) => boolean) => setOpenFor(toggle(open) ? first : null);
   const listId = useId();
   if (steps.length === 0) return null;
   // The tool's name on hover is for support, which only the operator's console is.

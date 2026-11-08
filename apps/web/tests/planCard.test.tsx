@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PlanCard, type PlanDecision } from "@/components/copilot/PlanCard";
+import { PlanCard, type PlanDecision, type PlanOutcome } from "@/components/copilot/PlanCard";
 import { useClientRealm } from "@/lib/api/session";
 
 import { expectNoA11yViolations } from "./a11y";
@@ -10,7 +10,7 @@ import { PLAN_ID, planFixture } from "./planFixture";
 
 const PLAN_PATH = `/v1/copilot/plans/${PLAN_ID}`;
 
-function Card(props: { decision?: PlanDecision; onChange?: () => void; onDecided?: () => void }) {
+function Card(props: { decision?: PlanDecision; onChange?: () => void; onDecided?: (outcome: PlanOutcome) => void }) {
   const { session } = useClientRealm();
   return <PlanCard session={session} planId={PLAN_ID} {...props} />;
 }
@@ -103,6 +103,7 @@ describe("one click, through the door the card was opened from", () => {
       plan_hash: "a".repeat(64),
     });
     await vi.waitFor(() => expect(onDecided).toHaveBeenCalledTimes(1));
+    expect(onDecided).toHaveBeenCalledWith("approved");
   });
 
   it("confirms Pip's proposal with its signed token", async () => {
@@ -141,6 +142,16 @@ describe("one click, through the door the card was opened from", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: /Approve — / }));
     await vi.waitFor(() => expect(posted(calls, "/v1/copilot/approvals/act-1/approve")).toBeTruthy());
+  });
+
+  it("reports a cancel as a cancel, never as an approval (audit 8 Nov W4-10)", async () => {
+    const onDecided = vi.fn();
+    await renderClientPage(<Card onDecided={onDecided} />, {
+      [PLAN_PATH]: planFixture(),
+      [`POST ${PLAN_PATH}/cancel`]: planFixture({ status: "cancelled", can_approve: false, can_cancel: false }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Cancel — / }));
+    await vi.waitFor(() => expect(onDecided).toHaveBeenCalledWith("cancelled"));
   });
 
   it("puts the request back for a change, and cancels without doing anything", async () => {

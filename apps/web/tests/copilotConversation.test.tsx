@@ -200,3 +200,136 @@ describe("the durable conversation", () => {
     });
   });
 });
+
+describe("while the stored conversation is still arriving (audit 8 Nov W4-01)", () => {
+  it("SHOWS THE SKELETON, NOT THE EMPTY PANEL — no 'ask me anything' to somebody who has a conversation", async () => {
+    let release: (() => void) | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input).replace(API_BASE, "");
+        const notes = nothingNoticed(path);
+        if (notes) return notes;
+        if (path.startsWith("/v1/copilot/conversation")) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return new Response(
+            JSON.stringify({
+              turns: [
+                {
+                  id: "0198f000-0000-7000-8000-000000000001",
+                  role: "user",
+                  content: "how many leads came in today",
+                  screen_route: "/c/[slug]/leads",
+                  said_at: "2026-09-05T08:00:00+00:00",
+                },
+              ],
+              has_more: false,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await act(async () => {
+      render(
+        withQuery(
+          <>
+            <Screen />
+            <PanelMount />
+          </>,
+        ),
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText("Loading your conversation…")).toBeTruthy());
+    expect(screen.queryByRole("region", { name: "Questions you could ask" })).toBeNull();
+    expect(screen.queryByText(/Small changes happen at once/)).toBeNull();
+
+    await act(async () => {
+      release?.();
+    });
+    await waitFor(() => expect(screen.getByText("how many leads came in today")).toBeTruthy());
+    expect(screen.queryByRole("region", { name: "Questions you could ask" })).toBeNull();
+  });
+});
+
+describe("Try again after a refused question (audit 8 Nov W4-07)", () => {
+  it("SENDS THE QUESTION ONCE — not again as unanswered history", async () => {
+    const asks: { question: string; history: { role: string; content: string }[] }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input).replace(API_BASE, "");
+        const notes = nothingNoticed(path);
+        if (notes) return notes;
+        if (path.startsWith("/v1/copilot/ask")) {
+          asks.push(JSON.parse(String(init?.body)) as (typeof asks)[number]);
+          if (asks.length === 1) {
+            return new Response(
+              JSON.stringify({
+                type: "https://calevate.tech/problems/unavailable",
+                title: "Pip is busy",
+                status: 503,
+                detail: "Pip could not answer just now.",
+                retryable: true,
+              }),
+              { status: 503, headers: { "content-type": "application/problem+json" } },
+            );
+          }
+          return new Response('event: text\ndata: {"delta":"Eleven."}\n\nevent: done\ndata: {"disclosure":null,"metered":true}\n\n', {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        if (path.startsWith("/v1/copilot/conversation")) {
+          return new Response(
+            JSON.stringify({
+              turns: [
+                { id: "0198f000-0000-7000-8000-000000000001", role: "user", content: "hello", screen_route: "/c/[slug]/leads", said_at: "2026-09-05T08:00:00+00:00" },
+                { id: "0198f000-0000-7000-8000-000000000002", role: "assistant", content: "Hi.", screen_route: "/c/[slug]/leads", said_at: "2026-09-05T08:00:01+00:00" },
+              ],
+              has_more: false,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+      }),
+    );
+
+    await act(async () => {
+      render(
+        withQuery(
+          <>
+            <Screen />
+            <PanelMount />
+          </>,
+        ),
+      );
+    });
+    await waitFor(() => expect(screen.getByText("Hi.")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("Your question about this screen"), {
+      target: { value: "how many leads today" },
+    });
+    await act(async () => {
+      fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
+    });
+    const retry = await screen.findByRole("button", { name: "Try again" });
+    await act(async () => {
+      fireEvent.click(retry);
+    });
+    await waitFor(() => expect(asks).toHaveLength(2));
+    expect(asks[1].question).toBe("how many leads today");
+    expect(asks[1].history).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "Hi." },
+    ]);
+  });
+});

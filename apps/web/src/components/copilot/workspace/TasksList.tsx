@@ -63,6 +63,8 @@ export function TasksList({
     return (
       <div className="space-y-6">
         {planSection}
+        {/* No tasks, and the plans still arriving: a blank tab would read as broken. */}
+        {plans.isPending && <Skeleton rows={2} label="Loading plans…" />}
         {plans.isSuccess && planList.length === 0 && (
           <EmptyState
             illustration={<EmptySketch kind="chat" />}

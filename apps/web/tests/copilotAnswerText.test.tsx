@@ -80,6 +80,17 @@ describe("the history the browser replays", () => {
     }
   });
 
+  it("drops a question that was never answered, so Try again does not send it twice (audit 8 Nov W4-07)", () => {
+    // A refused question stays on screen with no answer after it. Retrying sends it as the
+    // new question; replaying it as history too told the model it had been asked twice.
+    const failed = turn("user", 9);
+    expect(recentTurns([...exchanges(2), failed])).toEqual(exchanges(2));
+    // …and one stranded between two answered exchanges goes too.
+    expect(recentTurns([...exchanges(1), failed, turn("user", 1), turn("assistant", 1)])).toEqual(
+      exchanges(2),
+    );
+  });
+
   it("passes a short conversation through untouched", () => {
     const short = exchanges(2);
     expect(recentTurns(short)).toEqual(short);

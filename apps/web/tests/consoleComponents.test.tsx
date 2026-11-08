@@ -200,6 +200,27 @@ describe("DataTable", () => {
     expect(field.className).toContain("before:content-[attr(data-label)]");
   });
 
+  it("drops a phone card's label when its cell rendered nothing (audit 8 Nov W4-11, the owner's own team row)", () => {
+    function NoActions() {
+      return null;
+    }
+    const withActions: DataColumn<Call>[] = [
+      { id: "who", header: "Caller", cell: (c) => c.who },
+      { id: "actions", header: "Actions", align: "right", cell: (c) => (c.who === "Asha" ? <NoActions /> : <button type="button">Remove</button>) },
+      { id: "note", header: "Note", card: "block", cell: () => null },
+    ];
+    render(<DataTable rows={rows} columns={withActions} getRowId={(c) => c.id} label="Team" />);
+    const ashaRow = screen.getByText("Asha").closest("tr")!;
+    const [, actions, note] = [...ashaRow.querySelectorAll("td")];
+    // An empty cell: `:empty` in CSS. jsdom applies no Tailwind, so the class is the contract.
+    expect(actions!.matches(":empty")).toBe(true);
+    expect(actions!.className).toContain("max-sm:empty:hidden");
+    expect(note!.className).toContain("max-sm:empty:hidden");
+    // A cell with something in it keeps its label.
+    const raviActions = screen.getByRole("button", { name: "Remove" }).closest("td")!;
+    expect(raviActions.matches(":empty")).toBe(false);
+  });
+
   it("sorts from its header, says which way, and notes when it holds only part of the list", () => {
     render(
       <DataTable rows={rows} columns={columns} getRowId={(c) => c.id} label="Calls" partialNote="Sorted within the 2 calls loaded." />,

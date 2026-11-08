@@ -317,7 +317,13 @@ export const MAX_HISTORY = 12;
  * summarising would mean a second model call on the latency path of every question.
  */
 export function recentTurns(turns: readonly CopilotTurn[]): CopilotTurn[] {
-  const window = turns.slice(-MAX_HISTORY);
+  // A question that was never answered (refused, or cut off before any word arrived) is not
+  // an exchange. Kept, it put a question in the history with no answer after it, and a
+  // Try again sent that same question twice: once as history, once as the question.
+  const answered = turns.filter(
+    (turn, at) => turn.role === "assistant" || turns[at + 1]?.role === "assistant",
+  );
+  const window = answered.slice(-MAX_HISTORY);
   return window.length > 0 && window[0].role === "assistant" ? window.slice(1) : window;
 }
 

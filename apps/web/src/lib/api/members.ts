@@ -25,6 +25,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { CLIENT_ACCEPT_INVITE_PATH } from "@/lib/authn/clientAuthn";
 import { LINK_TOKEN_PARAM } from "@/lib/authn/useLinkToken";
+import { lookup } from "@/lib/lookup";
 
 import { accountAction, withAccountCode } from "./accountCode";
 import { apiRequest, type Session } from "./client";
@@ -207,6 +208,18 @@ export const ROLE_COPY: Record<string, { label: string; can: string }> = {
     can: "Leads, calls and agents. No billing or team; numbers masked.",
   },
 };
+
+/**
+ * The words for whose seat this is, under the account name in the sidebar. An operator
+ * viewing the account carries their OWN role (`superadmin`, `operator`, …), which is not a
+ * role in this account, so it reads as what they are doing here. `null` while unknown.
+ */
+export function seatLabel(me: { role: string | null; impersonating: boolean } | undefined): string | null {
+  if (me === undefined) return null;
+  if (me.impersonating) return "Operator, viewing";
+  if (me.role === null) return null;
+  return lookup(ROLE_COPY, me.role)?.label ?? "Team member";
+}
 
 /**
  * Where an invite link points, and the parameter its token rides in — ONE definition.

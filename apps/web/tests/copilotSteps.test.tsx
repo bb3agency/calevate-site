@@ -30,6 +30,17 @@ function step(over: Partial<CopilotStep> = {}): CopilotStep {
 const open = () => fireEvent.click(screen.getByRole("button", { expanded: false }));
 
 describe("the assistant's steps, as the person sees them", () => {
+  it("starts the next answer's list closed, even when the person opened the last one (audit 8 Nov W4-06)", () => {
+    const { rerender } = render(<StepList steps={[step({ id: "a1" })]} />);
+    open();
+    expect(screen.getByRole("button", { expanded: true })).toBeTruthy();
+    // The next question clears the steps, then its own arrive.
+    rerender(<StepList steps={[]} />);
+    rerender(<StepList steps={[step({ id: "b1", label: "Searched your leads" })]} />);
+    expect(screen.getByRole("button", { expanded: false })).toBeTruthy();
+    expect(screen.queryByText("Searched your leads")).toBeNull();
+  });
+
   it("renders nothing at all when no tool has run", () => {
     const { container } = render(<StepList steps={[]} />);
     expect(container.firstChild).toBeNull();

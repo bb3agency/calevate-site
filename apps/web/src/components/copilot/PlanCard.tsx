@@ -39,6 +39,9 @@ import { approveAction } from "@/lib/copilot/workspace";
  * - `plan` — anywhere else (Tasks, a console screen): `POST /v1/copilot/plans/{id}/approve`
  *   with the hash the card was drawn from.
  */
+/** What a decided plan card reports: approved, or cancelled before it ran. */
+export type PlanOutcome = "approved" | "cancelled";
+
 export type PlanDecision =
   | { kind: "proposal"; token: string; confirmAction: string | null }
   | { kind: "approval"; actionId: string; confirmAction: string | null }
@@ -76,8 +79,8 @@ export function PlanCard({
   onChange?: () => void;
   /** Remove the card from wherever it is shown. */
   onDismiss?: () => void;
-  /** Called once Approve or Cancel has an answer. */
-  onDecided?: () => void;
+  /** Called once Approve or Cancel has an answer, saying which. */
+  onDecided?: (outcome: PlanOutcome) => void;
 }) {
   const plan = usePlan(session, planId);
   const client = useQueryClient();
@@ -113,9 +116,9 @@ export function PlanCard({
       decision={decision}
       onChange={onChange}
       onDismiss={onDismiss}
-      onDecided={() => {
+      onDecided={(outcome) => {
         void client.invalidateQueries({ queryKey: planKeys.plan(session.orgSlug, planId) });
-        onDecided?.();
+        onDecided?.(outcome);
       }}
     />
   );
@@ -134,7 +137,7 @@ function PlanBody({
   decision: PlanDecision;
   onChange?: () => void;
   onDismiss?: () => void;
-  onDecided: () => void;
+  onDecided: (outcome: PlanOutcome) => void;
 }) {
   const going = plan.target_count - plan.excluded_count;
   const consequential = REACHES_CALLERS.has(plan.tool);
@@ -155,7 +158,7 @@ function PlanBody({
   useEffect(() => {
     if (told.current || !(approve.isSuccess || cancel.isSuccess)) return;
     told.current = true;
-    onDecided();
+    onDecided(approve.isSuccess ? "approved" : "cancelled");
   }, [approve.isSuccess, cancel.isSuccess, onDecided]);
 
   const proposed = plan.status === "proposed";
@@ -262,17 +265,21 @@ function PlanBody({
               Change
             </button>
           )}
-          <ActionButton
-            variant="secondary"
-            status={cancelFeedback.status}
-            disabled={approve.isPending}
-            onClick={() => cancelFeedback.run(plan.id)}
-            aria-label={`Cancel — ${plan.title}`}
-            pendingLabel="Cancelling…"
-            successLabel="Cancelled"
-          >
-            Cancel
-          </ActionButton>
+          {/* In the Approvals inbox the row's own Decline is the way to say no: a second
+              Cancel here cancelled the plan but left its approval waiting. */}
+          {decision.kind !== "approval" && (
+            <ActionButton
+              variant="secondary"
+              status={cancelFeedback.status}
+              disabled={approve.isPending}
+              onClick={() => cancelFeedback.run(plan.id)}
+              aria-label={`Cancel — ${plan.title}`}
+              pendingLabel="Cancelling…"
+              successLabel="Cancelled"
+            >
+              Cancel
+            </ActionButton>
+          )}
         </div>
       )}
       {active && (
