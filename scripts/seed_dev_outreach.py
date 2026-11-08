@@ -45,10 +45,12 @@ DEMO_RANGE = "+91990000"
 #: the account's own setup, one with the list's origin unanswered, and one recorded as a
 #: bought list, which the gate refuses by name. Named for the seeded business, a property
 #: office (`seed_dev.DEMO_PROMPT`), so the demo never shows another trade's campaigns.
+#: All three are "service": creating a promotional campaign is refused outright
+#: (`compliance/registration.PROMOTIONAL_UNAVAILABLE_RULE`), which ended the seed here.
 DEMO_CAMPAIGNS: tuple[tuple[str, str, str | None, int, dict[str, str] | None], ...] = (
     ("Site-visit reminders for past enquiries", "service", "existing_customer", 24, None),
     ("Gachibowli 2BHK enquiry follow-up", "service", None, 9, {"start": "10:00", "end": "18:00"}),
-    ("Diwali offer — purchased list", "promotional", "purchased_list", 12, None),
+    ("Diwali offer — purchased list", "service", "purchased_list", 12, None),
 )
 
 #: (kind, mapping, extra body). Meta brings the client's own App Secret; nothing is minted.
