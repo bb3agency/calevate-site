@@ -28,3 +28,32 @@ export function queryRetryDelay(failureCount: number, error: unknown): number {
   // TanStack's own default.
   return Math.min(1000 * 2 ** failureCount, 30_000);
 }
+
+/**
+ * Whether a query's last read was refused for a reason no repeat can fix: a 403, a 404, a
+ * 422, any problem the server marked not retryable.
+ *
+ * A `refetchInterval` keeps firing through errors, so a poll whose condition read "no
+ * answer yet" (`data === undefined`) or "still moving" (the last good answer) asked every
+ * few seconds for as long as the page stayed open: an upload deleted from another tab, a
+ * test call that is not this account's. Polls stop on this; a later success (a focus
+ * refetch, a remount) puts them back on their interval, because TanStack re-reads the
+ * interval after every fetch.
+ */
+export function refusedForGood(query: unknown): boolean {
+  const state = (query as { state?: { status?: string; error?: unknown } } | null | undefined)
+    ?.state;
+  return state?.status === "error" && state.error instanceof ApiProblem && !state.error.retryable;
+}
+
+type PollInterval<Q> = number | false | undefined | ((query: Q) => number | false | undefined);
+
+/** `interval`, or `false` once the read has been refused for good (`refusedForGood`). */
+export function untilRefused<Q>(
+  interval: PollInterval<Q>,
+): (query: Q) => number | false | undefined {
+  return (query) => {
+    if (refusedForGood(query)) return false;
+    return typeof interval === "function" ? interval(query) : interval;
+  };
+}

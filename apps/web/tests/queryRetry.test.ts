@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { ApiProblem } from "@/lib/api/client";
-import { queryRetryDelay, shouldRetryQuery } from "@/lib/api/queryRetry";
+import { queryRetryDelay, shouldRetryQuery, untilRefused } from "@/lib/api/queryRetry";
+import { livePoll } from "@/lib/live/liveStatus";
 
 const limited = (seconds: number) =>
   new ApiProblem(429, { code: "too_many_requests", retryable: true }, seconds);
@@ -27,5 +28,27 @@ describe("the read retry policy", () => {
     expect(shouldRetryQuery(2, failure)).toBe(false);
     expect(queryRetryDelay(0, failure)).toBe(1000);
     expect(queryRetryDelay(1, failure)).toBe(2000);
+  });
+});
+
+describe("a poll stops once its read is refused for good", () => {
+  const refused = (error: unknown) => ({ state: { status: "error", error, data: undefined } });
+  const notFound = new ApiProblem(404, { retryable: false });
+
+  it("a poll that waits for a first answer stops on a 404 instead of asking forever", () => {
+    const poll = untilRefused<{ state: { data: unknown } }>((q) => (q.state.data ? false : 4_000));
+    expect(poll({ state: { data: undefined } })).toBe(4_000);
+    expect(poll(refused(notFound) as never)).toBe(false);
+  });
+
+  it("keeps polling through a failure a retry can fix", () => {
+    const poll = untilRefused<unknown>(4_000);
+    expect(poll(refused(new ApiProblem(503, { retryable: true })))).toBe(4_000);
+    expect(poll(refused(new TypeError("offline")))).toBe(4_000);
+  });
+
+  it("a live feed stops on a refusal too", () => {
+    expect(livePoll<unknown>(20_000)(refused(notFound))).toBe(false);
+    expect(livePoll<unknown>(20_000)({ state: { status: "success" } })).toBe(20_000);
   });
 });
