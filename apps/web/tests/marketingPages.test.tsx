@@ -12,7 +12,7 @@ import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { WHERE_IT_RUNS } from "@/lib/marketing/compliance";
 import { INDUSTRIES } from "@/lib/marketing/industries";
 
-import { packRate, VOICE_TIERS } from "@/lib/api/rateCard";
+import { headlineVoice, packRate, VOICE_TIERS } from "@/lib/api/rateCard";
 
 import { RATE_CARD, RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { noReply, stubApi } from "./harness";
@@ -594,7 +594,8 @@ describe("the pricing page", () => {
       // JavaScript would render a rate card with no rates on it for the first paint, and
       // none at all if the bundle never came.
       expect(radios.filter((input) => input.defaultChecked)).toHaveLength(1);
-      expect(radios[0]?.defaultChecked).toBe(true);
+      // The checked one is the voice the headline quotes, the one that can be bought.
+      expect(radios[VOICE_TIERS.indexOf(headlineVoice(RATE_CARD))]?.defaultChecked).toBe(true);
 
       // Every control has a real name (UX-DOCTRINE §8.1), and the name is the card's,
       // never this page's — the relabelled fixture is what proves the second half.
