@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import MakeCallPage from "@/app/c/[slug]/make-a-call/page";
 import { ToastProvider } from "@/components/arc/toast";
-import type { Agent } from "@/lib/api/agents";
 import type { CallSummary, Me } from "@/lib/api/client";
 import { clientNavigation } from "@/lib/clientNav";
 
@@ -35,14 +34,14 @@ const DIALER = {
   published: true,
   status: "live",
   direction: "outbound",
-} as unknown as Agent;
+};
 const RECEPTIONIST = {
   id: "agent-in",
   name: "Front desk",
   published: true,
   status: "live",
   direction: "inbound",
-} as unknown as Agent;
+};
 
 const RECENT = "/v1/calls?placed_by_person=true&limit=10&test_calls=false";
 const BOOKED = "/v1/callbacks?limit=200&open_only=true&booked_by_person=true";
@@ -65,7 +64,7 @@ function recentCall(over: Partial<CallSummary> = {}): CallSummary {
     lead_id: "lead-9",
     follow_up_state: null,
     ...over,
-  } as CallSummary;
+  };
 }
 
 function routes(over: Record<string, unknown> = {}) {

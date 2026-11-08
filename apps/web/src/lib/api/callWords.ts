@@ -102,7 +102,7 @@ export function textToValue(shape: CallWord["shape"], text: string): ParsedValue
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { ok: false, reason: "A table is written as { \"language\": … }." };
     }
-    return { ok: true, value: parsed as CallWordValue };
+    return { ok: true, value: Object.fromEntries(Object.entries(parsed)) };
   } catch {
     return { ok: false, reason: "This is not valid JSON. Check the quotes, commas and brackets." };
   }

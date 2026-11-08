@@ -74,7 +74,7 @@ export function BusinessBasics({ profile, query }: { profile: BusinessProfile; q
       ) : (
         <dl className="divide-y divide-line border-y border-line">
           {shown.map((basic, index) => (
-            <div key={`${basic.label}-${index}`} className="grid gap-x-4 gap-y-0.5 py-2.5 sm:grid-cols-[10rem_1fr]">
+            <div key={`${basic.label}-${index}`} className="grid grid-cols-1 gap-x-4 gap-y-0.5 py-2.5 sm:grid-cols-[10rem_1fr]">
               <dt className="text-meta text-ink-muted">{basic.label}</dt>
               <dd className="whitespace-pre-line text-sm text-ink tabular-nums [overflow-wrap:anywhere]">
                 {basic.value}

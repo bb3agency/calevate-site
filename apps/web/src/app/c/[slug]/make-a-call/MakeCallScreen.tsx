@@ -164,7 +164,7 @@ export function MakeCallScreen({
   return (
     <div className="space-y-6">
       <PageHeader description="Have an agent call one person, now or at a time you pick." />
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] lg:items-start">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] lg:items-start">
         {placed ? (
           // The call just placed takes the form's place: one thing to watch, where the
           // press was, and the way to the next call under it.
@@ -189,7 +189,7 @@ export function MakeCallScreen({
                   setResult(null);
                 }}
                 numberFields={
-                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                     <Field
                       label="Phone number"
                       hint="10-digit mobile, or start with +"
@@ -445,6 +445,7 @@ function Refusal({
 function Booked({ result, onAnother }: { result: OneCallResult; onAnother: () => void }) {
   const { session } = useClientRealm();
   const cancel = useCancelCallback(session);
+  const cancelFeedback = useActionFeedback(cancel, { errorDisplay: "inline" });
   const cancelled = cancel.isSuccess;
   return (
     <div className="space-y-4" role="status">
@@ -459,7 +460,7 @@ function Booked({ result, onAnother }: { result: OneCallResult; onAnother: () =>
           <button
             type="button"
             disabled={cancel.isPending}
-            onClick={() => result.callback_id && cancel.mutate(result.callback_id)}
+            onClick={() => result.callback_id && cancelFeedback.run(result.callback_id)}
             className={SECONDARY_BUTTON}
           >
             {cancel.isPending ? "Calling off…" : "Call it off"}
