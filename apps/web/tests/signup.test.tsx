@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { problem, stubApi, type ApiCall } from "./harness";
+import { problem, stillLoading, stubApi, type ApiCall } from "./harness";
 
 /**
  * Signup — the front door of the self-serve motion (D-34), with the flag ON.
@@ -98,6 +98,25 @@ async function submit(routes: Record<string, unknown>): Promise<ApiCall[]> {
 function pageText(): string {
   return document.body.textContent ?? "";
 }
+
+describe("while the session is still being restored", () => {
+  it("draws neither form, so a signed-in owner never sees the create-account form first", async () => {
+    const calls = stubApi({ "GET /v1/auth/client/session": stillLoading() });
+    await act(async () => {
+      render(<SignupPage />);
+    });
+    // Let the open/closed read land, so the page is past its own first skeleton.
+    await vi.waitFor(() =>
+      expect(calls.some((c) => c.path.endsWith("/sign-in-options"))).toBe(true),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByText("Signing up online is closed")).toBeNull();
+    expect(screen.queryByLabelText("Work email")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
+  });
+});
 
 describe("a refused signup", () => {
   it("renders the refusal and NOT a success state", async () => {
