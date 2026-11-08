@@ -9,8 +9,8 @@ extraction model reads never change, and the owner may rename any of them afterw
 
 Queued by `agents/lead_fields.maybe_name_core_details` (and, for accounts that existed
 before, by migration f7d2b9c4e1a8). One request on the dashboard AI ladder
-(`script_assist.ask_json`), no retry: a refusal frees the claim so the next profile save
-asks again. What the model sees is the business's own redacted words about itself
+(`script_assist.ask_json`), no retry: a refusal leaves the business unnamed so the next
+profile save asks again. What the model sees is the business's own redacted words about itself
 (`lead_fields_draft.business_context`), never a caller, and nothing of it is logged.
 Metered at our cost under `ASSIST_FEATURE_LEAD_FIELDS` and absorbed, like the lead-details
 draft it sits beside.
@@ -22,6 +22,7 @@ import json
 from typing import Any, Final
 from uuid import UUID
 
+from arq import Retry
 from calevate_shared.lead_fields import CORE_LABEL_MAX_CHARS, CORE_LEAD_FIELDS, clean_core_labels
 from sqlalchemy import text
 
@@ -30,6 +31,8 @@ from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_LEAD_FIELDS
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
+from apps.api.core.redis import get_redis
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.workers.lead_fields_draft import business_context
@@ -83,31 +86,46 @@ def labels_from_model(raw: dict[str, Any]) -> dict[str, str] | None:
     return named or None
 
 
-async def _claim(tenant_id: UUID) -> bool:
+#: The run in flight holds this lease rather than a database stamp. A stamp written before the
+#: model call outlived a worker killed or cancelled mid-run, and the one naming then never
+#: happened. `core_labels_drafted_at` is written only beside the names it records (`_store`),
+#: so a run that dies leaves the business open for arq's re-run or the next profile save.
+_LEASE_KEY: Final = "calevate:core_labels:running:{tenant_id}"
+#: No run outlives the worker's job limit, so a lease a killed run left frees by then.
+LEASE_TTL_S: Final = WORKER_JOB_TIMEOUT_S
+
+
+async def _still_open(tenant_id: UUID) -> bool:
+    """Not named yet, by the model or the owner."""
     async with tenant_session(tenant_id) as session:
-        claimed = (
+        open_ = (
             await session.execute(
                 text(
-                    "UPDATE organizations SET core_labels_drafted_at = now() WHERE id = :tid "
-                    "AND core_labels_drafted_at IS NULL AND core_field_labels = '{}'::jsonb "
-                    "RETURNING id"
+                    "SELECT core_labels_drafted_at IS NULL AND core_field_labels = '{}'::jsonb "
+                    "FROM organizations WHERE id = :tid"
                 ),
                 {"tid": tenant_id},
             )
-        ).first()
-    return claimed is not None
+        ).scalar()
+    return bool(open_)
 
 
-async def _release(tenant_id: UUID) -> None:
-    """Nothing usable came back: free the claim so the next profile save asks again."""
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE organizations SET core_labels_drafted_at = NULL WHERE id = :tid "
-                "AND core_field_labels = '{}'::jsonb"
-            ),
-            {"tid": tenant_id},
-        )
+async def _take_lease(tenant_id: UUID) -> bool:
+    """Whether this run may ask the model. Fails towards asking: a Redis that cannot answer
+    costs a possible second request, and `_store` never lets one overwrite the other."""
+    try:
+        key = _LEASE_KEY.format(tenant_id=tenant_id)
+        return bool(await get_redis().set(key, "1", nx=True, ex=LEASE_TTL_S))
+    except Exception as exc:
+        log.warning("core_labels_lease_unavailable", extra={"error": type(exc).__name__})
+        return True
+
+
+async def _drop_lease(tenant_id: UUID) -> None:
+    try:
+        await get_redis().delete(_LEASE_KEY.format(tenant_id=tenant_id))
+    except Exception as exc:
+        log.warning("core_labels_lease_unreleased", extra={"error": type(exc).__name__})
 
 
 async def _store(tenant_id: UUID, answer: JsonAnswer[dict[str, str]]) -> bool:
@@ -117,8 +135,10 @@ async def _store(tenant_id: UUID, answer: JsonAnswer[dict[str, str]]) -> bool:
         stored = (
             await session.execute(
                 text(
-                    "UPDATE organizations SET core_field_labels = CAST(:labels AS jsonb) "
-                    "WHERE id = :tid AND core_field_labels = '{}'::jsonb RETURNING id"
+                    "UPDATE organizations SET core_field_labels = CAST(:labels AS jsonb), "
+                    "core_labels_drafted_at = now() WHERE id = :tid "
+                    "AND core_labels_drafted_at IS NULL AND core_field_labels = '{}'::jsonb "
+                    "RETURNING id"
                 ),
                 {"tid": tenant_id, "labels": json.dumps(answer.value)},
             )
@@ -138,12 +158,22 @@ async def _store(tenant_id: UUID, answer: JsonAnswer[dict[str, str]]) -> bool:
 
 
 async def name_core_details(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """Claim the one naming, ask the model once, store what came back."""
+    """Take the lease, ask the model once, store what came back."""
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
-    if not await _claim(tenant_id):
+    if not await _still_open(tenant_id):
         # Named already, by the model or the owner.
         return "not_needed"
+    if not await _take_lease(tenant_id):
+        # Another run is asking now, or a killed one left its lease: come back once it frees.
+        raise Retry(defer=LEASE_TTL_S)
+    try:
+        return await _name(tenant_id)
+    finally:
+        await _drop_lease(tenant_id)
+
+
+async def _name(tenant_id: UUID) -> str:
     try:
         description, _vertical = await business_context(tenant_id)
         async with tenant_session(tenant_id) as session:
@@ -171,7 +201,6 @@ async def name_core_details(ctx: dict[str, Any], payload: dict[str, Any]) -> str
                     refusal=refused,
                     feature=ASSIST_FEATURE_LEAD_FIELDS,
                 )
-            await _release(tenant_id)
             log.info(
                 "core_labels_refused", extra={"tenant_id": str(tenant_id), "reason": refused.code}
             )
@@ -179,7 +208,6 @@ async def name_core_details(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         stored = await _store(tenant_id, answer)
     except Exception:
         log.exception("core_labels_crashed", extra={"tenant_id": str(tenant_id)})
-        await _release(tenant_id)
         return "failed"
     log.info(
         "core_labels_named",

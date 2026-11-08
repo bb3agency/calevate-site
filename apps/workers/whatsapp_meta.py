@@ -262,16 +262,22 @@ async def check_whatsapp_template(ctx: dict[str, Any], payload: dict[str, Any]) 
         account = await accounts.get_account(session, account_id)
         if account.status == "disconnected":
             return "disconnected"
+        token: str | None
         try:
             token = await accounts.account_token(session, tenant_id=tenant_id, account=account)
         except ProblemError:
+            # Read as "Meta could not be read": the next check is still scheduled, so a key
+            # that stays unreadable ends in `whatsapp_templates_stuck_pending`, not silence.
             log.warning("whatsapp_template_check_no_token", extra=ids)
-            return "no_token"
+            token = None
     meta_id, name, language = str(row[1]), str(row[2]), str(row[3])
-    try:
-        word, reason = await graph.template_status(template_id=meta_id, token=token)
-    except graph.GraphError:
-        word, reason = None, None
+    word: str | None = None
+    reason: str | None = None
+    if token is not None:
+        try:
+            word, reason = await graph.template_status(template_id=meta_id, token=token)
+        except graph.GraphError:
+            word, reason = None, None
     status: str | None = "pending"
     if word is not None:
         async with tenant_session(tenant_id) as session:
@@ -318,7 +324,14 @@ async def seed_whatsapp_templates(ctx: dict[str, Any], payload: dict[str, Any]) 
         try:
             token = await accounts.account_token(session, tenant_id=tenant_id, account=account)
         except Exception:
-            log.warning("whatsapp_templates_no_token", extra=ids)
+            # Nothing else submits these templates again, so an operator must hear of it.
+            alert(
+                "WORKER_DELIVERY",
+                "whatsapp_templates_not_submitted",
+                detail="the account's key could not be read, so no template was submitted",
+                reason="no_token",
+                **ids,
+            )
             return "no_token"
         counts = await templates.seed_standard(
             session,

@@ -1191,6 +1191,31 @@ async def _founder_destination() -> Any:
     return Destination(to_e164=number, opt_in_at=set_at)
 
 
+#: Taken before the founder's WhatsApp is sent. The `notify` row is what stops a resend, and it
+#: can only be written after the send; if that write fails, this claim is what keeps the next
+#: tick from paging the founder again every minute. It outlives the alarm's page window.
+_PAGE_CLAIM_KEY: Final = "calevate:healer:founder-paged:{alert_id}"
+_PAGE_CLAIM_TTL_S: Final = int(PAGE_FRESHNESS.total_seconds()) + 3600
+
+
+async def _claim_page(alert_id: object) -> bool:
+    """Whether this tick may page the founder about `alert_id`. Fails towards paging: a Redis
+    that cannot answer costs a possible second page, never a missed one."""
+    try:
+        key = _PAGE_CLAIM_KEY.format(alert_id=alert_id)
+        return bool(await get_redis().set(key, "1", nx=True, ex=_PAGE_CLAIM_TTL_S))
+    except Exception as exc:
+        log.warning("healer_page_claim_unavailable", extra={"error": type(exc).__name__})
+        return True
+
+
+async def _release_page(alert_id: object) -> None:
+    try:
+        await get_redis().delete(_PAGE_CLAIM_KEY.format(alert_id=alert_id))
+    except Exception as exc:
+        log.warning("healer_page_claim_unreleased", extra={"error": type(exc).__name__})
+
+
 async def _page_founder(tally: Counter[str]) -> None:
     """One WhatsApp per new `page` episode, beside the email `core/alerting` already sent."""
     from apps.workers.whatsapp import WhatsAppMessage, get_whatsapp_transport
@@ -1217,14 +1242,24 @@ async def _page_founder(tally: Counter[str]) -> None:
         return
     transport = get_whatsapp_transport()
     for alert_id, code in rows:
-        result = await transport.send(
-            WhatsAppMessage(
-                to_e164=destination.to_e164,
-                template=settings.whatsapp_template_healer_page,
-                locale=settings.whatsapp_template_locale,
-                variables=(str(code), settings.app_env),
+        if not await _claim_page(alert_id):
+            continue
+        try:
+            result = await transport.send(
+                WhatsAppMessage(
+                    to_e164=destination.to_e164,
+                    template=settings.whatsapp_template_healer_page,
+                    locale=settings.whatsapp_template_locale,
+                    variables=(str(code), settings.app_env),
+                )
             )
-        )
+        except BaseException:
+            await _release_page(alert_id)
+            raise
+        if not result.delivered:
+            # Nothing reached the founder: if the row below cannot be written either, the next
+            # tick may try again.
+            await _release_page(alert_id)
         async with untenanted_session() as session:
             await ledger.record(
                 session,
