@@ -284,6 +284,8 @@ async def test_two_calls_take_the_aggregate_locks_in_one_order(
             )
 
     scrubbed = await _aggregate_lock_order(monkeypatch, scrub)
-    assert scrubbed == sorted(_MANY_TOPICS), (
+    # The worded `q_` topics are re-filed under `general` by the erasure, which recomputes
+    # that aggregate too, in the same order.
+    assert scrubbed == sorted({*_MANY_TOPICS, "general"}), (
         "the erasure path recomputes the same rows and must take them in the same order"
     )

@@ -774,6 +774,16 @@ SELECT r.data_category, r.ttl_days, r.action,
       SELECT 1 FROM scheduled_callbacks sc
       WHERE sc.requested_at < now() - make_interval(days => r.ttl_days)
         AND left(sc.phone_e164, length(:anon)) <> :anon)
+      -- The knowledge-gap quotes (`_GAP_QUOTE_SQL`, `_GAP_EXAMPLE_SQL`), for the same
+      -- reason: once the turns are gone nothing else would report them due.
+      OR EXISTS (
+      SELECT 1 FROM knowledge_gap_occurrences o JOIN calls c ON c.id = o.call_id
+      WHERE {_CLOCK} < now() - make_interval(days => r.ttl_days)
+        AND (o.question_redacted <> :mark OR o.answer_redacted <> :mark))
+      OR EXISTS (
+      SELECT 1 FROM knowledge_gaps g
+      WHERE g.last_seen_at < now() - make_interval(days => r.ttl_days)
+        AND (g.example_question_redacted <> :mark OR g.example_answer_redacted <> :mark))
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -1025,7 +1035,12 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
         ).all()
         for category, ttl_days, action, has_work in policies:
             if str(category) == "recording" and int(ttl_days) < RECORDING_FLOOR_DAYS:
-                alert("WORKER_TERMINAL", "retention_below_trai_floor", detail=f"{ttl_days}d")
+                alert(
+                    "WORKER_TERMINAL",
+                    "retention_below_trai_floor",
+                    detail=f"{ttl_days}d",
+                    tenant_id=str(tenant_id),
+                )
             if not has_work:
                 continue
             counts = await _apply_one(

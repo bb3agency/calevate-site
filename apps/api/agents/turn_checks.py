@@ -650,7 +650,21 @@ def _only_a_greeting(caller_said: str) -> bool:
     return 0 < len(words) <= _GREETING_MAX_WORDS and all(w in _GREETING_WORDS for w in words)
 
 
-def _language_problems(reply: str, caller_said: str, language: str) -> list[TurnProblem]:
+def speaks_english(caller_said: str, language: str) -> bool:
+    """Did this caller line speak English: at least three Latin words and none of the
+    agent's language's own script? Read over a conversation so far, it says the caller had
+    already moved to English, after which a reply in English to their "okay" is right."""
+    script = _SCRIPT_OF.get(language.split("-")[0].lower())
+    return (
+        script is not None
+        and not script[1].search(caller_said)
+        and len(_LATIN_WORD.findall(caller_said)) >= MIN_COUNTED_WORDS
+    )
+
+
+def _language_problems(
+    reply: str, caller_said: str, language: str, *, caller_chose_english: bool = False
+) -> list[TurnProblem]:
     """A reply in another language than the caller's, and a reply that talks about the caller.
 
     Wrong language only when the caller wrote the agent's own language in its own script
@@ -672,7 +686,12 @@ def _language_problems(reply: str, caller_said: str, language: str) -> list[Turn
                 f"The caller spoke {script[0]} and it answered in English.",
             )
         )
-    elif script is not None and in_english and _only_a_greeting(caller_said):
+    elif (
+        script is not None
+        and in_english
+        and not caller_chose_english
+        and _only_a_greeting(caller_said)
+    ):
         found.append(
             TurnProblem(
                 "wrong_language",
@@ -690,14 +709,20 @@ def _language_problems(reply: str, caller_said: str, language: str) -> list[Turn
     return found
 
 
-def turn_problems(reply: str, *, caller_said: str = "", language: str = "") -> list[TurnProblem]:
+def turn_problems(
+    reply: str, *, caller_said: str = "", language: str = "", caller_chose_english: bool = False
+) -> list[TurnProblem]:
     """Every problem in one agent reply, the platform's first. `caller_said` is the caller's
     line this reply answers; it decides whether a longer reply was asked for. `language`
-    selects the spoken-style word list; without it the formal-word check is skipped."""
+    selects the spoken-style word list; without it the formal-word check is skipped.
+    `caller_chose_english`: an earlier caller line spoke English (`speaks_english`), so a
+    reply in English to a bare "okay" is not leaving the agent's language."""
     if not reply.strip():
         return []
     found = _symbol_problems(reply)
-    found += _language_problems(reply, caller_said, language)
+    found += _language_problems(
+        reply, caller_said, language, caller_chose_english=caller_chose_english
+    )
     found += _script_and_number_problems(reply, language)
     formal = _formal_problem(reply, language)
     if formal:

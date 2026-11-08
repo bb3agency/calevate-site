@@ -498,6 +498,20 @@ class _Tally:
     facts: int = 0
 
 
+def _fileable(tenant_id: UUID, phone: str) -> bool:
+    """Can a fact about this call's other party be filed at all? Asked before the model,
+    because `remember` refuses a number that is not canonical E.164 or is an anonymized
+    placeholder: asking first bought the reading and then rolled it back with its meter row,
+    and left the call pending at the head of every tick."""
+    if not phone:
+        return False
+    try:
+        active_caller_ref(tenant_id, phone)
+    except CallerRefError:
+        return False
+    return True
+
+
 async def _sweep_tenant(
     tally: _Tally, *, tenant_id: UUID, distil: BackgroundLeg, budget: int, excluded: list[str]
 ) -> None:
@@ -527,9 +541,10 @@ async def _sweep_tenant(
         # the same conversation again.
         try:
             async with tenant_session(tenant_id) as session:
-                if not phone:
-                    # No subject to file a fact under: an erasure has already NULLed the
-                    # number, or the poller never learned it. `skipped`, because no model
+                if phone is None or not _fileable(tenant_id, phone):
+                    # No subject to file a fact under: an erasure has already NULLed or
+                    # anonymized the number, the poller never learned it, or it is not
+                    # canonical E.164. `skipped`, because no model
                     # was asked — and settled rather than left pending, so it is not
                     # re-discovered every hour for a fortnight.
                     await _mark(session, call_id, CALLER_MEMORY_SKIPPED)

@@ -337,3 +337,28 @@ def test_an_operators_node_options_are_kept_beside_the_ceiling() -> None:
         "pnpm -C apps/web build | NODE_OPTIONS=--trace-warnings --max-old-space-size=2048 | BUILD=1"
         in lines
     )
+
+
+def _components(*paths: str) -> list[str]:
+    listed = " ".join(f"'{path}'" for path in paths)
+    result = _run(
+        _functions("components_for_paths") + f"\nprintf '%s\\n' {listed} | components_for_paths\n"
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.split()
+
+
+def test_the_receivers_inbox_claim_redeploys_voice_runtime() -> None:
+    """voice-runtime loads `reliability/service.py` and `db/session.py`; a change there
+    shipped to the api and the workers and left the webhook receiver on the old code."""
+    for path in ("apps/api/reliability/service.py", "apps/api/db/session.py"):
+        assert "voice-runtime" in _components(path), path
+
+
+def test_the_rest_of_the_monolith_does_not_redeploy_voice_runtime() -> None:
+    assert "voice-runtime" not in _components("apps/api/crm/service.py")
+
+
+def test_a_worker_module_the_api_imports_redeploys_the_api() -> None:
+    assert "api" in _components("apps/workers/redaction.py")
+    assert "api" in _components("scripts/seed.py")

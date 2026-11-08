@@ -239,3 +239,36 @@ async def test_a_subject_with_no_calls_scrubs_nothing_and_touches_no_row() -> No
         assert await service.scrub_quotes_for_calls(session, call_ids=[], mark=REDACTED_MARK) == 0
 
     assert await _gap_text(tenant_id) == before, "an empty subject scrubbed somebody else's words"
+
+
+async def test_erasure_removes_the_callers_words_from_a_topic_named_after_them() -> None:
+    """A question no topic names is keyed and labelled from the caller's own words; the
+    erasure moves it to the general bucket, counts kept, so those words leave the card."""
+    tenant_id, agent_id = await _tenant()
+    call_id = await _call(tenant_id, agent_id, datetime.now(UTC))
+    await service.record_call_gaps(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        call_id=call_id,
+        turns=[
+            RedactedTurn(speaker="caller", text="Can my grandmother bring her parrot inside?"),
+            RedactedTurn(speaker="agent", text="I don't know about that."),
+        ],
+    )
+
+    async def topics() -> list[tuple[str, str, int]]:
+        async with tenant_session(tenant_id) as session:
+            rows = (
+                await session.execute(
+                    text("SELECT topic_key, topic_label, occurrence_count FROM knowledge_gaps")
+                )
+            ).all()
+        return [(str(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+    before = await topics()
+    assert len(before) == 1 and before[0][0].startswith("q_"), f"premise: a worded topic {before}"
+    async with tenant_session(tenant_id) as session:
+        await service.scrub_quotes_for_calls(session, call_ids=[call_id], mark=REDACTED_MARK)
+
+    after = await topics()
+    assert after == [("general", "General question", before[0][2])]

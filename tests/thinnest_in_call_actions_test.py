@@ -376,6 +376,23 @@ async def test_a_lost_secret_is_replaced_on_every_action(vendor: FakeThinnest) -
     assert len(vendor.actions[ref]) == 3
 
 
+async def test_the_drift_sweep_reports_a_rekey_as_repaired(vendor: FakeThinnest) -> None:
+    tenant_id, _agent, ref = await _route()
+    await _ensure(tenant_id, ref)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE engine_agent_routes SET action_secret_ciphertext = NULL, "
+                "action_secret_nonce = NULL, action_secret_dek_wrapped = NULL, "
+                "action_secret_dek_nonce = NULL, action_secret_kek_version = NULL "
+                "WHERE engine_agent_ref = :ref"
+            ),
+            {"ref": ref},
+        )
+    verdict = await check_agent_actions(tenant_id=tenant_id, engine=ENGINE, engine_agent_ref=ref)
+    assert verdict == "repaired"
+
+
 async def test_publish_refuses_without_a_public_actions_address(
     vendor: FakeThinnest, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import replace
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
@@ -314,6 +314,68 @@ async def _recompute_aggregate(
     )
 
 
+async def _rekey_worded_topics(
+    session: AsyncSession, call_ids: Sequence[UUID]
+) -> set[tuple[UUID, UUID, str]]:
+    """Move these calls' occurrences off topics named from the caller's own words.
+
+    A question no topic names is keyed and labelled from up to three of its words
+    (`detection.WORDED_TOPIC_PREFIX`), so scrubbing the quotes alone left those words on the
+    owner's card. They are re-filed under `detection.GENERAL_TOPIC`, merged with any general
+    occurrence the call already has (one row per call and topic), counts kept. Returns every
+    aggregate the move touched, old and new, for the caller to re-derive."""
+    general_key, general_label = detection.GENERAL_TOPIC
+    rows = (
+        await session.execute(
+            text(
+                "DELETE FROM knowledge_gap_occurrences "
+                "WHERE call_id = ANY(:ids) AND starts_with(topic_key, :prefix) "
+                "RETURNING tenant_id, agent_id, call_id, topic_key, question_redacted, "
+                "answer_redacted, signal, hit_count"
+            ),
+            {"ids": list(call_ids), "prefix": detection.WORDED_TOPIC_PREFIX},
+        )
+    ).all()
+    touched: set[tuple[UUID, UUID, str]] = set()
+    merged: dict[tuple[UUID, UUID, UUID], Any] = {}
+    for row in rows:
+        touched.add((row[0], row[1], str(row[3])))
+        touched.add((row[0], row[1], general_key))
+        key = (row[0], row[1], row[2])
+        earlier = merged.get(key)
+        merged[key] = row if earlier is None else _summed_hits(earlier, row)
+    for (tenant_id, agent_id, call_id), row in merged.items():
+        await session.execute(
+            text(
+                "INSERT INTO knowledge_gap_occurrences "
+                "(id, tenant_id, agent_id, call_id, topic_key, topic_label, "
+                " question_redacted, answer_redacted, signal, hit_count, created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :cid, :key, :label, :q, :a, :sig, :hits, now(), now()) "
+                "ON CONFLICT (tenant_id, call_id, topic_key) DO UPDATE SET "
+                "hit_count = knowledge_gap_occurrences.hit_count + EXCLUDED.hit_count, "
+                "updated_at = now()"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "aid": agent_id,
+                "cid": call_id,
+                "key": general_key,
+                "label": general_label,
+                "q": row[4],
+                "a": row[5],
+                "sig": row[6],
+                "hits": row[7],
+            },
+        )
+    return touched
+
+
+def _summed_hits(first: Any, second: Any) -> tuple[Any, ...]:
+    """`first` with the two rows' hit counts summed."""
+    return (*first[:7], int(first[7]) + int(second[7]))
+
+
 async def scrub_quotes_for_calls(
     session: AsyncSession, *, call_ids: Sequence[UUID], mark: str
 ) -> int:
@@ -385,8 +447,12 @@ async def scrub_quotes_for_calls(
         {"ids": ids, "mark": mark},
     )
     scrubbed = int(rowcount_of(result) or 0)
+    aggregates: set[tuple[UUID, UUID, str]] = {(r[0], r[1], str(r[2])) for r in affected}
+    aggregates |= await _rekey_worded_topics(session, ids)
 
-    for tenant_id, agent_id, topic_key in affected:
+    for tenant_id, agent_id, topic_key in sorted(
+        aggregates, key=lambda row: (str(row[0]), str(row[1]), row[2])
+    ):
         await _recompute_aggregate(
             session,
             tenant_id=tenant_id,

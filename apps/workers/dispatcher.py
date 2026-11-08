@@ -197,7 +197,10 @@ async def dispatch_outbox(ctx: dict[str, Any]) -> str:
                     )
                     continue
                 await mark_outbox_published(
-                    session, message_id=message.id, job_id=job_id or "deduped"
+                    session,
+                    message_id=message.id,
+                    job_id=job_id or "deduped",
+                    still_running=job_id is None,
                 )
                 published += 1
             except (RedisError, OSError) as exc:
