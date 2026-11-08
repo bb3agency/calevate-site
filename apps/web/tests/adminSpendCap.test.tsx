@@ -410,3 +410,22 @@ function recomputed(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
+
+describe("the itemisation residual", () => {
+  it("says why the rows do not add up in words, not the wire reason", async () => {
+    // Audit W8 (8 Nov 2026): the line ended "(prepaid_wallet_vs_panel)".
+    await render({
+      [SPEND_PATH]: {
+        ...SPEND,
+        period_charge_inr: "120.00",
+        itemised_charge_inr: "119.98",
+        itemisation_residual_inr: "0.02",
+        residual_reason: "prepaid_wallet_vs_panel",
+      },
+    });
+
+    const line = await screen.findByText(/a residual of/);
+    expect(line.textContent).toContain("(per-call rounding of wallet debits");
+    expect(line.textContent).not.toContain("prepaid_wallet_vs_panel");
+  });
+});

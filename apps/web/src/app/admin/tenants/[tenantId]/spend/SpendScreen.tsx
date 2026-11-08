@@ -37,6 +37,12 @@ import { SpendCapPanel } from "../SpendCapPanel";
 
 import { Breakdown } from "./SpendBreakdown";
 
+/** `residual_reason` (`billing/attribution.ResidualReason`) for the operator; an unknown one prints as itself. */
+const RESIDUAL_REASON: Record<string, string> = {
+  prepaid_wallet_vs_panel: "per-call rounding of wallet debits, plus charges not made call by call",
+  no_billable_minutes: "no call this month carries billable minutes to split the charge across",
+};
+
 /**
  * SPEND — where this client's month made or lost us money, and the cap that can stop it.
  *
@@ -267,7 +273,8 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
         <div className="border-l-2 border-warn py-1 pl-3 text-meta text-ink">
           The rows below account for {formatINRExact(data.itemised_charge_inr)} of{" "}
           {formatINRExact(data.period_charge_inr)} in calling charge — a residual of{" "}
-          {formatINRExact(data.itemisation_residual_inr)} ({data.residual_reason}).
+          {formatINRExact(data.itemisation_residual_inr)} (
+          {lookup(RESIDUAL_REASON, data.residual_reason) ?? data.residual_reason}).
         </div>
       )}
 
