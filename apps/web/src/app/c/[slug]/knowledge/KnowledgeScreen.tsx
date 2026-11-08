@@ -91,9 +91,13 @@ export function KnowledgeScreen() {
               notes={notes}
               onAnswerQuestions={(key) => {
                 // A key the list does not hold read "That question is already answered" on a
-                // list nobody had answered: open the first question instead.
-                const items = questions.data?.items ?? [];
-                setFocus(items.some((q) => q.key === key) ? key : (items[0]?.key ?? null));
+                // list nobody had answered: open the first question instead. While the list
+                // is unread the key stands; the questions view says why it is not shown.
+                if (questions.isSuccess && !questions.data.items.some((q) => q.key === key)) {
+                  setFocus(questions.data.items[0]?.key ?? null);
+                } else {
+                  setFocus(key);
+                }
                 setTab("questions");
               }}
             />
