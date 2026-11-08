@@ -211,7 +211,7 @@ export function Tabs({
               <button
                 key={item.value}
                 {...tabProps}
-                className={`-mb-px flex h-10 shrink-0 items-center border-b-2 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand touch:h-11 ${
+                className={`-mb-px flex h-10 shrink-0 items-center justify-center border-b-2 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand touch:h-11 touch:min-w-11 ${
                   item.disabled
                     ? "cursor-default border-transparent text-ink-faint"
                     : selected

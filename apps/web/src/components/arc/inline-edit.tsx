@@ -37,6 +37,11 @@ export type InlineEditProps = {
   /** Classes for the text in both modes (size and weight), e.g. "text-title". */
   textClassName?: string;
   maxLength?: number;
+  /**
+   * Let the text wrap instead of cutting it with an ellipsis. A page title is the record's
+   * name: cut to "Site-visit reminders for pas…" on a phone, the owner cannot read it.
+   */
+  wrap?: boolean;
   placeholder?: string;
   /** Return a sentence to refuse the text, or null. */
   validate?: (next: string) => string | null;
@@ -58,6 +63,7 @@ export function InlineEdit({
   as: Tag = "span",
   textClassName = "text-heading",
   maxLength = 120,
+  wrap = false,
   placeholder,
   validate,
   errorMessage = "That did not save. Your text is still here; try again.",
@@ -167,7 +173,7 @@ export function InlineEdit({
             textClassName,
           )}
         >
-          <span className="min-w-0 truncate">{value || placeholder}</span>
+          <span className={wrap ? "min-w-0 [overflow-wrap:anywhere]" : "min-w-0 truncate"}>{value || placeholder}</span>
           {!disabled ? (
             <Pencil aria-hidden className="h-3.5 w-3.5 shrink-0 text-ink-faint opacity-60 group-hover:opacity-100" />
           ) : null}

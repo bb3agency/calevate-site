@@ -57,7 +57,7 @@ export function ActionReceipt({
       {/* Folded: Pip's reply already says what changed, so the receipt's words sit behind
           the summary and only Undo stays out (founder, 4 Nov 2026). */}
       <details className="group">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-ink [&::-webkit-details-marker]:hidden">
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-ink touch:min-h-11 [&::-webkit-details-marker]:hidden">
           <CheckCircle2 aria-hidden className={`h-3.5 w-3.5 shrink-0 ${undone !== undefined ? TONE_INK.neutral : TONE_INK.ok}`} />
           <span>{undone !== undefined ? "Undone" : action.applied ? "Done" : "Already done"}</span>
           <span className="min-w-0 font-normal text-ink-muted">{action.title}</span>

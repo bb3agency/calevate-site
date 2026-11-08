@@ -763,7 +763,7 @@ export function CopilotPanel({
             ) : (
               // Folded: the list is a tap away for an answer that did not name the fields.
               <details className="group">
-                <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-ink [&::-webkit-details-marker]:hidden">
+                <summary className="flex cursor-pointer list-none items-center gap-1 text-xs font-medium text-ink touch:min-h-11 [&::-webkit-details-marker]:hidden">
                   Filled {batch.labels.length} {batch.labels.length === 1 ? "field" : "fields"}
                   <ChevronDown aria-hidden className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
                 </summary>

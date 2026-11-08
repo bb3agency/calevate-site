@@ -334,7 +334,7 @@ export function WizardSteps({
                     intent.current = "list";
                     goTo(i);
                   }}
-                  className="inline-flex items-center rounded-[8px] outline-none touch:min-h-11 focus-visible:ring-2 focus-visible:ring-brand"
+                  className="inline-flex items-center justify-center rounded-[8px] outline-none touch:min-h-11 touch:min-w-11 focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   {tile}
                   {name}

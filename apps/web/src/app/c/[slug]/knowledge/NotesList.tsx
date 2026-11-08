@@ -164,7 +164,7 @@ function NoteRow({
             type="button"
             onClick={() => setConfirming(true)}
             aria-label={`Remove ${note.name}`}
-            className={`${SECONDARY_BUTTON_SM} shrink-0 justify-center touch:min-w-11`}
+            className={`${SECONDARY_BUTTON_SM} shrink-0`}
           >
             <Trash2 aria-hidden className="h-3.5 w-3.5" />
             <span className="max-sm:sr-only">Remove</span>

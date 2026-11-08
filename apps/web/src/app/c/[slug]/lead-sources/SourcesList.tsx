@@ -140,7 +140,7 @@ export function SourcesList({
           {/* L3-13: the source id and key fingerprint are for whoever wires the form or
               the CRM, so they wait behind "Details" rather than sit in every row. */}
           <details className="text-meta text-ink-faint">
-            <summary className="w-fit cursor-pointer select-none hover:text-ink-muted">Details</summary>
+            <summary className="w-fit cursor-pointer select-none hover:text-ink-muted touch:py-3">Details</summary>
             <p>
               Source <MonoValue>{row.id.slice(-8)}</MonoValue>
               {/* The fingerprint, never the secret: enough to tell which key we hold. */}

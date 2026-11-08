@@ -265,7 +265,9 @@ export function ModelPicker({
             unavailable ? "opacity-60" : ""
           }`}
         >
-          <span className="min-w-0 flex-1">
+          {/* A 12rem basis, not flex-1's 0: with a zero basis the price never wrapped, and on
+              a phone it held half the card while the description ran four words a line. */}
+          <span className="min-w-0 flex-[1_1_12rem]">
             <span className="flex flex-wrap items-center gap-2">
               {checked ? (
                 <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />

@@ -152,7 +152,7 @@ function Profile({
               ) : (
                 <Link
                   href={href("/verify-business")}
-                  className="font-medium text-brand-strong hover:underline"
+                  className="font-medium text-brand-strong hover:underline touch:inline-flex touch:min-h-11 touch:items-center"
                 >
                   Verify your business
                 </Link>
