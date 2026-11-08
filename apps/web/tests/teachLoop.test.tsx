@@ -10,7 +10,7 @@ import type { Me } from "@/lib/api/client";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
 
 import { businessProfileFixture } from "./businessProfileFixture";
-import { noContent, problem, renderClientPage, type Routes } from "./harness";
+import { noContent, problem, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /** The teach box is the teach card's "Type or say it" way (D-968). */
 async function chooseSomethingElse() {
@@ -443,6 +443,28 @@ describe("saved tests and the chat", () => {
     await waitFor(() => expect(calls.filter((c) => c.path === "/v1/agents/agent-1/try-chat")).toHaveLength(2));
     const second = JSON.parse(calls.filter((c) => c.path === "/v1/agents/agent-1/try-chat")[1]?.body ?? "{}");
     expect(second).toEqual({ message: "delivery?", session: "vr_1" });
+  });
+
+  it("holds Start over while a reply is on its way (audit W2)", async () => {
+    let sent = 0;
+    await renderClientPage(<TryChat agentId="agent-1" />, {
+      "/v1/me": ME,
+      ...chatReadiness(null),
+      "POST /v1/agents/agent-1/try-chat": () =>
+        ++sent === 1
+          ? { session: "vr_1", reply: "Avunu andi.", looked_up_knowledge: false, cut_short: false, cost_note: null }
+          : stillLoading(),
+    });
+    fireEvent.change(await screen.findByLabelText("What the caller says"), { target: { value: "chilli undha?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("Avunu andi.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Start over" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("What the caller says"), { target: { value: "delivery?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    // Clearing now would let the late reply land in the new chat under the old session.
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Start over" }) as HTMLButtonElement).disabled).toBe(true),
+    );
   });
 
   it("shows the server's sentence instead of a chat box until the agent is ready", async () => {

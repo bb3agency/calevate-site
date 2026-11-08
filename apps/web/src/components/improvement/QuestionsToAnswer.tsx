@@ -154,7 +154,14 @@ function QuestionRow({
   const { href } = useClientRealm();
   const [open, setOpen] = useState(startOpen);
   const rowRef = useRef<HTMLLIElement>(null);
+  const answerRef = useRef<HTMLButtonElement>(null);
+  // Cancel unmounts the form that held focus; it goes back to the button that opened it.
+  const [cancelled, setCancelled] = useState(false);
   const panelId = useId();
+
+  useEffect(() => {
+    if (cancelled && !open) answerRef.current?.focus();
+  }, [cancelled, open]);
 
   useEffect(() => {
     if (!startOpen) return;
@@ -186,11 +193,15 @@ function QuestionRow({
         </div>
         {canWrite && !open ? (
           <button
+            ref={answerRef}
             type="button"
             className={SECONDARY_BUTTON_SM}
             aria-expanded={false}
             aria-controls={panelId}
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              setCancelled(false);
+              setOpen(true);
+            }}
           >
             {question.draft ? "Review answer" : "Answer"}
           </button>
@@ -198,7 +209,14 @@ function QuestionRow({
       </div>
       {canWrite && open ? (
         <div id={panelId}>
-          <AnswerForm question={question} focusOnOpen onClose={() => setOpen(false)} />
+          <AnswerForm
+            question={question}
+            focusOnOpen
+            onClose={() => {
+              setOpen(false);
+              setCancelled(true);
+            }}
+          />
         </div>
       ) : null}
     </li>
