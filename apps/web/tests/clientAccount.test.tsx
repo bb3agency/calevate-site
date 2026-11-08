@@ -67,7 +67,10 @@ describe("the account this session is in", () => {
     await renderPage({ "/v1/me": ME });
 
     expect(await screen.findByText("Sri Lakshmi Dental")).toBeTruthy();
-    expect(screen.getByText("sri-lakshmi-dental")).toBeTruthy();
+    // Frontend audit 8 Nov 2026, W1: the slug is the owner's web address, not an "ID".
+    expect(screen.getByText("Your web address")).toBeTruthy();
+    expect(screen.getByText("/c/sri-lakshmi-dental")).toBeTruthy();
+    expect(screen.queryByText("Account ID")).toBeNull();
     expect(screen.getByText("owner")).toBeTruthy();
     // The sentence under the role is derived from the PERMISSIONS the server sent, never
     // from the word "owner" — the same set every gated control on the console previews
