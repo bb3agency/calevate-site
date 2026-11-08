@@ -28,7 +28,7 @@ import {
 import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps, type Caps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
-import { useUsage, useWriteAccess, type UsagePanel } from "@/lib/api/hooks";
+import { useUsage, useWriteAccess, type UsagePanel, type WriteAccess } from "@/lib/api/hooks";
 import { formatBillingMonth } from "@/lib/billingMonth";
 import type { Session } from "@/lib/api/client";
 
@@ -382,10 +382,18 @@ function SpendLimit({ session }: { session: Session }) {
   const caps = useCaps(session);
   const save = useSetCaps(session);
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
-  // `PUT /v1/billing/caps` requires `org:manage` — a MUTATING permission, so `staff` does
-  // not hold it and an impersonating operator is refused it (D-22). Disabled with the
-  // reason beside it, rather than a 403 after the click.
-  const write = useWriteAccess(session, "org:manage", "change your spending limit");
+  // `PUT /v1/billing/caps` requires `org:manage` in the CLIENT realm, so `staff` does not
+  // hold it and a view-as session is refused before any permission is read (the limit is
+  // the client's own instruction; operators move the plan's ceiling instead). `/v1/me`
+  // still lists `org:manage` for view-as (D-587), so that refusal is stated here.
+  const owner = useWriteAccess(session, "org:manage", "change your spending limit");
+  const write: WriteAccess = session.impersonateOrg
+    ? {
+        allowed: false,
+        reason: "The client sets this limit themselves. Change the plan's limit from the operator console.",
+        unknown: false,
+      }
+    : owner;
   // `undefined` = not edited, so the box shows the server's value; `null` / `""` = the
   // owner cleared it, which is a real instruction (fall back to the plan's limit).
   const [minutes, setMinutes] = useState<number | null | undefined>(undefined);

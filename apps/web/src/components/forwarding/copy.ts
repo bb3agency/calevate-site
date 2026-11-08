@@ -57,7 +57,8 @@ export const CONDITION_LABEL: Record<string, string> = {
   all_calls: "Every call",
   all_conditional: "Switch off the three above",
   everything: "Switch off all forwarding",
-  disputed: "Sites disagree on what this does",
+  // A code guides disagree on: no answer or no signal, and nobody says which.
+  disputed: "Missed or unreachable calls (not sure which)",
 };
 
 export const STATUS_COPY: Record<ForwardedLine["status"], { text: string; tone: NoticeTone }> = {

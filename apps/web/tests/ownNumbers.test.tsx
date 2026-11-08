@@ -239,6 +239,16 @@ describe("the three steps, as the server names them", () => {
     expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
   });
 
+  it("asks nothing of the owner while the documents are with the review team", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status({ step: "verify_business", kyc_status: "in_review", business_status: null })),
+    );
+    expect(await screen.findByText("Your documents are with our review team.")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Verify your business" })).toBeNull();
+    expect(screen.queryByText("Next step")).toBeNull();
+  });
+
   it("sends the business details when nothing has been sent yet", async () => {
     const { calls } = await renderClientPage(
       <PhoneNumberPage />,
@@ -279,7 +289,9 @@ describe("the three steps, as the server names them", () => {
       ),
     );
     expect(await screen.findByText("The name on the certificate does not match.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Fix the details" }).getAttribute("href")).toBe("/c/acme/verify-business");
+    // The details sent are the verified ones, which the owner can no longer edit.
+    expect(screen.getByRole("link", { name: "Ask us to correct them" }).getAttribute("href")).toMatch(/^mailto:/);
+    expect(screen.queryByRole("link", { name: "Verify your business" })).toBeNull();
     expect((await enabledButton("Send the details again")).disabled).toBe(false);
   });
 
@@ -315,7 +327,7 @@ describe("the three steps, as the server names them", () => {
     );
     expect(await screen.findByText("Approval withdrawn. Please contact us.")).toBeTruthy();
     expect(screen.getByText("Approval withdrawn by the authority.")).toBeTruthy();
-    expect(screen.queryByRole("link", { name: "Fix the details" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Ask us to correct them" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
   });
 
@@ -440,6 +452,27 @@ describe("buying a number", () => {
     await waitFor(() => expect(bodies(calls, OWN_NUMBERS_PATHS.purchase)).toHaveLength(2));
     const [first, second] = bodies(calls, OWN_NUMBERS_PATHS.purchase);
     expect(second.request_key).not.toBe(first.request_key);
+  });
+
+  it("sends a changed price back to the list instead of refusing Buy again", async () => {
+    const { calls } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), {
+        [`POST ${OWN_NUMBERS_PATHS.purchase}`]: problem(409, {
+          type: "https://calevate.tech/problems/number_price_changed",
+          detail: "The price changed.",
+        }),
+      }),
+    );
+    await search();
+    const searches = () => calls.filter((call) => call.method === "GET" && call.path.includes("available")).length;
+    const before = searches();
+    fireEvent.click(screen.getByRole("button", { name: "Buy +91 80123 45671" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Buy this number" }));
+    expect(await screen.findByText("The price has changed. Nothing was charged.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "See the new price" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(searches()).toBeGreaterThan(before));
   });
 
   it("offers a top-up when the credit cannot cover the first month", async () => {

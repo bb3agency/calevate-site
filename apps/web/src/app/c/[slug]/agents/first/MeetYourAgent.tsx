@@ -74,10 +74,12 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
   const router = useRouter();
   const queries = useQueryClient();
-  const run = useFirstRun(session);
+  const write = useWriteAccess(session, "org:manage", "build an agent");
+  // The first run is the owner's (`org:manage`): a colleague is told so rather than shown
+  // the 403 the read would have met.
+  const run = useFirstRun(session, write.allowed);
   const agents = useAgents(session);
   const profile = useBusinessProfile(session);
-  const write = useWriteAccess(session, "org:manage", "build an agent");
   const consent = usePipConsent(session);
   const dismiss = useDismissFirstRun(session);
   // Skipping leaves this screen whatever the answer (onSettled below), so a refusal goes to
@@ -121,11 +123,11 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const jobWaitsForProfile = stage === "job" && profile.isPending;
 
   let body: React.ReactNode;
-  if (run.isError) body = <ProblemNotice error={run.error} onRetry={() => void run.refetch()} />;
+  if (!write.unknown && !write.allowed) body = <RestrictionNote reason={write.reason} />;
+  else if (run.isError) body = <ProblemNotice error={run.error} onRetry={() => void run.refetch()} />;
   else if (agents.isError) body = <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />;
   else if (!loaded || stage === null || write.unknown || jobWaitsForProfile)
     body = <Skeleton rows={6} label="Getting your agent ready…" />;
-  else if (!write.allowed) body = <RestrictionNote reason={write.reason} />;
   else if (pip)
     body = (
       <PipPanel
@@ -234,16 +236,18 @@ export function MeetYourAgent({ slug }: { slug: string }) {
             onGo={(to) => to < step && setStage(to === 0 ? "job" : to === 1 ? "brief" : "hear")}
           />
         </div>
-        <ActionButton
-          variant="secondary-sm"
-          className="shrink-0 justify-self-end"
-          status={dismissFeedback.status}
-          successLabel="Skipped"
-          onClick={skip}
-        >
-          <X aria-hidden className="h-3.5 w-3.5" />
-          Skip for now
-        </ActionButton>
+        {write.allowed && (
+          <ActionButton
+            variant="secondary-sm"
+            className="shrink-0 justify-self-end"
+            status={dismissFeedback.status}
+            successLabel="Skipped"
+            onClick={skip}
+          >
+            <X aria-hidden className="h-3.5 w-3.5" />
+            Skip for now
+          </ActionButton>
+        )}
       </div>
 
       {/* Two columns from `lg` while the agent is being made: the step, as wide as its cards

@@ -48,16 +48,15 @@ the vendor whose console used to establish it is gone (D-177): S-2's question su
 deletion of the file S-2 pointed at.
 
 **BOTH MINTING ROUTES NOW MAIL IT** — the client realm's since D-190, the admin realm's
-`POST /v1/admin/tenants/{tenant_id}/invitations` since D-198 — so the premise has changed
-and the paragraph below on what stays open has changed with it. The address still starts
-UNVERIFIED, and that is now a considered position rather than a consequence: an invitation
-mailed to a mailbox is evidence about that mailbox, but the only thing that makes it
-evidence is a delivery this repo cannot yet observe (no mail provider is signed up —
-`ConsoleTransport` is what runs). One round trip the invitee completes themselves is
-evidence we hold; a send we cannot confirm is not.
+`POST /v1/admin/tenants/{tenant_id}/invitations` since D-198 — so the token exists in the
+invited mailbox and nowhere else, and redeeming it proves the mailbox (D-955's premise).
+**So the address IS marked proved when a redemption sets the account's first password**
+(audit of 8 Nov 2026). Leaving it unproved made every invitee's real account look like a
+squat to the reclaim below, and the holder of any later invitation to that address could
+replace its password.
 
-What it bought an attacker, end to end, and none of the steps needs a defect anywhere else:
-an owner of ANY tenant — a trial signup is enough — issues an invitation to
+What D-185's world bought an attacker, while the inviter could read the token: an owner of
+ANY tenant — a trial signup is enough — issues an invitation to
 `victim@target.example`, reads the token out of their own 201 response, redeems it, and
 gets a GLOBAL `users` row on an address they do not control, marked verified, holding a
 password they chose. `uq_users_email_lower` guarantees that is the ONLY row for that
@@ -67,11 +66,10 @@ attaches the membership to it. The squatter then signs in with their own passwor
 client realm has no second factor (`service.MFA_REQUIRED_REALMS` is `{"admin"}`), so a
 password is the entire credential.
 
-So a NEW account starts UNVERIFIED and becomes verified the way every other address in this
-system does: an `email_verify` OTP round trip (`POST /v1/auth/client/otp/request` +
-`/otp/verify` → `subjects.mark_email_verified`), which is already the thing
-`SessionOut.email_verified` reports. D-190 and D-198 closed the squat itself: the token now
-exists in the invited mailbox and nowhere else, so whoever redeems it reads that mailbox.
+D-190 and D-198 closed that squat: the token now exists in the invited mailbox and nowhere
+else, so whoever redeems it reads that mailbox. An unproved account with a password is
+therefore one made before then (or a self-serve signup from before D-703), which is what the
+reclaim below is for.
 
 ═══ AN INVITATION FOR SOMEBODY WHO ALREADY HAS AN ACCOUNT ═══
 
@@ -123,6 +121,7 @@ from apps.api.db.session import (
     tenant_session,
     untenanted_session,
 )
+from apps.api.tenancy.lifecycle import assert_account_open
 
 log = get_logger(__name__)
 
@@ -142,6 +141,7 @@ class AcceptedInvitation:
     role: str
     user_id: UUID
     session: IssuedSession
+    business_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +180,7 @@ async def accept_with_password(
          existence to one tenant's write succeeding;
       3. set the password only if there is not one already, or replace an unproved one
          and revoke its sessions (see the module docstring), then mark the address proved
-         on that reclaim — all before anything below, so a refused password changes
+         — all before anything below, so a refused password changes
          nothing and the invitation stays redeemable;
       4. burn the invitation and create the membership under `tenant_session`, via the
          EXISTING `admin_service.accept_invitation` — one implementation of the CAS burn,
@@ -206,6 +206,13 @@ async def accept_with_password(
         raise _invalid()
     tenant_id = UUID(str(row[0]))
     invited_email = str(row[1]).strip()
+
+    # Refused BEFORE any credential is written. `admin_service.accept_invitation` asks the
+    # same question again at the burn, but by then a password has been set and sessions
+    # revoked in their own transaction, and the refusal rolls back only the burn — so an
+    # invitation to a closed account stayed redeemable and every replay rewrote a password.
+    async with tenant_session(tenant_id) as scoped:
+        await assert_account_open(scoped, tenant_id=tenant_id)
 
     # The name typed at acceptance wins; the operator's copy fills a blank one (D-695).
     user_id, created = await _find_or_create_user(
@@ -233,7 +240,8 @@ async def accept_with_password(
         await _prove_existing_account(user_id, password=password, at=at, ip=ip)
 
     revoked = 0
-    if reclaiming or not await has_password(INVITE_REALM, user_id):
+    first_password = not reclaiming and not await has_password(INVITE_REALM, user_id)
+    if reclaiming or first_password:
         async with credential_session() as session:
             await set_password(
                 session,
@@ -254,11 +262,20 @@ async def accept_with_password(
             revoked = await revoke_subject_sessions(
                 session, realm=INVITE_REALM, subject_id=user_id, now=at
             )
-    if reclaiming:
+    if reclaiming or first_password:
         # After the password, so a password the policy refuses leaves the address exactly as
         # unproved as it was and the invitation unburned for the retry.
+        #
+        # A FIRST password is marked proved too, on D-955's own premise: the token reached
+        # this mailbox and nowhere else. Leaving it unproved is what made the reclaim above a
+        # takeover: the invitee's real, in-use account looked like a squat, and the holder of
+        # any LATER invitation to the address (a forwarded link is enough) replaced its
+        # password and signed in as it in every organisation it belongs to.
         await mark_email_verified(INVITE_REALM, user_id, at=at)
-        log.info("auth_invitation_reclaimed_unverified_account", extra={"user_id": str(user_id)})
+        if reclaiming:
+            log.info(
+                "auth_invitation_reclaimed_unverified_account", extra={"user_id": str(user_id)}
+            )
 
     async with tenant_session(tenant_id) as scoped:
         await admin_service.accept_invitation(scoped, raw_token=token, user_id=user_id)
@@ -267,11 +284,12 @@ async def accept_with_password(
                 text("SELECT role FROM memberships WHERE user_id = :u"), {"u": user_id}
             )
         ).scalar()
-        slug = (
+        org = (
             await scoped.execute(
-                text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
+                text("SELECT slug, name FROM organizations WHERE id = :t"), {"t": tenant_id}
             )
-        ).scalar()
+        ).one()
+        slug, business_name = org[0], org[1]
         # In the tenant transaction, as the Clerk-era path did, so the membership
         # and its evidence commit together.
         await write_audit(
@@ -304,6 +322,7 @@ async def accept_with_password(
         role=str(role or "owner"),
         user_id=user_id,
         session=issued,
+        business_name=str(business_name) if business_name else None,
     )
 
 
@@ -445,8 +464,8 @@ async def _find_or_create_user(
     `scripts/check_wiring.UNWIRED_BASELINE`).
 
     `email_verified_at` is NOT set here (D-185) — see the module docstring. The column is
-    left NULL and an `email_verify` OTP round trip is what fills it, except on a reclaim
-    (D-955), which `accept_with_password` marks after replacing the password.
+    left NULL here and `accept_with_password` marks it once the password is set, so a
+    password the policy refuses leaves the address unproved.
 
     THE INSERT IS GUARDED BY `ON CONFLICT`, WHICH IT WAS NOT (D-178). It was a read then a
     write, because there was no unique constraint on `users.email` to conflict against; the

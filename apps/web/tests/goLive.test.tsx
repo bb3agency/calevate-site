@@ -156,7 +156,7 @@ describe("the guide", () => {
     expect(await screen.findByRole("heading", { name: "Your details need a fix" })).toBeTruthy();
     expect(screen.getByText("The address does not match the GST certificate.")).toBeTruthy();
     expect(screen.queryByText(/moves on by itself/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Fix and send again" }));
+    fireEvent.click(screen.getByRole("button", { name: "See what the review said" }));
     await waitFor(() => expect(nav.pushed).toContain("/c/acme/phone-number"));
   });
 

@@ -231,6 +231,20 @@ async def _password_signs_in(user_id: uuid.UUID, password: str) -> bool:
         )
 
 
+async def _plant_unproved(email: str, password: str) -> uuid.UUID:
+    """An account with a password and an address nobody proved: what a pre-hijacker left
+    behind before D-190, or a self-serve signup from before D-703. No route makes one now."""
+    from apps.api.authn.credentials import set_password
+    from apps.api.authn.invitations import _find_or_create_user
+    from apps.api.db.session import credential_session
+
+    user_id, created = await _find_or_create_user(email=email, name=None, at=datetime.now(UTC))
+    assert created
+    async with credential_session() as session:
+        await set_password(session, realm="client", subject_id=user_id, password=password)
+    return user_id
+
+
 async def _open_session(user_id: uuid.UUID) -> str:
     """A live session for this account, as signing in with its password would leave."""
     from apps.api.authn.sessions import issue_session
@@ -270,14 +284,10 @@ async def test_the_mailbox_owner_reclaims_an_unverified_account(planted: Planted
     that was mailed to the address IS that proof, so the redeemer's password replaces the
     old one, every old session dies, and the address is marked proved. Under D-185 this
     redemption was refused with `invitation_account_unverified`."""
-    first_tenant, first_slug, first_session = await planted.tenant()
     owned_tenant, owned_slug, owned_session = await planted.tenant()
     address = planted.address("reclaim")
 
-    first = await _invite(first_slug, first_session, address, "staff")
-    assert (await _redeem(first, ATTACKER_PASSWORD)).status_code == 200
-    user_id = await _user_id(address)
-    assert user_id is not None
+    user_id = await _plant_unproved(address, ATTACKER_PASSWORD)
     assert await _verified_at(address) is None
     old_session = await _open_session(user_id)
 
@@ -293,7 +303,53 @@ async def test_the_mailbox_owner_reclaims_an_unverified_account(planted: Planted
     assert await _password_signs_in(user_id, REDEMPTION_PASSWORD)
     assert not await _session_live(old_session), "a session the old password opened survived"
     assert await _reclaim_audits(owned_tenant, user_id) == 1
-    assert await _memberships(first_tenant, address) == 1, "earlier memberships are kept"
+
+
+@pytest.mark.asyncio
+async def test_a_later_invitation_cannot_take_over_an_invitees_account(planted: Planted) -> None:
+    """Redeeming the first invitation proves the mailbox, so the account it made is not an
+    unproved squat. Before this, the holder of any later invitation to the address (a
+    forwarded link) replaced the invitee's password and signed in as them everywhere."""
+    first_tenant, first_slug, first_session = await planted.tenant()
+    second_tenant, second_slug, second_session = await planted.tenant()
+    address = planted.address("invitee")
+
+    first = await _invite(first_slug, first_session, address, "staff")
+    assert (await _redeem(first, REDEMPTION_PASSWORD)).status_code == 200
+    user_id = await _user_id(address)
+    assert user_id is not None
+    assert await _verified_at(address) is not None
+    live = await _open_session(user_id)
+
+    forwarded = await _invite(second_slug, second_session, address, "staff")
+    taken = await _redeem(forwarded, ATTACKER_PASSWORD)
+
+    assert taken.status_code == 401, taken.text
+    assert taken.json()["type"].endswith("/invitation_existing_account_password")
+    assert await _password_signs_in(user_id, REDEMPTION_PASSWORD)
+    assert await _session_live(live)
+    assert await _memberships(second_tenant, address) == 0
+    assert await _memberships(first_tenant, address) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_invitation_to_a_closed_account_writes_no_credential(planted: Planted) -> None:
+    """The account-open check runs before the password is set. It used to run only at the
+    burn, after the password and session revocation had committed, so the refusal left the
+    invitation unburned and each replay rewrote the password."""
+    tenant_id, slug, session_token = await planted.tenant()
+    address = planted.address("closed")
+    raw = await _invite(slug, session_token, address, "staff")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET status = 'churned' WHERE id = :t"), {"t": tenant_id}
+        )
+
+    refused = await _redeem(raw, REDEMPTION_PASSWORD)
+
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["type"].endswith("/account_closed")
+    assert await _user_id(address) is None
 
 
 @pytest.mark.asyncio
@@ -302,14 +358,10 @@ async def test_a_refused_password_leaves_an_unverified_account_untouched(
 ) -> None:
     """The reclaim happens only once the new password passes the policy: a refusal must not
     have already revoked sessions or marked the address, and the token must still work."""
-    _first_tenant, first_slug, first_session = await planted.tenant()
     owned_tenant, owned_slug, owned_session = await planted.tenant()
     address = planted.address("retype")
 
-    first = await _invite(first_slug, first_session, address, "staff")
-    assert (await _redeem(first, ATTACKER_PASSWORD)).status_code == 200
-    user_id = await _user_id(address)
-    assert user_id is not None
+    user_id = await _plant_unproved(address, ATTACKER_PASSWORD)
     old_session = await _open_session(user_id)
 
     real_token = await _invite(owned_slug, owned_session, address, "owner")
@@ -339,10 +391,17 @@ async def test_a_first_time_invitee_is_unaffected(planted: Planted) -> None:
 
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["tenant_id"] == str(tenant_id)
+    # "You joined <business>" names the business, not the URL slug.
+    async with tenant_session(tenant_id) as session:
+        org_name = (
+            await session.execute(
+                text("SELECT name FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+    assert accepted.json()["business_name"] == org_name
     assert await _memberships(tenant_id, address) == 1
-    assert await _verified_at(address) is None, (
-        "a first membership rides on the inviter vouching inside their own tenant; it is "
-        "not evidence about the mailbox, and must not be recorded as if it were"
+    assert await _verified_at(address) is not None, (
+        "the token reached this mailbox and nowhere else, so redeeming it proves the address"
     )
 
 

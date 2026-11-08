@@ -229,8 +229,8 @@ async def create_verified_client(*, email: str, name: str | None, at: datetime) 
     """A new client-realm person whose mailbox was proved on the way in (D-703).
 
     Reached only after proof: a signup code typed back, or Google saying `email_verified`.
-    So `email_verified_at` is written here, unlike an invitation redemption (D-185), where
-    possession of a forwarded link proves nothing about the mailbox.
+    So `email_verified_at` is written in the same INSERT. An invitation redemption marks it
+    too, but only after its password passes the policy (`invitations.accept_with_password`).
 
     Returns None when a live account already holds the address — `uq_users_email_lower`
     decides that race, not a read before the write. The caller has proved the mailbox, so

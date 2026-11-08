@@ -135,7 +135,7 @@ GUIDES: Final[dict[str, CarrierGuide]] = {
         ),
         note=(
             "Jio publishes no codes and points to the MyJio app or your phone's settings. "
-            "Sites disagree on the codes, so check in the MyJio app."
+            "Forwarding guides don't agree on these codes, so check in the MyJio app."
         ),
     ),
     "other": CarrierGuide(carrier="other", method="ask_provider", codes=()),

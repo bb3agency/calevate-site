@@ -338,8 +338,8 @@ export const NUMBER_COPY: Record<GoLive["number"], NumberCopy> = {
   },
   needs_attention: {
     title: "Your details need a fix",
-    hint: "See what to change, then send them again.",
-    action: "Fix and send again",
+    hint: "See what the review said and ask us to correct them.",
+    action: "See what the review said",
     path: "/phone-number",
   },
   not_on_sale: {

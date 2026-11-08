@@ -243,7 +243,11 @@ function Problems({
           pendingLabel="Turning it on…"
           status={restoreFeedback.status}
           error={restore.error}
-          onCancel={() => setConfirming(null)}
+          onCancel={() => {
+            // Or the refusal would greet the next line's dialog.
+            restore.reset();
+            setConfirming(null);
+          }}
           onConfirm={() =>
             restore.mutate(confirming.id, { onSuccess: () => setConfirming(null) })
           }
@@ -351,7 +355,10 @@ function Suggestions({
           pendingLabel="Applying…"
           status={decideFeedback.status}
           error={decide.error}
-          onCancel={() => setConfirming(null)}
+          onCancel={() => {
+            decide.reset();
+            setConfirming(null);
+          }}
           onConfirm={() => {
             setDeciding(confirming.id);
             decide.mutate(
