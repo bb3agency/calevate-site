@@ -687,8 +687,8 @@ async def upload_document(
     # file a rolled-back supersede would have left current).
     #
     # The object is stored before its row exists, and no sweep looks for an object with no
-    # row, so a failure from here on (a concurrent upload losing the current-per-slot index,
-    # the audit write, the commit) takes the object down with the request.
+    # row, so a failure from here on (the audit write, the commit) takes the object down with
+    # the request.
     try:
         async with tenant_session(principal.tenant_id) as writer:
             replaced = await record_document(

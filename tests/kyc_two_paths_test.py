@@ -1943,3 +1943,63 @@ async def test_cashfree_ip_validation_failure_is_an_operator_fix_with_its_own_al
     assert raised.value.code == "verification_provider_ip_not_whitelisted"
     assert ALARM_SEVERITY["verification_provider_ip_not_whitelisted"] == "attention"
     assert "x-cf-signature" not in seen["headers"]
+
+
+async def test_two_uploads_to_one_slot_at_once_both_land_and_neither_is_a_500() -> None:
+    """A double tap on Upload: both requests supersede and insert side by side. The later
+    one is the current file and the earlier is superseded, never a 500 out of the
+    current-per-slot index."""
+    import asyncio
+
+    from apps.api.compliance.kyc_documents import (
+        new_document_id,
+        record_document,
+        seal_document,
+    )
+
+    org = await _tenant()
+    tenant_id = UUID(str(org["id"]))
+    owner = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :e, now(), now())"
+            ),
+            {"id": owner, "e": f"{owner}@example.com"},
+        )
+    barrier = asyncio.Barrier(2)
+
+    class MeetFirst:
+        def __init__(self, session: Any) -> None:
+            self._session, self._met = session, False
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._session, name)
+
+        async def execute(self, *args: Any, **kwargs: Any) -> Any:
+            if not self._met:
+                self._met = True
+                await asyncio.wait_for(barrier.wait(), timeout=10)
+            return await self._session.execute(*args, **kwargs)
+
+    async def upload() -> Any:
+        document_id = new_document_id()
+        async with tenant_session(tenant_id) as session:
+            return await record_document(
+                MeetFirst(session),  # type: ignore[arg-type]
+                tenant_id=tenant_id,
+                document_id=document_id,
+                slot="business",
+                kind="udyam",
+                object_key=f"kyc-documents/{tenant_id}/{document_id}.pdf",
+                accepted=accept_upload(filename="udyam.pdf", data=PDF_BYTES),
+                sealed=seal_document(tenant_id=tenant_id, document_id=document_id, data=PDF_BYTES),
+                uploaded_by_user_id=owner,
+            )
+
+    results = await asyncio.gather(upload(), upload(), return_exceptions=True)
+    assert not [r for r in results if isinstance(r, BaseException)], results
+    assert sorted(len(r) for r in results) == [0, 1], "the later upload supersedes the earlier"
+    states = await _document_state(tenant_id, "business")
+    assert sorted(s[0] for s in states) == [False, True]
