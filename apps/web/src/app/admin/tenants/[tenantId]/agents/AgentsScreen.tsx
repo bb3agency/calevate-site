@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, Skeleton } from "@/components/ui";
 import { useTenant, useTenantAgents } from "@/lib/api/admin";
 import { useAdminLlmDefaults } from "@/lib/api/llmDefaults";
+import { languageName } from "@/lib/callReview";
 import { lookup } from "@/lib/lookup";
 
 import { HAIRLINE_LIST, StatusPill, sentenceCase } from "@/components/admin/kit";
@@ -72,7 +73,7 @@ export function AgentsScreen({ tenantId }: { tenantId: string }) {
                     </StatusPill>
                   </span>
                   <span className="mt-0.5 block text-meta text-ink-muted">
-                    {lookup(DIRECTION, agent.direction) ?? agent.direction} · {agent.language_primary}
+                    {lookup(DIRECTION, agent.direction) ?? agent.direction} · {languageName(agent.language_primary) ?? "no language set"}
                     {" · "}
                     {agent.inbound_number_count === 1
                       ? "1 number"

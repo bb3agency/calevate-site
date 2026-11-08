@@ -89,7 +89,7 @@ describe("the client header", () => {
     // wallet to be empty, so "why have their calls stopped" has a different answer.
     await render({ [`/v1/admin/tenants/${TENANT}`]: tenant({ plan_tier: "managed" }) });
     const header = (await screen.findByRole("heading", { level: 1 })).closest("header");
-    expect(header?.textContent).toContain("managed");
+    expect(header?.textContent).toContain("Moving to credits");
   });
 
   it("labels the view-as link plainly, never read-only", async () => {

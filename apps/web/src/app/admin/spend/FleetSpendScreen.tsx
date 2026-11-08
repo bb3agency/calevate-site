@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBillingMonth } from "@/lib/billingMonth";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import Link from "next/link";
 import { useState } from "react";
@@ -20,6 +21,7 @@ import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
+import { planLabel } from "@/lib/api/admin";
 import { currentISTMonth } from "@/lib/api/invoice";
 import {
   isZeroMoney,
@@ -173,7 +175,7 @@ function Totals({ data }: { data: FleetSpend }) {
   const trialCost = !isZeroMoney(data.trial_cost_inr);
   return (
     <MetricRow>
-      <Metric label={`Revenue · ${data.month}`} value={formatINRExact(data.revenue_inr)} />
+      <Metric label={`Revenue · ${formatBillingMonth(data.month)}`} value={formatINRExact(data.revenue_inr)} />
       <Metric
         label={trialCost ? "Our cost of paid calls" : "Our cost"}
         value={formatINRExact(data.paid_cost_inr)}
@@ -248,7 +250,7 @@ function ClientTable({ data }: { data: FleetSpend }) {
         </>
       ),
     },
-    { id: "plan", header: "Plan", hideBelow: "lg", cell: (tenant) => <span className="text-ink-muted">{tenant.plan_tier}</span> },
+    { id: "plan", header: "Plan", hideBelow: "lg", cell: (tenant) => <span className="text-ink-muted">{planLabel(tenant.plan_tier)}</span> },
     { id: "calls", header: "Calls", align: "right", hideBelow: "md", cell: (tenant) => <span className={num}>{formatCount(tenant.calls)}</span> },
     { id: "minutes", header: "Minutes", align: "right", hideBelow: "lg", cell: (tenant) => <span className={`${num} text-ink-muted`}>{tenant.minutes_used}</span> },
     { id: "revenue", header: "Revenue", align: "right", cell: (tenant) => <span className={num}>{formatINRExact(tenant.revenue_inr)}</span> },
@@ -396,7 +398,7 @@ function UndecidableCard({ board }: { board: FleetSpend }) {
               {row.name}
             </Link>
             <p className="text-meta text-ink-muted">
-              /c/{row.slug} · {row.plan_tier}
+              /c/{row.slug} · {planLabel(row.plan_tier)}
             </p>
             <p className="mt-1 text-meta text-ink-muted">{row.reason}</p>
           </li>

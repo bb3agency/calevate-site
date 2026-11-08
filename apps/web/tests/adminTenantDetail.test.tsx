@@ -17,6 +17,7 @@ import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 import type { components } from "@/lib/api/schema";
 import { currentISTMonth } from "@/lib/api/invoice";
+import { formatBillingMonth } from "@/lib/billingMonth";
 import type { TenantSpend } from "@/lib/api/spend";
 import type { TrialStatus } from "@/lib/api/trials";
 import type { Routes } from "./harness";
@@ -504,7 +505,7 @@ describe("the client detail screen", () => {
       [`${TENANT_PATH}/trial`]: trial,
     });
 
-    const card = (await screen.findByText(`Usage · ${currentISTMonth()}`)).closest("section");
+    const card = (await screen.findByText(`Usage · ${formatBillingMonth(currentISTMonth())}`)).closest("section");
     expect(card).not.toBeNull();
     const text = await waitFor(() => {
       const value = card?.textContent ?? "";

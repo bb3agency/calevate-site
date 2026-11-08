@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBillingMonth } from "@/lib/billingMonth";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import Link from "next/link";
 
@@ -33,7 +34,7 @@ export function UsagePanel({ tenantId }: { tenantId: string }) {
 
   return (
     <Section
-      title={`Usage · ${month}`}
+      title={`Usage · ${formatBillingMonth(month)}`}
       info="What this client used this month and what it cost us at our supplier rates, including the AI we absorb. Never shown to the client."
       action={
         <Link href={`/admin/tenants/${tenantId}/spend`} className={TEXT_ACTION}>

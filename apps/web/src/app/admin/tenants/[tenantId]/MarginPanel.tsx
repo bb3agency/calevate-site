@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBillingMonth } from "@/lib/billingMonth";
 import { Metric } from "@/components/console/metric";
 import { MetricRow } from "@/components/admin/kit";
 import { Section } from "@/components/console/section";
@@ -50,7 +51,7 @@ export function MarginPanel({ tenantId }: { tenantId: string }) {
   const trialCost = !isZeroMoney(data.trial_cost_inr);
 
   return (
-    <Section title={`Margin · ${data.month}`} info={info}>
+    <Section title={`Margin · ${formatBillingMonth(data.month)}`} info={info}>
       <MetricRow className="border-b-0 pb-0">
         <Metric label="Revenue" value={formatINRExact(data.revenue_inr)} />
         <Metric

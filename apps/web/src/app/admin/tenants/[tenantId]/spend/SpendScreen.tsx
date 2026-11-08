@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBillingMonth } from "@/lib/billingMonth";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useState } from "react";
 
@@ -19,7 +20,7 @@ import { TEXT_ACTION_SM } from "@/components/console/section";
 import { Metric } from "@/components/console/metric";
 import { PageHeader } from "@/components/console/pageHeader";
 import { currentISTMonth } from "@/lib/api/invoice";
-import { useTenant } from "@/lib/api/admin";
+import { planLabel, useTenant } from "@/lib/api/admin";
 import {
   CHARGE_BASIS_COPY,
   isZeroMoney,
@@ -204,7 +205,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
       <div
         className={`grid grid-cols-2 gap-x-6 gap-y-5 ${trialCost ? "lg:grid-cols-5" : "lg:grid-cols-4"}`}
       >
-        <Metric label={`Revenue · ${data.month}`} value={formatINRExact(data.revenue_inr)} />
+        <Metric label={`Revenue · ${formatBillingMonth(data.month)}`} value={formatINRExact(data.revenue_inr)} />
         <Metric
           label={trialCost ? "Our cost of paid calls" : "Our cost of calls"}
           value={formatINRExact(data.paid_cost_inr)}
@@ -232,7 +233,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
       </div>
 
       <p className="text-meta text-ink-muted">
-        {data.plan_tier} · {data.minutes_used} minutes across{" "}
+        {planLabel(data.plan_tier)} · {data.minutes_used} minutes across{" "}
         {formatCountOf(data.calls, "call")}
         {data.trial_calls > 0 &&
           (data.trial_calls === data.calls

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBillingMonth } from "@/lib/billingMonth";
 import {
   Disclosure,
   ProblemNotice,
@@ -100,7 +101,7 @@ function TtsPlanRow({ row }: { row: TtsPlanSpend }) {
       {/* VENDOR FIRST: an operator reconciling this holds an invoice with the vendor's name
           at the top of it. */}
       <p className="text-body font-medium text-ink">
-        {vendorName(row.provider)} · {row.tier_label} · {row.month}
+        {vendorName(row.provider)} · {row.tier_label} · {formatBillingMonth(row.month)}
       </p>
       <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-meta sm:grid-cols-4">
         <div>
