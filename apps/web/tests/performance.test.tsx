@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -417,5 +418,25 @@ describe("the period table and who called (D-893 L7)", () => {
       routes({ [PATHS.groups]: groups({ repeat_groups: 0, groups_total: 0, groups: [] }) }),
     );
     await screen.findByText("Nobody had more than one call in this period.");
+  });
+});
+
+describe("a refresh of the figures that fails", () => {
+  it("keeps the stats band and the reply speed on screen under their notices", async () => {
+    const table: Record<string, unknown> = routes();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByRole("region", { name: "This period at a glance" })).toBeTruthy();
+    expect(await screen.findByText("Usual wait this week")).toBeTruthy();
+
+    table[PATHS.stats] = problem(503, { title: "Service unavailable" });
+    table[REPLY_SPEED_PATH] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries();
+    });
+
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByRole("region", { name: "This period at a glance" })).toBeTruthy();
+    expect(screen.getByText("Usual wait this week")).toBeTruthy();
   });
 });

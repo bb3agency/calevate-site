@@ -78,9 +78,10 @@ export function ReplySpeed({ session }: { session: Session }) {
         </p>
       }
     >
-      {speed.error ? (
-        <ProblemNotice error={speed.error} onRetry={() => void speed.refetch()} />
-      ) : !speed.data ? (
+      {/* A failed refresh keeps the weeks it had, under the notice. */}
+      {speed.error ? <ProblemNotice error={speed.error} onRetry={() => void speed.refetch()} /> : null}
+      {!speed.data ? (
+        speed.error ? null :
         <Skeleton rows={3} label="Loading how fast your agent answered" />
       ) : (
         <ReplySpeedBody weeks={speed.data.weeks} />
