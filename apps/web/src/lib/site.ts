@@ -167,7 +167,7 @@ export const PUBLIC_ROUTES: readonly PublicRoute[] = [
     path: "/status",
     priority: 0.3,
     changeFrequency: "daily",
-    why: "the public status page, also served on status.calevate.tech",
+    why: "the public status page (status.calevate.tech once OPERATIONS gate H-2 is done)",
   },
 ];
 
