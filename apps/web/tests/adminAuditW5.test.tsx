@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ import CallWordsPage from "@/app/admin/ops/call-words/page";
 import { AgentsScreen } from "@/app/admin/tenants/[tenantId]/agents/AgentsScreen";
 import TenantLayout from "@/app/admin/tenants/[tenantId]/layout";
 import { MarginPanel } from "@/app/admin/tenants/[tenantId]/MarginPanel";
+import { LotOrigin } from "@/app/admin/tenants/[tenantId]/credits/lots";
 import { KycReviewPanel } from "@/app/admin/tenants/[tenantId]/kyc/KycReviewPanel";
 import type { AdminKyc } from "@/lib/api/kycReview";
 import { planLabel, useRevokeTenantInvitation, type Margin, type TenantSummary } from "@/lib/api/admin";
@@ -223,5 +224,30 @@ describe("the KYC review card", () => {
     });
     expect(await screen.findByText("In review")).toBeTruthy();
     expect(screen.queryByText("in_review")).toBeNull();
+  });
+});
+
+describe("a credit lot's origin line", () => {
+  it("says where the credits came from in words", () => {
+    const { container } = render(
+      <LotOrigin
+        lot={{
+          lot_id: "lot-1",
+          opened_at: "2026-11-08T11:52:00Z",
+          source: "topup",
+          pack_id: null,
+          override_of_pack_id: null,
+          credits_total: "5000.00",
+          credits_remaining: "5000.00",
+          clear_inr_per_min: "4.5000",
+          studio_inr_per_min: "6.0000",
+          clear_label: "Clear",
+          studio_label: "Studio",
+          closed_at: null,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain("from a top-up");
+    expect(container.textContent).not.toMatch(/· topup/);
   });
 });

@@ -3,6 +3,7 @@
 import { formatINRExact, formatIST, formatRupeeRateExact } from "@/components/ui";
 import type { RestatementResult } from "@/lib/api/credits";
 import type { CreditLot } from "@/lib/api/creditLots";
+import { lookup } from "@/lib/lookup";
 
 /**
  * One lot, as the rows of the wallet's Lots view and the receipts of the writes that open
@@ -68,11 +69,21 @@ export function LotRestatementReceipt({ result }: { result: RestatementResult })
   );
 }
 
+/** `credit_lots.source` (`billing/lots.LotSource`) as an operator reads it; a source this
+ * build does not know is shown as itself. */
+const LOT_SOURCE: Readonly<Record<string, string>> = {
+  topup: "from a top-up",
+  grant: "from a grant",
+  bonus_legacy: "from an old bonus",
+  migration: "moved from the old balance",
+  override: "set by us",
+};
+
 /** The lot's provenance line: when it opened, from what, and any operator re-pricing. */
 export function LotOrigin({ lot }: { lot: CreditLot }) {
   return (
     <>
-      opened {formatIST(lot.opened_at)} · {lot.source}
+      opened {formatIST(lot.opened_at)} · {lookup(LOT_SOURCE, lot.source) ?? lot.source}
       {lot.pack_id ? ` · ${lot.pack_id}` : ""}
       {lot.override_of_pack_id ? (
         <>
