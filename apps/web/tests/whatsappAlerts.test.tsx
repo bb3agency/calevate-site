@@ -152,6 +152,28 @@ describe("the client's own WhatsApp alert opt-in", () => {
     expect(spoken.join(" ")).not.toContain("Stopped");
   });
 
+  it("shows WhatsApp as off, not as a failure, while the login has no mobile number", async () => {
+    // The read itself refuses (`_phone_of`); a signed-up owner has no number and nothing
+    // on the client side adds one, so a red "We cannot do that" would be permanent.
+    const { container } = await renderClientPage(
+      <AlertsPage />,
+      {
+        ...clientRoutes(optIn()),
+        [WHATSAPP_ALERTS_PATH]: problem(422, {
+          kind: "business_rule",
+          type: "urn:calevate:error/alert_optin_needs_a_number",
+          title: "We cannot do that",
+          detail: "There is no mobile number on this account to send alerts to.",
+          remediation: "Add a mobile number to the profile first, then turn alerts on.",
+        }),
+      },
+    );
+    expect(await screen.findByText("Off · needs a mobile number on your login")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Contact us" }).getAttribute("href")).toMatch(/^mailto:/);
+    expect(container.textContent).not.toContain("We cannot do that");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("sends back a version the server has superseded rather than papering over it", async () => {
     // A build rendering older wording must send THAT version and be refused, which is
     // what makes the refusal reachable at all. The screen renders the refusal it gets.
