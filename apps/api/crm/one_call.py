@@ -29,7 +29,7 @@ from calevate_shared.calling_window import (
     ist_wall_clock,
     next_window_opening,
 )
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,7 @@ from apps.api.compliance.service import DispatchDecision, check_dispatch
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
-from apps.api.core.schemas import Strict
+from apps.api.core.schemas import Instant, Strict
 from apps.api.crm import service, swipe
 from apps.api.crm.lead_dial import calling_hours_reason, place_call_back, place_lead_call
 from apps.api.db.base import uuid7
@@ -87,7 +87,7 @@ class OneCallIn(Strict):
     details: str | None = Field(default=None, max_length=DETAILS_MAX)
     #: When to call, with its offset (IST: +05:30); left out, now. Between 09:00 and 21:00
     #: IST, at least two minutes ahead, within 30 days.
-    at: AwareDatetime | None = None
+    at: Instant | None = None
 
     @model_validator(mode="after")
     def _one_person(self) -> OneCallIn:

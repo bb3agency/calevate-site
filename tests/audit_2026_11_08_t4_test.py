@@ -17,6 +17,8 @@ from apps.api.admin.routes import DltRegistrationIn
 from apps.api.callbacks.routes import CallbackMoveIn
 from apps.api.core.rbac import iter_api_routes
 from apps.api.core.schemas import MAX_OFFSET, Instant
+from apps.api.crm.one_call import OneCallIn
+from apps.api.crm.swipe import ScheduleCallbackIn
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -84,6 +86,8 @@ def test_an_ordinary_instant_still_passes() -> None:
     [
         (CallbackMoveIn, {"at": TOO_FAR}),
         (CallbackMoveIn, {"at": TOO_EARLY}),
+        (ScheduleCallbackIn, {"at": TOO_FAR}),
+        (OneCallIn, {"agent_id": str(uuid.uuid4()), "phone": "+919000000001", "at": TOO_FAR}),
         (
             DltRegistrationIn,
             {"status": "submitted", "tm_link_status": "pending", "registered_at": TOO_EARLY},
@@ -91,8 +95,10 @@ def test_an_ordinary_instant_still_passes() -> None:
     ],
 )
 def test_route_models_refuse_an_out_of_range_time(model: type[BaseModel], body: dict) -> None:
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as excinfo:
         model.model_validate(body)
+    time_field = next(k for k in body if k in ("at", "registered_at"))
+    assert [e["loc"][0] for e in excinfo.value.errors()] == [time_field]
 
 
 async def test_moving_a_call_back_to_the_end_of_time_is_a_422_not_a_500() -> None:

@@ -28,7 +28,7 @@ from datetime import UTC, datetime, time, timedelta
 from typing import Any, Final, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,6 +45,7 @@ from apps.api.compliance.service import (
 from apps.api.compliance.trial_access import TRIAL_DIAL_REFUSALS
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.schemas import Instant
 from apps.api.crm.models import CallFollowUpState
 from apps.api.crm.service import lead_phone
 from apps.api.db.base import uuid7
@@ -165,7 +166,7 @@ class ScheduleCallbackIn(BaseModel):
 
     #: When to ring, with its offset (IST: +05:30). Between 09:00 and 21:00 IST, at least two
     #: minutes from now and at most 30 days ahead.
-    at: AwareDatetime
+    at: Instant
     #: What the call is about, told to the agent. Optional; at most 200 characters.
     note: str | None = Field(default=None, max_length=callbacks.MAX_NOTE)
     #: The agent that places the call. Left out: the lead's own agent when it can place
