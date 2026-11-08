@@ -41,7 +41,7 @@ import { endingLabel } from "@/lib/callReview";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
-import { istDayLabel, statItems } from "../analyticsFigures";
+import { istDayLabel, metricLabel, statItems } from "../analyticsFigures";
 import { chartError } from "../ChartRetry";
 import { CallGroupsTable, PeriodTable } from "./Breakdowns";
 import { ReplySpeed } from "./ReplySpeed";
@@ -92,7 +92,7 @@ export function PerformanceScreen() {
   const caps = useBusinessCapabilities();
   const callers = callersWord(caps, "customers");
   const [range, setRange] = useState<DateRange>(defaultRange);
-  const [testCalls, setTestCalls] = useState(true);
+  const [testCalls, setTestCalls] = useState(false);
   const [heatmapMetric, setHeatmapMetric] = useState<"calls" | "leads">("calls");
   const [groupBy, setGroupBy] = useState<"agent" | "outcome">("agent");
 
@@ -138,7 +138,7 @@ export function PerformanceScreen() {
       ...(stats.data
         ? stats.data.metrics.map((metric) => ({
             key: `stat_${metric.key}`,
-            label: `${metric.key.replace(/_/g, " ")} (this period, then the period before)`,
+            label: `${metricLabel(metric.key, caps)} (this period, then the period before)`,
             value: `${metric.value ?? "nothing to measure"}; before: ${metric.previous ?? "nothing to measure"}`,
           }))
         : []),

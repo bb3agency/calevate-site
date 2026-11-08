@@ -442,6 +442,61 @@ async def test_a_goal_lead_is_named_by_the_business_own_outcome() -> None:
     assert "ready to go ahead" not in item["detail"]
 
 
+async def test_a_goal_reached_only_on_the_owners_test_call_is_not_on_the_list() -> None:
+    """E-03 of the 8 Nov audit: the owner ringing their own agent put themselves on Needs
+    attention and the bell while the dashboard's count beside it left them out."""
+    tenant_id, agent_id = await _tenant()
+    tested, real = uuid7(), uuid7()
+    async with tenant_session(tenant_id) as session:
+        for lead_id, name, phone in ((tested, "Owner", "+919876500001"), (real, "Asha", None)):
+            await session.execute(
+                text(
+                    "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, name, source, status, "
+                    "created_at, updated_at) VALUES (:i, :t, :a, :p, :n, 'inbound_call', 'hot', "
+                    "now() - interval '1 hour', now())"
+                ),
+                {
+                    "i": lead_id,
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "p": phone or "+919876500002",
+                    "n": name,
+                },
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, lead_id, engine_call_id, "
+                    "direction, status, trial_call, created_at, updated_at) VALUES (:i, :t, :a, "
+                    ":l, :e, 'inbound', 'completed', :trial, now() - interval '10 minutes', now())"
+                ),
+                {
+                    "i": uuid7(),
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "l": lead_id,
+                    "e": f"e-{uuid7()}",
+                    "trial": lead_id == tested,
+                },
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
+                    "created_at, updated_at) VALUES (:i, :t, :l, 'status_change', "
+                    "CAST(:p AS jsonb), 'system', now() - interval '5 minutes', now())"
+                ),
+                {
+                    "i": uuid7(),
+                    "t": tenant_id,
+                    "l": lead_id,
+                    "p": json.dumps({"status": "hot", "by": "after_call_rules"}),
+                },
+            )
+        queue = await attention_queue(session)
+    titles = [i["title"] for i in queue["items"] if i["kind"] == "lead_hot"]
+    assert titles == ["Asha reached a goal"]
+    assert queue["counts"] == {"lead_hot": 1}
+
+
 async def test_a_needs_you_call_appears_until_it_is_marked_handled() -> None:
     """L3-03: a call that ended asking the business to act reaches the queue and the bell;
     one marked handled, and the owner's own test call, do not."""

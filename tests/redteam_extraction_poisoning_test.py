@@ -249,8 +249,8 @@ async def test_a_benign_export_is_not_mangled_by_the_guard() -> None:
     at = {label: i for i, label in enumerate(rows[0])}
     assert rows[1][at["Phone"]] == "919812345678"
     assert rows[1][at["Name"]] == "Sri Clinic"
-    assert rows[1][at["Status"]] == "new"
-    assert rows[1][at["Source"]] == "webhook"
+    assert rows[1][at["Status"]] == "New"
+    assert rows[1][at["Source"]] == "Website form"
     assert rows[1][at["Intent"]] == "book"
     # `created_at` keeps its ISO-8601 `T`: the renderer spells `datetime` out rather
     # than letting `str()` write a space, which would be a format change smuggled in

@@ -1274,7 +1274,7 @@ const ANALYTICS_STATS = {
 
 /** The performance screen's analytics reads for the default range, each with data to draw. */
 function performanceAnalytics(): Routes {
-  const q = `days=30&to=${todayIST()}&test_calls=true`;
+  const q = `days=30&to=${todayIST()}&test_calls=false`;
   const cells = [];
   for (let weekday = 1; weekday <= 7; weekday += 1) {
     for (let hour = 0; hour < 24; hour += 1) cells.push({ weekday, hour, count: (weekday * hour) % 5 });
@@ -1303,7 +1303,7 @@ function performanceAnalytics(): Routes {
       spent_inr: "1240.50",
       spend_withheld: null,
     },
-    [`/v1/analytics/call-groups?days=30&to=${todayIST()}&test_calls=true&by=caller&min_calls=2&limit=25`]: {
+    [`/v1/analytics/call-groups?days=30&to=${todayIST()}&test_calls=false&by=caller&min_calls=2&limit=25`]: {
       window: ANALYTICS_WINDOW,
       by: "caller",
       calls: 12,
@@ -1314,7 +1314,7 @@ function performanceAnalytics(): Routes {
         { key: "l1", label: "Ravi Kumar", lead_id: "0192f0aa-0000-7000-8000-00000000000a", number_tail: "42", calls: 3, answered: 2, latest_at: "2026-10-26T09:30:00Z", latest_call_id: "0192f0aa-0000-7000-8000-0000000000c1", latest_status: "completed", latest_outcome: "answered", latest_business_outcome_label: null },
       ],
     },
-    [`/v1/analytics/timeline?days=90&to=${todayIST()}&test_calls=true`]: {
+    [`/v1/analytics/timeline?days=90&to=${todayIST()}&test_calls=false`]: {
       calls: 45,
       answered: 30,
       leads: 6,
@@ -3825,7 +3825,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       // D-944: this week measured in two languages, an earlier week unmeasured.
       "/v1/analytics/reply-speed?weeks=4": REPLY_SPEED_FIXTURE,
-      [`/v1/performance?days=30&to=${todayIST()}`]: {
+      [`/v1/performance?days=30&to=${todayIST()}&test_calls=false`]: {
         days: 30,
         funnel: { calls: 51, connected: 39, qualified: 14 },
         connect_rate_pct: 76,

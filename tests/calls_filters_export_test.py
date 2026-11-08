@@ -107,6 +107,10 @@ async def test_the_owner_exports_what_they_filtered_with_full_numbers_and_an_aud
     assert rows[1][1] == "Outgoing"
     # The number arrives in full, tab-guarded so a spreadsheet keeps the leading +.
     assert rows[1][2].strip() == "+919800000002"
+    # Status and outcome in the call log's words, never the stored keys.
+    at = {label: i for i, label in enumerate(rows[0])}
+    assert rows[1][at["Status"]] == "Completed"
+    assert rows[1][at["Outcome"]] == "Needs you"
     async with tenant_session(tenant_id) as s:
         audited = (
             await s.execute(

@@ -469,10 +469,11 @@ async def test_the_performance_panel_covers_the_ist_days_asked_and_can_leave_out
             )
 
     async with _client() as http:
-        day = await http.get(f"{PERFORMANCE}?days=1&to={yesterday}", headers=headers)
-        no_tests = await http.get(
-            f"{PERFORMANCE}?days=1&to={yesterday}&test_calls=false", headers=headers
+        day = await http.get(
+            f"{PERFORMANCE}?days=1&to={yesterday}&test_calls=true", headers=headers
         )
+        # Test calls are left out by default, as on the dashboard (founder, 8 Nov 2026).
+        no_tests = await http.get(f"{PERFORMANCE}?days=1&to={yesterday}", headers=headers)
         future = await http.get(
             f"{PERFORMANCE}?days=1&to={today_ist() + timedelta(days=1)}", headers=headers
         )

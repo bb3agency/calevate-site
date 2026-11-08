@@ -31,17 +31,17 @@ export type Performance = Schemas["PerformanceOut"];
 /**
  * `to` (an IST date, YYYY-MM-DD) makes the panel cover `days` IST calendar days ending on
  * it, the same window /v1/analytics reads; without it, the last `days` days up to now.
- * `testCalls: false` leaves out the owner's own test calls.
+ * `testCalls: true` counts the owner's own test calls too; left out by default, as on the dashboard.
  */
 export function usePerformance(
   session: Session,
   days: number,
   options: { to?: string; testCalls?: boolean } = {},
 ): UseQueryResult<Performance> {
-  const { to, testCalls = true } = options;
+  const { to, testCalls = false } = options;
   const query = new URLSearchParams({ days: String(days) });
   if (to) query.set("to", to);
-  if (!testCalls) query.set("test_calls", "false");
+  query.set("test_calls", String(testCalls));
   return useQuery({
     queryKey: ["performance", session.orgSlug, days, to ?? null, testCalls],
     queryFn: () => apiRequest<Performance>(session, `/v1/performance?${query.toString()}`),

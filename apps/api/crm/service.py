@@ -49,6 +49,7 @@ from apps.api.callbacks.service import time_from as callbacks_time_from
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
+from apps.api.crm import export_words
 from apps.api.crm.attention import block_remedy
 from apps.api.crm.captured import captured_fields, unclear_fields, with_known_name
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL, REAL_CALL_SQL, stage_name
@@ -2293,9 +2294,9 @@ def _calls_csv(rows: Sequence[Any]) -> str:
                     number,
                     r[4],
                     r[5],
-                    r[6],
-                    normalise_outcome(r[7]),
-                    r[8],
+                    export_words.call_status(r[6]),
+                    export_words.call_outcome(normalise_outcome(r[7])),
+                    _sentiment_word(r[8]),
                     redacted_summary(_shown_summary(r[9], r[10])),
                 )
             ]
@@ -2467,11 +2468,32 @@ def _leads_csv(chosen: Sequence[lead_column_registry.LeadColumn], rows: Sequence
         data = mapping["data"] or {}
         writer.writerow(
             [
-                _csv_value(mapping[c.row_key] if c.row_key is not None else _json_cell(data, c.key))
+                _csv_value(
+                    _shown_lead_cell(c.key, mapping[c.row_key])
+                    if c.row_key is not None
+                    else _json_cell(data, c.key)
+                )
                 for c in chosen
             ]
         )
     return buffer.getvalue()
+
+
+def _shown_lead_cell(key: str, value: Any) -> Any:
+    """A fixed column's stored value as the Leads screen shows it: the stage, source and next
+    step in the owner's words (`crm/export_words`, `owner_step`), not the stored keys."""
+    if key == "status":
+        return export_words.lead_stage(value)
+    if key == "source":
+        return export_words.lead_source(value)
+    if key == "next_step":
+        return owner_step(value) if value else None
+    return value
+
+
+def _sentiment_word(value: str | None) -> str | None:
+    """A call's sentiment as the call log writes it (`sentimentWord`): "Positive"."""
+    return value.replace("_", " ").capitalize() if value else None
 
 
 def _json_cell(data: object, key: str) -> Any:
@@ -2804,7 +2826,9 @@ def _csv_value(value: Any) -> str:
     if isinstance(value, bool):  # bool before int — it is a subclass
         return "yes" if value else "no"
     if isinstance(value, datetime):
-        return disarm_for_csv(value.isoformat())
+        # In IST (D-709): the session runs UTC, so a bare `isoformat()` wrote 04:33 for a
+        # 10:03 lead. The offset stays, so the cell is still one unambiguous instant.
+        return disarm_for_csv(value.astimezone(IST).isoformat(timespec="seconds"))
     return disarm_for_csv(str(value))
 
 

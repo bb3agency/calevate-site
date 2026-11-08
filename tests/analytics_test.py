@@ -318,3 +318,33 @@ async def test_the_routes_answer_for_the_session_tenant_only() -> None:
     assert bad_bin.status_code == 422
     assert too_long.status_code == 422
     assert anonymous.status_code == 401
+
+
+async def test_the_routes_leave_test_calls_out_unless_asked() -> None:
+    """Founder, 8 Nov 2026: Performance matches the dashboard, so its routes count only real
+    calls by default; `test_calls=true` counts the owner's own test calls too."""
+    tenant_id, slug, token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        agent_id = await _agent(session)
+        await _call(session, tenant_id, agent_id, at=_ist(_today_ist(), 10) - timedelta(days=1))
+        trial = await _call(
+            session, tenant_id, agent_id, at=_ist(_today_ist(), 11) - timedelta(days=1)
+        )
+        await session.execute(
+            text("UPDATE calls SET trial_call = true WHERE id = :id"), {"id": trial}
+        )
+
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    async with _client() as http:
+        plain = await http.get("/v1/analytics/stats?days=7", headers=headers)
+        both = await http.get("/v1/analytics/stats?days=7&test_calls=true", headers=headers)
+        perf = await http.get("/v1/performance?days=7", headers=headers)
+        perf_both = await http.get("/v1/performance?days=7&test_calls=true", headers=headers)
+
+    def calls(body: dict[str, list[dict[str, str]]]) -> str:
+        return {m["key"]: m["value"] for m in body["metrics"]}["calls"]
+
+    assert calls(plain.json()) == "1", plain.text
+    assert calls(both.json()) == "2"
+    assert perf.json()["funnel"]["calls"] == 1, perf.text
+    assert perf_both.json()["funnel"]["calls"] == 2

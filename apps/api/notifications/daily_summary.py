@@ -175,20 +175,24 @@ def whatsapp_variables(summary: DailySummary) -> tuple[str, ...]:
     )
 
 
-def _count(n: int, word: str) -> str:
-    return f"{n} {word}" if n == 1 else f"{n} {word}s"
+def _count(n: int, one: str, many: str | None = None) -> str:
+    """`many` for a business's own noun, which `CallerWords` pluralises properly
+    ("businesses", not "businesss"); our own fixed words take an "s"."""
+    return f"{n} {one}" if n == 1 else f"{n} {many or one + 's'}"
+
+
+def _new_leads(summary: DailySummary) -> str:
+    return _count(summary.leads, summary.words.new_lead, summary.words.new_leads)
 
 
 def email_subject(summary: DailySummary) -> str:
-    new_lead = summary.words.new_lead
-    return f"Today: {_count(summary.answered, 'call')} answered, {_count(summary.leads, new_lead)}"
+    return f"Today: {_count(summary.answered, 'call')} answered, {_new_leads(summary)}"
 
 
 def email_lines(summary: DailySummary) -> list[str]:
     return [
         f"{_count(summary.answered, 'call')} answered and {summary.missed} missed today.",
-        f"{_count(summary.leads, summary.words.new_lead)}, "
-        f"{summary.hot_leads} of them reached a goal.",
+        f"{_new_leads(summary)}, {summary.hot_leads} of them reached a goal.",
         f"{_count(summary.follow_ups_waiting, 'call-back')} waiting for you.",
     ]
 
@@ -201,7 +205,7 @@ def email_facts(summary: DailySummary) -> list[tuple[str, str]]:
             f"Cost per {words.lead} today",
             display_inr(summary.per_lead_inr)
             if summary.per_lead_inr is not None
-            else f"No {words.lead}s",
+            else f"No {words.leads}",
         ),
     ]
     facts += [

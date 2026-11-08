@@ -9,6 +9,7 @@ does all of it, and a business not judged yet, which must read exactly as before
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -208,6 +209,15 @@ def test_a_business_that_sells_nothing_hears_about_interested_users_not_leads() 
     )
     assert body.startswith("Your AI agent flagged this interested user for you.")
     assert "Stage: Goal reached" in body
+
+
+def test_the_summary_plurals_the_businesss_own_noun_properly() -> None:
+    """E-02 of the 8 Nov audit: "interested businesss" and "No interested businesss"."""
+    b2b = CallerWords(sells=False, caller_noun="business")
+    assert email_subject(_summary(b2b)) == "Today: 3 calls answered, 2 interested businesses"
+    assert email_lines(_summary(b2b))[1] == "2 interested businesses, 1 of them reached a goal."
+    none = replace(_summary(b2b), per_lead_inr=None)
+    assert email_facts(none)[1][1] == "No interested businesses"
 
 
 def test_an_unjudged_business_reads_neutral_words_in_its_summary() -> None:
