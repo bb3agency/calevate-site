@@ -12,7 +12,13 @@
  */
 
 import { livePoll } from "@/lib/live/liveStatus";
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { adminRealmSession } from "@/lib/authn/realmSessions";
 import { codeOf, needsReauthentication } from "@/lib/authn/problems";
@@ -641,6 +647,18 @@ export function useCreateTenant() {
   });
 }
 
+/**
+ * An invitation sent or cancelled moves the client's invitations (and its owner status, keyed
+ * under them) and the directory's "no owner invited yet" list, which is the unfinished-
+ * onboardings read (`lib/api/onboarding.ts`, `unfinishedOnboardingsKey`).
+ */
+function invitationsChanged(client: QueryClient, tenantId: string): Promise<unknown> {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
+    client.invalidateQueries({ queryKey: ["admin", "onboarding", "unfinished"] }),
+  ]);
+}
+
 export function useInvite() {
   const client = useQueryClient();
   return useMutation({
@@ -669,8 +687,7 @@ export function useInvite() {
       ),
     // The Invitations screen tells the operator the new link "appears in the list above",
     // and that list is `useTenantInvitations`, which has no poll of its own.
-    onSuccess: (_data, { tenantId }) =>
-      client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
+    onSuccess: (_data, { tenantId }) => invitationsChanged(client, tenantId),
   });
 }
 
@@ -715,8 +732,7 @@ export function useRevokeTenantInvitation() {
         `/v1/admin/tenants/${tenantId}/invitations/${invitationId}`,
         { method: "DELETE" },
       ),
-    onSuccess: (_data, { tenantId }) =>
-      client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
+    onSuccess: (_data, { tenantId }) => invitationsChanged(client, tenantId),
   });
 }
 

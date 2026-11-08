@@ -1,4 +1,6 @@
-import { screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, renderHook, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -7,14 +9,14 @@ import CallWordsPage from "@/app/admin/ops/call-words/page";
 import { AgentsScreen } from "@/app/admin/tenants/[tenantId]/agents/AgentsScreen";
 import TenantLayout from "@/app/admin/tenants/[tenantId]/layout";
 import { MarginPanel } from "@/app/admin/tenants/[tenantId]/MarginPanel";
-import { planLabel, type Margin, type TenantSummary } from "@/lib/api/admin";
+import { planLabel, useRevokeTenantInvitation, type Margin, type TenantSummary } from "@/lib/api/admin";
 import { FILING_BOARD_PATH, type FilingBoard } from "@/lib/api/callingNumberFilings";
 import { CALL_WORDS_PATH } from "@/lib/api/callWords";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { CALL_WORDS } from "./fixtures/callWords";
 import { agentRow } from "./fixtures/sharedReads";
-import { noReply, renderAdminPage } from "./harness";
+import { noReply, renderAdminPage, stubApi } from "./harness";
 
 /**
  * Frontend audit W5 (8 Nov 2026), admin realm: wire codes printed where the console has a
@@ -155,5 +157,25 @@ describe("edge states that said the wrong thing", () => {
     renderAdminPage(<CallWordsPage />, { [ADMIN_ME_PATH]: ME, [CALL_WORDS_PATH]: written });
     expect(await screen.findByText("No list is waiting for your words.")).toBeTruthy();
     expect(screen.queryByText("No list matches.")).toBeNull();
+  });
+});
+
+describe("cancelling an owner's invitation", () => {
+  it("refreshes the directory's list of accounts with no owner invited", async () => {
+    stubApi({ [`DELETE /v1/admin/tenants/${TENANT}/invitations/inv-1`]: {} });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const invalidated = vi.spyOn(client, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useRevokeTenantInvitation(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ tenantId: TENANT, invitationId: "inv-1" });
+    });
+    await waitFor(() => {
+      const keys = invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+      expect(keys).toContain(JSON.stringify(["admin", "invitations", TENANT]));
+      expect(keys).toContain(JSON.stringify(["admin", "onboarding", "unfinished"]));
+    });
   });
 });
