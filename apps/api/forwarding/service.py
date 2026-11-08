@@ -312,6 +312,13 @@ async def create_line(
             remediation="Enter your existing business number.",
         )
     await _assert_free_of_handoff(session, e164)
+    # Per client, held to commit, before the reads the insert depends on: two saves at once
+    # (a double tap) both found no such line, and the second then failed on
+    # `uq_forwarded_lines_tenant_id_e164` as a 500, or both passed the line limit.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"forwarded-lines:{tenant_id}"},
+    )
     existing = await list_lines(session)
     if any(line.e164 == e164 for line in existing):
         raise ProblemError.conflict(

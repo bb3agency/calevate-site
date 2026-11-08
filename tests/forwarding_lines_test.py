@@ -333,3 +333,34 @@ def test_every_code_carries_its_evidence_and_the_timer_is_the_standards() -> Non
         "*61*08012345678**20#"
     )
     assert codes.dialled_form("+919812345678") == "09812345678"
+
+
+async def test_two_saves_of_one_number_at_once_add_one_line_and_neither_is_a_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A double tap on Save: both requests reach the existence check together. One line is
+    added, the other is told it is already set up, never `uq_forwarded_lines_tenant_id_e164`."""
+    import asyncio
+
+    tenant_id, *_ = await _ready("fwd-race")
+    barrier = asyncio.Barrier(2)
+    checked = service._assert_free_of_handoff
+
+    async def both_at_once(session: object, e164: str) -> None:
+        await checked(session, e164)  # type: ignore[arg-type]
+        await asyncio.wait_for(barrier.wait(), timeout=10)
+
+    monkeypatch.setattr(service, "_assert_free_of_handoff", both_at_once)
+    number = "98123 45671"
+    results = await asyncio.gather(
+        add_line(tenant_id, number=number),
+        add_line(tenant_id, number=number),
+        return_exceptions=True,
+    )
+    added = [r for r in results if isinstance(r, service.LineView)]
+    refused = [r for r in results if isinstance(r, ProblemError)]
+    assert len(added) == 1, results
+    assert [r.code for r in refused] == ["forwarding_number_exists"], results
+    async with tenant_session(tenant_id) as session:
+        count = (await session.execute(text("SELECT count(*) FROM forwarded_lines"))).scalar_one()
+    assert count == 1
