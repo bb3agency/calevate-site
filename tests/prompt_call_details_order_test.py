@@ -19,8 +19,8 @@ from apps.api.engine.thinnest import THINNEST_CAPABILITIES
 from calevate_shared.engine import (
     CALLER_HIDDEN_LINE,
     CALLER_HIDDEN_VARIABLE,
-    CALLER_MEMORY_GUIDANCE,
     CONFIDENTIALITY_MARKER,
+    ENGINE_MEMORY_RULE,
     FORWARDED_LINE_RULE,
     LAYER_SEPARATOR,
     NAME_LINE,
@@ -101,10 +101,10 @@ def test_on_thinnest_the_memory_is_the_engines_and_every_value_is_one_it_fills()
     assert cfg.caller_memory_enabled
 
 
-def test_an_engine_without_memory_of_its_own_keeps_our_memory_section() -> None:
+def test_an_engine_without_memory_of_its_own_gets_no_memory_section() -> None:
     cfg = _to_config(uuid.uuid4(), _row(), engine=FakeEngine())  # type: ignore[arg-type]
     assert not cfg.caller_memory_in_engine
-    assert CALLER_MEMORY_GUIDANCE in compose_engine_prompt(cfg)
+    assert ENGINE_MEMORY_RULE not in compose_engine_prompt(cfg)
 
 
 def test_an_agent_without_a_forwarded_line_reads_only_the_date_and_name() -> None:

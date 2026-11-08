@@ -25,7 +25,6 @@ CHECKED = (
     "apps/api/agents/turn_checks.py",
     "apps/api/insights/detection.py",
     "apps/workers/call_language.py",
-    "apps/workers/caller_memory_distil.py",
     "apps/api/compliance/optout.py",
     "apps/api/agents/languages.py",
     "packages/shared/src/calevate_shared/opening_notices.py",

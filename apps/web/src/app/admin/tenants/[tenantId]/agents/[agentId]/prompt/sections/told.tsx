@@ -57,9 +57,6 @@ function memoryNote(memory: PromptLayers["caller_memory"]): string | null {
   if (memory === "kept_by_engine") {
     return "Caller memory is kept by the voice platform and added on each call, so it is not part of this text.";
   }
-  if (memory === "in_prompt") {
-    return "Caller memory is shown empty: it is filled in for each call.";
-  }
   return null;
 }
 

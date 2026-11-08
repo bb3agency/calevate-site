@@ -349,15 +349,10 @@ class Call(PKMixin, TimestampMixin, Base):
     callback_requested: Mapped[bool | None] = mapped_column(Boolean)
     #: Whether `transcript_turns.text_en` has been written for this call.
     translation_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
-    #: HAS THE CROSS-CALL MEMORY DISTILLER LOOKED AT THIS CALL, AND WHAT DID IT DECIDE?
-    #: `pending` / `remembered` / `nothing` / `skipped` — `compliance.caller_memory.
-    #: CALLER_MEMORY_STATES`, and the CHECK in migration `a1f6c30d92be`.
-    #:
-    #: THE THIRD STATE IS WHY THE COLUMN EXISTS (D-513): `caller_memories.source_call_id`
-    #: can say "this call produced a fact" and can never say "this call was read and owed
-    #: nothing", which is what most calls owe — so without a durable negative every retry
-    #: re-buys the same answer. `kb_documents.gloss_state` is the same shape for the same
-    #: reason.
+    #: Whether our retired caller-memory distiller had read this call (`pending` /
+    #: `remembered` / `nothing` / `skipped`, the CHECK in migration `a1f6c30d92be`). Read and
+    #: written by nothing since D-973; new rows take the server default. Kept until the
+    #: column is dropped (hard rule 8).
     caller_memory_state: Mapped[str] = mapped_column(
         String, nullable=False, server_default="pending"
     )

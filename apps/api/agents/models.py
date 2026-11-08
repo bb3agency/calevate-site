@@ -865,7 +865,7 @@ class AgentConfigVersion(PKMixin, Base):
     agent_id: Mapped[UUID] = mapped_column(
         ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
     )
-    #: sha256 of `compose_engine_prompt(cfg)` as UTF-8, WITHOUT `caller_memory`.
+    #: sha256 of `compose_engine_prompt(cfg)` as UTF-8.
     prompt_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     #: sha256 of the resolved `ModelConfig` as canonical JSON (sorted keys, no whitespace).
     model_config_sha256: Mapped[str] = mapped_column(Text, nullable=False)

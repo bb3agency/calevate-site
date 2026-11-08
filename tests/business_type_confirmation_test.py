@@ -4,7 +4,7 @@ What is under test:
 
 1. **No default.** The operator wizard and signup refuse a body with no business type.
 2. **Unconfirmed accounts run neutral.** An account given `clinic` by default loses the clinic
-   lead details and the script that asked for them, keeps the caller-memory refusal, and
+   lead details and the script that asked for them, and
    gets ONE AI suggestion that changes nothing by itself.
 3. **Confirming applies the type.** The type's lead details land on agents that have none or
    still carry the clinic default; details somebody chose are kept.
@@ -25,7 +25,6 @@ from apps.api.agents import lead_fields
 from apps.api.agents.extraction_routes import write_schema
 from apps.api.agents.script_builder import load_agent_script, save_agent_script, save_draft
 from apps.api.agents.starters import StarterJob, apply_starter, starter_vertical_of
-from apps.api.compliance.caller_memory import memory_enabled
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.main import app
@@ -216,8 +215,6 @@ async def test_an_account_given_clinic_by_default_runs_on_the_core_only(
             )
         ).scalar_one()
         state = await business_type.read_state(session, tenant_id=tenant_id)
-        # An unconfirmed clinic is refused cross-call memory exactly as a confirmed one is.
-        assert not await memory_enabled(session, agent_id=agent_id)
     for label in ("Symptom", "Preferred doctor", "Insurance"):
         assert label not in body
     assert state.business_type is None

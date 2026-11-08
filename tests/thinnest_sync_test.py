@@ -340,16 +340,6 @@ async def test_a_cleared_voice_and_model_are_sent_as_null() -> None:
     assert (chosen["voice"]["voice"], chosen["model"]) == ("priya", "gpt-4.1")
 
 
-async def test_the_distillation_tick_stops_on_an_engine_that_remembers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from apps.api.core.settings import get_settings
-    from apps.workers import caller_memory_distil
-
-    monkeypatch.setattr(get_settings(), "engine", "thinnest")
-    assert await caller_memory_distil.distil_caller_memories({}) == "engine_remembers"
-
-
 # --- (11) settings read back and repaired --------------------------------------------------
 
 

@@ -424,9 +424,9 @@ async def build_subject_export(
     # company has written down about you. Scrubbed rows are excluded — an erased memory is
     # gone, and listing an empty string would imply we still hold something.
     #
-    # Written by `workers/caller_memory_distil.py` only for agents whose client switched
+    # Written before D-973 retired our own notes, only for agents whose client switched
     # caller memory on (`agents.caller_memory_enabled`, default false), so this list is
-    # empty on most accounts.
+    # empty on most accounts and gains no rows; it is read until the drop migration.
     memory_rows = (
         await session.execute(
             text(

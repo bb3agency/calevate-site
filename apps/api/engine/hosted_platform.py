@@ -70,8 +70,8 @@ class HostedAgentLimits:
     #: 60-1200). None where our own ceiling is the only one.
     call_seconds_max: int | None = None
     #: Does the engine give the model what earlier calls with this person said, in a section
-    #: of its own? Then our caller-memory section stays out of the prompt
-    #: (`AgentConfig.caller_memory_in_engine`, D-814).
+    #: of its own? Only then does an agent remember anybody, and the prompt carries only the
+    #: rule not to invent an earlier call (`AgentConfig.caller_memory_in_engine`, D-814, D-973).
     remembers_callers: bool = False
     #: About how many characters the engine adds around our prompt on every turn (its own
     #: rules, outside `prompt_chars`). None where it adds nothing we know of.

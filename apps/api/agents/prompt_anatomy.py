@@ -26,9 +26,10 @@ from apps.api.core.errors import ProblemError
 #: Who writes a layer: the platform's code, the client's script, or the engine on each call.
 LayerOwner = Literal["platform", "client", "per_call"]
 
-#: How the caller-memory layer stands on this agent. `kept_by_engine`: the engine keeps and
-#: supplies memory itself on each call, so the prompt carries no memory layer.
-CallerMemory = Literal["off", "kept_by_engine", "in_prompt"]
+#: How caller memory stands on this agent. `kept_by_engine`: the engine keeps and supplies
+#: memory itself on each call, and the prompt carries only the rule not to invent one. An
+#: engine that keeps none gives no memory at all (D-973), so that agent is `off`.
+CallerMemory = Literal["off", "kept_by_engine"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +65,7 @@ LAYER_GUIDE: Final[dict[PromptLayer, LayerGuide]] = {
         "platform", True, "The greeting and notices already spoken, so they are not repeated."
     ),
     "caller_memory": LayerGuide(
-        "per_call", True, "What the agent remembers about a returning caller, filled on each call."
+        "platform", True, "Never to invent an earlier call; the voice platform keeps them."
     ),
     "client_script": LayerGuide(
         "client", True, "The client's own script: who the agent is, its steps and its facts."
@@ -119,9 +120,9 @@ class Anatomy:
 
 
 def caller_memory_of(cfg: AgentConfig) -> CallerMemory:
-    if not cfg.caller_memory_enabled:
-        return "off"
-    return "kept_by_engine" if cfg.caller_memory_in_engine else "in_prompt"
+    if cfg.caller_memory_enabled and cfg.caller_memory_in_engine:
+        return "kept_by_engine"
+    return "off"
 
 
 async def read_anatomy(
@@ -143,7 +144,6 @@ async def read_anatomy(
         if refused.code != "agent_has_no_script":
             raise
         return Anatomy(False, (), None, "off", drift_state, checked_at, route is not None)
-    # Without `caller_memory`: the publish sends the layer with its slot unfilled.
     layers = tuple(
         AnatomyLayer(
             key=key,

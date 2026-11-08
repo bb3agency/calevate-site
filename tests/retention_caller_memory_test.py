@@ -47,7 +47,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.compliance import caller_memory
 from apps.api.compliance.caller_ref import active_caller_ref
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -61,7 +60,7 @@ from apps.api.retrieval.models import (
 )
 from apps.workers.retention import sweep_tenant
 from sqlalchemy import text
-from tests.conftest import ACCEPT_CALLER_MEMORY_STATEMENT, create_org_with_receptionist
+from tests.conftest import create_org_with_receptionist, insert_caller_memory
 
 pytestmark = pytest.mark.anyio
 
@@ -101,44 +100,27 @@ VALUES (
 
 
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
-    """A tenant with the shipped retention rows and one agent that remembers callers."""
+    """A tenant with the shipped retention rows and one agent."""
     created = await create_org_with_receptionist(
         name="Memory Retention Agency",
         slug=f"mrc-{uuid.uuid4().hex[:8]}",
-        # NOT `clinic`: `caller_memory.SPDI_REFUSED_VERTICALS` refuses to write a memory at
-        # all on that template, so a clinic fixture would test the refusal and report it as
-        # a retention pass — the arm would have nothing to sweep and every assertion below
-        # would be green against an empty table.
         vertical_template="real_estate",
         billing_email=None,
         language="te-IN",
         created_by=None,
     )
-    tenant_id = uuid.UUID(str(created["id"]))
-    agent_id = uuid.UUID(str(created["agent_id"]))
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET caller_memory_enabled = true WHERE id = :a"), {"a": agent_id}
-        )
-        await session.execute(ACCEPT_CALLER_MEMORY_STATEMENT, {"tid": tenant_id})
-        await session.commit()
-    return tenant_id, agent_id
+    return uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
 
 
 async def _remember(tenant_id: uuid.UUID, agent_id: uuid.UUID, *, days_ago: int) -> None:
-    """One remembered fact, through the ONE door that writes them."""
-    async with tenant_session(tenant_id) as session:
-        written = await caller_memory.remember(
-            session,
-            tenant_id,
-            agent_id=agent_id,
-            phone_e164=CALLER,
-            occurred_at=datetime.now(UTC) - timedelta(days=days_ago),
-            source_call_id=None,
-            facts=[FACT],
-        )
-        await session.commit()
-    assert written == 1, "the fixture wrote no memory, so nothing below is under test"
+    """One note as the retired store wrote it (D-973); the sweep still owes it its clock."""
+    await insert_caller_memory(
+        tenant_id,
+        agent_id,
+        phone=CALLER,
+        fact=FACT,
+        occurred_at=datetime.now(UTC) - timedelta(days=days_ago),
+    )
 
 
 async def _project(

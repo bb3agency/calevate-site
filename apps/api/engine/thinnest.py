@@ -2348,7 +2348,7 @@ class ThinnestEngine:
         # (D-507's notice and gates are on OUR switch, `agents.publishing.set_caller_memory`),
         # `fresh` otherwise; never the vendor default `quiet`, which uses earlier
         # conversations without saying so (founder, 8 Oct 2026). Memory is the vendor's and
-        # per agent; our own distillation does not run for this engine.
+        # per agent, and the only caller memory there is (D-973).
         voice: dict[str, Any] = {
             "answersCalls": True,
             "unavailableMessage": None,

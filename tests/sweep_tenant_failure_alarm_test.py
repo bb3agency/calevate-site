@@ -21,7 +21,6 @@ from typing import Any
 import pytest
 from apps.workers import (
     caller_embeddings,
-    caller_memory_distil,
     copilot_memory,
     kb_embeddings,
     kb_gloss,
@@ -133,24 +132,6 @@ async def test_pip_memory_sweep_alarms_a_crashed_tenant(monkeypatch: pytest.Monk
 
     assert await copilot_memory.distil_copilot_memories({}) == "groups=0 facts=0"
     assert raised == [("WORKER_TERMINAL", "copilot_distil_sweep_incomplete")]
-
-
-async def test_caller_memory_sweep_alarms_a_crashed_tenant(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    raised = _capture_alerts(monkeypatch, caller_memory_distil)
-
-    async def _crash(*_a: Any, **_kw: Any) -> None:
-        raise _TenantCrashError("tenant step failed")
-
-    monkeypatch.setattr(caller_memory_distil, "ENGINES_THAT_REMEMBER", frozenset())
-    monkeypatch.setattr(caller_memory_distil, "background_leg", lambda *_a, **_kw: object())
-    monkeypatch.setattr(caller_memory_distil, "tenants_with_caller_data", _one_tenant)
-    monkeypatch.setattr(caller_memory_distil, "set_aside_ids", _nothing_set_aside)
-    monkeypatch.setattr(caller_memory_distil, "_sweep_tenant", _crash)
-
-    assert await caller_memory_distil.distil_caller_memories({}) == "calls=0 facts=0"
-    assert raised == [("WORKER_TERMINAL", "caller_memory_distil_sweep_incomplete")]
 
 
 async def test_knowledge_gloss_sweep_alarms_a_crashed_tenant(

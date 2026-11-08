@@ -637,7 +637,7 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
                                        -- subject_ref; written and read only by the erasure.
 --   INDEX ix_calls_erased_subject_ref (tenant_id, erased_subject_ref) WHERE erased_subject_ref
 --   IS NOT NULL — partial because the population is: only erased calls carry a value.
--- Also on `calls`, documented where they are produced: caller_memory_state (§7, D-513),
+-- Also on `calls`, documented where they are produced: caller_memory_state (§7, D-513; NO LONGER READ OR WRITTEN, D-973, dropped next release),
 --   knowledge_state (migration e2a91c7f45b8; NO LONGER WRITTEN, D-763, dropped next
 --   release: our own engine reported whether its knowledge pack loaded) and crm_notified_at
 --   (migration e83b5d1a4c07: when the CRM fan-out was promised for this call).
@@ -988,11 +988,11 @@ caller_memories(id, tenant_id, agent_id, subject_ref TEXT, subject_ref_kek_id IN
 -- and NOT created_at, or a backfill would restart every caller's retention clock. Gated by
 -- `agents.caller_memory_enabled`, DEFAULT FALSE — the opposite of the disclosure toggles,
 -- because the posture a silence must not produce here is "remembers".
--- ITS PRODUCER AND ITS SWITCH LANDED IN D-513: `calls.caller_memory_state`
--- (pending|remembered|nothing|skipped, migration a1f6c30d92be) is the distiller's
--- idempotency marker, and the THIRD value is why it exists — `source_call_id` can record
--- that a call produced a fact and can never record that a call was read and owed nothing,
--- which is what most calls owe, so without it a retry re-buys the same answer.
+-- RETIRED (D-973): caller memory is the voice engine's, the distiller is removed, and
+-- nothing writes or reads this table or `calls.caller_memory_state` (pending|remembered|
+-- nothing|skipped, migration a1f6c30d92be, the distiller's idempotency marker). Existing
+-- rows are still erased, exported and expired on their 180-day clock until the follow-up
+-- migration drops both (hard rule 8).
 -- `organizations.caller_memory_attested_at`/`_attested_by` is the per-tenant permission
 -- the enable route requires: on the ORGANISATION because the attested fact is about the
 -- business, so a client with four agents answers once.
