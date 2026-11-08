@@ -7,7 +7,7 @@ import ClientRealmError from "@/app/c/[slug]/error";
 import RootError from "@/app/error";
 import GlobalError from "@/app/global-error";
 import LegalDocumentRoute from "@/app/legal/[slug]/page";
-import NotFound from "@/app/not-found";
+import NotFound, * as notFoundModule from "@/app/not-found";
 import { failureCopy } from "@/components/failureScreen";
 import { OfflineBanner } from "@/components/offline";
 import { ApiProblem } from "@/lib/api/client";
@@ -236,6 +236,10 @@ describe("global-error, the boundary for the root layout itself", () => {
     expect(html).toContain("#fafafa");
   });
 
+  it("names the tab, since the root layout's metadata went with the root layout", () => {
+    expect(markup()).toContain("<title>Something went wrong — Calevate</title>");
+  });
+
   it("still says something a user can act on, and still quotes the reference", () => {
     const html = markup();
     expect(html).toContain("Calevate could not finish loading.");
@@ -245,6 +249,16 @@ describe("global-error, the boundary for the root layout itself", () => {
 });
 
 describe("the 404", () => {
+  it("names the tab through route metadata, not a <title> the root layout's title outranks", () => {
+    // A <title> rendered in the body sat beside the root layout's "Calevate" in the server
+    // HTML of an unmatched URL, and the tab read "Calevate" (lane W6, 8 Nov 2026).
+    const { metadata } = notFoundModule as { metadata?: { title?: unknown; robots?: unknown } };
+    expect(metadata?.title).toBe("Page not found — Calevate");
+    expect(metadata?.robots).toEqual({ index: false });
+    const { container } = render(<NotFound />);
+    expect(container.querySelector("title")).toBeNull();
+  });
+
   it("renders our page, with a heading and a real way back", async () => {
     const { container } = render(<NotFound />);
     expect(screen.getAllByRole("heading", { level: 1 }).length).toBe(1);

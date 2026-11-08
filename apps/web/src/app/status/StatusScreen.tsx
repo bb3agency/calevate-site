@@ -30,6 +30,10 @@ const STATE_TONE: Record<StatusComponent["state"], string> = {
 export function StatusScreen() {
   const status = usePublicStatus();
   const data = status.data;
+  // A failed background re-read keeps the last answer in `data`. On a status page that
+  // answer must not go on reading as "right now": the read most likely failed because
+  // something is down.
+  const stale = data !== undefined && status.isError;
   const allWell = data?.components.every((c) => c.state === "operational") ?? false;
   return (
     <div className="mx-auto w-full max-w-3xl space-y-8 px-5 py-10 sm:px-6 sm:py-16">
@@ -42,7 +46,9 @@ export function StatusScreen() {
             ? "Checking…"
             : !data
               ? "We could not load the current status."
-              : allWell
+              : stale
+                ? `We could not check again just now. Last answer, from ${formatIST(data.updated_at)}:`
+                : allWell
                 ? "Everything is working normally."
                 : "Some parts of the service have problems. Details below."}
         </p>
@@ -50,7 +56,7 @@ export function StatusScreen() {
 
       {/* Always offered, whatever the server says about `retryable`: this is a public
           read with nothing to repeat by accident, and the page also re-reads every minute. */}
-      {!data && status.isError && (
+      {status.isError && (
         <button
           type="button"
           onClick={() => void status.refetch()}
@@ -64,7 +70,7 @@ export function StatusScreen() {
       {data && (
         <section aria-labelledby="status-components" className="space-y-3">
           <h2 id="status-components" className="text-lg font-semibold text-ink">
-            Right now
+            {stale ? "At the last check" : "Right now"}
           </h2>
           <ul className="divide-y divide-line rounded-card border border-line bg-surface">
             {data.components.map((component) => {

@@ -24,6 +24,7 @@ import { publicPageMetadata } from "@/lib/seo/metadata";
  */
 export const metadata: Metadata = publicPageMetadata({
   path: "/signup",
+  host: "app",
   title: "Get started — Calevate",
   // True whether or not self-serve signup is open on this deployment. `SIGNUP_OPEN`
   // defaults to CLOSED and the page then renders the "how an account is obtained today"

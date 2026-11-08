@@ -51,6 +51,17 @@ describe("a deployment where Studio is held back and Clear is sold", () => {
     expect(notices.map((n) => n.textContent)).toEqual([HELD_BACK_NOTICE]);
   });
 
+  it("opens the public rate card on the voice the headline quotes, both ways round", () => {
+    for (const [card, opens] of [
+      [STUDIO_HELD_BACK, "Clear voice"],
+      [{ ...RATE_CARD, voice_not_offered: "clear", voice_not_offered_notice: HELD_BACK_NOTICE }, "Studio voice"],
+    ] as const) {
+      const { unmount } = render(<RateCard card={card} />);
+      expect((screen.getByLabelText(opens) as HTMLInputElement).checked).toBe(true);
+      unmount();
+    }
+  });
+
   it("captions Studio, not Clear, as unavailable in the ROI calculator", () => {
     const { container } = render(<RoiCalculator rateCard={STUDIO_HELD_BACK} />);
     const text = container.textContent ?? "";

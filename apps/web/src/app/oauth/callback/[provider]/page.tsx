@@ -67,6 +67,9 @@ export default function OAuthCallbackPage({ params }: { params: Promise<{ provid
   return (
     <Providers>
       <AuthPageFrame realmLabel="Client console">
+        {/* Every state below is a notice or a skeleton, none a heading; the page still
+            needs its one h1 for a screen reader to land on. */}
+        <h1 className="sr-only">Connecting your account</h1>
         {problem ? (
           <div className="space-y-4">
             <NoticeBox tone="warn" title="Not connected">

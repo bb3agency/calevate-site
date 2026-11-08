@@ -23,7 +23,7 @@ import { useSignInOptions } from "@/components/authn/googleSignIn";
 import { useFormValidation } from "@/components/formValidation";
 import { ApiProblem } from "@/lib/api/client";
 import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
-import { ClientSessionProvider, useClientSessionRow } from "@/lib/authn/clientSession";
+import { ClientSessionProvider, useClientSession } from "@/lib/authn/clientSession";
 import { lookup } from "@/lib/lookup";
 import { SIGNUP_CONTACT_EMAIL } from "@/lib/signupConfig";
 import {
@@ -130,7 +130,12 @@ function SignupGate() {
  * session`), so a stale cookie renders account creation rather than a form that 401s.
  */
 function SignupOrAccount() {
-  return useClientSessionRow() !== null ? (
+  const { status, session } = useClientSession();
+  // While the restore is in flight `session` is null for a signed-in owner too; deciding
+  // then drew the create-account form for them and swapped it for the workspace form a
+  // moment later, under whatever they had started typing.
+  if (status === "restoring") return <Skeleton rows={4} label="Loading…" />;
+  return session !== null ? (
     <SignupForm />
   ) : (
     <AuthCard>

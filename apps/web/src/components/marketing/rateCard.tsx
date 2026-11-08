@@ -1,6 +1,7 @@
 import { ScrollRegion } from "@/components/ui";
 import { formatINR } from "@/lib/numberDisplay";
 import {
+  headlineVoice,
   ladderFalls,
   packMinutes,
   packRate,
@@ -98,6 +99,10 @@ import {
  */
 export function RateCard({ card }: { card: PublicRateCard }) {
   const [first, second] = VOICE_TIERS;
+  // The switch opens on the voice the page's headline quotes, the one a buyer can be put
+  // on; opening on the held-back voice put its "not open yet" table under a headline
+  // pricing the other one.
+  const opensOn = headlineVoice(card);
   return (
     <fieldset className="mt-10 sm:mt-12">
       <legend className="text-sm font-medium text-ink">Show rates for</legend>
@@ -114,13 +119,14 @@ export function RateCard({ card }: { card: PublicRateCard }) {
         type="radio"
         name={VOICE_GROUP}
         id={VOICE_INPUT_IDS[0]}
-        defaultChecked
+        defaultChecked={opensOn === first}
         className="peer/voice1 sr-only"
       />
       <input
         type="radio"
         name={VOICE_GROUP}
         id={VOICE_INPUT_IDS[1]}
+        defaultChecked={opensOn === second}
         className="peer/voice2 sr-only"
       />
       <label
