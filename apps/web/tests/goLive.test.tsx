@@ -95,6 +95,17 @@ describe("what the guide derives", () => {
 });
 
 describe("the guide", () => {
+  it("stacks its steps in the side column on a wide screen, not across it", async () => {
+    // Frontend audit 8 Nov 2026, W1: a bare `grid-cols-1` lost to the narrow shape's
+    // `grid-cols-3`, so at 1440 the three step names overlapped in the 13rem column.
+    await renderClientPage(page, routes());
+    await screen.findByRole("heading", { name: "Verify your business" });
+    const list = screen.getByRole("navigation", { name: "Steps" }).querySelector("ol");
+    const classes = (list?.className ?? "").split(/\s+/);
+    expect(classes).toContain("lg:grid-cols-1");
+    expect(classes).not.toContain("grid-cols-1");
+  });
+
   it("says our move in one line and names no provider", async () => {
     await renderClientPage(page, routes());
     expect(await screen.findByRole("heading", { name: "Verify your business" })).toBeTruthy();
