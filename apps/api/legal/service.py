@@ -231,6 +231,14 @@ async def record_acceptance(
             remediation="Reload the page and confirm again — the text has changed since it loaded.",
         )
 
+    # Per account, held to commit, before `was_blocked` is read: two acceptances at once of
+    # the last two outstanding documents each still saw the other's as outstanding, so
+    # neither queued the live apply below and the live agents stayed behind with nothing to
+    # re-run it.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"legal-acceptances:{tenant_id}"},
+    )
     was_blocked = bool(outstanding_slugs(await latest_acceptances(session, tenant_id=tenant_id)))
     row = (
         await session.execute(

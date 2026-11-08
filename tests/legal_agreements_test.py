@@ -1209,3 +1209,45 @@ async def test_clearing_the_last_agreement_brings_the_live_agents_up_to_date() -
     assert await runs() == 1
     await accept(catalogue.BLOCKING_SLUGS[-1])
     assert await runs() == 1
+
+
+async def test_the_last_two_agreements_accepted_at_once_still_bring_agents_up_to_date() -> None:
+    """Two acceptances at once of the last two outstanding agreements (two owners, or two
+    tabs): each must not read the other's as still outstanding, or neither queues the run."""
+    import asyncio
+
+    from tests.team_alerts_test import _MeetFirst
+
+    org = await _org("reapply-race")
+    user_id, _ = await _member(org["tenant_id"])
+    barrier = asyncio.Barrier(2)
+
+    async def accept(slug: str, *, meet: bool = False) -> None:
+        async with tenant_session(org["tenant_id"]) as session:
+            await legal_service.record_acceptance(
+                _MeetFirst(session, barrier) if meet else session,  # type: ignore[arg-type]
+                tenant_id=org["tenant_id"],
+                slug=slug,
+                version=_spec(slug).current_version,
+                statement_version=statements.statement_version(),
+                user_id=user_id,
+            )
+
+    for slug in catalogue.BLOCKING_SLUGS[:-2]:
+        await accept(slug)
+    async with tenant_session(org["tenant_id"]) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'live' WHERE id = :a"), {"a": org["agent_id"]}
+        )
+    await asyncio.gather(*(accept(slug, meet=True) for slug in catalogue.BLOCKING_SLUGS[-2:]))
+    async with untenanted_session() as session:
+        runs = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM live_apply_runs WHERE tenant_id = :t "
+                    "AND reasons ? 'agreements_accepted'"
+                ),
+                {"t": org["tenant_id"]},
+            )
+        ).scalar_one()
+    assert runs == 1
