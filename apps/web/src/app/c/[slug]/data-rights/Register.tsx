@@ -22,7 +22,7 @@ import {
   type DeletionRequestSummary,
   type ErasureProof,
 } from "@/lib/api/dataRights";
-import { lookup } from "@/lib/lookup";
+import { engineDeletionCopy } from "@/lib/engineDeletion";
 import { type Session } from "@/lib/api/client";
 
 import { CopyButton } from "@/components/interior/copy-button";
@@ -357,21 +357,4 @@ function Certificate({ proof, requestId }: { proof: ErasureProof; requestId: str
       </p>
     </div>
   );
-}
-
-// The proof carries an internal status token for the calling system's own copies
-// (e.g. `unconfirmed_pending_vendor_api`). A data principal reading the certificate
-// needs the meaning in plain words, not the token, so map it here and fall back to the
-// honest "not yet confirmed" for any value we have not worded — never the raw code.
-const ENGINE_DELETION_COPY: Record<string, string> = {
-  unconfirmed_pending_vendor_api: "deletion requested, not yet confirmed",
-  not_deleted_expires_with_plan_retention:
-    "not deleted at the voice platform; expires with its plan retention",
-  contact_erasure_requested_in_client_workspace:
-    "erasure requested in this business's own workspace at the voice platform",
-};
-
-function engineDeletionCopy(status: string): string {
-  if (status === "") return "not recorded";
-  return lookup(ENGINE_DELETION_COPY, status) ?? "not yet confirmed";
 }
