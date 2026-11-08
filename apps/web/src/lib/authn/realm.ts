@@ -68,6 +68,7 @@
  * protecting anything from its own — which is the half-measure this paragraph replaced.
  */
 
+import type { RealmTransportHooks } from "../api/client";
 import type { components } from "../api/schema";
 import { authnRequest, type AuthnRequestOptions } from "./transport";
 import { isSessionGone, needsSecondFactor } from "./problems";
@@ -180,6 +181,17 @@ export const ROTATION_RESULT_CACHE_MS = 3_000;
  */
 const BARRIER_MAX_TURNS = 3;
 
+/**
+ * How long a rotation waits for this realm's data requests already on the wire.
+ *
+ * A request sent with the old cookie and verified after the rotation commits presents a
+ * superseded token, which revokes the family. Waiting for those requests to settle before
+ * rotating closes that window. The cap bounds the wait for a slow one (a request may run
+ * to `REQUEST_TIMEOUT_MS`): after it the rotation goes ahead, the same trade
+ * `BARRIER_MAX_TURNS` makes.
+ */
+export const ROTATION_DRAIN_CAP_MS = 5_000;
+
 interface RestoreRuntime {
   /** Set only by a HARD failure. A soft one must leave this false — see `RestoreOutcome`. */
   blocked: boolean;
@@ -273,6 +285,16 @@ export interface RealmAuthn {
    * `underRotation` any other way without each inventing its own flag.
    */
   rotatingRequest<T>(path: string, options?: AuthnRequestOptions): Promise<T>;
+
+  /**
+   * What `lib/api/client.ts` needs from this realm for the `/v1/**` requests that carry
+   * its cookie: the rotation barrier, the in-flight count a rotation drains, and the
+   * report that the server called the session gone. Handed over by `realmSessions.ts`.
+   */
+  readonly transport: RealmTransportHooks;
+
+  /** Listen for a data request answered 401 `unauthorized`. Returns the unsubscribe. */
+  onSessionGone(listener: () => void): () => void;
 }
 
 export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
@@ -305,6 +327,41 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
    * ordering, not the outcome. Letting the rejection through would make an unrelated
    * request report "your rotation failed", which is neither true of it nor actionable.
    */
+  /** `/v1/**` requests carrying this realm's cookie that have not settled yet. */
+  const carried = new Set<Promise<unknown>>();
+  const sessionGoneListeners = new Set<() => void>();
+
+  /** Wait for `carried` to settle, for at most `ROTATION_DRAIN_CAP_MS`. */
+  async function drainCarried(): Promise<void> {
+    if (carried.size === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...carried]),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, ROTATION_DRAIN_CAP_MS);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const transport: RealmTransportHooks = {
+    // `undefined` when nothing rotates, so the request stays in the same tick as the query
+    // that asked for it (see `TokenSource` in `client.ts`).
+    gate: () => (rotationInFlight ? barrier() : undefined),
+    carry(request) {
+      carried.add(request);
+      const forget = () => carried.delete(request);
+      request.then(forget, forget);
+      return request;
+    },
+    sessionGone() {
+      for (const listener of [...sessionGoneListeners]) listener();
+    },
+  };
+
   async function barrier(): Promise<void> {
     for (let turn = 0; turn < BARRIER_MAX_TURNS && rotationInFlight; turn += 1) {
       try {
@@ -351,7 +408,11 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
     // `const` with a self-reference inside its own callback: the callback cannot run
     // before the assignment completes (the promise it is attached to settles later), and
     // a `let` here is what `prefer-const` refuses.
-    const held: Promise<T> = run().finally(() => {
+    //
+    // The barrier is closed BEFORE the drain, so no new data request joins the set the
+    // rotation is waiting on.
+    const started = carried.size === 0 ? run() : drainCarried().then(run);
+    const held: Promise<T> = started.finally(() => {
       if (rotationInFlight === held) rotationInFlight = null;
     });
     rotationInFlight = held;
@@ -558,5 +619,12 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
     generation: () => generation,
     request,
     rotatingRequest,
+    transport,
+    onSessionGone(listener) {
+      sessionGoneListeners.add(listener);
+      return () => {
+        sessionGoneListeners.delete(listener);
+      };
+    },
   };
 }

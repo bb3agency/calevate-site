@@ -487,6 +487,36 @@ export interface Session {
    * `lib/api/admin.ts::viewAsSession`, which is the only place either field is set.
    */
   impersonationGrant?: GrantSource;
+  /**
+   * The realm whose cookie this request carries, as the three things the transport owes it.
+   * Set only by `lib/authn/realmSessions.ts`; absent on a test's `devSession`.
+   */
+  realm?: RealmTransportHooks;
+}
+
+/**
+ * What one realm's session machinery (`lib/authn/realm.ts`) needs from this transport.
+ *
+ * Rotating a session supersedes the old cookie, and the server reads a superseded cookie
+ * as a stolen one and revokes the whole family (`apps/api/authn/sessions.py`). So a data
+ * request must not go out while a rotation is in flight (`gate`), and a rotation must not
+ * start while data requests sent with the old cookie are still being verified (`carry`).
+ * `sessionGone` reports a 401 `unauthorized`, which is how a session that ended under an
+ * open console reaches its sign-in gate instead of a red box on every panel.
+ */
+export interface RealmTransportHooks {
+  /** A wait while a rotation is in flight, or `undefined` when there is none. */
+  gate(): Promise<void> | undefined;
+  /** Count this request as in flight until it settles. Returns it unchanged. */
+  carry<T>(request: Promise<T>): Promise<T>;
+  sessionGone(): void;
+}
+
+/** A non-2xx as its `ApiProblem`, telling the realm when the server says the session is gone. */
+async function refusalFrom(session: Session, response: Response): Promise<ApiProblem> {
+  const problem = await problemFrom(response);
+  if (problem.status === 401 && problem.code === "unauthorized") session.realm?.sessionGone();
+  return problem;
 }
 
 /**
@@ -768,6 +798,9 @@ export async function openEventStream(
   path: string,
   { method = "GET", body, signal, headersTimeoutMs, onEvent }: EventStreamOptions,
 ): Promise<void> {
+  // Not `carry`d: a stream lasts as long as the page, and a rotation cannot wait for it.
+  const rotating = session.realm?.gate();
+  if (rotating) await rotating;
   const identity = identityHeaders(session);
   const headers = identity instanceof Promise ? await identity : identity;
   headers["Accept"] = "text/event-stream";
@@ -809,7 +842,7 @@ export async function openEventStream(
     } finally {
       clearTimeout(headersTimer);
     }
-    if (!response.ok) throw await problemFrom(response);
+    if (!response.ok) throw await refusalFrom(session, response);
     if (response.body === null) return;
 
     const reader = response.body.getReader();
@@ -961,7 +994,7 @@ export async function apiUpload<T>(
             void readBody(response).then((value) => resolve(value as T), reject);
             return;
           }
-          void problemFrom(response).then(reject, reject);
+          void refusalFrom(session, response).then(reject, reject);
         });
         // XHR gives NO status and NO cause on a transport failure — `error` fires with an
         // empty `ProgressEvent`. `TransportProblem` classifies what it is handed, and what
@@ -995,6 +1028,9 @@ async function sendRequest<T>(
     responseType = "json",
   }: RequestOptions = {},
 ): Promise<T> {
+  // Awaited only while a rotation is in flight, for the same one-tick reason as above.
+  const rotating = session.realm?.gate();
+  if (rotating) await rotating;
   const identity = identityHeaders(session);
   const headers = identity instanceof Promise ? await identity : identity;
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -1015,7 +1051,7 @@ async function sendRequest<T>(
   // every request in the app. That is not hypothetical bookkeeping — see `TokenSource`
   // above, where one extra tick between a query and its `fetch` was directly observable in
   // the test suite.
-  return withDeadline(async (deadlineSignal) => {
+  const exchange = withDeadline(async (deadlineSignal) => {
     let response: Response;
     try {
       response = await fetch(apiUrl(path), {
@@ -1046,10 +1082,11 @@ async function sendRequest<T>(
       throw new TransportProblem(cause, { method, path, correlationId });
     }
 
-    if (!response.ok) throw await problemFrom(response);
+    if (!response.ok) throw await refusalFrom(session, response);
     if (responseType === "blob") return (await response.blob()) as T;
     return (await readBody(response)) as T;
   }, { timeoutMs, signal });
+  return session.realm ? session.realm.carry(exchange) : exchange;
 }
 
 /**

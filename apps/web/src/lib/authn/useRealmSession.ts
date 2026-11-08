@@ -146,5 +146,36 @@ export function useRealmSession(
     };
   }, [authn, audience, attempt]);
 
+  // A SESSION THAT ENDS UNDER AN OPEN CONSOLE. The restore above runs once, on mount, so a
+  // session that idled out, was signed out from another device or was revoked by an
+  // operator used to leave every panel answering 401 with no way to the sign-in page but a
+  // reload. A data request's 401 is a reason to ASK again, not proof: the session is read
+  // once more, quietly (nothing unmounts while it is), and only the server's
+  // `signed_out` moves this realm to its gate, which then sends the person to sign in.
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
+  useEffect(() => {
+    if (audience !== "session") return;
+    let live = true;
+    const unsubscribe = authn.onSessionGone(() => {
+      if (statusRef.current !== "ready") return;
+      const generationAtStart = authn.generation();
+      void authn.restore(audience).then((outcome) => {
+        if (!live || generationAtStart !== authn.generation()) return;
+        if (!outcome.ok && outcome.reason === "signed_out") {
+          adopted.current = false;
+          setSession(null);
+          setStatus("signed-out");
+        }
+      });
+    });
+    return () => {
+      live = false;
+      unsubscribe();
+    };
+  }, [authn, audience]);
+
   return { status, session, retry, adopt };
 }

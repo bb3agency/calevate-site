@@ -23,6 +23,8 @@
 
 import { devToken, type Session } from "@/lib/api/client";
 
+import { adminAuthn } from "./adminAuthn";
+import { clientAuthn } from "./clientAuthn";
 import { AUTH_MODE } from "./mode";
 
 /** The local operator subject, when a developer wants to be a particular row. */
@@ -39,8 +41,8 @@ const DEV_CLIENT_SUBJECT = process.env.NEXT_PUBLIC_DEV_USER ?? "";
  */
 export function adminRealmSession(orgSlug = ""): Session {
   return AUTH_MODE === "dev"
-    ? { token: devToken("admin", DEV_ADMIN_SUBJECT), orgSlug }
-    : { orgSlug };
+    ? { token: devToken("admin", DEV_ADMIN_SUBJECT), orgSlug, realm: adminAuthn.transport }
+    : { orgSlug, realm: adminAuthn.transport };
 }
 
 /** The CLIENT realm's API session. Same shape, its own literal, its own cookie. */
@@ -60,6 +62,6 @@ export function unscopedClientSession(): Session {
 
 export function clientRealmSession(orgSlug: string): Session {
   return AUTH_MODE === "dev"
-    ? { token: devToken("client", DEV_CLIENT_SUBJECT), orgSlug }
-    : { orgSlug };
+    ? { token: devToken("client", DEV_CLIENT_SUBJECT), orgSlug, realm: clientAuthn.transport }
+    : { orgSlug, realm: clientAuthn.transport };
 }
