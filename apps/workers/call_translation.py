@@ -25,14 +25,16 @@ WHO PAYS is the one difference between the entry points, and the job carries it:
 `translation_state = 'pending'` is the claim in both paths: the route sets it before it
 queues the job, and the backfill sets it with a compare-and-swap from `failed`/`unavailable`
 before it spends anything, so the screen shows "English is being prepared" for as long as
-the work is outstanding and two deliveries of one job cannot both translate.
+the work is outstanding and two deliveries of one job cannot both translate. A pass that
+dies without settling its call is turned `failed` by the backfill tick
+(`SETTLE_STALE_TRANSLATING_SQL`).
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -54,6 +56,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for, job_try
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.integrations import service as integrations
 from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
@@ -118,6 +121,37 @@ _CANDIDATES_SQL: Final = (
     "            WHERE t.call_id = c.id AND t.tenant_id = c.tenant_id) "
     "ORDER BY at DESC, c.id DESC LIMIT :batch"
 )
+
+
+#: How long a call may say "Translating…" before the pass behind it is taken to have died.
+#: The pass is three tries of at most `WorkerSettings.job_timeout` (300 s) with 150 s of
+#: backoff between them, so no live run is still going by then.
+TRANSLATING_STALE_AFTER: Final = timedelta(hours=1)
+#: A pass that died without settling its call: a run past the job limit (arq records
+#: `TimeoutError` and never retries it, so `_give_up` never runs), or a job arq refused after
+#: its tries ran out. `failed` is the truthful state: the owner gets "Try again" and the
+#: backfill below tries the call once at our cost, as for any failed pass.
+#:
+#: `summary_state <> 'pending'` keeps this to calls the post-call pipeline has read, because
+#: `pending` is also the column default every new call starts in. A call the pipeline has not
+#: reached yet owes no translation, and failing it would have the backfill pay for one the
+#: pipeline never decided to run. Once the pipeline has read a call, `pending` only means a
+#: pass was queued (`pipeline.queue_language_pass`, "Try again", the backfill's claim).
+SETTLE_STALE_TRANSLATING_SQL: Final = (
+    "UPDATE calls SET translation_state = 'failed', updated_at = now() "
+    "WHERE translation_state = 'pending' AND summary_state <> 'pending' "
+    "AND status = 'completed' AND updated_at < :cutoff"
+)
+
+
+async def _settle_interrupted(tenant_id: UUID) -> int:
+    """`failed` for this client's calls whose pass died mid-run. Returns how many."""
+    async with tenant_session(tenant_id) as session:
+        result = await session.execute(
+            text(SETTLE_STALE_TRANSLATING_SQL),
+            {"cutoff": datetime.now(UTC) - TRANSLATING_STALE_AFTER},
+        )
+    return rowcount_of(result)
 
 
 async def meter_language_pass(
@@ -552,9 +586,11 @@ async def backfill_call_translations(ctx: dict[str, Any]) -> str:
 
     budget = WalkBudget()
     found: list[tuple[Any, UUID, UUID]] = []
-    reached = 0
+    reached = settled = 0
     async for tenant_id in resumed_walk("call_translations", tenant_ids, budget):
         reached += 1
+        # First, so a call whose pass died is a candidate in this same tick.
+        settled += await _settle_interrupted(tenant_id)
         found.extend(
             (at, tenant_id, call_id) for at, call_id in await _untried_candidates(tenant_id, budget)
         )
@@ -570,11 +606,15 @@ async def backfill_call_translations(ctx: dict[str, Any]) -> str:
             job_id=job_id_for(JOB_NAME, "backfill", str(call_id)),
         )
         queued += 1
+    if settled:
+        log.warning("call_translation_interrupted", extra={"calls": settled})
     log.info(
         "call_translation_backfill",
         extra={"tenants": len(tenant_ids), "reached": reached, "queued": queued},
     )
-    return json.dumps({"reached": reached, "queued": queued, "truncated": budget.exhausted})
+    return json.dumps(
+        {"reached": reached, "queued": queued, "settled": settled, "truncated": budget.exhausted}
+    )
 
 
 __all__ = [
