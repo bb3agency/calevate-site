@@ -43,6 +43,7 @@ from apps.api.core.schemas import Strict
 from apps.api.crm import service, swipe
 from apps.api.crm.lead_dial import calling_hours_reason, place_call_back, place_lead_call
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
     IdempotencyClaim,
@@ -368,6 +369,11 @@ async def place_one_call(
     """Call one person now, or book the call for `request.at`. See the module docstring."""
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
+    if request.call_id is None:
+        # Before any lead is written for a new number (D-193): the gate cannot be relied on
+        # to refuse a neighbour's agent, because the halt, the drain and a stopped account
+        # are answered before it reads the agent, and a booking ignores those rules.
+        await assert_visible(session, "agent", request.agent_id)
     if request.at is not None:
         return await _call_later(
             session,

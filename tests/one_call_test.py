@@ -270,8 +270,8 @@ async def test_a_role_without_dispatch_cannot_make_a_call() -> None:
 
 
 async def test_a_neighbours_lead_and_agent_are_not_reachable() -> None:
-    """RLS: tenant B naming tenant A's lead is told it does not exist; naming A's agent
-    with a number is refused by the gate (the agent is not B's) and makes no lead."""
+    """RLS: tenant B naming tenant A's lead or A's agent is told it does not exist, and no
+    lead is made."""
     tenant_a, agent_a, _slug_a, _headers_a = await _dialable_tenant()
     lead_a, _phone_a = await _lead(tenant_a, agent_a)
     tenant_b, _agent_b, _slug_b, headers_b = await _dialable_tenant()
@@ -283,6 +283,41 @@ async def test_a_neighbours_lead_and_agent_are_not_reachable() -> None:
     by_number = await _post(headers_b, {"phone": phone, "agent_id": str(agent_a), "reason": "Hi"})
 
     assert by_lead.status_code == 404, by_lead.text
-    assert by_number.json()["status"] == "blocked", by_number.text
+    assert by_number.status_code == 404, by_number.text
+    assert by_number.json()["title"] == "Agent not found"
     assert await _outbound_calls(tenant_a) == [] and await _outbound_calls(tenant_b) == []
     assert await _leads_with(tenant_b, phone) == [] and await _leads_with(tenant_a, phone) == []
+
+
+@pytest.mark.parametrize("later", [False, True], ids=["now", "later"])
+async def test_a_neighbours_agent_is_not_found_even_while_outbound_is_halted(
+    monkeypatch: pytest.MonkeyPatch, later: bool
+) -> None:
+    """The halt, the drain and a stopped account are answered before the gate reads the
+    agent, and a booking ignores them, so the gate alone let a booking for a new number
+    write a lead naming tenant A's agent into tenant B (a foreign key ignores RLS)."""
+    from apps.api.core import loadshed
+
+    async def _halted(*, force_refresh: bool = False) -> loadshed.PlatformStatus:
+        del force_refresh
+        return loadshed.PlatformStatus(mode="normal", outbound_halted=True)
+
+    monkeypatch.setattr("apps.api.compliance.service.get_platform_status", _halted)
+    _tenant_a, agent_a, _slug_a, _headers_a = await _dialable_tenant()
+    tenant_b, _agent_b, _slug_b, headers_b = await _dialable_tenant()
+    phone = _new_number()
+    body: dict[str, object] = {"phone": phone, "agent_id": str(agent_a), "reason": "Hi"}
+    if later:
+        body["at"] = _tomorrow_late_morning().isoformat()
+
+    response = await _post(headers_b, body)
+
+    assert response.status_code == 404, response.text
+    assert response.json()["title"] == "Agent not found"
+    async with tenant_session(tenant_b) as session:
+        foreign = (
+            await session.execute(
+                text("SELECT count(*) FROM leads WHERE agent_id = :aid"), {"aid": agent_a}
+            )
+        ).scalar_one()
+    assert foreign == 0
