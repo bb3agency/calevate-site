@@ -9,6 +9,8 @@ import CallWordsPage from "@/app/admin/ops/call-words/page";
 import { AgentsScreen } from "@/app/admin/tenants/[tenantId]/agents/AgentsScreen";
 import TenantLayout from "@/app/admin/tenants/[tenantId]/layout";
 import { MarginPanel } from "@/app/admin/tenants/[tenantId]/MarginPanel";
+import { KycReviewPanel } from "@/app/admin/tenants/[tenantId]/kyc/KycReviewPanel";
+import type { AdminKyc } from "@/lib/api/kycReview";
 import { planLabel, useRevokeTenantInvitation, type Margin, type TenantSummary } from "@/lib/api/admin";
 import { FILING_BOARD_PATH, type FilingBoard } from "@/lib/api/callingNumberFilings";
 import { CALL_WORDS_PATH } from "@/lib/api/callWords";
@@ -177,5 +179,49 @@ describe("cancelling an owner's invitation", () => {
       expect(keys).toContain(JSON.stringify(["admin", "invitations", TENANT]));
       expect(keys).toContain(JSON.stringify(["admin", "onboarding", "unfinished"]));
     });
+  });
+});
+
+describe("the KYC review card", () => {
+  it("names the review status as the KYC page does, not as the wire code", async () => {
+    const kyc: AdminKyc = {
+      tenant_id: TENANT,
+      recorded: true,
+      status: "in_review",
+      kyc_path: "manual",
+      entity_type: null,
+      legal_business_name: "Sri Traders",
+      gst_registered: false,
+      gstin: null,
+      owner_name: "Owner Name",
+      owner_id_type: null,
+      owner_id_masked: null,
+      owner_pan_checked: false,
+      owner_pan_checked_at: null,
+      owner_pan_checked_by: null,
+      verified_name: null,
+      name_match: null,
+      verification_provider: null,
+      verification_reference: null,
+      rejection_reason: null,
+      submitted_at: "2026-10-30T05:30:00Z",
+      verified_at: null,
+      is_verified: false,
+      digilocker_required: false,
+      digilocker_required_reason: null,
+      digilocker_required_at: null,
+      digilocker_verified_at: null,
+      digilocker_outstanding: false,
+      documents: [],
+      pledge_accepted_version: 1,
+      pledge_accepted_at: "2026-10-30T05:30:00Z",
+      pledge_current_version: 1,
+    };
+    renderAdminPage(<KycReviewPanel tenantId={TENANT} access={{ allowed: true, refused: false, reason: null }} />, {
+      [ADMIN_ME_PATH]: ME,
+      [`/v1/admin/tenants/${TENANT}/kyc`]: kyc,
+    });
+    expect(await screen.findByText("In review")).toBeTruthy();
+    expect(screen.queryByText("in_review")).toBeNull();
   });
 });
