@@ -1227,7 +1227,7 @@ describe("the outbox dead-letter replay", () => {
       target: { value: "replay" },
     });
     await waitFor(() =>
-      expect(container.textContent).toContain("Recorded in the activity log"),
+      expect(container.textContent).toContain("triggered from outside this form"),
     );
     expect(button.disabled).toBe(true);
     fireEvent.click(button);

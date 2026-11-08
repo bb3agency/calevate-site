@@ -211,9 +211,8 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
               </p>
               <p className="mt-1 text-ink-muted">{LOAD_SHED[target].blast}</p>
               <p className="mt-1 text-meta text-ink-muted">
-                Recorded in the activity log against your admin account, with the reason
-                you type below. This does not stop a campaign that is already running, and
-                it never affects inbound calls.
+                This does not stop a campaign that is already running, and it never affects
+                inbound calls.
               </p>
             </div>
           </div>

@@ -89,8 +89,8 @@ export function SuppressForm({
         })}
       >
         {/* What the button does, above the button: blast radius first, then what is NOT
-            affected, then that it is recorded — an operator who reads only the first line
-            has read the part that matters. */}
+            affected — an operator who reads only the first line has read the part that
+            matters. */}
         <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
           <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
           <div className="min-w-0">
