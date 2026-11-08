@@ -21,7 +21,7 @@ import Link from "next/link";
 import { Providers } from "@/app/providers";
 import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { AuthShowcase } from "@/components/authn/authShowcase";
-import { GoogleSignIn } from "@/components/authn/googleSignIn";
+import { GoogleSignIn, useSignInOptions } from "@/components/authn/googleSignIn";
 import { SignInForm } from "@/components/authn/signInForm";
 import { SignedOutToast } from "@/components/authn/signedOutToast";
 import {
@@ -43,12 +43,7 @@ export default function ClientSignInPage() {
             <SignInForm
               authn={clientAuthn}
               forgotPath={CLIENT_FORGOT_PATH}
-              heading={
-                <AuthHeading
-                  title="Sign in to Calevate"
-                  lead="Welcome back. Use Google or your email."
-                />
-              }
+              heading={<SignInHeading />}
               alternatives={<GoogleSignIn next={nextFromLocation(CLIENT_CONSOLE_PATH)} />}
               onSignedIn={() => {
                 // Through `clientConsoleUrl` (inside the destination helper) because this
@@ -74,5 +69,16 @@ export default function ClientSignInPage() {
         </p>
       </AuthPageFrame>
     </Providers>
+  );
+}
+
+/** Names Google only where its button is shown: the server's live answer, not a promise. */
+function SignInHeading() {
+  const google = useSignInOptions().data?.google === true;
+  return (
+    <AuthHeading
+      title="Sign in to Calevate"
+      lead={google ? "Welcome back. Use Google or your email." : "Welcome back."}
+    />
   );
 }

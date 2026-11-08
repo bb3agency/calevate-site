@@ -228,7 +228,9 @@ const ROW = {
 
 const COLUMN = {
   nav: "",
-  list: "grid grid-cols-1 gap-1.5 lg:gap-1",
+  // `lg:grid-cols-1`, not a bare `grid-cols-1`: the list also carries the narrow shape's
+  // `grid-cols-3`/`-4`, which a bare one loses to, laying the steps across a 13rem column.
+  list: "grid gap-1.5 lg:grid-cols-1 lg:gap-1",
   item: "flex min-w-0 flex-col gap-1.5 lg:block",
   joined: "",
   line: "",

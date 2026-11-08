@@ -176,7 +176,8 @@ function AccountRows({ me }: { me: UseQueryResult<Me> }) {
 
   return (
     <SettingRows className="border-y border-line">
-      {organization && <SettingRow label="Account ID" value={organization.slug} />}
+      {/* Named as signup names it: an owner knows it as the address, not as an id. */}
+      {organization && <SettingRow label="Your web address" value={`/c/${organization.slug}`} />}
       {role && (
         <SettingRow
           label="What you can do"

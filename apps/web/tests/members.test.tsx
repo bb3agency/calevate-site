@@ -389,6 +389,45 @@ describe("what a click actually sends", () => {
       lens: { assigned_to: STAFF.id },
     });
   });
+
+  it("does not carry one removal's hand-over into the next removal's notice", async () => {
+    // Frontend audit 8 Nov 2026, W1.
+    const KIRAN: Member = { id: "0192f0aa-4444-7000-8000-000000000004", name: "Kiran", role: "staff" };
+    const { container } = await renderClientPage(<TeamPage />, {
+      "/v1/me": ME,
+      "/v1/members": [OWNER, STAFF, KIRAN],
+      "/v1/team/members": ROSTER,
+      "/v1/invitations": [],
+      [`/v1/members/${STAFF.id}`]: { user_id: STAFF.id, previous_role: "staff", leads_still_assigned: 4 },
+      [`/v1/members/${KIRAN.id}`]: { user_id: KIRAN.id, previous_role: "staff", leads_still_assigned: 2 },
+      "POST /v1/leads/bulk": {
+        action: "assign",
+        scope: "filter",
+        requested: 4,
+        changed: 4,
+        unchanged: 0,
+        failures: [],
+      },
+    });
+
+    await screen.findByText("Priya");
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Priya" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from account" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove their access" }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Give their leads to me" }));
+    await waitFor(() => expect(container.textContent).toContain("4 leads now with you."));
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions for Kiran" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Remove from account" }));
+    fireEvent.click(
+      within(await screen.findByRole("dialog")).getByRole("button", { name: "Remove their access" }),
+    );
+    await waitFor(() => expect(container.textContent).toContain("2 leads are still assigned"));
+    expect(container.textContent).not.toContain("now with you");
+    expect(screen.getByRole("button", { name: "Give their leads to me" })).toBeTruthy();
+  });
 });
 
 describe("failure is never an empty state", () => {
