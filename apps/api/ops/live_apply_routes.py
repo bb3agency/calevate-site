@@ -14,7 +14,13 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.live_apply import LEASE_S, LiveApplyRunView, held_back_from, recent_runs
+from apps.api.agents.live_apply import (
+    LEASE_S,
+    PLATFORM_PROMPT_REASON,
+    LiveApplyRunView,
+    held_back_from,
+    recent_runs,
+)
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
@@ -30,6 +36,10 @@ NOT_STARTED_AFTER: Final = timedelta(seconds=LEASE_S + STALE_AFTER_S + RESUME_IN
 
 #: What a platform-scope reason reads as when no setting carries that key any more.
 REMOVED_SETTING: Final = "A setting that has since been removed"
+
+#: What a deploy that changed the platform's own prompt text reads as. Its reason is
+#: `platform_prompt:<revision>`, which no setting carries, so it is not a removed setting.
+PLATFORM_PROMPT_LABEL: Final = "Calevate's own call wording, changed by a release"
 
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 ConfigReader = Annotated[Principal, Depends(requires("platform:config", realm="admin"))]
@@ -108,6 +118,8 @@ def reason_label(reason: str, *, scope: str) -> str:
     meta = FIELD_META.get(reason)
     if meta is not None:
         return meta.label
+    if reason.split(":", 1)[0] == PLATFORM_PROMPT_REASON:
+        return PLATFORM_PROMPT_LABEL
     return REMOVED_SETTING if scope == "platform" else humanise(reason)
 
 

@@ -9,7 +9,12 @@ from datetime import UTC, datetime, timedelta
 
 from apps.api.agents.live_apply import LiveApplyRunView
 from apps.api.ops.config_catalog import FIELD_META
-from apps.api.ops.live_apply_routes import NOT_STARTED_AFTER, REMOVED_SETTING, _out
+from apps.api.ops.live_apply_routes import (
+    NOT_STARTED_AFTER,
+    PLATFORM_PROMPT_LABEL,
+    REMOVED_SETTING,
+    _out,
+)
 
 
 def _run(*, status: str, age: timedelta, reasons: list[str]) -> LiveApplyRunView:
@@ -50,3 +55,12 @@ def test_reasons_read_as_labels_and_a_removed_setting_says_so() -> None:
         )
     )
     assert run.reason_labels == [FIELD_META["hot_facts_enabled"].label, REMOVED_SETTING]
+
+
+def test_a_release_that_changed_the_platform_wording_is_not_called_a_removed_setting() -> None:
+    # `queue_platform_prompt_apply` records `platform_prompt:<revision>`; the ops console
+    # read it as "A setting that has since been removed".
+    run = _out(
+        _run(status="done", age=timedelta(minutes=1), reasons=["platform_prompt:f4ab1e74d90bb183"])
+    )
+    assert run.reason_labels == [PLATFORM_PROMPT_LABEL]
