@@ -2267,6 +2267,14 @@ class ThinnestEngine:
                 "GET", path, route=route, workspace=workspace, params=query
             )
             pages += 1
+            # `items` is required on every paged list (calls/list-calls.md:614-622,
+            # agents/list-agents.md:623-627, phone-numbers/list-phone-numbers.md:512-516 in
+            # snapshots/2026-10-28). A page without it is not an empty page: read as one, the
+            # listing came back "complete" with nothing in it, which the reconciliation
+            # sweep reads as no lost calls and an agent or number sweep as nothing held.
+            if not isinstance(payload.get("items"), list):
+                log.warning("thinnest_page_without_items", extra={"route": route, "page": pages})
+                raise _bad_response("The voice platform answered a list without its items.")
             rows.extend(_items(payload))
             following = wire_str(payload.get("nextCursor"))
             if following is None:
@@ -3541,9 +3549,15 @@ class ThinnestEngine:
         is sent while it talks), so the vendor's own status is read first; without it a
         recall would end a live conversation mid-sentence
         (snapshots/2026-10-07/pages/api-reference/calls/cancel-call.md:7)."""
+        # A read that failed (timeout, 5xx, 429, an unreadable answer) leaves the call's state
+        # unknown, and the DELETE below ends a connected call too (202): raised, so the
+        # recall counts this dial as not reached rather than hanging up on a person who
+        # may be talking. Only "the platform holds no such call" lets the stop go ahead.
         try:
-            current = await self.get_execution(call_id)
-        except ProblemError:
+            current: ExecutionSnapshot | None = await self.get_execution(call_id)
+        except EngineRejectedError as exc:
+            if not exc.object_absent:
+                raise
             current = None
         if current is not None and current.raw_status == "connected":
             return RecallOutcome.ALREADY_RUNNING
@@ -4514,6 +4528,28 @@ class ThinnestEngine:
         return self._snapshot(call, workspace=workspace_of(None)).model_copy(
             update={"raw_document": engine_document(call, engine=self.name)}
         )
+
+    def placed_reference(self, snapshot: ExecutionSnapshot) -> str | None:
+        """Our `reference` on a call we placed: the `calls.id` `start_outbound_call` sends.
+
+        Echoed on Get Call and List Calls ("Your `reference` from Place Call",
+        snapshots/2026-10-28/pages/api-reference/calls/list-calls.md:789-793) and on a
+        `call.completed` for a call placed through the API (webhooks.md:357). It is how a
+        dial whose answer we lost is matched to the row we wrote before dialling. Read from
+        the record the snapshot was made from; None when it carries none."""
+        if snapshot.raw_document is None:
+            return None
+        try:
+            document = json.loads(snapshot.raw_document)
+        except ValueError:
+            return None
+        if not isinstance(document, dict):
+            return None
+        # A delivery is kept whole (`{id, event, data}`, `workers/engine_delivery`); a fetch
+        # keeps the call object itself.
+        data = document.get("data")
+        call = data if "event" in document and isinstance(data, dict) else document
+        return wire_str(call.get("reference"))
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """`GET /calls?since=` with the cursor (list-calls.md:56-61). `since` filters on
