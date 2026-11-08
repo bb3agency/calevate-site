@@ -38,6 +38,7 @@ from datetime import UTC, datetime
 from typing import Any, Final, cast
 from uuid import UUID
 
+from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import generation_guidance
 from pydantic import ValidationError
@@ -760,7 +761,9 @@ _ROW_STATE: Final = (
 async def _due(tenant_id: UUID, *, now: datetime) -> bool:
     """Due when the copy in use was written under an older prompt (any account, trials too:
     the rewrite is ours, `_absorbed`), or else when it is not a trial (founder: trials get no
-    scheduled refresh) and was not looked at for 15 days. Once a day at most, by the key."""
+    scheduled refresh) and was not looked at for 15 days. Once an IST day at most, by the key:
+    `now` is a UTC instant, whose own date would split an Indian day at 05:30 and let the
+    upgrade walk queued by a deploy before then and the 10:44 walk both queue (D-709)."""
     async with tenant_session(tenant_id) as session:
         row = (await session.execute(text(_ROW_STATE), {"version": PROMPT_VERSION})).first()
         behind = row is not None and bool(row[1])
@@ -773,7 +776,7 @@ async def _due(tenant_id: UUID, *, now: datetime) -> bool:
             session,
             job=JOB_NAME,
             payload={"tenant_id": str(tenant_id), "trigger": "scheduled"},
-            dedupe_key=f"business-copy:{tenant_id}:{now.date().isoformat()}",
+            dedupe_key=f"business-copy:{tenant_id}:{ist_wall_clock(now).date().isoformat()}",
         )
     return True
 
