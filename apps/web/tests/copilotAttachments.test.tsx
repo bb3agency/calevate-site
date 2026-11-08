@@ -415,6 +415,33 @@ describe("attaching files in Pip's panel", () => {
     expect(xhrCalls).toHaveLength(0);
   });
 
+  it("SENDS THE TRAY'S FILES WITH A TAPPED SUGGESTION, exactly as with a typed question (audit 8 Nov W4-03)", async () => {
+    renderPanel();
+    await attach(text("prices.txt"));
+    expect(await screen.findByText("Attached")).toBeTruthy();
+    const chips = screen.getByRole("region", { name: "Questions you could ask" });
+    const chip = chips.querySelector("button");
+    if (chip === null) throw new Error("no suggested question");
+    await act(async () => {
+      fireEvent.click(chip);
+    });
+    await waitFor(() => expect(askBodies).toHaveLength(1));
+    expect(askBodies[0].attachments).toEqual(["00000000-0000-7000-8000-000000000001"]);
+    expect(screen.queryByRole("list", { name: "Attached files" })).toBeNull();
+  });
+
+  it("HOLDS A SUGGESTION while a file is still on its way, so it is not left behind (audit 8 Nov W4-03)", async () => {
+    heldUploads = [];
+    renderPanel();
+    await attach(text("prices.txt"));
+    const chips = screen.getByRole("region", { name: "Questions you could ask" });
+    await waitFor(() => expect(chips.querySelector("button")?.hasAttribute("disabled")).toBe(true));
+    await act(async () => {
+      for (const reply of heldUploads ?? []) reply();
+    });
+    await waitFor(() => expect(chips.querySelector("button")?.hasAttribute("disabled")).toBe(false));
+  });
+
   it("is accessible with a file in the tray", async () => {
     const { container } = renderPanel();
     await attach(text("a.txt"));

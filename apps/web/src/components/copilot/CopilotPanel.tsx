@@ -160,10 +160,15 @@ export function CopilotPanel({
   const questionChars = questionLength(question);
   const overBy = questionOverBy(question);
   const canAsk = (question.trim() !== "" || tray.ready > 0) && !tray.busy && overBy === 0;
+  // Every way of sending goes through here, so a tapped chip carries the files in the tray
+  // and clears a ceiling notice exactly as typing and pressing Ask does.
+  const askWith = (words: string) => {
+    setConfirmAtCeiling(false);
+    conversation.ask(words, tray.take());
+  };
   const send = () => {
     if (!canAsk) return;
-    setConfirmAtCeiling(false);
-    conversation.ask(question, tray.take());
+    askWith(question);
     setQuestion("");
   };
   const panel = useRef<HTMLDivElement>(null);
@@ -487,7 +492,9 @@ export function CopilotPanel({
             Fields are mentioned only when the screen has some, and never counted. The
             undeclared case keeps the honest sentence (D-501): the assistant cannot see this
             screen, which is not the same as the screen being empty. */}
-        {conversation.turns.length === 0 && conversation.streaming === null && (
+        {/* Not while the stored conversation is still arriving: "ask me anything" above a
+            loading skeleton tells somebody with a conversation that they have none. */}
+        {conversation.turns.length === 0 && conversation.streaming === null && !conversation.loading && (
           <div className="space-y-4">
             <p className="text-body text-ink">
               {surface.undeclared === true
@@ -510,8 +517,8 @@ export function CopilotPanel({
                   <li key={question}>
                     <button
                       type="button"
-                      disabled={conversation.asking}
-                      onClick={() => conversation.ask(question)}
+                      disabled={conversation.asking || tray.busy}
+                      onClick={() => askWith(question)}
                       className="press whitespace-nowrap rounded-full border border-line px-3 py-1.5 text-left text-meta text-ink hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 sm:whitespace-normal"
                     >
                       {question}
@@ -673,8 +680,8 @@ export function CopilotPanel({
             <DiagnosisCard
               key={step.id}
               diagnosis={step.diagnosis}
-              asking={conversation.asking}
-              onAsk={realm === "client" ? (text) => conversation.ask(text) : undefined}
+              asking={conversation.asking || tray.busy}
+              onAsk={realm === "client" ? askWith : undefined}
               onNavigate={onNavigate}
             />
           ) : null,
@@ -873,8 +880,8 @@ export function CopilotPanel({
               <li key={reply}>
                 <button
                   type="button"
-                  disabled={conversation.asking}
-                  onClick={() => conversation.ask(reply)}
+                  disabled={conversation.asking || tray.busy}
+                  onClick={() => askWith(reply)}
                   className="press rounded-full border border-line px-3 py-1.5 text-left text-meta text-ink hover:bg-ink/[0.04] disabled:cursor-not-allowed disabled:text-ink-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
                 >
                   {reply}

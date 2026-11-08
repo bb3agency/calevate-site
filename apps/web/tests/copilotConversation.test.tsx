@@ -200,3 +200,62 @@ describe("the durable conversation", () => {
     });
   });
 });
+
+describe("while the stored conversation is still arriving (audit 8 Nov W4-01)", () => {
+  it("SHOWS THE SKELETON, NOT THE EMPTY PANEL — no 'ask me anything' to somebody who has a conversation", async () => {
+    let release: (() => void) | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input).replace(API_BASE, "");
+        const notes = nothingNoticed(path);
+        if (notes) return notes;
+        if (path.startsWith("/v1/copilot/conversation")) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return new Response(
+            JSON.stringify({
+              turns: [
+                {
+                  id: "0198f000-0000-7000-8000-000000000001",
+                  role: "user",
+                  content: "how many leads came in today",
+                  screen_route: "/c/[slug]/leads",
+                  said_at: "2026-09-05T08:00:00+00:00",
+                },
+              ],
+              has_more: false,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await act(async () => {
+      render(
+        withQuery(
+          <>
+            <Screen />
+            <PanelMount />
+          </>,
+        ),
+      );
+    });
+
+    await waitFor(() => expect(screen.getByText("Loading your conversation…")).toBeTruthy());
+    expect(screen.queryByRole("region", { name: "Questions you could ask" })).toBeNull();
+    expect(screen.queryByText(/Small changes happen at once/)).toBeNull();
+
+    await act(async () => {
+      release?.();
+    });
+    await waitFor(() => expect(screen.getByText("how many leads came in today")).toBeTruthy());
+    expect(screen.queryByRole("region", { name: "Questions you could ask" })).toBeNull();
+  });
+});
