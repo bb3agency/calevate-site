@@ -160,6 +160,12 @@ async def run_copilot_job(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
                     if await jobs.job_status(session, job_id=job_id) == "cancelled":
                         status, code = "cancelled", None
                         break
+    except ProblemError as problem:
+        # A refusal that carries its own sentence (no AI provider can answer, AI paused):
+        # the person reads that sentence, not "the job stopped before it finished".
+        log.warning("copilot_job_refused", extra={"job_id": str(job_id), "code": problem.code})
+        status, code = "failed", problem.code
+        answer.append(f"\n\n{problem.detail}" if "".join(answer).strip() else problem.detail)
     except Exception:
         # Ids only (hard rule 6). The person sees the job as failed with a code; what it
         # already did stays in the activity log with its Undo.

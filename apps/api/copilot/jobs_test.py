@@ -305,3 +305,42 @@ async def test_a_deactivated_person_s_queued_job_does_not_run() -> None:
     assert outcome == "member_gone"
     async with tenant_session(tenant_id) as session:
         assert await jobs.job_status(session, job_id=job.id) == "failed"
+
+
+async def test_a_job_no_model_could_answer_says_why_in_plain_words(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a job refused with a sentence of its own (no AI provider can answer) ends
+    as "copilot_job_interrupted" and "The job stopped before it finished", hiding why."""
+    from collections.abc import AsyncIterator
+
+    from tests.conftest import turn_pip_on_for_tests
+
+    from apps.api.core.errors import ProblemError
+    from apps.workers import copilot_jobs
+
+    tenant_id, _slug, token = await _make_tenant()
+    await turn_pip_on_for_tests(tenant_id)
+    job = await _job(tenant_id, token)
+    refusal = ProblemError(
+        kind="dependency",
+        code="assist_unavailable",
+        title="AI help is not available",
+        detail="AI help is not available right now. Try again later.",
+        remediation="Try again later.",
+    )
+
+    def refuse(*_args: object, **_kwargs: object) -> AsyncIterator[service.CopilotEvent]:
+        raise refusal
+
+    monkeypatch.setattr(service, "run_copilot", refuse)
+    outcome = await copilot_jobs.run_copilot_job(
+        {}, {"job_id": str(job.id), "tenant_id": str(tenant_id)}
+    )
+    assert outcome == "failed"
+    async with tenant_session(tenant_id) as session:
+        row = await jobs.read_job(session, job_id=job.id, user_id=_user_of(token))
+    assert row is not None
+    assert row.status == "failed"
+    assert row.error_code == "assist_unavailable"
+    assert row.result == refusal.detail

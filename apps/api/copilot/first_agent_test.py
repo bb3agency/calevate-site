@@ -234,6 +234,45 @@ async def test_an_opening_line_the_owner_dictated_keeps_their_textbook_word() ->
     assert await _opening(tenant_id, agent_id) == line
 
 
+async def test_a_staged_opening_line_the_owner_dictated_can_be_approved() -> None:
+    """FAILS IF: Approve (and its preview) re-plans a staged agent_edit with no conversation
+    in hand, so the owner's own textbook word that passed at staging is refused at Approve
+    and the card can never be approved."""
+    from apps.api.copilot import jobs
+
+    tenant_id, slug, token = await _make_tenant()
+    agent_id = await _starter_agent(tenant_id, token)
+    line = _telugu_line_with_a_textbook_word()
+    async with tenant_session(tenant_id) as session:
+        job = await jobs.create_job(
+            session,
+            tenant_id=tenant_id,
+            user_id=_user_of(token),
+            goal="set the opening",
+            screen_route="/c/{slug}/agents",
+        )
+    staged = await write_tools.stage_for_approval(
+        "agent_edit",
+        json.dumps({**_edit(agent_id, line), "language_primary": "te-IN"}),
+        principal=_principal(tenant_id, _user_of(token)),
+        job_id=job.id,
+        said=(f"Make the opening line: {line}",),
+    )
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    async with _client() as http:
+        preview = await http.get(
+            f"/v1/copilot/approvals/{staged.action_id}/preview", headers=headers
+        )
+        approved = await http.post(
+            f"/v1/copilot/approvals/{staged.action_id}/approve", headers=headers
+        )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["still_applies"] is True, preview.json()
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["applied"] is True, approved.json()
+    assert await _opening(tenant_id, agent_id) == line
+
+
 def test_a_voice_change_names_the_voice_never_its_id() -> None:
     """FAILS IF: the agent_edit card shows a catalogue voice id to the owner (PIP-15)."""
     parsed = _AgentEditArgs.model_validate(

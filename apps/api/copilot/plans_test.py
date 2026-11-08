@@ -355,6 +355,39 @@ async def test_a_member_who_left_runs_nothing() -> None:
     assert await _statuses(tenant_id, ids) == ["new"]
 
 
+async def test_an_approver_deactivated_mid_run_stops_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: the runner reads the approver once at the start, so a long plan keeps
+    acting as a person deactivated while it runs, and nobody else can cancel it."""
+    tenant_id, _slug, token = await _make_tenant()
+    user_id = _user_of(token)
+    ids = await _leads(tenant_id, plans.BATCH + 1)
+    plan = await _approved(
+        tenant_id, user_id, {"lead_ids": [str(i) for i in ids], "action": "status", "status": "hot"}
+    )
+    real = worker._run_target
+    ran: list[UUID] = []
+
+    async def run_then_deactivate(*args: Any) -> None:
+        await real(*args)
+        ran.append(args[-1])
+        if len(ran) == 1:
+            async with untenanted_session() as session:
+                await session.execute(
+                    text("UPDATE users SET deactivated_at = now() WHERE id = :id"),
+                    {"id": user_id},
+                )
+
+    monkeypatch.setattr(worker, "_run_target", run_then_deactivate)
+    assert await _run(tenant_id, plan.id) == "member_gone"
+    finished = await _plan(tenant_id, plan.id)
+    assert finished.status == "done"
+    assert len(ran) == plans.BATCH, "the batch under way finishes; the next one never starts"
+    assert finished.skipped_count == 1
+    assert (await _statuses(tenant_id, ids))[-1] == "new"
+
+
 async def test_a_finished_plan_reaches_the_bell() -> None:
     tenant_id, _slug, token = await _make_tenant()
     user_id = _user_of(token)

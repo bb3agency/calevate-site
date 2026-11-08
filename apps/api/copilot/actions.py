@@ -67,7 +67,7 @@ infer a missing agent id.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -199,6 +199,28 @@ def principal_of(actor: ToolActor) -> Principal:
         role=actor.role,
         impersonating=actor.impersonating,
     )
+
+
+def staged_approver(actor: ToolActor, pending_args: Mapping[str, Any]) -> ToolActor:
+    """The approver of a staged action, carrying the staged words as their own.
+
+    A job stages an action after its planner judged the wording against what the person
+    said (`stage_for_approval(said=...)`); the approval re-runs the planner with no
+    conversation in hand. Without this, a line the owner dictated with a word the
+    spoken-style guard refuses from Pip passed at staging and was refused at Approve, so
+    the card could never be approved. Approving the card is the owner standing behind
+    exactly those words, so they count as said."""
+
+    def strings(value: Any) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, Mapping):
+            return [part for item in value.values() for part in strings(item)]
+        if isinstance(value, list | tuple):
+            return [part for item in value for part in strings(item)]
+        return []
+
+    return replace(actor, said=(*actor.said, *strings(pending_args)))
 
 
 def actor_realm(actor: ToolActor) -> str:
