@@ -67,7 +67,7 @@ async def test_an_unanswered_send_is_a_failed_answer_that_says_check_first(
     monkeypatch.setattr(swipe.accounts, "account_token", _token)
     monkeypatch.setattr(swipe, "_send", _no_answer)
 
-    out, name = await swipe.send_whatsapp_follow_up(
+    out, name, message_id = await swipe.send_whatsapp_follow_up(
         object(),  # type: ignore[arg-type]
         tenant_id=uuid4(),
         lead_id=uuid4(),
@@ -77,3 +77,4 @@ async def test_an_unanswered_send_is_a_failed_answer_that_says_check_first(
     assert out.rule == swipe.UNANSWERED_RULE
     assert out.reason is not None and "again" in out.reason
     assert name == "order_ready"
+    assert message_id is None

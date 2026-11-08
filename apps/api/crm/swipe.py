@@ -561,11 +561,34 @@ UNANSWERED_RULE: Final = "whatsapp_unanswered"
 _UNANSWERED_REASON: Final = "WhatsApp did not answer. Check the chat before sending it again."
 
 
-async def _send(request: Any) -> int | None:
-    """Put the Graph request on the wire through the egress guard; the HTTP status, or None
-    when no answer came back (connect failure, timeout, the send deadline). Answered rather
-    than raised: a raise here was a 500 on the leads screen with nothing on the timeline,
-    and a Follow-up step that failed its idempotency claim and could send twice on retry."""
+#: The longest message id we keep. Meta's ids are `wamid.` plus base64, well under this.
+_MESSAGE_ID_MAX: Final = 256
+
+
+def _message_id(response: Any) -> str | None:
+    """Meta's id for the accepted message, `messages[0].id`
+    (developers.facebook.com/docs/whatsapp/cloud-api/reference/messages, read 9 Nov 2026).
+    A failed-delivery webhook names the message by the same id ("Use `statuses.id` to
+    correlate the failure with the original send request", .../webhooks/payload-examples,
+    same date), which is how a failure reported after the 2xx reaches the lead's timeline."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    messages = body.get("messages") if isinstance(body, dict) else None
+    first = messages[0] if isinstance(messages, list) and messages else None
+    found = first.get("id") if isinstance(first, dict) else None
+    if isinstance(found, str) and 0 < len(found) <= _MESSAGE_ID_MAX and found.isprintable():
+        return found
+    return None
+
+
+async def _send(request: Any) -> tuple[int, str | None] | None:
+    """Put the Graph request on the wire through the egress guard; the HTTP status and
+    Meta's message id, or None when no answer came back (connect failure, timeout, the send
+    deadline). Answered rather than raised: a raise here was a 500 on the leads screen with
+    nothing on the timeline, and a Follow-up step that failed its idempotency claim and
+    could send twice on retry."""
     import httpx
 
     from apps.api.actions.execution import send_prepared
@@ -577,20 +600,24 @@ async def _send(request: Any) -> int | None:
     except (httpx.HTTPError, TimeoutError) as exc:
         log.warning("lead_whatsapp_follow_up_unanswered", extra={"error": type(exc).__name__})
         return None
-    return response.status_code
+    ok = 200 <= response.status_code < 300
+    return response.status_code, _message_id(response) if ok else None
 
 
 async def send_whatsapp_follow_up(
     session: AsyncSession, *, tenant_id: UUID, lead_id: UUID, payload: WhatsAppSendIn
-) -> tuple[WhatsAppSendOut, str | None]:
-    """The gate, the consent, then one template message. Returns the answer and the
-    template's name (for the audit row and the lead's timeline)."""
+) -> tuple[WhatsAppSendOut, str | None, str | None]:
+    """The gate, the consent, then one template message. Returns the answer, the
+    template's name (for the audit row and the lead's timeline) and Meta's id for a message
+    it accepted (kept on the timeline row, so a later failed-delivery report finds it)."""
     account = await _connected_account(session)
     if account is None:
         await lead_phone(session, lead_id)
-        return WhatsAppSendOut(
-            status="blocked", rule=_NOT_CONNECTED[0], reason=_NOT_CONNECTED[1]
-        ), None
+        return (
+            WhatsAppSendOut(status="blocked", rule=_NOT_CONNECTED[0], reason=_NOT_CONNECTED[1]),
+            None,
+            None,
+        )
     chosen = next(
         (t for t in await _approved(session, account.id) if t.id == payload.template_id), None
     )
@@ -601,6 +628,7 @@ async def send_whatsapp_follow_up(
                 rule="whatsapp_template_not_approved",
                 reason="That message is not approved for sending. Pick an approved one.",
             ),
+            None,
             None,
         )
     wanted = len(set(templates.blanks(chosen.body)))
@@ -615,7 +643,7 @@ async def send_whatsapp_follow_up(
         )
     gate = await _gate(session, tenant_id=tenant_id, lead_id=lead_id, agent_id=payload.agent_id)
     if isinstance(gate, tuple):
-        return WhatsAppSendOut(status="blocked", rule=gate[0], reason=gate[1]), chosen.name
+        return WhatsAppSendOut(status="blocked", rule=gate[0], reason=gate[1]), chosen.name, None
     token = await accounts.account_token(session, tenant_id=tenant_id, account=account)
     request = wa.build_meta_cloud(
         WhatsAppConfig(
@@ -629,14 +657,16 @@ async def send_whatsapp_follow_up(
         header_value=None,
         body_values=values,
     )
-    status_code = await _send(request)
-    if status_code is None:
+    answer = await _send(request)
+    if answer is None:
         return (
             WhatsAppSendOut(status="failed", rule=UNANSWERED_RULE, reason=_UNANSWERED_REASON),
             chosen.name,
+            None,
         )
+    status_code, message_id = answer
     if 200 <= status_code < 300:
-        return WhatsAppSendOut(status="sent"), chosen.name
+        return WhatsAppSendOut(status="sent"), chosen.name, message_id
     log.warning(
         "lead_whatsapp_follow_up_failed",
         extra={"tenant_id": str(tenant_id), "lead_id": str(lead_id), "status_code": status_code},
@@ -648,21 +678,30 @@ async def send_whatsapp_follow_up(
             reason="WhatsApp did not accept the message. Try again in a minute.",
         ),
         chosen.name,
+        None,
     )
 
 
 async def record_whatsapp_on_timeline(
-    session: AsyncSession, *, lead_id: UUID, template: str | None, out: WhatsAppSendOut, actor: str
+    session: AsyncSession,
+    *,
+    lead_id: UUID,
+    template: str | None,
+    out: WhatsAppSendOut,
+    actor: str,
+    message_id: str | None = None,
 ) -> None:
     """One `notification` row on the lead's timeline, delivered or not: "we never followed
     up" is a fact the client is entitled to see (the hot-lead and escalation legs do the
-    same). Template NAME and the rule only — never the values typed into it."""
+    same). Template NAME, the rule and Meta's message id only — never the values typed
+    into it."""
     result = await session.execute(
         text(
             "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, created_at, "
-            "updated_at) SELECT :id, tenant_id, id, 'notification', jsonb_build_object("
-            "'channel', 'whatsapp', 'kind', 'client_follow_up', 'status', CAST(:status AS text), "
-            "'template', CAST(:template AS text), 'rule', CAST(:rule AS text)), :actor, now(), "
+            "updated_at) SELECT :id, tenant_id, id, 'notification', jsonb_strip_nulls("
+            "jsonb_build_object('channel', 'whatsapp', 'kind', 'client_follow_up', "
+            "'status', CAST(:status AS text), 'template', CAST(:template AS text), "
+            "'rule', CAST(:rule AS text), 'message_id', CAST(:mid AS text))), :actor, now(), "
             "now() FROM leads WHERE id = :lid"
         ),
         {
@@ -671,6 +710,7 @@ async def record_whatsapp_on_timeline(
             "status": out.status,
             "template": template,
             "rule": out.rule,
+            "mid": message_id,
             "actor": actor,
         },
     )
@@ -678,9 +718,44 @@ async def record_whatsapp_on_timeline(
         raise ProblemError.not_found("Lead")
 
 
+#: A WhatsApp message Meta accepted and later reported it could not deliver.
+NOT_DELIVERED_RULE: Final = "whatsapp_not_delivered"
+
+#: The second row for a failed delivery: copied from the send's own row (found by Meta's
+#: message id), so it lands on the same lead under the same template. A new row rather
+#: than an edit of the first, so the timeline keeps both facts: it was sent, then it
+#: failed. `NOT EXISTS` makes a redelivered report a no-op.
+_NOT_DELIVERED_SQL: Final = (
+    "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, created_at, "
+    "updated_at) SELECT :id, e.tenant_id, e.lead_id, 'notification', jsonb_strip_nulls("
+    "jsonb_build_object('channel', 'whatsapp', 'kind', 'client_follow_up', 'status', "
+    "'failed', 'template', e.payload->>'template', 'rule', CAST(:rule AS text), "
+    "'message_id', CAST(:mid AS text), 'meta_code', CAST(:code AS text))), 'system', now(), "
+    "now() FROM lead_events e WHERE e.type = 'notification' "
+    "AND e.payload->>'kind' = 'client_follow_up' AND e.payload->>'status' = 'sent' "
+    "AND e.payload->>'message_id' = :mid AND NOT EXISTS (SELECT 1 FROM lead_events f "
+    "WHERE f.lead_id = e.lead_id AND f.type = 'notification' "
+    "AND f.payload->>'message_id' = :mid AND f.payload->>'status' = 'failed') LIMIT 1"
+)
+
+
+async def record_whatsapp_not_delivered(
+    session: AsyncSession, *, message_id: str, meta_code: str | None
+) -> bool:
+    """Meta's failed-delivery report for a message sent to a lead, on that lead's timeline.
+    False when the message is not one of this tenant's lead messages (a hot-lead alert, an
+    in-call action, a message sent outside Calevate) or the report was already recorded."""
+    result = await session.execute(
+        text(_NOT_DELIVERED_SQL),
+        {"id": uuid7(), "mid": message_id, "rule": NOT_DELIVERED_RULE, "code": meta_code},
+    )
+    return rowcount_of(result) > 0
+
+
 __all__ = [
     "CANCELLED_BY_CLIENT",
     "MAX_AHEAD",
+    "NOT_DELIVERED_RULE",
     "CallFollowUpIn",
     "CallFollowUpOut",
     "CallbackChange",
@@ -693,6 +768,7 @@ __all__ = [
     "WhatsAppTemplateChoiceOut",
     "change_callback",
     "check_schedule_time",
+    "record_whatsapp_not_delivered",
     "record_whatsapp_on_timeline",
     "schedule_lead_callback",
     "send_whatsapp_follow_up",

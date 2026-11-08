@@ -61,7 +61,7 @@ async def send_lead_whatsapp(
     if claim.state == "replay" and claim.response_payload:
         return swipe.WhatsAppSendOut.model_validate(claim.response_payload)
     try:
-        out, template = await swipe.send_whatsapp_follow_up(
+        out, template, message_id = await swipe.send_whatsapp_follow_up(
             session, tenant_id=tenant_id, lead_id=lead_id, payload=payload
         )
     except Exception:
@@ -77,6 +77,7 @@ async def send_lead_whatsapp(
             template=template,
             out=out,
             actor=actor or str(principal.user_id),
+            message_id=message_id,
         )
         await complete_idempotency(
             record_session,

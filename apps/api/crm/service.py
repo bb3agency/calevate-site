@@ -2580,6 +2580,31 @@ _NOT_SENT_WORDS: Final[dict[bool, dict[str, str]]] = {
         "no_recipient": "There is no number to send it to.",
     },
 }
+#: A message someone sent to the lead from the lead's menu, Pip or a Follow-up step
+#: (`swipe.record_whatsapp_on_timeline`), by the rule its row names. These rows carry
+#: `status` rather than the alert legs' `delivered`.
+_FOLLOW_UP_NOT_SENT_WORDS: Final[dict[str, str]] = {
+    "whatsapp_unanswered": "WhatsApp did not answer. Check the chat before sending it again.",
+    "whatsapp_not_delivered": "WhatsApp accepted it but could not deliver it to this person.",
+    "whatsapp_not_connected": "Your WhatsApp is not connected.",
+    "whatsapp_no_approved_template": "None of your WhatsApp messages is approved yet.",
+    "whatsapp_template_not_approved": "That message is not approved for sending.",
+    "whatsapp_recipient_not_opted_in": "This person has not agreed to WhatsApp messages.",
+}
+_FOLLOW_UP_REFUSED_PREFIX: Final = "whatsapp_http_"
+_FOLLOW_UP_BLOCKED_PREFIX: Final = "whatsapp_blocked_"
+
+
+def _follow_up_not_sent_words(rule: str | None) -> str | None:
+    if rule is None:
+        return None
+    if rule in _FOLLOW_UP_NOT_SENT_WORDS:
+        return _FOLLOW_UP_NOT_SENT_WORDS[rule]
+    if rule.startswith(_FOLLOW_UP_REFUSED_PREFIX):
+        return "WhatsApp did not accept the message."
+    if rule.startswith(_FOLLOW_UP_BLOCKED_PREFIX):
+        return "This number may not be contacted right now."
+    return None
 
 
 def _code(payload: dict[str, Any], key: str) -> str | None:
@@ -2653,6 +2678,14 @@ def _project_event(
     if event_type == "notification":
         channel_code = _code(payload, "channel")
         channel = _CHANNEL_LABELS.get(channel_code or "", channel_code or "a message")
+        if _code(payload, "kind") == "client_follow_up":
+            if _code(payload, "status") == "sent":
+                return (f"Message sent by {channel}", None, None)
+            return (
+                f"Message not sent by {channel}",
+                _follow_up_not_sent_words(_code(payload, "rule")),
+                None,
+            )
         escalation = _code(payload, "kind") == "campaign_escalation"
         # "Alert", never "hot-lead alert": `hot` is the platform's stage key, and a
         # business that sells nothing has no hot leads (founder, 5 Nov 2026).

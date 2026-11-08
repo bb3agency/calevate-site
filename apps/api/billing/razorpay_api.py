@@ -227,7 +227,9 @@ class RazorpayApi(RazorpayOrders):
                 code="payment_provider_rejected",
                 title="The payment provider said no",
                 detail="The payment provider did not accept that.",
-                remediation="Try again later, or check the payment provider's dashboard.",
+                # Read by a client setting up automatic payments, who has no access to our
+                # provider account: a step they can take, never "check the dashboard".
+                remediation="Try again later. If it keeps happening, contact us.",
             )
         try:
             return response.json()
