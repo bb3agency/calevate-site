@@ -49,7 +49,7 @@ import { asText } from "@/lib/copilot/types";
 
 import { AddArea } from "../../../knowledge/AddArea";
 import { CallInstructions } from "../../../knowledge/CallInstructions";
-import { profileMatchCount } from "../../../knowledge/ProfileKnowledge";
+import { knowledgeTally } from "../../../knowledge/WhatItKnows";
 import { countsOf, lastRunLine } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
 import { KnownFactsPanel } from "./knownFacts";
@@ -158,6 +158,7 @@ function WhatItKnows({ slug, agent }: { slug: string; agent: Agent }) {
   const knows = useKnows(session);
   const profile = useBusinessProfile(session);
   const notes = useKbNotes(session);
+  const uploads = useKbUploads(session);
 
   let line = "Checking…";
   let body;
@@ -171,16 +172,20 @@ function WhatItKnows({ slug, agent }: { slug: string; agent: Agent }) {
       />
     );
   } else {
-    const { facts, items } = knows.data;
-    // Counted as the Knowledge page counts it ("N things"), so the two screens agree; said
-    // only once every read it adds up has answered.
-    if (notes.isError || profile.isError) line = "Could not be read";
-    else if (notes.data && profile.data) {
-      const total =
-        facts.length +
-        items.length +
-        notes.data.notes.filter((n) => n.state !== "removed").length +
-        profileMatchCount(profile.data, "");
+    const { facts } = knows.data;
+    // Counted by the Knowledge page's own `knowledgeTally` ("N things"), so the two screens
+    // agree; said only once every read it adds up has answered.
+    if (notes.isError || profile.isError || uploads.isError) line = "Could not be read";
+    else if (notes.data && profile.data && uploads.data) {
+      const current = uploads.data.filter((u) => u.review_state !== "archived");
+      const { total } = knowledgeTally({
+        pinned: facts.filter((f) => f.pinned).length,
+        facts: knows.data.facts_state === "live" ? facts.filter((f) => !f.pinned).length : 0,
+        profile: profile.data,
+        files: current.filter((u) => u.source_kind !== "url"),
+        links: current.filter((u) => u.source_kind === "url"),
+        notes: notes.data.notes.filter((n) => n.state === "in_use").length,
+      });
       line = total === 0 ? "Nothing yet" : countLine(total, "thing", "things");
     }
     // Pinned facts first, as on the Knowledge page: they are in every call.
@@ -281,7 +286,9 @@ function TestYourAgent({ agent, slug, canWrite }: { agent: Agent; slug: string; 
         headingLevel={3}
         title="Test your agent"
         subtitle={subtitle}
-        defaultOpen={busy || waiting}
+        // `shown`, not `busy || waiting`: <details open> follows its prop, so the bare
+        // condition shut the panel on the owner the moment their run finished.
+        defaultOpen={shown}
         onToggle={setOpen}
       >
         <div className="space-y-8">

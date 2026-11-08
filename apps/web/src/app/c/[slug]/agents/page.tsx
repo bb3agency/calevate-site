@@ -105,7 +105,7 @@ export default function AgentsPage({
         status={
           agents.data && roster.length > 0 ? (
             <StatusPill tone={working === 0 ? "warn" : "ok"}>
-              {working} of {roster.length} answering calls
+              {working} of {roster.length} live
             </StatusPill>
           ) : undefined
         }

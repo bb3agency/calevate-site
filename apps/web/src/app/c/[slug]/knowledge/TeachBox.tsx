@@ -431,7 +431,16 @@ function ReviewRow({
           )}
           {item.keep ? (
             <div className="flex flex-wrap gap-2">
-              <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setEditing(!editing)}>
+              <button
+                type="button"
+                className={SECONDARY_BUTTON_SM}
+                // Pressing Done blurred the box first, which closed it and turned this into
+                // Edit before the click landed, so the click opened it again.
+                onMouseDown={(event) => {
+                  if (editing) event.preventDefault();
+                }}
+                onClick={() => setEditing(!editing)}
+              >
                 {editing ? "Done" : "Edit"}
               </button>
               <button

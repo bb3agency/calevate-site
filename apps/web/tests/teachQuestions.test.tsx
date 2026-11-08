@@ -71,6 +71,13 @@ describe("the questions to answer", () => {
     expect(screen.getByText("2 to answer")).toBeTruthy();
   });
 
+  it("puts focus back on Answer when the answer is cancelled (audit W2)", async () => {
+    await renderList([question()]);
+    fireEvent.click(await screen.findByRole("button", { name: "Answer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Answer" })));
+  });
+
   it("offers a draft with the source it came from, and keeps it in one press", async () => {
     const { calls } = await renderList(
       [

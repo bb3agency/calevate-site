@@ -115,6 +115,8 @@ export function TryChat({
           <button
             type="button"
             className={SECONDARY_BUTTON_SM}
+            // The reply still on its way would land in the cleared chat, under the old session.
+            disabled={sendFeedback.status === "pending"}
             onClick={() => {
               setTurns([]);
               setChat(null);

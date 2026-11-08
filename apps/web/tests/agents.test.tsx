@@ -278,7 +278,7 @@ describe("which agents are working right now", () => {
     expect(names[1]).toContain("Weekend line");
     expect(within(row("Front desk")).getByText("Live")).toBeTruthy();
     expect(within(row("Weekend line")).getByText("Ready, not taking calls")).toBeTruthy();
-    expect(screen.getByText("1 of 2 answering calls")).toBeTruthy();
+    expect(screen.getByText("1 of 2 live")).toBeTruthy();
   });
 
   it("does not call an agent live when it is not on the calling system, whatever its status says", async () => {
@@ -303,7 +303,7 @@ describe("which agents are working right now", () => {
     await screen.findByText("Half built");
     expect(within(row("Half built")).getByText("Being set up")).toBeTruthy();
     // The one sentence the old empty "Working right now" group carried, now in the header.
-    expect(screen.getByText("0 of 1 answering calls")).toBeTruthy();
+    expect(screen.getByText("0 of 1 live")).toBeTruthy();
   });
 
   it("says how many lines each answering agent picks up in parallel", async () => {
@@ -352,7 +352,7 @@ describe("what the screen says when it could not read the agents", () => {
     // says nothing is answering the phone.
     expect(container.textContent).not.toContain("No agents yet");
     expect(container.textContent).not.toContain("answering your calls");
-    expect(container.textContent).not.toContain("answering calls");
+    expect(container.textContent).not.toMatch(/\d+ of \d+ live/);
     expect(container.textContent).not.toContain("When changes reach callers");
   });
 

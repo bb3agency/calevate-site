@@ -3,6 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
+import { ToastProvider } from "@/components/arc/toast";
 import { StrictnessSection } from "@/app/c/[slug]/agents/[agentId]/script/ScriptSections";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptOut, type ScriptProposal } from "@/lib/api/script";
@@ -212,6 +213,36 @@ describe("the occasional actions are in the menu", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "History" }));
     const drawer = await screen.findByRole("dialog", { name: "History" });
     expect(await within(drawer).findByText("Added the delivery step")).toBeTruthy();
+  });
+
+  it("offers Undo after a restore, once the History drawer has closed (audit W2)", async () => {
+    const restoredScript = { ...FULL, opening_line: "From Tuesday." };
+    const { calls } = await renderClientPage(
+      <ToastProvider>{page}</ToastProvider>,
+      routes(out(FULL), {
+        "/v1/agents/agent-1/script/versions": [
+          { version: 3, summary: "Added the delivery step", created_at: "2026-10-09T10:00:00+00:00", is_live: true },
+        ],
+        "POST /v1/agents/agent-1/script/versions/3/restore": {
+          script: restoredScript,
+          saved_at: "2026-11-08T10:00:00+00:00",
+          replaced: null,
+        },
+        "PUT /v1/agents/agent-1/script/draft": { saved_at: "2026-11-08T10:01:00+00:00" },
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for this script" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "History" }));
+    const drawer = await screen.findByRole("dialog", { name: "History" });
+    fireEvent.click(await within(drawer).findByRole("button", { name: "Restore" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Restore to draft" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "History" })).toBeNull());
+    expect(await screen.findByText("Restored to your draft. Put it live to use it.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "PUT" && c.path === "/v1/agents/agent-1/script/draft")).toBe(true),
+    );
+    expect(await screen.findByText("Your earlier draft is back.")).toBeTruthy();
   });
 
   it("still shows what the agent reads", async () => {
