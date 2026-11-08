@@ -289,6 +289,9 @@ describe("plans in the workspace (D-893)", () => {
     // The preview read is for single steps; a plan is its own preview.
     expect(view.calls.some((call) => call.path.endsWith("/preview"))).toBe(false);
     expect(screen.getByRole("button", { name: "Decline" })).toBeTruthy();
+    // ONE way to say no in the inbox (audit 8 Nov W4-10): the plan card's own Cancel
+    // cancelled the plan, left the approval waiting, and the inbox then said "Approved".
+    expect(within(card).queryByRole("button", { name: /Cancel — / })).toBeNull();
     await expectNoA11yViolations(view.container, "the approvals inbox, a staged plan");
     fireEvent.click(within(card).getByRole("button", { name: /Approve — / }));
     await waitFor(() =>

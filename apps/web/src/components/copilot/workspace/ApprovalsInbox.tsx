@@ -120,7 +120,13 @@ function ApprovalRow({
             session={session}
             planId={plan}
             decision={{ kind: "approval", actionId: row.id, confirmAction: row.confirm_action ?? null }}
-            onDecided={() => onResult("Approved. It is running now; its result will show here and on the bell.")}
+            onDecided={(outcome) =>
+              onResult(
+                outcome === "approved"
+                  ? "Approved. It is running now; its result will show here and on the bell."
+                  : "Cancelled. Nothing was changed.",
+              )
+            }
           />
           <ActionButton
             variant="secondary"
