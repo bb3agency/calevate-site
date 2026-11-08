@@ -22,6 +22,7 @@ import {
 import { adminSession } from "./admin";
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -67,7 +68,7 @@ export function useLeadFields(session: Session): UseQueryResult<LeadFields> {
   return useQuery({
     queryKey: leadFieldsKeys.client(session.orgSlug),
     queryFn: () => apiRequest<LeadFields>(session, "/v1/lead-fields"),
-    refetchInterval: (query) => (drafting(query.state.data) ? DRAFT_POLL_MS : false),
+    refetchInterval: untilRefused((query) => (drafting(query.state.data) ? DRAFT_POLL_MS : false)),
   });
 }
 
@@ -176,7 +177,7 @@ export function useAdminLeadFields(tenantId: string): UseQueryResult<LeadFields>
     queryKey: leadFieldsKeys.admin(tenantId),
     queryFn: () => apiRequest<LeadFields>(adminSession(), adminPath(tenantId)),
     enabled: Boolean(tenantId),
-    refetchInterval: (query) => (drafting(query.state.data) ? DRAFT_POLL_MS : false),
+    refetchInterval: untilRefused((query) => (drafting(query.state.data) ? DRAFT_POLL_MS : false)),
   });
 }
 

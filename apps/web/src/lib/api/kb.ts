@@ -140,10 +140,22 @@ export function readCopyAwaitsReview(upload: KbUpload): boolean {
 const UPLOAD_POLL_MS = 4_000;
 
 export function useKbUploads(session: Session, enabled = true): UseQueryResult<KbUpload[]> {
+  const client = useQueryClient();
   return useQuery({
     queryKey: ["kb-uploads", session.orgSlug],
     enabled,
-    queryFn: () => apiRequest<KbUpload[]>(session, "/v1/kb/uploads"),
+    queryFn: async () => {
+      const rows = await apiRequest<KbUpload[]>(session, "/v1/kb/uploads");
+      // The other half of `useKbUpload`'s write-back. A row that watched itself while it
+      // moved keeps that copy, and shows it, after it settles; its query is then disabled,
+      // so no invalidation reaches it. Without this a rename, a confirm or a re-read showed
+      // the row's last watched state over the list's fresh one.
+      for (const row of rows) {
+        const key = ["kb-upload", session.orgSlug, row.id];
+        if (client.getQueryData(key) !== undefined) client.setQueryData(key, row);
+      }
+      return rows;
+    },
     // The LIST is deliberately slow. What moves during an ingest is one row, and that row
     // watches itself (`useKbUpload`); re-reading every document a client has ever added on
     // a four-second timer to see one of them change is the shape this hook exists not to

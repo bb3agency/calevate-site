@@ -109,6 +109,24 @@ describe("the reader", () => {
     });
   });
 
+  it("shows the new name on a row that was watched while it was read", async () => {
+    // The row polled itself while its PDF was read, so it holds its own copy of the row;
+    // the rename re-reads the list, and that copy must not keep the old name on screen.
+    let listed: KbUpload = { ...MENU, read_state: "reading" };
+    const { dialog } = await openReader(OWNER, {
+      "/v1/kb/uploads": () => [listed],
+      "/v1/kb/uploads/u1": MENU,
+      "PATCH /v1/kb/uploads/u1": () => {
+        listed = { ...MENU, name: "Lunch menu" };
+        return listed;
+      },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+    fireEvent.change(within(dialog).getByLabelText("New name"), { target: { value: "Lunch menu" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save name" }));
+    expect(await screen.findByRole("button", { name: "Lunch menu" })).toBeTruthy();
+  });
+
   it("offers Read it again for a PDF and asks the API to read it", async () => {
     const { dialog, calls } = await openReader(OWNER, {
       "POST /v1/kb/uploads/u1/read": { ...MENU, read_state: "reading" },

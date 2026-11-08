@@ -20,6 +20,7 @@ import { lookup } from "@/lib/lookup";
 
 import { feeWaiverConfirmation, feePaymentConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import { CREDIT_POLL_MS } from "./wallet";
 
 import type { components } from "./schema";
@@ -104,14 +105,14 @@ function settled(fee: PlatformFee | undefined, chargeId: string): boolean {
  * fee read (one key, so the card itself updates) until that charge is paid or at `until`.
  */
 export function useFeeLanding(session: Session, awaited: AwaitedFee | null): boolean {
-  const fee = useQuery({
+  const fee = useQuery<PlatformFee>({
     queryKey: platformFeeKey(session.orgSlug),
     queryFn: () => apiRequest<PlatformFee>(session, PLATFORM_FEE_PATH),
     enabled: awaited !== null,
-    refetchInterval: (query) =>
+    refetchInterval: untilRefused((query) =>
       awaited !== null && !settled(query.state.data, awaited.chargeId) && Date.now() < awaited.until
         ? CREDIT_POLL_MS
-        : false,
+        : false),
   });
   return awaited !== null && settled(fee.data, awaited.chargeId);
 }

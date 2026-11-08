@@ -28,6 +28,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { confirmedRequest } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 
 import type { components } from "./schema";
 
@@ -60,8 +61,8 @@ export function useTenantErasures(
     queryKey: ["admin", "tenant-erasure", tenantId],
     queryFn: () => apiRequest<TenantErasure[]>(session, erasurePath(tenantId)),
     // An erasure runs in the background; read again until none is pending.
-    refetchInterval: (query) =>
-      query.state.data?.some((erasure) => erasure.status === "pending") ? ERASURE_POLL_MS : false,
+    refetchInterval: untilRefused((query) =>
+      query.state.data?.some((erasure) => erasure.status === "pending") ? ERASURE_POLL_MS : false),
   });
 }
 

@@ -41,6 +41,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { adminSession, confirmedAdminRequest } from "./admin";
 import { ApiProblem, apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 
 import type { components } from "./schema";
 
@@ -87,7 +88,7 @@ export function useMaintenanceBoard(): UseQueryResult<MaintenanceBoard> {
   return useQuery({
     queryKey: OPS_MAINTENANCE_QUERY_KEY,
     queryFn: () => apiRequest<MaintenanceBoard>(adminSession(), OPS_MAINTENANCE_PATH),
-    refetchInterval: (query) => (query.state.data?.current ? 10_000 : 60_000),
+    refetchInterval: untilRefused((query) => (query.state.data?.current ? 10_000 : 60_000)),
   });
 }
 
@@ -231,7 +232,7 @@ export function useMaintenanceBanner(session: Session): UseQueryResult<ClientMai
     // A minute. The facts move on human timescales — a window is scheduled hours ahead and
     // amended rarely — and the one transition that matters urgently (the door closing) is
     // delivered by the 503 on whatever the client does next, not by this poll.
-    refetchInterval: 60_000,
+    refetchInterval: untilRefused(60_000),
     retry: false,
   });
 }

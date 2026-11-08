@@ -15,6 +15,7 @@ import {
 } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -40,7 +41,7 @@ export function useCallOutcomes(session: Session): UseQueryResult<CallOutcomes> 
   return useQuery({
     queryKey: callOutcomesKeys.client(session.orgSlug),
     queryFn: () => apiRequest<CallOutcomes>(session, "/v1/call-outcomes"),
-    refetchInterval: (query) => (drafting(query.state.data) ? DRAFT_POLL_MS : false),
+    refetchInterval: untilRefused((query) => (drafting(query.state.data) ? DRAFT_POLL_MS : false)),
   });
 }
 

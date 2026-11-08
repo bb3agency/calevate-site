@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { adminSession, confirmedAdminRequest } from "./admin";
 import { apiRequest } from "./client";
+import { untilRefused } from "./queryRetry";
 import { OPS_MODEL_PRICES_QUERY_KEY } from "./opsModelPricing";
 
 import type { components } from "./schema";
@@ -68,7 +69,7 @@ export function useSecrets(enabled = true): UseQueryResult<SecretsList> {
   return useQuery({
     queryKey: OPS_SECRETS_QUERY_KEY,
     queryFn: () => apiRequest<SecretsList>(adminSession(), OPS_SECRETS_PATH),
-    refetchInterval: 60_000,
+    refetchInterval: untilRefused(60_000),
     enabled,
   });
 }
@@ -77,7 +78,7 @@ export function useKekState(): UseQueryResult<KekState> {
   return useQuery({
     queryKey: OPS_KEK_QUERY_KEY,
     queryFn: () => apiRequest<KekState>(adminSession(), `${OPS_SECRETS_PATH}/kek`),
-    refetchInterval: 60_000,
+    refetchInterval: untilRefused(60_000),
   });
 }
 

@@ -15,6 +15,7 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 export type CallLive = components["schemas"]["CallLiveOut"];
@@ -39,7 +40,7 @@ export function useLiveCalls(session: Session, ids: readonly string[]): UseQuery
       return apiRequest<CallLive[]>(session, `/v1/calls/live?${search.toString()}`);
     },
     enabled: asked.length > 0,
-    refetchInterval: asked.length > 0 ? LIVE_CALLS_POLL_MS : false,
+    refetchInterval: untilRefused(asked.length > 0 ? LIVE_CALLS_POLL_MS : false),
     // Keep the last answer while the id set changes, so a row does not flicker back to
     // "Dialling" for the moment the next read is out.
     placeholderData: (previous) => previous,

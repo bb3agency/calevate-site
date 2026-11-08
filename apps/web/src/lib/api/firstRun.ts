@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { agentKeys } from "./agents";
 import { businessProfileKeys } from "./businessProfile";
 import { apiRequest, apiUpload, type Session, type UploadProgress } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { KbUpload } from "./kb";
 import type { components } from "./schema";
 import { knowsKey } from "./teach";
@@ -55,7 +56,7 @@ export function useFirstRun(session: Session, enabled = true): UseQueryResult<Fi
     queryKey: firstRunKey(session.orgSlug),
     queryFn: () => apiRequest<FirstRun>(session, FIRST_RUN_PATH),
     enabled,
-    refetchInterval: (query) => (isFirstRunBusy(query.state.data) ? POLL_MS : false),
+    refetchInterval: untilRefused((query) => (isFirstRunBusy(query.state.data) ? POLL_MS : false)),
   });
 }
 
@@ -184,6 +185,6 @@ export function useRecording(session: Session, id: string | null): UseQueryResul
     queryKey: ["first-run-recording", session.orgSlug, id],
     queryFn: () => apiRequest<FirstRunRecording>(session, `${FIRST_RUN_PATH}/recordings/${id}`),
     enabled: id !== null,
-    refetchInterval: (query) => (isRecordingBusy(query.state.data?.status) ? POLL_MS : false),
+    refetchInterval: untilRefused((query) => (isRecordingBusy(query.state.data?.status) ? POLL_MS : false)),
   });
 }

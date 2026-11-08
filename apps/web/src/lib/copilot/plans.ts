@@ -11,6 +11,7 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "@/lib/api/client";
+import { untilRefused } from "@/lib/api/queryRetry";
 import { refreshAfterConfirm } from "@/lib/api/copilot";
 import type { components } from "@/lib/api/schema";
 import { formatINR } from "@/lib/numberDisplay";
@@ -50,10 +51,10 @@ export function usePlan(session: Session, planId: string) {
   return useQuery<CopilotPlanOut>({
     queryKey: planKeys.plan(session.orgSlug, planId),
     queryFn: () => apiRequest<CopilotPlanOut>(session, planPath(planId)),
-    refetchInterval: (query) => {
+    refetchInterval: untilRefused((query) => {
       const status = query.state.data?.status;
       return status !== undefined && isActive(status) ? PLAN_POLL_MS : false;
-    },
+    }),
   });
 }
 
@@ -75,8 +76,8 @@ export function useRecentPlans(session: Session) {
   return useQuery<CopilotPlanPageOut>({
     queryKey: planKeys.recent(session.orgSlug),
     queryFn: () => apiRequest<CopilotPlanPageOut>(session, "/v1/copilot/plans?limit=10"),
-    refetchInterval: (query) =>
-      query.state.data?.plans.some((plan) => isActive(plan.status)) ? PLAN_POLL_MS : false,
+    refetchInterval: untilRefused((query) =>
+      query.state.data?.plans.some((plan) => isActive(plan.status)) ? PLAN_POLL_MS : false),
   });
 }
 

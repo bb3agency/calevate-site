@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { accountAction, withAccountCode } from "./accountCode";
 import { adminSession } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -123,7 +124,7 @@ export function useLineTests(session: Session, lineId: string): UseQueryResult<F
         session,
         `${FORWARDING_PATH}/lines/${encodeURIComponent(lineId)}/tests?limit=5`,
       ),
-    refetchInterval: (query) => (testRunning(query.state.data?.[0]) ? 5000 : false),
+    refetchInterval: untilRefused((query) => (testRunning(query.state.data?.[0]) ? 5000 : false)),
   });
 }
 

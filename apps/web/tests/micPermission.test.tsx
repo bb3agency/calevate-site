@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { VoiceButton } from "@/components/voiceButton";
+import { MAX_RECORDING_S, VoiceButton } from "@/components/voiceButton";
 
 /**
  * "Say it" asks for the microphone in our own words before the browser does: allowed
@@ -132,5 +132,61 @@ describe("asking for the microphone", () => {
     await pressSayIt();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("leaving while the microphone is on", () => {
+  class RecorderWithSound extends FakeRecorder {
+    start() {
+      this.ondataavailable?.({ data: new Blob(["sound"], { type: "audio/webm" }) });
+    }
+  }
+
+  it("does not send a clip the person walked away from, and switches the microphone off", async () => {
+    permission = "granted";
+    vi.stubGlobal("MediaRecorder", RecorderWithSound);
+    const track = { stop: vi.fn() };
+    getUserMedia.mockResolvedValue({ getTracks: () => [track] });
+    const onRecorded = vi.fn();
+    const view = render(<VoiceButton disabled={false} onRecorded={onRecorded} onTypeInstead={vi.fn()} />);
+    await pressSayIt();
+    expect(screen.getByRole("button", { name: /Stop/ })).toBeTruthy();
+    view.unmount();
+    expect(track.stop).toHaveBeenCalled();
+    expect(onRecorded).not.toHaveBeenCalled();
+  });
+
+  it("switches off a microphone the browser grants after the person has left", async () => {
+    let grant: (value: unknown) => void = () => undefined;
+    getUserMedia.mockReturnValue(new Promise((resolve) => (grant = resolve)));
+    const track = { stop: vi.fn() };
+    const view = render(<VoiceButton disabled={false} onRecorded={vi.fn()} onTypeInstead={vi.fn()} />);
+    await pressSayIt();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Allow microphone" }));
+    });
+    view.unmount();
+    await act(async () => {
+      grant({ getTracks: () => [track] });
+    });
+    expect(track.stop).toHaveBeenCalledOnce();
+  });
+
+  it("stops by itself at the limit and sends the clip once", async () => {
+    vi.useFakeTimers();
+    try {
+      permission = "granted";
+      vi.stubGlobal("MediaRecorder", RecorderWithSound);
+      const onRecorded = vi.fn();
+      render(<VoiceButton disabled={false} onRecorded={onRecorded} onTypeInstead={vi.fn()} />);
+      await pressSayIt();
+      await act(async () => {
+        vi.advanceTimersByTime(MAX_RECORDING_S * 1000);
+      });
+      expect(screen.getByRole("button", { name: "Say it" })).toBeTruthy();
+      expect(onRecorded).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

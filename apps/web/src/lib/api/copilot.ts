@@ -38,6 +38,7 @@ import { lookup } from "@/lib/lookup";
 
 import { undoCopilotConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import { DNC_DEPENDENT_KEYS } from "./dnc";
 import type { components } from "./schema";
 
@@ -278,11 +279,11 @@ export function useCopilotJob(session: Session, jobId: string) {
     queryKey: ["copilot-job", session.orgSlug, jobId],
     queryFn: () =>
       apiRequest<CopilotJobOut>(session, `/v1/copilot/jobs/${encodeURIComponent(jobId)}`),
-    refetchInterval: (query) => {
+    refetchInterval: untilRefused((query) => {
       const status = query.state.data?.status;
       return status === undefined || status === "queued" || status === "running"
         ? JOB_POLL_MS
         : false;
-    },
+    }),
   });
 }

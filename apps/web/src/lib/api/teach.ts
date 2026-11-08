@@ -18,6 +18,7 @@ import {
 } from "@tanstack/react-query";
 
 import { apiRequest, apiUpload, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -51,13 +52,13 @@ export function useKnows(session: Session): UseQueryResult<Knows> {
     queryFn: () => apiRequest<Knows>(session, "/v1/kb/knows"),
     // While new facts are on their way to the agents, look again so "Reaching your agents"
     // and "Being added to …" turn into nothing without a reload.
-    refetchInterval: (query) => {
+    refetchInterval: untilRefused((query) => {
       const data = query.state.data;
       const arriving =
         data?.facts_state === "publishing" ||
         (data?.pinned_not_yet_on ?? []).some((entry) => entry.reason === "on_the_way");
       return arriving ? 15_000 : false;
-    },
+    }),
   });
 }
 
@@ -83,7 +84,7 @@ export function useTeaching(session: Session, id: string | null): UseQueryResult
     queryKey: teachingKey(session.orgSlug, id),
     queryFn: () => apiRequest<Teaching>(session, `/v1/kb/teach/${id}`),
     enabled: Boolean(id),
-    refetchInterval: (query) => (isTeachingBusy(query.state.data?.status) ? 1_500 : false),
+    refetchInterval: untilRefused((query) => (isTeachingBusy(query.state.data?.status) ? 1_500 : false)),
   });
 }
 
@@ -116,7 +117,7 @@ export function useOpenTeaching(session: Session): UseQueryResult<Teaching | nul
     queryKey: openTeachingKey(session.orgSlug),
     queryFn: async () =>
       (await apiRequest<Schemas["OpenTeachingOut"]>(session, "/v1/kb/teach/open")).teaching,
-    refetchInterval: (query) => (isTeachingBusy(query.state.data?.status) ? 1_500 : false),
+    refetchInterval: untilRefused((query) => (isTeachingBusy(query.state.data?.status) ? 1_500 : false)),
   });
 }
 
@@ -234,8 +235,8 @@ export function useTestCases(session: Session, agentId: string): UseQueryResult<
   return useQuery({
     queryKey: casesKey(session.orgSlug, agentId),
     queryFn: () => apiRequest<TestCases>(session, `/v1/agents/${agentId}/test-cases`),
-    refetchInterval: (query) =>
-      query.state.data?.cases.some((c) => c.status !== "idle") ? 3_000 : false,
+    refetchInterval: untilRefused((query) =>
+      query.state.data?.cases.some((c) => c.status !== "idle") ? 3_000 : false),
   });
 }
 
