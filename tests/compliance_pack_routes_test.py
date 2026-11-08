@@ -332,3 +332,26 @@ async def test_a_number_listed_twice_in_one_filing_is_filed_once() -> None:
         )
     assert list(filed) == [numbers[0]]
     assert numbers[0] not in (await _status(tenant_id)).unfiled
+
+
+async def test_a_received_date_without_a_zone_is_refused_over_http() -> None:
+    """FAILS IF: the desk takes a bare local time and reads it as UTC, moving the 90-day
+    deadline (audit 8 Nov 2026). The screen sends `toISOString()`, which carries `Z`."""
+    tenant_id, _agent = await _tenant("d943-desk-naive-http")
+    headers = await _org_headers(tenant_id)
+    asked = datetime.now(UTC) - timedelta(days=3)
+    body = {"kind": "access", "channel": "email", "phone": _fresh_phone()}
+    async with _client() as http:
+        refused = await http.post(
+            DESK,
+            headers=headers,
+            json={**body, "received_at": asked.replace(tzinfo=None).isoformat()},
+        )
+        accepted = await http.post(
+            DESK,
+            headers=headers,
+            json={**body, "received_at": asked.isoformat().replace("+00:00", "Z")},
+        )
+    assert refused.status_code == 422, refused.text
+    assert "received_at" in refused.text
+    assert accepted.status_code == 201, accepted.text
