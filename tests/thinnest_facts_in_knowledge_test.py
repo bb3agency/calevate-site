@@ -64,9 +64,10 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: restarts, "forgot us?" gets who and why, "what do you hold?" gets THIS CALL's details.
 #: 6 Nov 2026: no greeting in any later turn, a line spoken over comes back in new words, and
 #: a question is answered rather than the last point repeated.
+#: 8 Nov 2026 (D-973): our own caller-memory section is gone; memory is the engine's alone.
 PINNED = (
     "f0368cc3d8e82985072ec1a92feaccb442be80f22e1504ddab206fe10e64747a",
-    "b44ea3f5261fb912eaaea78e4747ef9a1d3de0c265c989130b8283ca62391768",
+    "91fc5d47c5e9e317feb8b1dba0deaa3d90f884fd39d1cf7fafcd7e20a399270a",
 )
 
 

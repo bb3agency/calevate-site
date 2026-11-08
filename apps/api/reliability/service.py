@@ -1380,7 +1380,7 @@ async def claim_inbox_event(
     existing = (
         await session.execute(
             text(
-                "SELECT id, payload_hash, status FROM webhook_inbox_events "
+                "SELECT id, payload_hash FROM webhook_inbox_events "
                 "WHERE provider = :provider AND event_key = :key"
             ),
             {"provider": provider, "key": event_key},
@@ -1389,7 +1389,7 @@ async def claim_inbox_event(
     if existing is None:  # pragma: no cover
         return InboxClaim(state="claimed", row_id=row_id)
 
-    found_id, found_hash, status = existing
+    found_id, found_hash = existing
     if found_hash != payload_hash:
         # NOT an error we swallow: an identical event id with different content means
         # someone is replaying a doctored payload at an unsigned endpoint (D-31).
@@ -1398,48 +1398,42 @@ async def claim_inbox_event(
             "webhook_payload_mismatch",
             "This event id was already received with different content.",
         )
-    if status in ("failed", "processing", "enqueued"):
-        # FAILED = the consumer recorded its own defeat. PROCESSING past the lease =
-        # the consumer died before it could. ENQUEUED past `ENQUEUED_LEASE` = the job
-        # was handed to arq and never reported back (timed out, its tries exhausted);
-        # measured from `enqueued_at`, because a duplicate bumps `updated_at` on that
-        # status and a vendor retrying would keep a lost job looking alive. All three
-        # mean nobody is doing this work, and
-        # for an at-most-once engine event (D-31) "nobody is doing this work and the
-        # key says duplicate" is a silently dropped call.
-        #
-        # This was not hypothetical: `tenancy/clerk_webhooks.py` (deleted in D-177) COMMITTED the
-        # claim, then does the mirroring in a later transaction with no failure path
-        # that marks the row failed — so any exception there leaves PROCESSING behind
-        # and every retry of that svix-id was answered "duplicate".
-        #
-        # A recent PROCESSING row is a real concurrent delivery and still dedupes.
-        retried = await session.execute(
-            text(
-                "UPDATE webhook_inbox_events SET status = 'processing', updated_at = now() "
-                "WHERE id = :id AND (status = 'failed' OR "
-                "(status = 'processing' AND updated_at < now() - :lease) OR "
-                "(status = 'enqueued' AND enqueued_at < now() - :enqueued_lease))"
-            ),
-            {"id": found_id, "lease": CLAIM_LEASE, "enqueued_lease": ENQUEUED_LEASE},
-        )
-        if rowcount_of(retried):
-            return InboxClaim(state="claimed", row_id=found_id)
-    # Make the retry visible: the activity view's "deduplicated" count is this
-    # counter, and without it a vendor retrying fifteen times looks like one quiet
-    # arrival and a client concluding that events vanish.
+    # FAILED = the consumer recorded its own defeat. PROCESSING past the lease =
+    # the consumer died before it could. ENQUEUED past `ENQUEUED_LEASE` = the job
+    # was handed to arq and never reported back (timed out, its tries exhausted);
+    # measured from `enqueued_at`, because a duplicate bumps `updated_at` on that
+    # status and a vendor retrying would keep a lost job looking alive. All three
+    # mean nobody is doing this work, and for an at-most-once engine event (D-31)
+    # "nobody is doing this work and the key says duplicate" is a silently dropped call.
+    # A recent PROCESSING or ENQUEUED row is a real concurrent delivery and still dedupes.
     #
-    # A `processing` row keeps its `updated_at`: that column is the claim's lease clock, and
-    # bumping it on every repeat would let a vendor's retries keep a dead claim looking
-    # alive, so the retry that should re-claim it is answered "duplicate" instead.
-    await session.execute(
+    # Otherwise the retry is counted: the activity view's "deduplicated" count is this
+    # counter. A `processing` row keeps its `updated_at`: that column is the claim's lease
+    # clock, and bumping it on every repeat would let a vendor's retries keep a dead claim
+    # looking alive.
+    #
+    # Re-claim and count are ONE statement rather than a CAS followed by a counter update:
+    # every duplicate in a herd reaches this point, and a second statement is a second
+    # round trip on the ack path (tests/webhook_storm_test.py budgets it). The CTE's
+    # FOR UPDATE takes the row lock before `reclaim` is evaluated, and under READ COMMITTED
+    # it re-reads the latest committed version, so two duplicates cannot both re-claim.
+    outcome = await session.execute(
         text(
-            "UPDATE webhook_inbox_events SET duplicate_count = duplicate_count + 1, "
-            "updated_at = CASE WHEN status = 'processing' THEN updated_at ELSE now() END "
-            "WHERE id = :id"
+            "WITH old AS (SELECT id, (status = 'failed' OR "
+            "(status = 'processing' AND updated_at < now() - :lease) OR "
+            "(status = 'enqueued' AND enqueued_at < now() - :enqueued_lease)) AS reclaim "
+            "FROM webhook_inbox_events WHERE id = :id FOR UPDATE) "
+            "UPDATE webhook_inbox_events e SET "
+            "status = CASE WHEN old.reclaim THEN 'processing' ELSE e.status END, "
+            "duplicate_count = e.duplicate_count + CASE WHEN old.reclaim THEN 0 ELSE 1 END, "
+            "updated_at = CASE WHEN old.reclaim THEN now() "
+            "WHEN e.status = 'processing' THEN e.updated_at ELSE now() END "
+            "FROM old WHERE e.id = old.id RETURNING old.reclaim"
         ),
-        {"id": found_id},
+        {"id": found_id, "lease": CLAIM_LEASE, "enqueued_lease": ENQUEUED_LEASE},
     )
+    if outcome.scalar_one():
+        return InboxClaim(state="claimed", row_id=found_id)
     return InboxClaim(state="duplicate", row_id=found_id)
 
 

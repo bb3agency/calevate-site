@@ -86,10 +86,11 @@ def upgrade() -> None:
             "INSERT INTO live_apply_runs (id, scope, tenant_id, reasons) "
             f"SELECT gen_random_uuid(), 'tenant', tenant_id, '[\"{REASON}\"]'::jsonb "
             "FROM touched RETURNING id) "
-            "INSERT INTO outbox_messages (id, job, payload, status, attempt_count, "
+            "INSERT INTO outbox_messages (id, job, payload, status, attempt_count, min_revision, "
             "created_at, updated_at) SELECT gen_random_uuid(), 'apply_live_settings', "
-            "jsonb_build_object('run_id', id::text), 'pending', 0, now(), now() FROM runs"
-        ),
+            "jsonb_build_object('run_id', id::text), 'pending', 0, :revision, now(), now() "
+            "FROM runs"
+        ).bindparams(revision=revision),
         note="Queued a live apply for each client whose live agent's wait is raised to 10 s.",
     )
     agents = execute_data_statement(

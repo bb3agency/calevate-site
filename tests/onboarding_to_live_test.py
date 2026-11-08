@@ -481,7 +481,12 @@ async def test_the_wizards_invitation_is_redeemable_and_lands_the_right_role() -
         )
 
     assert accepted.status_code == 200, accepted.text
-    assert accepted.json() == {"tenant_id": str(tenant_id), "slug": slug, "role": "owner"}
+    assert accepted.json() == {
+        "tenant_id": str(tenant_id),
+        "slug": slug,
+        "role": "owner",
+        "business_name": "Necklace Road Dental",
+    }
 
     async with tenant_session(tenant_id) as session:
         role = (
