@@ -471,8 +471,10 @@ function rowFix(
     if (campaign.pause_reason === "spend_cap") return { href: at("/billing?tab=usage"), label: "Raise limit" };
     if (campaign.pause_reason === "complaint_spike") return { href: detail, label: "Review" };
   }
-  if (campaign.consent_provenance_blocker === "consent_provenance_missing") return { href: detail, label: "Answer" };
-  if (campaign.consent_provenance_blocker === "consent_source_refused") return { href: detail, label: "Correct" };
+  // The row shows no question, so the button names what it asks for: "Answer" alone
+  // answered nothing the owner could see.
+  if (campaign.consent_provenance_blocker === "consent_provenance_missing") return { href: detail, label: "Add list source" };
+  if (campaign.consent_provenance_blocker === "consent_source_refused") return { href: detail, label: "Fix list source" };
   if ((campaign.launch_blockers ?? 0) > 0) return { href: detail, label: "See what to fix" };
   return null;
 }

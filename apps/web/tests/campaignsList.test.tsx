@@ -66,6 +66,10 @@ describe("the campaign list", () => {
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
     expect(container.textContent).toContain("Can't be launched");
     expect(container.textContent).not.toContain("consent_source_refused");
+    // The row's fix names what it fixes: a bare "Correct" or "Answer" asked no visible question.
+    expect(screen.getByRole("link", { name: "Fix list source: Bought list pilot" }).getAttribute("href")).toBe(
+      `/c/acme/campaigns/${refused.id}`,
+    );
     expect(container.querySelector("h1")).toBeNull();
     expect(screen.getByRole("link", { name: "New campaign" }).getAttribute("href")).toBe(
       "/c/acme/campaigns/new",
