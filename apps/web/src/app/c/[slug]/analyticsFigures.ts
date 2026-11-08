@@ -27,6 +27,14 @@ export function businessLabels(caps: BusinessCapabilities): Partial<Record<Metri
   return { leads: words.charAt(0).toUpperCase() + words.slice(1) };
 }
 
+/**
+ * A figure's label as the stats band shows it, for every other reader of the same figure
+ * (Pip's view of the screen), so nobody is told "hot leads" where the band says "Reached a goal".
+ */
+export function metricLabel(key: MetricKey, caps?: BusinessCapabilities): string {
+  return (caps ? businessLabels(caps)[key] : undefined) ?? LABELS[key];
+}
+
 /** Hints that say what a figure counts, where the label alone could be misread. */
 const HINTS: Partial<Record<MetricKey, string>> = {
   answer_rate_pct: "Calls someone picked up",

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { businessLabels, statItems } from "@/app/c/[slug]/analyticsFigures";
+import { businessLabels, metricLabel, statItems } from "@/app/c/[slug]/analyticsFigures";
 import { KIND_COPY } from "@/app/c/[slug]/attention/rows";
 import { insightWords } from "@/app/c/[slug]/calls/[callId]/InsightsCard";
 import { listBlockerNote } from "@/app/c/[slug]/campaigns/blockerCopy";
@@ -55,6 +55,13 @@ describe("the business's own words (E-HOT, founder 5 Nov 2026)", () => {
     // Unknown is neutral (lane D, `leadWords`): only a business judged to sell reads "New leads".
     expect(businessLabels(UNKNOWN_CAPABILITIES)).toEqual({ leads: "Interested callers" });
     expect(businessLabels({ ...UNKNOWN_CAPABILITIES, sells: true })).toEqual({});
+  });
+
+  it("tells Pip a figure by the label the band shows, never its key (E-04, 8 Nov 2026)", () => {
+    const app = { ...UNKNOWN_CAPABILITIES, sells: false, callerNoun: "user" };
+    expect(metricLabel("hot_leads", app)).toBe("Reached a goal");
+    expect(metricLabel("leads", app)).toBe("Interested users");
+    expect(metricLabel("answer_rate_pct")).toBe("Answer rate");
   });
 
   it("says an answer is a pick-up, so a hang-up during the greeting is not called a conversation (L3-04)", () => {

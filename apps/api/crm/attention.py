@@ -40,6 +40,7 @@ from apps.api.billing.service import low_balance_line
 from apps.api.compliance.caller_memory import MEMORY_ON_SQL
 from apps.api.compliance.models import RIGHTS_REMINDER_DAYS
 from apps.api.core.logging import get_logger
+from apps.api.crm.lead_definition import BECAME_LEADS_SQL
 from apps.api.crm.schemas import AttentionKind
 from apps.api.db.session import session_tenant
 from apps.api.integrations.service import DELIVERY_TIMEOUT_S
@@ -712,13 +713,16 @@ async def hot_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> Att
     matters. Named by the outcome of the lead's latest call that reached the goal, the
     business's own words. The title is the captured name only, never the number, because
     the same item becomes a desktop notification that can show on a locked screen."""
+    # Through `BECAME_LEADS_SQL`, the set the dashboard's `hot_leads_open` counts: a lead whose
+    # only moves into the band were the owner's own test calls is not someone to follow up.
     rows = (
         await session.execute(
             text(
-                "SELECT id, name, updated_at, count(*) OVER () AS matching FROM leads "
-                "WHERE status = 'hot' AND deleted_at IS NULL "
-                "  AND updated_at > now() - make_interval(days => :window) "
-                "ORDER BY updated_at DESC, id LIMIT :limit"
+                "SELECT l.id, l.name, l.updated_at, count(*) OVER () AS matching "
+                f"FROM leads l JOIN {BECAME_LEADS_SQL} AS bl ON bl.id = l.id "
+                "WHERE l.status = 'hot' AND l.deleted_at IS NULL "
+                "  AND l.updated_at > now() - make_interval(days => :window) "
+                "ORDER BY l.updated_at DESC, l.id LIMIT :limit"
             ),
             {"window": WINDOW_DAYS, "limit": limit},
         )
