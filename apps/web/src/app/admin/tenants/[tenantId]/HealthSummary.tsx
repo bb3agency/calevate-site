@@ -297,6 +297,15 @@ function creditHint(tenant: TenantSummary, runwayDays: number | null): string | 
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
+/**
+ * The health board links a signal or a cause to "the account" when it has no narrower screen.
+ * This panel IS that account's overview, so such a link would reload the page the operator
+ * is reading; it is left out and the line stays.
+ */
+function elsewhere(href: string, tenant: TenantSummary): string | null {
+  return href.replace(/\/$/, "") ===`/admin/tenants/${tenant.id}` ? null : href;
+}
+
 function SignalRow({ signal, tenant }: { signal: HealthSignal; tenant: TenantSummary }) {
   const copy = signalCopy(signal.rule);
   const count = signalCount(signal);
@@ -308,19 +317,24 @@ function SignalRow({ signal, tenant }: { signal: HealthSignal; tenant: TenantSum
         // A signal this build cannot name still shows, as itself.
         label={copy?.label ?? signal.rule}
         detail={detail || "This console does not know this signal. The account is flagged by it all the same."}
-        href={copy ? copy.screen(tenant.id, tenant.slug) : `/admin/tenants/${tenant.id}`}
+        href={copy ? elsewhere(copy.screen(tenant.id, tenant.slug), tenant) : null}
         cta={copy?.cta ?? "Open the account"}
       />
       {signal.causes.length > 0 && (
         <ul className="mt-1.5 space-y-1 pl-1">
-          {signal.causes.map((cause) => (
-            <li key={cause} className="flex flex-wrap items-baseline gap-x-3 text-meta text-ink-muted">
-              <span>{causeLabel(cause)}</span>
-              <Link href={causeHref(cause, tenant.id)} className={TEXT_ACTION}>
-                {causeCta(cause)}
-              </Link>
-            </li>
-          ))}
+          {signal.causes.map((cause) => {
+            const href = elsewhere(causeHref(cause, tenant.id), tenant);
+            return (
+              <li key={cause} className="flex flex-wrap items-baseline gap-x-3 text-meta text-ink-muted">
+                <span>{causeLabel(cause)}</span>
+                {href && (
+                  <Link href={href} className={TEXT_ACTION}>
+                    {causeCta(cause)}
+                  </Link>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </li>
@@ -349,10 +363,11 @@ function ProblemLine({
   status?: HealthStatus;
   label: string;
   detail: string;
-  href: string;
+  /** Null when the only place to send the operator is the page they are on. */
+  href: string | null;
   cta: string;
 }) {
-  const external = href.startsWith("http");
+  const external = href?.startsWith("http") ?? false;
   const pill = status ?? (tone === "stop" ? { label: "Broken now", tone: "stop" as const } : { label: "Needs attention", tone: "warn" as const });
   return (
     <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-1.5">
@@ -363,7 +378,7 @@ function ProblemLine({
         </p>
         <p className="mt-0.5 text-meta text-ink-muted">{detail}</p>
       </div>
-      {external ? (
+      {href === null ? null : external ? (
         <a href={href} className={TEXT_ACTION}>
           {cta}
           <ArrowRight aria-hidden className="h-3.5 w-3.5" />

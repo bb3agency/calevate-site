@@ -14,12 +14,13 @@ import {
   Skeleton,
   type NoticeTone,
 } from "@/components/ui";
-import { useTenant, type TenantSummary } from "@/lib/api/admin";
+import { planLabel, useTenant, type TenantSummary } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import { useClosure } from "@/lib/api/closure";
 import { useAdminBusinessProfile } from "@/lib/api/businessProfile";
 import { useOwnerStatus } from "@/lib/api/onboarding";
 import { viewAsHref } from "@/lib/api/session";
+import { businessTypeLabel } from "@/lib/businessTypes";
 import { lookup } from "@/lib/lookup";
 
 import {
@@ -129,8 +130,8 @@ function TenantHeader({ tenant }: { tenant: TenantSummary }) {
           {tenant.capped && <StatusPill tone="stop">Capped</StatusPill>}
         </div>
         <p className="mt-1 text-meta text-ink-muted">
-          /c/{tenant.slug} · {tenant.plan_tier.replace(/_/g, " ")}
-          {tenant.vertical_template ? ` · ${tenant.vertical_template.replace(/_/g, " ")}` : ""}
+          /c/{tenant.slug} · {planLabel(tenant.plan_tier)}
+          {tenant.vertical_template ? ` · ${businessTypeLabel(tenant.vertical_template)}` : ""}
         </p>
         {tenant.status === "onboarding" && <OnboardingNote tenantId={tenant.id} />}
         {/* Credit left on every page of the client, minutes first (founder, 10 Oct 2026):

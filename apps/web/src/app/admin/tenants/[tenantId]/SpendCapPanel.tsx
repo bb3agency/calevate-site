@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBillingMonth } from "@/lib/billingMonth";
 import { InfoTip } from "@/components/console/infoTip";
 import Link from "next/link";
 import { useState } from "react";
@@ -127,7 +128,7 @@ export function SpendCapPanel({
               text (hard rule 7); `formatINRExact` groups the digits and never parses them. */}
           <SettingRows className="border-y border-line">
             <CapFact
-              label={`Spent · ${data.month}`}
+              label={`Spent · ${formatBillingMonth(data.month)}`}
               value={formatINRExact(data.spend_used_inr)}
               note={
                 data.trial_active

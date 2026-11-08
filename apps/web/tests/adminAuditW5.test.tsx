@@ -1,0 +1,276 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import CallingNumbersPage from "@/app/admin/calling-numbers/page";
+import CallWordsPage from "@/app/admin/ops/call-words/page";
+import { AgentsScreen } from "@/app/admin/tenants/[tenantId]/agents/AgentsScreen";
+import TenantLayout from "@/app/admin/tenants/[tenantId]/layout";
+import { MarginPanel } from "@/app/admin/tenants/[tenantId]/MarginPanel";
+import { LotOrigin } from "@/app/admin/tenants/[tenantId]/credits/lots";
+import { KnowledgeQueue } from "@/app/admin/tenants/[tenantId]/KnowledgeQueue";
+import { KycReviewPanel } from "@/app/admin/tenants/[tenantId]/kyc/KycReviewPanel";
+import type { AdminKyc } from "@/lib/api/kycReview";
+import { planLabel, useRevokeTenantInvitation, type Margin, type TenantSummary } from "@/lib/api/admin";
+import { FILING_BOARD_PATH, type FilingBoard } from "@/lib/api/callingNumberFilings";
+import { CALL_WORDS_PATH } from "@/lib/api/callWords";
+
+import { renderAdminRoute, routeParams } from "./adminRoute";
+import { CALL_WORDS } from "./fixtures/callWords";
+import { agentRow } from "./fixtures/sharedReads";
+import { noReply, renderAdminPage, stubApi } from "./harness";
+
+/**
+ * Frontend audit W5 (8 Nov 2026), admin realm: wire codes printed where the console has a
+ * label for them, and two lines that said the wrong thing in an edge state.
+ */
+
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => `/admin/tenants/${TENANT}/agents`,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn(), prefetch: vi.fn() }),
+}));
+
+const TENANT = "0192f0aa-7777-7000-8000-0000000000b5";
+const SLUG = "sri-traders";
+
+const ME: AdminMe = {
+  realm: "admin",
+  user_id: "0192f0aa-7777-7000-8000-0000000000c5",
+  role: "superadmin",
+  permissions: ["org:read", "admin:tenants", "ops:manage"],
+};
+
+function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
+  return {
+    id: TENANT,
+    name: "Sri Traders",
+    slug: SLUG,
+    status: "active",
+    plan_tier: "self_serve",
+    vertical_template: "real_estate",
+    live_agents: 1,
+    calls_7d: 3,
+    leads: 1,
+    last_call_at: null,
+    holds: [],
+    capped: false,
+    ...over,
+  };
+}
+
+const MARGIN: Margin = {
+  month: "2026-08",
+  minutes_used: "12.50",
+  calls: 6,
+  revenue_inr: "0.00",
+  rental_revenue_inr: "0.00",
+  cost_inr: "17.98",
+  margin_inr: "-17.98",
+  margin_pct: null,
+  legs_unpriced: 0,
+  trial_cost_inr: "0.00",
+  trial_in_month: false,
+  paid_cost_inr: "17.98",
+  paid_margin_inr: "-17.98",
+  paid_margin_pct: null,
+  tiers: {
+    minutes_base_rung: "12.50",
+    minutes_second_rung: "0.00",
+    minutes_premium: "12.50",
+    minutes_value: "0.00",
+    minutes_unattributed: "0.00",
+    cost_base_rung_inr: "17.98",
+    cost_second_rung_inr: "0.00",
+    cost_premium_inr: "17.98",
+    cost_value_inr: "0.00",
+    cost_unattributed_inr: "0.00",
+  },
+};
+
+describe("admin wire codes shown as the console's own words", () => {
+  it("names the plan the way the directory does, an unknown one in words", () => {
+    expect(planLabel("self_serve")).toBe("Credits (signed up online)");
+    expect(planLabel("prepaid")).toBe("Credits");
+    expect(planLabel("trial")).toBe("Free trial");
+    expect(planLabel("some_new_tier")).toBe("Some new tier");
+    expect(planLabel("constructor")).toBe("Constructor");
+  });
+
+  it("heads every client page with the plan and business type as labels, not codes", async () => {
+    await renderAdminRoute(
+      <TenantLayout params={routeParams({ tenantId: TENANT })}>
+        <h2>Sub-page body</h2>
+      </TenantLayout>,
+      { [ADMIN_ME_PATH]: ME, [`/v1/admin/tenants/${TENANT}`]: tenant() },
+    );
+    expect(await screen.findByText(/\/c\/sri-traders · Credits \(signed up online\) · Real estate/)).toBeTruthy();
+    expect(screen.queryByText(/self serve|real estate\b/)).toBeNull();
+  });
+
+  it("titles the margin with the month's name, not its key", async () => {
+    renderAdminPage(<MarginPanel tenantId={TENANT} />, {
+      [ADMIN_ME_PATH]: ME,
+      [`/v1/admin/tenants/${TENANT}/margin`]: MARGIN,
+    });
+    expect(await screen.findByText("Margin · August 2026")).toBeTruthy();
+    expect(screen.queryByText(/2026-08/)).toBeNull();
+  });
+
+  it("names an agent's language rather than printing its tag", async () => {
+    renderAdminPage(<AgentsScreen tenantId={TENANT} />, {
+      [ADMIN_ME_PATH]: ME,
+      [`/v1/admin/tenants/${TENANT}`]: tenant(),
+      "/v1/agents": [agentRow({ language_primary: "en-IN" })],
+      [`/v1/admin/organizations/${TENANT}/llm-defaults`]: noReply(),
+    });
+    expect(await screen.findByText(/Answers calls · English/)).toBeTruthy();
+    expect(screen.queryByText(/en-IN/)).toBeNull();
+  });
+});
+
+describe("edge states that said the wrong thing", () => {
+  it("does not end a filed number's line with a dangling separator when no reference came back", async () => {
+    const board: FilingBoard = {
+      enforced_from: "2026-11-17",
+      alarm_from: "2026-11-10",
+      alarm: false,
+      clients: [
+        {
+          tenant_id: TENANT,
+          name: "Sri Traders",
+          slug: SLUG,
+          authorised_on: "2026-10-30",
+          numbers: [{ number: "+914049001234", filed_on: "2026-11-02", filing_reference: null }],
+          unfiled: 0,
+        },
+      ],
+    };
+    renderAdminPage(<CallingNumbersPage />, { [ADMIN_ME_PATH]: ME, [FILING_BOARD_PATH]: board });
+    const filed = await screen.findByText(/^Filed /);
+    expect(filed.textContent?.trim().endsWith("·")).toBe(false);
+  });
+
+  it("says nothing is waiting for words, rather than 'no list matches', once every list is written", async () => {
+    const written = {
+      ...CALL_WORDS,
+      entries: CALL_WORDS.entries.map((entry) => ({ ...entry, edited: entry.asked_for ? true : entry.edited })),
+    };
+    renderAdminPage(<CallWordsPage />, { [ADMIN_ME_PATH]: ME, [CALL_WORDS_PATH]: written });
+    expect(await screen.findByText("No list is waiting for your words.")).toBeTruthy();
+    expect(screen.queryByText("No list matches.")).toBeNull();
+  });
+});
+
+describe("cancelling an owner's invitation", () => {
+  it("refreshes the directory's list of accounts with no owner invited", async () => {
+    stubApi({ [`DELETE /v1/admin/tenants/${TENANT}/invitations/inv-1`]: {} });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const invalidated = vi.spyOn(client, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useRevokeTenantInvitation(), { wrapper });
+    await act(async () => {
+      await result.current.mutateAsync({ tenantId: TENANT, invitationId: "inv-1" });
+    });
+    await waitFor(() => {
+      const keys = invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+      expect(keys).toContain(JSON.stringify(["admin", "invitations", TENANT]));
+      expect(keys).toContain(JSON.stringify(["admin", "onboarding", "unfinished"]));
+    });
+  });
+});
+
+describe("the KYC review card", () => {
+  it("names the review status as the KYC page does, not as the wire code", async () => {
+    const kyc: AdminKyc = {
+      tenant_id: TENANT,
+      recorded: true,
+      status: "in_review",
+      kyc_path: "manual",
+      entity_type: null,
+      legal_business_name: "Sri Traders",
+      gst_registered: false,
+      gstin: null,
+      owner_name: "Owner Name",
+      owner_id_type: null,
+      owner_id_masked: null,
+      owner_pan_checked: false,
+      owner_pan_checked_at: null,
+      owner_pan_checked_by: null,
+      verified_name: null,
+      name_match: null,
+      verification_provider: null,
+      verification_reference: null,
+      rejection_reason: null,
+      submitted_at: "2026-10-30T05:30:00Z",
+      verified_at: null,
+      is_verified: false,
+      digilocker_required: false,
+      digilocker_required_reason: null,
+      digilocker_required_at: null,
+      digilocker_verified_at: null,
+      digilocker_outstanding: false,
+      documents: [],
+      pledge_accepted_version: 1,
+      pledge_accepted_at: "2026-10-30T05:30:00Z",
+      pledge_current_version: 1,
+    };
+    renderAdminPage(<KycReviewPanel tenantId={TENANT} access={{ allowed: true, refused: false, reason: null }} />, {
+      [ADMIN_ME_PATH]: ME,
+      [`/v1/admin/tenants/${TENANT}/kyc`]: kyc,
+    });
+    expect(await screen.findByText("In review")).toBeTruthy();
+    expect(screen.queryByText("in_review")).toBeNull();
+  });
+});
+
+describe("a credit lot's origin line", () => {
+  it("says where the credits came from in words", () => {
+    const { container } = render(
+      <LotOrigin
+        lot={{
+          lot_id: "lot-1",
+          opened_at: "2026-11-08T11:52:00Z",
+          source: "topup",
+          pack_id: null,
+          override_of_pack_id: null,
+          credits_total: "5000.00",
+          credits_remaining: "5000.00",
+          clear_inr_per_min: "4.5000",
+          studio_inr_per_min: "6.0000",
+          clear_label: "Clear",
+          studio_label: "Studio",
+          closed_at: null,
+        }}
+      />,
+    );
+    expect(container.textContent).toContain("from a top-up");
+    expect(container.textContent).not.toMatch(/· topup/);
+  });
+});
+
+describe("the knowledge approval queue", () => {
+  it("names what kind of source each one is", async () => {
+    renderAdminPage(<KnowledgeQueue tenantId={TENANT} slug={SLUG} />, {
+      [ADMIN_ME_PATH]: ME,
+      "/v1/kb/sources?status=pending_approval": [
+        {
+          id: "0192f0aa-9999-7000-8000-0000000000b1",
+          name: "Price page",
+          kind: "url",
+          status: "pending_approval",
+          version: 1,
+          chunks: 4,
+          is_active: false,
+          published_at: null,
+        },
+      ],
+      "/v1/kb/sources?status=approved": [],
+    });
+    expect(await screen.findByText("4 chunks · Link")).toBeTruthy();
+  });
+});

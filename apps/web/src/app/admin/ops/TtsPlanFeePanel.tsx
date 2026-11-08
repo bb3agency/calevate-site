@@ -1,5 +1,6 @@
 "use client";
 
+import { formatBillingMonth } from "@/lib/billingMonth";
 import { Section } from "@/components/console/section";
 import { useState } from "react";
 import { CheckCircle2, Lock } from "lucide-react";
@@ -140,7 +141,7 @@ function PlanFeeSlot({
       {!current && (
         <NoticeBox
           tone="warn"
-          title={`No fee recorded for ${month}`}
+          title={`No fee recorded for ${formatBillingMonth(month)}`}
         >
           <p className="mt-1">The spend board shows no plan row for this month until one is.</p>
         </NoticeBox>
@@ -149,7 +150,7 @@ function PlanFeeSlot({
       {current && (
         <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
-            <dt className="text-meta font-medium text-ink-muted">Billed for {current.month}</dt>
+            <dt className="text-meta font-medium text-ink-muted">Billed for {formatBillingMonth(current.month)}</dt>
             <dd className="mt-0.5 text-body font-semibold text-ink">{formatINRExact(current.plan_inr)}</dd>
           </div>
           <div>

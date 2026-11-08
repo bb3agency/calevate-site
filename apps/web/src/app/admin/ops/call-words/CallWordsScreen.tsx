@@ -287,7 +287,13 @@ export function CallWordsScreen() {
           </div>
           {groups.length === 0 ? (
             <p className="text-body text-ink-muted">
-              {show === "edited" ? "Nothing edited yet: every list is as shipped." : "No list matches."}
+              {search.trim()
+                ? "No list matches."
+                : show === "edited"
+                  ? "Nothing edited yet: every list is as shipped."
+                  : show === "asked"
+                    ? "No list is waiting for your words."
+                    : "No word lists yet."}
             </p>
           ) : (
             groups.map(([group, rows]) => (

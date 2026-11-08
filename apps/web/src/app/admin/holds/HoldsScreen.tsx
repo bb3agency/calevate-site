@@ -9,7 +9,7 @@ import { NOTICE_BAR, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/com
 import { EmptyState } from "@/components/console/emptyState";
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
-import { useHeldTenants } from "@/lib/api/admin";
+import { planLabel, useHeldTenants } from "@/lib/api/admin";
 import {
   WAIT_BREACH_HOURS,
   holdRule,
@@ -205,7 +205,7 @@ function HoldRow({ row, now }: { row: HeldTenant; now: number }) {
           {row.name}
         </Link>
         <div className="text-meta text-ink-muted [overflow-wrap:anywhere]">
-          /c/{row.slug} · {row.plan_tier}
+          /c/{row.slug} · {planLabel(row.plan_tier)}
         </div>
       </div>
       <div>

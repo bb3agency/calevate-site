@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, SECONDARY_BUTTON, formatIST } from "@/components/ui";
 import type { AdminAccess } from "@/app/admin/access";
+import { KYC_STATUS_COPY, isKnownKycStatus } from "@/lib/api/kyc";
 import { lookup } from "@/lib/lookup";
 import {
   KycViewerBlockedError,
@@ -46,6 +47,12 @@ export function KycReviewPanel({ tenantId, access }: { tenantId: string; access:
   );
 }
 
+/** The status as the KYC page's own pill names it; a status this build does not know, as itself. */
+function kycStatusLabel(status: string | null): string {
+  if (status === null) return "Nothing on file";
+  return isKnownKycStatus(status) ? KYC_STATUS_COPY[status].label : status;
+}
+
 function ReviewCard({ tenantId, record, access }: { tenantId: string; record: AdminKyc; access: AdminAccess }) {
   const review = useReviewKyc(tenantId);
   const reviewFeedback = useActionFeedback(review, { errorDisplay: "inline" });
@@ -64,7 +71,7 @@ function ReviewCard({ tenantId, record, access }: { tenantId: string; record: Ad
   return (
     <Section title="Verification review">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-body">
-        <Fact label="Status" value={record.status ?? "nothing on file"} />
+        <Fact label="Status" value={kycStatusLabel(record.status)} />
         <Fact label="Path" value={record.kyc_path === "digilocker" ? "DigiLocker" : record.kyc_path === "manual" ? "Document review" : "—"} />
         <Fact label="Legal name" value={record.legal_business_name ?? "—"} />
         <Fact label="GST" value={record.gst_registered === null ? "—" : record.gst_registered ? `Yes, ${record.gstin ?? ""}` : "No"} />

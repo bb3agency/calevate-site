@@ -39,6 +39,7 @@ import {
 import { formatDateShort } from "@/components/arc/ist-dates";
 import {
   DIRECTORY_PAGE_SIZE,
+  planLabel,
   useTenants,
   type DirectorySort,
   type TenantDirectoryQuery,
@@ -48,6 +49,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 import { viewAsHref } from "@/lib/api/session";
+import { businessTypeLabel } from "@/lib/businessTypes";
 import { lookup } from "@/lib/lookup";
 
 import { NoOwnerAccounts } from "./NoOwnerAccounts";
@@ -151,13 +153,6 @@ const STATUS_FILTERS = ["prospect", "onboarding", "active", "suspended", "churne
 // One pricing model since D-707: every account buys prepaid credits. The tiers that remain
 // say how the account was opened (by us, by an online signup, or as a free trial).
 const PLAN_FILTERS = ["prepaid", "self_serve", "trial"] as const;
-const PLAN_LABELS: Record<string, string> = {
-  prepaid: "Credits",
-  self_serve: "Credits (signed up online)",
-  trial: "Free trial",
-  managed: "Moving to credits",
-};
-const planLabel = (tier: string): string => lookup(PLAN_LABELS, tier) ?? sentenceCase(tier);
 
 const SORT_LABELS: Record<DirectorySort, string> = {
   recent: "Newest first",
@@ -504,7 +499,7 @@ function ClientRow({ tenant }: { tenant: TenantSummary }) {
         </Link>
         <div className="text-meta text-ink-muted [overflow-wrap:anywhere]">
           /c/{tenant.slug}
-          {tenant.vertical_template ? ` · ${tenant.vertical_template.replace(/_/g, " ")}` : ""}
+          {tenant.vertical_template ? ` · ${businessTypeLabel(tenant.vertical_template)}` : ""}
           {/* What the default and "oldest" sorts order by. Without it a newest-first list
               reads as unsorted against the columns on the row. */}
           {addedOn(tenant.created_at) ? ` · added ${addedOn(tenant.created_at)}` : ""}

@@ -80,7 +80,9 @@ function ClientRow({ client, write }: { client: ClientFiling; write: AdminAccess
           <li key={n.number} className="flex flex-wrap gap-x-4">
             <span className="tabular-nums">{formatPhone(n.number)}</span>
             <span className="text-ink-muted">
-              {n.filed_on ? `Filed ${formatDateLong(n.filed_on)} · ${n.filing_reference ?? ""}` : "Not filed"}
+              {n.filed_on
+                ? `Filed ${formatDateLong(n.filed_on)}${n.filing_reference ? ` · ${n.filing_reference}` : ""}`
+                : "Not filed"}
             </span>
           </li>
         ))}

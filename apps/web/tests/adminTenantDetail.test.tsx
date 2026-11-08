@@ -17,6 +17,7 @@ import TenantAgentsPage from "@/app/admin/tenants/[tenantId]/agents/page";
 import type { KbSource, Margin, TenantSummary } from "@/lib/api/admin";
 import type { components } from "@/lib/api/schema";
 import { currentISTMonth } from "@/lib/api/invoice";
+import { formatBillingMonth } from "@/lib/billingMonth";
 import type { TenantSpend } from "@/lib/api/spend";
 import type { TrialStatus } from "@/lib/api/trials";
 import type { Routes } from "./harness";
@@ -504,7 +505,7 @@ describe("the client detail screen", () => {
       [`${TENANT_PATH}/trial`]: trial,
     });
 
-    const card = (await screen.findByText(`Usage · ${currentISTMonth()}`)).closest("section");
+    const card = (await screen.findByText(`Usage · ${formatBillingMonth(currentISTMonth())}`)).closest("section");
     expect(card).not.toBeNull();
     const text = await waitFor(() => {
       const value = card?.textContent ?? "";
@@ -672,6 +673,29 @@ describe("the client's health summary", () => {
     expect(screen.queryByText("Broken now")).toBeNull();
     expect(screen.queryByText("Cannot dial out")).toBeNull();
     expect(screen.queryByText(/refusing this account/)).toBeNull();
+  });
+
+  it("does not link a waiting signal or its causes back to the overview the operator is on", async () => {
+    // The health board sends "the account" to this page; on this page that link reloaded
+    // itself. KYC causes keep their own screen.
+    render({
+      [HEALTH_PATH]: {
+        ...HEALTHY,
+        severity: "warn",
+        signals: [
+          {
+            rule: "outbound_waiting_on_client",
+            severity: "warn",
+            causes: ["kyc_missing", "agreements_not_accepted"],
+            count: null,
+            waiting_on: "client",
+          },
+        ],
+      },
+    });
+    expect(await screen.findByText("Needs to accept the updated agreements")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Identity (KYC)" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Open the account/ })).toBeNull();
   });
 
   it("shows a healthy trial account as on trial with nothing wrong", async () => {

@@ -72,7 +72,7 @@ function renderPanel(routes: Routes, access: Access = ALLOWED) {
 describe("the voice plan-fee panel", () => {
   it("says plainly when a month has no fee recorded", async () => {
     renderPanel({ [TTS_PLAN_FEES_PATH]: fees("2026-10", null) });
-    expect(await screen.findByText("No fee recorded for 2026-10")).toBeTruthy();
+    expect(await screen.findByText("No fee recorded for October 2026")).toBeTruthy();
     expect(screen.getByText("Studio voice (cartesia)")).toBeTruthy();
   });
 
@@ -119,7 +119,7 @@ describe("the voice plan-fee panel", () => {
     });
     const picker = await screen.findByLabelText("Billing month");
     fireEvent.change(picker, { target: { value: "2026-08" } });
-    expect(await screen.findByText("No fee recorded for 2026-08")).toBeTruthy();
+    expect(await screen.findByText("No fee recorded for August 2026")).toBeTruthy();
     expect(calls.some((c) => c.path === `${TTS_PLAN_FEES_PATH}?month=2026-08`)).toBe(true);
   });
 

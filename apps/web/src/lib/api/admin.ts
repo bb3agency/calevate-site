@@ -12,7 +12,13 @@
  */
 
 import { livePoll } from "@/lib/live/liveStatus";
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { adminRealmSession } from "@/lib/authn/realmSessions";
 import { codeOf, needsReauthentication } from "@/lib/authn/problems";
@@ -41,6 +47,26 @@ import type { components } from "./schema";
 type Schemas = components["schemas"];
 
 export type TenantSummary = Schemas["TenantSummary"];
+
+/**
+ * An account's `plan_tier` as the console names it. One pricing model since D-707: every
+ * account buys prepaid credits, and the tiers that remain say how the account was opened.
+ * `plan_tier` is a bare string on the wire, so an unknown tier is spelled out in words
+ * rather than hidden.
+ */
+const PLAN_LABELS: Readonly<Record<string, string>> = {
+  prepaid: "Credits",
+  self_serve: "Credits (signed up online)",
+  trial: "Free trial",
+  managed: "Moving to credits",
+};
+
+export function planLabel(tier: string): string {
+  if (Object.prototype.hasOwnProperty.call(PLAN_LABELS, tier)) return PLAN_LABELS[tier];
+  const words = tier.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 export type CreateOrgIn = Schemas["CreateOrgIn"];
 export type CreateOrgOut = Schemas["CreateOrgOut"];
 export type InviteOut = Schemas["InviteOut"];
@@ -621,6 +647,18 @@ export function useCreateTenant() {
   });
 }
 
+/**
+ * An invitation sent or cancelled moves the client's invitations (and its owner status, keyed
+ * under them) and the directory's "no owner invited yet" list, which is the unfinished-
+ * onboardings read (`lib/api/onboarding.ts`, `unfinishedOnboardingsKey`).
+ */
+function invitationsChanged(client: QueryClient, tenantId: string): Promise<unknown> {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
+    client.invalidateQueries({ queryKey: ["admin", "onboarding", "unfinished"] }),
+  ]);
+}
+
 export function useInvite() {
   const client = useQueryClient();
   return useMutation({
@@ -649,8 +687,7 @@ export function useInvite() {
       ),
     // The Invitations screen tells the operator the new link "appears in the list above",
     // and that list is `useTenantInvitations`, which has no poll of its own.
-    onSuccess: (_data, { tenantId }) =>
-      client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
+    onSuccess: (_data, { tenantId }) => invitationsChanged(client, tenantId),
   });
 }
 
@@ -695,8 +732,7 @@ export function useRevokeTenantInvitation() {
         `/v1/admin/tenants/${tenantId}/invitations/${invitationId}`,
         { method: "DELETE" },
       ),
-    onSuccess: (_data, { tenantId }) =>
-      client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
+    onSuccess: (_data, { tenantId }) => invitationsChanged(client, tenantId),
   });
 }
 
