@@ -454,10 +454,15 @@ export function scriptAsText(script: CallScript): string {
   const para = (title: string, body: string | undefined) => {
     if (body?.trim()) out.push(`${title}\n${body.trim()}`);
   };
-  if (script.opening_line.trim()) out.push(`[OPENING]\n${script.opening_line.trim()}`);
+  // The openings go LAST: the server (`call_script._section_of`) and `splitOpening` read a
+  // bracketed section up to the next line starting "[", so an opening placed first took the
+  // whole brief below it as the words said when a call starts. `[OPENING]` is the very last,
+  // where `joinOpening` keeps it when the owner edits it.
+  const openings: string[] = [];
   // The header the server reads a "both" agent's placed-call opening from (D-920).
   const placed = script.outbound_opening_line?.trim();
-  if (placed) out.push(`[OPENING ON CALLS YOU PLACE]\n${placed}`);
+  if (placed) openings.push(`[OPENING ON CALLS YOU PLACE]\n${placed}`);
+  if (script.opening_line.trim()) openings.push(`[OPENING]\n${script.opening_line.trim()}`);
   para("About the business", script.business_line);
   para("Who you are", script.identity);
   para("The goal", script.goal);
@@ -499,5 +504,5 @@ export function scriptAsText(script: CallScript): string {
       `Example call\n${script.example_exchange.map((l) => `${l.speaker === "caller" ? "Caller" : "Agent"}: ${l.text}`).join("\n")}`,
     );
   }
-  return out.join("\n\n");
+  return [...out, ...openings].join("\n\n");
 }
