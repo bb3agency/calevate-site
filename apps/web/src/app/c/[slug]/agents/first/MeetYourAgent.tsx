@@ -126,6 +126,9 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   if (!write.unknown && !write.allowed) body = <RestrictionNote reason={write.reason} />;
   else if (run.isError) body = <ProblemNotice error={run.error} onRetry={() => void run.refetch()} />;
   else if (agents.isError) body = <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />;
+  // `loaded` waits on the agent's calls, so a failed read would otherwise hold the skeleton for good.
+  else if (agent !== null && calls.isError)
+    body = <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />;
   else if (!loaded || stage === null || write.unknown || jobWaitsForProfile)
     body = <Skeleton rows={6} label="Getting your agent ready…" />;
   else if (pip)

@@ -224,6 +224,11 @@ export function CreateAccountForm({ onCreated }: { onCreated: () => void }) {
             setStep("email");
             setCode("");
             setPassword("");
+            setResent(false);
+            setResendReadyAt(null);
+            // A refusal of the last address's code must not greet the next address.
+            finish.reset();
+            resend.reset();
           }}
         >
           <ArrowLeft aria-hidden className="h-4 w-4" />

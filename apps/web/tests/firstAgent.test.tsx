@@ -1111,3 +1111,18 @@ describe("meet your agent", () => {
     expect(calls.some((call) => call.method === "POST" && call.path === "/v1/first-run/dismiss")).toBe(true);
   });
 });
+
+describe("a failed read of the agent's last call (frontend audit 8 Nov 2026, W1)", () => {
+  it("says so instead of holding the skeleton for good", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent({ published: true })],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: problem(403, { title: "Calls are not yours to read" }),
+      }),
+    );
+    expect(await screen.findByText("Calls are not yours to read", {}, { timeout: 8000 })).toBeTruthy();
+    expect(screen.queryByText("Getting your agent ready…")).toBeNull();
+  }, 15000);
+});
