@@ -236,6 +236,10 @@ describe("global-error, the boundary for the root layout itself", () => {
     expect(html).toContain("#fafafa");
   });
 
+  it("names the tab, since the root layout's metadata went with the root layout", () => {
+    expect(markup()).toContain("<title>Something went wrong — Calevate</title>");
+  });
+
   it("still says something a user can act on, and still quotes the reference", () => {
     const html = markup();
     expect(html).toContain("Calevate could not finish loading.");

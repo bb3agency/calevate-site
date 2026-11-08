@@ -56,6 +56,10 @@ export default function GlobalError({
             "var(--font-nilo), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
         }}
       >
+        {/* This document replaces the root layout and with it the layout's `metadata`, and
+            an error boundary cannot export its own; React hoists this `<title>` instead
+            (nextjs.org/docs/app/api-reference/file-conventions/error, "Global Error"). */}
+        <title>Something went wrong — Calevate</title>
         <div className="flex min-h-dvh flex-col justify-center">
           <FailureScreen
             heading="Calevate could not finish loading."
