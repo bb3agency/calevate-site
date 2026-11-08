@@ -46,7 +46,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import AwareDatetime, Field
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import dnc, preference_scrub
@@ -55,7 +55,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, global_db
 from apps.api.core.rbac import permission_meta
-from apps.api.core.schemas import Strict
+from apps.api.core.schemas import Instant, Strict
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
@@ -160,10 +160,10 @@ class PreferenceScrubIn(Strict):
 
     provider: str = Field(min_length=2, max_length=80)
     scrub_ref: str = Field(min_length=3, max_length=120)
-    # `AwareDatetime`, so the generated TypeScript client cannot send a bare local
+    # `Instant`, so the generated TypeScript client cannot send a bare local
     # string and leave the server guessing which midnight the validity window ends at.
     # The window is IST and the difference is a whole day of dialling.
-    scrubbed_at: AwareDatetime
+    scrubbed_at: Instant
     # The numbers the register suppressed — the ones to take OUT of the campaign. Named
     # for what they are so nobody pastes the surviving list here: `blocked` and
     # `survivors` are the two files a DLT portal hands back, and the wrong one would

@@ -19,12 +19,13 @@ from datetime import UTC, datetime
 from typing import Final, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.announcements import service as announcements
 from apps.api.announcements.models import Tone
+from apps.api.core.schemas import Instant
 from apps.api.crm.attention import attention_queue
 from apps.api.db.base import uuid7
 from apps.api.tenancy import call_line_requests
@@ -92,9 +93,9 @@ class SeenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     #: Everything up to this instant has been seen; now when left out. A mark never moves
-    #: backwards and never past now. `AwareDatetime`: a bare local time names no instant,
+    #: backwards and never past now. `Instant`: a bare local time names no instant,
     #: and comparing it with the server's clock in `mark_seen` would raise, not refuse.
-    through: AwareDatetime | None = None
+    through: Instant | None = None
 
 
 class SeenOut(BaseModel):

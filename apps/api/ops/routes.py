@@ -91,7 +91,7 @@ from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
@@ -114,6 +114,7 @@ from apps.api.core.deps import admin_db, global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import Instant
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
@@ -424,7 +425,7 @@ class TmRegistrationIn(BaseModel):
     # Required in practice for `active` (service + DB CHECK); optional in the schema
     # because the other four states legitimately have no number yet, or no longer do.
     tm_id: str | None = Field(default=None, max_length=120)
-    registered_at: AwareDatetime | None = None
+    registered_at: Instant | None = None
     # Same requirement as the load-shed switch: an operator changing a platform-wide
     # compliance fact says why, in the audit row, at the time.
     reason: str = Field(min_length=3, max_length=500)

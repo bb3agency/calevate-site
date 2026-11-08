@@ -15,7 +15,6 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import AwareDatetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import rights_desk
@@ -26,7 +25,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
-from apps.api.core.schemas import Strict
+from apps.api.core.schemas import Instant, Strict
 
 router = APIRouter(prefix="/v1/compliance/rights-requests", tags=["compliance"])
 
@@ -53,7 +52,7 @@ class RightsRequestIn(Strict):
     phone: SubjectPhone
     #: When the person asked. Empty: now. The 90 days run from here. With its zone: a bare
     #: local time would be guessed as UTC and move the deadline by five and a half hours.
-    received_at: AwareDatetime | None = None
+    received_at: Instant | None = None
 
 
 class RightsRequestCloseIn(Strict):

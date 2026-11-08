@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import Field, field_validator, model_validator
 
 from apps.api.announcements.models import MAX_MESSAGE_CHARS, Audience, Tone
-from apps.api.core.schemas import Strict
+from apps.api.core.schemas import HAS_UTC_INSTANT, Strict
 
 MAX_LINK_CHARS = 500
 MAX_LINK_LABEL_CHARS = 40
@@ -51,9 +51,9 @@ class AnnouncementIn(Strict):
     #: Required exactly when `audience` is `tenant`.
     target_tenant_id: UUID | None = None
     #: When it starts showing; now when left out. With an offset (IST: +05:30).
-    starts_at: datetime | None = None
+    starts_at: Annotated[datetime, HAS_UTC_INSTANT] | None = None
     #: When it stops by itself; never when left out (it shows until ended).
-    ends_at: datetime | None = None
+    ends_at: Annotated[datetime, HAS_UTC_INSTANT] | None = None
 
     @field_validator("message")
     @classmethod
@@ -94,8 +94,8 @@ class AnnouncementUpdateIn(Strict):
     tone: Tone | None = None
     audience: Audience | None = None
     target_tenant_id: UUID | None = None
-    starts_at: datetime | None = None
-    ends_at: datetime | None = None
+    starts_at: Annotated[datetime, HAS_UTC_INSTANT] | None = None
+    ends_at: Annotated[datetime, HAS_UTC_INSTANT] | None = None
 
     @field_validator("message")
     @classmethod

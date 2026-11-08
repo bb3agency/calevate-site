@@ -62,6 +62,7 @@ from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import MAX_OFFSET
 from apps.api.db.session import tenant_session
 from apps.api.legal.readiness import Actor, readiness_rows
 
@@ -265,7 +266,7 @@ async def read_tenant_activity(
     principal: AccountReader,
     actor_type: Literal["admin", "user", "system"] | None = Query(None),
     limit: int = Query(50, ge=1, le=MAX_ACTIVITY_PAGE),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
 ) -> TenantActivityOut:
     if not await tenant_exists(session, tenant_id):
         raise ProblemError.not_found("Client")

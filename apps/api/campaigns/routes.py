@@ -23,7 +23,7 @@ from uuid import UUID
 
 from calevate_shared.extraction import GoalVerdict
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import AfterValidator, AwareDatetime, Field, StringConstraints
+from pydantic import AfterValidator, Field, StringConstraints
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +43,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
-from apps.api.core.schemas import Strict
+from apps.api.core.schemas import MAX_OFFSET, Instant, Strict
 from apps.api.crm.schemas import LeadLensIn
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
 
@@ -80,7 +80,7 @@ class ConsentProvenanceIn(Strict):
         "offline_form_optin",
         "purchased_list",
     ]
-    collected_at: AwareDatetime
+    collected_at: Instant
 
 
 #: What a client may file a campaign as. `transactional` is not offered (D-773): a campaign
@@ -449,7 +449,7 @@ class LaunchOut(Strict):
 class ScheduleIn(Strict):
     """When a one-time start should happen.
 
-    `AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,
+    `Instant`, not `datetime`: the wire type itself refuses a bare local string,
     so the generated TypeScript client cannot send "2026-08-17T10:00" and have the
     server decide which 10 o'clock it meant. A client picking 10am IST sends
     `2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen
@@ -458,7 +458,7 @@ class ScheduleIn(Strict):
     callers that are not HTTP requests.
     """
 
-    start_at: AwareDatetime
+    start_at: Instant
 
 
 class ScheduleOut(Strict):
@@ -516,7 +516,7 @@ class RecurrenceIn(Strict):
 
     days: list[int] = Field(min_length=1, max_length=7)
     at: str = Field(pattern=_HHMM)
-    until: AwareDatetime | None = None
+    until: Instant | None = None
 
 
 class RecurrenceOut(Strict):
@@ -750,7 +750,7 @@ class NumberOut(Strict):
     held: bool = False
     #: When a held number is given up; null while it is not held, and for the moment
     #: between a hold starting and its date being worked out.
-    release_at: AwareDatetime | None = None
+    release_at: Instant | None = None
 
 
 class TemplateOut(Strict):
@@ -791,7 +791,7 @@ CampaignStatus = Literal["draft", "scheduled", "running", "paused", "completed",
 async def campaign_page(
     session: Session,
     limit: int = Query(25, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     status: CampaignStatus | None = None,
     q: str | None = Query(None, max_length=120),
     #: The archived campaigns instead of the live ones (F-10).
@@ -1750,7 +1750,7 @@ async def contact_results(
     campaign_id: UUID,
     session: Session,
     limit: int = Query(50, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=MAX_OFFSET),
     outcome: results.ContactOutcome | None = None,
     q: str | None = Query(None, max_length=60),
     _: Principal = Depends(requires("leads:read")),

@@ -53,6 +53,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.core.schemas import HAS_UTC_INSTANT
 from apps.api.core.stepup import StepUpGate
 
 router = APIRouter(prefix="/v1/ops/engine-minute-prices", tags=["ops"])
@@ -136,7 +137,7 @@ class EngineMinutePricesOut(BaseModel):
 class _AttestIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    effective_from: datetime | None = None
+    effective_from: Annotated[datetime, HAS_UTC_INSTANT] | None = None
     #: The invoice or written quote the figure was read from.
     source_note: str = Field(min_length=3, max_length=500)
 

@@ -32277,7 +32277,7 @@ export interface components {
          * ScheduleIn
          * @description When a one-time start should happen.
          *
-         *     `AwareDatetime`, not `datetime`: the wire type itself refuses a bare local string,
+         *     `Instant`, not `datetime`: the wire type itself refuses a bare local string,
          *     so the generated TypeScript client cannot send "2026-08-17T10:00" and have the
          *     server decide which 10 o'clock it meant. A client picking 10am IST sends
          *     `2026-08-17T10:00:00+05:30`; the service converts to UTC for storage, and the screen
