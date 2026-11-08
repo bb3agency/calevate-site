@@ -353,7 +353,8 @@ export function OpeningEditor({
             title: "When it calls",
             hint: "Who it is, the business and why it calls.",
             value: script.outbound_opening_line ?? "",
-            maxChars: undefined,
+            // Said with the same notices and held to the same length by every writer.
+            maxChars: room,
             placeholder: "For example: [name] from [business]. Is now a good time?",
             rows: 2,
             withoutName: nameless.placed,

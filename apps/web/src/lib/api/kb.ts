@@ -114,7 +114,25 @@ export function uploadSettled(upload: KbUpload): boolean {
   if (["processed", "error", "conversion_failed", "conversion_unavailable"].includes(upload.ingest_status)) {
     return true;
   }
-  return upload.ingest_status === "received" && upload.text_provenance !== null && upload.text_provenance !== undefined;
+  return (
+    (upload.ingest_status === "received" && upload.text_provenance !== null && upload.text_provenance !== undefined) ||
+    readCopyAwaitsReview(upload)
+  );
+}
+
+/**
+ * A PDF or link whose words are read and that waits for a person: a view-as upload, or the
+ * changed page of a link an operator added. Its text is read by `kb_read`, which writes
+ * `read_state` and never `text_provenance`, so the photograph rule above never sees it, and
+ * `apps/workers/kb_ingest.py` leaves it at `received` ("awaiting_review").
+ */
+export function readCopyAwaitsReview(upload: KbUpload): boolean {
+  return (
+    (upload.source_kind === "pdf" || upload.source_kind === "url") &&
+    upload.ingest_status === "received" &&
+    upload.review_state === "pending_approval" &&
+    (upload.read_state === "ready" || upload.read_state === "failed")
+  );
 }
 
 /** How often an UNSETTLED item asks again. One item, not the list — see `useKbUpload`. */

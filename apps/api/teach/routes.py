@@ -189,6 +189,14 @@ def _auto_approve(principal: Principal) -> bool:
     return goes_live_without_review(realm=principal.realm, impersonating=principal.impersonating)
 
 
+def _refuse_pinned_for_view_as(principal: Principal) -> None:
+    """A pinned fact goes into every agent's instructions at once, with no review step to
+    wait in, so adding, changing, ordering or removing one is publishing under the client's
+    name: withheld from a view-as session like approving an upload (`kb.self_approve`,
+    D-587/D-658). What a view-as session adds unpinned waits in the admin queue."""
+    assert_view_as_may(principal, "kb.self_approve")
+
+
 async def _audit_fact(
     session: AsyncSession, request: Request, principal: Principal, fact_id: UUID, action: str
 ) -> None:
@@ -218,6 +226,7 @@ async def add_fact(
 ) -> FactOut:
     assert principal.tenant_id is not None
     if payload.pinned:
+        _refuse_pinned_for_view_as(principal)
         fact_id = await pinned_store.add_pinned(
             session,
             tenant_id=principal.tenant_id,
@@ -258,6 +267,8 @@ async def edit_fact(
     principal: Principal = Depends(requires_kb_curation()),
 ) -> FactOut:
     assert principal.tenant_id is not None
+    if payload.pinned or await fact_store.is_pinned(session, fact_id):
+        _refuse_pinned_for_view_as(principal)
     updated = await fact_store.update_fact(
         session,
         tenant_id=principal.tenant_id,
@@ -290,6 +301,7 @@ async def order_pinned_facts(
     principal: Principal = Depends(requires_kb_curation()),
 ) -> None:
     assert principal.tenant_id is not None
+    _refuse_pinned_for_view_as(principal)
     await pinned_store.reorder(session, tenant_id=principal.tenant_id, ids=payload.ids)
     await write_audit(
         session,
@@ -315,6 +327,8 @@ async def remove_fact(
     principal: Principal = Depends(requires_kb_curation()),
 ) -> None:
     assert principal.tenant_id is not None
+    if await fact_store.is_pinned(session, fact_id):
+        _refuse_pinned_for_view_as(principal)
     await fact_store.remove_fact(
         session,
         tenant_id=principal.tenant_id,
@@ -521,6 +535,8 @@ async def save_teaching(
     principal: Principal = Depends(requires_kb_curation()),
 ) -> SavedOut:
     assert principal.tenant_id is not None
+    if any(i.pinned and i.kind == "fact" for i in payload.items):
+        _refuse_pinned_for_view_as(principal)
     saved = await teaching.save(
         session,
         tenant_id=principal.tenant_id,

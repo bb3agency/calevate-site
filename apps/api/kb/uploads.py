@@ -330,6 +330,44 @@ def safe_name(*, given: str | None, fallback: str) -> str:
     return cleaned[:_MAX_NAME]
 
 
+async def name_for_new_item(
+    session: AsyncSession, *, tenant_id: UUID, given: str | None, fallback: str
+) -> str:
+    """The name of what is being added. A name the caller gives is kept as given: the same
+    name as an item already here is that item's next version (Replace file, D-893 L8).
+    Without one the name comes from the file or the address, and when another item already
+    has it this one is "Name (2)", "Name (3)": two different files that happen to share a
+    name (two "image.jpg" photos) are two items, both used by the agents, and neither
+    replaces the other (founder, 8 Nov 2026, D-975).
+
+    The tenant's lock on names is held to the end of the transaction, so two uploads of one
+    name at the same moment cannot both choose "(2)"."""
+    base = safe_name(given=given, fallback=fallback)
+    if given:
+        return base
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"kb:names:{tenant_id}"},
+    )
+    taken = set(
+        (
+            await session.execute(
+                text("SELECT DISTINCT name FROM kb_sources WHERE tenant_id = :tid"),
+                {"tid": tenant_id},
+            )
+        ).scalars()
+    )
+    if base not in taken:
+        return base
+    n = 2
+    while True:
+        suffix = f" ({n})"
+        candidate = base[: _MAX_NAME - len(suffix)].rstrip() + suffix
+        if candidate not in taken:
+            return candidate
+        n += 1
+
+
 #: Where a PDF's `%PDF-` header may sit. ISO 32000 puts it on the first line; readers in the
 #: wild (and the Acrobat implementation notes) accept it anywhere in the first 1024 bytes,
 #: so a PDF with a few junk bytes in front, which the platform opens, is not refused here.
@@ -459,9 +497,11 @@ async def create_upload(
     kind = classify_upload(filename=filename, content_type=content_type)
     if kind == "pdf":
         assert_pdf_signature(data)
-    source_name = safe_name(given=name, fallback=filename)
     digest = hashlib.sha256(data).hexdigest()
     await _refuse_live_duplicate(session, tenant_id=tenant_id, digest=digest)
+    source_name = await name_for_new_item(
+        session, tenant_id=tenant_id, given=name, fallback=filename
+    )
 
     upload_id = uuid7()
     # Deferred import: boto3 is heavy and this module is on the API's request path
@@ -598,7 +638,9 @@ async def create_link(
             status=422,
         ) from refused
 
-    source_name = safe_name(given=name, fallback=_name_from_url(url))
+    source_name = await name_for_new_item(
+        session, tenant_id=tenant_id, given=name, fallback=_name_from_url(url)
+    )
     source_id, version, status = await insert_source_version(
         session,
         tenant_id=tenant_id,

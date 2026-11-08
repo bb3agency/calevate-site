@@ -282,6 +282,22 @@ UPDATE kb_uploads
 """
 
 
+#: A reading that broke off: an earlier reading's words are still what the agents have, so
+#: the row says so; with none, it failed.
+_SETTLE_FAILED_READ_SQL = """
+UPDATE kb_uploads u
+   SET read_state = CASE WHEN EXISTS (
+           SELECT 1 FROM kb_documents d WHERE d.source_id = u.source_id
+       ) THEN 'ready' ELSE 'failed' END,
+       read_detail = CASE WHEN EXISTS (
+           SELECT 1 FROM kb_documents d WHERE d.source_id = u.source_id
+       ) THEN 'We could not read it again just now. Agents still use the earlier reading.'
+       ELSE 'We could not read it just now. Tap Read it again in a few minutes.' END,
+       updated_at = now()
+ WHERE u.source_id = :sid AND u.read_state = 'reading'
+"""
+
+
 async def _mark(
     session: AsyncSession,
     upload_id: UUID,
@@ -505,15 +521,25 @@ async def read_kb_upload(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     tenant_id = UUID(str(payload["tenant_id"]))
     source_id = UUID(str(payload["source_id"]))
     force = bool(payload.get("force"))
-    async with tenant_session(tenant_id) as session:
-        outcome = await read_saved_copy(
-            session, tenant_id=tenant_id, source_id=source_id, force=force
-        )
-        live = (
-            await session.execute(
-                text("SELECT is_active FROM kb_sources WHERE id = :sid"), {"sid": source_id}
+    try:
+        async with tenant_session(tenant_id) as session:
+            outcome = await read_saved_copy(
+                session, tenant_id=tenant_id, source_id=source_id, force=force
             )
-        ).scalar()
+            live = (
+                await session.execute(
+                    text("SELECT is_active FROM kb_sources WHERE id = :sid"), {"sid": source_id}
+                )
+            ).scalar()
+    except Exception:
+        # The request that asked committed `reading` (`kb.reading.queue_read`) and this
+        # rollback cannot undo it, so the row would say "Being read" for good, with Read it
+        # again hidden. It is settled here instead, and the job is not retried: the owner's
+        # Read it again is the retry, and a scanned PDF's reading is paid for.
+        log.exception("kb_read_upload_failed", extra={"source_id": str(source_id)})
+        async with tenant_session(tenant_id) as session:
+            await session.execute(text(_SETTLE_FAILED_READ_SQL), {"sid": source_id})
+        return "failed"
     if outcome == "read" and live:
         # A PDF's new words go to its agents; a link's publish identity is its address and
         # the page we first read, so the re-upload guard makes this a no-op for one. Its

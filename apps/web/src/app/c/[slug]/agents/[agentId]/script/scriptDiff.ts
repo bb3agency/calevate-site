@@ -47,7 +47,15 @@ export type Change =
   | { id: string; kind: "part"; part: PartKey; label: string; before: string; after: string }
   | { id: string; kind: "section-added"; label: string; after: Section; index: number }
   | { id: string; kind: "section-removed"; label: string; before: Section }
-  | { id: string; kind: "section-changed"; label: string; before: Section; after: Section }
+  | {
+      id: string;
+      kind: "section-changed";
+      label: string;
+      before: Section;
+      after: Section;
+      /** Only its name changed (its ways out compared by the steps they lead to). */
+      renamed?: boolean;
+    }
   /** The steps both scripts have, put in another order: its own row, so a move Pip made is
    *  seen and kept or not like any other change, never a silent reshuffle. */
   | { id: typeof ORDER_CHANGE; kind: "order"; label: string; before: string[]; after: string[] };
@@ -57,6 +65,7 @@ export const ORDER_CHANGE = "order";
 /** A changed step whose only change is its name. */
 export function renamedOnly(change: Change): boolean {
   if (change.kind !== "section-changed") return false;
+  if (change.renamed !== undefined) return change.renamed;
   const { before, after } = change;
   const same = (s: Section) => sectionText({ ...s, name: "" }, new Map());
   return before.name.trim() !== after.name.trim() && same(before) === same(after);
@@ -92,9 +101,13 @@ export function partText(script: CallScript, key: PartKey): string {
   }
 }
 
-/** The content of a section that matters to a caller (not its id or canvas position). */
-function sectionText(section: Section, names: Map<string, string>): string {
-  const target = (t: string) => names.get(t) ?? t;
+/**
+ * The content of a section that matters to a caller (not its id or canvas position). A way
+ * out is compared by the step it leads to: `targets` maps a step id to that step's identity
+ * on the other side, so renaming a step does not read as a change to every step leading to it.
+ */
+function sectionText(section: Section, targets: Map<string, string>): string {
+  const target = (t: string) => targets.get(t) ?? t;
   return JSON.stringify([
     section.name.trim(),
     section.mode,
@@ -132,16 +145,25 @@ export function diffScripts(before: CallScript, after: CallScript): Change[] {
   }
   const was = sectionsOf(before);
   const now = sectionsOf(after);
-  const wasNames = new Map(was.map((s) => [s.id, s.name.trim()]));
-  const nowNames = new Map(now.map((s) => [s.id, s.name.trim()]));
   const matched = matchSections(was, now);
+  // A suggested step's ways out, read as the owner's steps they lead to.
+  const asBefore = new Map([...matched].map(([nowId, b]) => [nowId, b.id]));
   const matchedBefore = new Set([...matched.values()].map((s) => s.id));
+  const asIs = new Map<string, string>();
   now.forEach((a, index) => {
     const b = matched.get(a.id);
     if (!b) {
       changes.push({ id: `add:${a.id}`, kind: "section-added", label: a.name.trim() || "New step", after: a, index });
-    } else if (sectionText(b, wasNames) !== sectionText(a, nowNames)) {
-      changes.push({ id: `change:${b.id}`, kind: "section-changed", label: b.name.trim() || "Step", before: b, after: a });
+    } else if (sectionText(b, asIs) !== sectionText(a, asBefore)) {
+      const unnamed = (s: Section, targets: Map<string, string>) => sectionText({ ...s, name: "" }, targets);
+      changes.push({
+        id: `change:${b.id}`,
+        kind: "section-changed",
+        label: b.name.trim() || "Step",
+        before: b,
+        after: a,
+        renamed: unnamed(b, asIs) === unnamed(a, asBefore),
+      });
     }
   });
   for (const b of was) {

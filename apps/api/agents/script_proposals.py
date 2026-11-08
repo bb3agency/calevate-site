@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_builder
 from apps.api.agents.business_fit import business_fit
 from apps.api.agents.capability_manifest import manifest_for, owner_facts
+from apps.api.agents.script_lint import order_problems, placeholder_instruction
 from apps.api.agents.starter_plans import stored_plans
 from apps.api.agents.starters import JOB_STEP_COUNTS
 from apps.api.agents.write_guard import archived_refusal
@@ -52,7 +53,12 @@ from apps.api.db.base import uuid7
 from apps.api.engine import engine_capabilities
 from apps.api.first_run.models import MAX_DOCUMENTS
 from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
-from apps.workers.script_assist import OWNER_QUESTIONS, ScriptBrief
+from apps.workers.script_assist import (
+    OWNER_QUESTIONS,
+    ScriptBrief,
+    ways_to_kept_steps,
+    without_placeholder_steps,
+)
 
 #: The outbox job that writes a requested proposal (`workers/script_proposal.py`).
 PROPOSAL_JOB: Final = "draft_script_proposal"
@@ -688,7 +694,8 @@ def kept_to_paths(written: CallScript, base: CallScript, paths: Sequence[str]) -
     the lines the script check named and may change nothing else, whatever the model
     returned. A step is matched by its id, since the model may reorder steps; a line the
     model emptied, or a path it no longer has, stays as the owner wrote it. A finding about
-    the whole script ("no step asks for X") may reword step instructions, nothing more."""
+    the whole script ("no step asks for X") may reword step instructions, nothing more. The
+    two findings about the call's shape are the exception, below."""
     allowed = {p for p in paths if p != "script"}
     if "script" in paths:
         allowed |= {f"stages.{i}.instruction" for i in range(len(base.stages))}
@@ -708,7 +715,47 @@ def kept_to_paths(written: CallScript, base: CallScript, paths: Sequence[str]) -
         before, after = _at(out, parts), _at(new, source)
         if isinstance(before, str) and isinstance(after, str) and after.strip():
             _put(out, parts, after)
-    return CallScript.model_validate(out)
+    kept = CallScript.model_validate(out)
+    # Two findings are about the call's shape, not a line, and their fix is not a reworded
+    # instruction (`script_lint.flow_problems`): a step in the wrong place on the call is
+    # fixed by its ways out or its place, and a placeholder step by taking it out.
+    named = {p for p in paths if p.startswith("stages.")}
+    misplaced = {p.partition(":")[0] for p in order_problems(base)}
+    if named & misplaced:
+        kept = _ways_from(written, kept)
+    return without_placeholder_steps(kept) if named & _placeholder_paths(base) else kept
+
+
+def _placeholder_paths(script: CallScript) -> set[str]:
+    """The instructions of the steps a fix may take out: placeholders, never the close."""
+    return {
+        f"stages.{i}.instruction"
+        for i, stage in enumerate(script.stages[:-1])
+        if placeholder_instruction(stage.instruction)
+    }
+
+
+def _ways_from(written: CallScript, kept: CallScript) -> CallScript:
+    """`kept` with each step's ways out, and the steps' order, as `written` has them. A step
+    `written` dropped keeps its own; a way to a step `kept` lacks goes (`ways_to_kept_steps`)."""
+    by_id = {stage.id: stage for stage in written.stages}
+    stages = [
+        stage.model_copy(
+            update={"branches": by_id[stage.id].branches, "otherwise": by_id[stage.id].otherwise}
+        )
+        if stage.id in by_id
+        else stage
+        for stage in kept.stages
+    ]
+    if set(by_id) == {stage.id for stage in stages}:
+        rank = {stage_id: i for i, stage_id in enumerate(by_id)}
+        stages.sort(key=lambda stage: rank[stage.id])
+    return CallScript.model_validate(
+        {
+            **kept.model_dump(mode="json"),
+            "stages": ways_to_kept_steps([stage.model_dump(mode="json") for stage in stages]),
+        }
+    )
 
 
 #: The parts an automatic suggestion may not empty (`emptied_kept`).
