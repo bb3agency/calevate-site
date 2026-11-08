@@ -31,13 +31,13 @@ export const DNC_COPY = {
   postureOnWhy: "Capture the opt-in first: a form, a booking, a reply, or an inbound call from them.",
   postureOffWhy: "Turn this on if you only contact your own customers about their own bookings. Off, this system stops checking and the choice of who is called stays with you.",
 
-  listHeading: "Suppressed numbers",
-  platformWide: "platform-wide",
+  listHeading: "Numbers on your list",
+  platformWide: "blocked by Calevate for every account",
   unknownReason: "unknown reason",
-  emptyTitle: "Nobody is suppressed yet",
+  emptyTitle: "No numbers on your list yet",
   emptyHint: "Callers who ask to stop are added here.",
   ownerCanRestore: "opt-out — an owner can restore it",
-  opsOnly: "removed by operations only",
+  opsOnly: "only Calevate can remove it",
   permanent: "opt-out — cannot be undone",
   restore: "Restore",
   remove: "Remove",
@@ -46,8 +46,8 @@ export const DNC_COPY = {
   removedToastBody: "Your agents can ring it again.",
 
   unsuppressTitle: "Let agents call this number again?",
-  unsuppressConfirm: "Un-suppress this number",
-  unsuppressKeep: "Keep it suppressed",
+  unsuppressConfirm: "Let agents call it",
+  unsuppressKeep: "Keep it on the list",
   unsuppressLine: "comes off your do-not-call list.",
   unsuppressEffect: "Your agents will be able to ring this person again",
   unsuppressSure: "Only do this if you know they are happy to be called.",
@@ -87,6 +87,6 @@ export const tooMany = (count: string, max: string): string => `${count} numbers
 export const addLabel = (count: number, formatted: string): string =>
   count === 1 ? "Add 1 number" : `Add ${formatted} numbers`;
 export const entriesLabel = (count: number, formatted: string): string =>
-  `${formatted} ${count === 1 ? "entry" : "entries"}`;
+  `${formatted} ${count === 1 ? "number" : "numbers"}`;
 export const showingLatest = (limit: string): string => `Showing the ${limit} most recently added`;
 export const charsLeft = (n: number): string => `Short note, no phone numbers. ${n} left.`;
