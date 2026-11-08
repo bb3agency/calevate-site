@@ -444,7 +444,17 @@ export function TeamScreen() {
             remove.reset();
             setRemoving(null);
           }}
-          onConfirm={() => remove.mutate(removing.id, { onSuccess: () => setRemoving(null) })}
+          onConfirm={() =>
+            remove.mutate(removing.id, {
+              onSuccess: () => {
+                // The hand-over above belongs to the removal it followed: without this, the
+                // next person's notice says the last person's leads "now with you" and
+                // offers nothing for theirs.
+                handover.reset();
+                setRemoving(null);
+              },
+            })
+          }
         >
           <p>They are signed out now. You can invite them back later.</p>
           {/* Said BEFORE the click; the "Access removed" notice reports it afterwards,
