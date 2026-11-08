@@ -47703,7 +47703,7 @@ export interface operations {
                 to?: string | null;
                 /** @description Only this agent's calls and leads. */
                 agent_id?: string | null;
-                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
                 min_calls?: number;
                 limit?: number;
@@ -47813,7 +47813,7 @@ export interface operations {
                 limit?: number;
                 /** @description Only this agent's calls and leads. */
                 agent_id?: string | null;
-                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
             };
             header?: never;
@@ -47852,7 +47852,7 @@ export interface operations {
                 metric?: "calls" | "leads";
                 /** @description Only this agent's calls and leads. */
                 agent_id?: string | null;
-                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
             };
             header?: never;
@@ -47921,7 +47921,7 @@ export interface operations {
                 to?: string | null;
                 /** @description Only this agent's calls and leads. */
                 agent_id?: string | null;
-                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
             };
             header?: never;
@@ -47961,7 +47961,7 @@ export interface operations {
                 bucket?: "day" | "week" | "month";
                 /** @description Only this agent's calls and leads. */
                 agent_id?: string | null;
-                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
             };
             header?: never;
@@ -47999,7 +47999,7 @@ export interface operations {
                 to?: string | null;
                 /** @description Only this agent's calls and leads. */
                 agent_id?: string | null;
-                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
             };
             header?: never;
@@ -63351,7 +63351,7 @@ export interface operations {
                 days?: number;
                 /** @description The last IST day of the period (YYYY-MM-DD). When sent, the panel covers `days` IST calendar days ending on it, like /v1/analytics; when left out, the last `days` days of 24 hours up to now. */
                 to?: string | null;
-                /** @description False leaves out the owner's own test calls (D-697, D-859). */
+                /** @description True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026). */
                 test_calls?: boolean;
             };
             header?: never;

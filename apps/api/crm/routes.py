@@ -1672,7 +1672,9 @@ async def performance_panel(
         "the last `days` days of 24 hours up to now.",
     ),
     test_calls: bool = Query(
-        True, description="False leaves out the owner's own test calls (D-697, D-859)."
+        False,
+        description="True counts the owner's own test calls too (D-697, D-859); left out by "
+        "default, as on the dashboard (founder, 8 Nov 2026).",
     ),
     _: Principal = Depends(requires("calls:read")),
 ) -> PerformanceOut:

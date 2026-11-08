@@ -42,16 +42,16 @@ const ME: Me = {
 const TODAY = todayIST();
 const WINDOW = { days: 30, from_date: "2026-09-25", to_date: TODAY, timezone: "Asia/Kolkata" as const };
 
-/** The default range: the last 30 IST days ending today, test calls included. */
-const Q = `days=30&to=${TODAY}&test_calls=true`;
+/** The default range: the last 30 IST days ending today, test calls left out (founder, 8 Nov 2026). */
+const Q = `days=30&to=${TODAY}&test_calls=false`;
 const PATHS = {
   stats: `/v1/analytics/stats?${Q}`,
   heatmap: `/v1/analytics/heatmap?${Q}&metric=calls`,
   durations: `/v1/analytics/durations?${Q}&group_by=agent&bin_s=30`,
-  timeline: `/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=true`,
-  performance: `/v1/performance?days=30&to=${TODAY}`,
+  timeline: `/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=false`,
+  performance: `/v1/performance?days=30&to=${TODAY}&test_calls=false`,
   summary: `/v1/analytics/summary?${Q}&bucket=week`,
-  groups: `/v1/analytics/call-groups?days=30&to=${TODAY}&test_calls=true&by=caller&min_calls=2&limit=25`,
+  groups: `/v1/analytics/call-groups?days=30&to=${TODAY}&test_calls=false&by=caller&min_calls=2&limit=25`,
 };
 
 function summary(over: Partial<Summary> = {}): Summary {
@@ -234,31 +234,32 @@ describe("the performance report", () => {
     expect(outcomes.textContent).toContain("Appointment booked");
   });
 
-  it("asks again without test calls when the owner leaves them out", async () => {
-    const without = `days=30&to=${TODAY}&test_calls=false`;
+  it("leaves test calls out until the owner includes them (founder, 8 Nov 2026)", async () => {
+    const including = `days=30&to=${TODAY}&test_calls=true`;
     const { calls } = await renderClientPage(
       page,
       routes({
-        [`/v1/analytics/stats?${without}`]: stats(),
-        [`/v1/analytics/heatmap?${without}&metric=calls`]: heatmap(),
-        [`/v1/analytics/durations?${without}&group_by=agent&bin_s=30`]: durations(),
-        [`/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=false`]: timeline(),
-        [`/v1/performance?days=30&to=${TODAY}&test_calls=false`]: performance(),
-        [`/v1/analytics/summary?${without}&bucket=week`]: summary(),
-        [`/v1/analytics/call-groups?${without}&by=caller&min_calls=2&limit=25`]: groups(),
+        [`/v1/analytics/stats?${including}`]: stats(),
+        [`/v1/analytics/heatmap?${including}&metric=calls`]: heatmap(),
+        [`/v1/analytics/durations?${including}&group_by=agent&bin_s=30`]: durations(),
+        [`/v1/analytics/timeline?days=90&to=${TODAY}&test_calls=true`]: timeline(),
+        [`/v1/performance?days=30&to=${TODAY}&test_calls=true`]: performance(),
+        [`/v1/analytics/summary?${including}&bucket=week`]: summary(),
+        [`/v1/analytics/call-groups?${including}&by=caller&min_calls=2&limit=25`]: groups(),
       }),
     );
     const toggle = await screen.findByRole("switch", { name: "Include my test calls" });
+    expect((toggle as HTMLInputElement).checked).toBe(false);
     await act(async () => fireEvent.click(toggle));
-    await waitFor(() => expect(calls.some((call) => call.path === `/v1/analytics/stats?${without}`)).toBe(true));
-    // The funnel and outcomes leave them out too.
+    await waitFor(() => expect(calls.some((call) => call.path === `/v1/analytics/stats?${including}`)).toBe(true));
+    // The funnel and outcomes count them too.
     await waitFor(() =>
-      expect(calls.some((call) => call.path === `/v1/performance?days=30&to=${TODAY}&test_calls=false`)).toBe(true),
+      expect(calls.some((call) => call.path === `/v1/performance?days=30&to=${TODAY}&test_calls=true`)).toBe(true),
     );
     // …and so does "Who was on the call" (L3-16): one switch, every panel.
     await waitFor(() =>
       expect(
-        calls.some((call) => call.path === `/v1/analytics/call-groups?${without}&by=caller&min_calls=2&limit=25`),
+        calls.some((call) => call.path === `/v1/analytics/call-groups?${including}&by=caller&min_calls=2&limit=25`),
       ).toBe(true),
     );
   });

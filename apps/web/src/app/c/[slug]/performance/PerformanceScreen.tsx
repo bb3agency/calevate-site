@@ -92,7 +92,7 @@ export function PerformanceScreen() {
   const caps = useBusinessCapabilities();
   const callers = callersWord(caps, "customers");
   const [range, setRange] = useState<DateRange>(defaultRange);
-  const [testCalls, setTestCalls] = useState(true);
+  const [testCalls, setTestCalls] = useState(false);
   const [heatmapMetric, setHeatmapMetric] = useState<"calls" | "leads">("calls");
   const [groupBy, setGroupBy] = useState<"agent" | "outcome">("agent");
 

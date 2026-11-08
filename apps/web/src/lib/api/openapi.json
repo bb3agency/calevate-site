@@ -81060,13 +81060,13 @@
             }
           },
           {
-            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
               "default": false,
-              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
             }
@@ -81340,13 +81340,13 @@
             }
           },
           {
-            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
-              "default": true,
-              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "default": false,
+              "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
             }
@@ -81448,13 +81448,13 @@
             }
           },
           {
-            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
-              "default": true,
-              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "default": false,
+              "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
             }
@@ -81585,13 +81585,13 @@
             }
           },
           {
-            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
-              "default": true,
-              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "default": false,
+              "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
             }
@@ -81697,13 +81697,13 @@
             }
           },
           {
-            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
-              "default": true,
-              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "default": false,
+              "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
             }
@@ -81791,13 +81791,13 @@
             }
           },
           {
-            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
-              "default": true,
-              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "default": false,
+              "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
             }
@@ -102859,13 +102859,13 @@
             }
           },
           {
-            "description": "False leaves out the owner's own test calls (D-697, D-859).",
+            "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
-              "default": true,
-              "description": "False leaves out the owner's own test calls (D-697, D-859).",
+              "default": false,
+              "description": "True counts the owner's own test calls too (D-697, D-859); left out by default, as on the dashboard (founder, 8 Nov 2026).",
               "title": "Test Calls",
               "type": "boolean"
             }

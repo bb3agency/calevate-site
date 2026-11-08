@@ -53,7 +53,11 @@ To = Annotated[
 ]
 AgentFilter = Annotated[UUID | None, Query(description="Only this agent's calls and leads.")]
 TestCalls = Annotated[
-    bool, Query(description="False leaves out the owner's own test calls (D-697, D-859).")
+    bool,
+    Query(
+        description="True counts the owner's own test calls too (D-697, D-859); left out by "
+        "default, as on the dashboard (founder, 8 Nov 2026)."
+    ),
 ]
 
 
@@ -70,7 +74,7 @@ async def get_heatmap(
     to: To = None,
     metric: Annotated[HeatmapMetric, Query()] = "calls",
     agent_id: AgentFilter = None,
-    test_calls: TestCalls = True,
+    test_calls: TestCalls = False,
 ) -> HeatmapOut:
     window = service.resolve_window(days=days, to=to)
     return await service.heatmap(
@@ -93,7 +97,7 @@ async def get_durations(
     bin_s: Annotated[int, Query(description="Bin width in seconds: 15, 30, 60 or 120.")] = 30,
     limit: Annotated[int, Query(ge=1, le=service.MAX_DURATION_GROUPS)] = 8,
     agent_id: AgentFilter = None,
-    test_calls: TestCalls = True,
+    test_calls: TestCalls = False,
 ) -> DurationsOut:
     if bin_s not in service.DURATION_BIN_WIDTHS:
         raise ProblemError(
@@ -127,7 +131,7 @@ async def get_timeline(
     days: Days = 90,
     to: To = None,
     agent_id: AgentFilter = None,
-    test_calls: TestCalls = True,
+    test_calls: TestCalls = False,
 ) -> TimelineOut:
     window = service.resolve_window(days=days, to=to)
     return await service.timeline(session, window=window, agent_id=agent_id, test_calls=test_calls)
@@ -167,7 +171,7 @@ async def get_stats(
     days: Days = 7,
     to: To = None,
     agent_id: AgentFilter = None,
-    test_calls: TestCalls = True,
+    test_calls: TestCalls = False,
 ) -> StatsOut:
     window = service.resolve_window(days=days, to=to)
     return await service.stats(session, window=window, agent_id=agent_id, test_calls=test_calls)
@@ -225,7 +229,7 @@ async def get_summary(
     to: To = None,
     bucket: Annotated[SummaryBucket, Query(description="day, week or month")] = "week",
     agent_id: AgentFilter = None,
-    test_calls: TestCalls = True,
+    test_calls: TestCalls = False,
 ) -> SummaryOut:
     assert principal.tenant_id is not None
     window = service.resolve_window(days=days, to=to)
