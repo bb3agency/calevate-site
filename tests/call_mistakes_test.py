@@ -356,3 +356,19 @@ def test_english_for_a_bare_hello_is_still_the_wrong_language() -> None:
         ("agent", "Hello, how can I help you today with your order?"),
     )
     assert mistakes_in(call, language="te-IN").get("wrong_language") == 2
+
+
+def test_a_practice_run_reads_english_after_the_caller_moved_to_english_the_same_way() -> None:
+    """Practice runs (`test_conversations.speech_problems`) apply the same rule as real calls."""
+    from apps.api.agents.test_conversations import Turn, speech_problems
+
+    moved = [
+        Turn(
+            said="Can you tell me the price of chilli powder?",
+            reply="Half a kilo is two hundred rupees. Would you like to order some?",
+        ),
+        Turn(said="Okay.", reply="Shall I note half a kilo for you then?"),
+    ]
+    assert "wrong_language" not in {p.kind for p in speech_problems(moved, language="te-IN")}
+    hello = [Turn(said="Hello.", reply="Hello, how can I help you today with your order?")]
+    assert "wrong_language" in {p.kind for p in speech_problems(hello, language="te-IN")}

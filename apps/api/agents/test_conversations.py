@@ -97,6 +97,7 @@ from apps.api.agents.turn_checks import (
     conversation_problems,
     formal_swaps,
     sentences,
+    speaks_english,
     turn_problems,
 )
 from apps.api.core.errors import ProblemError
@@ -620,11 +621,20 @@ def speech_problems(
     ask again (D-912), and `prior_contact` whether the caller had contact before."""
     seen: set[str] = set()
     out: list[TurnProblem] = []
+    # Once the caller has moved the conversation to English, an English reply to their next
+    # "okay" is not the agent leaving its language (the same rule `call_mistakes` applies).
+    chose_english = False
     for turn in turns:
-        for problem in turn_problems(turn.reply, caller_said=turn.said, language=language):
+        for problem in turn_problems(
+            turn.reply,
+            caller_said=turn.said,
+            language=language,
+            caller_chose_english=chose_english,
+        ):
             if problem.kind not in seen:
                 seen.add(problem.kind)
                 out.append(problem)
+        chose_english = chose_english or speaks_english(turn.said, language)
     # What only the whole conversation shows: "done" with no action, the call's own number
     # asked for, part of a number taken as all of it, goodbye mid-question (D-749).
     out += [
