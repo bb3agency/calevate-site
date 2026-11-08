@@ -69,20 +69,42 @@ export function VoiceButton({
   const [starting, setStarting] = useState(false);
   const recorder = useRef<MediaRecorder | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // False once the box holding the button is gone. A clip the person walked away from is
+  // not sent (it would still be uploaded and transcribed), and a microphone granted after
+  // they left is switched off at once rather than left recording with nobody to stop it.
+  const mounted = useRef(true);
 
   const stop = () => {
     if (timer.current) clearInterval(timer.current);
     timer.current = null;
-    recorder.current?.stop();
+    const media = recorder.current;
+    recorder.current = null;
+    if (media && media.state !== "inactive") media.stop();
     setRecording(false);
   };
 
-  useEffect(() => () => stop(), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      stop();
+    };
+  }, []);
+
+  // The 30-second limit, outside the state updater: an updater must stay pure, and React
+  // may run one twice.
+  useEffect(() => {
+    if (recording && seconds >= MAX_RECORDING_S) stop();
+  }, [recording, seconds]);
 
   const start = async () => {
     setStarting(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!mounted.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       setAsking(null);
       const type = recordingMimeType();
       const media = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
@@ -91,18 +113,13 @@ export function VoiceButton({
       media.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(chunks, { type: media.mimeType.split(";")[0] || "audio/webm" });
-        if (blob.size > 0) onRecorded(blob);
+        if (blob.size > 0 && mounted.current) onRecorded(blob);
       };
       recorder.current = media;
       media.start();
       setSeconds(0);
       setRecording(true);
-      timer.current = setInterval(() => {
-        setSeconds((s) => {
-          if (s + 1 >= MAX_RECORDING_S) stop();
-          return s + 1;
-        });
-      }, 1000);
+      timer.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     } catch (caught) {
       const name = errorName(caught);
       if (name === "NotAllowedError") {
