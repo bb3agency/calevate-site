@@ -24,15 +24,17 @@ import {
   type ScriptVersion,
 } from "@/lib/api/script";
 
-export function ScriptHistory({
-  agentId,
-  onRestored,
-}: {
-  agentId: string;
-  onRestored: (draft: { script: CallScript; saved_at: string }) => void;
-}) {
+/**
+ * The restore and its Undo, held by the builder rather than by the history drawer: a
+ * restore closes the drawer, and the drawer unmounts what is inside it, so a mutation held
+ * there never raised its "Restored" toast (with the Undo) and an Undo pressed afterwards
+ * never put the earlier draft back on screen.
+ */
+export function useScriptRestore(
+  agentId: string,
+  onRestored: (draft: { script: CallScript; saved_at: string }) => void,
+) {
   const session = useClientSession();
-  const versions = useScriptVersions(session, agentId);
   const restore = useRestoreVersion(session, agentId);
   // The dialog shows a refusal inside itself; the restored draft appears in the editor.
   const putBack = useSaveDraft(session, agentId);
@@ -56,6 +58,23 @@ export function ScriptHistory({
       );
     },
   });
+  return { restore, restoreFeedback, putBack };
+}
+
+export type ScriptRestore = ReturnType<typeof useScriptRestore>;
+
+export function ScriptHistory({
+  agentId,
+  restoring,
+  onRestored,
+}: {
+  agentId: string;
+  restoring: ScriptRestore;
+  onRestored: (draft: { script: CallScript; saved_at: string }) => void;
+}) {
+  const session = useClientSession();
+  const versions = useScriptVersions(session, agentId);
+  const { restore, restoreFeedback, putBack } = restoring;
   const write = useWriteAccess(session, "org:manage", "restore an earlier script");
   const [asking, setAsking] = useState<ScriptVersion | null>(null);
 

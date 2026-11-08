@@ -109,7 +109,7 @@ import {
 import { SectionList } from "./SectionList";
 import { SectionEditor } from "./SectionEditor";
 import { HandWritten } from "./HandWritten";
-import { ScriptHistory } from "./ScriptHistory";
+import { ScriptHistory, useScriptRestore } from "./ScriptHistory";
 import { PromoWarning } from "./PromoWarning";
 import { PutLiveDialog, usePutLive } from "./PutLive";
 import { DESKTOP, SIDE_PANEL, useMedia } from "./useMedia";
@@ -393,6 +393,16 @@ function Editor({
         ),
       ),
   });
+
+  const restored = (draft: { script: CallScript; saved_at: string }) => {
+    const copy = { script: draft.script, stamp: `d:${draft.saved_at}`, savedAt: draft.saved_at };
+    queryClient.setQueryData<ScriptOut>(scriptKeys.one(session.orgSlug, agentId), (old) =>
+      old ? withDraft(old, draft) : old,
+    );
+    adopt(copy);
+    setHistoryOpen(false);
+  };
+  const restoring = useScriptRestore(agentId, restored);
 
   const addOne = () => {
     const made = addSection(script);
@@ -743,17 +753,7 @@ function Editor({
       </p>
 
       <Drawer open={historyOpen} onClose={() => setHistoryOpen(false)} title="History" description="Every time the script was put live.">
-        <ScriptHistory
-          agentId={agentId}
-          onRestored={(draft) => {
-            const copy = { script: draft.script, stamp: `d:${draft.saved_at}`, savedAt: draft.saved_at };
-            queryClient.setQueryData<ScriptOut>(scriptKeys.one(session.orgSlug, agentId), (old) =>
-              old ? withDraft(old, draft) : old,
-            );
-            adopt(copy);
-            setHistoryOpen(false);
-          }}
-        />
+        <ScriptHistory agentId={agentId} restoring={restoring} onRestored={restored} />
       </Drawer>
 
       {compiled !== null && <CompiledPrompt text={compiled} onClose={() => setCompiled(null)} />}
