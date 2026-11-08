@@ -483,7 +483,9 @@ async def test_the_request_is_audited_and_the_audit_names_the_subject_by_hash(ca
     )
     assert national not in emitted
     assert phone.lstrip("+") not in emitted
-    assert subject_ref(phone) in emitted
+    # The ref stays on the chained row: it is an unsalted digest of the number and
+    # `deletion.list_requests` keeps it out of every log line.
+    assert subject_ref(phone) not in emitted
     assert request_id in emitted
 
     # And no application log line anywhere in this request carried the number.

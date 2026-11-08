@@ -526,20 +526,6 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "`copilot/memory.redacted_content`, `copilot_memories`' situation under the same "
             "published 'assistant' limitation. The tenant erasure deletes both tables."
         ),
-        "copilot_actions": (
-            "The in-app assistant's activity log (D-694): what the assistant did in the "
-            "client's own account — a tool name, a status, ids, and what an Undo restores: "
-            "a prior status, owner id, campaign or agent name, an agent's language, voice "
-            "and notice switches, or the definitions of the fields it captures (D-698) — "
-            "never a caller's value — and the server's own sentence about it. Its "
-            "arguments and "
-            "sentences pass through `workers.redaction.redact` on write "
-            "(`copilot/action_log.py`), so the digits this erasure is keyed on are not in "
-            "it to match — `copilot_memories`' situation exactly, published to the data "
-            "principal under the same 'assistant' limitation. A caller's number never "
-            "reaches it in the first place: the tools name leads by id and the server "
-            "resolves numbers itself. The tenant erasure deletes every row."
-        ),
         "tenant_erasure_requests": (
             "The OFFBOARDING request row and its proof — one row per account closure, "
             "carrying counts, timestamps and the certificate text. It is in scope here "

@@ -380,8 +380,8 @@ async def subject_export(
         # must not become a searchable index of everyone who ever exercised a right.
         object_id=subject_ref(payload.phone),
         ip=client_request_ip(request),
+        # No `subject_ref` in the summary, which goes to the log stream; `object_id` holds it.
         summary={
-            "subject_ref": subject_ref(payload.phone),
             "lead_id": lead["id"] if lead else None,
             "calls": counts["calls"],
             "turns": counts["transcript_turns"],

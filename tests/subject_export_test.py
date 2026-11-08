@@ -437,7 +437,9 @@ async def test_the_export_is_audited_and_the_audit_names_no_phone_number(caplog)
     )
     assert national not in emitted
     assert digits not in emitted
-    assert subject_ref(phone) in emitted
+    # Nor the ref: an unsalted digest of a number in a ~10^9 space confirms the number to
+    # anyone reading the log with a candidate in mind. The chained row carries it.
+    assert subject_ref(phone) not in emitted
 
 
 async def test_the_subjects_own_number_survives_the_export_in_every_form_it_is_written() -> None:

@@ -315,8 +315,9 @@ async def request_erasure(
         # subject-access export uses, so both rights for one person line up.
         object_id=record.subject_ref,
         ip=client_request_ip(request),
+        # No `subject_ref` here: the summary goes to the log stream, and the ref is already
+        # the chained row's `object_id` (it is pseudonymous; `deletion.list_requests`).
         summary={
-            "subject_ref": record.subject_ref,
             "request_id": str(record.id),
             "already_open": record.already_open,
             "scope": deletion.DELETION_SCOPE,
