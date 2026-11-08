@@ -247,7 +247,11 @@ function Editor({
   const [room, setRoom] = useState<Room | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toText, setToText] = useState(false);
-  const [undoTo, setUndoTo] = useState<CallScript | null>(null);
+  // The copy a kept suggestion, fix or switch replaced, offered back only while the draft is still
+  // exactly what that change made: after a further edit, a restore, a newer draft or putting it
+  // live, Undo would throw that work away.
+  const [undo, setUndo] = useState<{ before: CallScript; after: CallScript } | null>(null);
+  const undoTo = undo && sameScript(script, undo.after) ? undo.before : null;
   // A link may name a part (`#policies`, from Knowledge's "Fix in script"). The page drew
   // nothing while the script loaded, so the browser's own jump found no target: open that
   // part and scroll to it once the editor is on screen.
@@ -396,7 +400,7 @@ function Editor({
     setSelected(made.id);
   };
   const keep = (next: CallScript) => {
-    setUndoTo(script);
+    setUndo({ before: script, after: next });
     setKeptSuggestion(true);
     edit(next);
   };
@@ -638,7 +642,7 @@ function Editor({
             className={TEXT_ACTION}
             onClick={() => {
               edit(undoTo);
-              setUndoTo(null);
+              setUndo(null);
             }}
           >
             Undo
@@ -775,6 +779,8 @@ function Editor({
               setPublishing(false);
               setPublished(result);
               setLastSave(null);
+              // Live now: "in your draft" is no longer true, and the way back is History.
+              setUndo(null);
             })
           }
         />
@@ -818,8 +824,9 @@ function Editor({
           onCancel={() => setToText(false)}
           onConfirm={() => {
             setToText(false);
-            setUndoTo(script);
-            edit(raw ? { ...EMPTY_SCRIPT } : { ...EMPTY_SCRIPT, raw_override: scriptAsText(script) });
+            const next = raw ? { ...EMPTY_SCRIPT } : { ...EMPTY_SCRIPT, raw_override: scriptAsText(script) };
+            setUndo({ before: script, after: next });
+            edit(next);
           }}
         >
           {raw ? (

@@ -256,8 +256,9 @@ def question_count(text: str) -> int:
 
 
 #: Latin letters only: an agent name is configured in them, and its Telugu or Hindi spelling
-#: cannot be compared with it without a transliteration we do not have.
-_SELF_NAMED: Final = re.compile(r"\b(?:my name is|I am|I'm|this is) ([A-Z][a-z]+)\b")
+#: cannot be compared with it without a transliteration we do not have. The lead-in in any
+#: case ("My name is" starts a sentence); the name capitalised, as a name is written.
+_SELF_NAMED: Final = re.compile(r"\b(?i:my name is|i am|i'm|this is) ([A-Z][a-z]+)\b")
 
 
 def other_persona(text: str, *, agent_name: str, business_name: str) -> str | None:
@@ -760,6 +761,10 @@ def repeated_line_problems(script: CallScript) -> list[str]:
     for later, (path, text) in enumerate(lines):
         words = _words(text)
         for earlier_path, earlier in lines[:later]:
+            # A "both" agent's two openings are never said on one call, and share its names
+            # and any woven notice words by design.
+            if path in _OPENING_FIELDS and earlier_path in _OPENING_FIELDS:
+                continue
             other = _words(earlier)
             if len(words & other) / len(words | other) >= _REPEAT_OVERLAP:
                 problems.append(

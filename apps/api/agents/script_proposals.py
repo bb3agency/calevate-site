@@ -44,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_builder
 from apps.api.agents.business_fit import business_fit
 from apps.api.agents.capability_manifest import manifest_for, owner_facts
+from apps.api.agents.script_lint import order_problems, placeholder_instruction
 from apps.api.agents.starter_plans import stored_plans
 from apps.api.agents.starters import JOB_STEP_COUNTS
 from apps.api.agents.write_guard import archived_refusal
@@ -52,7 +53,12 @@ from apps.api.db.base import uuid7
 from apps.api.engine import engine_capabilities
 from apps.api.first_run.models import MAX_DOCUMENTS
 from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
-from apps.workers.script_assist import OWNER_QUESTIONS, ScriptBrief
+from apps.workers.script_assist import (
+    OWNER_QUESTIONS,
+    ScriptBrief,
+    ways_to_kept_steps,
+    without_placeholder_steps,
+)
 
 #: The outbox job that writes a requested proposal (`workers/script_proposal.py`).
 PROPOSAL_JOB: Final = "draft_script_proposal"
@@ -175,7 +181,10 @@ async def read_proposal(session: AsyncSession, agent_id: UUID) -> ScriptProposal
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
-    return _parse(row[0], now=datetime.now(UTC)) if row[0] else None
+    # A `cleared` entry is only the records a kept proposal leaves behind (`discard`).
+    if not row[0] or row[0].get("status") == "cleared":
+        return None
+    return _parse(row[0], now=datetime.now(UTC))
 
 
 async def working_script(session: AsyncSession, agent_id: UUID) -> CallScript:
@@ -583,13 +592,26 @@ async def agent_own_fields(session: AsyncSession, agent_id: UUID) -> list[dict[s
 
 async def discard(session: AsyncSession, *, agent_id: UUID, proposal_id: UUID) -> bool:
     """Clear this proposal (kept into the draft, or not wanted). False when it is no longer
-    the agent's pending one, which is the same outcome to the person: it is gone."""
+    the agent's pending one, which is the same outcome to the person: it is gone.
+
+    The notice writer's records in its script stay behind as a `cleared` entry, which
+    `read_proposal` never returns: the Script tab clears a proposal before its kept parts
+    reach the draft, and `script_builder.platform_notice_records` accepts a record in a
+    saved draft only when the platform wrote it."""
     await script_builder.assert_agent_visible(session, agent_id)
     cleared = (
         await session.execute(
             text(
-                "UPDATE agents SET script_proposal = NULL "
-                "WHERE id = :aid AND script_proposal->>'id' = :pid RETURNING id"
+                "UPDATE agents SET script_proposal = CASE "
+                "WHEN jsonb_typeof(script_proposal -> 'script') = 'object' THEN "
+                "jsonb_build_object('id', script_proposal -> 'id', 'status', 'cleared', "
+                "'script', jsonb_strip_nulls(jsonb_build_object("
+                "'opening_notices', script_proposal -> 'script' -> 'opening_notices', "
+                "'outbound_opening_notices', "
+                "script_proposal -> 'script' -> 'outbound_opening_notices'))) "
+                "ELSE NULL END "
+                "WHERE id = :aid AND script_proposal->>'id' = :pid "
+                "AND script_proposal->>'status' IS DISTINCT FROM 'cleared' RETURNING id"
             ),
             {"aid": agent_id, "pid": str(proposal_id)},
         )
@@ -688,7 +710,8 @@ def kept_to_paths(written: CallScript, base: CallScript, paths: Sequence[str]) -
     the lines the script check named and may change nothing else, whatever the model
     returned. A step is matched by its id, since the model may reorder steps; a line the
     model emptied, or a path it no longer has, stays as the owner wrote it. A finding about
-    the whole script ("no step asks for X") may reword step instructions, nothing more."""
+    the whole script ("no step asks for X") may reword step instructions, nothing more. The
+    two findings about the call's shape are the exception, below."""
     allowed = {p for p in paths if p != "script"}
     if "script" in paths:
         allowed |= {f"stages.{i}.instruction" for i in range(len(base.stages))}
@@ -708,7 +731,47 @@ def kept_to_paths(written: CallScript, base: CallScript, paths: Sequence[str]) -
         before, after = _at(out, parts), _at(new, source)
         if isinstance(before, str) and isinstance(after, str) and after.strip():
             _put(out, parts, after)
-    return CallScript.model_validate(out)
+    kept = CallScript.model_validate(out)
+    # Two findings are about the call's shape, not a line, and their fix is not a reworded
+    # instruction (`script_lint.flow_problems`): a step in the wrong place on the call is
+    # fixed by its ways out or its place, and a placeholder step by taking it out.
+    named = {p for p in paths if p.startswith("stages.")}
+    misplaced = {p.partition(":")[0] for p in order_problems(base)}
+    if named & misplaced:
+        kept = _ways_from(written, kept)
+    return without_placeholder_steps(kept) if named & _placeholder_paths(base) else kept
+
+
+def _placeholder_paths(script: CallScript) -> set[str]:
+    """The instructions of the steps a fix may take out: placeholders, never the close."""
+    return {
+        f"stages.{i}.instruction"
+        for i, stage in enumerate(script.stages[:-1])
+        if placeholder_instruction(stage.instruction)
+    }
+
+
+def _ways_from(written: CallScript, kept: CallScript) -> CallScript:
+    """`kept` with each step's ways out, and the steps' order, as `written` has them. A step
+    `written` dropped keeps its own; a way to a step `kept` lacks goes (`ways_to_kept_steps`)."""
+    by_id = {stage.id: stage for stage in written.stages}
+    stages = [
+        stage.model_copy(
+            update={"branches": by_id[stage.id].branches, "otherwise": by_id[stage.id].otherwise}
+        )
+        if stage.id in by_id
+        else stage
+        for stage in kept.stages
+    ]
+    if set(by_id) == {stage.id for stage in stages}:
+        rank = {stage_id: i for i, stage_id in enumerate(by_id)}
+        stages.sort(key=lambda stage: rank[stage.id])
+    return CallScript.model_validate(
+        {
+            **kept.model_dump(mode="json"),
+            "stages": ways_to_kept_steps([stage.model_dump(mode="json") for stage in stages]),
+        }
+    )
 
 
 #: The parts an automatic suggestion may not empty (`emptied_kept`).

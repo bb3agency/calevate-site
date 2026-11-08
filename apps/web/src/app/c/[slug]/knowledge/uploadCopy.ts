@@ -34,7 +34,7 @@
  * is the one place this file reads two fields to answer one question.
  */
 
-import type { KbUpload } from "@/lib/api/kb";
+import { readCopyAwaitsReview, type KbUpload } from "@/lib/api/kb";
 import type { NoticeTone } from "@/components/ui";
 
 /** One state, as the client meets it. */
@@ -70,9 +70,10 @@ export function isMachineRead(upload: KbUpload): boolean {
  */
 export function awaitsConfirmation(upload: KbUpload): boolean {
   return (
-    upload.ingest_status === "received" &&
-    Boolean(upload.text_provenance) &&
-    upload.review_state === "pending_approval"
+    (upload.ingest_status === "received" &&
+      Boolean(upload.text_provenance) &&
+      upload.review_state === "pending_approval") ||
+    readCopyAwaitsReview(upload)
   );
 }
 
