@@ -202,6 +202,8 @@ export function useReleaseOwnNumber(session: Session) {
       // A released number no longer counts towards the agent that answered on it.
       void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
       void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
+      // Releasing the last number undoes the go-live guide's number step.
+      void client.invalidateQueries({ queryKey: goLiveKey(session.orgSlug) });
     },
   });
 }

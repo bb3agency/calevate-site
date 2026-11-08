@@ -817,6 +817,53 @@ describe("meet your agent", () => {
     expect(JSON.parse(placed?.body ?? "{}")).toMatchObject({ number_is_mine: true, agent_id: AGENT_ID });
   });
 
+  it("follows the placed call by its id while it rings, before it has a start time", async () => {
+    const CALL_ID = "0192f3a4-0000-7000-8000-00000000c009";
+    let placedYet = false;
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent({ published: true })],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: () =>
+          placedYet
+            ? [
+                {
+                  id: CALL_ID,
+                  agent_id: AGENT_ID,
+                  agent_name: "Anjali",
+                  direction: "outbound",
+                  status: "ringing",
+                  caller_e164: null,
+                  // Not connected yet, so the server has no start time for it.
+                  started_at: null,
+                  created_at: new Date().toISOString(),
+                  duration_s: null,
+                  outcome_tag: null,
+                  summary_state: "none",
+                  test_call: true,
+                  sentiment: null,
+                  summary: null,
+                  lead_id: null,
+                },
+              ]
+            : [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": { ...READINESS, documents: [], outstanding_documents: 0 },
+        "/v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
+        "POST /v1/trial/calls": () => {
+          placedYet = true;
+          return { status: "queued", call_handle: "h1", call_id: CALL_ID, blocked_reason: null, blocked_rule: null };
+        },
+      }),
+    );
+    const call = await screen.findByRole("button", { name: /Call me now/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Your mobile number" }), { target: { value: "98765 43210" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
+    fireEvent.click(call);
+    expect(await screen.findByText("Your phone is ringing", {}, { timeout: 8000 })).toBeTruthy();
+  }, 15000);
+
   it("says the trial line's refusal in the server's words", async () => {
     await renderClientPage(
       page,
@@ -1043,9 +1090,18 @@ describe("meet your agent", () => {
   });
 
   it("refuses a member who may not build agents, in the console's own words", async () => {
-    await renderClientPage(page, routes({ "/v1/me": { ...OWNER_ME, role: "staff", permissions: ["agents:read"] } }));
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/me": { ...OWNER_ME, role: "staff", permissions: ["agents:read"] },
+        // The real server refuses this read to a non-owner; it must not be what they see.
+        "/v1/first-run": problem(403, { type: "https://calevate.tech/problems/forbidden", detail: "Forbidden." }),
+      }),
+    );
     expect(await screen.findByText(/build an agent/)).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "What should your agent do?" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip for now" })).toBeNull();
+    expect(calls.some((call) => call.path === "/v1/first-run")).toBe(false);
   });
 
   it("puts the first run aside and goes to the dashboard", async () => {

@@ -503,6 +503,7 @@ function CallInProgress({
   placing: boolean;
   placed: {
     status: "queued" | "blocked";
+    call_id?: string | null;
     blocked_reason?: string | null;
     blocked_rule?: string | null;
   } | null;
@@ -517,9 +518,15 @@ function CallInProgress({
 }) {
   const { session } = useClientRealm();
   const queries = useQueryClient();
+  // By the id the server gave the call it placed. `started_at` stays null until a call
+  // connects, so matching on it alone left a ringing or unanswered call on "dialling".
   const call =
     placed?.status === "queued"
-      ? calls?.find((row) => row.id !== skip && Date.parse(row.started_at ?? "") >= since - 60_000)
+      ? calls?.find((row) =>
+          placed.call_id
+            ? row.id === placed.call_id
+            : row.id !== skip && Date.parse(row.created_at ?? row.started_at ?? "") >= since - 60_000,
+        )
       : undefined;
   const rule = placed?.blocked_rule ?? null;
   const limit = refused !== null || isLimitRule(rule);

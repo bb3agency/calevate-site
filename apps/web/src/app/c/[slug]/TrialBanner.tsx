@@ -142,9 +142,14 @@ export function TrialStrip({
   if (view === null || urgency === null || closed) return null;
   // An invoiced account on a trial has no wallet to top up; its calls go on the invoice.
   const asksForCredit = view.kind === "ended" || view.testCallsOnly || view.prepaid;
-  const tail = asksForCredit
-    ? "Add credit to keep your agents answering."
-    : "After that, calls go on your monthly invoice.";
+  // A test-calls-only trial (every ended one) never answered calls, so it is not promised
+  // that they keep answering.
+  const testCallsOnly = view.kind === "ended" || view.testCallsOnly;
+  const tail = !asksForCredit
+    ? "After that, calls go on your monthly invoice."
+    : testCallsOnly
+      ? "Add credit to go live with your own number."
+      : "Add credit to keep your agents answering.";
 
   return (
     <AnnouncementBar

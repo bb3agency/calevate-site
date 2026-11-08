@@ -8,7 +8,10 @@ import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
 import { OWN_NUMBERS_PATHS } from "@/lib/api/ownNumbers";
 import { PLEDGE_PATH, pendingRunKey } from "@/lib/api/verifyBusiness";
 
-import { DLT_NOT_RECORDED, KYC_NOT_STARTED } from "./fixtures/sharedReads";
+import { QueryClient } from "@tanstack/react-query";
+import { walletKey } from "@/lib/api/wallet";
+
+import { DLT_NOT_RECORDED, KYC_NOT_STARTED, activeTrialBlock, prepaidWallet } from "./fixtures/sharedReads";
 import { problem, renderClientPage, type Routes } from "./harness";
 
 /**
@@ -117,6 +120,18 @@ describe("who may act on Verify your business", () => {
     }
     // Saving the details is not withheld from an operator: no reason is attached to it.
     expect(screen.getByRole("button", { name: "Save details" }).getAttribute("title")).toBeNull();
+  });
+});
+
+describe("on a free trial", () => {
+  it("shuts the verification forms the server refuses, and leaves the pledge open", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(walletKey("acme"), prepaidWallet({ trial: activeTrialBlock({ test_calls_only: true }) }));
+    await renderClientPage(<VerifyBusinessPage />, routes(OWNER), "acme", client);
+    const accept = (await screen.findByRole("button", { name: "Accept the pledge" })) as HTMLButtonElement;
+    expect(accept.disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Save details" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getAllByText("Verification opens once you add credit.").length).toBeGreaterThan(0);
   });
 });
 

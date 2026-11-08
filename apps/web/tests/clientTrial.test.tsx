@@ -55,6 +55,20 @@ describe("the trial strip above the top bar", () => {
     expect(within(container).getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe(CREDITS);
   });
 
+  it("never promises a test-calls-only trial that its agents keep answering", () => {
+    const { container } = render(
+      <TrialStrip
+        wallet={onTrial({ days_remaining: 1, test_calls_only: true })}
+        slug="acme"
+        creditsHref={CREDITS}
+        now={hoursBefore(5)}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Add credit to go live with your own number.");
+    expect(text).not.toContain("keep your agents answering");
+  });
+
   it("says tomorrow when the last 24 hours cross midnight in India", () => {
     // 9 Oct, 11:58 pm IST: 23 hours before the end, which falls on the next Indian day.
     const { container } = render(

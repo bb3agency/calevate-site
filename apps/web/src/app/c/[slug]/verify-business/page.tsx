@@ -4,7 +4,8 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, Skeleton } from "@/components/ui";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { useCallingNumbers } from "@/lib/api/autodialerNotice";
-import { useActAccess, useWriteAccess } from "@/lib/api/hooks";
+import { useActAccess, useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
+import { useShellWallet } from "@/lib/api/wallet";
 import { useKycRecord, type KycRecord } from "@/lib/api/kyc";
 import { useClientSession } from "@/lib/api/session";
 import { outboundSteps, useOutboundPledge, type OutboundPledge } from "@/lib/api/verifyBusiness";
@@ -64,9 +65,14 @@ export default function VerifyBusinessPage() {
   const kyc = useKycRecord(session);
   const pledge = useOutboundPledge(session);
   const dlt = usePeRegistration(session);
+  // A free trial may accept the pledge but every verification write is refused
+  // (`trial_kyc_unavailable`), so the forms are shut rather than offered and then refused.
+  const trialLocked = useShellWallet(session)?.trial?.test_calls_only === true;
+  const write = useWriteAccess(session, "org:manage", "verify the business");
+  const upload = useActAccess(session, "org:manage", "compliance.kyc_documents", "upload verification documents");
   const access: Access = {
-    write: useWriteAccess(session, "org:manage", "verify the business"),
-    upload: useActAccess(session, "org:manage", "compliance.kyc_documents", "upload verification documents"),
+    write: trialLocked ? TRIAL_SHUT : write,
+    upload: trialLocked ? TRIAL_SHUT : upload,
     pledge: useActAccess(session, "org:manage", "compliance.outbound_pledge", "accept the pledge"),
   };
   const record = kyc.data;
@@ -116,6 +122,12 @@ export default function VerifyBusinessPage() {
     </div>
   );
 }
+
+const TRIAL_SHUT: WriteAccess = {
+  allowed: false,
+  reason: "Verification opens once you add credit.",
+  unknown: false,
+};
 
 /**
  * `true` when outgoing calls are open, `false` when something is left, `null` when the

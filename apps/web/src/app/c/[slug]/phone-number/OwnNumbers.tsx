@@ -61,6 +61,7 @@ import {
   type PurchasedOwnNumber,
 } from "@/lib/api/ownNumbers";
 import { useClientRealm } from "@/lib/api/session";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 import { lookup } from "@/lib/lookup";
 
 import { StatusPill } from "@/components/console/statusPill";
@@ -74,6 +75,7 @@ const REFUSALS: Record<string, string> = {
   business_details_kyc_not_verified: "Verify your business first.",
   business_details_not_approved: "Business details not approved yet. Nothing charged.",
   number_price_not_attested: "Numbers are not on sale yet. Nothing was charged.",
+  number_price_changed: "The price has changed. Nothing was charged.",
   // The server sends this for every refusal of the number itself: it may have been taken,
   // or the business details may still be under check. Nothing tells the two apart.
   engine_number_unavailable: "Taken, or your details are in review. Nothing charged.",
@@ -256,6 +258,9 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
   const verifyHref = href(`/c/${session.orgSlug}/verify-business`);
 
   const kycDone = status.kyc_status === "verified";
+  // Documents with the review team: nothing for the owner to do, so no "Next step" badge
+  // and no button sending them to a page that says the same.
+  const kycWithUs = status.kyc_status === "submitted" || status.kyc_status === "in_review";
   const detailsStatus = status.business_status ?? "none";
   const detailsDone = detailsStatus === "accepted" && status.step !== "business_details";
   const ready = status.step === "ready";
@@ -270,9 +275,13 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
         )}
 
         <ol className="space-y-3">
-          <StepRow index={1} title="Verify your business" state={kycDone ? "done" : "now"}>
+          <StepRow
+            index={1}
+            title="Verify your business"
+            state={kycDone ? "done" : kycWithUs ? "waiting" : "now"}
+          >
             <p>{lookup(KYC_COPY, status.kyc_status) ?? KYC_COPY.not_started}</p>
-            {!kycDone && (
+            {!kycDone && !kycWithUs && (
               <Link href={verifyHref} className={SECONDARY_BUTTON_SM}>
                 Verify your business
               </Link>
@@ -300,10 +309,15 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
                   )}
                 {/* Only a rejection is corrected and sent again; a suspension is not
                     (`RESUBMITTABLE` on the server), so its sentence above says to contact us. */}
+                {/* The details sent are the verified ones, which Verify your business no
+                    longer lets the owner change, so a correction goes through us. */}
                 {detailsStatus === "rejected" && (
-                  <Link href={verifyHref} className={SECONDARY_BUTTON_SM}>
-                    Fix the details
-                  </Link>
+                  <a
+                    className={SECONDARY_BUTTON_SM}
+                    href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent("Correct our business details")}`}
+                  >
+                    Ask us to correct them
+                  </a>
                 )}
                 {status.can_send_business_details && (
                   <ActionButton
@@ -574,7 +588,10 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
               Top up credit
             </Link>
           )}
-          {codeOf(purchase.error) === "engine_number_unavailable" && (
+          {/* A changed price is refused on the price this dialog sent, so pressing Buy
+              again here would be refused again: the list has to be read afresh. */}
+          {(codeOf(purchase.error) === "engine_number_unavailable" ||
+            codeOf(purchase.error) === "number_price_changed") && (
             <button
               type="button"
               className={SECONDARY_BUTTON_SM}
@@ -583,7 +600,9 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
                 void available.refetch();
               }}
             >
-              See what is still free
+              {codeOf(purchase.error) === "number_price_changed"
+                ? "See the new price"
+                : "See what is still free"}
             </button>
           )}
         </ConfirmDialog>
