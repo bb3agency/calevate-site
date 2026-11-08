@@ -121,7 +121,13 @@ export function SectionEditor({
           rows={3}
           value={section.instruction}
           placeholder={
-            say ? "For example: Mee peru cheppagalara?" : "For example: Ask what they need and when."
+            // Exact words are in the agent's language: only the account's own line in that
+            // language may stand as the example, never a fixed Telugu one.
+            say
+              ? ideaLine
+                ? `For example: ${ideaLine}`
+                : undefined
+              : "For example: Ask what they need and when."
           }
           aria-invalid={errors("instruction").length > 0 || undefined}
           aria-describedby={describedBy || undefined}

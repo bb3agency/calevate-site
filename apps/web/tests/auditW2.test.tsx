@@ -81,6 +81,31 @@ describe("a step's More options", () => {
   });
 });
 
+describe("a step in exact words", () => {
+  it("offers no fixed Telugu example line to an agent in another language", async () => {
+    const script = oneStep();
+    const stage = { ...script.stages![0]!, mode: "say" as const, instruction: "" };
+    const sections = sectionsOf({ ...script, stages: [stage] });
+    await renderClientPage(
+      <SectionEditor
+        section={sections[0]}
+        index={0}
+        sections={sections}
+        context={null}
+        limits={DEFAULT_LIMITS}
+        issues={[]}
+        readOnly={false}
+        onChange={() => {}}
+        onMove={() => {}}
+        onDelete={() => {}}
+      />,
+      {},
+    );
+    const words = screen.getByRole("textbox", { name: "The exact words to say" });
+    expect(words.getAttribute("placeholder") ?? "").not.toMatch(/cheppagalara/);
+  });
+});
+
 const OWNER = {
   impersonating: false,
   withheld_acts: [],
