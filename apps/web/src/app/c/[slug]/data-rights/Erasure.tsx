@@ -124,6 +124,9 @@ export function Erasure({
               // A count fetched for the previous number, standing beside a changed
               // one, is the wrong person's record vouching for this one.
               preview.reset();
+              // So is the last filing's answer ("Already being erased", a refusal): it was
+              // about the number before this one.
+              if (file.data !== undefined || file.error != null) file.reset();
             }}
             minLength={8}
             maxLength={20}

@@ -385,6 +385,10 @@ describe("data rights — filing an erasure", () => {
 
     expect(await screen.findByText(/Already being erased/)).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
+
+    // The sentence was about that number; typing the next one takes it away.
+    type(/Number to erase permanently/, "+919800000002");
+    expect(screen.queryByText(/Already being erased/)).toBeNull();
   });
 });
 
