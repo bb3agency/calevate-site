@@ -14,11 +14,14 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
   formatISTStamp,
 } from "@/components/ui";
+import { ApiProblem } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 import { leadWords, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { useClientRealm } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
@@ -26,6 +29,14 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { GrantControl, WithdrawControl } from "./consentControls";
+
+/** The read's refusal while the signed-in person's login holds no mobile number
+ *  (`compliance/whatsapp_optin_routes._phone_of`). */
+const NEEDS_A_NUMBER = "alert_optin_needs_a_number";
+
+function needsANumber(error: unknown): boolean {
+  return error instanceof ApiProblem && error.code === NEEDS_A_NUMBER;
+}
 
 /**
  * WHO HEARS ABOUT HOT LEADS (D-967): one list. The owner is its first row (email always, to
@@ -84,6 +95,8 @@ export function AlertsScreen() {
         label: "What is on screen",
         value: current
           ? "the alert list below has loaded"
+          : needsANumber(state.error)
+            ? "WhatsApp alerts are off: this login has no mobile number, and this screen cannot add one"
           : state.error != null
             ? "the settings failed to load — this is NOT evidence that alerts are off"
             : "still loading",
@@ -137,7 +150,25 @@ export function AlertsScreen() {
               <p className="text-body font-medium text-ink">You</p>
               <p className="text-meta text-ink-muted">Email to your account email · Always on</p>
             </div>
-            {state.error != null ? (
+            {needsANumber(state.error) ? (
+              // A state, not a fault: the read refuses while the owner's login has no mobile
+              // number, and nothing on the client side can add one yet, so say "off" and
+              // give the one way forward.
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex items-center gap-2 text-body text-ink">
+                  <ServiceLogo service="whatsapp" className="h-5 w-5" />
+                  <span>
+                    WhatsApp <span className="text-meta text-ink-muted">Off · needs a mobile number on your login</span>
+                  </span>
+                </p>
+                <a
+                  className={SECONDARY_BUTTON_SM}
+                  href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent("WhatsApp alerts need my mobile number")}`}
+                >
+                  Contact us
+                </a>
+              </div>
+            ) : state.error != null ? (
               <ProblemNotice error={state.error} onRetry={() => state.refetch()} />
             ) : !current ? (
               <Skeleton rows={1} label="Checking your WhatsApp alerts" />

@@ -12,6 +12,8 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { lookup } from "@/lib/lookup";
+
 import { adminSession } from "./admin";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
@@ -55,6 +57,23 @@ export const PURPOSE_LABELS: Record<string, string> = {
   payment_link: "Payment link",
   callback_time: "Call-back time",
 };
+
+/**
+ * Meta's rejection reason codes, as the change the owner should make. The three named are
+ * the ones ThinnestAI's Meta guide documents (thinnest-findings/mirror/pages/meta/
+ * template-review.md:48-80, mirrored 7 Oct 2026); any other code gets the plain fallback
+ * rather than the raw code.
+ */
+export const REJECTION_REASONS: Record<string, string> = {
+  INVALID_FORMAT: "Put words before the first blank and after the last, and number the blanks 1, 2, 3.",
+  TAG_CONTENT_MISMATCH: "The type or language does not match the message. Pick the right one.",
+  ABUSIVE_CONTENT: "Meta says it breaks their rules. Change the wording.",
+};
+
+/** Why Meta turned a template down, in the owner's words; never the raw code. */
+export function rejectionReason(code: string | null): string {
+  return (code ? lookup(REJECTION_REASONS, code) : undefined) ?? "Meta gave no reason we can show. Change the wording and send it again.";
+}
 
 /** A template's state as the owner reads it, and how loud it is. */
 export function templateState(status: string): { text: string; tone: "ok" | "warn" | "stop" | "neutral" } {

@@ -129,7 +129,11 @@ export function BriefStep({
       <SpokenBrief
         language={language}
         piecesLeft={run.recordings_left}
-        onHeard={(words) => setBrief((current) => [(current ?? "").trim(), words].filter(Boolean).join("\n"))}
+        // Added to what the box SHOWS: before the owner types, that is the account's own
+        // written brief, which `brief` (still null) does not hold.
+        onHeard={(words) =>
+          setBrief((current) => [(current ?? ownBrief ?? "").trim(), words].filter(Boolean).join("\n"))
+        }
         onTypeInstead={() => box.current?.focus()}
         onBusy={setHearing}
       />

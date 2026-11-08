@@ -326,6 +326,8 @@ describe("the account's default model tier", () => {
     await waitFor(() =>
       expect(container.textContent).toContain("Calls use our standard model"),
     );
+    // "Ask us" comes with the way to ask, not as a dead end.
+    expect(screen.getByRole("link", { name: "Contact us" }).getAttribute("href")).toMatch(/^mailto:.*Turn%20on/);
     // Following the default stays possible; pinning a tier that cannot run does not.
     await waitFor(() => expect(radio(/^Calevate's default/).disabled).toBe(false));
     expect(radio(/^Standard/).disabled).toBe(true);

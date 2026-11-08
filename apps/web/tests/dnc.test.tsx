@@ -104,7 +104,7 @@ async function confirmUnsuppress(calls: { method: string }[]): Promise<void> {
     "the row's Remove button must open the dialog and send nothing",
   ).toEqual([]);
   fireEvent.click(
-    within(dialog).getByRole("button", { name: "Un-suppress this number" }),
+    within(dialog).getByRole("button", { name: "Let agents call it" }),
   );
 }
 
@@ -156,9 +156,9 @@ describe("what the list says may be undone", () => {
     ]);
 
     await screen.findByText(SHOWN);
-    expect(container.textContent).toContain("platform-wide");
+    expect(container.textContent).toContain("blocked by Calevate for every account");
     expect(container.textContent).not.toContain("national list");
-    expect(container.textContent).toContain("removed by operations only");
+    expect(container.textContent).toContain("only Calevate can remove it");
     expect(container.textContent).not.toContain("opt-out — cannot be undone");
     expect(removeButtons()).toHaveLength(0);
   });
@@ -401,7 +401,7 @@ describe("when the list itself does not load", () => {
     // `findByRole` throws on two matches — so the assertion was failing on the harness
     // rather than on the page.
     await screen.findByText(/could not read your suppression list/i);
-    expect(container.textContent).not.toContain("Nobody is suppressed yet");
+    expect(container.textContent).not.toContain("No numbers on your list yet");
     // …and no rows either: a failed list renders no number at all.
     expect(container.textContent).not.toContain(PHONE);
   });
@@ -444,7 +444,7 @@ describe("when the list itself does not load", () => {
     await screen.findByText("Showing the 500 most recently added", {
       exact: false,
     });
-    expect(container.textContent).not.toContain("500 entries");
+    expect(container.textContent).not.toContain("500 numbers");
     // A real full-length list, so the timeout is explicit and generous rather than left
     // at vitest's 5s default: this renders five hundred rows, and it shares a machine
     // with `wireLookupGuard`'s whole-program `tsc` build. It runs in under two seconds
@@ -455,7 +455,7 @@ describe("when the list itself does not load", () => {
   it("renders no heading of its own — the shell already prints the page title", async () => {
     const { container } = await renderList([]);
 
-    await screen.findByText("Nobody is suppressed yet");
+    await screen.findByText("No numbers on your list yet");
     expect(container.querySelector("h1")).toBeNull();
   });
 });
@@ -688,7 +688,7 @@ describe("un-suppressing is confirmed before it happens", () => {
     fireEvent.click(removeButtons()[0]);
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(
-      within(dialog).getByRole("button", { name: "Keep it suppressed" }),
+      within(dialog).getByRole("button", { name: "Keep it on the list" }),
     );
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -753,7 +753,7 @@ describe("un-suppressing is confirmed before it happens", () => {
 describe("do not call — the compliance notice printed on the screen", () => {
   it("says the list binds a running campaign, not just the next one", async () => {
     const { container } = await renderList([]);
-    await screen.findByText(/Nobody is suppressed yet/);
+    await screen.findByText(/No numbers on your list yet/);
 
     expect(container.textContent).toContain(
       "Checked live before every single call",

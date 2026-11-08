@@ -235,7 +235,7 @@ export function IntegrationsScreen() {
           DELETE leaves the endpoint live. */}
       {stopping && (
         <ConfirmDialog
-          title="Stop sending events to this endpoint?"
+          title="Stop sending to this destination?"
           confirmLabel="Stop sending events"
           pendingLabel="Stopping…"
           successLabel="Stopped"
@@ -249,12 +249,13 @@ export function IntegrationsScreen() {
           onConfirm={() => deactivate.mutate(stopping.id, { onSuccess: () => setStopping(null) })}
         >
           <p>
-            Your system at <span className="break-all font-mono text-ink">{stopping.url}</span>{" "}
-            will stop receiving leads and call results immediately.
+            <span className="break-all font-mono text-ink">{stopping.url}</span> will stop
+            receiving leads and call results immediately.
           </p>
           <p>
-            <strong className="font-semibold text-ink">This cannot be undone here.</strong> Adding
-            it again gives a NEW signing secret for your CRM.
+            <strong className="font-semibold text-ink">This cannot be undone here.</strong>
+            {/* Only a webhook has a signing secret; a sheet or LeadSquared has none to renew. */}
+            {stopping.kind === "webhook" ? " Adding it again gives a NEW signing secret for your CRM." : " You can add it again."}
           </p>
         </ConfirmDialog>
       )}
