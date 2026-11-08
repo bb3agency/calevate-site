@@ -553,13 +553,29 @@ async def whatsapp_options(
     return WhatsAppOptionsOut(available=True, rule=None, reason=None, templates=choices)
 
 
-async def _send(request: Any) -> int:
-    """Put the Graph request on the wire through the egress guard; the HTTP status."""
+#: The answer when the request got no reply. It may still have been delivered (a read
+#: timeout follows a request Meta can have acted on), so the owner is told to look before
+#: sending again rather than to retry.
+UNANSWERED_RULE: Final = "whatsapp_unanswered"
+_UNANSWERED_REASON: Final = "WhatsApp did not answer. Check the chat before sending it again."
+
+
+async def _send(request: Any) -> int | None:
+    """Put the Graph request on the wire through the egress guard; the HTTP status, or None
+    when no answer came back (connect failure, timeout, the send deadline). Answered rather
+    than raised: a raise here was a 500 on the leads screen with nothing on the timeline,
+    and a Follow-up step that failed its idempotency claim and could send twice on retry."""
+    import httpx
+
     from apps.api.actions.execution import send_prepared
     from apps.api.integrations.egress_guard import egress_client
 
-    async with egress_client(timeout=10.0) as http:
-        response = await send_prepared(request, client=http)
+    try:
+        async with egress_client(timeout=10.0) as http:
+            response = await send_prepared(request, client=http)
+    except (httpx.HTTPError, TimeoutError) as exc:
+        log.warning("lead_whatsapp_follow_up_unanswered", extra={"error": type(exc).__name__})
+        return None
     return response.status_code
 
 
@@ -613,6 +629,11 @@ async def send_whatsapp_follow_up(
         body_values=values,
     )
     status_code = await _send(request)
+    if status_code is None:
+        return (
+            WhatsAppSendOut(status="failed", rule=UNANSWERED_RULE, reason=_UNANSWERED_REASON),
+            chosen.name,
+        )
     if 200 <= status_code < 300:
         return WhatsAppSendOut(status="sent"), chosen.name
     log.warning(
