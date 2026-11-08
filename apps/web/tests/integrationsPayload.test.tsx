@@ -335,7 +335,7 @@ describe("the integration logs when the read did not answer (§52)", () => {
     const { container } = await renderClientPage(page, routes());
 
     // Neither empty state may be stated about a request that was never sent.
-    expect(container.textContent).not.toContain("No endpoints yet");
+    expect(container.textContent).not.toContain("No destinations yet");
     expect(container.textContent).not.toContain("Nothing sent yet");
     // Both cards say they did not load instead.
     expect(
@@ -373,6 +373,6 @@ describe("the integration logs when the read did not answer (§52)", () => {
       await screen.findAllByText("Your endpoints could not be read."),
     ).toHaveLength(1);
     // …and stated once, not once per place that used to carry it.
-    expect(screen.queryByText("No endpoints yet")).toBeNull();
+    expect(screen.queryByText("No destinations yet")).toBeNull();
   });
 });

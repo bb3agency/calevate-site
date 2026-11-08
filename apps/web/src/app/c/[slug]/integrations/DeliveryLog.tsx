@@ -219,7 +219,7 @@ export function DeliveryLog({
           ) : payload.data ? (
             <>
               <p className="mt-1 text-xs text-ink-faint">
-                Exactly what your endpoint got. Holds customer details.
+                Exactly what it received. Holds customer details.
               </p>
               {payload.data.truncated && (
                 <p className="mt-2 text-xs text-warn">

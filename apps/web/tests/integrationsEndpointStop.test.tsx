@@ -246,7 +246,7 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
 
     await screen.findByText(URL_A);
     expect(container.textContent).toContain(
-      "stopped — add a new endpoint to resume",
+      "Stopped. Add it again to restart.",
     );
     expect(stopButtons()).toHaveLength(0);
   });

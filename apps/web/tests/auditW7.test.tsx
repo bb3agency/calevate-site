@@ -37,6 +37,38 @@ function integrationRoutes(over: Routes = {}): Routes {
   };
 }
 
+describe("where results are sent, in the owner's words", () => {
+  const sheet = {
+    id: "e1",
+    kind: "google_sheets",
+    url: "https://docs.google.com/spreadsheets/d/abc",
+    events: ["lead.created"],
+    active: true,
+    secret_fingerprint: "ready",
+    include_recording_url: false,
+    include_transcript: false,
+    include_raw_transcript: false,
+    created_at: "2026-08-01T10:00:00Z",
+  };
+
+  it("calls an empty list destinations, never endpoints", async () => {
+    const { container } = await renderClientPage(<IntegrationsPage />, integrationRoutes());
+    expect(await screen.findByText("No destinations yet.")).toBeTruthy();
+    expect(container.textContent).not.toMatch(/endpoint/i);
+  });
+
+  it("does not promise a sheet a new signing secret when it is stopped", async () => {
+    await renderClientPage(
+      <IntegrationsPage />,
+      integrationRoutes({ "/v1/integrations/endpoints": [sheet] }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: `Stop sending events to ${sheet.url}` }));
+    const dialog = await screen.findByRole("dialog", { name: "Stop sending to this destination?" });
+    expect(dialog.textContent).not.toContain("signing secret");
+    expect(dialog.textContent).not.toMatch(/endpoint/i);
+  });
+});
+
 describe("a template Meta turned down", () => {
   it("says what to change, never Meta's raw reason code", async () => {
     const { container } = await renderClientPage(<IntegrationsPage />, integrationRoutes());

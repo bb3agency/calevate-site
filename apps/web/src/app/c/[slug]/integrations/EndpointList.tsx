@@ -150,7 +150,7 @@ export function EndpointList({
           </div>
         ) : (
           // There is no re-activate route, so a stopped row says how to resume.
-          <span className="text-xs text-ink-faint">stopped — add a new endpoint to resume</span>
+          <span className="text-xs text-ink-faint">Stopped. Add it again to restart.</span>
         ),
     },
   ];
@@ -161,15 +161,15 @@ export function EndpointList({
         <Skeleton rows={2} />
       ) : endpoints.error || !endpoints.data ? (
         <ProblemNotice
-          error={endpoints.error ?? new Error("Your endpoints could not be loaded.")}
+          error={endpoints.error ?? new Error("Your destinations could not be loaded.")}
           onRetry={() => endpoints.refetch()}
         />
       ) : endpoints.data.length ? (
-        <DataTable label="Your endpoints" rows={endpoints.data} columns={columns} getRowId={(e) => e.id} />
+        <DataTable label="Your destinations" rows={endpoints.data} columns={columns} getRowId={(e) => e.id} />
       ) : (
         <EmptyState
           illustration={<EmptySketch kind="deliveries" />}
-          message="No endpoints yet."
+          message="No destinations yet."
           action={
             onAdd ? (
               <button type="button" className={SECONDARY_BUTTON_SM} onClick={onAdd}>
