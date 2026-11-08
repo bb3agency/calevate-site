@@ -65,7 +65,9 @@ def test_a_choice_that_means_the_platforms_own_still_wins_over_the_account() -> 
 @pytest.mark.parametrize(
     ("column", "bad"),
     [
-        ("nudge_after_seconds", 4),
+        # The founder's floor (6 Nov 2026): at least 10 s, though the engine takes 5.
+        ("nudge_after_seconds", 9),
+        ("nudge_after_seconds", 5),
         ("nudge_after_seconds", 181),
         ("nudge_count", 0),
         ("nudge_count", 6),
@@ -117,6 +119,7 @@ async def test_an_agent_takes_each_setting_and_says_where_it_comes_from() -> Non
         assert first["nudge_after_seconds_source"] == "platform"
         assert first["filler_lines_effective"] == []
         assert first["ambience_effective"] == "off"
+        assert first["bounds"]["nudge_after_min_s"] == 10
         assert first["bounds"]["nudge_after_max_s"] == 180
         assert first["bounds"]["ambiences"] == ["off", "office", "office-quiet"]
 
@@ -189,6 +192,7 @@ async def test_an_agent_takes_each_setting_and_says_where_it_comes_from() -> Non
     ("body", "field"),
     [
         ({"nudge_after_seconds": 3}, "nudge_after_seconds"),
+        ({"nudge_after_seconds": 9}, "nudge_after_seconds"),
         ({"nudge_after_seconds": 181}, "nudge_after_seconds"),
         ({"nudge_count": 6}, "nudge_count"),
         ({"nudge_phrase": "x" * 121}, "nudge_phrase"),

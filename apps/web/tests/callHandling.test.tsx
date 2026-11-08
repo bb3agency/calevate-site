@@ -442,14 +442,14 @@ describe("the voice settings", () => {
       [AGENT_PATH]: agent(),
       [`POST ${ALL_PATH}`]: allAgents(organization({ nudge_after_seconds: 0, nudge_after_seconds_effective: 0 }), 1),
     });
-    await screen.findByText("Asks after 8 s, once · hangs up after 20 s of silence");
+    await screen.findByText("Asks after 15 s, once · hangs up after 20 s of silence");
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(changes[3]);
     });
     await pick(/^All my agents/);
     expect(screen.getByText("Every agent uses this. 1 agent that has its own setting will change too.")).toBeTruthy();
-    await toggle("Use the Calevate default: asks after 8 s");
+    await toggle("Use the Calevate default: asks after 15 s");
     await pick("Never ask");
     await press("Save for all agents");
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
@@ -479,7 +479,7 @@ describe("the voice settings", () => {
         end_after_silence_seconds_effective: 180,
       }),
     });
-    await screen.findByText("Asks after 8 s, once · hangs up after 20 s of silence");
+    await screen.findByText("Asks after 15 s, once · hangs up after 20 s of silence");
     const changes = screen.getAllByRole("button", { name: "Change" });
     await act(async () => {
       fireEvent.click(changes[3]);
@@ -488,9 +488,9 @@ describe("the voice settings", () => {
     expect(screen.queryByRole("spinbutton")).toBeNull();
     expect(screen.queryByText(/empty:/)).toBeNull();
 
-    await toggle("Use the Calevate default: asks after 8 s");
+    await toggle("Use the Calevate default: asks after 15 s");
     const wait = screen.getByLabelText("Quiet before asking") as HTMLInputElement;
-    expect([wait.min, wait.max, wait.value]).toEqual(["5", "180", "8"]);
+    expect([wait.min, wait.max, wait.value]).toEqual(["10", "180", "15"]);
     await act(async () => {
       fireEvent.change(wait, { target: { value: "12" } });
     });

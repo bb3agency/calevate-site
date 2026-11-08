@@ -126,9 +126,9 @@ export const CALL_HANDLING_BOUNDS = {
   turn_silence_max_ms: 3000,
   platform_turn_silence_ms: 250,
   platform_end_call_on_finish: true,
-  nudge_after_min_s: 5,
+  nudge_after_min_s: 10,
   nudge_after_max_s: 180,
-  platform_nudge_after_seconds: 8,
+  platform_nudge_after_seconds: 15,
   nudge_count_min: 1,
   nudge_count_max: 5,
   platform_nudge_count: 1,
@@ -180,7 +180,7 @@ export const VOICE_OWN_NONE = {
 
 /** Calevate's voice settings in force. */
 export const VOICE_EFFECTIVE_DEFAULTS = {
-  nudge_after_seconds_effective: 8,
+  nudge_after_seconds_effective: 15,
   nudge_count_effective: 1,
   nudge_phrase_effective: "",
   end_after_silence_seconds_effective: 20,
