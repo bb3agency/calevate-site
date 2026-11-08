@@ -33,6 +33,7 @@ import {
   PURPOSE_LABELS,
   TEMPLATE_REVIEW_HOURS,
   fillTemplate,
+  rejectionReason,
   templateBlanks,
   templateNameFrom,
   templateState,
@@ -154,8 +155,8 @@ export function Templates({
                         Blanks: {t.variables.map((v, i) => `${i + 1} ${v.label}`).join(" · ")}
                       </p>
                     )}
-                    {t.status === "rejected" && t.rejection_code && (
-                      <p className="text-meta text-danger">Meta&rsquo;s reason: {t.rejection_code}</p>
+                    {t.status === "rejected" && (
+                      <p className="text-meta text-danger">{rejectionReason(t.rejection_code)}</p>
                     )}
                     {t.category_changed_to && (
                       <p className="text-meta text-ink-muted">
