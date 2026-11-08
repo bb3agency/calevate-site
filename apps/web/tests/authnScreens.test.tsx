@@ -520,6 +520,23 @@ describe("the reset request tells you nothing either way", () => {
     ).not.toContain("Check your inbox");
   });
 
+  it("lets you try another address, as its own line tells you to", async () => {
+    await renderPage(<ClientForgotPasswordPage />, {
+      "POST /v1/auth/client/password/reset/request": {},
+    });
+    fireEvent.change(screen.getByLabelText("Email address"), {
+      target: { value: "someone@example.com" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Email me a reset link" }));
+    await screen.findByText(/then try another address/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try another address" }));
+    const field = (await screen.findByLabelText("Email address")) as HTMLInputElement;
+    // Back on the form, with what they typed still there to correct.
+    expect(field.value).toBe("someone@example.com");
+    expect(screen.getByRole("button", { name: "Email me a reset link" })).toBeTruthy();
+  });
+
   it("sends an Idempotency-Key that is not the address", async () => {
     const view = await renderPage(<ClientForgotPasswordPage />, {
       "POST /v1/auth/client/password/reset/request": {},

@@ -27,6 +27,7 @@ import { MailCheck } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
+import { TEXT_ACTION } from "@/components/console/section";
 import { NoticeBox } from "@/components/ui";
 import type { RealmAuthn } from "@/lib/authn/realm";
 import { useIdempotencyKey } from "@/lib/authn/useIdempotencyKey";
@@ -63,6 +64,11 @@ export function ResetRequestForm({ authn }: { authn: RealmAuthn }) {
           <p className="text-meta text-ink-faint">
             No email? Check spam, then try another address.
           </p>
+          {/* The line above sends them to another address, so the screen offers the way
+              back to the field; without it the only route was reloading the page. */}
+          <button type="button" className={TEXT_ACTION} onClick={() => request.reset()}>
+            Try another address
+          </button>
         </div>
       </div>
     );
