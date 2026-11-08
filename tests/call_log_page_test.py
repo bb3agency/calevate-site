@@ -11,11 +11,13 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
+from apps.api.core.settings import Settings
 from apps.api.db.session import get_engine, tenant_session
-from sqlalchemy import event
+from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import create_async_engine
 from tests.call_log_live_rows_test import _ended
 from tests.first_run_test import _owner
 from tests.test_call_status_test import (
@@ -108,6 +110,35 @@ async def test_per_row_work_runs_for_one_page_not_the_whole_history() -> None:
     assert max(loops) <= 5, plan
 
 
+async def _ledger_history(tenant_id: UUID) -> None:
+    """Give the account a realistic ledger: hundreds of call debits, then fresh statistics.
+
+    With a handful of rows the ledger key and the tenant-and-time index cost the same, so
+    the planner's pick is arbitrary and follows what the rest of the suite left in
+    `credit_ledger` (a full run picked `ix_credit_ledger_tenant_recent`, 8 Nov 2026). A long
+    history is the production shape the key probe exists for. ANALYZE needs the table
+    owner, hence the owner connection, as in `calls_created_index_test`.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO credit_ledger (id, tenant_id, delta, reason, ref, balance_after, "
+                "occurred_at) SELECT gen_random_uuid(), :tid, -0.01, 'usage', "
+                "'history-' || :run || '-' || n, 100, now() - make_interval(hours => n) "
+                "FROM generate_series(1, 600) AS n"
+            ),
+            {"tid": tenant_id, "run": uuid4().hex},
+        )
+    owner_url = Settings().alembic_database_url
+    assert owner_url, "ALEMBIC_DATABASE_URL required: ANALYZE needs the table owner"
+    engine = create_async_engine(owner_url)
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ANALYZE credit_ledger"))
+    finally:
+        await engine.dispose()
+
+
 async def test_what_a_call_cost_is_read_through_the_ledger_key() -> None:
     """The credit column's lookup carries the key's partial bound, so it is an index probe
     per row rather than a read of every debit the account has."""
@@ -117,6 +148,7 @@ async def test_what_a_call_cost_is_read_through_the_ledger_key() -> None:
 
     tenant_id, agent_id = await _trial_tenant()
     call_id = await _ended(tenant_id, agent_id, started=datetime.now(UTC) - timedelta(minutes=3))
+    await _ledger_history(tenant_id)
     async with tenant_session(tenant_id) as session:
         await record_entry(
             session,
