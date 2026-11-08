@@ -146,7 +146,7 @@ export function StepRail({
   const at = Math.min(current, steps.length - 1);
   return (
     <nav aria-label="Steps" className={look.nav}>
-      <ol className={`${steps.length === 3 ? "grid-cols-3" : "grid-cols-4"} ${look.list}`}>
+      <ol className={steps.length === 3 ? look.list3 : look.list4}>
         {steps.map((entry, index) => {
           const done = index < current;
           const here = index === current;
@@ -215,7 +215,8 @@ export function StepRail({
  */
 const ROW = {
   nav: "@container",
-  list: "grid gap-1.5 @min-[44rem]:flex @min-[44rem]:items-center @min-[44rem]:gap-0",
+  list3: "grid grid-cols-3 gap-1.5 @min-[44rem]:flex @min-[44rem]:items-center @min-[44rem]:gap-0",
+  list4: "grid grid-cols-4 gap-1.5 @min-[44rem]:flex @min-[44rem]:items-center @min-[44rem]:gap-0",
   item: "flex min-w-0 flex-col gap-1.5 @min-[44rem]:flex-row @min-[44rem]:items-center @min-[44rem]:gap-0",
   joined: "@min-[44rem]:flex-1",
   line: "mx-3 hidden h-px min-w-6 flex-1 @min-[44rem]:block",
@@ -228,9 +229,9 @@ const ROW = {
 
 const COLUMN = {
   nav: "",
-  // `lg:grid-cols-1`, not a bare `grid-cols-1`: the list also carries the narrow shape's
-  // `grid-cols-3`/`-4`, which a bare one loses to, laying the steps across a 13rem column.
-  list: "grid gap-1.5 lg:grid-cols-1 lg:gap-1",
+  // Three or four across on a narrow screen; one stacked column in the wide side column.
+  list3: "grid grid-cols-3 gap-1.5 lg:grid-cols-1 lg:gap-1",
+  list4: "grid grid-cols-4 gap-1.5 lg:grid-cols-1 lg:gap-1",
   item: "flex min-w-0 flex-col gap-1.5 lg:block",
   joined: "",
   line: "",

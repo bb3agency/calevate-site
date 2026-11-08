@@ -12,6 +12,7 @@
  */
 
 import { livePoll } from "@/lib/live/liveStatus";
+import { lookup } from "@/lib/lookup";
 import {
   useMutation,
   useQuery,
@@ -62,7 +63,8 @@ const PLAN_LABELS: Readonly<Record<string, string>> = {
 };
 
 export function planLabel(tier: string): string {
-  if (Object.prototype.hasOwnProperty.call(PLAN_LABELS, tier)) return PLAN_LABELS[tier];
+  const known = lookup(PLAN_LABELS, tier);
+  if (known !== undefined) return known;
   const words = tier.replace(/_/g, " ").trim();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
