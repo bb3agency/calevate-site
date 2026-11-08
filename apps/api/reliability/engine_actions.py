@@ -502,7 +502,7 @@ class ActionsReconciliation:
     @property
     def changed_live_agent(self) -> bool:
         """Something at the vendor had moved away from what we published."""
-        return bool(self.repaired or self.reenabled or self.removed)
+        return bool(self.repaired or self.reenabled or self.removed or self.rekeyed)
 
 
 async def _call_backs_allowed(session: AsyncSession, agent_id: UUID | None) -> bool:

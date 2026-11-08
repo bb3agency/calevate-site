@@ -431,6 +431,23 @@ async def test_a_two_turn_call_is_settled_without_asking_a_model() -> None:
     assert await _state(tenant_id, call_id) == caller_memory.CALLER_MEMORY_NOTHING
 
 
+@pytest.mark.parametrize("number", ["9876543210", "+910000000001"])
+async def test_a_number_no_fact_can_be_filed_under_costs_no_model_call(number: str) -> None:
+    """A party number that is not canonical E.164, or is an anonymized placeholder, is
+    refused by `remember`; asking the model first paid for a reading, rolled it back with
+    its meter row, and left the call pending at the head of every tick."""
+    tenant_id, agent_id = await _tenant()
+    call_id = await _finished_call(tenant_id, agent_id, from_e164=number)
+    calls: list[int] = []
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            caller_memory_distil.chat, "complete", _model(f'{{"facts": ["{FACT}"]}}', calls)
+        )
+        await distil_caller_memories({})
+    assert calls == []
+    assert await _state(tenant_id, call_id) == caller_memory.CALLER_MEMORY_SKIPPED
+
+
 async def test_a_clinic_is_refused_before_a_model_is_ever_asked() -> None:
     """D-507(b), and the assertion is on the SPEND as well as on the table: a refusal that
     only silenced `recall()` would leave rows accumulating for a client whose calls may

@@ -695,10 +695,20 @@ components_for_paths() {
       # shared would be a lie that ships a stale receiver.
       apps/api/core/*)
         hit[api]=1; hit[voice-runtime]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
+      # The rest of what voice-runtime loads from apps/api: the session, uuid7 and the
+      # inbox claim. The set is ALLOWED_APPS_MODULES in
+      # tests/voice_runtime_import_surface_test.py, which this arm must keep naming.
+      apps/api/__init__.py|apps/api/db/__init__.py|apps/api/db/base.py|apps/api/db/result.py|apps/api/db/session.py|apps/api/reliability/__init__.py|apps/api/reliability/service.py|apps/api/reliability/engine_intake_keys.py)
+        hit[api]=1; hit[voice-runtime]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
       apps/voice-runtime/*)
         hit[voice-runtime]=1 ;;
+      # The api imports worker modules too (the redactor, storage, job helpers).
       apps/workers/*)
-        hit[workers]=1; hit[workers-bulk]=1 ;;
+        hit[api]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
+      # The seed data the api and the workers read at run time (retention defaults,
+      # vertical templates).
+      scripts/seed.py|scripts/__init__.py)
+        hit[api]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
       # Everything else under apps/api is the monolith proper. Workers import it
       # (the post-call pipeline is built on those modules); voice-runtime does not.
       apps/api/*)

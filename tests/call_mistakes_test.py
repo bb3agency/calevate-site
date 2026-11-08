@@ -334,3 +334,25 @@ def test_a_line_said_again_unasked_is_still_said_again() -> None:
         ("agent", "Which area of the city do you live in?"),
     )
     assert "said_again" in mistakes_in(looped, language="en-IN")
+
+
+def test_english_after_the_caller_moved_to_english_is_the_right_language() -> None:
+    """A Telugu agent whose caller switched to English answers their "Okay." in English;
+    the greeting rule (no reason to leave Telugu for a "hello") does not apply any more."""
+    call = _call(
+        ("agent", "నమస్కారం అండి, మీకు ఎలా సహాయం చేయగలను?"),
+        ("caller", "Can you tell me the price of chilli powder?"),
+        ("agent", "Half a kilo is two hundred rupees. Would you like to order some?"),
+        ("caller", "Okay."),
+        ("agent", "Shall I note half a kilo for you then?"),
+    )
+    assert "wrong_language" not in mistakes_in(call, language="te-IN")
+
+
+def test_english_for_a_bare_hello_is_still_the_wrong_language() -> None:
+    call = _call(
+        ("agent", "నమస్కారం అండి, మీకు ఎలా సహాయం చేయగలను?"),
+        ("caller", "Hello."),
+        ("agent", "Hello, how can I help you today with your order?"),
+    )
+    assert mistakes_in(call, language="te-IN").get("wrong_language") == 2

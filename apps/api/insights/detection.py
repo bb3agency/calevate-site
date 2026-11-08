@@ -65,6 +65,8 @@ Signal = Literal["dont_know", "deferred_channel", "unanswered_question"]
 #: sitting between them. Wider than that and we start attributing a deflection to a question
 #: from a different part of the call.
 _LOOKBACK_TURNS: Final = 2
+#: The most words a backchannel the lookback steps over may have ("one moment please").
+_HOLDING_LINE_MAX_WORDS: Final = 3
 
 #: A speaker label the transcript uses. `TranscriptTurn.speaker` is exactly this `Literal`
 #: (`calevate_shared.events.Speaker`), so a Protocol keeps this module coupled to no ORM.
@@ -257,6 +259,13 @@ def _classify(agent_text: str) -> Signal | None:
     return None
 
 
+#: The bucket for a question no topic names: (key, label).
+GENERAL_TOPIC: Final = ("general", "General question")
+#: The key prefix of a topic named from the caller's own words, which an erasure re-files
+#: under `GENERAL_TOPIC` (`service.scrub_quotes_for_calls`).
+WORDED_TOPIC_PREFIX: Final = "q_"
+
+
 def _topic(caller_text: str, agent_text: str, withheld: Collection[str] = ()) -> tuple[str, str]:
     """(topic_key, label) for a gap. Canonical if a keyword matches, else phrase-derived.
 
@@ -275,9 +284,9 @@ def _topic(caller_text: str, agent_text: str, withheld: Collection[str] = ()) ->
     stopwords = _STOPWORDS()
     words = [w for w in _WORD_RE.findall(caller_text.lower()) if w not in stopwords and len(w) > 2]
     if not words:
-        return "general", "General question"
+        return GENERAL_TOPIC
     picked = words[:3]
-    return "q_" + "_".join(picked), " ".join(picked).capitalize()
+    return WORDED_TOPIC_PREFIX + "_".join(picked), " ".join(picked).capitalize()
 
 
 def topics_in(value: str, withheld: Collection[str] = ()) -> frozenset[str]:
@@ -352,8 +361,13 @@ def _nearest_caller(turns: Sequence[Turn], agent_idx: int) -> str | None:
     """The text of the closest caller turn in the `_LOOKBACK_TURNS` before `agent_idx`."""
     start = max(0, agent_idx - _LOOKBACK_TURNS)
     for j in range(agent_idx - 1, start - 1, -1):
-        if turns[j].speaker == "caller" and turns[j].text.strip():
+        words = turns[j].text.split()
+        if turns[j].speaker == "caller" and words:
             return turns[j].text
+        if turns[j].speaker == "agent" and len(words) > _HOLDING_LINE_MAX_WORDS:
+            # An agent line between them that said something answered the question; a
+            # later line ("you can call us anytime") is not the reply to it.
+            return None
     return None
 
 

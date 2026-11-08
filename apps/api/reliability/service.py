@@ -65,6 +65,13 @@ OUTBOX_BATCH = 50
 # to the case where the holder never got far enough to record its own failure.
 CLAIM_LEASE = timedelta(minutes=10)
 
+# How long an `enqueued` row may wait for its worker before a re-delivery may take it over.
+# Longer than a job's whole life in arq (three tries of up to `job_timeout` 300s plus the
+# retry ladder), so a job still queued or running is not doubled; past it the job was lost
+# (cancelled on timeout, its tries exhausted, or it failed after its work) and nothing
+# would ever close the row, so a vendor re-send would be answered `duplicate` and dropped.
+ENQUEUED_LEASE = timedelta(hours=1)
+
 # The outbox's own lease — the same doctrine, a different unit of work, so a different
 # number (migration 7c04ab5f9e26).
 #
@@ -746,7 +753,9 @@ async def _dead_letter_exhausted_claims(conn: AsyncConnection) -> None:
         )
 
 
-async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_id: str) -> None:
+async def mark_outbox_published(
+    session: AsyncSession, *, message_id: UUID, job_id: str, still_running: bool = False
+) -> None:
     """Terminal transition, and the payload is FORGOTTEN in the same statement.
 
     **A PUBLISHED ROW USED TO KEEP ITS PAYLOAD FOR NINETY DAYS.** Nothing deleted it until
@@ -786,9 +795,15 @@ async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_
     that records the success — the exposure is "until the work is done", not ninety days.
     `consume_by` is the deadline `sweep_unconsumed_outbox` holds a run to.
     """
+    # A re-publish arq refused because the run is still queued or running did not attempt
+    # anything, so it hands back the attempt its claim spent: otherwise a message waiting
+    # behind a long bulk backlog spends one attempt per `OUTBOX_CONSUME_DEADLINE` and is
+    # dead-lettered while arq still holds it.
     await session.execute(
         text(
             "UPDATE outbox_messages SET status = 'published', job_id = :job_id, "
+            "attempt_count = CASE WHEN :refund THEN GREATEST(attempt_count - 1, 0) "
+            "ELSE attempt_count END, "
             "payload = CASE WHEN job = ANY(CAST(:scrub AS text[])) THEN '{}'::jsonb "
             "ELSE payload END, "
             "consume_by = CASE WHEN job = ANY(CAST(:scrub AS text[])) THEN NULL "
@@ -799,6 +814,7 @@ async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_
         {
             "id": message_id,
             "job_id": job_id,
+            "refund": still_running,
             "scrub": sorted(SCRUB_AT_PUBLISH_JOBS),
             "deadline": OUTBOX_CONSUME_DEADLINE,
         },
@@ -847,11 +863,14 @@ async def outbox_message_consumed(session: AsyncSession, *, message_id: UUID, jo
 
 async def mark_outbox_consumed(session: AsyncSession, *, message_id: UUID, job: str) -> None:
     """Record that a run of this message succeeded, and forget its payload in the same
-    statement: from here the row only answers "was this done". First writer wins; the
-    status column is the dispatcher's and is not touched."""
+    statement: from here the row only answers "was this done". First writer wins. The
+    status column is the dispatcher's, with one exception: a dead-lettered row whose run
+    then succeeded leaves the DLQ (to `published`, so it is pruned), since nobody should
+    replay work that was done."""
     await session.execute(
         text(
-            "UPDATE outbox_messages SET consumed_at = now(), payload = '{}'::jsonb "
+            "UPDATE outbox_messages SET consumed_at = now(), payload = '{}'::jsonb, "
+            "status = CASE WHEN status = 'failed' THEN 'published' ELSE status END "
             "WHERE id = :id AND job = :job AND consumed_at IS NULL"
         ),
         {"id": message_id, "job": job},
@@ -1379,9 +1398,13 @@ async def claim_inbox_event(
             "webhook_payload_mismatch",
             "This event id was already received with different content.",
         )
-    if status in ("failed", "processing"):
+    if status in ("failed", "processing", "enqueued"):
         # FAILED = the consumer recorded its own defeat. PROCESSING past the lease =
-        # the consumer died before it could. Both mean nobody is doing this work, and
+        # the consumer died before it could. ENQUEUED past `ENQUEUED_LEASE` = the job
+        # was handed to arq and never reported back (timed out, its tries exhausted);
+        # measured from `enqueued_at`, because a duplicate bumps `updated_at` on that
+        # status and a vendor retrying would keep a lost job looking alive. All three
+        # mean nobody is doing this work, and
         # for an at-most-once engine event (D-31) "nobody is doing this work and the
         # key says duplicate" is a silently dropped call.
         #
@@ -1395,9 +1418,10 @@ async def claim_inbox_event(
             text(
                 "UPDATE webhook_inbox_events SET status = 'processing', updated_at = now() "
                 "WHERE id = :id AND (status = 'failed' OR "
-                "(status = 'processing' AND updated_at < now() - :lease))"
+                "(status = 'processing' AND updated_at < now() - :lease) OR "
+                "(status = 'enqueued' AND enqueued_at < now() - :enqueued_lease))"
             ),
-            {"id": found_id, "lease": CLAIM_LEASE},
+            {"id": found_id, "lease": CLAIM_LEASE, "enqueued_lease": ENQUEUED_LEASE},
         )
         if rowcount_of(retried):
             return InboxClaim(state="claimed", row_id=found_id)
@@ -1440,6 +1464,11 @@ async def mark_inbox_enqueued(session: AsyncSession, *, row_id: UUID) -> None:
 # marked `processed`, and the vendor's next retry re-drives the whole post-call pipeline for
 # a call that has already been metered, extracted and notified on.
 _INBOX_OPEN = "('processing', 'enqueued')"
+# A success may also close a `failed` row: a job that marked its row failed before asking
+# arq for a retry (so the key stays re-claimable while it waits) and then succeeded did the
+# work, and a row left `failed` would invite a re-run on the next re-send and is never
+# pruned. Only a failure must not overwrite a close, which `_INBOX_OPEN` alone guards.
+_INBOX_CLOSABLE = "('processing', 'enqueued', 'failed')"
 
 
 async def mark_inbox_processed(session: AsyncSession, *, row_id: UUID) -> None:
@@ -1470,7 +1499,8 @@ async def mark_inbox_processed(session: AsyncSession, *, row_id: UUID) -> None:
         await session.execute(
             text(
                 "UPDATE webhook_inbox_events SET status = 'processed', processed_at = now(), "
-                f"updated_at = now() WHERE id = :id AND status IN {_INBOX_OPEN} "
+                "last_error = NULL, "
+                f"updated_at = now() WHERE id = :id AND status IN {_INBOX_CLOSABLE} "
                 "RETURNING provider, "
                 "  EXTRACT(EPOCH FROM (processed_at - created_at)) * 1000 AS handling_ms"
             ),

@@ -232,6 +232,24 @@ def test_sending_what_was_asked_for_is_the_answer_not_a_gap() -> None:
     )
 
 
+def test_a_question_the_agent_already_answered_is_no_gap_on_its_next_line() -> None:
+    turns = _turns(
+        ("caller", "What are your timings?"),
+        ("agent", "We are open nine to six, Monday to Saturday."),
+        ("agent", "You can call us anytime."),
+    )
+    assert detect_gaps(turns) == []
+
+
+def test_a_deflection_after_a_holding_line_still_finds_the_question() -> None:
+    turns = _turns(
+        ("caller", "Do you deliver to Guntur?"),
+        ("agent", "One moment."),
+        ("agent", "I don't know about that, sorry."),
+    )
+    assert [g.signal for g in detect_gaps(turns)] == ["dont_know"]
+
+
 def test_a_call_back_the_caller_asked_for_is_not_a_punt() -> None:
     assert is_gap("Can you call me back tomorrow?", "Sure, we will call you back tomorrow.") is None
     assert is_gap("What is the warranty?", "The team will call you back about that.") == (

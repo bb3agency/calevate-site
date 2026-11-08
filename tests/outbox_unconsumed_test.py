@@ -309,3 +309,37 @@ def test_every_migration_from_now_on_stamps_the_outbox_work_it_queues() -> None:
         if "INSERT INTO outbox_messages" in source and "min_revision" not in source:
             unstamped.append(revision.revision)
     assert unstamped == []
+
+
+# ------------------------------------------------------------------ a long bulk backlog
+
+
+async def _attempts(message_id: UUID) -> int:
+    async with untenanted_session() as session:
+        value = (
+            await session.execute(
+                text("SELECT attempt_count FROM outbox_messages WHERE id = :id"),
+                {"id": message_id},
+            )
+        ).scalar_one()
+    return int(value)
+
+
+async def test_a_re_publish_refused_as_still_running_spends_no_attempt() -> None:
+    """A message queued behind a backlog is re-published every `OUTBOX_CONSUME_DEADLINE`;
+    arq refuses each as still queued, and none of those may count towards the DLQ."""
+    message_id = await _row(PROBE_JOB, attempts=3)
+    async with untenanted_session() as session:
+        await rel.mark_outbox_published(
+            session, message_id=message_id, job_id="deduped", still_running=True
+        )
+    assert await _attempts(message_id) == 2
+
+
+async def test_a_dead_lettered_message_whose_run_then_succeeds_leaves_the_dlq() -> None:
+    message_id = await _row(PROBE_JOB, status="failed", attempts=rel.OUTBOX_MAX_ATTEMPTS)
+    async with untenanted_session() as session:
+        await rel.mark_outbox_consumed(session, message_id=message_id, job=PROBE_JOB)
+    state = await _read(message_id)
+    assert state["consumed"]
+    assert state["status"] == "published", "a person would replay work that was done"
