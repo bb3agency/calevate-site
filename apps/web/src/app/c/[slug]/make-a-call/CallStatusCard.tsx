@@ -7,6 +7,7 @@ import { Check, PhoneForwarded } from "lucide-react";
 import { SECONDARY_BUTTON } from "@/components/ui";
 import { useLiveCalls } from "@/lib/api/liveCalls";
 import { useClientRealm } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 
 /** The statuses a call is still under way in (`calevate_shared.events.CallStatus`). */
 const UNDER_WAY = new Set(["queued", "ringing", "in_progress"]);
@@ -68,7 +69,7 @@ export function CallStatusCard({
   }, [row]);
   const status = seen.status;
   const step = stepOf(status, done);
-  const words = WORDS[status] ?? status.replace(/_/g, " ");
+  const words = lookup(WORDS, status) ?? status.replace(/_/g, " ");
 
   return (
     <section aria-labelledby="call-status-heading" className="rounded-lg border border-line bg-surface p-4 sm:p-6">
