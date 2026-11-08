@@ -64,11 +64,20 @@ class BusinessCopyOut(BaseModel):
     stop_message: str | None
 
 
+def _shown(placeholders: service.Placeholders) -> service.Placeholders:
+    """The placeholders a screen may show. A copy written before `copy_problems` refused it
+    may still hold a reason for calling that claims the person enquired; it is left out, and
+    the screen shows its neutral example, until the next run writes a true one."""
+    if service.claims_earlier_contact(placeholders.outbound_purpose):
+        return placeholders.model_copy(update={"outbound_purpose": None})
+    return placeholders
+
+
 def render(state: service.CopyState | None) -> BusinessCopyOut:
     copy = state.copy if state is not None else None
     reason = state.stop_reason if state is not None else None
     return BusinessCopyOut(
-        placeholders=copy.placeholders if copy is not None else None,
+        placeholders=_shown(copy.placeholders) if copy is not None else None,
         steps=list(copy.steps) if copy is not None else [],
         caller_details=list(copy.caller_details) if copy is not None else [],
         example_questions=list(copy.example_questions) if copy is not None else [],
