@@ -9,6 +9,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
+import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import { ToastProvider } from "@/components/arc/toast";
 import { TOUR_STEPS } from "@/app/c/[slug]/agents/[agentId]/tour/tourModel";
 import type { Agent } from "@/lib/api/agents";
@@ -361,6 +362,7 @@ const GUIDE_UPLOAD = {
   review_state: "approved",
   is_live: true,
   version: 2,
+  facts_count: 3,
   call_instructions: [
     { section: "If he says he is busy", text: "Ask when to call back." },
     { section: "How the agent should speak", text: "Say who you are and ask whether now is a good time." },
@@ -2479,15 +2481,33 @@ describe("changing what an agent is", () => {
 describe("Training shows what the agent knows (D-689: the business's knowledge, shared)", () => {
   beforeEach(() => openSection("training"));
 
+  it("counts what it knows exactly as the Knowledge page does (audit W2)", async () => {
+    const first = await renderClientPage(page, routes(TRAINING_READS));
+    const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
+    const panel = heading.closest("details") as HTMLElement;
+    await waitFor(() => expect(panel.querySelector("summary")?.textContent).toMatch(/\d+ things?/));
+    const training = panel.querySelector("summary")?.textContent?.match(/(\d+) things?/)?.[1];
+    first.unmount();
+
+    await renderClientPage(<KnowledgePage />, {
+      ...routes(TRAINING_READS),
+      "/v1/agents": [agent()],
+      "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
+      "/v1/teach/questions": { items: [], open_count: 0 },
+    });
+    const total = (await screen.findByText(/things? your agents know/)).textContent?.match(/(\d+)/)?.[1];
+    expect(training).toBe(total);
+  });
+
   it("lists the business's facts read-only, pinned first, and links to where they are changed", async () => {
     await renderClientPage(page, routes(TRAINING_READS));
 
     const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
     const panel = heading.closest("details") as HTMLElement;
     await within(panel).findAllByText("Red chilli powder is ₹120 for 250 g.");
-    // Folded to one line (D-893 §6), counted as the Knowledge page counts it: two facts, one
-    // file and one thing the business offers.
-    expect(panel.textContent).toContain("4 things");
+    // Folded to one line (D-893 §6), counted as the Knowledge page counts it: one pinned,
+    // one fact, three things learned from the file, three from business details.
+    expect(panel.textContent).toContain("8 things");
     const facts = within(within(panel).getAllByRole("list")[0]!)
       .getAllByRole("listitem")
       .map((row) => row.textContent);
@@ -2901,7 +2921,7 @@ describe("progressive disclosure defaults", () => {
     await renderClientPage(page, routes(TRAINING_READS));
     await screen.findByRole("heading", { level: 3, name: "What it knows" });
     expect(disclosed("What it knows")).toBe(true);
-    expect(await screen.findByText("4 things")).toBeTruthy();
+    expect(await screen.findByText("8 things")).toBeTruthy();
   });
 
   it("states the tier in force on the Model section before any option", async () => {
