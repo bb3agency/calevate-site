@@ -174,6 +174,37 @@ describe("the one teach card (D-874)", () => {
     );
   });
 
+  it("opens the first question when prices are not among them, never 'already answered' (audit W2)", async () => {
+    await renderKnowledge({
+      "/v1/teach/questions": {
+        items: [
+          {
+            key: "location",
+            question: "Where are you, and how do callers find you?",
+            topic: "Location",
+            why: "setup",
+            callers: 0,
+            times: 0,
+            agent_ids: [],
+            latest_call_id: null,
+            latest_at: null,
+            example: null,
+            draft: null,
+            draft_source_kind: null,
+            draft_source_label: null,
+            drafting: false,
+          },
+        ],
+        open_count: 1,
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Answer the first questions" }));
+    expect(
+      await screen.findByLabelText("Your answer to: Where are you, and how do callers find you?"),
+    ).toBeTruthy();
+    expect(screen.queryByText("That question is already answered.")).toBeNull();
+  });
+
   it("sends an empty knowledge list to the questions to answer, open on prices", async () => {
     await renderKnowledge({
       "/v1/teach/questions": {
@@ -263,7 +294,7 @@ describe("what the agents know, grouped", () => {
 
   it("invites the first fact when there is nothing at all", async () => {
     await renderKnowledge();
-    expect(await screen.findByText("Nothing added to Knowledge yet")).toBeTruthy();
+    expect(await screen.findByText("Nothing added yet")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /^Links/ })).toBeNull();
   });
 });

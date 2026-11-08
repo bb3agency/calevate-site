@@ -90,7 +90,10 @@ export function KnowledgeScreen() {
               canWrite={write.allowed}
               notes={notes}
               onAnswerQuestions={(key) => {
-                setFocus(key);
+                // A key the list does not hold read "That question is already answered" on a
+                // list nobody had answered: open the first question instead.
+                const items = questions.data?.items ?? [];
+                setFocus(items.some((q) => q.key === key) ? key : (items[0]?.key ?? null));
                 setTab("questions");
               }}
             />

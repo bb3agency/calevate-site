@@ -461,7 +461,7 @@ describe("what the screen says the agent does with the text", () => {
 
   it("never tells a client the agent retrieves or looks anything up mid-call", async () => {
     const { container } = await renderKnowledge([]);
-    await screen.findByText("Nothing added to Knowledge yet");
+    await screen.findByText("Nothing added yet");
     const text = container.textContent ?? "";
     // The exact shape that was here, plus the family it belongs to. Bounded to one
     // sentence (`[^.]{0,40}`) so a legitimate "during the call" elsewhere on a future
