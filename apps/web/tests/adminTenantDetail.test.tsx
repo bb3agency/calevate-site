@@ -675,6 +675,29 @@ describe("the client's health summary", () => {
     expect(screen.queryByText(/refusing this account/)).toBeNull();
   });
 
+  it("does not link a waiting signal or its causes back to the overview the operator is on", async () => {
+    // The health board sends "the account" to this page; on this page that link reloaded
+    // itself. KYC causes keep their own screen.
+    render({
+      [HEALTH_PATH]: {
+        ...HEALTHY,
+        severity: "warn",
+        signals: [
+          {
+            rule: "outbound_waiting_on_client",
+            severity: "warn",
+            causes: ["kyc_missing", "agreements_not_accepted"],
+            count: null,
+            waiting_on: "client",
+          },
+        ],
+      },
+    });
+    expect(await screen.findByText("Needs to accept the updated agreements")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Identity (KYC)" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Open the account/ })).toBeNull();
+  });
+
   it("shows a healthy trial account as on trial with nothing wrong", async () => {
     render({
       [HEALTH_PATH]: { ...HEALTHY, on_trial: true },
