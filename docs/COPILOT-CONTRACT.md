@@ -51,7 +51,14 @@ Rules that bind every tool:
 6. A refusal the model can fix is `WriteRefusedError(reason, plain=...)`. `reason` is for the
    model and may name tools and arguments; `plain` is the owner's sentence, shown on the step,
    in "Nothing was changed." and on an approval. Leave `plain` out only where the generic
-   `actions.REFUSED_PLAIN` is the best the owner can be told.
+   `actions.REFUSED_PLAIN` is the best the owner can be told. A refusal that relays a gate's
+   own reason ("Tell the person exactly this") passes that reason as `plain`. A service rule
+   about a definition Pip composed (a setting's shape, a name's pattern) is converted to a
+   `WriteRefusedError` naming the setting, not relayed as a final `ProblemError`: the model
+   is told never to retry a `ProblemError` (`agent_tool_actions._definition_refused`).
+   `NavigationRefusedError` has the same `reason`/`plain` split. A lookup's result is the
+   step's line only without its id tags and when it names no machinery
+   (`service._owner_line`, `owner_words`); a repeated lookup is a quiet `done` step.
 7. An executor that only QUEUES its work (a job writes the result later) returns
    `Executed(queued=True)`; the card then says Started, never Done.
 

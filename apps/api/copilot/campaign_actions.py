@@ -95,7 +95,13 @@ def brief_line(value: str | None, *, goal: bool) -> str | None:
     try:
         return brief.clean_goal(value) if goal else brief.clean_purpose(value)
     except brief.BriefLineError as exc:
-        raise WriteRefusedError(f"{exc} Ask the person to say it again in short") from exc
+        # Pip wrote the line from the person's words, so a symbol, a long paraphrase or a
+        # bare fragment is Pip's to mend; asking them to retype it is a dead end.
+        raise WriteRefusedError(
+            f"{exc} Write it again from what the person said and call once more; ask them "
+            "only if they have not said enough",
+            plain=str(exc),
+        ) from exc
 
 
 async def _campaign(session: AsyncSession, campaign_id: UUID) -> tuple[str, str]:

@@ -131,14 +131,20 @@ async def test_an_action_the_tab_would_refuse_is_refused_before_a_card() -> None
             tenant_id, token, "agent_action_set", _new_action(agent_id, calendar, kind=None)
         )
     assert "`kind`" in missing.value.reason
-    with pytest.raises(ProblemError) as bad:
+    # Pip writes the definition, so it is told to, never to ask the owner for JSON.
+    assert "write them from what the person asked for" in missing.value.reason
+    # A setting Pip got wrong goes back to Pip naming the setting, so it can mend it inside
+    # the answer; as a platform refusal it was told never to try again.
+    with pytest.raises(write_tools.WriteRefusedError) as bad:
         await _propose(
             tenant_id,
             token,
             "agent_action_set",
             _new_action(agent_id, calendar, config_json=json.dumps({"operation": "book"})),
         )
-    assert bad.value.code == "action_config_invalid"
+    assert "`start_param`" in bad.value.reason or "start-time" in bad.value.reason
+    assert "call again" in bad.value.reason
+    assert bad.value.plain == "That action is not configured correctly"
     with pytest.raises(write_tools.WriteRefusedError):
         await _propose(
             tenant_id,
@@ -146,6 +152,40 @@ async def test_an_action_the_tab_would_refuse_is_refused_before_a_card() -> None
             "agent_action_switch",
             {"agent_id": str(agent_id), "action_id": str(agent_id), "enabled": True},
         )
+
+
+async def test_a_wrong_parameter_is_refused_by_name_instead_of_ending_the_answer() -> None:
+    """`ParamSpec` raised a bare pydantic error out of the planner, which the loop does not
+    catch: the whole answer stopped as interrupted."""
+    tenant_id, token, agent_id, calendar = await _agent_with_calendar()
+    bad_params = json.dumps([{"name": "when", "source": "static"}])
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _propose(
+            tenant_id,
+            token,
+            "agent_action_set",
+            _new_action(agent_id, calendar, params_json=bad_params),
+        )
+    assert "`params_json`" in refused.value.reason
+    assert "needs a value" in refused.value.reason
+
+
+async def test_a_lead_detail_the_agent_does_not_note_is_refused_before_the_card() -> None:
+    """`create_tool` refuses an unknown `field:<key>` only after the owner confirms."""
+    tenant_id, token, agent_id, calendar = await _agent_with_calendar()
+    params = [
+        *BOOK_A_TIME["params"],
+        {"name": "flat_size", "source": "lead_var", "lead_var": "field:not_a_detail"},
+    ]
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await _propose(
+            tenant_id,
+            token,
+            "agent_action_set",
+            _new_action(agent_id, calendar, params_json=json.dumps(params)),
+        )
+    assert "`field:not_a_detail`" in refused.value.reason
+    assert "`" not in refused.value.plain
 
 
 async def test_another_tenants_connection_or_agent_is_absent() -> None:

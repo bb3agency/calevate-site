@@ -21,12 +21,13 @@ from collections.abc import Mapping
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.actions import agent_tools
 from apps.api.actions import service as actions_service
 from apps.api.actions.models import ACTION_KINDS
+from apps.api.actions.schema import ParamSpec, lead_field_key
 from apps.api.agents import field_suggestions, lead_fields_writes
 from apps.api.agents import lead_fields as lead_fields_service
 from apps.api.copilot.actions import (
@@ -116,13 +117,83 @@ def _definition(
     }
     missing = [k for k in ("kind", "name", "description", "config") if definition[k] is None]
     if missing:
+        # An owner describes what the action should do; the definition is Pip's to write.
         raise WriteRefusedError(
-            "a new action needs " + ", ".join(f"`{m}`" for m in missing) + "; ask the person"
+            "a new action needs "
+            + ", ".join(f"`{m}`" for m in missing)
+            + "; write them from what the person asked for (`config_json` is the kind's "
+            "settings) and call again. Ask the person only for a fact only they know, such as "
+            "a web address or a template name, in plain words and never for JSON"
         )
+    try:
+        for param in definition["params"]:
+            ParamSpec.model_validate(param)
+    except ValidationError as exc:
+        paths = sorted(
+            {".".join(str(p) for p in error["loc"]) for error in exc.errors() if error["loc"]}
+        )
+        named = ", ".join(f"`{path}`" for path in paths[:8]) or "an item"
+        # A rule across fields (`ParamSpec._coherent`) has no path; its message is ours and
+        # names the parameter, never a value.
+        rules = "; ".join(e["msg"] for e in exc.errors() if e["type"] == "value_error")
+        raise WriteRefusedError(
+            f"in `params_json`, {named} was missing or the wrong shape"
+            + (f" ({rules})" if rules else "")
+            + ". Each item is "
+            "{name, source: static|lead_var|ai, value (static), lead_var (lead_var), "
+            "type and description (ai), required}; fix it and call again"
+        ) from exc
     for key in ("name", "description", "pre_call_message"):
         if isinstance(definition[key], str):
             definition[key] = strip_invisible(definition[key].strip())
     return definition
+
+
+def _definition_refused(problem: ProblemError) -> WriteRefusedError:
+    """A stored-tool rule the definition broke, handed to the model to mend.
+
+    Everything `check_definition` refuses is about the definition Pip wrote (a setting's
+    shape, the name's pattern, a provider, during-call versus after-call), so it is a
+    `WriteRefusedError` the model corrects inside the turn cap, not a `ProblemError` relayed
+    to the owner as final: the console's "check the highlighted settings" names nothing in
+    Pip's panel. The per-setting entries carry the field path and our sentence, no value.
+    """
+    settings = "; ".join(
+        f"`{entry.get('field', '')}`: {entry.get('message', '')}"
+        for entry in (problem.fields or [])[:8]
+    )
+    return WriteRefusedError(
+        f"{problem.title}: {problem.detail}"
+        + (f" ({settings})" if settings else "")
+        + (f" {problem.remediation}" if problem.remediation else "")
+        + " Fix the definition and call again; ask the person only for a fact only they know",
+        plain=problem.title,
+    )
+
+
+async def _check_lead_fields(
+    session: AsyncSession, agent_id: UUID, params: list[dict[str, Any]]
+) -> None:
+    """A `field:<key>` binding names a detail this agent captures, asked at plan time
+    because `create_tool`/`update_tool` refuse it only after the owner has confirmed."""
+    known = await actions_service.agent_field_keys(session, agent_id=agent_id)
+    unknown = sorted(
+        {
+            key
+            for param in params
+            if param.get("source") == "lead_var"
+            and (key := lead_field_key(param.get("lead_var"))) is not None
+            and key not in known
+        }
+    )
+    if unknown:
+        raise WriteRefusedError(
+            "this agent does not capture "
+            + ", ".join(f"`field:{key}`" for key in unknown)
+            + "; bind to one of its lead details (`agent_settings` part `lead_fields`) or "
+            "let the agent ask (source `ai`)",
+            plain="That action uses a detail this agent does not note down.",
+        )
 
 
 async def _plan_action_set(
@@ -147,16 +218,20 @@ async def _plan_action_set(
         "credential",
         None if definition["credential_id"] is None else UUID(definition["credential_id"]),
     )
-    actions_service.check_definition(
-        kind=definition["kind"],
-        provider=definition["provider"],
-        name=definition["name"],
-        description=definition["description"],
-        trigger=definition["trigger"],
-        params=definition["params"],
-        config=definition["config"],
-        previous=current,
-    )
+    try:
+        actions_service.check_definition(
+            kind=definition["kind"],
+            provider=definition["provider"],
+            name=definition["name"],
+            description=definition["description"],
+            trigger=definition["trigger"],
+            params=definition["params"],
+            config=definition["config"],
+            previous=current,
+        )
+    except ProblemError as problem:
+        raise _definition_refused(problem) from problem
+    await _check_lead_fields(session, parsed.agent_id, definition["params"])
     when = "during the call" if definition["trigger"] == "during_call" else "after the call"
     return Plan(
         object_id=str(parsed.agent_id),

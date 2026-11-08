@@ -103,13 +103,19 @@ class NavigationRefusedError(Exception):
     as an interrupted stream.
 
     `reason` names screens and roles — never a value, never a route (hard rule 6, and the
-    founder's ban on route paths in client-facing text: this string is quoted back to the
-    person by the model).
+    founder's ban on route paths in client-facing text: the model paraphrases it). It is
+    written for the MODEL, instructions included; `plain` is the person's sentence, shown on
+    the step and in a closing line, as `WriteRefusedError.plain` is.
     """
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, plain: str | None = None) -> None:
         self.reason = reason
+        self.plain = plain or NAVIGATION_REFUSED_PLAIN
         super().__init__(reason)
+
+
+#: What the person reads for a refused screen change whose raise site gave no sentence.
+NAVIGATION_REFUSED_PLAIN: Final = "That screen could not be opened from here."
 
 
 def open_screen_tool() -> dict[str, Any]:
@@ -224,12 +230,14 @@ def resolve_destination(
         raise NavigationRefusedError(
             f"{screen.name} can only be opened by the account owner, so do not open it. Tell "
             "them the screen exists, that it is the owner's, and what they can ask the owner "
-            "to do"
+            "to do",
+            plain=f"Only the account owner can open {screen.name}.",
         )
     if match_route(current_route) is screen:
         raise NavigationRefusedError(
             f"they are already on {screen.name}, so there is nowhere to take them. Tell them "
-            "they are already there and what to do on it"
+            "they are already there and what to do on it",
+            plain=f"You are already on {screen.name}.",
         )
 
     return CopilotNavigateEvent(

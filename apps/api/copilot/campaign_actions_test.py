@@ -14,7 +14,7 @@ from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
 from apps.api.copilot import areas, write_tools
-from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS
+from apps.api.copilot.campaign_actions import CAMPAIGN_ACTIONS, brief_line
 from apps.api.copilot.console_actions_test import _role_without
 from apps.api.copilot.write_tools_test import (
     _actor,
@@ -467,3 +467,12 @@ async def test_a_neighbours_campaign_is_a_404_for_every_campaign_action() -> Non
     with pytest.raises(ProblemError) as missing_edit:
         await _run(tenant_a, token_a, "campaign_edit", {"campaign_id": foreign, "tries": 2})
     assert missing_edit.value.status == 404
+
+
+def test_a_purpose_pip_wrote_badly_is_pips_to_write_again() -> None:
+    """A symbol or a long paraphrase is in Pip's wording, so the owner is not asked to
+    retype what they already said; they read the screen's own sentence."""
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        brief_line("Call back - about the *offer*", goal=False)
+    assert "Write it again from what the person said" in refused.value.reason
+    assert refused.value.plain.startswith("Write the reason for calling as plain words")
