@@ -96,8 +96,8 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
           })}
         >
           {/* WHAT THE BUTTON DOES, ABOVE THE BUTTON. Blast radius first, then what is
-              NOT affected, then the fact that it is recorded — in that order, because
-              an operator who reads only the first line has read the part that matters. */}
+              NOT affected — in that order, because an operator who reads only the first
+              line has read the part that matters. */}
           <div className="flex gap-3 border-l-2 border-danger py-1 pl-4 text-body">
             <TriangleAlert
               aria-hidden
@@ -113,10 +113,6 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
                 {halted
                   ? "Paused campaigns pick up again within a minute or so. Every campaign's own compliance gate still applies — this only releases the platform-wide stop, nothing else."
                   : "Running campaigns stop within a minute or so and no new outbound call is placed for any client. Inbound calls are unaffected — the caller started those, and refusing them would silently break the receptionist your clients pay for."}
-              </p>
-              <p className="mt-1 text-meta text-ink-muted">
-                Recorded in the activity log against your admin account, with the reason
-                you type below.
               </p>
             </div>
           </div>
@@ -147,8 +143,8 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
             />
             {valid.error("reason")}
             <span className={FIELD_HINT}>
-              Shown here and kept in the activity log, so whoever finds calling stopped can
-              tell whether the reason still holds.
+              Shown here, so whoever finds calling stopped can tell whether the reason
+              still holds.
             </span>
           </label>
 

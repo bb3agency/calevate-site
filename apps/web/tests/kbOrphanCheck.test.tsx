@@ -86,7 +86,9 @@ describe("the account-level knowledge check", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check the account" }));
 
     await screen.findByText("The platform's listing could not be read to the end");
-    expect(screen.getByText(/page_cap_reached/)).toBeTruthy();
+    // The reason in words (audit W8, 8 Nov 2026): it printed "Reason: page_cap_reached."
+    expect(screen.getByText(/We stopped at our own page limit; there is more\./)).toBeTruthy();
+    expect(screen.queryByText(/page_cap_reached/)).toBeNull();
   });
 
   it("names an engine with nothing to walk instead of printing zeros", async () => {

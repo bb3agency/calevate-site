@@ -9,7 +9,6 @@ import { IstDateTimeField } from "@/components/admin/istDateTimeField";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import {
   FIELD,
-  FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
   SECONDARY_BUTTON,
@@ -255,7 +254,6 @@ export function TmRegistrationPanel({
               className={FIELD}
             />
             {valid.error("reason")}
-            <span className={FIELD_HINT}>Recorded in the activity log with this change.</span>
           </label>
 
           <TypedConfirmation

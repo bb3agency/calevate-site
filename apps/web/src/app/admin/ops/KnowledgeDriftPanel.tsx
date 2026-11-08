@@ -201,6 +201,15 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
 }
 
 /** What each finding means, in the words `engine_kb_orphans_detected`'s runbook row uses. */
+/** `calevate_shared.engine.ListingIncompleteReason`; an unknown one prints as itself. */
+const LISTING_INCOMPLETE: Record<string, string> = {
+  explicit_more: "The platform said there was more, and gave no way to read it.",
+  full_page_suspected: "The listing came back exactly one page long, so more may exist.",
+  page_cap_reached: "We stopped at our own page limit; there is more.",
+  next_link_no_progress: "The platform kept sending pages already read, so the walk stopped.",
+  partial_fan_out: "The listing is read agent by agent, and at least one agent could not be read.",
+};
+
 const ORPHAN_VERDICTS: Record<string, string> = {
   unrecorded: "Named like ours, but no record of ours claims it (a publish that rolled back)",
   unclaimed: "Nothing attributes it (a hand-made upload, or older than our naming)",
@@ -258,7 +267,9 @@ function OrphanReport({ report }: { report: KbOrphanReport }) {
         >
           <p className="mt-1">
             The unclaimed and stranded counts below cannot be trusted.
-            {report.listing_incomplete_reason ? ` Reason: ${report.listing_incomplete_reason}.` : ""}
+            {report.listing_incomplete_reason
+              ? ` ${lookup(LISTING_INCOMPLETE, report.listing_incomplete_reason) ?? `Reason: ${report.listing_incomplete_reason}.`}`
+              : ""}
           </p>
         </NoticeBox>
       )}

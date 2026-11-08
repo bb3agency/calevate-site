@@ -410,8 +410,7 @@ export function OutboxReplayPanel({
                 </p>
               )}
               <p className="mt-1 text-meta text-ink-muted">
-                Recorded in the activity log with how many were resent and which type. The
-                word you type below is also sent to confirm this exact action, so it
+                The word you type below is also sent to confirm this exact action, so it
                 can&apos;t be triggered from outside this form.
               </p>
             </div>

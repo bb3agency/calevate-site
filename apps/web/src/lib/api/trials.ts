@@ -47,6 +47,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { needsReauthentication } from "@/lib/authn/problems";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
+import { lookup } from "@/lib/lookup";
 
 import { endTrialConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
@@ -68,6 +69,18 @@ export type Trial = Schemas["TrialOut"];
  * server verdict on these screens is displayed rather than recomputed.
  */
 export type TrialStatus = Schemas["TrialStatusOut"];
+
+/** `billing/models.TRIAL_STATUSES` in an operator's words; an unknown one prints as itself. */
+export const TRIAL_STATUS_LABEL: Record<string, string> = {
+  active: "running",
+  converted: "converted to paid",
+  expired: "ran its course",
+  stopped: "stopped by us",
+};
+
+export function trialStatusLabel(status: string): string {
+  return lookup(TRIAL_STATUS_LABEL, status) ?? status;
+}
 
 export type TrialStartIn = Schemas["TrialStartIn"];
 export type TrialEndIn = Schemas["TrialEndIn"];

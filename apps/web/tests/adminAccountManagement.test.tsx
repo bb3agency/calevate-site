@@ -451,6 +451,25 @@ describe("the erasure panel", () => {
       else process.env.TZ = original;
     }
   });
+
+  it("words the voice platform's deletion status rather than printing its token", async () => {
+    // Audit W8 (8 Nov 2026): the panel printed `engine_deletion` as stored, so a tenant
+    // erasure read "Engine-side copies: agents_contacts_and_workspace_deletion_requested".
+    const { container } = await renderClosed({
+      [ERASURE_PATH]: [
+        {
+          ...ERASED,
+          proof: { ...ERASED.proof, engine_deletion: "agents_contacts_and_workspace_deletion_requested" },
+        },
+      ],
+    });
+
+    await screen.findByText(/This client's data was erased on/);
+    expect(container.textContent).toContain(
+      "Voice platform copies: deletion of the account's agents, workspace and contacts requested",
+    );
+    expect(container.textContent).not.toContain("agents_contacts_and_workspace_deletion_requested");
+  });
 });
 
 /**

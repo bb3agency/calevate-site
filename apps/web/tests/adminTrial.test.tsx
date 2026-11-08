@@ -315,7 +315,9 @@ describe("the trial control on the credits screen", () => {
         ended_reason: "They did not buy.",
       }),
     });
-    expect(await screen.findByText(/Their trial ended/)).toBeTruthy();
+    const ended = await screen.findByText(/Their trial ended/);
+    // The status in words (audit W8, 8 Nov 2026): the title ended "(stopped)".
+    expect(ended.textContent).toContain("(stopped by us)");
     // And a new one may be started, which is the whole reason the read is "newest" rather
     // than "the open one".
     expect(await daysField()).toBeTruthy();

@@ -18,6 +18,7 @@ import { WriteFailure } from "@/app/admin/writeFailure";
 import type { useAdminAccess } from "@/app/admin/access";
 import { adminSession } from "@/lib/api/admin";
 import { erasureConfirmation, useEraseTenant, useTenantErasures } from "@/lib/api/erasure";
+import { engineDeletionCopy } from "@/lib/engineDeletion";
 import { resetIfSettled } from "@/app/admin/resetIfSettled";
 
 /**
@@ -97,7 +98,7 @@ export function ErasurePanel({
                 ? ` — the rest are destroyed by ${formatIST(existing.proof.recording_hold_until)}`
                 : ""}
             </li>
-            <li>Engine-side copies: {existing.proof.engine_deletion}</li>
+            <li>Voice platform copies: {engineDeletionCopy(existing.proof.engine_deletion)}</li>
           </ul>
         )}
         {existing.limitations.length > 0 && (
