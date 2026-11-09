@@ -41,6 +41,7 @@ from uuid import UUID
 from calevate_shared.call_script import (
     MAX_STAGE_COLLECT,
     CallScript,
+    ConversationStage,
     ScriptPolicies,
     upgrade_to_v2,
 )
@@ -48,6 +49,7 @@ from calevate_shared.engine import introduces_itself
 from calevate_shared.lead_fields import business_only
 from calevate_shared.opening_notices import WovenNotices
 from calevate_shared.spoken_style import style_for
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -904,6 +906,7 @@ def kept_to_paths(
         before, after = _at(out, parts), _at(new, source)
         if isinstance(before, str) and isinstance(after, str) and after.strip():
             _put(out, parts, after)
+    _fit_step_details(out, base, written)
     kept = CallScript.model_validate(out)
     if "script" in paths and unasked:
         kept = _collect_from(written, kept, unasked)
@@ -915,6 +918,35 @@ def kept_to_paths(
     if named & misplaced:
         kept = _ways_from(written, kept)
     return without_placeholder_steps(kept) if named & _placeholder_paths(base) else kept
+
+
+def _fit_step_details(out: dict[str, Any], base: CallScript, written: CallScript) -> None:
+    """Each step of `out` whose instruction and "sounds like" line no longer fit one step
+    detail together (`ConversationStage._detail_fits_a_step`), one taken from `written` and
+    the other kept: the written step's pair, which fit together there, else the owner's step
+    as it was. A step that failed validation here crashed the job after the model was paid."""
+    by_id = {stage.id: stage for stage in written.stages}
+    for i, raw in enumerate(out["stages"]):
+        if _fits(raw):
+            continue
+        own = base.stages[i]
+        fixed = by_id.get(own.id)
+        paired = (
+            {**raw, "instruction": fixed.instruction, "sounds_like": fixed.sounds_like}
+            if fixed is not None
+            else None
+        )
+        out["stages"][i] = (
+            paired if paired is not None and _fits(paired) else own.model_dump(mode="json")
+        )
+
+
+def _fits(raw: dict[str, Any]) -> bool:
+    try:
+        ConversationStage.model_validate(raw)
+    except ValidationError:
+        return False
+    return True
 
 
 def _placeholder_paths(script: CallScript) -> set[str]:
