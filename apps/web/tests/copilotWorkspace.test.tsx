@@ -25,7 +25,9 @@ import {
   workspaceRoutes,
 } from "./copilotWorkspaceFixture";
 import { JobCard } from "@/components/copilot/JobCard";
-import { NeverAnswers, renderClientPage, type ApiCall } from "./harness";
+import { QueryClient } from "@tanstack/react-query";
+
+import { NeverAnswers, NoReply, renderClientPage, type ApiCall } from "./harness";
 import { PLAN_ID, planFixture } from "./planFixture";
 import { TasksList } from "@/components/copilot/workspace/TasksList";
 
@@ -337,5 +339,36 @@ describe("the tasks tab while plans are still arriving (audit 8 Nov W4-09)", () 
     );
     expect(await screen.findByText("Loading plans…")).toBeTruthy();
     expect(screen.queryByText("No tasks yet.")).toBeNull();
+  });
+});
+
+describe("the tasks tab when one poll fails (audit 10 Nov Y2-05)", () => {
+  it("keeps the running task on screen rather than replacing the whole tab with a failure", async () => {
+    const routes: Record<string, unknown> = { ...workspaceRoutes() };
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    await renderClientPage(
+      <WithSession>
+        {(session) => <TasksList session={session} onOpenApprovals={() => undefined} />}
+      </WithSession>,
+      routes as Parameters<typeof renderClientPage>[1],
+      "acme",
+      client,
+    );
+    expect(await screen.findByText(RUNNING_JOB.goal)).toBeTruthy();
+
+    // The next poll of a running task meets a dropped connection.
+    routes["/v1/copilot/jobs"] = new NoReply();
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["copilot-jobs"] });
+    });
+    expect(client.getQueryState(["copilot-jobs", "acme"])?.status).toBe("error");
+    await act(async () => {
+      await new Promise((settle) => setTimeout(settle, 100));
+    });
+
+    expect(screen.getByText(RUNNING_JOB.goal)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
   });
 });

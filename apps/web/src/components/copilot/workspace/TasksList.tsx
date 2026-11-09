@@ -55,13 +55,15 @@ export function TasksList({
         </ul>
       </section>
     ) : null;
-  if (jobs.error != null) {
-    return <ProblemNotice error={jobs.error} onRetry={() => void jobs.refetch()} />;
-  }
-  if (jobs.data === undefined) return <Skeleton rows={3} label="Loading tasks…" />;
+  // A failed RE-read (the list polls every few seconds while a task runs) keeps the list it
+  // already had, with the refusal above it; only a first read that failed has nothing to show.
+  const refusal =
+    jobs.error != null ? <ProblemNotice error={jobs.error} onRetry={() => void jobs.refetch()} /> : null;
+  if (jobs.data === undefined) return refusal ?? <Skeleton rows={3} label="Loading tasks…" />;
   if (jobs.data.jobs.length === 0) {
     return (
       <div className="space-y-6">
+        {refusal}
         {planSection}
         {/* No tasks, and the plans still arriving: a blank tab would read as broken. */}
         {plans.isPending && <Skeleton rows={2} label="Loading plans…" />}
@@ -77,6 +79,7 @@ export function TasksList({
   }
   return (
     <div className="space-y-6">
+      {refusal}
       {planSection}
       <ul className="divide-y divide-line border-y border-line" aria-label="Background tasks">
         {jobs.data.jobs.map((job) => (
