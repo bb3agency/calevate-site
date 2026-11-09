@@ -319,6 +319,14 @@ function Journey({ status }: { status: OwnNumbersStatus }) {
                     Ask us to correct them
                   </a>
                 )}
+                {detailsStatus === "suspended" && (
+                  <a
+                    className={SECONDARY_BUTTON_SM}
+                    href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent("Our phone number approval was withdrawn")}`}
+                  >
+                    Contact us
+                  </a>
+                )}
                 {status.can_send_business_details && (
                   <ActionButton
                     variant="primary-sm"
