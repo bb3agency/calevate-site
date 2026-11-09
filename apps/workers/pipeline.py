@@ -715,8 +715,17 @@ _INBOUND_NUMBER_SQL: Final = (
 #: `worker/engine_actions.call_locator` filed under the intent row), and the intent row sat
 #: `queued` for ever, holding an outbound line until `ENGINE_LINE_HORIZON`. Same guard as
 #: `agents.service._confirm_dial`, which races it to the same value.
+#:
+#: A row the lost-dial sweep already closed `failed` / `dial_lost` is reopened to `queued`
+#: here: the engine holding a call under our reference proves it was placed, so "nobody was
+#: rung" no longer holds. Left closed, the upsert's terminal guard would keep a `missed`
+#: call as `dial_lost`, and a `completed` one (metered and charged) would still read "did
+#: not go through" and fall outside the paid test-call count (`paid_test_calls`).
 _ADOPT_UNCONFIRMED_DIAL_SQL: Final = (
-    "UPDATE calls SET engine_call_id = :ecid, updated_at = now() "
+    "UPDATE calls SET engine_call_id = :ecid, updated_at = now(), "
+    "  status = CASE WHEN not_placed_reason = 'dial_lost' THEN 'queued' ELSE status END, "
+    "  not_placed_reason = CASE WHEN not_placed_reason = 'dial_lost' THEN NULL "
+    "    ELSE not_placed_reason END "
     "WHERE id = :placed AND direction = 'outbound' AND engine_call_id = :local "
     "AND NOT EXISTS (SELECT 1 FROM calls o WHERE o.engine_call_id = :ecid)"
 )

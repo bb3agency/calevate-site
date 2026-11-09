@@ -859,8 +859,12 @@ _TRIAL_SECONDS_SQL: Final = (
     "SELECT COALESCE(SUM(COALESCE(duration_s, 0)), 0) FROM calls "
     "WHERE tenant_id = :tid AND trial_call AND created_at >= :since"
 )
+#: A dial that rang nobody (`not_placed_reason`: refused for full lines, lost, never placed by
+#: the engine) is not a test call the daily cap counts, as `paid_test_calls.PLACED_TODAY_SQL`
+#: does not count one for a paying account.
 _TRIAL_CALLS_SQL: Final = (
-    "SELECT count(*) FROM calls WHERE tenant_id = :tid AND trial_call AND created_at >= :since"
+    "SELECT count(*) FROM calls WHERE tenant_id = :tid AND trial_call AND created_at >= :since "
+    "AND not_placed_reason IS NULL"
 )
 
 
