@@ -27,6 +27,7 @@ import {
   type CallCharge,
   type Spend,
 } from "@/lib/api/spend";
+import { formatBillingMonth } from "@/lib/billingMonth";
 import { lookup } from "@/lib/lookup";
 import type { Session } from "@/lib/api/client";
 
@@ -109,7 +110,7 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
         {/* The month's CALLING charge, which is what the rows below itemise. The retainer
             is published separately and on purpose — see the file header. */}
         <Metric
-          label={`Calling charge · ${data.month}`}
+          label={`Calling charge · ${formatBillingMonth(data.month)}`}
           value={formatINR(data.period_charge_inr)}
           hint="Before the monthly fee"
         />
@@ -124,12 +125,12 @@ function SpendBreakdown({ data, slug }: { data: Spend; slug: string }) {
             used" with two different figures is the kind of screen a client screenshots
             and asks us to explain, so each says which month it means. */}
         <Metric
-          label={`Minutes used · ${data.month}`}
+          label={`Minutes used · ${formatBillingMonth(data.month)}`}
           value={formatDecimal(data.minutes_used)}
           hint="Exact figure on your statement"
         />
         <Metric
-          label={`Calls · ${data.month}`}
+          label={`Calls · ${formatBillingMonth(data.month)}`}
           value={formatCount(data.calls)}
         />
       </div>

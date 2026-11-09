@@ -1,17 +1,21 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import HeldAccountsPage from "@/app/admin/holds/page";
+import NewClientPage from "@/app/admin/new/page";
 import { PipProposal } from "@/app/c/[slug]/agents/[agentId]/script/PipProposal";
-import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import { TaughtRules } from "@/app/c/[slug]/agents/[agentId]/script/TaughtRules";
 import { END, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
+import { SpendPanel } from "@/app/c/[slug]/billing/SpendPanel";
+import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import { ToastProvider } from "@/components/arc/toast";
 import type { ScheduledCallback } from "@/lib/api/callbacks";
-import type { Me } from "@/lib/api/client";
+import type { Me, Session } from "@/lib/api/client";
+import { HOLDS_PATH } from "@/lib/api/holds";
 import { EMPTY_SCRIPT, type CallScript, type ScriptProposal } from "@/lib/api/script";
 
-import { renderClientPage, stillLoading, type Routes } from "./harness";
+import { problem, renderAdminPage, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /** Deep audit 10 Nov 2026, D1 (the web app). Each block fails on the source before its fix. */
 
@@ -235,5 +239,76 @@ describe("D1-04 a call-back's due mark counts down on an open screen", () => {
     await waitFor(() => expect(screen.getAllByText("Overdue").length).toBeGreaterThan(0));
     expect(screen.queryByText("In 2 min")).toBeNull();
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+});
+
+describe("D1-05/06 the new-client success box says the status in words and the next steps D-692 makes true", () => {
+  it("reads Onboarding, and does not send the operator to register with DLT by hand", async () => {
+    const { container } = renderAdminPage(<NewClientPage />, {
+      "/v1/admin/tenants": {
+        id: "0192f0aa-7777-7000-8000-000000000001",
+        slug: "sunrise-clinic",
+        status: "onboarding",
+        vertical_template: "clinic",
+        invitation_id: "0192f0aa-7777-7000-8000-0000000000e1",
+      },
+      "/v1/admin/me": {
+        realm: "admin",
+        user_id: "0192f0aa-7777-7000-8000-0000000000f2",
+        role: "operator",
+        permissions: ["org:read", "agents:read", "agents:write", "admin:tenants"],
+      },
+      "/v1/admin/onboarding/unfinished": [],
+    });
+    fireEvent.change(screen.getByPlaceholderText("Sri Traders"), { target: { value: "Sunrise Clinic" } });
+    fireEvent.click(screen.getByRole("radio", { name: /^Clinic/ }));
+    fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
+      target: { value: "owner@sunrise.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create and invite" }));
+    await screen.findByText("Account created and owner invited");
+    const text = container.textContent ?? "";
+    expect(text).toContain("status Onboarding.");
+    expect(text).not.toContain("status onboarding");
+    expect(text).not.toMatch(/registering with/);
+    expect(text).toContain("no-cold-calls pledge");
+  });
+});
+
+describe("D1-07 a failed holds queue says so once", () => {
+  it("draws one alert box, with Try again, for one failure", async () => {
+    const { container } = renderAdminPage(<HeldAccountsPage />, {
+      [HOLDS_PATH]: problem(503, { title: "Unavailable", status: 503, retryable: true }),
+    });
+    await screen.findByText(/could not be read/);
+    expect(container.querySelectorAll("[data-notice]").length).toBe(1);
+    expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
+  });
+});
+
+describe("D1-08 the month's spend tiles name the month in words", () => {
+  it("says November 2026, not 2026-11", async () => {
+    const { container } = await renderClientPage(
+      <SpendPanel session={{ orgSlug: "acme" } as Session} slug="acme" month="2026-11" />,
+      {
+        "/v1/me": OWNER,
+        "/v1/billing/spend?month=2026-11": {
+          month: "2026-11",
+          charge_basis: "allocated",
+          calls: 2,
+          minutes_used: "18.5000",
+          retainer_inr: null,
+          period_charge_inr: "1200.00",
+          itemised_charge_inr: "1200.00",
+          itemisation_residual_inr: "0.00",
+          residual_reason: null,
+          by_agent: [],
+          top_calls: [],
+          top_calls_truncated: false,
+        },
+      },
+    );
+    await screen.findByText("Calls · November 2026");
+    expect(container.textContent).not.toContain("2026-11");
   });
 });
