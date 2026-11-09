@@ -1,14 +1,15 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { PipProposal } from "@/app/c/[slug]/agents/[agentId]/script/PipProposal";
 import { TaughtRules } from "@/app/c/[slug]/agents/[agentId]/script/TaughtRules";
 import { END, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import { ToastProvider } from "@/components/arc/toast";
 import type { Me } from "@/lib/api/client";
-import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
+import { EMPTY_SCRIPT, type CallScript, type ScriptProposal } from "@/lib/api/script";
 
-import { renderClientPage, type Routes } from "./harness";
+import { renderClientPage, stillLoading, type Routes } from "./harness";
 
 /** Deep audit 10 Nov 2026, D1 (the web app). Each block fails on the source before its fix. */
 
@@ -161,5 +162,38 @@ describe("D1-02 a taught rule added as a step is reached, and the limit is the a
     await taught(scriptOf([step("one"), step("two")]), 2);
     const add = (await screen.findByRole("button", { name: "Add as a step" })) as HTMLButtonElement;
     expect(add.disabled).toBe(true);
+  });
+});
+
+describe("D1-03 a suggestion's Add and Discard wait for each other", () => {
+  const SCRIPT: CallScript = { ...EMPTY_SCRIPT, opening_line: "Namaskaram andi." };
+  const PROPOSAL: ScriptProposal = {
+    id: "p1",
+    mode: "change",
+    documents: [],
+    status: "ready",
+    request: "Make the opening line warmer",
+    base_script: SCRIPT,
+    script: { ...SCRIPT, opening_line: "Namaskaram andi, thanks for calling!" },
+    unplaced: [],
+    left_out: [],
+    disclosure: null,
+    note: null,
+    requested_at: "2026-10-19T10:00:00+00:00",
+  };
+
+  it("says Adding… and holds Discard while the suggestion is being cleared", async () => {
+    await renderClientPage(
+      <PipProposal agentId="agent-1" script={SCRIPT} canWrite onKeep={() => undefined} />,
+      {
+        "/v1/me": OWNER,
+        "/v1/agents/agent-1/script/proposal": { proposal: PROPOSAL },
+        "DELETE /v1/agents/agent-1/script/proposal/p1": stillLoading(),
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add it to my draft" }));
+    const adding = (await screen.findByRole("button", { name: "Adding…" })) as HTMLButtonElement;
+    expect(adding.disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
