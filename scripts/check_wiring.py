@@ -127,7 +127,14 @@ _D894_OPENER_REASON = (
     "once that migration can no longer be downgraded"
 )
 
+_D973_REASON = (
+    "D-973: our caller-notes store was removed; nothing writes or reads this column. Kept "
+    "with its rows under hard rule 8's two-step; closes with the D-973 follow-up migration "
+    "that drops it with `caller_memories`"
+)
+
 UNWIRED_BASELINE: dict[str, str] = {
+    "Call.caller_memory_state": _D973_REASON,
     "ScriptLineChange.after_text": _D894_OPENER_REASON,
     "ScriptLineChange.before_text": _D894_OPENER_REASON,
     "ScriptLineChange.stage_index": _D894_OPENER_REASON,

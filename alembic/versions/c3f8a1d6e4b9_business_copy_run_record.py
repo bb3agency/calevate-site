@@ -1,7 +1,7 @@
 """business copy records who asked for the copy in use and why the last run failed
 
 Revision ID: c3f8a1d6e4b9
-Revises: e8b4c1d7a2f6
+Revises: c4e8a2f6d1b3
 Create Date: 2026-11-09 12:00:00.000000
 
 The admin console's Business examples panel showed the copy's write time beside
@@ -28,7 +28,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision: str = "c3f8a1d6e4b9"
-down_revision: str | None = "e8b4c1d7a2f6"
+down_revision: str | None = "c4e8a2f6d1b3"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
