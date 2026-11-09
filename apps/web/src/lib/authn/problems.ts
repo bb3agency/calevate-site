@@ -62,6 +62,8 @@ export const AUTHN_CODES = {
   invitationExistingAccountPassword: "invitation_existing_account_password",
   invitationUseGoogle: "invitation_use_google",
   invitationInvalid: "invitation_invalid",
+  /** A mobile number on the login that cannot be read as a phone number (D-976, 422). */
+  mobileNumberInvalid: "mobile_number_invalid",
   passwordLength: "password_length",
   passwordUnacceptable: "password_unacceptable",
   /** A change that changes nothing — the new password equals the current one (422). */
@@ -74,6 +76,10 @@ export const AUTHN_CODES = {
   tooManyAttempts: "too_many_attempts",
   unauthorized: "unauthorized",
 } as const;
+
+/** The refusal of a mobile number that cannot be read as one, said beside the field too. */
+export const MOBILE_NUMBER_INVALID =
+  "Enter a 10-digit mobile number, or the full number starting with +.";
 
 export type AuthnCode = (typeof AUTHN_CODES)[keyof typeof AUTHN_CODES];
 
@@ -193,6 +199,7 @@ const SIGN_IN_COPY: Record<string, string> = {
     "That is not the current password on this account. Check it and try again — nothing has been changed.",
   [AUTHN_CODES.passwordUnchanged]:
     "That is the password you already have. Choose a different one — three or four unrelated words is the easiest way there.",
+  [AUTHN_CODES.mobileNumberInvalid]: MOBILE_NUMBER_INVALID,
   [AUTHN_CODES.invalidResetToken]:
     "This reset link cannot be used. Reset links work once and expire an hour after they are sent — request a new one.",
   [AUTHN_CODES.invalidBootstrapToken]:
