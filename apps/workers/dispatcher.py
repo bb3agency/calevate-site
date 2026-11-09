@@ -20,7 +20,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS
+from apps.api.compliance.deletion import RECORDING_FLOOR_DAYS, redrive_stalled_erasures
 from apps.api.compliance.models import RIGHTS_REMINDER_DAYS, RIGHTS_RESPONSE_DAYS
 from apps.api.compliance.processor_erasure import (
     HELD_PAST_FLOOR_SQL,
@@ -536,10 +536,10 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     written, the job was lost to a deploy or a dead worker, and the only signal was a
     status page nobody was watching returning `pending` indefinitely.
 
-    It cannot self-heal, and that is why it needs an alarm rather than a retry: the job is
-    enqueued once, in the request's own transaction, and `execute_deletion_request` has no
-    poller behind it the way the post-call pipeline has `reconcile_executions`. Once its
-    ladder is spent the request is simply open forever.
+    This walk is also the poller the job lacks: `execute_deletion_request` is enqueued once,
+    in the request's own transaction, and a run that raises is not retried, so the walk
+    queues every overdue request again (`deletion.redrive_stalled_erasures`, at most once an
+    hour each) as well as paging.
 
     Same cross-tenant shape as `report_stalled_pipeline` — `deletion_requests` is
     FORCE-RLS'd, so an untenanted probe would return zero rows for every tenant and report
@@ -567,6 +567,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     # page on day one of a reasonable vendor turnaround or let a lost job sit for a month.
     processor_cutoff = datetime.now(UTC) - timedelta(days=OVERDUE_AFTER_DAYS)
     total = 0
+    redriven = 0
     tenants_affected = 0
     unreached = 0
     probed = 0
@@ -590,6 +591,10 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                     (await session.execute(text(_OVERDUE_ERASURES), {"cutoff": cutoff})).scalar()
                     or 0
                 )
+                if overdue:
+                    # The job has no poller behind it and a re-filing dedupes onto the
+                    # open request, so this walk is what runs it again.
+                    redriven += await redrive_stalled_erasures(session, tenant_id=tenant_id)
                 # In the SAME session as the probe above: it is the same tenant, the
                 # same deadline budget and the same RLS scope, so a second walk would
                 # buy nothing but another 16k sessions.
@@ -627,9 +632,10 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
             "erasure_requests_overdue",
             detail=(
                 f"{total} filed erasure request(s) across {tenants_affected} tenant(s) "
-                f"have been open longer than {ERASURE_OVERDUE_AFTER}. The job is enqueued "
-                "once with the request row and has no poller behind it, so these do not "
-                "recover on their own — re-queue them"
+                f"have been open longer than {ERASURE_OVERDUE_AFTER}; {redriven} job(s) "
+                "were queued again this run, at most once an hour each. One still open "
+                "after that is failing on every run: read the execute_deletion_request "
+                "errors for the tenant"
                 + (
                     f". {unreached} of {len(tenants)} tenant(s) could not be probed, so "
                     "the count is a floor"

@@ -319,6 +319,9 @@ class SubjectExportOut(Strict):
     # erased, and is a different answer from an erasure with nothing left outstanding.
     erasure: SubjectExportErasureOut | None
     lead: SubjectExportLeadOut | None
+    # Every CRM record for the number, newest first; `lead` is the first of them. A
+    # business with several agents holds one record per agent.
+    leads: list[SubjectExportLeadOut]
     calls: list[SubjectExportCallOut]
     transcripts: list[SubjectExportTranscriptOut]
     consent: list[SubjectExportConsentOut]

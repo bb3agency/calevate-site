@@ -309,11 +309,12 @@ async def build_subject_export(
         )
     ).all()
     # `leads` is unique on (tenant_id, phone_e164, agent_id), so a tenant running more
-    # than one agent can hold several rows for one person. The document carries the most
-    # recently updated one — the record the client actually works — and `counts.leads`
-    # states the true total, so a second row is VISIBLE in the answer rather than
-    # silently dropped from it.
-    lead = _lead_record(lead_rows[0]) if lead_rows else None
+    # than one agent can hold several rows for one person. `lead` is the most recently
+    # updated one, the record the client works; `leads` is every row, newest first,
+    # because each holds its own name and captured details and an access answer that
+    # reported the others only as a count withheld them.
+    leads = [_lead_record(row) for row in lead_rows]
+    lead = leads[0] if leads else None
 
     consent_rows = (
         await session.execute(
@@ -500,6 +501,7 @@ async def build_subject_export(
         "generated_at": datetime.now(UTC).isoformat(),
         "erasure": await _erasure_summary(session, phone_e164=phone_e164),
         "lead": lead,
+        "leads": leads,
         "calls": calls,
         "transcripts": transcripts,
         "consent": consent,

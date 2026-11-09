@@ -180,7 +180,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
@@ -191,7 +191,7 @@ from apps.api.compliance.export import subject_ref
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
-from apps.api.reliability.service import enqueue_outbox
+from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 
 log = get_logger(__name__)
 
@@ -957,6 +957,65 @@ async def _lock_subject(session: AsyncSession, *, tenant_id: UUID, phone_e164: s
     )
 
 
+#: How long an open request may wait before its job is queued again. The job runs in one
+#: transaction and has no `arq.Retry`, so a run that raises (a database error, a vendor
+#: call, `job_timeout`) is finished by arq on its first attempt and the request stays open
+#: with nothing left to run it; a re-filing dedupes onto that request. An hour is far
+#: longer than a run can last (`WorkerSettings.job_timeout`, 300 s), and the job locks its
+#: request row first, so a re-drive that meets a late original runs once and finds the
+#: request completed. The same rule as `tenant_erasure.TENANT_ERASURE_REDRIVE_AFTER`.
+DELETION_REDRIVE_AFTER: Final = timedelta(hours=1)
+
+#: Open requests past `DELETION_REDRIVE_AFTER`, for the hourly overdue walk; bounded so one
+#: tenant with a backlog cannot spend the walk's time budget.
+_STALLED_SQL: Final = (
+    "SELECT id, requested_at FROM deletion_requests "
+    "WHERE completed_at IS NULL AND requested_at < :cutoff "
+    "ORDER BY requested_at ASC, id ASC LIMIT 50"
+)
+
+
+async def redrive_stalled_erasure(
+    session: AsyncSession, *, tenant_id: UUID, request_id: UUID, requested_at: datetime
+) -> bool:
+    """Queue `execute_deletion_request` again for an open request older than
+    `DELETION_REDRIVE_AFTER`. At most once per window: the dedupe key names it. True when
+    a job was queued."""
+    age = datetime.now(UTC) - requested_at
+    if age < DELETION_REDRIVE_AFTER:
+        return False
+    window = int(age / DELETION_REDRIVE_AFTER)
+    queued = await enqueue_outbox_once(
+        session,
+        job=DELETION_JOB,
+        payload={"tenant_id": str(tenant_id), "request_id": str(request_id)},
+        dedupe_key=f"deletion_redrive:{request_id}:{window}",
+    )
+    if queued is None:
+        return False
+    log.warning(
+        "deletion_request_redriven",
+        extra={"tenant_id": str(tenant_id), "request_id": str(request_id)},
+    )
+    return True
+
+
+async def redrive_stalled_erasures(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """Re-drive every stalled request of this tenant (the caller's RLS-scoped session).
+    Returns how many jobs were queued."""
+    rows = (
+        await session.execute(
+            text(_STALLED_SQL), {"cutoff": datetime.now(UTC) - DELETION_REDRIVE_AFTER}
+        )
+    ).all()
+    queued = 0
+    for request_id, requested_at in rows:
+        queued += await redrive_stalled_erasure(
+            session, tenant_id=tenant_id, request_id=request_id, requested_at=requested_at
+        )
+    return queued
+
+
 async def request_erasure(
     session: AsyncSession, *, tenant_id: UUID, phone_e164: str
 ) -> DeletionRequestRecord:
@@ -993,7 +1052,11 @@ async def request_erasure(
             "deletion_request_deduped",
             extra={"tenant_id": str(tenant_id), "request_id": str(existing[0])},
         )
-        return _record(existing, already_open=True)
+        record = _record(existing, already_open=True)
+        await redrive_stalled_erasure(
+            session, tenant_id=tenant_id, request_id=record.id, requested_at=record.requested_at
+        )
+        return record
 
     request_id = uuid7()
     # `subject_ref` is written at insert time, not derived at read time: the number is
@@ -1208,6 +1271,7 @@ __all__ = [
     "CALLER_MEMORY_KEY",
     "CALLER_VECTOR_KEY",
     "DELETION_JOB",
+    "DELETION_REDRIVE_AFTER",
     "DELETION_SCOPE",
     "ENGINE_OUTCOME",
     "ERASURE_EXCEPTIONS",
@@ -1230,6 +1294,8 @@ __all__ = [
     "ErasureLimitation",
     "get_request",
     "list_requests",
+    "redrive_stalled_erasure",
+    "redrive_stalled_erasures",
     "refile_erasure_for_late_records",
     "request_erasure",
 ]

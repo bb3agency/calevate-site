@@ -2855,7 +2855,13 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
-                text("SELECT phone_e164, completed_at FROM deletion_requests WHERE id = :rid"),
+                # Locked to commit: a re-driven copy of this job (`deletion.
+                # redrive_stalled_erasure`) waits here and then finds the request completed,
+                # instead of erasing again and overwriting the certificate.
+                text(
+                    "SELECT phone_e164, completed_at FROM deletion_requests WHERE id = :rid "
+                    "FOR UPDATE"
+                ),
                 {"rid": request_id},
             )
         ).first()

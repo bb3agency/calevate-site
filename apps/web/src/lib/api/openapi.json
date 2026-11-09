@@ -54633,6 +54633,13 @@
               }
             ]
           },
+          "leads": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportLeadOut"
+            },
+            "title": "Leads",
+            "type": "array"
+          },
           "phone_e164": {
             "title": "Phone E164",
             "type": "string"
@@ -54657,6 +54664,7 @@
           "generated_at",
           "erasure",
           "lead",
+          "leads",
           "calls",
           "transcripts",
           "consent",
