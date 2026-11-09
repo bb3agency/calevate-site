@@ -822,7 +822,9 @@ function Editor({
           onConfirm={() => {
             const id = deleting;
             setDeleting(null);
-            setSelected(null);
+            // Only the deleted step's editor closes: a card's own delete leaves the step
+            // being written open.
+            setSelected((open) => (open === id ? null : open));
             edit((s) => removeSection(s, id));
           }}
         >

@@ -214,6 +214,20 @@ describe("a step added in the flow picture (Y1-07)", () => {
   });
 });
 
+describe("deleting one step from its card while another is open (Y1-08)", () => {
+  it("leaves the open step open", async () => {
+    await renderClientPage(page, routes(scriptOut({ ...BASE, stages: [GREET, PRICE, CLOSE] })));
+    await screen.findByRole("list", { name: "Steps of the call, in order" });
+    const greet = () => within(cards()[0]).getAllByRole("button").find((b) => b.hasAttribute("aria-expanded"))!;
+    fireEvent.click(greet());
+    expect(greet().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(await screen.findByRole("button", { name: "Delete Close" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete step" }));
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    expect(greet().getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
 describe("adding a main task, then cancelling (Y1-05)", () => {
   it("puts the focus back on the button that opened the field", async () => {
     await renderClientPage(
