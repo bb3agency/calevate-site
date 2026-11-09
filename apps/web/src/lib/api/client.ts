@@ -946,6 +946,10 @@ export async function apiUpload<T>(
     uploadTextOf?: string;
   } = {},
 ): Promise<T> {
+  // The rotation barrier, as `sendRequest`: an upload carries the cookie too, and the
+  // server verifies it only once the body has arrived, so it is gated AND carried.
+  const rotating = session.realm?.gate();
+  if (rotating) await rotating;
   const identity = identityHeaders(session);
   const headers = identity instanceof Promise ? await identity : identity;
   // The same id `sendRequest` stamps on every write, for the same reason and at no extra
@@ -958,7 +962,7 @@ export async function apiUpload<T>(
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
   if (uploadName !== undefined) headers["X-Upload-Name"] = encodeURIComponent(uploadName);
   if (uploadTextOf !== undefined) headers["X-Upload-Text-Of"] = uploadTextOf;
-  return await withDeadline<T>(
+  const exchange = withDeadline<T>(
     (deadlineSignal) =>
       new Promise<T>((resolve, reject) => {
         // An already-aborted signal never fires `abort` again, so the listener below would
@@ -1012,6 +1016,7 @@ export async function apiUpload<T>(
       }),
     { timeoutMs, signal },
   );
+  return await (session.realm ? session.realm.carry(exchange) : exchange);
 }
 
 async function sendRequest<T>(

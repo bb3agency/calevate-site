@@ -20,7 +20,7 @@ import {
   type SummaryBucket,
   type SummaryRow,
 } from "@/lib/api/analytics";
-import { useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { OUTCOME_ORDER, callOutcome, endingLabel } from "@/lib/callReview";
 
 import { PERFORMANCE_COPY as COPY } from "./copy";
@@ -56,7 +56,7 @@ function rowLabel(row: SummaryRow, bucket: SummaryBucket): string {
  * asked "how did last week go", so the two never disagree.
  */
 export function PeriodTable({ range }: { range: AnalyticsRange }) {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const slug = session.orgSlug;
   const [bucket, setBucket] = useState<SummaryBucket>("week");
   const summary = useActivitySummary(session, { ...range, bucket });
@@ -123,7 +123,7 @@ export function PeriodTable({ range }: { range: AnalyticsRange }) {
           ) : data.spend_withheld === "one_agent" ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <p className="text-meta text-ink-muted">{COPY.spendWholeAccount}</p>
-              <Link href={`/c/${slug}/billing?tab=usage`} className={SECONDARY_BUTTON_SM}>
+              <Link href={href(`/c/${slug}/billing?tab=usage`)} className={SECONDARY_BUTTON_SM}>
                 {COPY.spendLink}
                 <ArrowRight aria-hidden className="h-3.5 w-3.5" />
               </Link>
@@ -171,7 +171,7 @@ function personHref(slug: string, group: CallGroup): string {
  * every other panel on the page (L3-16).
  */
 export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
-  const session = useClientSession();
+  const { session, href } = useClientRealm();
   const slug = session.orgSlug;
   const [by, setBy] = useState<CallGroupBy>("caller");
   const [repeatOnly, setRepeatOnly] = useState(true);
@@ -190,7 +190,7 @@ export function CallGroupsTable({ range }: { range: AnalyticsRange }) {
       header: by === "caller" ? "Person" : by === "outcome" ? "Outcome" : "Agent",
       cell: (group) =>
         by === "caller" ? (
-          <Link href={personHref(slug, group)} className="font-medium underline-offset-2 hover:underline [overflow-wrap:anywhere] after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand">
+          <Link href={href(personHref(slug, group))} className="font-medium underline-offset-2 hover:underline [overflow-wrap:anywhere] after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-md focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-brand">
             {groupName(group, by)}
           </Link>
         ) : (

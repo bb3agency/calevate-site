@@ -183,6 +183,28 @@ describe("the statement list", () => {
 });
 
 describe("the statement CSV", () => {
+  it("defuses a reference that starts with a tab or a carriage return, as with = + - @", () => {
+    const entry = {
+      id: "e1",
+      delta_inr: "-499.00",
+      reason: "usage",
+      balance_after_inr: "2901.00",
+      lots: [],
+      occurred_at: "2026-09-01T09:00:00Z",
+      payment_ref: null,
+      label: null,
+    };
+    const csv = walletStatementCsv([
+      { ...entry, ref: "\t=HYPERLINK(1)" },
+      { ...entry, id: "e2", ref: "\r=1+1" },
+      { ...entry, id: "e3", ref: "=1+1" },
+    ]);
+    const [, tab, cr, eq] = csv.split("\r\n\"");
+    expect(tab).toContain(`"'\t=HYPERLINK(1)"`);
+    expect(cr).toContain(`"'\r=1+1"`);
+    expect(eq).toContain(`"'=1+1"`);
+  });
+
   it("names a rental row by the server's label, and a plain row by its reason", () => {
     const entry = {
       id: "e1",

@@ -115,6 +115,22 @@ export function pressedInAnotherLayer(event: KeyboardEvent, own: HTMLElement | n
  */
 export type InitialFocus = "first-tabbable" | "container";
 
+/**
+ * What to give focus back to. A dialog opened from a menu item (a row's ⋯ → "Remove") was
+ * opened from an element the menu removes as it closes, so focus came back to `<body>`;
+ * the menu's own button, which names it through `aria-controls`, is where the person was.
+ */
+function openerOf(active: Element | null): HTMLElement | null {
+  const menu = active?.closest('[role="menu"]');
+  if (menu?.id) {
+    const button = Array.from(document.querySelectorAll<HTMLElement>("[aria-controls]")).find(
+      (element) => element.getAttribute("aria-controls") === menu.id,
+    );
+    if (button) return button;
+  }
+  return active as HTMLElement | null;
+}
+
 export function useFocusTrap(
   panel: RefObject<HTMLElement | null>,
   active: boolean,
@@ -127,7 +143,7 @@ export function useFocusTrap(
 
   useEffect(() => {
     if (!active) return;
-    openedFrom.current = document.activeElement as HTMLElement | null;
+    openedFrom.current = openerOf(document.activeElement);
     const target =
       initialFocus === "container" ? panel.current : tabbablesWithin(panel.current)[0];
     (target ?? panel.current)?.focus();

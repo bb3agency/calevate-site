@@ -541,6 +541,17 @@ describe("D-587 on the create paths", () => {
     expect(document.body.textContent).not.toContain("stays with the client");
   });
 
+  it("keeps an operator's view-as session on the way to connect Google Sheets", async () => {
+    window.history.replaceState(null, "", "/c/acme/integrations?view=admin");
+    await render({
+      "/v1/me": { ...OWNER, impersonating: true, withheld_acts: [] },
+      "/v1/integrations/credentials": [],
+    });
+    const dialog = await choose("sheet");
+    const link = await within(dialog).findByRole("link", { name: "Integrations" });
+    expect(link.getAttribute("href")).toBe("/c/acme/integrations?view=admin");
+  });
+
   it("does not report the sign-in services as 'Not available yet' when that could not be read", async () => {
     await render({
       "/v1/integrations/connections/status": problem(503, {

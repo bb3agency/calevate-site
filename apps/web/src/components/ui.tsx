@@ -233,6 +233,23 @@ const SWITCH_TRACK =
   "relative mt-0.5 h-5 w-9 shrink-0 rounded-full border border-line bg-surface transition-colors peer-checked:border-brand peer-checked:bg-brand peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-brand peer-focus-visible:ring-offset-2 after:absolute after:left-0.5 after:top-0.5 after:h-3.5 after:w-3.5 after:rounded-full after:bg-ink-faint after:transition-transform peer-checked:after:translate-x-4 peer-checked:after:bg-white";
 
 /**
+ * `defaultOpen` as an opener, never a closer. Handed to `<details open>` directly it was
+ * controlled: React re-applies a changed value, so a caller passing a condition
+ * (`inUse > 0`) shut the panel in the reader's hands when it went false. The attribute is
+ * set once, at mount; after that a rise to true opens the panel and nothing closes it.
+ */
+function useOpenedBy(defaultOpen: boolean) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const initial = useRef(defaultOpen).current;
+  const was = useRef(defaultOpen);
+  useEffect(() => {
+    if (defaultOpen && !was.current && ref.current) ref.current.open = true;
+    was.current = defaultOpen;
+  }, [defaultOpen]);
+  return { ref, initial };
+}
+
+/**
  * A section a reader opens when they want it — the console's ONE disclosure mechanism.
  *
  * ## Why native `<details>` and not a built accordion
@@ -334,13 +351,15 @@ export function Disclosure({
   showLabel?: string;
   hideLabel?: string;
 }) {
+  const details = useOpenedBy(defaultOpen);
   const inline = variant === "inline";
   const Heading = headingLevel === 4 ? "h4" : headingLevel === 3 ? "h3" : "h2";
   if (variant === "row") {
     return (
       <details
+        ref={details.ref}
         name={name}
-        open={defaultOpen}
+        open={details.initial}
         onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}
         className={clsx("group", className)}
       >
@@ -365,8 +384,9 @@ export function Disclosure({
   }
   return (
     <details
+      ref={details.ref}
       name={name}
-      open={defaultOpen}
+      open={details.initial}
       onToggle={onToggle ? (event) => onToggle(event.currentTarget.open) : undefined}
       className={clsx(
         "group",

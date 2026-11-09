@@ -351,6 +351,19 @@ describe("the period table and who called (D-893 L7)", () => {
     expect(table.textContent).not.toMatch(/No lead yet|callers? called/);
   });
 
+  it("keeps an operator's view-as session on the row links", async () => {
+    window.history.replaceState(null, "", "/c/acme/performance?view=admin");
+    await renderClientPage(page, routes());
+    const table = await screen.findByRole("table", { name: "Calls by person, most calls first" });
+    const hrefs = within(table)
+      .getAllByRole("link")
+      .map((link) => link.getAttribute("href"));
+    expect(hrefs).toEqual([
+      "/c/acme/leads/0192f0aa-0000-7000-8000-00000000000a?view=admin",
+      "/c/acme/calls/0192f0aa-0000-7000-8000-0000000000c2?view=admin",
+    ]);
+  });
+
   it("names a person from the campaign list and says how their last call went, not a flag", async () => {
     const listed = groups({
       groups: [

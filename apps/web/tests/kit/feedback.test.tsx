@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, useMutation } from "@tanstack/react-query";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ActionButton, problemToast, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
@@ -126,6 +126,101 @@ describe("useActionFeedback", () => {
     // Not retryable, so no "Try again" in the toast.
     expect(toast.textContent).not.toContain("Try again");
     expect(screen.getByRole("alert").textContent).toContain("That name is taken");
+  });
+
+  it("does not carry a failure's code, sentence or Try again into the success that replaces it", async () => {
+    const BUSY = new ApiProblem(503, {
+      type: "https://calevate.tech/problems/engine_unavailable",
+      title: "The voice service did not answer",
+      detail: "Nothing was changed.",
+      retryable: true,
+      kind: "dependency",
+      trace_id: "abc123",
+    });
+    let fail = true;
+    function Save() {
+      const save = useMutation({
+        mutationFn: async () => {
+          if (fail) throw BUSY;
+          return { ok: true };
+        },
+      });
+      const feedback = useActionFeedback(save, { errorTitle: "Could not save", successToast: "Saved" });
+      return (
+        <ActionButton status={feedback.status} onClick={() => feedback.run()}>
+          Save
+        </ActionButton>
+      );
+    }
+    render(wrap(<Save />));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const failed = await screen.findByRole("group", { name: "Error: The voice service did not answer" });
+    expect(failed.textContent).toContain("engine_unavailable");
+    fail = false;
+    // Pressed again on the button itself, so the failure toast is still up to be replaced.
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const saved = await screen.findByRole("group", { name: "Done: Saved" });
+    expect(saved.textContent).not.toContain("engine_unavailable");
+    expect(saved.textContent).not.toContain("Nothing was changed.");
+    expect(within(saved).queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
+  it("announces the success of a form that closes itself on success", async () => {
+    function Form({ onDone }: { onDone: () => void }) {
+      const save = useMutation({ mutationFn: async () => ({ ok: true }), onSuccess: onDone });
+      const feedback = useActionFeedback(save, { successToast: "Note added" });
+      return (
+        <ActionButton status={feedback.status} onClick={() => feedback.run()}>
+          Add note
+        </ActionButton>
+      );
+    }
+    function Screen() {
+      const [open, setOpen] = useState(true);
+      return open ? <Form onDone={() => setOpen(false)} /> : <p>Closed</p>;
+    }
+    render(wrap(<Screen />));
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    await screen.findByText("Closed");
+    expect(await screen.findByRole("group", { name: "Done: Note added" })).toBeTruthy();
+  });
+
+  it("announces the failure of a form that is closed while it saves", async () => {
+    function Form() {
+      const save = useMutation({
+        mutationFn: async () => {
+          throw TAKEN;
+        },
+      });
+      const feedback = useActionFeedback(save, { errorTitle: "Could not rename the agent" });
+      return (
+        <ActionButton status={feedback.status} onClick={() => feedback.run()}>
+          Rename
+        </ActionButton>
+      );
+    }
+    function Screen() {
+      const [open, setOpen] = useState(true);
+      return open ? (
+        <div onClickCapture={() => queueMicrotask(() => setOpen(false))}>
+          <Form />
+        </div>
+      ) : (
+        <p>Closed</p>
+      );
+    }
+    render(wrap(<Screen />));
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await screen.findByText("Closed");
+    expect(await screen.findByRole("group", { name: "Error: That name is taken" })).toBeTruthy();
+  });
+
+  it("announces a success once, not again from the effect", async () => {
+    render(wrap(<Rename fail={false} />));
+    fireEvent.click(screen.getByRole("button", { name: "Rename agent" }));
+    await screen.findByRole("group", { name: "Done: Agent renamed" });
+    await act(async () => {});
+    expect(screen.getAllByRole("group", { name: "Done: Agent renamed" })).toHaveLength(1);
   });
 
   it("raises no toast when the screen shows the failure inline", async () => {

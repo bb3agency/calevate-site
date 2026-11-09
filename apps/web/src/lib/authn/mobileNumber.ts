@@ -20,8 +20,7 @@ export const ADD_MOBILE_NUMBER_PATH = `${CLIENT_ACCOUNT_PATH}#${MOBILE_NUMBER_AN
 /** What the number is for, said once wherever the number is asked for. No provider names. */
 export const MOBILE_NUMBER_USE = "For WhatsApp alerts and automatic top-ups.";
 
-export const MOBILE_NUMBER_INVALID =
-  "Enter a 10-digit mobile number, or the full number starting with +.";
+export { MOBILE_NUMBER_INVALID } from "./problems";
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 
