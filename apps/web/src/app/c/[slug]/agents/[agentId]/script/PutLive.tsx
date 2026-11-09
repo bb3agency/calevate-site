@@ -254,7 +254,15 @@ function ScriptWarnings({
           </ActionButton>
         )}
         <Why inline className="text-meta text-ink-muted">
-          {warnings.join(" ")}
+          <span className="mt-1 block space-y-2">
+            {warningRows(warnings).map((row) => (
+              <span key={row.where + row.problem} className="block">
+                {row.where && <span className="font-medium text-ink">{row.where}: </span>}
+                <span className="text-ink">{row.problem}</span>
+                {row.advice && <span className="block">{row.advice}</span>}
+              </span>
+            ))}
+          </span>
         </Why>
       </div>
       {failed && <p className="mt-2 text-meta text-danger">{failed}</p>}
@@ -271,6 +279,40 @@ function ScriptWarnings({
     </div>
     </>
   );
+}
+
+/**
+ * The warnings as rows a person can scan: where (a step or the opening), the problem, and
+ * what to do, with one row for a problem several steps share ("Steps 7 and 8"). The server
+ * sends each as "<where>: <problem>; <what to do>", and joined into one paragraph six of
+ * them read as a wall of text (founder, 9 Nov 2026).
+ */
+export function warningRows(
+  warnings: readonly string[],
+): { where: string; problem: string; advice: string }[] {
+  const rows: { places: string[]; problem: string; advice: string }[] = [];
+  for (const warning of warnings) {
+    const split = /^([^:]{1,40}):\s+([\s\S]*)$/.exec(warning.trim());
+    const where = split ? split[1] : "";
+    const rest = split ? split[2] : warning.trim();
+    const cut = rest.indexOf("; ");
+    const problem = (cut < 0 ? rest : rest.slice(0, cut)).trim();
+    const advice = cut < 0 ? "" : capitalise(rest.slice(cut + 2).trim());
+    const same = rows.find((row) => row.problem === problem && row.advice === advice);
+    if (same && where) same.places.push(where);
+    else rows.push({ places: where ? [where] : [], problem, advice });
+  }
+  return rows.map(({ places, problem, advice }) => ({ where: placesLabel(places), problem, advice }));
+}
+
+function placesLabel(places: string[]): string {
+  if (places.length < 2 || !places.every((p) => /^Step \d+$/.test(p))) return places.join(", ");
+  const numbers = places.map((p) => p.slice("Step ".length));
+  return `Steps ${numbers.slice(0, -1).join(", ")} and ${numbers[numbers.length - 1]}`;
+}
+
+function capitalise(text: string): string {
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
 }
 
 /**
