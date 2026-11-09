@@ -9,9 +9,9 @@ because those carry the calling rules (take no for an answer, one fact in the va
 read-back the person can check). The written plan is what the preview shows, what the new
 agent's first script names its sections, and what the script writer follows.
 
-Stored on `organizations.starter_plans` as `{job: [{"title", "focus"}, ...]}`, written by
-`workers/starter_steps` whenever what the business sells changes. A plan that does not fit
-its job's shape is ignored, never repaired, and the platform's steps are shown instead.
+Stored on `organizations.starter_plans` as `{job: [{"title", "focus"}, ...], "written_at"}`,
+written by `workers/starter_steps` whenever what the business sells changes. A plan that does
+not fit its job's shape is ignored, never repaired, and the platform's steps are shown instead.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import STAGE_DETAIL_MAX
@@ -130,9 +130,42 @@ async def business_known(session: AsyncSession, *, tenant_id: UUID) -> str | Non
     return str(row[1]) if row is not None and row[0] else None
 
 
+#: Appended to the jsonb a writer stores (`workers/starter_steps`, `workers/profile_wording`),
+#: so every write carries a stamp no earlier write had and the next ask is keyed over it.
+#: Keyed on the description alone, the outbox key was spent for good: a business that went
+#: from list A to B and back to A kept the copy written for B, because A had been asked once.
+STAMP_WRITE_SQL: Final = "jsonb_build_object('written_at', to_jsonb(clock_timestamp()))"
+
+_PLANS_WRITTEN_SQL: Final = "SELECT starter_plans->>'written_at' FROM organizations WHERE id = :tid"
+_WORDING_WRITTEN_SQL: Final = (
+    "SELECT profile_wording->>'written_at' FROM organizations WHERE id = :tid"
+)
+
+
+async def ask_key(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    column: Literal["starter_plans", "profile_wording"],
+    prefix: str,
+    known: str,
+) -> str:
+    """The outbox key for writing `column` for the description `known`: once per description
+    per stored write, so repeated asks before the draft lands queue one job, and a return to
+    an earlier description after another was written asks again."""
+    written = (
+        await session.execute(
+            text(_PLANS_WRITTEN_SQL if column == "starter_plans" else _WORDING_WRITTEN_SQL),
+            {"tid": tenant_id},
+        )
+    ).scalar_one_or_none()
+    return f"{prefix}:{tenant_id}:{known}:{written or '-'}"
+
+
 async def maybe_write_starter_steps(session: AsyncSession, *, tenant_id: UUID) -> bool:
     """Queue the steps written for this business once anything describes it, again each time
-    that changes. Deduped per description, so one change asks once."""
+    that changes. Deduped per description and stored write (`ask_key`), so one change asks
+    once and a return to an earlier description asks again."""
     known = await business_known(session, tenant_id=tenant_id)
     if known is None:
         return False
@@ -140,18 +173,26 @@ async def maybe_write_starter_steps(session: AsyncSession, *, tenant_id: UUID) -
         session,
         job=WRITE_STEPS_JOB,
         payload={"tenant_id": str(tenant_id), "known": known},
-        dedupe_key=f"starter-steps:{tenant_id}:{known}",
+        dedupe_key=await ask_key(
+            session,
+            tenant_id=tenant_id,
+            column="starter_plans",
+            prefix="starter-steps",
+            known=known,
+        ),
     )
     return queued is not None
 
 
 __all__ = [
     "BUSINESS_KNOWN_SQL",
+    "STAMP_WRITE_SQL",
     "STEP_FOCUS_MAX",
     "STEP_TITLE_MAX",
     "WRITE_STEPS_JOB",
     "Plan",
     "PlanStep",
+    "ask_key",
     "business_known",
     "clean_plan",
     "maybe_write_starter_steps",

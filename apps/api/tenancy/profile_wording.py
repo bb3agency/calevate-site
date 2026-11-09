@@ -29,7 +29,7 @@ from pydantic import ConfigDict, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.starter_plans import business_known
+from apps.api.agents.starter_plans import ask_key, business_known
 from apps.api.core.schemas import Strict
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.api.tenancy.business_copy import screen_text_problems
@@ -184,7 +184,13 @@ async def _queue(session: AsyncSession, *, tenant_id: UUID, known: str) -> bool:
         session,
         job=WRITE_JOB,
         payload={"tenant_id": str(tenant_id), "known": known},
-        dedupe_key=f"profile-wording:{tenant_id}:{known}",
+        dedupe_key=await ask_key(
+            session,
+            tenant_id=tenant_id,
+            column="profile_wording",
+            prefix="profile-wording",
+            known=known,
+        ),
     )
     return queued is not None
 
