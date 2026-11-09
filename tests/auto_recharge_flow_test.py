@@ -279,6 +279,12 @@ async def test_switching_on_above_the_mandate_limit_is_refused_and_within_it_res
             )
     assert refused.value.code == "auto_recharge_over_mandate"
     assert "₹2,000" in str(refused.value.detail)
+    # The screen offers only "Withdraw approval" beside a confirmed method, so the way to a
+    # higher limit is to withdraw and approve again; there is no "new payment method" button.
+    remediation = refused.value.remediation or ""
+    assert "withdraw the approval" in remediation
+    assert "₹2,000 or less" in remediation
+    assert "new payment method" not in remediation
 
     actor = uuid.uuid4()
     async with tenant_session(tenant_id) as session:
