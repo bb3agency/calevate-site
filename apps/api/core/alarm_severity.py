@@ -254,6 +254,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # the spike is the alarm and this is the input. Mailing both means mailing the same
     # outage ten times before the one that means something arrives.
     "engine_unreachable": "record",
+    # A client's own provider (their CRM, payment or messaging account) did not answer an
+    # owner's request; the owner is told to try again in a minute and nothing changed.
+    # Someone else's outage, with nothing for us to do.
+    "integration_unreachable": "record",
     "engine_rejected": "attention",
     "engine_rate_limited": "attention",
     "engine_bad_response": "attention",
