@@ -208,8 +208,36 @@ describe("a refusal is the gate's answer", () => {
     await fillNumberForm();
     fireEvent.click(screen.getByRole("button", { name: "Call now" }));
     expect(await screen.findByText("This account has no calling credit left.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe("/c/acme/billing");
+    // `?tab=credits` opens the Add credit drawer; the bare billing page made it one more step.
+    expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toBe("/c/acme/billing?tab=credits");
     expect(container.textContent).not.toContain("no_credits");
+  });
+
+  it.each([
+    ["kyc_not_verified", "Verify your business", "/c/acme/verify-business"],
+    ["outbound_pledge_missing", "Verify your business", "/c/acme/verify-business"],
+    ["agreements_not_accepted", "Read and accept", "/c/acme/agreements"],
+    ["platform_fee_overdue", "Pay in Billing", "/c/acme/billing"],
+    ["truthful_answer_drift", "Open the agent", "/c/acme/agents/agent-out"],
+  ])("gives a %s refusal the button that fixes it", async (rule, label, target) => {
+    await renderClientPage(
+      page,
+      routes({
+        "POST /v1/one-calls": { status: "blocked", blocked_rule: rule, blocked_reason: "Not allowed yet." },
+      }),
+    );
+    await fillNumberForm();
+    fireEvent.click(screen.getByRole("button", { name: "Call now" }));
+    await screen.findByText("Not allowed yet.");
+    expect(screen.getByRole("link", { name: label }).getAttribute("href")).toBe(target);
+  });
+
+  it("drops the +91 beside a number typed with its own country code", async () => {
+    await renderClientPage(page, routes());
+    const phone = await screen.findByLabelText("Phone number");
+    expect(screen.getByText("+91")).toBeTruthy();
+    fireEvent.change(phone, { target: { value: "+447700900123" } });
+    expect(screen.queryByText("+91")).toBeNull();
   });
 
   it("puts the server's sentence for a bad number under the number", async () => {
