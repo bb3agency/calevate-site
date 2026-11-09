@@ -63,7 +63,7 @@ from apps.api.crm.lens import (
 )
 from apps.api.crm.live_calls import LIVE_STATE_SQL, RUNNING_SQL, live_state_params
 from apps.api.crm.outcomes import normalise as normalise_outcome
-from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL, IST_ZONE
+from apps.api.crm.performance import IST_HOUR_SQL, IST_TODAY_SQL, IST_ZONE
 from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
@@ -2993,17 +2993,12 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     #
     # Once every term is inside seven days the WHOLE statement takes the bound and
     # `ix_calls_tenant_started` (D-206) serves it: 27.2 ms / 1,017 buffers → 0.84 ms /
-    # 61 buffers on the same tenant. `calls_today` is unchanged by the move (today is a
-    # subset of the last seven days) and `calls_7d` stops needing a FILTER, because the
-    # statement is now the filter.
+    # 61 buffers on the same tenant. `calls_7d` needs no FILTER, because the statement is
+    # the filter. `calls_today` is not counted here: it is the chart's today bucket, below.
     counts = (
         await session.execute(
             text(
                 "SELECT "
-                # The IST calendar day, as `daily_7d` buckets it: `started_at::date` is the
-                # date in the session's TimeZone, which files every call between 00:00 and
-                # 05:30 IST under yesterday on a UTC database.
-                f"  count(*) FILTER (WHERE {IST_DAY_SQL} = {IST_TODAY_SQL}) AS calls_today, "
                 "  count(*) AS calls_7d, "
                 "  avg(duration_s) FILTER (WHERE status = 'completed') AS avg_duration, "
                 # IST by name, not by a fixed offset: EXTRACT on a timestamptz renders
@@ -3109,13 +3104,19 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         after_hours = await count_after_hours_calls(session, since=since_7d)
         after_hours_basis: Literal["business_hours", "default_window"] = "business_hours"
     else:
-        after_hours = int(counts[3] or 0) if counts else 0
+        after_hours = int(counts.after_hours or 0) if counts else 0
         after_hours_basis = "default_window"
 
     return DashboardOut(
-        calls_today=int(counts[0] or 0) if counts else 0,
-        calls_7d=int(counts[1] or 0) if counts else 0,
-        avg_duration_s_7d=int(counts[2]) if counts and counts[2] is not None else None,
+        # The chart's today bucket, so the tile and the bar beside it are one count: a call
+        # is filed under `lens.CALL_AT` (connected, else placed), as the call log's day
+        # filter files it. Counted on `started_at` alone, a dial that failed before ringing
+        # was in today's bar and its "missed" link but not in "Calls today".
+        calls_today=int(daily[-1].total) if daily else 0,
+        calls_7d=int(counts.calls_7d or 0) if counts else 0,
+        avg_duration_s_7d=(
+            int(counts.avg_duration) if counts and counts.avg_duration is not None else None
+        ),
         after_hours_captured_7d=after_hours,
         after_hours_basis=after_hours_basis,
         sentiment_split={row[0]: int(row[1]) for row in sentiment},
@@ -3123,8 +3124,8 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
         leads_new_7d=int(leads[0] or 0) if leads else 0,
         hot_leads_open=int(leads[1] or 0) if leads else 0,
         calls_prev_7d=int(calls_prev or 0),
-        calls_connected_7d=int(counts[4] or 0) if counts else 0,
-        calls_not_connected_7d=int(counts[5] or 0) if counts else 0,
+        calls_connected_7d=int(counts.connected or 0) if counts else 0,
+        calls_not_connected_7d=int(counts.not_connected or 0) if counts else 0,
         leads_new_prev_7d=int(leads[2] or 0) if leads else 0,
         minutes_used_month=counters.minutes_used,
         # Named columns rather than positional: six of them, and a chart that swaps

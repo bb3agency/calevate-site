@@ -195,16 +195,20 @@ async def google_complete(
     enforce_same_origin(request)
     cookie = _binding_cookie_name(request)
     ip = client_request_ip(request)
+    invited_email: str | None = None
+    if payload.invitation_token:
+        invited_email = await invitations.invited_address(payload.invitation_token)
+        # Refused BEFORE `google.finish`: this request ends in `invitation_invalid` anyway
+        # (`accept_for_verified_address`), and finishing first minted a session nobody
+        # receives and, with signup open, created an account for a stale link.
+        if invited_email is None:
+            raise invitations.invitation_unusable()
     signed_in = await google.finish(
         code=payload.code,
         state=payload.state,
         browser_nonce=request.cookies.get(cookie),
         signup_open=await _signup_is_open(),
-        invited_email=(
-            await invitations.invited_address(payload.invitation_token)
-            if payload.invitation_token
-            else None
-        ),
+        invited_email=invited_email,
     )
     response.delete_cookie(cookie, path="/", secure=_is_secure(request), httponly=True)
 

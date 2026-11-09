@@ -214,6 +214,9 @@ RefundWrite = Annotated[Principal, Depends(requires("admin:tenants", realm="admi
 #: `_apply_refund` both alert `razorpay_unknown_tenant` before raising `not_found`, and
 #: that sentence names the case better than a general "we could not apply this" could.
 _SELF_ALERTING_REFUSALS: Final = frozenset({"not_found"})
+#: A signed event naming no account of ours (`payments.extract_captured_payment`,
+#: `payments.extract_refund`): acknowledged with an alarm, never refused.
+UNATTRIBUTED_PAYMENT_CODE: Final = "payment_tenant_unresolved"
 
 # The route this intent claims its idempotency key under. A literal, matching the
 # `crm/routes.py` convention of naming the templated path rather than the resolved one.
@@ -457,7 +460,9 @@ class WebhookAck(Strict):
     # `credited` = a payment landed on the wallet; `refunded` = a refund debited it;
     # `duplicate` = we had already applied this event; `failed`/`authorized` = a payment
     # state that moves no money; `refund_failed` = a refund Razorpay could not process;
-    # `mandate` = a token state; `dispute` = a dispute event; `ignored` = no handler.
+    # `unattributed` = a payment or refund naming no account of ours, alarmed and left to
+    # the daily reconciliation; `mandate` = a token state; `dispute` = a dispute event;
+    # `ignored` = no handler.
     status: EventStatus
     event: str
     payment_id: str | None = None
@@ -1180,7 +1185,18 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
                 problem_code=exc.code,
                 event=event,
             )
-        raise
+        if exc.code != UNATTRIBUTED_PAYMENT_CODE:
+            raise
+        # Acknowledged, not refused. Notes never appear on a redelivery, so a 4xx only
+        # makes Razorpay retry for 24 hours and then DISABLE the webhook, stopping every
+        # payment event after it (https://razorpay.com/docs/webhooks/best-practices/, read
+        # 10 Nov 2026). Dashboard refunds, payment links and automatic refunds of
+        # uncaptured payments (which also send refund events,
+        # https://razorpay.com/docs/webhooks/refunds/) all arrive without our note. The
+        # alarm above has fired, and the daily reconciliation lists the id
+        # (`unattributed:` / `refund:`) and never debits a wallet that holds no top-up for
+        # the payment.
+        result = EventResult(status="unattributed")
     if result.status == "ignored":
         log.info("razorpay_event_ignored", extra={"event": event})
     return WebhookAck(

@@ -547,3 +547,41 @@ async def test_an_invitation_to_another_address_opens_nothing_while_signup_is_cl
     with pytest.raises(ProblemError) as refused:
         await _sign_in(monkeypatch, signup_open=False, invited_email=_address("someone-else"))
     assert refused.value.code == "no_account_for_google"
+
+
+async def test_a_stale_invitation_is_refused_before_google_opens_an_account(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """Deep audit D2. The request ends in `invitation_invalid` whatever happens, so it ends
+    there BEFORE `google.finish`: finishing first minted a session nobody received and, with
+    signup open, created an account for a link that no longer works."""
+    import httpx
+    from apps.api.authn import self_serve_routes
+    from apps.api.main import app
+
+    async def open_signup() -> bool:
+        return True
+
+    monkeypatch.setattr(self_serve_routes, "_signup_is_open", open_signup)
+    stranger = _address("stale")
+    planted.append(stranger)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://api"
+    ) as http:
+        started = await http.post("/v1/auth/client/google/start", json={"next": "/c"})
+        assert started.status_code == 200, started.text
+        state, nonce = _state_and_nonce(started.json()["authorize_url"])
+        token = _id_token(nonce, email=stranger)
+
+        async def exchange(code: str, nonce_in: str, client: Any) -> str:
+            return token
+
+        monkeypatch.setattr(google, "_exchange", exchange)
+        done = await http.post(
+            "/v1/auth/client/google/complete",
+            json={"code": "the-code", "state": state, "invitation_token": uuid.uuid4().hex},
+        )
+
+    assert done.status_code == 422, done.text
+    assert done.json()["type"].endswith("/invitation_invalid")
+    assert await resolve_by_email("client", stranger) is None

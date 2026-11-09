@@ -487,9 +487,16 @@ async def engine_minute_cost(
     at: datetime,
     carrier_only: bool = False,
     forwarded: bool = False,
+    engine_agent_ref: str | None = None,
 ) -> MinuteCost:
     """This call's supplier cost at the rate attested for its vendor agent's rate key, or
     for the carrier's fee when it ended before the agent spoke (`carrier_only`).
+
+    `engine_agent_ref` is the vendor agent that ran the call. When the agent was recreated
+    (a move into the client's own workspace, an experiment arm) the call's route is retired
+    beside a newer one, and its late result must be metered at ITS route's rate key, not the
+    replacement's, which a voice-rung change can make different. Without the ref (or for a
+    ref no route carries) the agent's active route is used.
 
     A `forwarded` call (a number forward put it through to a phone) is billed every
     connected second at the plan it was admitted at: the attached agent's, or Premium when
@@ -517,9 +524,10 @@ async def engine_minute_cost(
                 "JOIN engine_agent_routes r "
                 "ON r.agent_id = c.agent_id AND r.tenant_id = c.tenant_id AND r.engine = :e "
                 "WHERE c.id = :cid AND c.tenant_id = :tid "
-                "ORDER BY r.active DESC, r.updated_at DESC LIMIT 1"
+                "ORDER BY r.engine_agent_ref IS NOT DISTINCT FROM CAST(:ref AS text) DESC, "
+                "r.active DESC, r.updated_at DESC LIMIT 1"
             ),
-            {"e": engine, "cid": call_id, "tid": tenant_id},
+            {"e": engine, "cid": call_id, "tid": tenant_id, "ref": engine_agent_ref},
         )
     ).first()
     route_key = str(stamped[0]) if stamped is not None and stamped[0] else BASE_RATE_KEY

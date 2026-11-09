@@ -154,7 +154,7 @@ class JoinedWorkspace:
     role: str
 
 
-def _invalid() -> ProblemError:
+def invitation_unusable() -> ProblemError:
     """Unknown, used, expired — one answer, keeping the wording the Clerk-era path used so
     the two flows are indistinguishable to somebody probing tokens."""
     return ProblemError(
@@ -206,7 +206,7 @@ async def accept_with_password(
         ).first()
     if row is None:
         log.info("auth_invitation_rejected")
-        raise _invalid()
+        raise invitation_unusable()
     tenant_id = UUID(str(row[0]))
     invited_email = str(row[1]).strip()
 
@@ -364,7 +364,7 @@ async def _hold_redemption(scoped: AsyncSession, token_hash: str) -> None:
     ).first()
     if redeemable is None:
         log.info("auth_invitation_rejected")
-        raise _invalid()
+        raise invitation_unusable()
 
 
 async def _address_proved(user_id: UUID) -> bool:
@@ -477,7 +477,7 @@ async def accept_for_verified_address(
             )
         ).first()
     if row is None:
-        raise _invalid()
+        raise invitation_unusable()
     if str(row[1]).strip().casefold() != verified_email.strip().casefold():
         log.info("auth_invitation_address_mismatch", extra={"user_id": str(user_id)})
         return None
@@ -605,5 +605,6 @@ __all__ = [
     "JoinedWorkspace",
     "accept_for_verified_address",
     "accept_with_password",
+    "invitation_unusable",
     "invited_address",
 ]
