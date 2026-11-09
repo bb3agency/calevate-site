@@ -516,6 +516,13 @@ describe("adding numbers", () => {
     expect(container.textContent).not.toContain("9876543211");
   });
 
+  it("clears the last add's counts once the next number is typed, so they never sit under it", async () => {
+    const { container, box } = await addTwo({ added: 2, already_suppressed: 0, malformed: 0 });
+    await waitFor(() => expect(container.textContent).toContain("Already on the list"));
+    fireEvent.change(box, { target: { value: "9876543219" } });
+    expect(container.textContent).not.toContain("Already on the list");
+  });
+
   it("renders a refusal instead of counts when the add fails", async () => {
     const { container } = await addTwo(
       problem(422, {

@@ -104,6 +104,8 @@ export function NumberField({
             onChange(event.target.value);
             setEmpty(false);
             check.reset();
+            // The last add's counts are about numbers no longer on screen.
+            add.reset();
           }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !value.includes("\n")) {
