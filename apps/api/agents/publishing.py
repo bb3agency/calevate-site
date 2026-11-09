@@ -1047,6 +1047,13 @@ async def engine_drift_for(
     # declined to pay.
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
+        if row["status"] == "archived":
+            # Archiving leaves the vendor agent standing with nothing bound to it
+            # (`lifecycle.archive_agent`); we no longer operate it, so it is not compared,
+            # and the sweep does not put back the actions and settings archiving retired.
+            return _not_published(
+                agent_id, engine.name, "This agent is deleted, so it is not compared."
+            )
         # WHO A PUBLISH RIGHT NOW WOULD SEND (D-533), resolved through the ONE resolver
         # the publish itself uses. Not optional and not a shortcut: the destination is a
         # function of the clock, so a sweep that rebuilt it any other way — or skipped it —
@@ -1090,26 +1097,32 @@ async def engine_drift_for(
             # read back; that guard is in `verify_publish` itself, so a future caller
             # cannot lose it.
             if not isinstance(ref, str) or not ref:
-                return EngineDrift(
-                    agent_id=str(agent_id),
-                    engine=engine.name,
-                    engine_agent_ref=None,
-                    checked=False,
-                    state="not_published",
-                    prompt_applied=None,
-                    disclosure_applied=None,
-                    prompt_disclosure_applied=None,
-                    truthful_answer_applied=None,
-                    confidentiality_applied=None,
-                    voice_applied=None,
-                    handoff_applied=None,
-                    detail=(
-                        "This agent is not on the voice platform, so there is nothing to compare."
-                    ),
+                return _not_published(
+                    agent_id,
+                    engine.name,
+                    "This agent is not on the voice platform, so there is nothing to compare.",
                 )
             target, config = ref, _to_config(tenant_id, row, engine=engine, handoff=handoff)
 
     return await _drift_of(engine, agent_id, target, config)
+
+
+def _not_published(agent_id: UUID, engine: str, detail: str) -> EngineDrift:
+    return EngineDrift(
+        agent_id=str(agent_id),
+        engine=engine,
+        engine_agent_ref=None,
+        checked=False,
+        state="not_published",
+        prompt_applied=None,
+        disclosure_applied=None,
+        prompt_disclosure_applied=None,
+        truthful_answer_applied=None,
+        confidentiality_applied=None,
+        voice_applied=None,
+        handoff_applied=None,
+        detail=detail,
+    )
 
 
 async def _drift_of(
