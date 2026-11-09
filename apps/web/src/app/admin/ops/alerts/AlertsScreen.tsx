@@ -70,7 +70,9 @@ export function AlertsScreen() {
   const [days, setDays] = useState(DEFAULT_WINDOW_DAYS);
   const access = useAdminAccess("ops:manage", "read the platform's alerts");
   const report = useAlerts(days, !access.refused);
-  const data = report.data;
+  // Error before data: a failed poll keeps the last answer, and its "nothing is happening"
+  // would stand beside the error as if it were current.
+  const data = report.error ? undefined : report.data;
 
   /*
    * `platform_alerts` carries no tenant_id, and `detail`/`ids` are redacted at the write
