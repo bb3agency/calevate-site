@@ -1518,6 +1518,38 @@ async def rewrite_starter_script(
     return _proposal_out(proposal)
 
 
+@router.post(
+    "/proposal/main-task",
+    response_model=ScriptProposalOut,
+    status_code=202,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Ask Pip to re-adjust the script to the agent's main task",
+    description=(
+        '"Re-adjust script" on the agent page. Queues a `change` suggestion that brings the '
+        "working script (the draft, else the saved script) into line with its own main task "
+        "(`goal`); poll `GET .../proposal` until it is `ready` and review it on the Script "
+        "page. Nothing reaches the draft until it is kept, nor a caller until it is put live. "
+        "Refused with `script_main_task_missing` when there is no main task, "
+        "`script_main_task_hand_written` for a script written as one text, and "
+        "`script_suggestion_waiting` while another suggestion waits for review."
+    ),
+)
+async def readjust_script_to_main_task(
+    agent_id: UUID, session: Session, principal: ScriptWriter
+) -> ScriptProposalOut:
+    assert principal.tenant_id is not None
+    # Spends the dashboard AI allowance like any suggestion Pip writes.
+    assert_view_as_may(principal, "billing.ai_assist")
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
+    proposal = await script_proposals.request_main_task_fit(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        requested_by=principal.user_id,
+    )
+    return _proposal_out(proposal)
+
+
 class FixLinesIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

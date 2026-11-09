@@ -102,6 +102,51 @@ export function partText(script: CallScript, key: PartKey): string {
 }
 
 /**
+ * Text as a caller would hear it: runs of spaces and line breaks are one space. A model that
+ * re-wraps a line or adds a trailing space has changed nothing anybody hears, and listing it
+ * would bury the changes that matter among ones that do not.
+ */
+export function spoken(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/** One sentence or line of a quote, with whatever followed it, and whether it is new to the
+ *  other side of the comparison. */
+export interface Segment {
+  text: string;
+  /** The space or line break after it, kept so the quote reads as it was written. */
+  gap: string;
+  changed: boolean;
+}
+
+/** Sentence ends in the scripts' languages: `.`, `?`, `!` and the Devanagari danda. */
+const SENTENCE_GAP = /(?<=[.!?।])[ \t]+|\n+/g;
+
+function splitSentences(text: string): { text: string; gap: string }[] {
+  const out: { text: string; gap: string }[] = [];
+  let at = 0;
+  for (const match of text.matchAll(SENTENCE_GAP)) {
+    out.push({ text: text.slice(at, match.index), gap: match[0] });
+    at = (match.index ?? 0) + match[0].length;
+  }
+  out.push({ text: text.slice(at), gap: "" });
+  return out.filter((s) => s.text !== "" || s.gap !== "");
+}
+
+/**
+ * `text` cut into sentences and lines, each marked `changed` when `other` has no sentence
+ * that says the same. What the review highlights inside a changed row: the step, question,
+ * answer or closing sentence that is new or gone, rather than the whole quote.
+ */
+export function changedSegments(text: string, other: string): Segment[] {
+  const said = new Set(splitSentences(other).map((s) => spoken(s.text)).filter(Boolean));
+  return splitSentences(text).map((s) => ({
+    ...s,
+    changed: spoken(s.text) !== "" && !said.has(spoken(s.text)),
+  }));
+}
+
+/**
  * The content of a section that matters to a caller (not its id or canvas position). A way
  * out is compared by the step it leads to: `targets` maps a step id to that step's identity
  * on the other side, so renaming a step does not read as a change to every step leading to it.
@@ -109,14 +154,14 @@ export function partText(script: CallScript, key: PartKey): string {
 function sectionText(section: Section, targets: Map<string, string>): string {
   const target = (t: string) => targets.get(t) ?? t;
   return JSON.stringify([
-    section.name.trim(),
+    spoken(section.name),
     section.mode,
-    section.instruction.trim(),
-    section.sounds_like.trim(),
-    section.branches.map((b) => [b.when.trim(), target(b.target)]),
+    spoken(section.instruction),
+    spoken(section.sounds_like),
+    section.branches.map((b) => [spoken(b.when), target(b.target)]),
     section.otherwise ? target(section.otherwise) : "",
     section.collect,
-    section.procedure.map((p) => [p.action.trim(), p.wait_for.trim()]),
+    section.procedure.map((p) => [spoken(p.action), spoken(p.wait_for)]),
   ]);
 }
 
@@ -141,7 +186,7 @@ export function diffScripts(before: CallScript, after: CallScript): Change[] {
   for (const { key, label } of PARTS) {
     const a = partText(before, key);
     const b = partText(after, key);
-    if (a !== b) changes.push({ id: `part:${key}`, kind: "part", part: key, label, before: a, after: b });
+    if (spoken(a) !== spoken(b)) changes.push({ id: `part:${key}`, kind: "part", part: key, label, before: a, after: b });
   }
   const was = sectionsOf(before);
   const now = sectionsOf(after);

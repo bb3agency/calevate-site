@@ -4773,6 +4773,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/script/proposal/main-task": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Pip to re-adjust the script to the agent's main task
+         * @description "Re-adjust script" on the agent page. Queues a `change` suggestion that brings the working script (the draft, else the saved script) into line with its own main task (`goal`); poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches the draft until it is kept, nor a caller until it is put live. Refused with `script_main_task_missing` when there is no main task, `script_main_task_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.
+         */
+        post: operations["readjust_script_to_main_task_v1_agents__agent_id__script_proposal_main_task_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/script/proposal/starter": {
         parameters: {
             query?: never;
@@ -46962,6 +46982,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PendingProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    readjust_script_to_main_task_v1_agents__agent_id__script_proposal_main_task_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScriptProposalOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -660,6 +660,22 @@ export function useRewriteStarterScript(
 }
 
 /**
+ * "Re-adjust script" on the agent page: Pip rewrites the working script to fit its main task.
+ * An ordinary suggestion, polled through `useScriptProposal` and reviewed on the Script tab.
+ */
+export function useReadjustToMainTask(
+  session: Session,
+  agentId: string,
+): UseMutationResult<ScriptProposal, Error, void> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiRequest<ScriptProposal>(session, `${base(agentId)}/proposal/main-task`, { method: "POST" }),
+    onSuccess: (proposal) => client.setQueryData(proposalKey(session.orgSlug, agentId), proposal),
+  });
+}
+
+/**
  * The fixed script into the draft once the owner has seen it, and the suggestion it came from
  * cleared. `baseSavedAt` is the draft's stamp when the fix was asked for: a draft changed
  * since in another tab is refused rather than overwritten (A-13).
