@@ -68,8 +68,25 @@ TOPICS = (
 )
 
 
+#: A warmer line per step, each opening differently and sharing few words with the others, so
+#: the same-opening and repeated-line checks have nothing to say about the lines a test keeps.
+WARM = (
+    "",
+    "Which seeds are you planning to sow this season?",
+    "How is your soil holding up after the rains?",
+    "Do your fields get enough water right now?",
+    "When does your next crop season start?",
+    "Where should we deliver your order?",
+    "Would you like to pay at delivery or online?",
+    "Is there a dry place to keep the bags?",
+    "Have pests troubled your crop lately?",
+    "Any idea yet when the harvest will be ready?",
+    "Tell me, where do you usually sell your produce?",
+)
+
+
 def _warm(i: int) -> str:
-    return f"Lovely, shall we talk about the {TOPICS[i]} now?"
+    return WARM[i]
 
 
 def _stage(i: int, line: str | None = None) -> ConversationStage:
