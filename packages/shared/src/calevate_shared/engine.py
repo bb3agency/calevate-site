@@ -3677,10 +3677,15 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
 #: The caller-memory layer, on an engine that keeps caller memory itself
 #: (`AgentConfig.caller_memory_in_engine`). Caller memory is the engine's alone (D-973): our
 #: own store of notes is gone, so an engine that keeps none gets no memory layer at all.
-#: ThinnestAI's `pastConversations: "recap"` opens by recapping earlier conversations
-#: (`thinnest-findings/mirror/snapshots/2026-10-29/pages/api-reference/agents/
-#: create-agent.md:1376-1379`, VERIFIED-VENDOR-DOCS); this line keeps an agent told nothing
-#: about a stranger from greeting them as someone it spoke to before (D-965).
+#: ThinnestAI's `pastConversations: "recap"` recaps earlier conversations and asks whether to
+#: carry on; on a call the agent places it answers the person's first words, then recaps
+#: (`thinnest-findings/mirror/snapshots/2026-10-29/pages/channels/voice.md:379-382`,
+#: VERIFIED-VENDOR-DOCS). The same number's earlier calls reach the model as part of the
+#: call's own conversation (ThinnestAI email of 28 Oct 2026, VENDOR-STATED,
+#: `docs/vendor/thinnest-replies-2026-10-12.md` §39 item 7), so what a caller said on an
+#: earlier call reads to it as said. This line keeps an agent told nothing about a stranger
+#: from greeting them as someone it spoke to before (D-965); it does not stop it treating
+#: an earlier call's outcome as true now.
 ENGINE_MEMORY_RULE: Final = (
     "--- EARLIER CALLS ---\n"
     "Speak of an earlier conversation only when what you were given about this caller shows "
