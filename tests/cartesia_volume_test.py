@@ -27,7 +27,9 @@ from apps.api.billing.rates import (
     ASSUMED_SPEAKING_RATE,
     CARTESIA_VOLUME_LADDER_CALL_MINUTES,
     PLANNING_USD_INR,
+    FloorInputs,
     clear_cost_floor_at,
+    studio_minute_inr_per_min,
 )
 from apps.api.billing.spend_routes import _CHARS_PER_KCHAR
 from apps.api.billing.tts_volume import (
@@ -43,6 +45,24 @@ from apps.api.ops import config_routes
 from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
 from tests.cost_floor_test import _inputs as _floor_inputs
+
+
+def _studio(
+    minutes: str | None, characters: str | None, *, inputs: FloorInputs | None = None
+) -> config_routes._StudioMonth:
+    """A whole month (no projection) of `minutes` and `characters` on the base engine."""
+    inputs = inputs or _floor_inputs(wallet_fee=None)
+    return config_routes._StudioMonth(
+        minute_inr=studio_minute_inr_per_min(engine="fake", inputs=inputs),
+        chars_per_call_minute=inputs.speaking_rate.chars_per_call_minute,
+        usd_inr=inputs.usd_inr,
+        pace=config_routes._MonthPace(elapsed_days=Decimal("30"), month_days=30),
+        projected_call_minutes=None if minutes is None else Decimal(minutes),
+        projected_characters=None if characters is None else Decimal(characters),
+        attested_bill_inr=None,
+        chars_basis=inputs.speaking_rate.label,
+        engine="fake",
+    )
 
 
 def _month() -> str:
@@ -158,14 +178,12 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     point of pinning a screen's honesty in a test rather than trusting a reviewer to notice
     a missing column.
     """
-    fx = UsdInrRate(rate=PLANNING_USD_INR, source="frankfurter:FBIL", as_of=None, basis="published")
     # The Clear column is struck at a speaking-rate BASIS since D-557; the assumed one is
     # what is in force until twenty calls with a transcript exist, and it is what this case
     # is about — the Studio assertions below must not move with it either way.
     cells = config_routes._cells_out(
         PACK_CATALOGUE,
-        measured_cost=Decimal("6.9011"),
-        fx=fx,
+        studio=_studio("100", "54000"),
         clear=clear_cost_floor_at(ASSUMED_SPEAKING_RATE),
         own_model_prompt_tokens=None,
         inputs=_floor_inputs(wallet_fee=None),
@@ -174,10 +192,10 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     assert len(studio) == len(PACK_CATALOGUE)
     for cell in studio:
         assert cell.breakeven_call_minutes is not None, cell.pack_id
-        assert cell.cost_inr_per_min_at_volume == "6.9011"
-    # At ₹6.9011 a minute — 100 platform call-minutes a month — every Studio rung of the
-    # flat ₹6.00 card (D-728) is UNDER WATER, and the console has to say so. Under the
-    # retired ₹4.3639 "floor" every one of them read as comfortably profitable. The COUNT
+        # The base engine's shared legs (₹1.6911) plus Pro's ₹475 over 100 minutes.
+        assert cell.cost_inr_per_min_at_volume == "6.4411"
+    # At ₹6.4411 a minute — 100 platform call-minutes a month — every Studio rung of the
+    # flat ₹6.00 card (D-728) is UNDER WATER, and the console has to say so. The COUNT
     # is a consequence of the card, and what the console owes the operator is the per-rung
     # verdict, not a number that stays put.
     assert sorted(cell.pack_id for cell in studio if cell.below_floor_at_volume) == sorted(
@@ -186,7 +204,7 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     # Derived rather than only listed: at this volume a rung is under water exactly when
     # its rate is under the measured cost, so the set above cannot drift from the card.
     assert sorted(
-        cell.pack_id for cell in studio if Decimal(cell.inr_per_min) < Decimal("6.9011")
+        cell.pack_id for cell in studio if Decimal(cell.inr_per_min) < Decimal("6.4411")
     ) == sorted(cell.pack_id for cell in studio if cell.below_floor_at_volume)
     # ...while the STRUCTURAL verdict on the same cells refuses nothing, which is why the
     # card is still recordable and the at-volume figure is a warning (D-556).
@@ -220,6 +238,7 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
             as_of=datetime.now(UTC).date(),
             basis="published",
         ),
+        studio=_studio("200", "108000", inputs=_floor_inputs(usd_inr="95.66", wallet_fee=None)),
     )
     assert published.fx_usd_inr == "95.66"
     assert published.fx_source == "frankfurter:FBIL"
@@ -229,7 +248,6 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
     assert published.floor_inr_per_min == "5.0554"
     assert published.refusal_floor_inr_per_min == "5.0256"
     # A7-24: the rate that floor is struck at is served, so the console types no copy of it.
-    from apps.api.billing.rates import PLANNING_USD_INR
 
     assert published.refusal_usd_inr == str(PLANNING_USD_INR)
     assert Decimal(published.floor_inr_per_min) > Decimal(published.refusal_floor_inr_per_min)
@@ -245,6 +263,7 @@ def test_the_volume_block_names_its_fx_rate_and_its_fallback() -> None:
             as_of=None,
             basis="manual_no_quote",
         ),
+        studio=_studio("200", "108000"),
     )
     assert fallback.fx_as_of is None
     assert fallback.fx_source == "configured:usd_inr_rate"
@@ -272,6 +291,7 @@ def test_a_month_with_no_studio_minutes_states_the_absence_rather_than_a_zero() 
             as_of=None,
             basis="manual_no_quote",
         ),
+        studio=_studio(None, None, inputs=_floor_inputs(usd_inr="88", wallet_fee=None)),
     )
     assert published.cost_inr_per_min is None
     assert published.plan_id is None

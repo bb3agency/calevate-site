@@ -196,9 +196,15 @@ function cartesiaVolume(over: Partial<CartesiaVolume> = {}): CartesiaVolume {
     month: "2026-09",
     measured_call_minutes: "200",
     measured_characters: "108000",
+    month_days_elapsed: "30.00",
+    month_days: 30,
+    projected_call_minutes: "200",
+    plan_bill_inr: "509.6800",
+    plan_bill_attested: false,
     cost_inr_per_min: "4.9299",
     plan_id: "pro",
-    assumed_chars_per_call_minute: "540",
+    modelled_chars_per_call_minute: "540",
+    modelled_chars_basis: "assumed 540 chars/call-min (unmeasured - pilot gate 12)",
     fx_usd_inr: "88",
     fx_source: "frankfurter:FBIL",
     fx_as_of: "2026-09-08",
@@ -206,6 +212,7 @@ function cartesiaVolume(over: Partial<CartesiaVolume> = {}): CartesiaVolume {
     best_marginal_cost_inr_per_min: "4.6395",
     refusal_floor_inr_per_min: "5.5899",
     refusal_usd_inr: "95",
+    refusal_floor_frozen: true,
     plan_crossover_call_minutes: "1439",
     plans: [
       {
@@ -275,6 +282,7 @@ function card(
   return {
     effective_from: "2026-09-07T04:30:00Z",
     target_gross_margin_pct: "20",
+    engine: "fake",
     cells,
     cartesia_volume: cartesiaVolume(),
     // WHICH SPEAKING RATE THE CLEAR COLUMN IS STRUCK AT (D-557). The unmeasured state is
@@ -599,16 +607,16 @@ describe("the rate card an operator is about to date", () => {
       }),
     );
     await screen.findByText(
-      /2 of 2 rungs earn less than 20% at this month's volume/,
+      /2 of 2 rungs earn less than 20% at this month's pace/,
     );
-    expect(container.textContent).toContain("(1 against the structural floor)");
+    expect(container.textContent).toContain("(1 on each extra minute)");
     // ...and the rung that is actually under water at this volume is called out by name,
     // with the volume it needs. Amber, not red: the card is still recordable.
     await screen.findByText(
-      /1 rung sold a minute for less than it cost at this month's volume/,
+      /1 rung loses money at this month's pace once the plan fee is shared out/,
     );
-    expect(container.textContent).toContain("₹6.9011/min of real cost");
-    expect(container.textContent).toContain("break-even 126 platform min/mo");
+    expect(container.textContent).toContain("₹6.9011/min on average");
+    expect(container.textContent).toContain("break-even 126 Studio min/mo");
     expect(
       screen.queryByText("Some rungs sell a minute for less than it costs"),
     ).toBeNull();
@@ -627,7 +635,7 @@ describe("the rate card an operator is about to date", () => {
     // Both fixture rungs are thin: the Studio cell is ₹6.00 against the honest ₹5.5899
     // floor (6.84%), where the retired ₹4.3639 best case read 27.27%.
     await screen.findByText(/2 of 2 rungs earn less than 20%/);
-    expect(container.textContent).toContain("above the structural floor");
+    expect(container.textContent).toContain("still covers what each extra minute costs");
     expect(container.textContent).toContain("a decision, not a fault");
 
     // NOT A REFUSAL. None of the refusal sentences may appear anywhere on the screen for a
@@ -1134,9 +1142,9 @@ describe("what a margin verdict may say", () => {
       }),
       "20",
     );
-    expect(drowning.label).toBe("Under water at this volume");
+    expect(drowning.label).toBe("Losing money at this month's pace");
     expect(drowning.sentence).toContain("6.9011");
-    expect(drowning.sentence).toContain("126 platform minutes a month");
+    expect(drowning.sentence).toContain("126 Studio minutes a month");
     // Still a warning and never a refusal: the card IS recordable, and the remedy is
     // usually more minutes rather than a higher price.
     expect(drowning.tone).toBe("thin");
@@ -1154,7 +1162,7 @@ describe("the volume every Studio cost figure is struck at", () => {
     // Studio rung with no volume anywhere near it. Each assertion below is one piece of the
     // caveat that makes the figure readable; dropping any of them puts that screen back.
     expect(container.textContent).toContain(
-      "Studio (Cartesia) is a monthly subscription",
+      "Studio's voice (Cartesia) is a monthly plan",
     );
     expect(container.textContent).toContain("200"); // the measured platform call-minutes
     expect(container.textContent).toContain("₹4.9299"); // what a minute ACTUALLY cost
@@ -1213,6 +1221,51 @@ describe("the volume every Studio cost figure is struck at", () => {
     );
     await screen.findByText(/did not send the Studio volume/);
     expect(container.textContent).not.toContain("₹4.9299");
+  });
+});
+
+describe("a flat card on ThinnestAI (founder, 9 Nov 2026)", () => {
+  beforeEach(() => openSection("billing"));
+
+  // Five packs at the same two rates: the same two results, so one Clear and one Studio row.
+  const flat = ["starter", "growth", "scale", "plus", "pro"].flatMap((pack, index) => {
+    const amount = ["2000.00", "5000.00", "10000.00", "15000.00", "25000.00"][index] ?? "0";
+    return [
+      cell({ pack_id: pack, amount_inr: amount }),
+      cell({ ...HEALTHY, pack_id: pack, amount_inr: amount }),
+    ];
+  });
+
+  it("shows packs with the same results once, and says why", async () => {
+    const { container } = renderOps(
+      routes({ [OPS_RATE_CARD_PATH]: card(flat, { engine: "thinnest" }) }),
+    );
+    await screen.findByText("17.60%");
+    expect(container.textContent).toContain("₹2,000.00–₹25,000.00");
+    expect(container.textContent).toContain("5 packs: starter, growth, scale, plus, pro");
+    expect(container.textContent).toContain("Packs with the same rates are shown once");
+    // One row per voice, not one per pack and voice.
+    expect(screen.getAllByText("17.60%")).toHaveLength(1);
+    expect(container.textContent).toContain("2 of 2 rungs earn less than 20%");
+  });
+
+  it("does not call Clear per-character on ThinnestAI", async () => {
+    const { container } = renderOps(
+      routes({ [OPS_RATE_CARD_PATH]: card(undefined, { engine: "thinnest" }) }),
+    );
+    await screen.findByText("17.60%");
+    expect(container.textContent).toContain(
+      "How much an agent talks sets what Studio's voice costs a minute",
+    );
+    expect(container.textContent).not.toContain("Clear is priced per character");
+  });
+
+  it("heads the average-minute column with the month's projected volume", async () => {
+    const { container } = renderOps(routes());
+    await screen.findByText("17.60%");
+    expect(container.textContent).toContain("at ~200 Studio min/mo");
+    expect(container.textContent).toContain("in 30.00 of 30 days");
+    expect(container.textContent).toContain("not a recorded invoice");
   });
 });
 

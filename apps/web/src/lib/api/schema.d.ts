@@ -19031,8 +19031,6 @@ export interface components {
          *     unqualified.
          */
         CartesiaVolumeOut: {
-            /** Assumed Chars Per Call Minute */
-            assumed_chars_per_call_minute: string;
             /** Best Marginal Cost Inr Per Min */
             best_marginal_cost_inr_per_min: string;
             /** Cost Inr Per Min */
@@ -19051,14 +19049,30 @@ export interface components {
             measured_call_minutes: string;
             /** Measured Characters */
             measured_characters: string;
+            /** Modelled Chars Basis */
+            modelled_chars_basis: string;
+            /** Modelled Chars Per Call Minute */
+            modelled_chars_per_call_minute: string;
             /** Month */
             month: string;
+            /** Month Days */
+            month_days: number;
+            /** Month Days Elapsed */
+            month_days_elapsed: string;
+            /** Plan Bill Attested */
+            plan_bill_attested: boolean;
+            /** Plan Bill Inr */
+            plan_bill_inr: string | null;
             /** Plan Crossover Call Minutes */
             plan_crossover_call_minutes: string;
             /** Plan Id */
             plan_id: string | null;
             /** Plans */
             plans: components["schemas"]["CartesiaPlanOut"][];
+            /** Projected Call Minutes */
+            projected_call_minutes: string | null;
+            /** Refusal Floor Frozen */
+            refusal_floor_frozen: boolean;
             /** Refusal Floor Inr Per Min */
             refusal_floor_inr_per_min: string;
             /** Refusal Usd Inr */
@@ -30909,6 +30923,8 @@ export interface components {
             earliest_effective_from: string;
             /** Effective From */
             effective_from: string | null;
+            /** Engine */
+            engine: string;
             floor_inputs: components["schemas"]["FloorInputsOut"];
             /** Notice Days */
             notice_days: number;

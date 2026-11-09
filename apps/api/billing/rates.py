@@ -2430,26 +2430,142 @@ def cost_floor_inr_per_min(
         )
     if inputs is None:
         raise ValueError("a ThinnestAI cost floor is struck at FloorInputs; none were passed")
+    if voice != VALUE_VOICE_TIER:
+        floor = studio_minute_inr_per_min(
+            engine=engine,
+            inputs=inputs,
+            own_model=own_model,
+            own_model_prompt_tokens=own_model_prompt_tokens,
+        ) + thinnest_studio_tts_inr_per_min(inputs)
+        return floor.quantize(MONEY_Q, rounding=ROUNDING)
     model = own_model or _thinnest_own_model()
     model_half = (
         Decimal("0")
         if model is None
         else own_model_floor_inr_per_min(model, prompt_tokens=own_model_prompt_tokens)
     )
-    if voice != VALUE_VOICE_TIER:
-        minute = (
-            THINNEST_OWN_VOICE_INR_PER_MIN
-            if model is None
-            else THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN
-        )
-        floor = _with_wallet_fee(minute, inputs) + thinnest_studio_tts_inr_per_min(inputs)
-    else:
-        if clear_band is None:
-            from apps.api.core.settings import get_settings
+    if clear_band is None:
+        from apps.api.core.settings import get_settings
 
-            clear_band = get_settings().thinnest_clear_voice_band
-        floor = _with_wallet_fee(THINNEST_BAND_INR_PER_MIN[clear_band], inputs)
+        clear_band = get_settings().thinnest_clear_voice_band
+    floor = _with_wallet_fee(THINNEST_BAND_INR_PER_MIN[clear_band], inputs)
     return (floor + model_half).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def studio_minute_inr_per_min(
+    *,
+    engine: str | None,
+    inputs: FloorInputs | None,
+    own_model: str | None = None,
+    own_model_prompt_tokens: int | None = None,
+) -> Decimal:
+    """Every per-minute leg of a Studio minute EXCEPT Cartesia's synthesis and the gateway
+    fee, on `engine`. EXACT, unquantized.
+
+    Cartesia is left out because it is a monthly plan, not a per-minute price: a caller
+    either adds its worst marginal rate (the floor above) or the month's plan bill spread
+    over the month's minutes (`studio_cost_inr_per_min_at_volume`). The gateway fee is left
+    out because it is a fraction of the SALE (`gateway_fee_inr_per_min`).
+
+    On ThinnestAI this is their own-voice minute (₹1.50, or ₹1.00 with our model) with the
+    wallet top-up fee, plus our model's cost while it answers calls. Any other engine is the
+    base model's shared legs (`ex_tts_cost_inr_per_min_at`) at the inputs' dollar.
+    """
+    if engine != "thinnest":
+        return ex_tts_cost_inr_per_min_at(PLANNING_USD_INR if inputs is None else inputs.usd_inr)
+    if inputs is None:
+        raise ValueError("a ThinnestAI cost floor is struck at FloorInputs; none were passed")
+    model = own_model or _thinnest_own_model()
+    if model is None:
+        return _with_wallet_fee(THINNEST_OWN_VOICE_INR_PER_MIN, inputs)
+    return _with_wallet_fee(
+        THINNEST_OWN_VOICE_AND_MODEL_INR_PER_MIN, inputs
+    ) + own_model_floor_inr_per_min(model, prompt_tokens=own_model_prompt_tokens)
+
+
+def studio_month_cartesia_bill_inr(
+    characters: Decimal, *, usd_inr: Decimal, attested_bill_inr: Decimal | None = None
+) -> Decimal:
+    """What Cartesia bills us for a month in which the platform spoke `characters`. EXACT.
+
+    The operator's attested invoice for the month when there is one (`ops/model_pricing
+    .TtsPlanFeeAttestation`: what the card statement says, so GST or a card's forex charge
+    is in it if they were charged), else the list price of the cheapest plan for those
+    characters: its fee plus any overage, at `usd_inr`.
+    """
+    if attested_bill_inr is not None:
+        return attested_bill_inr
+    plan = cartesia_cheapest_plan_for_characters(characters, usd_inr=usd_inr)
+    return plan.monthly_inr_for_characters(characters, usd_inr=usd_inr)
+
+
+def studio_cost_inr_per_min_at_volume(
+    *,
+    call_minutes: Decimal,
+    characters: Decimal,
+    minute_inr: Decimal,
+    usd_inr: Decimal,
+    attested_bill_inr: Decimal | None = None,
+) -> Decimal | None:
+    """What a Studio minute costs on average in a MONTH of `call_minutes` and `characters`:
+    the per-minute legs (`minute_inr`, the gateway fee included when the caller adds it)
+    plus the month's Cartesia bill spread over the month's minutes. At `MONEY_Q`.
+
+    Both volumes must be WHOLE-MONTH figures. Dividing a whole month's plan fee by the
+    minutes of a month that is a third over would triple the fee's share of a minute, so a
+    caller holding a month in progress projects it first (the ops rate card does). `None`
+    when there are no minutes to divide by.
+    """
+    if call_minutes <= 0:
+        return None
+    bill = studio_month_cartesia_bill_inr(
+        characters, usd_inr=usd_inr, attested_bill_inr=attested_bill_inr
+    )
+    return (minute_inr + bill / call_minutes).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+@lru_cache(maxsize=256)
+def studio_breakeven_call_minutes(
+    rate_inr_per_min: Decimal,
+    *,
+    minute_inr: Decimal,
+    chars_per_call_minute: Decimal,
+    usd_inr: Decimal,
+) -> Decimal | None:
+    """The fewest Studio call-minutes a month, platform-wide, from which `rate_inr_per_min`
+    covers the minute's cost at that volume and at every larger one — or `None` when no
+    volume does.
+
+    `minute_inr` is every per-minute leg but Cartesia (`studio_minute_inr_per_min` plus the
+    gateway fee on this rate); Cartesia is its plan bill at `chars_per_call_minute`. Below the
+    plan's allotment this is `fee / (rate - minute_inr)`; past it the overage joins the
+    per-minute cost. Searched rather than solved, for `cartesia_rung_breakeven_call_minutes`'
+    reason: the cheapest-plan curve is not monotonic, so "and stays that way" needs every
+    volume up to the point past which the curve only rises towards `minute_inr` plus the
+    cheapest overage. That point, `cartesia_envelope_stable_call_minutes`, is quoted at the
+    assumed 540 characters a minute, so it is rescaled to this speaking rate.
+    """
+    # Rejected: `cartesia_rung_breakeven_call_minutes`, the base engine's curve. It prices the
+    # other legs as the base model's shared legs at the assumed 540 characters a minute and
+    # leaves out the gateway fee, so on ThinnestAI it answers for a minute nobody sells.
+    if chars_per_call_minute <= 0:
+        raise ValueError("a speaking rate must be positive")
+    cheapest_overage = min(plan.overage_inr_per_character(usd_inr) for plan in CARTESIA_PLANS)
+    if rate_inr_per_min <= minute_inr + cheapest_overage * chars_per_call_minute:
+        return None
+    ceiling = (
+        (cartesia_envelope_stable_call_minutes(usd_inr=usd_inr) + 1)
+        * TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
+        / chars_per_call_minute
+    ).quantize(Decimal("1"), rounding=ROUND_CEILING)
+    last_underwater = Decimal("0")
+    volume = Decimal("1")
+    while volume <= ceiling:
+        bill = studio_month_cartesia_bill_inr(volume * chars_per_call_minute, usd_inr=usd_inr)
+        if minute_inr + bill / volume > rate_inr_per_min:
+            last_underwater = volume
+        volume += 1
+    return last_underwater + 1
 
 
 # --- THE ONE GROSS-MARGIN FLOOR, AND THE ONE FORMULA (hoisted from credit_packs) ------
@@ -3010,6 +3126,10 @@ __all__ = [
     "sarvam_llm_reference_inr_per_ktok",
     "stored_voice_tier",
     "stt_rate_inr_per_minute",
+    "studio_breakeven_call_minutes",
+    "studio_cost_inr_per_min_at_volume",
+    "studio_minute_inr_per_min",
+    "studio_month_cartesia_bill_inr",
     "surchargeable_models_are_dearer",
     "thinnest_studio_tts_inr_per_min",
     "tts_inr_per_call_minute",

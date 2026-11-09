@@ -140,7 +140,7 @@ export interface RateCardRung {
   cells: RateCardCell[];
 }
 
-export function rungs(card: RateCard): RateCardRung[] {
+export function rungs(card: { cells: RateCardCell[] }): RateCardRung[] {
   const order: string[] = [];
   const byPack = new Map<string, RateCardRung>();
   for (const cell of card.cells) {
@@ -152,6 +152,46 @@ export function rungs(card: RateCard): RateCardRung[] {
     }
   }
   return order.map((pack) => byPack.get(pack) as RateCardRung);
+}
+
+/** Consecutive rungs whose cells read the same, shown as one row group. */
+export interface RateCardRowGroup {
+  packs: { pack_id: string; amount_inr: string }[];
+  cells: RateCardCell[];
+}
+
+/** Everything a cell shows except which pack it belongs to. */
+function cellFigures(cell: RateCardCell): string {
+  return JSON.stringify({ ...cell, pack_id: "", amount_inr: "" });
+}
+
+/**
+ * The rungs, with neighbours that sell and cost every voice the same merged into one group.
+ *
+ * A flat card (D-728: every pack at the same two rates) gives the same margin on every pack —
+ * the gateway fee is a share of the price, so a bigger pack does not change it — and printing
+ * the same two rows once per pack reads as five different results. A card whose rungs differ
+ * keeps one group per rung.
+ */
+export function rowGroups(card: { cells: RateCardCell[] }): RateCardRowGroup[] {
+  const groups: RateCardRowGroup[] = [];
+  for (const rung of rungs(card)) {
+    const last = groups[groups.length - 1];
+    const same =
+      last !== undefined &&
+      last.cells.length === rung.cells.length &&
+      last.cells.every((cell, index) => {
+        const other = rung.cells[index];
+        return other !== undefined && cellFigures(cell) === cellFigures(other);
+      });
+    if (same) last.packs.push({ pack_id: rung.pack_id, amount_inr: rung.amount_inr });
+    else
+      groups.push({
+        packs: [{ pack_id: rung.pack_id, amount_inr: rung.amount_inr }],
+        cells: rung.cells,
+      });
+  }
+  return groups;
 }
 
 /**
@@ -177,17 +217,17 @@ export function cellVerdict(cell: RateCardCell, targetPct: string): CellVerdict 
   if (cell.below_floor_at_volume) {
     return {
       tone: "thin",
-      label: "Under water at this volume",
+      label: "Losing money at this month's pace",
       sentence:
-        `This rung sells a ${rungLabel(cell.voice_tier)} minute at ${cell.inr_per_min} ` +
-        `against ${cell.cost_inr_per_min_at_volume ?? "an unstated cost"}/min of real cost at ` +
-        "the volume the platform actually ran this month. It clears the structural floor " +
-        `(${cell.cost_floor_inr_per_min}/min, the next minute at the margin), so the card ` +
+        `This rung sells a ${rungLabel(cell.voice_tier)} minute at ${cell.inr_per_min}, but ` +
+        `at this month's pace an average minute costs ` +
+        `${cell.cost_inr_per_min_at_volume ?? "an unstated amount"} once the monthly plan fee ` +
+        `is shared out. Each extra minute costs ${cell.cost_floor_inr_per_min}, so the card ` +
         "can still be recorded" +
         (cell.breakeven_call_minutes === null
           ? ", but no volume makes this rung profitable."
-          : `. It needs ${cell.breakeven_call_minutes} platform minutes a month to stop ` +
-            "losing money.") ,
+          : `. It needs ${cell.breakeven_call_minutes} Studio minutes a month, across all ` +
+            "clients, to cover the plan fee."),
     };
   }
   if (cell.below_target) {

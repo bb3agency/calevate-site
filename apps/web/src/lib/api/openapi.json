@@ -14228,10 +14228,6 @@
         "additionalProperties": false,
         "description": "**THE VOLUME EVERY CARTESIA COST FIGURE ON THIS SCREEN IS STRUCK AT.**\n\nTHE DEFECT THIS EXISTS FOR (founder, 9 Sep 2026). The console printed \u20b94.3639 under a\ncolumn headed \"COSTS US\" for every Studio rung. That figure was the $49 Startup plan fee\nspread over the 2,315 call-minutes at which its allotment is exactly consumed \u2014 the\ncheapest a Cartesia minute can ever be, at a volume this platform has never run \u2014 and\nnothing on the screen said so. The arithmetic was right and the SCREEN was lying.\n\nCartesia is a monthly subscription with an included allotment and an overage past it\n(`billing/rates.CartesiaPlan`), so a per-minute cost is a function of volume and a\nscreen that shows one without its volume is showing a guess. This block carries the\nmeasurement, the assumption, the plan set and the curve, so no figure on the page is\nunqualified.",
         "properties": {
-          "assumed_chars_per_call_minute": {
-            "title": "Assumed Chars Per Call Minute",
-            "type": "string"
-          },
           "best_marginal_cost_inr_per_min": {
             "title": "Best Marginal Cost Inr Per Min",
             "type": "string"
@@ -14285,9 +14281,40 @@
             "title": "Measured Characters",
             "type": "string"
           },
+          "modelled_chars_basis": {
+            "title": "Modelled Chars Basis",
+            "type": "string"
+          },
+          "modelled_chars_per_call_minute": {
+            "title": "Modelled Chars Per Call Minute",
+            "type": "string"
+          },
           "month": {
             "title": "Month",
             "type": "string"
+          },
+          "month_days": {
+            "title": "Month Days",
+            "type": "integer"
+          },
+          "month_days_elapsed": {
+            "title": "Month Days Elapsed",
+            "type": "string"
+          },
+          "plan_bill_attested": {
+            "title": "Plan Bill Attested",
+            "type": "boolean"
+          },
+          "plan_bill_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Bill Inr"
           },
           "plan_crossover_call_minutes": {
             "title": "Plan Crossover Call Minutes",
@@ -14311,6 +14338,21 @@
             "title": "Plans",
             "type": "array"
           },
+          "projected_call_minutes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projected Call Minutes"
+          },
+          "refusal_floor_frozen": {
+            "title": "Refusal Floor Frozen",
+            "type": "boolean"
+          },
           "refusal_floor_inr_per_min": {
             "title": "Refusal Floor Inr Per Min",
             "type": "string"
@@ -14324,9 +14366,15 @@
           "month",
           "measured_call_minutes",
           "measured_characters",
+          "month_days_elapsed",
+          "month_days",
+          "projected_call_minutes",
+          "plan_bill_inr",
+          "plan_bill_attested",
           "cost_inr_per_min",
           "plan_id",
-          "assumed_chars_per_call_minute",
+          "modelled_chars_per_call_minute",
+          "modelled_chars_basis",
           "fx_usd_inr",
           "fx_source",
           "fx_as_of",
@@ -14334,6 +14382,7 @@
           "best_marginal_cost_inr_per_min",
           "refusal_floor_inr_per_min",
           "refusal_usd_inr",
+          "refusal_floor_frozen",
           "plan_crossover_call_minutes",
           "plans",
           "ladder"
@@ -46571,6 +46620,10 @@
             ],
             "title": "Effective From"
           },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
           "floor_inputs": {
             "$ref": "#/components/schemas/FloorInputsOut"
           },
@@ -46611,6 +46664,7 @@
         "required": [
           "effective_from",
           "target_gross_margin_pct",
+          "engine",
           "cells",
           "pending",
           "notice_days",

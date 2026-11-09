@@ -117,18 +117,18 @@ def test_the_ops_preview_refuses_a_rung_it_has_no_cost_for(token: str) -> None:
     """
     floor = clear_cost_floor_at(ASSUMED_SPEAKING_RATE)
     with pytest.raises(ValueError, match="no cost figure"):
-        _volume_cost(token, Decimal("6.0000"), floor)  # type: ignore[arg-type]
+        _volume_cost(token, Decimal("6.0000"), floor.inr_per_min)  # type: ignore[arg-type]
 
 
 def test_the_ops_preview_costs_both_real_rungs_and_to_different_figures() -> None:
     """The other half, for the accessor above: refusing everything would pass its clause."""
     floor = clear_cost_floor_at(ASSUMED_SPEAKING_RATE)
     measured = Decimal("6.0000")
-    assert _volume_cost(VALUE_VOICE_TIER, measured, floor) == floor.inr_per_min
-    assert _volume_cost(PREMIUM_VOICE_TIER, measured, floor) == measured
+    assert _volume_cost(VALUE_VOICE_TIER, measured, floor.inr_per_min) == floor.inr_per_min
+    assert _volume_cost(PREMIUM_VOICE_TIER, measured, floor.inr_per_min) == measured
     # `None` is a real answer on the premium rung — no month has been measured — and it
     # must not be confused with the refusal above.
-    assert _volume_cost(PREMIUM_VOICE_TIER, None, floor) is None
+    assert _volume_cost(PREMIUM_VOICE_TIER, None, floor.inr_per_min) is None
 
 
 def test_every_real_rung_is_priced_by_every_accessor() -> None:
