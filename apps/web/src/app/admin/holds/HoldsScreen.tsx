@@ -106,8 +106,6 @@ export function HoldsScreen() {
         }
       />
 
-      {queue.error && <ProblemNotice error={queue.error} onRetry={() => void queue.refetch()} />}
-
       {/* The count an operator carries away — "how many, and is anything rotting" — above
           the list, not as a row to scroll to. Derived from the rows, not read off the
           first one, so it cannot go quietly wrong if the order ever changes. */}
@@ -126,6 +124,15 @@ export function HoldsScreen() {
       <div>
         {queue.isLoading ? (
           <Skeleton rows={4} />
+        ) : queue.error ? (
+          // One box for one failure: the cause and Try again, then what it means here.
+          <div className="space-y-2">
+            <ProblemNotice error={queue.error} onRetry={() => void queue.refetch()} />
+            <p className="text-meta text-ink-muted">
+              The queue could not be read, so we cannot say whether anyone is waiting. This is
+              not an empty queue.
+            </p>
+          </div>
         ) : !answered ? (
           <div>
             <NoticeBox

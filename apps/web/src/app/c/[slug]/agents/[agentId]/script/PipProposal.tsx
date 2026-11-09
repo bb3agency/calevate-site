@@ -86,6 +86,7 @@ export function PipProposal({
   // The suggestion leaves the screen when it is cleared; a refusal is drawn under it.
   const clearFeedback = useActionFeedback(clear, { errorDisplay: "inline" });
   const [read, setRead] = useState(false);
+  const [leaving, setLeaving] = useState<"apply" | "discard" | null>(null);
   const proposal = pending.data;
   if (!proposal) return null;
 
@@ -163,8 +164,15 @@ export function PipProposal({
         current={steps ? structuredBase(script) : script}
         base={steps ? undefined : proposal.base_script}
         proposal={proposal.script}
-        onApply={(next) => clear.mutate(proposal.id, { onSuccess: () => onKeep(next) })}
-        onDiscard={() => clear.mutate(proposal.id)}
+        onApply={(next) => {
+          setLeaving("apply");
+          clear.mutate(proposal.id, { onSuccess: () => onKeep(next) });
+        }}
+        onDiscard={() => {
+          setLeaving("discard");
+          clear.mutate(proposal.id);
+        }}
+        pending={clear.isPending ? leaving : null}
         gate={steps && unplaced.length > 0 && !read ? "Read the lines that did not fit anywhere first." : null}
         limits={limits}
         language={languageName(language)}

@@ -17,6 +17,7 @@ import {
   formatPhone,
 } from "@/components/ui";
 import { type Session } from "@/lib/api/client";
+import { useActAccess } from "@/lib/api/hooks";
 import {
   DNC_LIST_LIMIT,
   useDncList,
@@ -60,6 +61,9 @@ export function SuppressedList({
   canSuppress: boolean;
 }) {
   const entries = useDncList(session);
+  // Restoring an opt-out is an attestation by someone at the business, so a view-as session
+  // is refused it by name (`compliance.dnc_optout_restore`) though it may dispatch.
+  const restoreAccess = useActAccess(session, "leads:dispatch", "compliance.dnc_optout_restore", "restore an opt-out");
   const remove = useRemoveDncEntry(session);
   // A refusal is said inside the dialog (or above the list once it is closed); the toast
   // confirms the removal after the dialog has gone, since the row simply disappears.
@@ -146,6 +150,7 @@ export function SuppressedList({
         <RowAction
           entry={entry}
           canSuppress={canSuppress}
+          canRestore={restoreAccess.allowed}
           removing={removeFeedback.status === "pending" && remove.variables === entry.id}
           onRemove={() => setUnsuppressing(entry)}
           onRestore={() => setRestoring(entry)}
@@ -243,12 +248,14 @@ export function SuppressedList({
 function RowAction({
   entry,
   canSuppress,
+  canRestore,
   removing,
   onRemove,
   onRestore,
 }: {
   entry: DncEntry;
   canSuppress: boolean;
+  canRestore: boolean;
   removing: boolean;
   onRemove: () => void;
   onRestore: () => void;
@@ -259,7 +266,7 @@ function RowAction({
   if (!entry.removable && entry.restorable) {
     // A person's opt-out: never removed, but restorable with a stated reason when it was
     // recorded by mistake or they have since asked to be called.
-    if (!canSuppress) {
+    if (!canSuppress || !canRestore) {
       return (
         <span className="inline-flex items-center gap-1.5 text-meta text-ink-faint sm:whitespace-nowrap">
           <Lock className="h-3.5 w-3.5" aria-hidden />

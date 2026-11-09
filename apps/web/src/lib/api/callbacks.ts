@@ -18,12 +18,22 @@ import {
 } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 export type ScheduledCallback = components["schemas"]["ScheduledCallbackOut"];
 
 /** Matches `callbacks/routes.MAX_PAGE`. The API refuses anything larger. */
 export const CALLBACK_LIST_LIMIT = 200;
+
+const CALLBACK_POLL_MS = 60_000;
+const DUE_WINDOW_MS = 60 * 60_000;
+
+function dueOrDialing(row: ScheduledCallback): boolean {
+  if (row.status === "dialing") return true;
+  if (row.status !== "scheduled" || row.held) return false;
+  return Date.parse(row.requested_at) - Date.now() <= DUE_WINDOW_MS;
+}
 
 export const callbackKeys = {
   list: (slug: string, openOnly: boolean) => ["callbacks", slug, openOnly] as const,
@@ -47,6 +57,11 @@ export function useCallbacks(
         session,
         `/v1/callbacks?limit=${CALLBACK_LIST_LIMIT}&open_only=${openOnly}`,
       ),
+    // A call-back whose time has come is dialled by the worker, so the list is re-read while
+    // one is due within the hour or being dialled: "Overdue" becomes "Calling now" and then
+    // what the call came to, without a reload.
+    refetchInterval: untilRefused((query) =>
+      (query.state.data ?? []).some(dueOrDialing) ? CALLBACK_POLL_MS : false),
   });
 }
 

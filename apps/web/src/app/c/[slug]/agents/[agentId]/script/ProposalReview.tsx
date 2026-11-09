@@ -76,6 +76,7 @@ export function ProposalReview({
   proposal,
   onApply,
   onDiscard,
+  pending = null,
   gate,
   limits = DEFAULT_LIMITS,
   language = "your callers' language",
@@ -87,6 +88,9 @@ export function ProposalReview({
   proposal: CallScript;
   onApply: (next: CallScript) => void;
   onDiscard: () => void;
+  /** Which of the two is on its way to the server. Both wait while either is: a Discard
+   * pressed while Add is still clearing would win, and the kept changes would be lost. */
+  pending?: "apply" | "discard" | null;
   /** A reason "Keep" must wait (the owner has not confirmed the unplaced lines yet). */
   gate?: string | null;
   /** The builder's limits, so an edited suggestion is held to the same ones. */
@@ -256,18 +260,20 @@ export function ProposalReview({
           <button
             type="button"
             className={PRIMARY_BUTTON_SM}
-            disabled={keptCount === 0 || Boolean(gate)}
+            disabled={keptCount === 0 || Boolean(gate) || pending !== null}
             title={gate ?? undefined}
             onClick={add}
           >
-            {keptCount === offered && offered > 0
-              ? offered === 1
-                ? "Add it to my draft"
-                : `Add all ${offered} to my draft`
-              : `Add ${keptCount} of ${offered} to my draft`}
+            {pending === "apply"
+              ? "Adding…"
+              : keptCount === offered && offered > 0
+                ? offered === 1
+                  ? "Add it to my draft"
+                  : `Add all ${offered} to my draft`
+                : `Add ${keptCount} of ${offered} to my draft`}
           </button>
-          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDiscard}>
-            Discard
+          <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDiscard} disabled={pending !== null}>
+            {pending === "discard" ? "Discarding…" : "Discard"}
           </button>
         </div>
         {gate && <p className="text-meta text-ink-muted">{gate}</p>}

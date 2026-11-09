@@ -55,6 +55,7 @@ import { ActionHeader, ActionRow } from "./ActionRow";
 import { BookingJob } from "./BookingJob";
 import { BookingSetup } from "./BookingSetup";
 import { ToolDetail } from "./ToolDetail";
+import { useSwitchOnWithheld } from "./viewAsWithheld";
 import {
   BOOKING_JOB,
   JOBS,
@@ -115,6 +116,8 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
   // Reading actions and credentials is `org:read`; every write here — the master switch,
   // a tool, a credential, a test run — is `org:manage`, which staff do not hold.
   const write = useWriteAccess(session, "org:manage", "change what this agent can do mid-call");
+  // A view-as operator may set an action up and switch one off, never switch one on.
+  const onWithheld = useSwitchOnWithheld(session);
 
   // THIS SECTION, DECLARED TO THE ASSISTANT. Before the loading/failure branches, because a
   // hook cannot be conditional. Facts only: the overview's controls are switches the
@@ -167,7 +170,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
       ? { at: "list" }
       : requested;
   const switchOn = () => {
-    if (!settings.api_actions_enabled) setMaster.mutate(true);
+    if (!settings.api_actions_enabled && onWithheld === null) setMaster.mutate(true);
   };
 
   if (view.at !== "list") {
@@ -271,6 +274,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
       </p>
 
       <RestrictionNote reason={write.reason} />
+      <RestrictionNote reason={onWithheld} />
 
       {/* A disabled <fieldset> disables every control inside it natively, including the
           ones the child components own, so no write can be reached without the grant. */}
@@ -280,7 +284,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
             label="Use actions on calls"
             hint="One switch for every action on this agent."
             checked={settings.api_actions_enabled}
-            disabled={setMaster.isPending}
+            disabled={setMaster.isPending || (!settings.api_actions_enabled && onWithheld !== null)}
             onChange={(next) => setMaster.mutate(next)}
           />
           {setMaster.isError ? <ProblemNotice error={setMaster.error} /> : null}
@@ -297,7 +301,9 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
                   icon={CalendarCheck}
                   problem={bookingProblem}
                   enabled={bookingOn}
-                  switchDisabled={setEnabled.isPending || check === undefined || book === undefined}
+                  switchDisabled={
+                    setEnabled.isPending || check === undefined || book === undefined || (!bookingOn && onWithheld !== null)
+                  }
                   onToggle={(next) => {
                     for (const t of [check, book]) if (t) setEnabled.mutate({ toolId: t.id, enabled: next });
                   }}
@@ -315,7 +321,7 @@ export function Actions({ agentId, session }: { agentId: string; session: Sessio
                     icon={ICONS[job.id]}
                     problem={toolProblem(tool, creds.data)}
                     enabled={tool.enabled}
-                    switchDisabled={setEnabled.isPending}
+                    switchDisabled={setEnabled.isPending || (!tool.enabled && onWithheld !== null)}
                     onToggle={(next) => setEnabled.mutate({ toolId: tool.id, enabled: next })}
                     onOpen={() => setView({ at: "tool", toolId: tool.id })}
                   />

@@ -73,11 +73,12 @@ export function NextSteps({ created }: { created: { id: string; slug: string } }
           </li>
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
+            {/* D-692: outbound needs verified KYC and the owner's no-cold-calls pledge, and no
+                DLT registration; D-693: the owner buys the number in their business's name. */}
             <span>
-              Getting a phone number and registering with{" "}
-              <Term id="dlt" />/
-              <Term id="pe" term="PE" audience="operator" />{" "}
-              — still done by hand
+              The owner gets their own phone number from Go live once their business is verified,
+              and accepts the no-cold-calls pledge before calling out. No{" "}
+              <Term id="dlt" /> registration is needed
             </span>
           </li>
           <li className="flex gap-2">

@@ -8,7 +8,7 @@ import { CHOICE_CARD, CHOICE_OFF, CHOICE_ON } from "@/components/console/choiceC
 import { InfoTip } from "@/components/console/infoTip";
 import { PageHeader } from "@/components/console/pageHeader";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
-import { ADMIN_PAGE } from "@/components/admin/kit";
+import { ADMIN_PAGE, sentenceCase } from "@/components/admin/kit";
 import { Section } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, MonoValue, NoticeBox, ProblemNotice } from "@/components/ui";
 import { useCreateTenant, type CreateOrgIn } from "@/lib/api/admin";
@@ -111,7 +111,7 @@ export function NewClientScreen() {
           >
             <p className="mt-1">
               Live at <MonoValue className="font-semibold">/c/{created.slug}</MonoValue>, status{" "}
-              <span className="font-semibold">{created.status}</span>. The invitation is on its
+              <span className="font-semibold">{sentenceCase(created.status)}</span>. The invitation is on its
               way to <MonoValue>{created.email}</MonoValue>; the link is never shown here.
             </p>
           </NoticeBox>

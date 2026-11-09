@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CalendarClock, CircleAlert, Clock, PhoneOff, ShieldCheck } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -106,8 +106,23 @@ export function dueSoon(
   return null;
 }
 
-function DueMark({ row }: { row: ScheduledCallback }) {
-  const due = dueSoon(row);
+/** How often the due marks are re-measured: "In 25 min" counts down by the minute. */
+const DUE_TICK_MS = 30_000;
+
+/** The instant the due marks are measured from, moved on every `DUE_TICK_MS`, so a mark
+ * counts down and turns into "Overdue" on an open screen instead of keeping the minute the
+ * list was fetched. */
+function useNow(everyMs: number): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), everyMs);
+    return () => window.clearInterval(timer);
+  }, [everyMs]);
+  return now;
+}
+
+function DueMark({ row, now }: { row: ScheduledCallback; now: Date }) {
+  const due = dueSoon(row, now);
   if (!due) return null;
   const Icon = due.overdue ? CircleAlert : Clock;
   return (
@@ -142,6 +157,7 @@ export function CallbacksScreen() {
   const [view, setView] = useState("all");
   const openOnly = view === "open";
   const callbacks = useCallbacks(session, openOnly);
+  const now = useNow(DUE_TICK_MS);
   const cancel = useCancelCallback(session);
   const move = useMoveCallback(session);
   const change = useChangeCallbacks(session);
@@ -245,7 +261,7 @@ export function CallbacksScreen() {
           {/* Below `sm` the time column is dropped, so it rides under the number. */}
           <p className="flex flex-wrap items-center gap-x-2 text-meta text-ink-muted sm:hidden">
             {formatIST(row.requested_at)}
-            <DueMark row={row} />
+            <DueMark row={row} now={now} />
           </p>
           {/* Who it is for, and the call it placed (its latest attempt), when there are. */}
           {row.lead_id || row.last_call_id ? (
@@ -273,7 +289,7 @@ export function CallbacksScreen() {
       cell: (row) => (
         <span className="flex flex-col items-start">
           <span className="whitespace-nowrap text-ink">{formatIST(row.requested_at)}</span>
-          <DueMark row={row} />
+          <DueMark row={row} now={now} />
         </span>
       ),
     },

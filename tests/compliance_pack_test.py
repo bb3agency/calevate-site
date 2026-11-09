@@ -448,7 +448,8 @@ async def test_an_erasure_is_answered_only_by_an_erasure_of_the_same_person() ->
             await session.execute(
                 text(
                     "INSERT INTO deletion_requests (id, tenant_id, phone_e164, subject_ref, "
-                    "requested_at, created_at) VALUES (:id, :t, :p, :ref, now(), now())"
+                    "requested_at, created_at, completed_at) "
+                    "VALUES (:id, :t, :p, :ref, now(), now(), now())"
                 ),
                 {
                     "id": deletion_ids[number],
