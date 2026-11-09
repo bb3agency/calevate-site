@@ -21,8 +21,7 @@ import { needsReauthentication } from "@/lib/authn/problems";
 import { withActionCode } from "@/lib/authn/stepUpPrompt";
 
 import { apiRequest, type Session } from "./client";
-import { invalidateWallet, toTwoDecimals } from "./credits";
-import { trialKey } from "./trials";
+import { invalidatePaymentCredited, toTwoDecimals } from "./credits";
 
 import type { components } from "./schema";
 
@@ -92,10 +91,6 @@ export function useMakePaid(session: Session, tenantId: string) {
         needsReauthentication,
       );
     },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: paidKey(tenantId) });
-      void client.invalidateQueries({ queryKey: trialKey(tenantId) });
-      invalidateWallet(client, tenantId);
-    },
+    onSuccess: () => invalidatePaymentCredited(client, tenantId),
   });
 }

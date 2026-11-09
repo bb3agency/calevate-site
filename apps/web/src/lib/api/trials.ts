@@ -51,7 +51,7 @@ import { lookup } from "@/lib/lookup";
 
 import { endTrialConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
-import { invalidateWallet } from "./credits";
+import { invalidatePaymentCredited, invalidateWallet } from "./credits";
 
 import type { components } from "./schema";
 
@@ -236,9 +236,7 @@ export function useEndTrial(session: Session, tenantId: string) {
         needsReauthentication,
       );
     },
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: trialKey(tenantId) });
-      invalidateWallet(client, tenantId);
-    },
+    // `converted` makes the account paid (`trial_routes.close_trial`).
+    onSuccess: () => invalidatePaymentCredited(client, tenantId),
   });
 }

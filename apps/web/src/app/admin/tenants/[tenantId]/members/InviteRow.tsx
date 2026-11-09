@@ -6,6 +6,7 @@ import { Send } from "lucide-react";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { RowMenu } from "@/components/arc/menu";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { FIELD, FIELD_HINT, FIELD_LABEL, NoticeBox, ProblemNotice, formatIST } from "@/components/ui";
 import type { useAdminAccess } from "@/app/admin/access";
 import {
@@ -43,11 +44,13 @@ export function InviteRow({
   const resendFeedback = useActionFeedback(resend, { errorDisplay: "inline" });
   const revoke = useRevokeTenantInvitation();
   // The row leaves the list on success, so the outcome is said in a toast rather than on it.
-  useActionFeedback(revoke, {
+  const revokeFeedback = useActionFeedback(revoke, {
     errorDisplay: "inline",
     successToast: `Invitation for ${invite.email} cancelled`,
   });
   const [correcting, setCorrecting] = useState(false);
+  // Cancelling kills the link in their inbox at once, so it is asked for twice.
+  const [cancelling, setCancelling] = useState(false);
   const [email, setEmail] = useState("");
   const [attestation, setAttestation] = useState("");
 
@@ -103,7 +106,10 @@ export function InviteRow({
                 tone: "danger",
                 disabled: busy || !write.allowed,
                 hint: write.allowed ? undefined : (write.reason ?? undefined),
-                onSelect: () => revoke.mutate({ tenantId, invitationId: invite.id }),
+                onSelect: () => {
+                  resetIfSettled(revoke);
+                  setCancelling(true);
+                },
               },
             ]}
           />
@@ -111,7 +117,27 @@ export function InviteRow({
       </div>
 
       {resend.error != null && !correcting && <ProblemNotice error={resend.error} />}
-      {revoke.error != null && <ProblemNotice error={revoke.error} />}
+      {revoke.error != null && !cancelling && <ProblemNotice error={revoke.error} />}
+      {cancelling && (
+        <ConfirmDialog
+          title="Cancel this invitation?"
+          confirmLabel="Cancel the invitation"
+          pendingLabel="Cancelling…"
+          cancelLabel="Keep it"
+          status={revokeFeedback.status}
+          error={revoke.error}
+          onCancel={() => {
+            resetIfSettled(revoke);
+            setCancelling(false);
+          }}
+          onConfirm={() => revokeFeedback.run({ tenantId, invitationId: invite.id })}
+        >
+          <p>
+            The link sent to {invite.email} stops working now. To let them in later, invite
+            them again.
+          </p>
+        </ConfirmDialog>
+      )}
       {resend.data != null && !correcting && <ResentNotice data={resend.data} />}
 
       <Drawer

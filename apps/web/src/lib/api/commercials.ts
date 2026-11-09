@@ -45,6 +45,7 @@ import { lookup } from "@/lib/lookup";
 
 import { confirmedRequest } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { CLIENT_HEALTH_QUERY_KEY } from "./clientHealth";
 
 import type { components } from "./schema";
 
@@ -248,8 +249,18 @@ export function useRecordTerms(session: Session, tenantId: string) {
             method: "POST",
             body: terms,
           }),
+    // `record_terms` re-arms the spend-cap gate in the same transaction, either way, so
+    // the reads carrying the flag move with the terms: the account header and the
+    // directory (`TenantSummary.capped`), the ceilings panel (`capsKey`, built from the
+    // slug, hence the prefix) and the health board's `spend_cap_near`.
     onSuccess: () =>
-      void client.invalidateQueries({ queryKey: ["admin", "commercial-terms", tenantId] }),
+      void Promise.all([
+        client.invalidateQueries({ queryKey: ["admin", "commercial-terms", tenantId] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] }),
+        client.invalidateQueries({ queryKey: ["admin", "tenants"] }),
+        client.invalidateQueries({ queryKey: ["billing-caps"] }),
+        client.invalidateQueries({ queryKey: CLIENT_HEALTH_QUERY_KEY }),
+      ]),
   });
 }
 
