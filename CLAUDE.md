@@ -353,7 +353,7 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
       tree. The deploy account was named `deploy` from habit while
       `infra/hygiene/systemd/calevate-hygiene.service:24`, `infra/privileged/sbin/
       calevate-nginx-apply:55` and `infra/privileged/sudoers.d/calevate-deploy` all
-      hard-code `calevate` — and `infra/privileged/README.md:87` already SAID the three must
+      hard-code `calevate` — and `infra/privileged/README.md:100` already SAID the three must
       agree. One grep would have found it. The failure mode is the expensive kind: nothing
       errors, and a timer, a guard and a sudoers grant each break silently, days apart.
     - **Enumerate the contract; do not recall it.** Which gates exist is a fact in

@@ -3,9 +3,9 @@
 The complete list of root privilege the deploy account holds on the VPS, the scripts that
 privilege points at, and the argument for the shape.
 
-> **Nothing here has been installed on a host.** No VPS exists
-> (`docs/evidence/raghava-deploy-teardown.md` §9.1 items 1 and 9: a Hostinger VPS, and root
-> on it, are both external blockers). `visudo -c` has not been run against the policy in an
+> **Nothing here has been installed on a host.** The production VPS exists (DEPLOYMENT §4d)
+> and its deploy account `calevate` holds no sudo at all, so nginx config is installed by a
+> sudo-capable login by hand. `visudo -c` has not been run against the policy in an
 > environment with sudo. Read §5 before believing any of it works.
 
 ---

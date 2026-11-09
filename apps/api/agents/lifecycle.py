@@ -53,8 +53,8 @@ release the agent's numbers, through the same function a publish uses.
 WHAT THIS MODULE DELIBERATELY DOES NOT ADD: a per-agent concurrency knob. Multiple live
 agents genuinely answer inbound in parallel — inbound is a per-number binding and the
 vendor documents no inbound limit — but OUTBOUND parallelism is an ACCOUNT-level pool
-(`workers/campaign_dispatch.PLATFORM_LINES_TOTAL` minus the inbound reserve, clamped per
-tenant by the plan), and over-limit outbound is QUEUED by the vendor in a queue we can
+(`engine/dial_lines.outbound_line_pool`: the engine's ceiling minus the inbound reserve,
+clamped per tenant by the plan), and over-limit outbound is QUEUED by the vendor in a queue we can
 neither see nor cancel. A number on an agent row would therefore be a promise nothing can
 keep. The honest per-agent fact is how many numbers it answers, which is a count of
 `phone_numbers`, and that is what the API returns.

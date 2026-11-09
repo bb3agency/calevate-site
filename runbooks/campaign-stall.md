@@ -145,21 +145,33 @@ ThinnestAI refuses the surplus dial with `429`, which holds every dial off as ab
 
 The tick computes, per tenant: `tenant_budget = concurrency_ceiling − active`, then
 `slots = min(campaign.concurrency, tenant_budget)`; only `slots > 0` campaigns join the
-dial list (`apps/workers/campaign_dispatch.py`). Ceiling comes from
-`plans.concurrency_ceiling`, defaulting to `PLATFORM_LINES_TOTAL` and then **clamped to
-the outbound pool** (`_tenant_ceiling`) — a plan sold with a ceiling above the pool cannot
-be honoured, and the dispatcher caps it rather than handing one tenant the switchboard:
+dial list (`apps/workers/campaign_dispatch.py`). Ceiling comes from the plan IN EFFECT's
+`concurrency_ceiling` (the outbound pool when it is NULL or there is no plan row), **clamped
+to the outbound pool** (`campaigns.service.tenant_line_ceiling`) and then to the account's
+own call lines (`organizations.call_lines`, `tenancy/call_lines.read_call_lines`) — a plan
+sold with a ceiling above the pool cannot be honoured, and the dispatcher caps it rather
+than handing one tenant the switchboard. In the tenant's session (`:pool` is the outbound
+pool from step 3, 3 at the defaults):
 
 ```sql
 SELECT c.id, c.status, c.concurrency,
-       COALESCE(p.concurrency_ceiling, 10) AS ceiling_on_the_plan,
-       least(COALESCE(p.concurrency_ceiling, 10), 6) AS ceiling_in_effect  -- 6 = the pool, step 3
+       p.concurrency_ceiling AS ceiling_on_the_plan,   -- NULL = the pool
+       least(coalesce(p.concurrency_ceiling, :pool), :pool) AS ceiling_in_effect,
+       o.call_lines AS account_lines                   -- NULL = the platform default
 FROM campaigns c
-LEFT JOIN plans p ON p.tenant_id = c.tenant_id
-WHERE c.status = 'running';
+JOIN organizations o ON o.id = c.tenant_id
+LEFT JOIN LATERAL (
+  SELECT concurrency_ceiling FROM plans
+  WHERE tenant_id = c.tenant_id
+    AND (effective_from IS NULL OR effective_from <= now())
+    AND (effective_to IS NULL OR effective_to > now())
+  ORDER BY coalesce(effective_from, '-infinity'::timestamptz) DESC, created_at DESC, id DESC
+  LIMIT 1
+) p ON true
+WHERE c.status = 'running' AND c.archived_at IS NULL;
 ```
 
-A gap between those two columns is a **commercial** problem, not a dispatcher one: the
+A gap between the plan and the pool is a **commercial** problem, not a dispatcher one: the
 client was sold lines the platform does not have. Raise the pool (step 3a) or reprice —
 never widen the clamp.
 
@@ -196,7 +208,7 @@ ORDER BY 1;   -- the tick's own order; anything sorting before yours spends firs
 ```
 
 Immediate relief is to lower the earlier tenants' `plans.concurrency_ceiling` or their
-campaign sliders so the budget reaches the tail, or raise `PLATFORM_LINES_TOTAL` if
+campaign sliders so the budget reaches the tail, or raise `THINNEST_MAX_CONCURRENT_CALLS` if
 step 3a shows the vendor ceiling is genuinely higher than we believe. The durable fix is
 a per-tenant guaranteed FLOOR alongside the cap — see
 `docs/evidence/bolna-subaccounts-platform.md` §2.3, which sets out the mechanism and the
@@ -351,12 +363,18 @@ campaign before any tenant dialled:
 | `no_credits` | non-terminal — self_serve/trial wallet empty (D-34) |
 | `calling_hours` | non-terminal — outside 09:00–21:00 IST (`DEFAULT_WINDOW`) |
 | `agreements_not_accepted` | non-terminal — the client has not accepted the current Terms/DPA/AUP |
-| `tm_registration_missing` | non-terminal — Calevate's own TM registration is not live |
-| `pe_registration_missing` / `pe_registration_not_active` / `pe_verification_stale` / `tm_link_not_active` | non-terminal — the client's DLT entity chain; `dispatch_blockers` normally stops the whole campaign first |
-| `number_not_bound_to_agent` / `number_not_registered` | non-terminal — the agent has no DLT-registered header to dial FROM |
+| `account_missing` | non-terminal — no organization row for the tenant; `calls-stopped.md` |
+| `platform_maintenance` | non-terminal — a maintenance window is draining dials; resumes when it closes (`maintenance-window.md`) |
+| `truthful_answer_drift` / `disclosure_not_said` | non-terminal — the agent's live engine prompt or opening lost a disclosure; republish the agent (`agent-engine-drift.md`) |
+| `outbound_pledge_missing` / `outbound_pledge_outdated` | non-terminal — the owner has not accepted the current no-cold-calls pledge (D-692) |
+| `payment_dispute` / `platform_fee_overdue` | non-terminal — outbound held on an open dispute or an unpaid platform fee (`topup-payments.md`) |
+| `trial_campaigns_unavailable` / `trial_ended` / `trial_minutes_used` / `trial_daily_cap` | non-terminal — a free-trial account; campaigns open after the first payment (`trial-calling.md`) |
+| `call_lines_busy` | non-terminal — the account's own calls-at-once are all in use (`organizations.call_lines`) |
+| `a2p_declaration_missing` / `a2p_declaration_not_yet_effective` / `a2p_number_undeclared` | non-terminal — the calling number is not on the account's effective declaration (D-941) |
 | `campaign_not_running` / `campaign_window_closed` | non-terminal — the campaign itself was paused/cancelled, or its own narrowed window closed mid-batch |
 | `dnc` | TERMINAL: contact set to `dnc_blocked` |
 | `no_consent` | TERMINAL: contact set to `dnc_blocked` — they withdrew or never gave permission (D-117) |
+| `no_consent_record` | TERMINAL: contact set to `dnc_blocked` — no opt-in on file at all; only an act by the person lifts it |
 | `consent_expired` | TERMINAL: contact set to `dnc_blocked` — a granted opt-in whose own `expires_at` has passed. Only a fresh grant lifts it, which is the same act that lifts `no_consent`; waiting never does |
 | `destination_not_india` | TERMINAL: contact set to `dnc_blocked` — a non-`+91` number, out of scope for the freeze |
 | `destination_erased` | TERMINAL: contact set to `dnc_blocked` — the number is the `+91000000…` placeholder an erasure or retention sweep wrote over it |
