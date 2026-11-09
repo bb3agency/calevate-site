@@ -256,7 +256,7 @@ async def _assert_erasure_answers(
         )
     match = (
         await session.execute(
-            text("SELECT subject_ref FROM deletion_requests WHERE id = :id"),
+            text("SELECT subject_ref, completed_at FROM deletion_requests WHERE id = :id"),
             {"id": deletion_request_id},
         )
     ).first()
@@ -268,6 +268,32 @@ async def _assert_erasure_answers(
             "That erasure was for a different phone number.",
             remediation="File an erasure for this person's own number.",
         )
+    # Filing is not answering: until the erasure has run the person's data is still held,
+    # and a row closed early stops the 90-day clock on a request nobody has met.
+    # `answer_with_completed_erasure` closes it when the erasure finishes.
+    if match[1] is None:
+        raise ProblemError.business_rule(
+            "rights_erasure_not_finished",
+            "That erasure is still running.",
+            remediation="This request is marked answered on its own when the erasure finishes.",
+        )
+
+
+async def answer_with_completed_erasure(
+    session: AsyncSession, *, deletion_request_id: UUID, subject_ref: str
+) -> int:
+    """Close every open erasure request for this person, answered by the erasure that has
+    just completed. Runs in the erasure's own transaction, so the desk can never say
+    "answered" for an erasure that rolled back. Returns how many rows it closed."""
+    result = await session.execute(
+        text(
+            "UPDATE data_rights_requests SET status = 'answered', outcome = 'erased', "
+            "closed_at = now(), deletion_request_id = :del, updated_at = now() "
+            "WHERE kind = 'erasure' AND status = 'open' AND subject_ref = :ref"
+        ),
+        {"del": deletion_request_id, "ref": subject_ref},
+    )
+    return rowcount_of(result)
 
 
 __all__ = [
@@ -276,6 +302,7 @@ __all__ = [
     "REFUSED_OUTCOMES",
     "DeskCounts",
     "RightsRequest",
+    "answer_with_completed_erasure",
     "close_request",
     "counts",
     "list_requests",

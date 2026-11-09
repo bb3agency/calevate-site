@@ -26,6 +26,7 @@ import {
   type RightsRequestIn,
 } from "@/lib/api/compliancePack";
 import { type Session } from "@/lib/api/client";
+import { useDeletionRequests } from "@/lib/api/dataRights";
 import { lookup } from "@/lib/lookup";
 
 import { WhyTip } from "../agreements/_ui/WhyTip";
@@ -71,7 +72,8 @@ const ANSWERS: Record<Kind, { outcome: Outcome; label: string }[]> = {
  * The rights desk (D-943): requests a client's customers make about their own data, each
  * with the 90-day clock the DPDP Rules 2025 set. Primary job: see which request is due
  * next and answer it. Export and erasure are the page's own drawers; this list only says
- * which to open, and an erasure filed from a row answers that row.
+ * which to open. An erasure row is answered by the server when an erasure of that person
+ * completes, never when one is filed.
  *
  * §52: loading, failed and empty are three branches; "no requests" is shown only when the
  * server said so.
@@ -87,10 +89,19 @@ export function RightsDesk({
   canWrite: boolean;
   writeReason: string | null;
   onExport: () => void;
-  /** Opens the erasure drawer; the filed erasure answers `requestId`. */
-  onErase: (requestId: string) => void;
+  /** Opens the erasure drawer. */
+  onErase: () => void;
 }) {
-  const desk = useRightsDesk(session);
+  // The erasure register, served from the cache `Register` fills. An open erasure row whose
+  // person has an erasure running is waiting on that erasure, not on the owner: the server
+  // answers the row when the erasure completes, so the desk is re-read until it does.
+  const register = useDeletionRequests(session);
+  const erasing = new Set(
+    (register.data ?? []).filter((entry) => entry.status === "pending").map((entry) => entry.subject_ref),
+  );
+  const waitsOn = (request: RightsRequest) =>
+    request.kind === "erasure" && request.status === "open" && erasing.has(request.subject_ref);
+  const desk = useRightsDesk(session, { waitsOn });
   const [logging, setLogging] = useState(false);
   // Held here, not in the form: the drawer closes on success and unmounts the form, and
   // "Logged" is said after it has gone.
@@ -140,7 +151,8 @@ export function RightsDesk({
                 canWrite={canWrite}
                 writeReason={writeReason}
                 onExport={onExport}
-                onErase={() => onErase(request.id)}
+                erasing={waitsOn(request)}
+                onErase={onErase}
               />
             ))}
           </ul>
@@ -166,6 +178,7 @@ function DeskRow({
   canWrite,
   writeReason,
   onExport,
+  erasing,
   onErase,
 }: {
   session: Session;
@@ -173,6 +186,8 @@ function DeskRow({
   canWrite: boolean;
   writeReason: string | null;
   onExport: () => void;
+  /** An erasure for this person is running; the row is answered when it finishes. */
+  erasing: boolean;
   onErase: () => void;
 }) {
   const close = useCloseRightsRequest(session);
@@ -195,7 +210,8 @@ function DeskRow({
           {COPY.code(request.subject_ref.slice(0, 8))}
         </span>
       </div>
-      {isOpen && (
+      {isOpen && erasing && <p className="text-meta text-ink-muted">{COPY.erasing}</p>}
+      {isOpen && !erasing && (
         <div className="flex flex-wrap gap-2">
           {request.kind === "access" && (
             <button type="button" className={SECONDARY_BUTTON_SM} onClick={onExport} disabled={!canWrite} title={writeReason ?? undefined}>

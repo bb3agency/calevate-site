@@ -130,6 +130,7 @@ from apps.api.compliance.processor_erasure import (
     held_contact_erasures,
     open_tasks_for_request,
 )
+from apps.api.compliance.rights_desk import answer_with_completed_erasure
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -3433,6 +3434,10 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 " phone_e164 = NULL WHERE id = :rid"
             ),
             {"rid": request_id, "proof": json.dumps(proof)},
+        )
+        # The rights desk row this erasure answers closes now, not when it was filed.
+        await answer_with_completed_erasure(
+            session, deletion_request_id=request_id, subject_ref=subject_handle
         )
 
     if recordings_in_floor:

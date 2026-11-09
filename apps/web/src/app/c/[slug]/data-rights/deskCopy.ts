@@ -15,6 +15,7 @@ export const DESK_COPY = {
   codeWhy: "A one-way code of their number. We never list the number.",
   export: "Export their data",
   erase: "Erase their data",
+  erasing: "Being erased. This is marked answered when it finishes.",
   refuseIdentity: "Can't confirm who they are",
   kindField: "What they asked for",
   channelField: "How they asked",

@@ -13,6 +13,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -56,11 +57,21 @@ export function useCampaignPurpose(session: Session, campaignId: string): UseQue
 
 export const RIGHTS_DESK_LIMIT = 100;
 
-export function useRightsDesk(session: Session): UseQueryResult<RightsDesk> {
+/** How often the desk is read while a row waits on a running erasure. The worker closes
+ * the row when the erasure completes (`rights_desk.answer_with_completed_erasure`), so the
+ * desk learns of it only by asking; the erasure register polls on the same clock. */
+export const DESK_ERASURE_POLL_MS = 15_000;
+
+export function useRightsDesk(
+  session: Session,
+  { waitsOn }: { waitsOn?: (request: RightsRequest) => boolean } = {},
+): UseQueryResult<RightsDesk> {
   return useQuery({
     queryKey: compliancePackKeys.desk(session.orgSlug),
     queryFn: () =>
       apiRequest<RightsDesk>(session, `/v1/compliance/rights-requests?limit=${RIGHTS_DESK_LIMIT}`),
+    refetchInterval: untilRefused((query) =>
+      waitsOn && query.state.data?.items.some(waitsOn) ? DESK_ERASURE_POLL_MS : false),
   });
 }
 

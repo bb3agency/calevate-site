@@ -100,7 +100,8 @@ async def test_an_erasure_closed_over_http_names_its_certificate() -> None:
         await session.execute(
             text(
                 "INSERT INTO deletion_requests (id, tenant_id, phone_e164, subject_ref, "
-                "requested_at, created_at) VALUES (:id, :t, :p, :ref, now(), now())"
+                "requested_at, created_at, completed_at) "
+                "VALUES (:id, :t, :p, :ref, now(), now(), now())"
             ),
             {"id": deletion_id, "t": tenant_id, "p": phone, "ref": subject_ref(phone)},
         )

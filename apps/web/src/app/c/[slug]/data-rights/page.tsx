@@ -2,12 +2,11 @@
 
 import { useState } from "react";
 
-import { useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { PageHeader } from "@/components/console/pageHeader";
 import { PRIMARY_BUTTON, RestrictionNote, SECONDARY_BUTTON } from "@/components/ui";
 import { useDeletionRequests } from "@/lib/api/dataRights";
-import { useCloseRightsRequest, useRightsDesk } from "@/lib/api/compliancePack";
+import { useRightsDesk } from "@/lib/api/compliancePack";
 import { useActAccess, useWriteAccess } from "@/lib/api/hooks";
 import { Term } from "@/lib/glossary";
 import { useClientSession } from "@/lib/api/session";
@@ -40,9 +39,6 @@ export default function DataRightsPage() {
   // button for a view-as operator and let the typed ERASE end in a 403.
   const eraseAccess = useActAccess(session, "org:manage", "compliance.erasure_request", "file an erasure request");
   const deskAccess = useWriteAccess(session, "org:manage", "log a customer's request");
-  const closeDesk = useCloseRightsRequest(session);
-  useActionFeedback(closeDesk, { errorDisplay: "toast", successToast: "Request answered" });
-  const [eraseFor, setEraseFor] = useState<string | null>(null);
 
   // Neither phone box is declared: both act on a named person, with a statutory clock and
   // no undo. The register is declared as counts only, and "could not read the register"
@@ -142,10 +138,7 @@ export default function DataRightsPage() {
         canWrite={deskAccess.allowed}
         writeReason={deskAccess.reason}
         onExport={() => setTask("export")}
-        onErase={(requestId) => {
-          setEraseFor(requestId);
-          setTask("erase");
-        }}
+        onErase={() => setTask("erase")}
       />
 
       <Register session={session} />
@@ -155,27 +148,13 @@ export default function DataRightsPage() {
       </Drawer>
       <Drawer
         open={task === "erase"}
-        onClose={() => {
-          setTask(null);
-          setEraseFor(null);
-        }}
+        onClose={() => setTask(null)}
         title={COPY.eraseButton}
         width="md"
       >
-        <Erasure
-          session={session}
-          onFiled={(deletionRequestId) => {
-            // An erasure filed from a desk row answers that row, linked to its certificate.
-            if (eraseFor) {
-              closeDesk.mutate({
-                id: eraseFor,
-                body: { status: "answered", outcome: "erased", deletion_request_id: deletionRequestId },
-              });
-            }
-            setEraseFor(null);
-            setTask(null);
-          }}
-        />
+        {/* Filing does not answer a desk row: the server answers it when the erasure
+            completes, so the 90-day clock keeps running while the data is still held. */}
+        <Erasure session={session} onFiled={() => setTask(null)} />
       </Drawer>
     </div>
   );
