@@ -27,7 +27,7 @@ from tests.call_optout_test import _Turn
 
 # --- F-5: words written joined, as native speakers write them -----------------------------
 
-_WRITTEN_FORM = "Write as native speakers do: a suffix, particle or vowel joins its word."
+_WRITTEN_FORM = "Join a suffix, particle or vowel to its word as the language's print does."
 
 
 def _cfg(language: str = "te-IN", direction: str = "outbound", **kw: object) -> AgentConfig:
@@ -75,7 +75,7 @@ def test_the_rule_names_no_language_and_quotes_the_founders_example_only_when_wr
         "calevate_shared.engine.written_form", lambda tag: "EXAMPLE" if tag == "te-IN" else None
     )
     how = dict(engine_prompt_layers(_cfg()))["how_to_speak"]
-    assert 'vowel joins its word. Like: "EXAMPLE"\n' in how
+    assert 'print does. Like: "EXAMPLE"\n' in how
     assert "Like:" not in dict(engine_prompt_layers(_cfg("hi-IN")))["how_to_speak"]
 
 

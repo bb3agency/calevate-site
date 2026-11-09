@@ -681,36 +681,151 @@ def _sets_up(stage: ConversationStage) -> bool:
     return bool(_SETS_UP.search(text)) and (bool(stage.procedure) or bool(_HELPS.search(text)))
 
 
+#: An instruction that takes the caller's use as given ("they already use the app").
+_PRESUMES_USE: Final = re.compile(
+    r"\b(?:already|since (?:they|you)|as (?:they|you))\b[^.;?]{0,25}\b(?:us(?:e|es|ed|ing)|user)\b|"
+    r"\b(?:they|you) (?:are|were|have been|had been) (?:already )?using\b",
+    re.IGNORECASE,
+)
+#: A way out whose condition says the caller uses it: the only way a step that takes their
+#: use as given may be reached. Having it, installing it or registering is not using it:
+#: the Rytu Khata caller of 9 Nov 2026 had registered and never used the app.
+_SAYS_USES: Final = re.compile(r"\b(?:us(?:e|es|ed|ing)|user|tried)\b", re.IGNORECASE)
+_DENIES: Final = re.compile(
+    r"n't\b|\b(?:not|never|no|nor|yet to|only|without|stopped|unused)\b", re.IGNORECASE
+)
+#: A step that decides for itself who it is for: it asks first whether the caller uses it,
+#: or goes on only for callers who said they do. A linear script (a new draft has no ways
+#: out) can gate a step only this way.
+_ASKS_WHETHER_USES: Final = re.compile(
+    r"\b(?:ask|check|find out|confirm)\w*\b[^.;?]{0,30}\b(?:whether|if)\b[^.;?]{0,40}"
+    r"\b(?:us(?:e|es|ed|ing)|tried)\b",
+    re.IGNORECASE,
+)
+_ONLY_IF_USES: Final = re.compile(
+    r"\b(?:if|when|once)\s+(?:they|the caller)\b[^.;?,]{0,25}\b(?:us(?:e|es|ed|ing)|tried)\b",
+    re.IGNORECASE,
+)
+
+
+def _gates_itself(instruction: str) -> bool:
+    if _ASKS_WHETHER_USES.search(instruction):
+        return True
+    match = _ONLY_IF_USES.search(instruction)
+    return match is not None and not _DENIES.search(match.group(0))
+
+
 def _asks_experience(stage: ConversationStage) -> bool:
     return bool(_ASKS_EXPERIENCE.search(f"{stage.name} {stage.instruction}"))
 
 
-def order_problems(script: CallScript) -> list[str]:
-    """A step that asks how the caller uses or likes something, on a path of the call that
-    also helps them set it up: before it, they do not have it yet; right after it, they have
-    not used it. Either way the question cannot be answered on that call (the Rytu Khata
-    call of 6 Nov 2026: "I only just installed it, how would I be using it?")."""
+def _presumes_use(stage: ConversationStage) -> bool:
+    """Whether a step needs the caller to use the thing already: it asks how they use or like
+    it, or takes their use as given. One that asks whether they use it first does not."""
+    text = f"{stage.name} {stage.instruction}"
+    if _gates_itself(stage.instruction):
+        return False
+    return _asks_experience(stage) or bool(_PRESUMES_USE.search(text))
+
+
+def _says_uses(condition: str) -> bool:
+    return bool(_SAYS_USES.search(condition)) and not _DENIES.search(condition)
+
+
+def _reached_unasked(script: CallScript) -> set[int]:
+    """The steps the call reaches with a caller who has not said they use it: from the first
+    step, along every way out except one whose condition says they do (`_says_uses`).
+    "Otherwise" and the step after carry no answer, so they never gate."""
+    if not script.stages:
+        return set()
+    at = {stage.id: i for i, stage in enumerate(script.stages)}
+    seen = {0}
+    todo = [0]
+    while todo:
+        index = todo.pop()
+        stage = script.stages[index]
+        targets = [b.target for b in stage.branches if not _says_uses(b.when)]
+        if stage.otherwise:
+            targets.append(stage.otherwise)
+        elif index + 1 < len(script.stages):
+            targets.append(script.stages[index + 1].id)
+        for target in targets:
+            i = at.get(target)
+            if i is not None and i not in seen:
+                seen.add(i)
+                todo.append(i)
+    return seen
+
+
+def _order_findings(script: CallScript) -> list[tuple[int, str]]:
+    """(step index, problem) for each step asked of a caller who cannot answer it."""
     setup = [i for i, stage in enumerate(script.stages) if _sets_up(stage)]
-    problems: list[str] = []
+    unasked = _reached_unasked(script)
+    found: list[tuple[int, str]] = []
     for i, stage in enumerate(script.stages):
-        if not _asks_experience(stage) or _sets_up(stage):
+        if _sets_up(stage) or not _presumes_use(stage):
             continue
         reach = _reachable(script, i)
         before = next((s for s in setup if s in reach), None)
         after = next((s for s in setup if i in _reachable(script, s)), None)
-        if before is None and after is None:
-            continue
-        when = (
-            f"before step {before + 1} helps them set it up"
-            if before is not None
-            else f"right after step {(after or 0) + 1} helps them set it up"
-        )
-        problems.append(
-            f"stages.{i}.instruction: asks how the caller uses or likes it, and the call can "
-            f"reach it {when}, when they cannot answer it; ask it only on the way for callers "
-            "who already had it, and after setting it up show them the first thing to do."
-        )
-    return problems
+        if _asks_experience(stage) and (before is not None or after is not None):
+            when = (
+                f"before step {before + 1} helps them set it up"
+                if before is not None
+                else f"right after step {(after or 0) + 1} helps them set it up"
+            )
+            found.append(
+                (
+                    i,
+                    f"stages.{i}.instruction: asks how the caller uses or likes it, and the call "
+                    f"can reach it {when}, when they cannot answer it; ask it only on the way "
+                    "for callers who said they use it, and after setting it up show them the "
+                    "first thing to do.",
+                )
+            )
+        elif i in unasked:
+            found.append(
+                (
+                    i,
+                    f"stages.{i}.instruction: takes as given that the caller uses it, and the "
+                    "call reaches it with callers who have not said so (having it, installing "
+                    "it or registering is not using it); ask first, as a question, whether they "
+                    "use it, and come here only through a way out whose condition says they "
+                    "do, or have this step ask that first and its line ask rather than say it.",
+                )
+            )
+    return found
+
+
+def order_problems(script: CallScript) -> list[str]:
+    """A step asked of a caller who cannot answer it:
+
+    - how the caller uses or likes something, on a path that also helps them set it up:
+      before it they do not have it yet, right after it they have not used it (the Rytu
+      Khata call of 6 Nov 2026: "I only just installed it, how would I be using it?");
+    - a step that takes their use as given, reached without a way out whose condition says
+      they use it (the Rytu Khata call of 9 Nov 2026: "you already use the app, what for?"
+      to a caller who had only registered). Asking before assuming, and branching on the
+      answer, is the conversation-design default ("Don't ask the user a question if you're
+      not prepared to handle their answer", developers.google.com/assistant/
+      conversation-design/questions, read 9 Nov 2026).
+
+    Read in the English instructions and conditions only, so it works for any call language.
+    """
+    return [problem for _i, problem in _order_findings(script)]
+
+
+def presumed_lines(script: CallScript) -> tuple[str, ...]:
+    """What the agent says at each step `order_problems` names: a line a caller who cannot
+    answer it hears, which the practice checks look for in the replies
+    (`turn_checks.conversation_problems`)."""
+    lines: list[str] = []
+    for i, _problem in _order_findings(script):
+        stage = script.stages[i]
+        line = stage.instruction if stage.mode == "say" else stage.sounds_like
+        if line.strip():
+            lines.append(line.strip())
+    return tuple(dict.fromkeys(lines))
 
 
 #: Punctuation stripped from a word's ends: ASCII, the danda, curly quotes and dashes.
@@ -805,6 +920,7 @@ __all__ = [
     "placeholder_instruction",
     "placeholder_problems",
     "plain",
+    "presumed_lines",
     "question_count",
     "repeated_line_problems",
     "script_problems",

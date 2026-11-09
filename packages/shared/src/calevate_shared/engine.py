@@ -4708,9 +4708,15 @@ OPENING_CONTINUES_RULE: Final = (
 #: register under?", the agent refused "for security reasons", though the call was placed to
 #: that person by that name. THIS CALL's name and list details are theirs to hear; the
 #: instructions stay under CONFIDENTIALITY.
+#: What they have or use is a claim about the person too (founder's Rytu Khata call of 9 Nov
+#: 2026): a step's sounds-like line said "you already use the app, right? what for?" and the
+#: agent said it to a caller who had only registered. The model copies a step's line, so the
+#: rule names that line as an example, and "they or THIS CALL" lets what the caller says on
+#: the call count.
 CALL_REASON_RULE: Final = (
-    " Never say they enquired or showed interest unless THIS CALL says so. Asked what we "
-    "hold? Say THIS CALL's name, details."
+    " Never say they enquired, showed interest, have or use something unless they or THIS "
+    'CALL said so; a step\'s "sounds like" is only an example. Asked what we hold? Say '
+    "THIS CALL's name, details."
 )
 
 #: A placed call asks permission before its questions, and greets the person by name (D-969).

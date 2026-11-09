@@ -116,8 +116,9 @@ def test_what_the_section_costs() -> None:
     # did not ask if now suits says the name, who and why and asks it next (+131). 5 Nov 2026:
     # a later hello never restarts, "forgot us?" gets who and why, and "what do you hold?"
     # gets THIS CALL's name and details (+104). 6 Nov 2026: "never greet again in any turn",
-    # paid for by dropping "never restart" (+3).
-    assert len(start) - len(spoken) < 920
+    # paid for by dropping "never restart" (+3). 9 Nov 2026: what the person has or uses is a
+    # claim too, and a step's "sounds like" is only an example (+72).
+    assert len(start) - len(spoken) < 1_000
 
 
 # --- the turn check -----------------------------------------------------------------------

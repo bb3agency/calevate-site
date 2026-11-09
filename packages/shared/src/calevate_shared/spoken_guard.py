@@ -125,8 +125,15 @@ def latin_words(text: str, tag: str | None, *, names: Sequence[str] = ()) -> lis
 #: (`SPOKEN_LINE_RULES`), so the opening the engine speaks word for word is held to what the
 #: in-call model is. In English, naming no language's words: the founder's example for a
 #: language is its `written_form` slot in `spoken_style.json`.
+#: "As the language's print does", not "always": Telugu print joins a case marker to an
+#: English loanword (Eenadu, Sakshi, News18 Telugu, BBC Telugu and WhatsApp's Telugu blog: 453
+#: markers joined after a virama with a zero-width non-joiner, 2 written apart, on their pages
+#: of 9 Nov 2026), while standard Hindi writes a case marker apart from a noun and joins it
+#: to a pronoun (the Central Hindi Directorate's spelling rule, as reproduced by
+#: bharatdiscovery.org, read 9 Nov 2026), so "always joins" was wrong for Hindi. Evidence and
+#: the quoted rule: docs/evidence/speech-naturalness-2026-11-09/PRESUPPOSITION.md.
 WRITTEN_FORM_RULE: Final = (
-    "Write as native speakers do: a suffix, particle or vowel joins its word."
+    "Join a suffix, particle or vowel to its word as the language's print does."
 )
 
 #: How a written line is marked for the voice, for every model that writes lines the agent says

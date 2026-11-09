@@ -320,7 +320,9 @@ MAIN_TASK_CHANGE: Final = (
     "Rework the steps, the questions it asks, its answers when callers push back and how it "
     "ends the call so each one serves that task. Keep what already serves it, keep the "
     "opening line unless it works against the task, and change nothing only for the sake of "
-    "changing it."
+    "changing it. A step that takes something about the caller as given (that they use it, "
+    "have it or asked for it) is reached only after a step asks it and branches on the "
+    "answer; fix any step that does not."
 )
 
 #: Refused when the agent has no main task to adjust the script to.

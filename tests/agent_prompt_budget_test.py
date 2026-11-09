@@ -249,6 +249,11 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: under): a line the caller spoke over comes back "in new words", and a question is answered
 #: "to it, never your last point again". The placed-call START OF THE CALL's "one greeting"
 #: clause is paid for by dropping "never restart" there; it is not in these agents.
+#: The founder's Rytu Khata call of 9 Nov 2026 left both where they were (7,709/6,834, each 4
+#: under): the written-form bullet joins a suffix "as the language's print does" (+2),
+#: because standard Hindi writes a case marker apart from a noun. The rule that a placed call
+#: takes nothing the person has or uses from a step's line is in START OF THE CALL, which
+#: these agents do not carry.
 PER_CALL_MAX = 7_713
 PER_CALL_ONE_LANGUAGE_MAX = 6_838
 

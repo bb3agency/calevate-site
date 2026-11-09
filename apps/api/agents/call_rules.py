@@ -53,7 +53,9 @@ CALL_RULES: Final[tuple[CallRule, ...]] = (
         key="facts",
         judge=(
             "It never makes up a price, stock, time, offer, place, project or any other fact, "
-            "or how the caller found the business: an answer that "
+            "or how the caller found the business, and never takes as given what the caller "
+            "did, has or uses (that they use it, installed it, liked it or asked for it) "
+            "unless they said so on this call or the call's details say so: an answer that "
             "matches a pinned fact is right with no lookup; a fact in neither the pinned facts "
             "nor the knowledge is invented, and saying it does not have it is right."
         ),
@@ -217,14 +219,30 @@ OPENING_LINE_RULE: Final = (
 #: - A step that is not wanted is taken out, and a step for some callers is reached through
 #:   a way out: asked to drop two steps, the edit writer kept them as "Not needed."
 #:   (`script_lint.placeholder_problems`).
+#: - Ask, then branch on the answer; never presume: the Rytu Khata script of 9 Nov 2026 led
+#:   every caller to a step whose line said "you already use the app, right? what for?", and
+#:   the agent said it to a caller who had only registered. The in-call model copies a step's
+#:   line (OpenAI's realtime guide: the model "strongly closely follows sample phrases"), so a
+#:   line that asserts the caller's state asserts it to every caller who reaches the step.
+#:   Google's conversation design asks a question before relying on its answer and warns
+#:   "Don't ask the user a question if you're not prepared to handle their answer"
+#:   (developers.google.com/assistant/conversation-design/questions, read 9 Nov 2026).
+#:   `script_lint.order_problems` checks that such a step is reached only through a way out
+#:   whose condition says the caller uses it.
 SCRIPT_FLOW_RULE: Final = (
     "Every detail to collect is asked in a stage, named in the instruction of the stage "
     "where the call reaches it, one question a turn, so none is left over at the end. "
     "Stages go in the order the call can reach them: nothing is asked before what it "
     "depends on has happened, and nothing the caller cannot answer yet is asked at all; "
     "someone who has only just set something up on this call is not asked how they use or "
-    "like it, so those questions sit on the way for callers who already had it, and after "
-    "setting it up the agent shows the first thing to do. A "
+    "like it, so those questions sit on the way for callers who said they use it, and after "
+    "setting it up the agent shows the first thing to do. Nothing about the caller is taken "
+    "as given (that they use it, have it, installed it, liked it, asked for it or enquired) "
+    "unless the brief says every caller did: a stage that needs it is reached only through a "
+    "way out whose condition says the caller said so, after a stage that asks it as a "
+    "question and branches on the answer, or its instruction first asks it and goes on only "
+    "if they say yes; either way its sounds_like asks rather than asserts. "
+    "Having something, installing it or registering is not using it. A "
     "stage that walks the caller through doing something puts each action in its "
     "procedure, one action an item, and the agent waits for the caller to say it is done "
     "before the next; never several actions in one instruction followed by asking whether "

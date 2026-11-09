@@ -95,7 +95,9 @@ def test_satisfaction_asked_right_after_the_install_step_is_found() -> None:
 
 def test_experience_questions_only_on_the_way_for_callers_who_had_it_pass() -> None:
     check = CHECK.model_copy(
-        update={"branches": [StageBranch(when="they already have the app", target="s5")]}
+        # "use", not "have": having the app is not using it (the Rytu Khata call of 9 Nov
+        # 2026, `presupposition_2026_11_09_test`).
+        update={"branches": [StageBranch(when="they already use the app", target="s5")]}
     )
     install = INSTALL.model_copy(update={"otherwise": "s8"})
     satisfied = SATISFIED.model_copy(update={"otherwise": "s8"})
