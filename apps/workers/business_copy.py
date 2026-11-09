@@ -485,18 +485,23 @@ def _take_out(working: dict[str, Any], paths: set[str], removed: set[str]) -> bo
     the list or object it sits in is there; anything else raises, which the parse's caller
     reads as an unusable answer (`script_assist._parsed`)."""
     drops: dict[str, set[int]] = {}
+    this_pass: set[str] = set()
     for path in paths:
         parts = path.split(".")
         head = parts[0]
         if head in _DROPPABLE_ITEMS and len(parts) > 1 and parts[1].isdigit():
             drops.setdefault(head, set()).add(int(parts[1]))
         elif head in _DROPPABLE_PARTS:
+            if head in this_pass:
+                # A second refused field of a part this pass already took out.
+                continue
             if head in removed:
-                # Already out and still refused: another pass would remove nothing, so the
-                # loop in `salvage` would never end.
+                # Out since an earlier pass and still refused: another pass would remove
+                # nothing, so the loop in `salvage` would never end.
                 return False
             working[head] = None
             removed.add(head)
+            this_pass.add(head)
         elif head == "placeholders" and len(parts) > 1 and parts[1] in _DROPPABLE_PLACEHOLDERS:
             working["placeholders"].pop(parts[1], None)
             removed.add(path)

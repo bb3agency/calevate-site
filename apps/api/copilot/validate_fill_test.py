@@ -202,6 +202,16 @@ def test_an_item_that_is_not_an_object_or_names_no_field_is_refused() -> None:
     )
 
 
+@pytest.mark.parametrize("field_id", [["open"], {"id": "open"}])
+def test_a_field_id_that_is_a_list_or_an_object_is_refused_not_raised(field_id: object) -> None:
+    """The refusal's `field_ids` look each id up in the screen's fields: an unhashable id
+    from the model raised `TypeError` there and ended the Pip stream instead of a repair."""
+    with pytest.raises(FillRefusedError) as refused:
+        validate_fill(PAYLOAD, _call({"field_id": field_id, "value": "09:00"}))
+    assert refused.value.reasons == ("one item named no field",)
+    assert refused.value.field_ids == ()
+
+
 def test_a_fill_against_an_undeclared_screen_is_refused_field_by_field() -> None:
     """D-501: the dock now offers a launcher on a screen that declared nothing, and this is
     what stops the model filling it in anyway.
