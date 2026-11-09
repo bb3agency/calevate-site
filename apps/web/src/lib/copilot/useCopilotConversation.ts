@@ -459,14 +459,15 @@ export function useCopilotConversation(
   const stored = useConversation(session, realm, streamInFlight);
   const queries = useQueryClient();
   /*
-   * DID THE ANSWER ARRIVE? — asked as `stored.error || !stored.data` and not as `isError`,
-   * which is BUILD-LOG §52's whole point. TanStack PARKS a query rather than starting it
-   * when the browser is offline (`fetchStatus: "paused"`): it reports `error === null`
-   * with `data === undefined`, so a panel branching on `isError` alone takes neither arm
-   * and renders `[]` — "you have said nothing", stated to somebody holding a conversation,
-   * over a dropped connection.
+   * DID THE ANSWER ARRIVE? — asked as `!stored.data` and not as `isError`, which is
+   * BUILD-LOG §52's whole point. TanStack PARKS a query rather than starting it when the
+   * browser is offline (`fetchStatus: "paused"`): it reports `error === null` with
+   * `data === undefined`, so a panel branching on `isError` alone takes neither arm and
+   * renders `[]` — "you have said nothing", stated to somebody holding a conversation, over
+   * a dropped connection. Nor on `error`: a RE-read that fails keeps the page it already
+   * had, which is on screen, and saying it "could not be loaded" there is false.
    */
-  const historyUnavailable = Boolean(stored.error) || !stored.data;
+  const historyUnavailable = !stored.data;
   const page = stored.data?.turns ?? NO_TURNS;
   const [pending, setPending] = useState<CopilotTurn[]>([]);
   const said = useRef(new Map<string, CopilotTurn>());
