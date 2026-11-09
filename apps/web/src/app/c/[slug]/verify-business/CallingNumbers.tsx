@@ -111,7 +111,14 @@ function DeclarationBody({
   return (
     <div className="space-y-4">
       <DeclarationStatus data={data} />
-      <DeclarationForm session={session} data={data} access={access} pageFacts={pageFacts} />
+      <DeclarationForm
+        session={session}
+        data={data}
+        access={access}
+        pageFacts={pageFacts}
+        // Change reopens a confirmed list, so a confirmation (or leaving it) closes it again.
+        onClose={editing ? () => setEditing(false) : undefined}
+      />
     </div>
   );
 }
@@ -183,11 +190,14 @@ function DeclarationForm({
   data,
   access,
   pageFacts,
+  onClose,
 }: {
   session: Session;
   data: CallingNumberDeclaration;
   access: WriteAccess;
   pageFacts: CopilotFact[];
+  /** Set when the form was opened from a confirmed list by Change. */
+  onClose?: () => void;
 }) {
   const declare = useDeclareCallingNumbers(session);
   const feedback = useActionFeedback(declare, { errorDisplay: "inline" });
@@ -284,11 +294,14 @@ function DeclarationForm({
                   : null
           }
           onClick={() =>
-            feedback.run({
-              numbers: ticked,
-              attestationVersion: data.attestation_version,
-              attestationSha256: data.attestation_sha256,
-            })
+            declare.mutate(
+              {
+                numbers: ticked,
+                attestationVersion: data.attestation_version,
+                attestationSha256: data.attestation_sha256,
+              },
+              { onSuccess: () => onClose?.() },
+            )
           }
           className="w-full justify-center sm:w-auto"
           pendingLabel="Confirming…"
@@ -296,6 +309,15 @@ function DeclarationForm({
         >
           Confirm numbers
         </ActionButton>
+        {onClose && (
+          <button
+            type="button"
+            className={`${SECONDARY_BUTTON_SM} w-full justify-center sm:ml-3 sm:w-auto`}
+            onClick={onClose}
+          >
+            Keep these numbers
+          </button>
+        )}
         <p className={FIELD_HINT}>{WE_REGISTER}</p>
       </div>
       <ProblemNotice error={declare.error} />
