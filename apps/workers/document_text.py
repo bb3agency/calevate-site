@@ -38,7 +38,8 @@ Three defences, none of them optional:
 
 1. **Zip bombs.** Both OOXML formats are ZIP. `_open_ooxml` sums the DECLARED
    uncompressed sizes and the entry count before reading a byte, and refuses over
-   `MAX_OOXML_EXPANDED_BYTES` / `MAX_OOXML_ENTRIES`. A header can lie about its size, so
+   `MAX_OOXML_EXPANDED_BYTES` / `MAX_OOXML_ENTRIES`, and any XML part parsed whole over
+   `MAX_OOXML_PART_BYTES` (a tree costs many times its XML). A header can lie about its size, so
    the readers are bounded on OUTPUT too (`MAX_EXTRACTED_CHARS`, `MAX_ROWS_PER_TABLE`) —
    a lie buys one bounded read, not a worker's memory.
 2. **XML entity expansion** ("billion laughs"). `xml.etree.ElementTree` is documented as
@@ -84,6 +85,7 @@ from calevate_shared.document_ingest import (
     MAX_EXTRACTED_CHARS,
     MAX_OOXML_ENTRIES,
     MAX_OOXML_EXPANDED_BYTES,
+    MAX_OOXML_PART_BYTES,
     MAX_ROWS_PER_TABLE,
     MAX_SOURCE_BYTES,
     DocumentBombError,
@@ -405,10 +407,25 @@ def _open_ooxml(data: bytes, *, what: str) -> zipfile.ZipFile:
         ) from failure
 
     declared = sum(entry.file_size for entry in entries)
-    if len(entries) > MAX_OOXML_ENTRIES or declared > MAX_OOXML_EXPANDED_BYTES:
+    largest_whole_part = max((e.file_size for e in entries if _parsed_whole(e.filename)), default=0)
+    if (
+        len(entries) > MAX_OOXML_ENTRIES
+        or declared > MAX_OOXML_EXPANDED_BYTES
+        or largest_whole_part > MAX_OOXML_PART_BYTES
+    ):
         archive.close()
         raise DocumentBombError(declared=declared, entries=len(entries))
     return archive
+
+
+def _parsed_whole(name: str) -> bool:
+    """An XML part some reader here loads in one piece. `zipfile` stops a member at its
+    declared size (a longer stream fails its CRC), so the declared size bounds the parse.
+    Worksheets are the exception: openpyxl's `read_only` mode streams them row by row."""
+    lowered = name.lower()
+    if lowered.startswith("xl/worksheets/") and lowered.endswith(".xml"):
+        return False
+    return lowered.endswith((".xml", ".rels"))
 
 
 def _parse_part(archive: zipfile.ZipFile, name: str, *, what: str) -> ElementTree.Element:

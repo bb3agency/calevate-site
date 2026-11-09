@@ -24,6 +24,7 @@ from apps.workers.document_text import extract_document
 from calevate_shared.document_ingest import (
     MAX_EXTRACTED_CHARS,
     MAX_OOXML_ENTRIES,
+    MAX_OOXML_PART_BYTES,
     MAX_SOURCE_BYTES,
     DocumentBombError,
     DocumentEmptyError,
@@ -397,6 +398,47 @@ def test_an_archive_declaring_more_than_it_should_is_refused_on_the_declaration(
     with pytest.raises(DocumentBombError) as refusal:
         extract_document(_docx(_para("a fairly ordinary sentence")), "docx")
     assert refusal.value.declared > 16
+
+
+def test_a_small_docx_whose_body_would_parse_into_gigabytes_is_refused_before_the_parse() -> None:
+    """Under the 256 MB total, so the total alone let it through: a body of empty
+    paragraphs just over `MAX_OOXML_PART_BYTES` compresses to tens of kB, and at 250 MB the
+    tree parse was OOM-killed at 3 GB in Docker (deep audit D4, 10 Nov 2026)."""
+    head = f'<?xml version="1.0"?><w:document xmlns:w="{_W}"><w:body>'
+    count = (MAX_OOXML_PART_BYTES - len(head)) // len("<w:p/>") + 1
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", head + "<w:p/>" * count + "</w:body></w:document>")
+    data = buffer.getvalue()
+    assert len(data) < MAX_SOURCE_BYTES
+
+    with pytest.raises(DocumentBombError) as refusal:
+        extract_document(data, "docx")
+    assert refusal.value.declared > MAX_OOXML_PART_BYTES
+
+
+def test_a_worksheet_over_the_part_ceiling_still_reads_because_it_is_streamed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ceiling is for parts parsed whole; a big sheet is streamed and stopped at
+    `MAX_ROWS_PER_TABLE`, so refusing it would refuse an ordinary price list."""
+    data = _xlsx(
+        ("Prices", [["Item", "Price"]] + [[f"item {n}", n] for n in range(400)], "visible")
+    )
+    sheet_size = zipfile.ZipFile(io.BytesIO(data)).getinfo("xl/worksheets/sheet1.xml").file_size
+    whole = max(
+        info.file_size
+        for info in zipfile.ZipFile(io.BytesIO(data)).infolist()
+        if not info.filename.startswith("xl/worksheets/")
+    )
+    assert sheet_size > whole
+    monkeypatch.setattr(document_text, "MAX_OOXML_PART_BYTES", whole)
+
+    assert "Item: item 399" in extract_document(data, "xlsx").text
+
+    monkeypatch.setattr(document_text, "MAX_OOXML_PART_BYTES", whole - 1)
+    with pytest.raises(DocumentBombError):
+        extract_document(data, "xlsx")
 
 
 def test_an_upload_over_the_size_ceiling_never_reaches_a_parser() -> None:

@@ -714,3 +714,38 @@ async def test_knowledge_a_member_adds_is_audited_like_pips_same_act(
         ("kb.uploaded", str(owner), "kb_source", filed.json()["source_id"]),
         ("kb.link_added", str(owner), "kb_source", linked.json()["source_id"]),
     ]
+
+
+async def test_a_link_removed_while_its_page_is_being_read_does_not_come_back(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sweep picks its due links, then reads each page over the network. A link the
+    owner removes in that window must stay removed: the re-read used to file the changed
+    page as a new version of the removed name (deep audit D4, 10 Nov 2026)."""
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
+    owner = await _member(tenant_id)
+    row = await _linked_page(tenant_id, agent_id, owner)
+
+    async def _page_while_owner_removes(_url: str) -> bytes:
+        async with tenant_session(tenant_id) as session:
+            await uploads.remove_upload(
+                session, tenant_id=tenant_id, upload_id=uuid.UUID(str(row["id"]))
+            )
+        return b"<html><body>Open 9 to 9 now</body></html>"
+
+    monkeypatch.setattr(kb_ingest, "_fetch_page", _page_while_owner_removes)
+    changed = await kb_ingest._recheck_link(
+        upload_id=uuid.UUID(str(row["id"])),
+        tenant_id=tenant_id,
+        url="https://example.com/hours",
+        known_digest="a-digest-from-the-last-reading",
+        name="Opening hours",
+    )
+
+    assert changed is False
+    assert await _versions(tenant_id, agent_id) == []
+    async with tenant_session(tenant_id) as session:
+        assert (
+            await session.execute(text("SELECT count(*) FROM kb_uploads WHERE source_kind = 'url'"))
+        ).scalar() == 0

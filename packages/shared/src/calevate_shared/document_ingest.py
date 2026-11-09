@@ -58,6 +58,7 @@ __all__ = [
     "MAX_OCR_IMAGES",
     "MAX_OOXML_ENTRIES",
     "MAX_OOXML_EXPANDED_BYTES",
+    "MAX_OOXML_PART_BYTES",
     "MAX_ROWS_PER_TABLE",
     "MAX_SOURCE_BYTES",
     "OCR_IMAGE_MIME_TYPES",
@@ -111,6 +112,16 @@ MAX_SOURCE_BYTES: Final = 20 * 1024 * 1024
 #: bounded on what they produce (`MAX_EXTRACTED_CHARS`, `MAX_ROWS_PER_TABLE`), so the
 #: worst a lie buys is one bounded read.
 MAX_OOXML_EXPANDED_BYTES: Final = 256 * 1024 * 1024
+
+#: One XML part that is parsed WHOLE (a DOCX body, an XLSX's shared strings, styles or
+#: workbook), by its declared size. The total above bounds the bytes; it does not bound the
+#: parse, because a tree or a string table costs many times the XML it came from. Measured
+#: in Docker on 10 Nov 2026 (peak RSS of `document_text.read_document`): a 382 kB DOCX whose
+#: body is 250 MB of empty paragraphs was OOM-killed at 3 GB, a 641 kB XLSX whose shared
+#: strings are 250 MB peaked at 1.45 GB, and at 32 MB the worst body peaked at 582 MB.
+#: Worksheets are exempt: openpyxl's `read_only` mode streams them. 32 MB of XML is far more
+#: than any document carrying `MAX_EXTRACTED_CHARS` of text.
+MAX_OOXML_PART_BYTES: Final = 32 * 1024 * 1024
 
 #: Entry count is the OTHER zip bomb: a few million tiny members costs nothing to
 #: declare and everything to enumerate. A real Word document has tens of entries and a

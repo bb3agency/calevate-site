@@ -403,8 +403,13 @@ hang up together — which is the trigger below, and is a resize away.
 **The starter's memory budget (D-929).** Production stays on Hostinger srv1929611 —
 1 vCPU, 3.8 GB RAM, 4 GB swap, Postgres 16 on the host, Redis, api, voice-runtime,
 workers, workers-bulk and the Next.js web under pm2, all on one box — until there are
-five clients (founder, 29 Oct 2026). No compose service sets a `mem_limit`, so the budget
-is the sum of what each line can hold:
+five clients (founder, 29 Oct 2026). Only the two workers carry a `mem_limit`
+(`WORKERS_MEM_LIMIT` 1536m, `WORKERS_BULK_MEM_LIMIT` 1024m, together at most 2.5 GB), so a
+ballooning job kills its own container rather than tempting the host's OOM killer toward
+Postgres. One document parse is bounded by `document_ingest.MAX_OOXML_PART_BYTES`: measured
+in Docker on 10 Nov 2026, a 382 kB Word file whose body was 250 MB of empty paragraphs was
+OOM-killed at 3 GB before that ceiling existed, and at the 32 MB ceiling the worst body peaks
+at 582 MB. The budget is the sum of what each line can hold:
 
 | line | MiB | source |
 |---|---|---|

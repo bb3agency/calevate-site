@@ -958,7 +958,9 @@ async def remove_upload(session: AsyncSession, *, tenant_id: UUID, upload_id: UU
     """
     row = (
         await session.execute(
-            text("SELECT source_id, tenant_id FROM kb_uploads WHERE id = :uid"),
+            # FOR UPDATE: a link re-read (`kb_ingest._recheck_link`) takes this row lock
+            # before filing a changed page, so it cannot file one for a link being removed.
+            text("SELECT source_id, tenant_id FROM kb_uploads WHERE id = :uid FOR UPDATE"),
             {"uid": upload_id},
         )
     ).first()
