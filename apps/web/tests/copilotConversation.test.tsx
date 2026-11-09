@@ -254,6 +254,71 @@ describe("while the stored conversation is still arriving (audit 8 Nov W4-01)", 
   });
 });
 
+describe("a later re-read that fails (audit 10 Nov Y2-04)", () => {
+  it("DOES NOT SAY the earlier messages could not be loaded while they are on screen", async () => {
+    let failing = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input).replace(API_BASE, "");
+        if (path.startsWith("/v1/copilot/conversation")) {
+          if (failing) throw new TypeError("Failed to fetch");
+          return new Response(
+            JSON.stringify({
+              turns: [
+                {
+                  id: "0198f000-0000-7000-8000-000000000001",
+                  role: "user",
+                  content: "how many leads came in today",
+                  screen_route: "/c/[slug]/leads",
+                  said_at: "2026-09-05T08:00:00+00:00",
+                },
+                {
+                  id: "0198f000-0000-7000-8000-000000000002",
+                  role: "assistant",
+                  content: "Eleven.",
+                  screen_route: "/c/[slug]/leads",
+                  said_at: "2026-09-05T08:00:01+00:00",
+                },
+              ],
+              has_more: false,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await act(async () => {
+      render(
+        <QueryClientProvider client={client}>
+          <Screen />
+          <PanelMount />
+        </QueryClientProvider>,
+      );
+    });
+    await waitFor(() => expect(screen.getByText("Eleven.")).toBeTruthy());
+
+    // The re-read after an exchange (or a live note, or focus) meets a dropped connection.
+    failing = true;
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["copilot", "conversation"] });
+    });
+    expect(client.getQueryState(["copilot", "conversation", "acme", "client"])?.status).toBe("error");
+    // Let the observers hear about the failure before looking.
+    await act(async () => {
+      await new Promise((settle) => setTimeout(settle, 100));
+    });
+
+    expect(screen.getByText("Eleven.")).toBeTruthy();
+    expect(screen.queryByText(/earlier messages could not be loaded/i)).toBeNull();
+  });
+});
+
 describe("Try again after a refused question (audit 8 Nov W4-07)", () => {
   it("SENDS THE QUESTION ONCE — not again as unanswered history", async () => {
     const asks: { question: string; history: { role: string; content: string }[] }[] = [];

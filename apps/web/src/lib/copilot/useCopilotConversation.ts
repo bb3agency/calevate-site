@@ -331,6 +331,17 @@ export const AI_CEILING_CODE = "ai_quota_exceeded";
 
 const NO_TURNS: CopilotTurn[] = [];
 
+/**
+ * The exchange has ended, so a step still `running` never got its terminal frame: the answer
+ * was cut off, refused or stopped part-way through it. It reads as not finished rather than
+ * keeping a spinner that says Pip is still at work on something nothing is running any more.
+ */
+export function settleSteps(steps: CopilotStep[]): CopilotStep[] {
+  return steps.some((step) => step.status === "running")
+    ? steps.map((step) => (step.status === "running" ? { ...step, status: "failed" } : step))
+    : steps;
+}
+
 /*
  * THE OPEN OFFER OUTLIVES THE PANEL, per tab and per account and realm. The dock unmounts
  * the panel whenever it closes, including the close it does itself when the screen's
@@ -342,9 +353,19 @@ const NO_TURNS: CopilotTurn[] = [];
  */
 const openOffers = new Map<string, CopilotProposal>();
 
-/** Test seam: forget every held offer. */
+/*
+ * THE BACKGROUND TASKS THIS TAB STARTED outlive the panel for the same reason. The answer
+ * that starts one says its progress shows in the panel, and a close (or a move to another
+ * screen, which closes it) used to drop the card: the reopened panel said "Started in the
+ * background" with nothing to follow. Only ids and the starting frame are held; each card
+ * reads its job's state from the server.
+ */
+const startedJobs = new Map<string, CopilotJobFrame[]>();
+
+/** Test seam: forget every held offer and background task. */
 export function forgetOpenOffers(): void {
   openOffers.clear();
+  startedJobs.clear();
 }
 
 export function useCopilotConversation(
@@ -405,6 +426,8 @@ export function useCopilotConversation(
     if (offerKey === null) return;
     const held = openOffers.get(offerKey);
     if (held !== undefined) setOffer((current) => current ?? held);
+    const started = startedJobs.get(offerKey);
+    if (started !== undefined) setJobs((current) => (current.length > 0 ? current : started));
   }, [offerKey]);
   /** Confirmed: the card stays as the record of what happened, but a reopened panel must
    *  not offer a token the server has already spent. */
@@ -436,14 +459,15 @@ export function useCopilotConversation(
   const stored = useConversation(session, realm, streamInFlight);
   const queries = useQueryClient();
   /*
-   * DID THE ANSWER ARRIVE? — asked as `stored.error || !stored.data` and not as `isError`,
-   * which is BUILD-LOG §52's whole point. TanStack PARKS a query rather than starting it
-   * when the browser is offline (`fetchStatus: "paused"`): it reports `error === null`
-   * with `data === undefined`, so a panel branching on `isError` alone takes neither arm
-   * and renders `[]` — "you have said nothing", stated to somebody holding a conversation,
-   * over a dropped connection.
+   * DID THE ANSWER ARRIVE? — asked as `!stored.data` and not as `isError`, which is
+   * BUILD-LOG §52's whole point. TanStack PARKS a query rather than starting it when the
+   * browser is offline (`fetchStatus: "paused"`): it reports `error === null` with
+   * `data === undefined`, so a panel branching on `isError` alone takes neither arm and
+   * renders `[]` — "you have said nothing", stated to somebody holding a conversation, over
+   * a dropped connection. Nor on `error`: a RE-read that fails keeps the page it already
+   * had, which is on screen, and saying it "could not be loaded" there is false.
    */
-  const historyUnavailable = Boolean(stored.error) || !stored.data;
+  const historyUnavailable = !stored.data;
   const page = stored.data?.turns ?? NO_TURNS;
   const [pending, setPending] = useState<CopilotTurn[]>([]);
   const said = useRef(new Map<string, CopilotTurn>());
@@ -559,10 +583,11 @@ export function useCopilotConversation(
     setActions([]);
     setCharts([]);
     setJobs([]);
+    if (offerKey !== null) startedJobs.delete(offerKey);
     setNavigation(null);
     setSteps([]);
     clearFilled();
-  }, [queries, realm, session, setProposal]);
+  }, [offerKey, queries, realm, session, setProposal]);
 
   const stop = useCallback(() => {
     const controller = inFlight.current;
@@ -580,6 +605,7 @@ export function useCopilotConversation(
     setStreaming(null);
     setAsking(false);
     setSettling(true);
+    setSteps(settleSteps);
     // NO `setError`: the person asked for this, and a refusal notice about their own
     // click is the console blaming them for using a control it offered.
   }, [appendTurn]);
@@ -752,11 +778,12 @@ export function useCopilotConversation(
             setCharts((previous) => [...previous, spec]);
           },
           onJob: (started) => {
-            setJobs((previous) =>
-              previous.some((job) => job.job_id === started.job_id)
-                ? previous
-                : [...previous, started],
-            );
+            setJobs((previous) => {
+              if (previous.some((job) => job.job_id === started.job_id)) return previous;
+              const next = [...previous, started];
+              if (offerKey !== null) startedJobs.set(offerKey, next);
+              return next;
+            });
           },
           onNavigate: (destination) => {
             // HELD, NOT PERFORMED. The panel moves once the answer has finished arriving —
@@ -787,6 +814,7 @@ export function useCopilotConversation(
           appendTurn({ role: "assistant", content: answer, wire: answerWire, id: turnIds.answer });
           setStreaming(null);
           setAsking(false);
+          setSteps(settleSteps);
         })
         .catch((cause: unknown) => {
           if (controller.signal.aborted) return;
@@ -798,6 +826,7 @@ export function useCopilotConversation(
           }
           setStreaming(null);
           setAsking(false);
+          setSteps(settleSteps);
           setError(cause);
         })
         .finally(() => {
@@ -823,7 +852,7 @@ export function useCopilotConversation(
           }
         });
     },
-    [appendTurn, holder, queries, session, setProposal, sync, turns],
+    [appendTurn, holder, offerKey, queries, session, setProposal, sync, turns],
   );
 
   /**

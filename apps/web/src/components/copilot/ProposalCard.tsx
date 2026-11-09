@@ -421,7 +421,9 @@ function ScriptSuggestionProgress({ session, agentId }: { session: Session; agen
       </p>
     );
   }
-  if (suggestion.isPending || status === "drafting") {
+  // Until this card's own first read lands, a cached suggestion is the PREVIOUS request's
+  // (the Script tab beside the drawer holds it), and its failure is not this one's.
+  if (suggestion.isPending || !suggestion.isFetchedAfterMount || status === "drafting") {
     return (
       <p role="status" className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
         <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />

@@ -97,7 +97,17 @@ export function CopilotPanel({
   onRequestTaken,
   quickReplies = NO_REPLIES,
   intro,
+  hidden = false,
+  onAskingChange,
 }: {
+  /**
+   * CLOSED BUT STILL ANSWERING: the dock keeps the panel mounted and out of sight when it is
+   * closed with an answer on the way, because unmounting it aborts the request and the
+   * server stops the run. Hidden, it neither takes keys nor moves the page; it waits.
+   */
+  hidden?: boolean;
+  /** Told whenever a question starts or stops being answered, so the dock knows to keep it. */
+  onAskingChange?: (asking: boolean) => void;
   /** The empty panel's first line, when the screen knows better than its route where the
    *  person is (D-854: a first agent half built says what is next, not where to start). */
   intro?: string;
@@ -198,8 +208,11 @@ export function CopilotPanel({
   // very often just been typing in the FORM, not in the panel, and a React `onKeyDown`
   // only fires for keys pressed inside its own tree. Same reason `useFocusTrap` puts its
   // listener there; this file cannot borrow the hook itself (see the header).
+  const asking = conversation.asking;
+  useEffect(() => onAskingChange?.(asking), [asking, onAskingChange]);
+
   useEffect(() => {
-    if (onClose === undefined) return undefined;
+    if (onClose === undefined || hidden) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       // A confirmation opened from the panel ("Open this screen?", the charge dialog) takes
       // its own Escape; "Stay here" must not also close the panel it means to stay in.
@@ -207,7 +220,7 @@ export function CopilotPanel({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [onClose, hidden]);
 
   // ON A PHONE THERE IS NO PAGE BESIDE IT. Below `sm` the side panel is full width (see
   // `panelFrame`), so a Tab out of it lands on a header button hidden under it and focus
@@ -215,7 +228,7 @@ export function CopilotPanel({
   // the key press, so a wide screen keeps the "Tab back into the form" design above. A
   // dialog opened from the panel handles its own Tab.
   useEffect(() => {
-    if (placement !== "side") return undefined;
+    if (placement !== "side" || hidden) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       const own = panel.current;
       if (event.key !== "Tab" || !own || pressedInAnotherLayer(event, own)) return;
@@ -237,15 +250,15 @@ export function CopilotPanel({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [placement]);
+  }, [placement, hidden]);
 
   // Focus the ask box when the panel opens — it is the only thing anybody opens this for.
   // Not on the assistant's own page, where the panel is one region among several and
   // stealing the caret on arrival would skip the page's heading for a screen reader.
   useEffect(() => {
-    if (placement === "page") return;
+    if (placement === "page" || hidden) return;
     panel.current?.querySelector("textarea")?.focus();
-  }, [placement]);
+  }, [placement, hidden]);
 
   // A prefilled request: into the box, caret at the end, ready to edit or send. A screen's
   // button and a note's `ask` button (D-936) both arrive here.
@@ -320,7 +333,7 @@ export function CopilotPanel({
     batch !== null &&
     (latestAnswer.trim() === "" ||
       batch.labels.every((label) => latestAnswer.toLowerCase().includes(label.toLowerCase())));
-  const { navigation, clearNavigation, asking } = conversation;
+  const { navigation, clearNavigation } = conversation;
 
   // THE ASK, when leaving this screen might throw work away. `null` while there is nothing
   // to ask about; `unsaved.ts` decides which it is and writes the sentence.
@@ -346,7 +359,7 @@ export function CopilotPanel({
    * what it is designed for (see the header on why it does not trap focus).
    */
   useEffect(() => {
-    if (navigation === null || asking || onNavigate === undefined) return;
+    if (navigation === null || asking || hidden || onNavigate === undefined) return;
     if (decided.current === navigation) return;
     decided.current = navigation;
     const verdict = unsavedWork(holder.read(), batch?.ids.length ?? 0);
@@ -355,7 +368,7 @@ export function CopilotPanel({
       return;
     }
     onNavigate(navigation);
-  }, [navigation, asking, onNavigate, holder, batch]);
+  }, [navigation, asking, hidden, onNavigate, holder, batch]);
   // BOTH REALMS CAN CONFIRM (D-694). The admin realm has its own confirm door,
   // `POST /v1/admin/copilot/confirm`, for its own platform actions, with the same step-up the
   // console button asks for; `ProposalCard` picks the door from `realm`.
@@ -367,6 +380,7 @@ export function CopilotPanel({
   return (
     <motion.div
       ref={panel}
+      hidden={hidden}
       // A region on the assistant's own page, a non-modal dialog everywhere else: it sits
       // beside the page and never traps focus (see the header).
       role={placement === "page" ? "region" : "dialog"}

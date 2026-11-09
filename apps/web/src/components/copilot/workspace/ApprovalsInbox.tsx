@@ -38,7 +38,7 @@ export function ApprovalsInbox({ session }: { session: Session }) {
     </p>
   ) : null;
 
-  if (approvals.error != null) {
+  if (approvals.error != null && approvals.data === undefined) {
     return <ProblemNotice error={approvals.error} onRetry={() => void approvals.refetch()} />;
   }
   if (approvals.data === undefined) return <Skeleton rows={3} label="Loading approvals…" />;

@@ -64,7 +64,7 @@ export function ActivityLog({ session, realm }: { session: Session; realm: Realm
   // An action taken while the log is open enters softly (D-774); the log on load does not.
   const enter = useEnterClass(activity.data ? rows.map((row) => row.id) : null);
 
-  if (activity.error != null) {
+  if (activity.error != null && activity.data === undefined) {
     return <ProblemNotice error={activity.error} onRetry={() => void activity.refetch()} />;
   }
   if (activity.data === undefined) return <Skeleton rows={5} label="Loading the activity log…" />;
