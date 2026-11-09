@@ -90,6 +90,8 @@ from apps.api.reliability.service import require_idempotency_key
 
 router = APIRouter(prefix="/v1", tags=["crm"])
 
+_STATUS_FILTER = "One call status, or `missed`: no answer, busy, voicemail and failed together"
+
 Session = Annotated[AsyncSession, Depends(db)]
 
 
@@ -123,13 +125,15 @@ async def get_calls(
     session: Session,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0, le=MAX_OFFSET),
-    status: str | None = None,
+    status: str | None = Query(None, description=_STATUS_FILTER),
     agent_id: UUID | None = None,
     outcome: OutcomeTag | None = None,
     direction: lens.CallDirection | None = None,
     since: datetime | None = Query(None, description="Calls started at or after this instant"),
     until: datetime | None = Query(None, description="Calls started before this instant"),
-    test_calls: bool = Query(True, description="False leaves out free-trial test calls"),
+    test_calls: bool = Query(
+        True, description="False leaves out test calls, free-trial and paid (D-859) alike"
+    ),
     campaign_id: UUID | None = Query(None, description="Only the calls one campaign placed"),
     follow_up: FollowUpFilter | None = Query(
         None, description="done: marked handled; not_done: not marked handled"
@@ -251,7 +255,7 @@ async def export_calls(
     request: Request,
     principal: Annotated[Principal, Depends(requires("calls:read_raw"))],
     code: ClientActionCode,
-    status: str | None = None,
+    status: str | None = Query(None, description=_STATUS_FILTER),
     agent_id: UUID | None = None,
     outcome: OutcomeTag | None = None,
     direction: lens.CallDirection | None = None,

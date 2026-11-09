@@ -195,7 +195,7 @@ from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
 from apps.api.tenancy.engine_workspace import engine_has_workspaces, workspace_for_tenant
 from apps.workers import call_language, call_timeline, storage
 from apps.workers import extraction as extraction_module
-from apps.workers.after_call_callbacks import book_requested_callback
+from apps.workers.after_call_callbacks import book_requested_callback, callback_number
 from apps.workers.caller_name import self_names, without_self_names
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
@@ -3649,14 +3649,6 @@ _LEAD_CALL_FILED = (
 )
 
 
-def _callback_number(data: dict[str, Any]) -> str | None:
-    """The call-back number a caller gave (the core `other_number` field), as E.164."""
-    from apps.api.forwarding.service import normalize_india
-
-    raw = data.get("other_number")
-    return normalize_india(raw) if isinstance(raw, str) and raw.strip() else None
-
-
 async def _campaign_contact_name(session: Any, *, campaign_id: Any, phone: str) -> str | None:
     """The name the client's campaign list gives this number, or None."""
     name = (
@@ -3727,7 +3719,7 @@ async def _upsert_lead(
             # The network showed the client's own number: the lead is the call-back number
             # the caller gave, or nobody (D-746). Filing it under the business's own number
             # would make every such caller one lead and ring the business on a call back.
-            caller = _party_e164(_callback_number(data))
+            caller = _party_e164(callback_number(data))
             if not caller:
                 return None
         trial = bool(call_row[0]) if call_row else False

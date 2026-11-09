@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
-from typing import Final, Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.calling_window import (
@@ -145,6 +145,36 @@ async def _already_has_one(
     )
 
 
+def callback_number(data: dict[str, Any]) -> str | None:
+    """The call-back number a caller gave (the core `other_number` field), as E.164."""
+    from apps.api.forwarding.service import normalize_india
+
+    raw = data.get("other_number")
+    return normalize_india(raw) if isinstance(raw, str) and raw.strip() else None
+
+
+async def _number_to_ring(
+    session: AsyncSession, call_id: UUID, network_number: str | None, data: dict[str, Any]
+) -> str | None:
+    """Whom the call back rings: the number the network showed, except on our own forwarding
+    test (nobody) and on a forwarded call that showed the business's own number (D-746),
+    where it is the call-back number the caller gave, or nobody. Ringing the network's
+    number there would dial the business itself and never reach the caller who asked."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT caller_id_hidden, forwarding_test_id IS NOT NULL FROM calls WHERE id = :cid"
+            ),
+            {"cid": call_id},
+        )
+    ).first()
+    if row is not None and row[1]:
+        return None
+    if row is not None and row[0]:
+        return callback_number(data)
+    return network_number
+
+
 async def _campaign_hours(session: AsyncSession, call_id: UUID) -> dict[str, object] | None:
     hours = (
         await session.execute(
@@ -172,12 +202,15 @@ async def book_requested_callback(
     now: datetime | None = None,
 ) -> Booked | None:
     """Book the call back this reading says the caller wants; None when none is booked."""
-    if not extraction.callback_requested or opted_out or phone_e164 is None:
+    if not extraction.callback_requested or opted_out:
         return None
     if extraction.next_step_by == "caller":
         # The same reading says only the caller has something left to do: "I'll call you"
         # read as "call me back" (L5-17). An unwanted outbound call costs more than a
         # missed one the owner still sees as "Needs you".
+        return None
+    phone_e164 = await _number_to_ring(session, call_id, phone_e164, extraction.data)
+    if phone_e164 is None:
         return None
     if await restricting_trial(session, tenant_id=tenant_id) is not None:
         return None
@@ -226,6 +259,7 @@ __all__ = [
     "DEFAULT_LATEST",
     "Booked",
     "book_requested_callback",
+    "callback_number",
     "caller_slot",
     "default_slot",
 ]

@@ -50673,6 +50673,7 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                /** @description One call status, or `missed`: no answer, busy, voicemail and failed together */
                 status?: string | null;
                 agent_id?: string | null;
                 outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
@@ -50681,7 +50682,7 @@ export interface operations {
                 since?: string | null;
                 /** @description Calls started before this instant */
                 until?: string | null;
-                /** @description False leaves out free-trial test calls */
+                /** @description False leaves out test calls, free-trial and paid (D-859) alike */
                 test_calls?: boolean;
                 /** @description Only the calls one campaign placed */
                 campaign_id?: string | null;
@@ -50721,6 +50722,7 @@ export interface operations {
     export_calls_v1_calls_export_csv_get: {
         parameters: {
             query?: {
+                /** @description One call status, or `missed`: no answer, busy, voicemail and failed together */
                 status?: string | null;
                 agent_id?: string | null;
                 outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;

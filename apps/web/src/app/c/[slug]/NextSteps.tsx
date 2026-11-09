@@ -319,11 +319,8 @@ export function NextSteps({
   const today = data.daily_7d.at(-1);
   const missed = today ? today.failed + today.no_answer : 0;
   if (today && missed > 0) {
-    // The calls list filters on one status, so link to the one that holds every missed call,
-    // and to the unfiltered list when they are split between failed and no answer. Always
-    // to the day the count is for, without test calls, as the count is: a status alone
-    // listed every such call ever made under a line that says "today".
-    const theDay = `day=${today.ist_date}&test_calls=false`;
+    // `status=missed` is the count's own set (no answer, busy, voicemail and failed), on the
+    // day the count is for and without test calls, as the count is.
     steps.push({
       key: "missed",
       rank: "look",
@@ -334,10 +331,7 @@ export function NextSteps({
           <span className="font-semibold tabular-nums">{formatCount(missed)}</span> {HOME.missed(missed)}
         </>
       ),
-      to:
-        today.no_answer === 0 ? `/calls?status=failed&${theDay}`
-        : today.failed === 0 ? `/calls?status=no_answer&${theDay}`
-        : `/calls?${theDay}`,
+      to: `/calls?status=missed&day=${today.ist_date}&test_calls=false`,
       label: HOME.missedAction,
     });
   }

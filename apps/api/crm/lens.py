@@ -43,6 +43,17 @@ FieldFilters = dict[str, list[str]]
 #: A call-back still to be placed (`callbacks.service.LIVE_STATUSES`).
 _OPEN_CALLBACK: Final = "s.status IN ('scheduled', 'dialing')"
 
+#: Names the status filter takes for several statuses at once. `missed` is the home screen's
+#: "missed calls" count, the dashboard's `no_answer` and `failed` classes together
+#: (`service.DAILY_CALL_CLASSES`), so its link opens on exactly the calls it counted.
+CALL_STATUS_GROUPS: Final[dict[str, tuple[str, ...]]] = {
+    "missed": ("no_answer", "busy", "voicemail", "failed"),
+}
+
+#: A test call, a free-trial one or a paying account's own (D-859): what `test_calls=False`
+#: leaves out, as `lead_definition.REAL_CALL_SQL` and the dashboard and analytics do.
+_TEST_CALL: Final = "(c.trial_call OR c.paid_test_call)"
+
 
 def day_start(day: date) -> datetime:
     """00:00 in India on `day`, as an aware instant."""
@@ -87,7 +98,7 @@ class CallFilters:
     until: datetime | None = None
     #: The calls one campaign placed (`calls.campaign_id`), for its results' call links.
     campaign_id: UUID | None = None
-    #: False leaves out free-trial test calls (`calls.trial_call`).
+    #: False leaves out test calls (`_TEST_CALL`).
     test_calls: bool = True
     #: `done`: marked handled (`resolved`); `not_done`: anything else, unmarked included.
     follow_up: Literal["done", "not_done"] | None = None
@@ -107,7 +118,10 @@ def call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
     """`WHERE ...` over `calls c` and its parameters; `""` when nothing narrows it."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
-    if filters.status:
+    if filters.status in CALL_STATUS_GROUPS:
+        clauses.append("c.status = ANY(:status)")
+        params["status"] = list(CALL_STATUS_GROUPS[filters.status])
+    elif filters.status:
         clauses.append("c.status = :status")
         params["status"] = filters.status
     if filters.agent_id:
@@ -129,7 +143,7 @@ def call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
         clauses.append("c.campaign_id = :campaign_id")
         params["campaign_id"] = filters.campaign_id
     if not filters.test_calls:
-        clauses.append("c.trial_call IS NOT TRUE")
+        clauses.append(f"NOT {_TEST_CALL}")
     if filters.follow_up == "done":
         clauses.append("c.follow_up_state = 'resolved'")
     elif filters.follow_up == "not_done":
@@ -268,8 +282,7 @@ def lead_row_clauses(filters: LeadRowFilters, params: dict[str, Any]) -> list[st
         )
     if not filters.test_calls:
         out.append(
-            "NOT EXISTS (SELECT 1 FROM calls c WHERE c.id = l.last_call_id "
-            "AND c.trial_call IS TRUE)"
+            f"NOT EXISTS (SELECT 1 FROM calls c WHERE c.id = l.last_call_id AND {_TEST_CALL})"
         )
     if filters.callback_open is not None:
         exists = (

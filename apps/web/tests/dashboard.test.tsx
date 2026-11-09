@@ -351,12 +351,12 @@ describe("the fixture this file renders against", () => {
 
 describe("the home screen ranks the day's work (ux-audit D2)", () => {
   it("opens today's missed calls on today alone, not on every such call ever made", async () => {
-    const today = { ist_date: "2026-08-13", total: 3, completed: 1, no_answer: 0, failed: 2, in_flight: 0 };
+    const today = { ist_date: "2026-08-13", total: 4, completed: 1, no_answer: 1, failed: 2, in_flight: 0 };
     await renderClientPage(page, routes({ "/v1/dashboard": { ...EMPTY_DASHBOARD, daily_7d: [...WEEK.slice(0, 6), today] } }));
     const steps = await openNextSteps();
-    expect(steps.textContent).toContain("2 missed calls today");
+    expect(steps.textContent).toContain("3 missed calls today");
     expect(within(steps).getByRole("link", { name: "See missed calls" }).getAttribute("href")).toBe(
-      "/c/acme/calls?status=failed&day=2026-08-13&test_calls=false",
+      "/c/acme/calls?status=missed&day=2026-08-13&test_calls=false",
     );
   });
 
