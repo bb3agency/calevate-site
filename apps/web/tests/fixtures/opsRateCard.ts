@@ -12,6 +12,7 @@ import type { RateCard } from "@/lib/api/opsRateCard";
 export const OPS_RATE_CARD = {
   effective_from: "2026-09-07T04:30:00Z",
   target_gross_margin_pct: "20",
+  engine: "fake",
   // Nothing scheduled, and the notice window a change would have to respect.
   pending: [],
   notice_days: 30,
@@ -83,9 +84,15 @@ export const OPS_RATE_CARD = {
     month: "2026-09",
     measured_call_minutes: "200",
     measured_characters: "108000",
+    month_days_elapsed: "30.00",
+    month_days: 30,
+    projected_call_minutes: "200",
+    plan_bill_inr: "509.6800",
+    plan_bill_attested: false,
     cost_inr_per_min: "4.9299",
     plan_id: "pro",
-    assumed_chars_per_call_minute: "540",
+    modelled_chars_per_call_minute: "540",
+    modelled_chars_basis: "assumed 540 chars/call-min (unmeasured - pilot gate 12)",
     fx_usd_inr: "88",
     fx_source: "frankfurter:FBIL",
     fx_as_of: "2026-09-08",
@@ -93,6 +100,7 @@ export const OPS_RATE_CARD = {
     best_marginal_cost_inr_per_min: "4.6395",
     refusal_floor_inr_per_min: "5.5899",
     refusal_usd_inr: "95",
+    refusal_floor_frozen: true,
     plan_crossover_call_minutes: "1439",
     plans: [
       {

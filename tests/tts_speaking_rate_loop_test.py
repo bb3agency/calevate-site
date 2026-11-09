@@ -60,7 +60,6 @@ from apps.api.billing.tts_speaking_rate import (
     sample_tenant,
     summarize,
 )
-from apps.api.core.fx import UsdInrRate
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.ops import config_routes
@@ -491,14 +490,12 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
     becomes a per-CALL-MINUTE cost only through the speaking rate, so it now returns the
     floor at the fleet's measured rate — and the Studio column, which is measured from two
     counts of a real month, is untouched by the speaking rate entirely."""
-    fx = UsdInrRate(
-        rate=Decimal("88"), source="configured:usd_inr_rate", as_of=None, basis="manual_no_quote"
-    )
+    from tests.cartesia_volume_test import _studio
+
     clear = _measured_floor()
     cells = config_routes._cells_out(
         PACK_CATALOGUE,
-        measured_cost=Decimal("6.9011"),
-        fx=fx,
+        studio=_studio("100", "54000"),
         clear=clear,
         own_model_prompt_tokens=None,
         inputs=_floor_inputs(wallet_fee=None),
@@ -510,11 +507,10 @@ def test_the_rate_card_prices_the_clear_column_at_the_measured_rate() -> None:
         assert cell.cost_inr_per_min_at_volume == "2.7711"
         assert cell.cost_floor_inr_per_min == str(SELF_SERVE_COST_FLOOR_INR_PER_MIN)
         assert cell.cost_inr_per_min_at_volume != cell.cost_floor_inr_per_min
-    # THE STUDIO COLUMN DOES NOT MOVE WITH THE SPEAKING RATE, deliberately: two independent
-    # counts of a month somebody ran beat any speaking rate, and re-deriving it from one
-    # would put the unmeasured band back inside the measurement built to replace it.
+    # The Studio column's month is two independent counts (minutes and characters); the
+    # Clear floor's speaking rate does not reach it.
     assert all(
-        cell.cost_inr_per_min_at_volume == "6.9011" for cell in cells if cell.voice_tier == "studio"
+        cell.cost_inr_per_min_at_volume == "6.4411" for cell in cells if cell.voice_tier == "studio"
     )
 
 

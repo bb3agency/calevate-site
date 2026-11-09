@@ -36,6 +36,7 @@ import {
   pendingCards,
   rateDelta,
   rateOf,
+  rowGroups,
   rungs,
   rungLabel,
   useCancelRateCard,
@@ -47,6 +48,7 @@ import {
   type PendingCard,
   type RateCard,
   type RateCardCell,
+  type RateCardRowGroup,
   type RateDelta,
 } from "@/lib/api/opsRateCard";
 
@@ -150,16 +152,21 @@ export function RateCardPanel({
 }
 
 function RateCardTable({ card }: { card: RateCard }) {
-  const thin = card.cells.filter((cell) => cell.below_target);
-  const under = card.cells.filter((cell) => cell.below_floor);
-  // THE HONEST COUNT, beside the structural one. Struck at what the minute actually cost
-  // this month rather than at the floor the write path refuses below, because on a
-  // subscription-billed voice those are different numbers and the second is the one an
-  // operator is being asked to judge (founder, 9 Sep 2026).
-  const thinAtVolume = card.cells.filter(
-    (cell) => cell.below_target_at_volume || cell.below_floor_at_volume,
+  // ONE ROW GROUP PER DISTINCT RESULT. Packs that sell and cost every voice the same are one
+  // group, so a flat card reads as one Clear and one Studio row rather than the same two rows
+  // once per pack. Counts and lists below are over these labelled cells.
+  const groups = rowGroups(card);
+  const labelled = groups.flatMap((group) =>
+    group.cells.map((cell) => ({ cell, packs: packsLabel(group) })),
   );
-  const underAtVolume = card.cells.filter((cell) => cell.below_floor_at_volume);
+  const thin = labelled.filter(({ cell }) => cell.below_target);
+  const under = labelled.filter(({ cell }) => cell.below_floor);
+  // THE COUNT AT THIS MONTH'S PACE, beside the one on the next minute. On Studio the two
+  // differ by Cartesia's monthly plan fee, which only the first counts (founder, 9 Sep 2026).
+  const thinAtVolume = labelled.filter(
+    ({ cell }) => cell.below_target_at_volume || cell.below_floor_at_volume,
+  );
+  const underAtVolume = labelled.filter(({ cell }) => cell.below_floor_at_volume);
   // `cartesia_volume` is REQUIRED on the wire, and this arm is not defensive padding: an
   // API older than 9 Sep 2026 sends no such field, and the one thing this panel must never
   // do is print a "costs us" column with no volume beside it — that IS the defect. So a
@@ -199,7 +206,9 @@ function RateCardTable({ card }: { card: RateCard }) {
       </p>
 
       <CartesiaVolumeNotice volume={volume} />
-      {speakingRate !== null ? <SpeakingRateNotice rate={speakingRate} /> : null}
+      {speakingRate !== null ? (
+        <SpeakingRateNotice rate={speakingRate} engine={card.engine} />
+      ) : null}
       {card.floor_inputs ? <FloorInputsNotice inputs={card.floor_inputs} /> : null}
       {card.own_model_prompt_basis ? (
         <p className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
@@ -214,46 +223,40 @@ function RateCardTable({ card }: { card: RateCard }) {
             <tr className="border-b border-line text-left text-meta font-medium text-ink-muted">
               <th className="py-2 pr-4 font-semibold">Pack</th>
               <th className="py-2 pr-4 font-semibold">Voice</th>
-              <th className="py-2 pr-4 text-right font-semibold">₹ / min</th>
-              {/* TWO COST COLUMNS, NOT ONE. Cartesia is a monthly subscription, so a
-                  per-minute cost is a function of volume and any single figure is the
-                  plan's cheapest possible minute at a volume this platform has never run.
-                  Each column is headed with what it is: the marginal cost of the NEXT
-                  minute, and what a minute ACTUALLY cost at this month's measured
-                  volume. */}
+              <th className="py-2 pr-4 text-right font-semibold">Price / min</th>
+              {/* TWO COST COLUMNS, and the only difference between them is Cartesia's
+                  monthly plan fee: the first is what one more minute costs, the second
+                  shares the fee over a whole month at this month's pace. */}
               <th className="py-2 pr-4 text-right font-semibold">
-                Next min costs
+                Each extra minute
                 <span className="block text-meta font-normal normal-case tracking-normal">
-                  at the margin
+                  costs us
                 </span>
               </th>
               <th className="py-2 pr-4 text-right font-semibold">
-                Cost at {formatWholeCount(volume.measured_call_minutes)} min/mo
+                Average minute
                 <span className="block text-meta font-normal normal-case tracking-normal">
-                  this month, measured
+                  {volume.projected_call_minutes === null
+                    ? "no Studio minutes yet"
+                    : `at ~${formatWholeCount(volume.projected_call_minutes)} Studio min/mo`}
                 </span>
               </th>
               <th className="py-2 pr-4 text-right font-semibold">Margin</th>
               <th className="py-2 pr-4 text-right font-semibold">
                 Break-even
                 <span className="block text-meta font-normal normal-case tracking-normal">
-                  platform min/mo
+                  Studio min/mo
                 </span>
               </th>
               <th className="py-2 font-semibold">Verdict</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
-            {rungs(card).map((rung) =>
-              rung.cells.map((cell, index) => (
-                <tr key={`${cell.pack_id}:${cell.voice_tier}`}>
+            {groups.map((group) =>
+              group.cells.map((cell, index) => (
+                <tr key={`${group.packs[0]?.pack_id ?? ""}:${cell.voice_tier}`}>
                   <td className="py-2 pr-4">
-                    {index === 0 ? (
-                      <>
-                        <span className="font-medium text-ink">{formatINRExact(rung.amount_inr)}</span>{" "}
-                        <MonoValue className="text-ink-muted">{rung.pack_id}</MonoValue>
-                      </>
-                    ) : null}
+                    {index === 0 ? <PacksCell group={group} /> : null}
                   </td>
                   {/* The RUNG, not a vendor: which company speaks a rung is a setting
                       (D-688: the Clear band is chosen in the console), and this card prices
@@ -265,9 +268,8 @@ function RateCardTable({ card }: { card: RateCard }) {
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-muted">
                     {formatRupeeRateExact(cell.cost_floor_inr_per_min)}
                   </td>
-                  {/* WHAT THE MINUTE ACTUALLY COST THIS MONTH, and the margin struck against
-                      THAT. A stated absence when nothing was spoken — never a zero, which
-                      would read as "this voice is free". */}
+                  {/* A stated absence when nothing was spoken — never a zero, which would
+                      read as "this voice is free". */}
                   <td
                     className={
                       "py-2 pr-4 text-right tabular-nums " +
@@ -279,10 +281,7 @@ function RateCardTable({ card }: { card: RateCard }) {
                       : formatRupeeRateExact(cell.cost_inr_per_min_at_volume)}
                   </td>
                   <td className="py-2 pr-4 text-right tabular-nums text-ink">
-                    {/* The SERVER's percentage, printed. Never a division done here — see
-                        the module header. `null` is a stated absence, not 0%. BOTH margins
-                        are shown: the one struck at the structural floor, and — where it
-                        differs — the one struck at what the month actually cost. */}
+                    {/* The SERVER's percentages, printed; never a division done here. */}
                     {cell.gross_margin_pct === null ? "—" : `${cell.gross_margin_pct}%`}
                     {cell.gross_margin_pct_at_volume !== null &&
                       cell.gross_margin_pct_at_volume !== cell.gross_margin_pct && (
@@ -294,15 +293,12 @@ function RateCardTable({ card }: { card: RateCard }) {
                               : "text-ink-faint")
                           }
                         >
-                          {cell.gross_margin_pct_at_volume}% at volume
+                          {cell.gross_margin_pct_at_volume}% after the plan fee
                         </span>
                       )}
                   </td>
-                  {/* HOW MANY PLATFORM MINUTES A MONTH THIS RUNG NEEDS BEFORE IT STOPS
-                      LOSING MONEY. Blank on the Clear rung, whose cost does not move with
-                      volume;
-                      "never" where no volume rescues the rate, which is a different fact
-                      from a big number and is said as itself. */}
+                  {/* Blank on Clear, which carries no monthly fee; "never" where no volume
+                      rescues the rate, which is a different fact from a big number. */}
                   <td className="py-2 pr-4 text-right tabular-nums text-ink-muted">
                     {breakevenText(cell)}
                   </td>
@@ -315,6 +311,12 @@ function RateCardTable({ card }: { card: RateCard }) {
           </tbody>
         </table>
       </ScrollRegion>
+      {groups.length < rungs(card).length ? (
+        <p className="text-meta text-ink-muted">
+          Packs with the same rates are shown once: every pack sells a minute at the same price,
+          and the payment fee is a share of that price, so a bigger pack earns the same margin.
+        </p>
+      ) : null}
 
       {/* THE THIN SUMMARY, AS A WARNING. Amber, never red, and it blocks nothing: this is
           the card that is on sale, and a screen that presented it as broken would be
@@ -324,27 +326,21 @@ function RateCardTable({ card }: { card: RateCard }) {
           tone="warn"
           title={
             thinAtVolume.length > thin.length
-              ? `${thinAtVolume.length} of ${card.cells.length} rungs earn less than ` +
-                `${card.target_gross_margin_pct}% at this month's volume ` +
-                `(${thin.length} against the structural floor)`
-              : `${thin.length} of ${card.cells.length} rungs earn less than ${card.target_gross_margin_pct}%`
+              ? `${thinAtVolume.length} of ${labelled.length} rungs earn less than ` +
+                `${card.target_gross_margin_pct}% at this month's pace ` +
+                `(${thin.length} on each extra minute)`
+              : `${thin.length} of ${labelled.length} rungs earn less than ${card.target_gross_margin_pct}%`
           }
         >
-          {/* BOTH COUNTS, honest one first. The structural floor is the cost of the next
-              minute at the margin; at a low monthly volume the subscription has not
-              amortised and the real cost is higher, so that count alone understates how
-              many rungs are thin. The structural figure stays because it is what the write
-              path refuses on. */}
           <p className="mt-1">
-            Every one of them is still above the structural floor, so the card can be
-            recorded and is what we sell today. Read the numbers before you commit a new
-            card — a thinner rung is a decision, not a fault, and nothing here is blocked by
-            it.
+            Every one of them still covers what each extra minute costs, so the card can be
+            recorded and is what we sell today. Read the numbers before you commit a new card —
+            a thinner rung is a decision, not a fault, and nothing here is blocked by it.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
-            {thin.map((cell) => (
-              <li key={`${cell.pack_id}:${cell.voice_tier}`}>
-                {cell.pack_id} on {cell.tier_label}:{" "}
+            {thin.map(({ cell, packs }) => (
+              <li key={`${packs}:${cell.voice_tier}`}>
+                {packs} on {cell.tier_label}:{" "}
                 {cell.gross_margin_pct === null ? "no margin struck" : `${cell.gross_margin_pct}%`}{" "}
                 at {formatRupeeRateExact(cell.inr_per_min)}/min against{" "}
                 {formatRupeeRateExact(cell.cost_floor_inr_per_min)}/min of cost.
@@ -354,34 +350,34 @@ function RateCardTable({ card }: { card: RateCard }) {
         </MarginVerdict>
       )}
 
-      {/* UNDER WATER AT THIS MONTH'S VOLUME — the founder's actual complaint, rendered.
-          These rungs clear the structural floor (so the server will record the card) and
-          still sold a minute for less than the month cost us, because the subscription had
-          not amortised. Amber and not red: it is a fact about a volume, not a broken card,
-          and the answer is usually more minutes rather than a higher price. */}
+      {/* LOSING MONEY AT THIS MONTH'S PACE. These rungs cover each extra minute (so the
+          server will record the card) and still do not cover Cartesia's monthly plan fee at
+          the volume this month is running at. Amber and not red: the answer is usually more
+          Studio minutes rather than a higher price. */}
       {underAtVolume.length > 0 && (
         <MarginVerdict
           tone="warn"
           title={
-            `${underAtVolume.length} rung${underAtVolume.length === 1 ? "" : "s"} sold a minute ` +
-            `for less than it cost at this month's volume`
+            `${underAtVolume.length} ` +
+            `${underAtVolume.length === 1 ? "rung loses" : "rungs lose"} money ` +
+            `at this month's pace once the plan fee is shared out`
           }
         >
           <p className="mt-1">
-            Nothing is blocked: each clears the marginal-cost floor, not this month&apos;s
-            actual cost per minute. The break-even column shows the Studio minutes needed.
+            Nothing is blocked: each covers what an extra minute costs, not yet the monthly
+            plan fee. The break-even column shows the Studio minutes a month it needs.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
-            {underAtVolume.map((cell) => (
-              <li key={`${cell.pack_id}:${cell.voice_tier}`}>
-                {cell.pack_id} on {cell.tier_label}:{" "}
+            {underAtVolume.map(({ cell, packs }) => (
+              <li key={`${packs}:${cell.voice_tier}`}>
+                {packs} on {cell.tier_label}:{" "}
                 {formatRupeeRateExact(cell.inr_per_min)}/min against{" "}
                 {cell.cost_inr_per_min_at_volume === null
                   ? "an unstated cost"
-                  : `${formatRupeeRateExact(cell.cost_inr_per_min_at_volume)}/min of real cost`}
+                  : `${formatRupeeRateExact(cell.cost_inr_per_min_at_volume)}/min on average`}
                 {cell.breakeven_call_minutes === null
                   ? " — no volume makes this rung profitable"
-                  : `, break-even ${formatWholeCount(cell.breakeven_call_minutes)} platform min/mo`}
+                  : `, break-even ${formatWholeCount(cell.breakeven_call_minutes)} Studio min/mo`}
                 .
               </li>
             ))}
@@ -399,9 +395,9 @@ function RateCardTable({ card }: { card: RateCard }) {
             save until these rungs are raised above what their minute costs.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
-            {under.map((cell) => (
-              <li key={`${cell.pack_id}:${cell.voice_tier}`}>
-                {cell.pack_id} on {rungLabel(cell.voice_tier)}:{" "}
+            {under.map(({ cell, packs }) => (
+              <li key={`${packs}:${cell.voice_tier}`}>
+                {packs} on {rungLabel(cell.voice_tier)}:{" "}
                 {formatRupeeRateExact(cell.inr_per_min)}/min against{" "}
                 {formatRupeeRateExact(cell.cost_floor_inr_per_min)}/min of cost.
               </li>
@@ -413,49 +409,102 @@ function RateCardTable({ card }: { card: RateCard }) {
   );
 }
 
+/** How a row group names its packs: one pack by amount and id, several by their range. */
+function packsLabel(group: RateCardRowGroup): string {
+  const first = group.packs[0];
+  const last = group.packs[group.packs.length - 1];
+  if (first === undefined || last === undefined) return "";
+  if (group.packs.length === 1) return `${formatINRExact(first.amount_inr)} ${first.pack_id}`;
+  return (
+    `${formatINRExact(first.amount_inr)}–${formatINRExact(last.amount_inr)} ` +
+    `(${group.packs.length} packs)`
+  );
+}
+
+function PacksCell({ group }: { group: RateCardRowGroup }) {
+  const first = group.packs[0];
+  const last = group.packs[group.packs.length - 1];
+  if (first === undefined || last === undefined) return null;
+  if (group.packs.length === 1) {
+    return (
+      <>
+        <span className="font-medium text-ink">{formatINRExact(first.amount_inr)}</span>{" "}
+        <MonoValue className="text-ink-muted">{first.pack_id}</MonoValue>
+      </>
+    );
+  }
+  return (
+    <>
+      <span className="font-medium text-ink">
+        {formatINRExact(first.amount_inr)}–{formatINRExact(last.amount_inr)}
+      </span>
+      <span className="block text-meta text-ink-muted">
+        {group.packs.length} packs: {group.packs.map((pack) => pack.pack_id).join(", ")}
+      </span>
+    </>
+  );
+}
+
 /**
- * **THE VOLUME EVERY CARTESIA COST FIGURE ON THIS SCREEN IS STRUCK AT.**
+ * **WHAT THE STUDIO COLUMNS ARE STRUCK AT.**
  *
- * THE DEFECT THIS EXISTS FOR. This panel printed ₹4.3639 for every Studio rung under a
- * column headed "COSTS US". That figure was the $49 Startup plan fee spread over the 2,315
- * call-minutes at which its allotment is exactly consumed — the cheapest a Cartesia minute
- * can ever be, at a volume this platform has never run — and nothing on the screen said so.
- * The founder read it on 9 Sep 2026 and said the Studio leg could not cost us that little.
- * The arithmetic was right; the SCREEN was lying.
- *
- * Cartesia is a monthly subscription with an included allotment and an overage past it, so
- * a per-minute cost is a function of volume and a screen that shows one without its volume
- * is showing a guess. Everything here is the SERVER's — no rupee is divided in the browser.
+ * Studio's voice is Cartesia on a monthly plan: a fixed fee for an allotment of characters,
+ * then a price per character past it. So a Studio minute has two costs worth showing — one
+ * more minute (the per-minute legs plus the overage), and the average minute once the fee is
+ * shared out — and the second depends on how many minutes the month runs. This block says
+ * what the month has run, how it is projected to a whole month, what the plan bills for it
+ * and whether that bill is a recorded invoice or the list price. Every figure is the
+ * SERVER's; no rupee is divided in the browser.
  */
 function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
-  const measured = volume.cost_inr_per_min;
   const fxIsFallback = volume.fx_as_of === null;
   return (
     <div className="space-y-2 border-l-2 border-line py-1 pl-3 text-meta">
       <p className="text-ink">
-        <span className="font-semibold">Studio (Cartesia) is a monthly subscription</span>, so
-        what a minute costs us depends on how many we speak. This month the platform spoke{" "}
+        <span className="font-semibold">Studio&apos;s voice (Cartesia) is a monthly plan</span>,
+        so its cost per minute depends on how many Studio minutes all clients use. So far this
+        month:{" "}
         <span className="font-semibold tabular-nums">
           {formatWholeCount(volume.measured_call_minutes)}
         </span>{" "}
-        Studio call-minutes ({formatWholeCount(volume.measured_characters)} characters), on
-        the <MonoValue>{volume.plan_id ?? "—"}</MonoValue> plan.{" "}
-        {measured === null ? (
+        Studio minutes ({formatWholeCount(volume.measured_characters)} characters) in{" "}
+        {volume.month_days_elapsed} of {volume.month_days} days.{" "}
+        {volume.projected_call_minutes === null ? (
           <>
-            Nothing was spoken, so there is no cost per minute to state — the subscription is
-            still owed.
+            Nothing was spoken, so there is no average minute to state — the plan is still
+            owed.
           </>
         ) : (
           <>
-            That works out at{" "}
-            <span className="font-semibold tabular-nums">{formatRupeeRateExact(measured)}</span> a
-            minute, all in.
+            At that pace the month comes to about{" "}
+            <span className="font-semibold tabular-nums">
+              {formatWholeCount(volume.projected_call_minutes)}
+            </span>{" "}
+            minutes, and the <MonoValue>{volume.plan_id ?? "—"}</MonoValue> plan bills{" "}
+            <span className="font-semibold tabular-nums">
+              {volume.plan_bill_inr === null ? "—" : formatINRExact(volume.plan_bill_inr)}
+            </span>{" "}
+            for it, so an average Studio minute costs{" "}
+            <span className="font-semibold tabular-nums">
+              {volume.cost_inr_per_min === null
+                ? "—"
+                : formatRupeeRateExact(volume.cost_inr_per_min)}
+            </span>{" "}
+            before the payment fee.
           </>
         )}
       </p>
+      {volume.plan_bill_attested ? (
+        <p className="text-ink-faint">The plan bill is the invoice recorded for this month.</p>
+      ) : (
+        <p className="font-medium text-warn">
+          The plan bill is Cartesia&apos;s list price, not a recorded invoice: any GST or card
+          currency charge is not in it. Record this month&apos;s invoice under Voice plan fee.
+        </p>
+      )}
 
       {/* THE FX PROVENANCE, ON THE FACE OF THE SCREEN. Cartesia bills in dollars and the
-          floor converts at the live published rate (founder, 9 Sep 2026). A floor quietly
+          figures convert at the live published rate (founder, 9 Sep 2026). A figure quietly
           struck at an operator's typed fallback is the same "best case as fact" defect,
           so WHICH rate and how old it is are stated, never implied. */}
       <p className={fxIsFallback ? "font-medium text-warn" : "text-ink-faint"}>
@@ -476,31 +525,36 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
       </p>
 
       <p className="text-ink-muted">
-        The next Studio minute costs{" "}
-        <span className="tabular-nums">{formatRupeeRateExact(volume.floor_inr_per_min)}</span> at the
-        margin, falling to{" "}
+        Once the plan&apos;s characters are used up, one more Studio minute costs{" "}
+        <span className="tabular-nums">{formatRupeeRateExact(volume.floor_inr_per_min)}</span>,
+        falling to{" "}
         <span className="tabular-nums">
           {formatRupeeRateExact(volume.best_marginal_cost_inr_per_min)}
         </span>{" "}
         once volume passes {formatWholeCount(volume.plan_crossover_call_minutes)} min/mo and the{" "}
-        {/* THE PLAN NAME IS READ, NOT TYPED. `plans` arrives in fee order, so the last is
-            the one that wins at high volume; a literal "startup" here would be a second
-            spelling of a fact the server already sent, and the wrong one the day a plan is
-            added. */}
+        {/* THE PLAN NAME IS READ, NOT TYPED: `plans` arrives in fee order, so the last is
+            the one that wins at high volume. */}
         <MonoValue>{volume.plans[volume.plans.length - 1]?.plan_id ?? "—"}</MonoValue> plan
-        becomes the cheaper one. A card is refused below{" "}
+        becomes the cheaper one (both before the payment fee). A card is refused below{" "}
         <span className="tabular-nums">{formatRupeeRateExact(volume.refusal_floor_inr_per_min)}</span>
-        , which is deliberately frozen at {formatRupeeRateExact(volume.refusal_usd_inr)} to the dollar so a currency
-        tick can never make the card that is on sale un-recordable.
+        {volume.refusal_floor_frozen ? (
+          <>
+            , which is deliberately frozen at {formatRupeeRateExact(volume.refusal_usd_inr)} to
+            the dollar so a currency tick can never make the card that is on sale
+            un-recordable.
+          </>
+        ) : (
+          <> plus the payment fee: the same live figure.</>
+        )}
       </p>
 
       <ScrollRegion label="What a Studio minute costs at each monthly volume">
         <table className="w-full min-w-[420px] text-meta">
           <thead>
             <tr className="border-b border-line text-left text-meta font-medium text-ink-muted">
-              <th className="py-1 pr-4 font-semibold">Platform min/mo</th>
+              <th className="py-1 pr-4 font-semibold">Studio min/mo</th>
               <th className="py-1 pr-4 font-semibold">Cheapest plan</th>
-              <th className="py-1 text-right font-semibold">Costs us / min</th>
+              <th className="py-1 text-right font-semibold">Average minute costs us</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -522,28 +576,52 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
       </ScrollRegion>
 
       <p className="text-ink-muted">
-        Modelled at {volume.assumed_chars_per_call_minute} characters a call-minute, the top of
-        an unmeasured band. The measured figure above uses no such assumption — it divides the
-        characters our meter counted by the minutes it billed.
+        Each volume is modelled at {volume.modelled_chars_per_call_minute} characters a
+        call-minute ({volume.modelled_chars_basis}), before the payment fee. The figures above
+        the table use the characters our meter counted this month instead.
       </p>
     </div>
   );
 }
 
 /**
- * **WHAT THE CLEAR COLUMN'S "COST AT VOLUME" IS STRUCK AT (D-557).**
+ * **WHAT THE SPEAKING RATE PRICES (D-557).**
  *
- * The same defect as the block above it, one voice over and one step earlier. Clear is priced
- * per CHARACTER, and a per-character price becomes a per-minute cost only through how many
- * characters an agent speaks in a minute — which nothing had measured, so every floor on this
- * screen divided by an assumption the blueprint itself calls unmeasured. This is the reading,
- * or the honest statement that there is not one yet: no placeholder rate, and a figure from
- * too few calls is never called a measurement.
+ * How many characters an agent speaks in a call-minute turns a per-character voice price into
+ * a per-minute cost. On ThinnestAI that is Studio's Cartesia characters only — a Clear minute
+ * is ThinnestAI's band price per minute, whatever the agent says — so the block says that
+ * rather than the base engine's per-character Clear floor. Elsewhere it also prices Clear.
  *
  * The rendered arm is `null`-guarded for `CartesiaVolumeNotice`'s reason: an API older than
  * 9 Sep 2026 sends no such field, and the generated type cannot describe an older deployment.
  */
-function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
+function SpeakingRateNotice({ rate, engine }: { rate: SpeakingRate; engine: string }) {
+  const measured = rate.measured ? (
+    <>
+      Measured across <span className="font-semibold tabular-nums">{rate.calls}</span> calls (
+      {rate.window}): <MonoValue>{rate.chars_per_call_minute}</MonoValue> characters a
+      call-minute
+    </>
+  ) : (
+    <>
+      Nobody has measured it yet — {rate.calls} of {rate.minimum_calls} calls with a
+      transcript — so the costs use the blueprint&apos;s assumed{" "}
+      <MonoValue>{rate.chars_per_call_minute}</MonoValue> characters a call-minute
+    </>
+  );
+  if (engine === "thinnest") {
+    return (
+      <div className="space-y-2 border-l-2 border-line py-1 pl-3 text-meta">
+        <p className="text-ink">
+          <span className="font-semibold">
+            How much an agent talks sets what Studio&apos;s voice costs a minute
+          </span>
+          . {measured}. A Clear minute is ThinnestAI&apos;s price per minute, so it does not
+          depend on this.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-2 border-l-2 border-line py-1 pl-3 text-meta">
       <p className="text-ink">
@@ -551,24 +629,17 @@ function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
           Clear is priced per character, so its cost per minute depends on how much the agent
           talks
         </span>
-        .{" "}
+        . {measured}
         {rate.measured ? (
           <>
-            Measured across{" "}
-            <span className="font-semibold tabular-nums">{rate.calls}</span> calls (
-            {rate.window}): <MonoValue>{rate.chars_per_call_minute}</MonoValue> characters a
-            call-minute, which puts a Clear minute at{" "}
+            , which puts a Clear minute at{" "}
             <span className="font-semibold tabular-nums">
               {formatRupeeRateExact(rate.cost_floor_inr_per_min)}
             </span>
             .
           </>
         ) : (
-          <>
-            Nobody has measured it yet — {rate.calls} of {rate.minimum_calls} calls with a
-            transcript — so the column above is struck at the blueprint&apos;s assumed{" "}
-            <MonoValue>{rate.chars_per_call_minute}</MonoValue> characters a call-minute.
-          </>
+          <>.</>
         )}
       </p>
       <p className="text-ink-muted">
@@ -835,8 +906,8 @@ export function breakevenText(cell: RateCardCell): string {
   const tier = cell.voice_tier;
   if (!isVoiceTier(tier)) return "unknown rung";
   switch (tier) {
-    // Clear is billed per character at a flat published rate, so no volume moves it and
-    // there is nothing to break even against.
+    // Clear carries no monthly fee (a per-minute price on ThinnestAI), so there is nothing
+    // to break even against.
     case "clear":
       return "";
     // Studio is a monthly subscription with an included allotment, so its per-minute cost

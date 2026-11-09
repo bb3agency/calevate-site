@@ -48,10 +48,12 @@ summary column, so a reason that lives only in the log stream is a reason nobody
 
 from __future__ import annotations
 
+import calendar
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Annotated, Any
+from typing import Annotated, Any, Final
 from uuid import UUID
 
 from calevate_shared.engine import LLM_MODEL_NAMES, EngineCapabilities, leg_for_model
@@ -83,7 +85,7 @@ from apps.api.billing.list_rates import (
     record_card,
 )
 from apps.api.billing.own_model_prompt import floor_prompt_basis, tokens_of
-from apps.api.billing.plans import ist_billing_month
+from apps.api.billing.plans import IST, ist_billing_month
 from apps.api.billing.rates import (
     CARTESIA_COST_FLOOR_INR_PER_MIN,
     CARTESIA_PLANS,
@@ -101,19 +103,18 @@ from apps.api.billing.rates import (
     ClearCostFloor,
     FloorInputs,
     VoiceTier,
-    cartesia_best_marginal_cost_inr_per_min,
-    cartesia_cheapest_plan,
-    cartesia_cost_floor_inr_per_min_at,
-    cartesia_cost_inr_per_call_minute,
-    cartesia_measured_cost_inr_per_call_minute,
+    cartesia_cheapest_plan_for_characters,
     cartesia_plan_crossover_call_minutes,
-    cartesia_plan_marginal_cost_inr_per_min,
-    cartesia_rung_breakeven_call_minutes,
     clear_cost_floor_at,
+    gateway_fee_inr_per_min,
     rate_margin,
+    studio_breakeven_call_minutes,
+    studio_cost_inr_per_min_at_volume,
+    studio_minute_inr_per_min,
+    studio_month_cartesia_bill_inr,
     voice_tier_label,
 )
-from apps.api.billing.tts_volume import CartesiaVolume, fleet_cartesia_volume
+from apps.api.billing.tts_volume import PLAN_BILLED_VOICE, CartesiaVolume, fleet_cartesia_volume
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
@@ -153,6 +154,7 @@ from apps.api.ops.config_service import (
     read_sentinel,
     set_value,
 )
+from apps.api.ops.model_pricing import attested_tts_plan_fees
 from apps.api.reliability.service import enqueue_outbox_once
 
 log = get_logger(__name__)
@@ -1249,22 +1251,21 @@ class RateCardCellOut(BaseModel):
     below_target: bool
     #: Below cost. `card_refusals` refuses the write; nothing may be sold here.
     below_floor: bool
-    #: **HOW MANY CARTESIA CALL-MINUTES A MONTH THE WHOLE PLATFORM MUST SPEAK BEFORE THIS
-    #: RUNG STOPS LOSING MONEY AND STAYS THAT WAY** (`rates
-    #: .cartesia_rung_breakeven_call_minutes`). `null` on every Sarvam cell, whose cost is a
-    #: per-character list price and does not move with volume, and `null` on a Cartesia rate
-    #: no volume can rescue — two different absences, both a stated absence and never a 0.
+    #: **HOW MANY STUDIO CALL-MINUTES A MONTH THE WHOLE PLATFORM MUST SPEAK BEFORE THIS
+    #: RUNG COVERS CARTESIA'S MONTHLY PLAN AND STAYS THAT WAY**
+    #: (`rates.studio_breakeven_call_minutes`), struck at the same per-minute legs, gateway
+    #: fee and speaking rate as `cost_floor_inr_per_min`. `null` on every Clear cell, which
+    #: carries no monthly fee, and `null` on a Studio rate no volume can rescue — two
+    #: different absences, both a stated absence and never a 0.
     breakeven_call_minutes: str | None
-    #: What this minute costs us AT THE VOLUME THE PLATFORM ACTUALLY RAN THIS MONTH, and the
-    #: margin and verdicts that follow from it. `cost_floor_inr_per_min` above is a
-    #: STRUCTURAL bound — the worst marginal cost, which is what the write path refuses
-    #: below — and on a subscription-billed voice it is not what a month cost. These four
-    #: are the founder's second decision of 9 Sep 2026: judge the margin at actual volume.
+    #: What this minute costs us on average AT THIS MONTH'S PACE, and the margin and
+    #: verdicts that follow from it. `cost_floor_inr_per_min` above is the cost of one more
+    #: minute; on Studio it leaves out Cartesia's monthly plan fee, which this one spreads
+    #: over the month's minutes. The month in progress is projected to a whole month
+    #: (`CartesiaVolumeOut.projected_call_minutes`) because the fee is a whole month's.
     #:
-    #: All four are `null`/`false` when no month volume could be measured (nobody has spoken
-    #: a Studio minute yet), which the console renders as a stated absence. On a Sarvam cell
-    #: they equal the structural figures beside them, because that voice's cost genuinely
-    #: does not depend on volume — the same number twice is the honest answer, not a gap.
+    #: All four are `null`/`false` on Studio when nobody has spoken a Studio minute this
+    #: month. A Clear cell has no monthly fee, so its figures equal the ones beside it.
     cost_inr_per_min_at_volume: str | None
     gross_margin_pct_at_volume: str | None
     below_target_at_volume: bool
@@ -1333,15 +1334,31 @@ class CartesiaVolumeOut(BaseModel):
     #: Characters those calls synthesized — an INDEPENDENT count of the same calls, so the
     #: measured cost below needs no speaking-rate assumption at all.
     measured_characters: str
-    #: What a Cartesia minute ACTUALLY cost us this month, all-in, and the plan that price
-    #: assumes. `null` when the month has no minutes to divide by — printing the whole
-    #: subscription fee against a per-minute heading would mean neither thing.
+    #: How far through the IST month the measurement is: days elapsed (to the hour) out of
+    #: the month's days. The plan fee is a whole month's, so the measured minutes are
+    #: projected to a whole month before the fee is spread over them.
+    month_days_elapsed: str
+    month_days: int
+    #: The month's Studio call-minutes if the rest of it runs at the pace so far
+    #: (`measured_call_minutes` x `month_days` / `month_days_elapsed`, the elapsed part
+    #: counted as at least one day so the first hours of a month do not multiply a single
+    #: call by hundreds). `null` when nothing was spoken.
+    projected_call_minutes: str | None
+    #: What Cartesia bills for the projected month, and whether that is the operator's
+    #: recorded invoice for the month (`platform_tts_plan_fees`) or the plan's list price,
+    #: which carries no GST and no card forex charge.
+    plan_bill_inr: str | None
+    plan_bill_attested: bool
+    #: What an average Studio minute costs us at that pace, before the payment gateway's fee
+    #: on the sale (which depends on each rung's price and is in each cell), and the plan
+    #: that price assumes. `null` when the month has no minutes to divide by.
     cost_inr_per_min: str | None
     plan_id: str | None
-    #: The chars-per-call-minute the MODEL assumes wherever no measurement exists (the top
-    #: of TRD §10.1's unmeasured 360-540 band — pilot gate 12). Published because every
-    #: ladder row below is struck at it.
-    assumed_chars_per_call_minute: str
+    #: The characters per call-minute every modelled figure here is struck at — the floor
+    #: inputs' speaking rate (`FloorInputsOut`), measured once enough calls are, else the
+    #: top of TRD §10.1's band — and which of the two it is.
+    modelled_chars_per_call_minute: str
+    modelled_chars_basis: str
     #: **THE USD→INR RATE EVERY RUPEE ON THIS BLOCK WAS STRUCK AT, AND WHERE IT CAME FROM.**
     #: The founder's decision of 9 Sep 2026: Cartesia bills in dollars, so a cost we pay in
     #: dollars moves with the rupee, and this deployment already pulls and publishes the
@@ -1355,24 +1372,21 @@ class CartesiaVolumeOut(BaseModel):
     fx_usd_inr: str
     fx_source: str
     fx_as_of: str | None
-    #: The structural refusal threshold and the best any volume can reach at the LIVE rate,
-    #: so a reader can see the band the curve moves inside.
+    #: One more Studio minute once the plan's included characters are used up: the worst
+    #: plan overage, and the best any volume can reach (the cheapest overage), both at the
+    #: live rate and before the gateway fee, so a reader can see the band the curve moves in.
     floor_inr_per_min: str
     best_marginal_cost_inr_per_min: str
-    #: **THE FROZEN BOUND THE WRITE PATH ACTUALLY REFUSES BELOW** (`rates
-    #: .CARTESIA_COST_FLOOR_INR_PER_MIN`, struck at the founder's planning rate
-    #: `rates.PLANNING_USD_INR`, D-768), published beside the live one because the two
-    #: differ and an operator must know which number blocks a save. A refusal that moved with
-    #: a currency feed would make a card recordable today and refused tomorrow on an FX tick
-    #: alone, so the veto is frozen and the live figure is
-    #: a warning. When `floor_inr_per_min` exceeds this, some rung may be under water at
-    #: today's rate and still recordable, which is exactly the state the console must show.
+    #: **THE BOUND THE WRITE PATH ACTUALLY REFUSES A STUDIO RATE BELOW**, before the gateway
+    #: fee. On ThinnestAI it is the live floor itself (D-840), so `refusal_floor_frozen` is
+    #: false; on the base engine it is `rates.CARTESIA_COST_FLOOR_INR_PER_MIN`, frozen at
+    #: `refusal_usd_inr` (`rates.PLANNING_USD_INR`, D-768) so an FX tick cannot make the card
+    #: on sale unrecordable.
     refusal_floor_inr_per_min: str
-    #: The rupees to the dollar that refusal floor is struck at (`rates.PLANNING_USD_INR`),
-    #: served so the console never types its own copy of a money fact.
     refusal_usd_inr: str
-    #: The volume at which the dearer plan stops costing more — DERIVED by search
-    #: (`rates.cartesia_plan_crossover_call_minutes`), never typed.
+    refusal_floor_frozen: bool
+    #: The monthly volume at which the dearer plan stops costing more, at the modelled
+    #: speaking rate — DERIVED by search (`rates.cartesia_plan_crossover_call_minutes`).
     plan_crossover_call_minutes: str
     plans: list[CartesiaPlanOut]
     ladder: list[CartesiaLadderPointOut]
@@ -1472,6 +1486,10 @@ class RateCardOut(BaseModel):
     effective_from: str | None
     #: The target the thin cells are thin AGAINST, as a percentage string ("20").
     target_gross_margin_pct: str
+    #: The engine every cost is struck at (`Settings.engine`). On ThinnestAI a Clear minute is
+    #: a per-minute band price and the speaking rate prices only Studio's Cartesia characters,
+    #: so the console words the speaking-rate block by it.
+    engine: str
     cells: list[RateCardCellOut]
     #: Cards already recorded whose date has not arrived. Empty is the ordinary state.
     pending: list[PendingCardOut]
@@ -1574,8 +1592,19 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     # the reason `fx` is: a screen whose rows were struck at two bases does not add up.
     inputs = await _deployment_floor_inputs(session, fx=fx)
     clear_floor = clear_cost_floor_at(inputs.speaking_rate)
-    measured_cost = cartesia_measured_cost_inr_per_call_minute(
-        characters=volume.characters, call_minutes=volume.call_minutes, usd_inr=fx.rate
+    engine = deployment_engine()
+    own_model_basis = await floor_prompt_basis()
+    prompt_tokens = tokens_of(own_model_basis)
+    attested_bill = (await attested_tts_plan_fees(session, month=volume.month, at=now)).get(
+        PLAN_BILLED_VOICE
+    )
+    studio = _studio_month(
+        volume,
+        now=now,
+        engine=engine,
+        inputs=inputs,
+        own_model_prompt_tokens=prompt_tokens,
+        attested_bill_inr=None if attested_bill is None else attested_bill.plan_inr,
     )
     dated = (
         await session.execute(text(_CARD_EFFECTIVE_FROM), {"prefix": f"{PACK_RATE_KEY_PREFIX}:%"})
@@ -1586,8 +1615,6 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     # what a purchase made in the same second would freeze onto its lot.
     in_force = card_with_rates(await card_at(session, at=now))
     scheduled = await pending_cards(session, at=now)
-    own_model_basis = await floor_prompt_basis()
-    prompt_tokens = tokens_of(own_model_basis)
     recipients = int(
         (await session.execute(text(_NOTICE_RECIPIENTS), {"tiers": list(PREPAID_TIERS)})).scalar()
         or 0
@@ -1595,10 +1622,10 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     return RateCardOut(
         effective_from=dated.isoformat() if dated is not None else None,
         target_gross_margin_pct=_pct(MIN_GROSS_MARGIN) or "0",
+        engine=engine,
         cells=_cells_out(
             in_force,
-            measured_cost=measured_cost,
-            fx=fx,
+            studio=studio,
             clear=clear_floor,
             own_model_prompt_tokens=prompt_tokens,
             inputs=inputs,
@@ -1608,8 +1635,7 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
                 effective_from=card.effective_from.isoformat(),
                 cells=_cells_out(
                     card_with_rates(card.cells),
-                    measured_cost=measured_cost,
-                    fx=fx,
+                    studio=studio,
                     clear=clear_floor,
                     own_model_prompt_tokens=prompt_tokens,
                     inputs=inputs,
@@ -1617,7 +1643,7 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
             )
             for card in scheduled
         ],
-        cartesia_volume=_cartesia_volume_out(volume, fx=fx),
+        cartesia_volume=_cartesia_volume_out(volume, fx=fx, studio=studio),
         speaking_rate=_speaking_rate_out(clear_floor),
         floor_inputs=_floor_inputs_out(inputs),
         notice_days=CARD_NOTICE_DAYS,
@@ -1627,48 +1653,145 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     )
 
 
-def _volume_cost(
-    voice: VoiceTier, measured: Decimal | None, clear: ClearCostFloor
-) -> Decimal | None:
-    """What one minute of `voice` cost at what the platform ACTUALLY did.
+#: A month in progress is projected from at least this much of it, so the first hours of a
+#: month do not multiply one call by hundreds.
+_PACE_MIN_ELAPSED: Final = timedelta(days=1)
 
-    ⚠ **THIS USED TO RETURN THE STRUCTURAL FLOOR FOR SARVAM AND SAY THAT WAS THE HONEST
-    ANSWER** — *"Sarvam's cost is a per-character list price in RUPEES and moves with neither
-    volume nor the dollar, so its at-volume cost IS its structural floor"*. The first half is
-    true and the conclusion was wrong, and D-557 is the correction: a per-CHARACTER price
-    becomes a per-CALL-MINUTE cost only through the speaking rate, and the speaking rate is
-    the one input in the whole model nobody had measured. So the Clear column's at-volume
-    cost is now the floor at the fleet's MEASURED rate — the same number as before, exactly,
-    while no measurement clears the threshold, and a different one the day it does.
 
-    Studio's is unchanged: two independent counts of a month somebody ran
-    (`cartesia_measured_cost_inr_per_call_minute`), which is a better figure than any
-    speaking rate and must not be re-derived from one. `None` when there was no such month.
+@dataclass(frozen=True, slots=True)
+class _MonthPace:
+    """How far through its IST month an instant is."""
 
-    ⚠ **TOTAL OVER THE LITERAL SINCE 19 SEP 2026.** It was `if VALUE: clear` then an
-    unconditional `return measured`, so any unrecognised tier was costed at the STUDIO
-    measurement. On an operator's margin board that reads as a rung being far more
-    expensive than it is, which is the same class of silent wrong answer the billing-side
-    `OpenLot.rate_for` had — here it misleads a pricing decision rather than a client's
-    bill, and both are worth a raise rather than a guess.
+    elapsed_days: Decimal
+    month_days: int
+
+    def project(self, count: Decimal) -> Decimal:
+        """A count taken so far, at the same pace for the whole month. Multiplied before it
+        is divided, so a whole-day pace projects a whole number exactly."""
+        return count * self.month_days / self.elapsed_days
+
+
+def _month_pace(now: datetime) -> _MonthPace:
+    """The IST month `now` is in, and how much of it has gone (at least `_PACE_MIN_ELAPSED`).
+
+    Whole seconds rather than `total_seconds()`, so no float enters a figure a rupee is
+    divided by."""
+    local = now.astimezone(IST)
+    start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    days = calendar.monthrange(local.year, local.month)[1]
+    elapsed_s = max(local - start, _PACE_MIN_ELAPSED) // timedelta(seconds=1)
+    return _MonthPace(elapsed_days=Decimal(elapsed_s) / Decimal(86400), month_days=days)
+
+
+@dataclass(frozen=True, slots=True)
+class _StudioMonth:
+    """Everything a Studio cell's month-dependent figures are struck at, resolved once per
+    response so every cell and the volume block agree.
+
+    `minute_inr` is every per-minute leg but Cartesia and the gateway fee, on the engine the
+    deployment runs (`rates.studio_minute_inr_per_min`). `projected_*` are this month's
+    measured counts projected to a whole month; both `None` on a response that carries no
+    month (the write echo), where the at-volume figures are absent rather than wrong.
+    """
+
+    minute_inr: Decimal
+    chars_per_call_minute: Decimal
+    usd_inr: Decimal
+    pace: _MonthPace
+    projected_call_minutes: Decimal | None
+    projected_characters: Decimal | None
+    attested_bill_inr: Decimal | None
+    #: Which speaking rate `chars_per_call_minute` is (`SpeakingRateBasis.label`).
+    chars_basis: str
+    #: The base engine refuses a Studio rate below the frozen `CARTESIA_COST_FLOOR_INR_PER_MIN`;
+    #: ThinnestAI below its live floor (D-840).
+    engine: str
+
+    def cost_per_min(self, gateway_inr: Decimal) -> Decimal | None:
+        if self.projected_call_minutes is None or self.projected_characters is None:
+            return None
+        return studio_cost_inr_per_min_at_volume(
+            call_minutes=self.projected_call_minutes,
+            characters=self.projected_characters,
+            minute_inr=self.minute_inr + gateway_inr,
+            usd_inr=self.usd_inr,
+            attested_bill_inr=self.attested_bill_inr,
+        )
+
+    def breakeven(self, rate: Decimal, gateway_inr: Decimal) -> Decimal | None:
+        return studio_breakeven_call_minutes(
+            rate,
+            minute_inr=self.minute_inr + gateway_inr,
+            chars_per_call_minute=self.chars_per_call_minute,
+            usd_inr=self.usd_inr,
+        )
+
+    def at_volume(self, minutes: Decimal) -> Decimal:
+        """The average cost of a Studio minute in a month of `minutes`, before the gateway
+        fee, at the modelled speaking rate — one row of the console's ladder."""
+        cost = studio_cost_inr_per_min_at_volume(
+            call_minutes=minutes,
+            characters=minutes * self.chars_per_call_minute,
+            minute_inr=self.minute_inr,
+            usd_inr=self.usd_inr,
+        )
+        if cost is None:
+            raise ValueError("a ladder volume must be positive")
+        return cost
+
+
+def _studio_month(
+    volume: CartesiaVolume | None,
+    *,
+    now: datetime,
+    engine: str,
+    inputs: FloorInputs,
+    own_model_prompt_tokens: int | None,
+    attested_bill_inr: Decimal | None = None,
+) -> _StudioMonth:
+    pace = _month_pace(now)
+    projected_minutes: Decimal | None = None
+    projected_characters: Decimal | None = None
+    if volume is not None and volume.call_minutes > 0:
+        projected_minutes = pace.project(volume.call_minutes)
+        projected_characters = pace.project(volume.characters)
+    return _StudioMonth(
+        minute_inr=studio_minute_inr_per_min(
+            engine=engine, inputs=inputs, own_model_prompt_tokens=own_model_prompt_tokens
+        ),
+        chars_per_call_minute=inputs.speaking_rate.chars_per_call_minute,
+        usd_inr=inputs.usd_inr,
+        pace=pace,
+        projected_call_minutes=projected_minutes,
+        projected_characters=projected_characters,
+        attested_bill_inr=attested_bill_inr,
+        chars_basis=inputs.speaking_rate.label,
+        engine=engine,
+    )
+
+
+def _volume_cost(voice: VoiceTier, studio: Decimal | None, clear: Decimal) -> Decimal | None:
+    """What one minute of `voice` costs on average at this month's pace.
+
+    Total over the literal, raising on anything else: an unrecognised tier costed at either
+    figure would mislead a pricing decision silently.
     """
     if voice == VALUE_VOICE_TIER:
-        return clear.inr_per_min
+        return clear
     if voice == PREMIUM_VOICE_TIER:
-        return measured
+        return studio
     raise ValueError(f"no cost figure for voice tier {voice!r}")
 
 
 def _cells_out(
     card: tuple[CreditPack, ...],
     *,
-    measured_cost: Decimal | None,
-    fx: UsdInrRate,
+    studio: _StudioMonth,
     clear: ClearCostFloor,
     own_model_prompt_tokens: int | None,
     inputs: FloorInputs,
 ) -> list[RateCardCellOut]:
-    """One card as twelve rendered cells, verdicts included — TWICE OVER since 9 Sep 2026.
+    """One card as rendered cells, verdicts included — TWICE OVER since 9 Sep 2026.
 
     THE PREVIEW'S OWN OUTPUT, in the preview's own order (card order, then voice order):
     `_log_margins` logs these verdicts and `_refuse_bad_card` vetoes on the same ones, so
@@ -1676,13 +1799,13 @@ def _cells_out(
     card, because an operator comparing "now" against "from the 12th" must be reading two
     renderings of one function.
 
-    **EVERY CELL NOW CARRIES TWO VERDICTS AND THE SECOND IS THE HONEST ONE.** The first is
-    struck against the STRUCTURAL floor (`card_margins`, unchanged, and still the only thing
-    the write path refuses on — see `_refuse_bad_card`). The second is struck against what
-    the minute cost at the volume the platform actually ran, which on a subscription-billed
-    voice is a different and usually worse number. Both are the SERVER's, computed from
-    `rates.rate_margin` and `rates.gross_margin_ratio` so a browser never divides one
-    rounded rupee figure by another.
+    **EVERY CELL CARRIES TWO VERDICTS.** The first is struck against the cost of one more
+    minute (`card_margins`, the only thing the write path refuses on — see
+    `_refuse_bad_card`). The second is struck against the average minute at this month's
+    pace, which on Studio adds Cartesia's monthly plan fee spread over the month's minutes.
+    Both use the same per-minute legs and the same gateway fee, so the only difference
+    between them is the plan fee. Both are the SERVER's, computed from `rates.rate_margin`
+    so a browser never divides one rounded rupee figure by another.
 
     Why the refusal stays on the structural figure and the volume-real one is a warning:
     at today's volume several Studio rungs are under water, so refusing on it would refuse
@@ -1697,7 +1820,16 @@ def _cells_out(
     for pack_id, voice, verdict in card_margins(
         card, own_model_prompt_tokens=own_model_prompt_tokens, inputs=inputs
     ):
-        at_volume_cost = _volume_cost(voice, measured_cost, clear)
+        gateway = gateway_fee_inr_per_min(verdict.rate, inputs)
+        # Clear has no monthly fee. On ThinnestAI its minute is the band price, so its
+        # average minute IS the next one; the base engine prices it per character at the
+        # fleet's measured speaking rate rather than the frozen assumption (D-557).
+        clear_cost = (
+            verdict.cost
+            if studio.engine == "thinnest"
+            else (clear.inr_per_min + gateway).quantize(MONEY_Q, rounding=ROUNDING)
+        )
+        at_volume_cost = _volume_cost(voice, studio.cost_per_min(gateway), clear_cost)
         at_volume = (
             None if at_volume_cost is None else rate_margin(verdict.rate, cost=at_volume_cost)
         )
@@ -1715,9 +1847,7 @@ def _cells_out(
                 breakeven_call_minutes=(
                     None
                     if voice != PREMIUM_VOICE_TIER
-                    else _opt_str(
-                        cartesia_rung_breakeven_call_minutes(verdict.rate, usd_inr=fx.rate)
-                    )
+                    else _opt_str(studio.breakeven(verdict.rate, gateway))
                 ),
                 cost_inr_per_min_at_volume=_opt_str(at_volume_cost),
                 gross_margin_pct_at_volume=(None if at_volume is None else _pct(at_volume.margin)),
@@ -1748,7 +1878,9 @@ def _speaking_rate_out(clear: ClearCostFloor) -> SpeakingRateOut:
     )
 
 
-def _cartesia_volume_out(volume: CartesiaVolume, *, fx: UsdInrRate) -> CartesiaVolumeOut:
+def _cartesia_volume_out(
+    volume: CartesiaVolume, *, fx: UsdInrRate, studio: _StudioMonth
+) -> CartesiaVolumeOut:
     """The measured month and the modelled curve, both struck at ONE named USD→INR rate.
 
     `fx` is resolved ONCE by the route and threaded through every figure here, rather than
@@ -1757,53 +1889,84 @@ def _cartesia_volume_out(volume: CartesiaVolume, *, fx: UsdInrRate) -> CartesiaV
     whose rows do not add up, and "the numbers on one screen came from one rate" is the
     property that makes it readable at all. It is the same gesture `core/fx.fx_scope` makes
     for a unit of work.
+
+    Every rupee is a Studio minute on the deployment's engine (`studio.minute_inr`), before
+    the payment gateway's fee, which depends on a rung's price and is added in each cell.
     """
-    measured = cartesia_measured_cost_inr_per_call_minute(
-        characters=volume.characters, call_minutes=volume.call_minutes, usd_inr=fx.rate
-    )
-    plan = (
-        None
-        if volume.call_minutes <= 0
-        else cartesia_cheapest_plan(volume.call_minutes, usd_inr=fx.rate).plan_id
-    )
+    usd_inr = studio.usd_inr
+    cpm = studio.chars_per_call_minute
+    projected = studio.projected_call_minutes
+    projected_chars = studio.projected_characters
+    plan_id: str | None = None
+    bill: Decimal | None = None
+    if projected_chars is not None:
+        plan_id = cartesia_cheapest_plan_for_characters(projected_chars, usd_inr=usd_inr).plan_id
+        bill = studio_month_cartesia_bill_inr(
+            projected_chars, usd_inr=usd_inr, attested_bill_inr=studio.attested_bill_inr
+        )
+    overages = [plan.overage_inr_per_character(usd_inr) * cpm for plan in CARTESIA_PLANS]
+    floor = (studio.minute_inr + max(overages)).quantize(MONEY_Q, rounding=ROUNDING)
+    frozen = studio.engine != "thinnest"
     return CartesiaVolumeOut(
         month=volume.month,
         measured_call_minutes=str(volume.call_minutes),
         measured_characters=str(volume.characters),
-        cost_inr_per_min=_opt_str(measured),
-        plan_id=plan,
-        assumed_chars_per_call_minute=str(TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]),
+        month_days_elapsed=str(studio.pace.elapsed_days.quantize(Decimal("0.01"), ROUNDING)),
+        month_days=studio.pace.month_days,
+        projected_call_minutes=(
+            None if projected is None else str(projected.quantize(Decimal("1"), ROUNDING))
+        ),
+        plan_bill_inr=None if bill is None else str(bill.quantize(MONEY_Q, ROUNDING)),
+        plan_bill_attested=studio.attested_bill_inr is not None,
+        cost_inr_per_min=_opt_str(studio.cost_per_min(Decimal("0"))),
+        plan_id=plan_id,
+        modelled_chars_per_call_minute=str(cpm),
+        modelled_chars_basis=studio.chars_basis,
         fx_usd_inr=str(fx.rate),
         fx_source=fx.source,
         fx_as_of=fx.as_of.isoformat() if fx.as_of is not None else None,
-        floor_inr_per_min=str(cartesia_cost_floor_inr_per_min_at(fx.rate)),
-        best_marginal_cost_inr_per_min=str(cartesia_best_marginal_cost_inr_per_min(fx.rate)),
-        refusal_floor_inr_per_min=str(CARTESIA_COST_FLOOR_INR_PER_MIN),
-        refusal_usd_inr=str(PLANNING_USD_INR),
-        plan_crossover_call_minutes=str(cartesia_plan_crossover_call_minutes(usd_inr=fx.rate)),
-        plans=[_cartesia_plan_out(plan_row, fx=fx) for plan_row in CARTESIA_PLANS],
+        floor_inr_per_min=str(floor),
+        best_marginal_cost_inr_per_min=str(
+            (studio.minute_inr + min(overages)).quantize(MONEY_Q, rounding=ROUNDING)
+        ),
+        refusal_floor_inr_per_min=str(CARTESIA_COST_FLOOR_INR_PER_MIN if frozen else floor),
+        refusal_usd_inr=str(PLANNING_USD_INR if frozen else usd_inr),
+        refusal_floor_frozen=frozen,
+        plan_crossover_call_minutes=str(
+            (
+                cartesia_plan_crossover_call_minutes(usd_inr=usd_inr)
+                * TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
+                / cpm
+            ).quantize(Decimal("1"), rounding=ROUNDING)
+        ),
+        plans=[_cartesia_plan_out(plan_row, studio=studio) for plan_row in CARTESIA_PLANS],
         ladder=[
             CartesiaLadderPointOut(
                 call_minutes=str(minutes),
-                plan_id=cartesia_cheapest_plan(minutes, usd_inr=fx.rate).plan_id,
-                cost_inr_per_min=str(cartesia_cost_inr_per_call_minute(minutes, usd_inr=fx.rate)),
+                plan_id=cartesia_cheapest_plan_for_characters(
+                    minutes * cpm, usd_inr=usd_inr
+                ).plan_id,
+                cost_inr_per_min=str(studio.at_volume(minutes)),
             )
             for minutes in CARTESIA_VOLUME_LADDER_CALL_MINUTES
         ],
     )
 
 
-def _cartesia_plan_out(plan: CartesiaPlan, *, fx: UsdInrRate) -> CartesiaPlanOut:
-    """One plan, every figure derived from the vendor's three inputs and the live rate."""
+def _cartesia_plan_out(plan: CartesiaPlan, *, studio: _StudioMonth) -> CartesiaPlanOut:
+    """One plan at the modelled speaking rate, on the deployment's engine."""
+    cpm = studio.chars_per_call_minute
     return CartesiaPlanOut(
         plan_id=plan.plan_id,
-        fee_inr=str(plan.fee_inr(fx.rate)),
+        fee_inr=str(plan.fee_inr(studio.usd_inr)),
         included_credits=str(plan.included_credits),
         included_call_minutes=str(
-            plan.included_call_minutes.quantize(Decimal("1"), rounding=ROUNDING)
+            (plan.included_credits / cpm).quantize(Decimal("1"), rounding=ROUNDING)
         ),
         marginal_cost_inr_per_min=str(
-            cartesia_plan_marginal_cost_inr_per_min(plan, usd_inr=fx.rate)
+            (studio.minute_inr + plan.overage_inr_per_character(studio.usd_inr) * cpm).quantize(
+                MONEY_Q, rounding=ROUNDING
+            )
         ),
         tts_concurrency=plan.tts_concurrency,
     )
@@ -2125,8 +2288,13 @@ async def record_rate_card(
         # cell a second apart, which is the drift this whole change is closing.
         cells=_cells_out(
             card,
-            measured_cost=None,
-            fx=fx,
+            studio=_studio_month(
+                None,
+                now=datetime.now(UTC),
+                engine=deployment_engine(),
+                inputs=inputs,
+                own_model_prompt_tokens=prompt_tokens,
+            ),
             clear=clear_cost_floor_at(inputs.speaking_rate),
             own_model_prompt_tokens=prompt_tokens,
             inputs=inputs,
