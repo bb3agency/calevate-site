@@ -157,6 +157,14 @@ export function useClientSession(): Session {
   return useClientRealm().session;
 }
 
+/** `path` with `view=admin` in its query, ahead of any `#fragment` (after it, no page reads it). */
+function withViewAsMarker(path: string): string {
+  const hashAt = path.indexOf("#");
+  const base = hashAt === -1 ? path : path.slice(0, hashAt);
+  const fragment = hashAt === -1 ? "" : path.slice(hashAt);
+  return `${base}${base.includes("?") ? "&" : "?"}${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}${fragment}`;
+}
+
 function Resolver({
   slug,
   pending,
@@ -173,10 +181,7 @@ function Resolver({
     () => ({
       session: viewAsRequested ? viewAsSession(slug) : clientRealmSession(slug),
       viewAsRequested,
-      href: (path) =>
-        viewAsRequested
-          ? `${path}${path.includes("?") ? "&" : "?"}${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`
-          : path,
+      href: (path) => (viewAsRequested ? withViewAsMarker(path) : path),
     }),
     [slug, viewAsRequested],
   );
