@@ -20,7 +20,7 @@ export function HeldLeads({
   onRelease,
   onDrop,
 }: {
-  held: { data?: HeldLeadsData; isLoading: boolean; error: unknown };
+  held: { data?: HeldLeadsData; isLoading: boolean; error: unknown; refetch: () => unknown };
   holding: boolean;
   canWrite: boolean;
   /** One row's state for one of its two actions, from the screen's `useActionFeedback`. */
@@ -37,7 +37,7 @@ export function HeldLeads({
       {held.isLoading ? (
         <Skeleton rows={2} />
       ) : held.error ? (
-        <ProblemNotice error={held.error} />
+        <ProblemNotice error={held.error} onRetry={() => void held.refetch()} />
       ) : items.length === 0 ? (
         <p className="text-sm text-ink-muted">No leads waiting.</p>
       ) : (

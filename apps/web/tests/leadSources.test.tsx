@@ -1267,3 +1267,19 @@ describe("Call new leads, as Leads & hours shows it", () => {
     expect(await screen.findByText("Call new leads is off")).toBeTruthy();
   });
 });
+
+describe("a calling plan that did not load", () => {
+  it("offers Try again, and shows the plan once it answers", async () => {
+    let reads = 0;
+    await renderPage({
+      "/v1/lead-calling": () => {
+        reads += 1;
+        return reads === 1
+          ? problem(503, { title: "Service unavailable", kind: "transient", retryable: true })
+          : LEAD_CALLING_ROUTES["/v1/lead-calling"];
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Calling hours (Indian time)")).toBeTruthy();
+  });
+});

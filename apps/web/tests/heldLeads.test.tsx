@@ -21,14 +21,15 @@ function renderHeld(held: Parameters<typeof HeldLeads>[0]["held"], holding: bool
 
 describe("leads held after hours", () => {
   it("shows a failed read even when the account no longer holds leads", () => {
-    renderHeld({ isLoading: false, error: new Error("The held leads did not load.") }, false);
+    renderHeld({ isLoading: false, error: new Error("The held leads did not load."), refetch: NOOP }, false);
     expect(screen.getByText("Waiting for you")).toBeTruthy();
     expect(screen.getByText(/Try again in a moment/)).toBeTruthy();
     expect(screen.queryByText(/No leads waiting/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("stays out of the way when nothing is held and the account does not hold leads", () => {
-    const { container } = renderHeld({ isLoading: false, error: null, data: { items: [] } }, false);
+    const { container } = renderHeld({ isLoading: false, error: null, data: { items: [] }, refetch: NOOP }, false);
     expect(container.textContent).toBe("");
   });
 });

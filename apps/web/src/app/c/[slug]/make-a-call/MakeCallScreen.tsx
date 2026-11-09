@@ -39,6 +39,7 @@ import {
 } from "@/lib/api/oneCall";
 import { useClientRealm } from "@/lib/api/session";
 
+import { fixDestination } from "../campaigns/blockerCopy";
 import { CallStatusCard } from "./CallStatusCard";
 import { RecentOneCalls } from "./RecentOneCalls";
 
@@ -64,7 +65,7 @@ const WHEN_OPTIONS = [
   { value: "later", label: "At a time" },
 ];
 
-/** The refusals whose fix is on the billing screen; every other carries its own remedy. */
+/** The refusals fixed with money, which carry the wallet icon on their button. */
 const MONEY_RULES = new Set(["no_credits", "spend_cap"]);
 
 export function MakeCallScreen({
@@ -100,6 +101,7 @@ export function MakeCallScreen({
   const [tried, setTried] = useState(false);
   const [result, setResult] = useState<OneCallResult | null>(null);
 
+  const ownCountry = phone.trimStart().startsWith("+");
   const fromCall = Boolean(callId) && !byNumber;
   const fromLead = Boolean(leadId) && !callId && !byNumber;
   const example = copy.data?.placeholders?.outbound_purpose?.trim() || null;
@@ -197,12 +199,16 @@ export function MakeCallScreen({
                     >
                       {(control) => (
                         <div className="relative">
-                          <span
-                            aria-hidden
-                            className="pointer-events-none absolute inset-y-0 left-3 mt-1 flex items-center text-sm text-ink-muted"
-                          >
-                            +91
-                          </span>
+                          {/* A number typed with its own "+" names its country; "+91" beside
+                              it would read as "+91 +44…". */}
+                          {ownCountry ? null : (
+                            <span
+                              aria-hidden
+                              className="pointer-events-none absolute inset-y-0 left-3 mt-1 flex items-center text-sm text-ink-muted"
+                            >
+                              +91
+                            </span>
+                          )}
                           <input
                             {...control}
                             type="tel"
@@ -211,7 +217,7 @@ export function MakeCallScreen({
                             value={phone}
                             maxLength={20}
                             onChange={(event) => setPhone(event.target.value)}
-                            className={`${FIELD} pl-11 tabular-nums`}
+                            className={`${FIELD} ${ownCountry ? "" : "pl-11"} tabular-nums`}
                           />
                         </div>
                       )}
@@ -320,6 +326,7 @@ export function MakeCallScreen({
               {result?.status === "blocked" ? (
                 <Refusal
                   result={result}
+                  agentId={fromCall ? (call.data?.agent_id ?? null) : (agent?.id ?? null)}
                   busy={busy}
                   onBookAt={(at) => {
                     const body = input(at);
@@ -409,14 +416,20 @@ function Who({
 /** The gate's refusal in its own words, plus the one thing it cannot say: where to act. */
 function Refusal({
   result,
+  agentId,
   busy,
   onBookAt,
 }: {
   result: OneCallResult;
+  /** The agent the call was asked of, for a refusal fixed on that agent's page. */
+  agentId: string | null;
   busy: boolean;
   onBookAt: (at: string) => void;
 }) {
   const { session, href } = useClientRealm();
+  const fix = result.blocked_rule
+    ? fixDestination(result.blocked_rule, (path) => href(`/c/${session.orgSlug}${path}`), agentId)
+    : undefined;
   return (
     <NoticeBox tone="warn" role="status">
       <span className="block">{result.blocked_reason ?? "This call was not allowed."}</span>
@@ -431,10 +444,10 @@ function Refusal({
           Book it for {formatIST(result.opens_at)}
         </button>
       ) : null}
-      {result.blocked_rule && MONEY_RULES.has(result.blocked_rule) ? (
-        <Link href={href(`/c/${session.orgSlug}/billing`)} className={`${SECONDARY_BUTTON_SM} mt-2`}>
-          <Wallet aria-hidden className="h-3.5 w-3.5" />
-          {result.blocked_rule === "no_credits" ? "Add credit" : "See your limit"}
+      {fix ? (
+        <Link href={fix.href} className={`${SECONDARY_BUTTON_SM} mt-2`}>
+          {MONEY_RULES.has(result.blocked_rule ?? "") ? <Wallet aria-hidden className="h-3.5 w-3.5" /> : null}
+          {fix.label}
         </Link>
       ) : null}
     </NoticeBox>

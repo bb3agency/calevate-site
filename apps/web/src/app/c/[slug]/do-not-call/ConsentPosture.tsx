@@ -34,7 +34,7 @@ export function ConsentPosture({ session }: { session: Session }) {
   return (
     <section aria-label="Who this account may call" className="border-t border-line pt-1">
       {policy.isPending && <Skeleton rows={1} label={COPY.postureSaving} />}
-      {policy.error != null && <ProblemNotice error={policy.error} />}
+      {policy.error != null && <ProblemNotice error={policy.error} onRetry={() => void policy.refetch()} />}
       {enabled !== undefined && (
         <>
           {/* The whole label is the switch's target, not a bare 20px track: a setting row
