@@ -667,6 +667,18 @@ describe("the top-up panel", () => {
     ).toBeNull();
   });
 
+  it("says why Continue is unavailable for an amount outside the range, while still typing (Y5-04)", async () => {
+    await renderBillingHub(routes(), "Credits");
+    const field = await chooseOtherAmount();
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "50" } });
+    // The owner has chosen an amount; "Choose an amount" beside a grey button was wrong.
+    expect(await screen.findByText("Enter ₹100 to ₹1,00,000")).toBeTruthy();
+    expect(screen.queryByText("Choose an amount")).toBeNull();
+    fireEvent.change(field, { target: { value: "500" } });
+    await waitFor(() => expect(screen.queryByText("Enter ₹100 to ₹1,00,000")).toBeNull());
+  });
+
   it("says what a free-entry amount buys at before the payment button", async () => {
     // THE RATES A PURCHASE FREEZES ARE FROZEN THE MOMENT IT LANDS (D-547), so a client who
     // only learns them from the wallet afterwards has bought terms they never saw. The rule
