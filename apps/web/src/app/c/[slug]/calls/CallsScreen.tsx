@@ -52,6 +52,7 @@ import {
   type CallsLogFilters,
 } from "@/lib/api/hooks";
 import { useReadAhead } from "@/lib/readAhead";
+import { readScreenMemory, useRememberScreen } from "@/lib/screenMemory";
 import {
   useCallViews,
   useDeleteCallView,
@@ -134,22 +135,69 @@ function initialStatus(param: string | null): string | undefined {
   return param && Object.hasOwn(STATUS_WORDS, param) ? param : undefined;
 }
 
+/** The log's filters as `lib/screenMemory` keeps them between visits in one tab. */
+interface CallsMemory {
+  status: string;
+  agentId: string;
+  campaignId: string;
+  outcome: string;
+  direction: string;
+  dates: DateRange | null;
+  testCalls: boolean;
+  followUp: string;
+  callbackOpen: boolean;
+  activeViewId: string;
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Where the log was left, read once at mount, every value checked against what the
+ * controls offer. A link that names a filter (`?status=`, `?agent_id=`, `?campaign_id=`)
+ * opens on that filter alone, as it always did.
+ */
+function rememberedCalls(slug: string, params: URLSearchParams): Partial<CallsMemory> {
+  if (params.has("status") || params.has("agent_id") || params.has("campaign_id")) return {};
+  const kept = readScreenMemory<CallsMemory>(`${slug}:calls`) ?? {};
+  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+  const dates = kept.dates;
+  return {
+    status: initialStatus(text(kept.status) ?? null),
+    agentId: text(kept.agentId),
+    campaignId: text(kept.campaignId),
+    outcome: OUTCOMES.find((o) => o.value === kept.outcome)?.value,
+    direction: DIRECTIONS.find((d) => d.value === kept.direction)?.value,
+    dates:
+      dates && typeof dates === "object" && DAY.test(String(dates.start)) && DAY.test(String(dates.end))
+        ? { start: dates.start, end: dates.end }
+        : null,
+    testCalls: typeof kept.testCalls === "boolean" ? kept.testCalls : undefined,
+    followUp: FOLLOW_UP.find((f) => f.value === kept.followUp)?.value,
+    callbackOpen: typeof kept.callbackOpen === "boolean" ? kept.callbackOpen : undefined,
+    activeViewId: text(kept.activeViewId),
+  };
+}
+
 export function CallsScreen({ slug }: { slug: string }) {
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
   const { session, href } = useClientRealm();
   const params = useSearchParams();
-  const [status, setStatus] = useState<string | undefined>(() => initialStatus(params.get("status")));
-  const [agentId, setAgentId] = useState<string | undefined>(() => params.get("agent_id") || undefined);
-  const [campaignId, setCampaignId] = useState<string | undefined>(() => params.get("campaign_id") || undefined);
-  const [outcome, setOutcome] = useState<CallOutcome | undefined>();
-  const [direction, setDirection] = useState<CallDirection | undefined>();
-  const [dates, setDates] = useState<DateRange | null>(null);
+  // Opening a call and pressing Back comes back to the same filters (`lib/screenMemory`).
+  const [kept] = useState(() => rememberedCalls(slug, params));
+  const [status, setStatus] = useState<string | undefined>(() => initialStatus(params.get("status")) ?? kept.status);
+  const [agentId, setAgentId] = useState<string | undefined>(() => params.get("agent_id") || kept.agentId);
+  const [campaignId, setCampaignId] = useState<string | undefined>(() => params.get("campaign_id") || kept.campaignId);
+  const [outcome, setOutcome] = useState<CallOutcome | undefined>(kept.outcome as CallOutcome | undefined);
+  const [direction, setDirection] = useState<CallDirection | undefined>(kept.direction as CallDirection | undefined);
+  const [dates, setDates] = useState<DateRange | null>(kept.dates ?? null);
   // On by default: a trial account has only test calls, and a log that hid every one of
   // them would read as "nobody has called". Each one carries a "Test call" tag.
-  const [testCalls, setTestCalls] = useState(true);
+  const [testCalls, setTestCalls] = useState(kept.testCalls ?? true);
   /** Marked handled or not yet (D-893), and whether a call-back is waiting. */
-  const [followUpFilter, setFollowUpFilter] = useState<"done" | "not_done" | undefined>();
-  const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>();
+  const [followUpFilter, setFollowUpFilter] = useState<"done" | "not_done" | undefined>(
+    kept.followUp as "done" | "not_done" | undefined,
+  );
+  const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>(kept.callbackOpen);
 
   const today = istDateStamp();
   const filters: CallsLogFilters = {
@@ -187,7 +235,19 @@ export function CallsScreen({ slug }: { slug: string }) {
      sees. Saving and applying are exact inverses, so a view puts back what it held and
      clears the rest. */
   const callViews = useCallViews(session);
-  const [activeViewId, setActiveViewId] = useState<string | undefined>();
+  const [activeViewId, setActiveViewId] = useState<string | undefined>(kept.activeViewId);
+  useRememberScreen(`${slug}:calls`, {
+    status,
+    agentId,
+    campaignId,
+    outcome,
+    direction,
+    dates,
+    testCalls,
+    followUp: followUpFilter,
+    callbackOpen,
+    activeViewId,
+  } satisfies Partial<CallsMemory>);
   const mayView = useActAccess(session, "leads:write", "leads.saved_view", "save a view");
   const callViewFilters = (rolling: boolean): CallViewFilters => ({
     status: status ?? null,

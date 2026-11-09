@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { DateRange } from "@/components/arc/calendar";
 import { istDateStamp } from "@/components/ui";
@@ -12,6 +12,7 @@ import {
   type SavedViewFilters,
 } from "@/lib/api/leads";
 import { DEFAULT_LEAD_COLUMNS } from "@/lib/leadLabels";
+import { readScreenMemory, useRememberScreen } from "@/lib/screenMemory";
 import { fromViewDays, toViewDays } from "@/lib/viewDays";
 
 import { anyFilterInForce, type LeadFilterKey } from "./leadFilters";
@@ -20,6 +21,79 @@ import type { LeadCallFilters } from "./MoreFilters";
 
 type LeadStatus = NonNullable<SavedViewFilters["status"]>;
 type Outcome = NonNullable<SavedViewFilters["last_outcome"]>;
+
+/**
+ * The lens as `lib/screenMemory` keeps it between visits in one tab. NOT the search box or
+ * the question: a search can be a phone number, and those are not kept anywhere they
+ * outlive the screen.
+ */
+interface LensMemory {
+  status?: string;
+  assignedTo?: string;
+  facetValues: Record<string, string[]>;
+  chosenColumns?: string[];
+  created: DateRange | null;
+  lastCall: DateRange | null;
+  lastOutcome?: string;
+  direction?: "inbound" | "outbound";
+  testCalls: boolean;
+  followUp?: "done" | "not_done";
+  callbackOpen?: boolean;
+  captured: CapturedFilter[];
+  campaignId?: string;
+  activeViewId?: string;
+  offset: number;
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+function dayRange(value: unknown): DateRange | null {
+  if (!value || typeof value !== "object") return null;
+  const { start, end } = value as Record<string, unknown>;
+  return typeof start === "string" && typeof end === "string" && DAY.test(start) && DAY.test(end)
+    ? { start, end }
+    : null;
+}
+
+function strings(value: unknown): string[] | undefined {
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
+}
+
+/**
+ * What the screen held when it was left, each value checked for shape. A link that names
+ * a stage or a campaign opens on that filter alone; a screen with no memory key keeps none.
+ */
+function rememberedLens(initial: { campaignId?: string; status?: string; memoryKey?: string }): Partial<LensMemory> {
+  if (!initial.memoryKey || initial.campaignId || initial.status) return {};
+  const kept = readScreenMemory<LensMemory>(initial.memoryKey);
+  if (!kept) return {};
+  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+  const facetValues: Record<string, string[]> = {};
+  if (kept.facetValues && typeof kept.facetValues === "object") {
+    for (const [key, values] of Object.entries(kept.facetValues)) {
+      const list = strings(values);
+      if (list) facetValues[key] = list;
+    }
+  }
+  return {
+    status: text(kept.status),
+    assignedTo: text(kept.assignedTo),
+    facetValues,
+    chosenColumns: strings(kept.chosenColumns),
+    created: dayRange(kept.created),
+    lastCall: dayRange(kept.lastCall),
+    lastOutcome: text(kept.lastOutcome),
+    direction: kept.direction === "inbound" || kept.direction === "outbound" ? kept.direction : undefined,
+    testCalls: typeof kept.testCalls === "boolean" ? kept.testCalls : undefined,
+    followUp: kept.followUp === "done" || kept.followUp === "not_done" ? kept.followUp : undefined,
+    callbackOpen: typeof kept.callbackOpen === "boolean" ? kept.callbackOpen : undefined,
+    captured: Array.isArray(kept.captured) ? kept.captured : undefined,
+    campaignId: text(kept.campaignId),
+    activeViewId: text(kept.activeViewId),
+    offset:
+      typeof kept.offset === "number" && Number.isInteger(kept.offset) && kept.offset > 0 ? kept.offset : undefined,
+  };
+}
 
 /**
  * WHICH ROWS AND WHICH COLUMNS — the leads screen's filter state, and the one `LeadLens`
@@ -35,10 +109,13 @@ type Outcome = NonNullable<SavedViewFilters["last_outcome"]>;
  */
 export function useLeadsLens(
   needKey: string = "need",
-  initial: { campaignId?: string; status?: string } = {},
+  initial: { campaignId?: string; status?: string; memoryKey?: string } = {},
 ) {
+  // Opening a lead and pressing Back comes back to the same filters and page
+  // (`lib/screenMemory`). A link that names a stage or a campaign opens on that alone.
+  const [kept] = useState(() => rememberedLens(initial));
   // `?status=` comes from a link that opens this table on one stage (a Pip chart, D-934).
-  const [status, setStatus] = useState<string | undefined>(initial.status);
+  const [status, setStatus] = useState<string | undefined>(initial.status ?? kept.status);
   const [search, setSearch] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   /**
@@ -49,32 +126,49 @@ export function useLeadsLens(
   const [ask, setAsk] = useState("");
   const [askTerm, setAskTerm] = useState("");
   /** "Assigned to me" — a member id sent to the server, never a slice of the page. */
-  const [assignedTo, setAssignedTo] = useState<string | undefined>();
+  const [assignedTo, setAssignedTo] = useState<string | undefined>(kept.assignedTo);
   /** Extraction-schema key → chosen values. */
-  const [facetValues, setFacetValues] = useState<Record<string, string[]>>({});
+  const [facetValues, setFacetValues] = useState<Record<string, string[]>>(kept.facetValues ?? {});
   /**
    * `undefined` means "nothing chosen", and the table then asks for the usual five
    * (`DEFAULT_LEAD_COLUMNS`, with the business's own "what they want" key). Every other
    * column, the business's own fields included, is one tick away in the chooser.
    */
-  const [chosenColumns, setChosenColumns] = useState<string[] | undefined>();
+  const [chosenColumns, setChosenColumns] = useState<string[] | undefined>(kept.chosenColumns);
   /** When the lead came in, as India days, both ends included (D-893). */
-  const [created, setCreated] = useState<DateRange | null>(null);
+  const [created, setCreated] = useState<DateRange | null>(kept.created ?? null);
   /** When the lead's latest call happened. */
-  const [lastCall, setLastCall] = useState<DateRange | null>(null);
+  const [lastCall, setLastCall] = useState<DateRange | null>(kept.lastCall ?? null);
   /** How the lead's latest call ended (`lib/callFilters.OUTCOMES`). */
-  const [lastOutcome, setLastOutcome] = useState<string | undefined>();
-  const [direction, setDirection] = useState<"inbound" | "outbound" | undefined>();
+  const [lastOutcome, setLastOutcome] = useState<string | undefined>(kept.lastOutcome);
+  const [direction, setDirection] = useState<"inbound" | "outbound" | undefined>(kept.direction);
   /** False leaves out leads whose latest call was a free-trial test call. */
-  const [testCalls, setTestCalls] = useState(true);
-  const [followUp, setFollowUp] = useState<"done" | "not_done" | undefined>();
-  const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>();
+  const [testCalls, setTestCalls] = useState(kept.testCalls ?? true);
+  const [followUp, setFollowUp] = useState<"done" | "not_done" | undefined>(kept.followUp);
+  const [callbackOpen, setCallbackOpen] = useState<boolean | undefined>(kept.callbackOpen);
   /** Captured details the rows must match ("city contains Hyd"). */
-  const [captured, setCaptured] = useState<CapturedFilter[]>([]);
+  const [captured, setCaptured] = useState<CapturedFilter[]>(kept.captured ?? []);
   /** The leads one campaign reached, set by the link from its results (D-905). */
-  const [campaignId, setCampaignId] = useState<string | undefined>(initial.campaignId);
-  const [activeViewId, setActiveViewId] = useState<string | undefined>();
-  const [offset, setOffset] = useState(0);
+  const [campaignId, setCampaignId] = useState<string | undefined>(initial.campaignId ?? kept.campaignId);
+  const [activeViewId, setActiveViewId] = useState<string | undefined>(kept.activeViewId);
+  const [offset, setOffset] = useState(kept.offset ?? 0);
+  useRememberScreen(initial.memoryKey ?? null, {
+    status,
+    assignedTo,
+    facetValues,
+    chosenColumns,
+    created,
+    lastCall,
+    lastOutcome,
+    direction,
+    testCalls,
+    followUp,
+    callbackOpen,
+    captured,
+    campaignId,
+    activeViewId,
+    offset,
+  } satisfies LensMemory);
 
   // The search box drives the query key; a short pause is "finished typing", so one
   // keystroke is not one server-side LIKE.
@@ -185,9 +279,14 @@ export function useLeadsLens(
   };
 
   // A changed FILTER returns to page one — page 4 of "hot" is not page 4 of "won". Keyed
-  // without the offset, or this would undo every page turn.
-  const filterKey = lensKey(lens, { limit: PAGE_SIZE });
+  // without the offset, or this would undo every page turn, and without the columns,
+  // which change what each row shows and never which rows are on the page.
+  // Not on the first render either: that is the page the screen was left on.
+  const filterKey = lensKey({ ...lens, columns: undefined }, { limit: PAGE_SIZE });
+  const lastFilterKey = useRef(filterKey);
   useEffect(() => {
+    if (lastFilterKey.current === filterKey) return;
+    lastFilterKey.current = filterKey;
     setOffset(0);
   }, [filterKey]);
 

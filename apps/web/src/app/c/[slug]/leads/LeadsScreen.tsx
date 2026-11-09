@@ -85,6 +85,7 @@ export function LeadsScreen() {
   const f = useLeadsLens(needKey, {
     campaignId: params.get("campaign_id") || undefined,
     status: params.get("status") || undefined,
+    memoryKey: `${session.orgSlug}:leads`,
   });
   const { lens } = f;
 
@@ -125,6 +126,20 @@ export function LeadsScreen() {
     setSelection(EMPTY_SELECTION);
     setBulkResult(null);
   }, [f.currentLens]);
+
+  /*
+   * A page that has lost its rows steps back to the last page that has some. Marking every
+   * row on the last page of "New" as contacted takes them out of the filter, and the re-read
+   * of that offset is empty while `total` still counts page one: without this the table
+   * said "No people match" over a pager pointing past its own end. Only on the server's
+   * answer for THIS offset, never on the previous page's placeholder.
+   */
+  const total = leads.isPlaceholderData ? undefined : leads.data?.total;
+  const { offset, setOffset } = f;
+  useEffect(() => {
+    if (total === undefined || offset === 0 || offset < total) return;
+    setOffset(Math.max(0, Math.floor((total - 1) / PAGE_SIZE) * PAGE_SIZE));
+  }, [total, offset, setOffset]);
 
   /** The SERVER's resolved columns — what the CSV header is built from — not our request. */
   const columns: LeadColumn[] = leads.data?.columns ?? [];
