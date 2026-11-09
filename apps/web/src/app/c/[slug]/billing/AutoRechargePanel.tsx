@@ -279,7 +279,12 @@ export function AutoRechargePanel({
             value={amount}
             onChange={setAmount}
             disabled={!canManage}
-            hint={`At most ${formatINR(data.max_debit_inr)} each time.`}
+            /* Once approved, the approval's own limit is the ceiling: switching on above it
+               is refused (`auto_recharge_over_mandate`), so the platform's maximum would
+               invite exactly that refusal. */
+            hint={`At most ${formatINR(
+              confirmed && data.mandate_max_inr ? data.mandate_max_inr : data.max_debit_inr,
+            )} each time.`}
           />
           <MoneyInput
             label="Monthly limit"
