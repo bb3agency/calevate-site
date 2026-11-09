@@ -2706,6 +2706,12 @@ RESEARCH.md`, read 9 Nov 2026):
   done by the voice instead of the model.
 - Square-bracket notes are dropped from speech (`channels/voice.md:347-352`); angle-bracket
   tags such as `<spell>` and `<break>` are not mentioned anywhere.
+- No agent of ours is "te-IN" on the wire: every publish sends `language: "auto"` and
+  `voice.language: null` (`engine/thinnest._AUTO_LANGUAGE`, founder rule of 19 and 28 Oct
+  2026), so question 2 asks about an auto agent whose call is in Telugu. Our "Hear it" sample
+  is the one request that does name the language (`preview_own_key_voice` sends `language:
+  te-IN`, `preview-byok-voice.md:7`), so a sample can sound right while the call is spoken
+  under whatever the engine picks for auto (deep audit D3, 10 Nov 2026).
 
 UNVERIFIED until ThinnestAI answers. Nothing is built on any answer yet.
 
@@ -2718,12 +2724,16 @@ UNVERIFIED until ThinnestAI answers. Nothing is built on any answer yet.
 > 1. When one reply is spoken in pieces (from the first comma, then sentence by sentence),
 >    are the pieces sent to Cartesia as continuations of one context (`continue: true`), or
 >    as separate requests?
-> 2. For an agent whose language is te-IN (and one on hi-IN), what `language`, `locale` and
+> 2. Our agents are on "Match the customer" (`language: auto`). On a call that is in Telugu
+>    (and one in Hindi), what `language`, `locale` and
 >    `normalization` do you send to Cartesia?
 > 3. Could `normalization` be set per agent (for example `en-IN` on a Telugu agent), so
 >    numbers and amounts are read the English way, as Cartesia documents for Hindi?
 > 4. If a reply contains Cartesia's `<spell>` or `<break>` tags, are they passed through to
 >    Cartesia, removed, or read aloud?
+> 5. Set Agent BYOK Voice says `emotion` is English only. On a call in Telugu, is the agent's
+>    saved `emotion` still sent to Cartesia, or left out? And is `speed` sent as Cartesia's
+>    `generation_config.speed` unchanged (0.9 stays 0.9)?
 >
 > Thanks,
 > Umesh
