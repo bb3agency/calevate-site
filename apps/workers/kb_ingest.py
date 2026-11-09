@@ -53,6 +53,8 @@ from typing import Any, Final
 from uuid import UUID
 
 import httpx
+from arq import Retry
+from calevate_shared.backoff import ladder_delay_s
 from calevate_shared.document_ingest import (
     MAX_SOURCE_BYTES,
     DocumentEmptyError,
@@ -68,6 +70,7 @@ from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.redis import get_redis
 from apps.api.crm.assist import ASSIST_FEATURE_KB_OCR
 from apps.api.db.base import uuid7
@@ -415,7 +418,48 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     transaction) and again by the sweep for a row that stalled. It is idempotent at every
     step: extraction is skipped when chunks already exist, approval is a CAS, and the
     publish's own re-upload guard makes a repeat a lock and a read.
+
+    A job that may approve retries on arq's ladder rather than failing over to the sweep:
+    the sweep's re-drive never approves (`may_self_approve` is False there), so an account
+    member's file whose first reading raised (a dropped database connection, a reader
+    fault) would otherwise be read later and left waiting for a review D-658 says it never
+    needs.
     """
+    try:
+        return await _ingest_kb_source(payload)
+    except Retry:
+        # Already arq's (`storage.StorageUnavailableError`), with its own wait.
+        raise
+    except Exception as exc:
+        attempt = job_try(ctx)
+        if payload.get("may_self_approve") and attempt < WORKER_MAX_TRIES:
+            log.warning(
+                "kb_ingest_retrying",
+                extra={"source_id": str(payload.get("source_id")), "error": type(exc).__name__},
+            )
+            raise Retry(defer=ladder_delay_s(INGEST_RETRY_BACKOFF_S, attempt)) from exc
+        raise
+
+
+#: Was this upload's exact file already published as an earlier version of the same name?
+#: A re-reading of a file we hold copies its digest onto the new version's row.
+_SAME_FILE_WAS_LIVE_SQL = """
+SELECT 1
+FROM kb_uploads cu
+JOIN kb_sources cs ON cs.id = cu.source_id
+JOIN kb_sources s ON s.tenant_id = cs.tenant_id AND s.name = cs.name
+  AND s.version < cs.version AND s.published_at IS NOT NULL
+JOIN kb_uploads u ON u.source_id = s.id AND u.original_sha256 = cu.original_sha256
+WHERE cu.id = :uid
+LIMIT 1
+"""
+
+
+#: The waits between attempts of an approving ingest, by attempt (`ladder_delay_s`).
+INGEST_RETRY_BACKOFF_S: Final[tuple[float, ...]] = (30.0, 120.0)
+
+
+async def _ingest_kb_source(payload: dict[str, Any]) -> str:
     tenant_id = UUID(str(payload["tenant_id"]))
     source_id = UUID(str(payload["source_id"]))
     may_self_approve = bool(payload.get("may_self_approve"))
@@ -582,9 +626,14 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     await _clear_failures(upload_id)
     async with tenant_session(tenant_id) as session:
         await _mark(session, upload_id, UPLOAD_PROCESSED)
-        if version is not None:
-            # Its words shape every agent's script as an onboarding document shapes the
-            # first one's, as a suggestion (D-923).
+        # Its words shape every agent's script as an onboarding document shapes the first
+        # one's, as a suggestion (D-923) — unless this is the same file an earlier live
+        # version already was (`reparse_kb_upload`'s new reading), which the agents had.
+        if (
+            version is not None
+            and (await session.execute(text(_SAME_FILE_WAS_LIVE_SQL), {"uid": upload_id})).first()
+            is None
+        ):
             await queue_document_suggestions(session, tenant_id=tenant_id, upload_id=upload_id)
     if version is None:
         # A later approved version of this name got there first (a re-read of a changed

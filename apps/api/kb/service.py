@@ -529,6 +529,26 @@ async def enqueue_publish(session: AsyncSession, *, tenant_id: UUID, source_id: 
     )
 
 
+def refuse_reserved_name(name: str) -> None:
+    """Refuse a new item named like the taught facts' own source.
+
+    A name is its version sequence (`insert_source_version`), so a note, file or link
+    called "Facts you taught" would be that source's next version: published, it archives
+    the compiled facts and every agent loses them, and the next fact taught archives the
+    item in turn. Rename and remove already refuse that name (`kb/store`); this is the
+    same refusal at creation. `teach/facts` is the one writer and passes `facts_source`.
+    """
+    # Deferred: `teach.facts` imports this module.
+    from apps.api.teach.facts import FACTS_SOURCE_NAME
+
+    if name == FACTS_SOURCE_NAME:
+        raise ProblemError.conflict(
+            "kb_name_taken",
+            "That name is kept for the facts you taught.",
+            remediation="Choose a different name.",
+        )
+
+
 async def submit_source(
     session: AsyncSession,
     *,
@@ -539,6 +559,7 @@ async def submit_source(
     uri: str | None = None,
     submitted_by: UUID | None = None,
     auto_approve: bool = False,
+    facts_source: bool = False,
 ) -> dict[str, Any]:
     """Create the next VERSION of a named source, chunked, and approved or awaiting approval.
 
@@ -573,6 +594,8 @@ async def submit_source(
     # SUBMISSION rather than of a version: nothing here needs a database to decide it.
     _reject_invisible_characters(name, field="source name")
     _reject_invisible_characters(body, field="wording")
+    if not facts_source:
+        refuse_reserved_name(name)
 
     chunks = chunk_text(body)
     if not chunks:
@@ -3476,6 +3499,7 @@ __all__ = [
     "record_link_refusal",
     "recorded_handles_of_agent",
     "refresh_projection_keys",
+    "refuse_reserved_name",
     "reject_source",
     "release_test_copy_claims",
     "running_arms",

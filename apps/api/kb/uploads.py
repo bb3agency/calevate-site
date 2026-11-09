@@ -75,6 +75,7 @@ from apps.api.kb.service import (
     approve_source,
     enqueue_publish,
     insert_source_version,
+    refuse_reserved_name,
     upload_reaches_agents,
     withdraw_source,
 )
@@ -343,6 +344,7 @@ async def name_for_new_item(
     The tenant's lock on names is held to the end of the transaction, so two uploads of one
     name at the same moment cannot both choose "(2)"."""
     base = safe_name(given=given, fallback=fallback)
+    refuse_reserved_name(base)
     if given:
         return base
     await session.execute(

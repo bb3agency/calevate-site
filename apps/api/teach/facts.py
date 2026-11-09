@@ -135,6 +135,7 @@ async def _republish(
         body=body,
         submitted_by=submitted_by,
         auto_approve=auto_approve,
+        facts_source=True,
     )
 
 
