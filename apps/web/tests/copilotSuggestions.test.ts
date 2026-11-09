@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
+import { EMPTY_PANEL_QUESTION, suggestedQuestions } from "@/lib/copilot/suggestions";
 
 /**
  * The assistant's empty panel offers questions worth asking ON THIS SCREEN (REDESIGN-2).
@@ -14,11 +14,10 @@ describe("suggested questions", () => {
     expect(suggestedQuestions("/c/{slug}")).toContain("What needs me today?");
   });
 
-  it("offers three or four plain questions everywhere, with no glyphs", () => {
+  it("offers three plain questions everywhere, with no glyphs", () => {
     for (const route of ["/c/x", "/c/x/leads", "/c/x/leads/1", "/c/x/agents/1", "/c/x/billing", "/c/x/settings/team", "/admin"]) {
       const questions = suggestedQuestions(route);
-      expect(questions.length).toBeGreaterThanOrEqual(3);
-      expect(questions.length).toBeLessThanOrEqual(4);
+      expect(questions.length).toBe(3);
       for (const q of questions) expect(q).toMatch(/^[A-Z][^\p{Extended_Pictographic}]*$/u);
     }
   });
@@ -28,20 +27,9 @@ describe("suggested questions", () => {
   });
 });
 
-describe("the empty panel's opening line", () => {
-  it("speaks to the screen it sits beside, and never counts anything", () => {
-    const calls = openingLine("/c/acme/calls", false);
-    const billing = openingLine("/c/acme/billing", false);
-    expect(calls).not.toBe(billing);
-    expect(calls).toMatch(/call/);
-    expect(billing).toMatch(/credit/);
-    for (const line of [calls, billing, openingLine("/c/acme/leads/l1", false)]) {
-      expect(line).not.toMatch(/\d/);
-    }
-  });
-
-  it("offers to fill in a form only on a screen that has fields", () => {
-    expect(openingLine("/c/acme/agents/a1", true)).toMatch(/fill in/);
-    expect(openingLine("/c/acme/agents/a1", false)).not.toMatch(/fill in/);
+describe("the empty panel's question", () => {
+  it("is one short plain question", () => {
+    expect(EMPTY_PANEL_QUESTION.split(" ").length).toBeLessThanOrEqual(6);
+    expect(EMPTY_PANEL_QUESTION).toMatch(/^[A-Z][a-z ]+\?$/);
   });
 });

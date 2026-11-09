@@ -1,21 +1,22 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PipNotes } from "@/components/copilot/PipNotes";
+import { PipNotes } from "@/app/c/[slug]/PipNotes";
 import { useClientRealm } from "@/lib/api/session";
-import { launcherCount, type CopilotNote, type CopilotNotes } from "@/lib/copilot/notes";
+import type { CopilotNote, CopilotNotes } from "@/lib/copilot/notes";
 
 import { problem, renderClientPage } from "./harness";
 
 /**
- * D-936: what Pip noticed, at the top of its panel.
+ * D-936: what Pip noticed, with the dashboard's notices (founder, 9 Nov 2026: Pip's panel
+ * opens on one question, so its notes moved here).
  *
- * - Each note is one line and one button; Pip's own notes can be put away, linked items
- *   (another screen's) cannot.
- * - `open` hands the route TEMPLATE to the dock, `ask` prefills and never sends.
- * - Opening the panel marks the notes seen once; pressing a note records it.
+ * - Each note is one line and one button, and can be put away.
+ * - Linked items (the attention queue's and the healer's, said in Pip's voice) are not shown:
+ *   the dashboard already says them.
+ * - `open` hands the route TEMPLATE on, `ask` hands the words on and never sends.
+ * - Showing the notes marks them seen once; pressing a note records it.
  * - Two notes show, the rest behind "Show N more".
- * - The launcher's count is Pip's own unseen notes only.
  */
 
 function note(over: Partial<CopilotNote> = {}): CopilotNote {
@@ -48,6 +49,14 @@ const WEEK = note({
   unread: false,
 });
 
+const RUNWAY = note({
+  id: "0192f0aa-7777-7000-8000-000000000003",
+  kind: "credit_runway",
+  line: "Your credit may run out in 4 days.",
+  button: { kind: "open", label: "Add credit", screen: "Credits & billing", route: "/c/{slug}/billing", prompt: null },
+  unread: false,
+});
+
 const LINKED = note({
   id: "linked:campaign_stalled",
   kind: "campaign_stalled",
@@ -60,10 +69,10 @@ const LINKED = note({
 
 function Harnessed(props: { onOpen: (d: { route: string; screen: string; where: string }) => void; onAsk: (p: string) => void }) {
   const realm = useClientRealm();
-  return <PipNotes session={realm.session} realm="client" onOpen={props.onOpen} onAsk={props.onAsk} />;
+  return <PipNotes session={realm.session} onOpen={props.onOpen} onAsk={props.onAsk} />;
 }
 
-describe("Pip's notes", () => {
+describe("Pip's notes on the dashboard", () => {
   it("shows each note as a line and a button, marks them seen once, and records a press", async () => {
     const onOpen = vi.fn();
     const onAsk = vi.fn();
@@ -89,7 +98,7 @@ describe("Pip's notes", () => {
     );
   });
 
-  it("puts Pip's own note away and offers no dismiss on a linked item", async () => {
+  it("puts a note away, and leaves out the items this screen already shows", async () => {
     let dismissed = false;
     const { calls } = await renderClientPage(<Harnessed onOpen={vi.fn()} onAsk={vi.fn()} />, {
       get "GET /v1/copilot/notes"() {
@@ -101,8 +110,8 @@ describe("Pip's notes", () => {
       },
     });
 
-    await screen.findByText(LINKED.line);
-    expect(screen.queryByRole("button", { name: `Dismiss: ${LINKED.line}` })).toBeNull();
+    await screen.findByText(note().line);
+    expect(screen.queryByText(LINKED.line)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: `Dismiss: ${note().line}` }));
     await waitFor(() => expect(screen.queryByText(note().line)).toBeNull());
     expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/dismiss"))).toBe(true);
@@ -111,20 +120,21 @@ describe("Pip's notes", () => {
 
   it("shows two notes and the rest behind Show more", async () => {
     await renderClientPage(<Harnessed onOpen={vi.fn()} onAsk={vi.fn()} />, {
-      "GET /v1/copilot/notes": { notes: [note({ unread: false }), WEEK, LINKED], unread: 0 },
+      "GET /v1/copilot/notes": { notes: [note({ unread: false }), WEEK, RUNWAY, LINKED], unread: 0 },
     });
 
     await screen.findByText(WEEK.line);
-    expect(screen.queryByText(LINKED.line)).toBeNull();
+    expect(screen.queryByText(RUNWAY.line)).toBeNull();
     const more = screen.getByRole("button", { name: "Show 1 more" });
     expect(more.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(more);
-    expect(screen.getByText(LINKED.line)).toBeTruthy();
+    expect(screen.getByText(RUNWAY.line)).toBeTruthy();
+    expect(screen.queryByText(LINKED.line)).toBeNull();
   });
 
-  it("renders nothing when Pip has noticed nothing", async () => {
+  it("renders nothing when Pip has noticed nothing of its own", async () => {
     const { container } = await renderClientPage(<Harnessed onOpen={vi.fn()} onAsk={vi.fn()} />, {
-      "GET /v1/copilot/notes": { notes: [], unread: 0 },
+      "GET /v1/copilot/notes": { notes: [LINKED], unread: 0 },
     });
     await waitFor(() => expect(container.querySelector("section")).toBeNull());
   });
@@ -133,12 +143,7 @@ describe("Pip's notes", () => {
     await renderClientPage(<Harnessed onOpen={vi.fn()} onAsk={vi.fn()} />, {
       "GET /v1/copilot/notes": problem(503, { title: "Unavailable", status: 503 }),
     });
-    expect((await screen.findByRole("alert")).textContent).toContain("Could not check what");
+    expect(await screen.findByText(/Could not check what/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-  });
-
-  it("counts only Pip's own unseen notes on the launcher", () => {
-    expect(launcherCount(undefined)).toBe(0);
-    expect(launcherCount({ notes: [note(), LINKED], unread: 1 })).toBe(1);
   });
 });

@@ -25,8 +25,10 @@ export function keepingOnWire(surface: CopilotSurface): { saves?: CopilotSaves; 
 const liveStepOf = (surface: CopilotSurface) => surface.liveStep ?? "the button that puts it live";
 
 /**
- * Under a fill Pip just made. On an autosaving screen it says what the screen DOES, not that
- * the save has happened: the fill lands before the debounced save runs, and a save can fail.
+ * Under a fill Pip just made, beside its Undo. This is the one place the panel says how the
+ * screen keeps changes: the empty panel does not, because it matters only once something
+ * has changed. On an autosaving screen it says what the screen DOES, not that the save has
+ * happened: the fill lands before the debounced save runs, and a save can fail.
  */
 export function filledNotice(surface: CopilotSurface): string {
   switch (savesOf(surface)) {
@@ -62,19 +64,5 @@ export function filledReply(surface: CopilotSurface, labels: readonly string[]):
       return `I changed ${what}.`;
     default:
       return `I filled in ${what}.`;
-  }
-}
-
-/** The empty panel's line about this screen's fields, or "" when it has none worth a line. */
-export function panelNotice(surface: CopilotSurface): string {
-  switch (savesOf(surface)) {
-    case "button":
-      return "Nothing is saved until you press this screen's own save button. ";
-    case "autosave":
-      return `Changes here are saved as a draft by themselves; nothing goes live until you press ${liveStepOf(surface)}. `;
-    case "immediate":
-      return "Changes here are saved as soon as they are made. ";
-    default:
-      return "";
   }
 }

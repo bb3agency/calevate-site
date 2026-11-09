@@ -50,26 +50,11 @@ const QUESTIONS: Record<Screen, readonly string[]> = {
 };
 
 /**
- * The panel's first line, in the words of the screen it sits beside (founder, REDESIGN-2):
- * what a person can ask here, never a list of features and never a count of anything.
+ * The empty panel's only line, the same on every screen (founder, 9 Nov 2026: make it as
+ * simple as ChatGPT's home). What fits the screen is said by the questions under it, not by
+ * a sentence above them. A screen that leads its own conversation passes its own `intro`.
  */
-const OPENINGS: Record<Screen, string> = {
-  dashboard: "I can tell you what needs you today and how this week went.",
-  attention: "I can go through what needs you, one thing at a time.",
-  calls: "I can find a call, sum up a day of calls, or tell you who needs a call back.",
-  call: "Ask me what this caller wanted, or whether to call them back.",
-  leads: "I can tell you who to call first and what people are asking for.",
-  lead: "Ask me what this person wants and what to do next.",
-  agents: "I can tell you what each agent does and whether it is answering.",
-  agent: "Ask me how this agent is doing, or how to change what it says.",
-  // D-854: the first question of the build, asked before any model is, so the first tap is free.
-  first_agent: "Let's build your first agent together. First, what should it do: answer your calls, call your leads, or both?",
-  campaigns: "I can tell you how a campaign is going, or why one cannot start.",
-  integrations: "Ask me what is connected and whether your leads are getting through.",
-  billing: "I can tell you how long your credit will last and where it went.",
-  knowledge: "Ask me what your agents know and what they could not answer.",
-  other: "Ask me about this screen, or anything in your account.",
-};
+export const EMPTY_PANEL_QUESTION = "What can I help with?";
 
 function screenOf(route: string): Screen {
   const parts = route.split("/").filter(Boolean);
@@ -129,11 +114,4 @@ export function suggestedQuestions(route: string, business?: BusinessCapabilitie
   });
   const own = business.pipQuestions.map(capitalised).find((q) => !fitted.includes(q));
   return own && OWN_QUESTION_SCREENS.has(screen) ? [...fitted.slice(0, -1), own] : fitted;
-}
-
-/** The empty panel's opening line for this screen; a screen with fields adds that the
- * assistant can fill them in. */
-export function openingLine(route: string, hasFields: boolean): string {
-  const line = OPENINGS[screenOf(route)];
-  return hasFields ? `${line} Or tell me what to fill in here.` : line;
 }

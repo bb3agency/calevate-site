@@ -302,6 +302,8 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/dashboard": EMPTY_DASHBOARD,
     // No charts pinned from the assistant (D-934): the section renders nothing.
     "/v1/copilot/pins": { pins: [], max_pins: 12 },
+    // Pip has noticed nothing (D-936): its notes render nothing.
+    "/v1/copilot/notes": { notes: [], unread: 0 },
     // An account that has not paid is owed no go-live guide (D-859).
     "/v1/go-live": NOT_OWED_GUIDE,
     // A first run put aside: the dashboard neither sends the owner on nor hides the checklist.
@@ -1716,5 +1718,34 @@ describe("a refresh of this week's figures or the cost per lead that fails", () 
     await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(2));
     expect(screen.getByText("₹30")).toBeTruthy();
     expect(screen.getByText("Answer rate")).toBeTruthy();
+  });
+});
+
+describe("Pip's notes on the home screen (D-936, out of Pip's panel since 9 Nov 2026)", () => {
+  it("shows Pip's own note with its button, and leaves out the queue's items it repeats", async () => {
+    const own = {
+      id: "0192f0aa-7777-7000-8000-000000000002",
+      kind: "good_week",
+      source: "pip" as const,
+      tone: "success" as const,
+      line: "Good week: 10 calls and 2 interested callers, both up on the week before.",
+      button: { kind: "ask", label: "See the week", screen: null, route: null, prompt: "How did this week go?" },
+      created_at: "2026-11-09T06:00:00Z",
+      unread: false,
+      dismissible: true,
+    };
+    const linked = {
+      ...own,
+      id: "linked:campaign_stalled",
+      kind: "campaign_stalled",
+      source: "linked" as const,
+      line: "1 campaign has stopped calling.",
+      dismissible: false,
+    };
+    await renderClientPage(page, routes({ "/v1/copilot/notes": { notes: [own, linked], unread: 0 } }));
+
+    expect(await screen.findByText(own.line)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "See the week" })).toBeTruthy();
+    expect(screen.queryByText(linked.line)).toBeNull();
   });
 });

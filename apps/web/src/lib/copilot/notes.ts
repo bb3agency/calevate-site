@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * Pip's notes (D-936): what Pip noticed in the account on its own, read by the panel and by
- * the launcher's count. The server composes every line and every button; this module only
- * reads, marks and puts away.
+ * Pip's notes (D-936): what Pip noticed in the account on its own, read by the client
+ * dashboard. The server composes every line and every button; this module only reads, marks
+ * and puts away.
  *
  * Live: `copilot_notes` is under the `assistant` topic (`apps/api/live/topics.py`), so a
  * detector run that opens a note tells this query to read again; the slow poll is the
@@ -18,40 +18,29 @@ import { livePoll } from "@/lib/live/liveStatus";
 
 export type CopilotNote = components["schemas"]["CopilotNoteOut"];
 export type CopilotNotes = components["schemas"]["CopilotNotesOut"];
-export type NotesRealm = "client" | "admin";
 
 /** The safety poll. The live topic does the real work. */
 export const NOTES_POLL_MS = 5 * 60_000;
-/** How many notes the panel shows before "Show N more". */
+/** How many notes show before "Show N more". */
 export const NOTES_SHOWN = 2;
 
-export const notesKey = (realm: NotesRealm, org: string) => ["copilot-notes", realm, org] as const;
+export const notesKey = (org: string) => ["copilot-notes", org] as const;
 
-function base(realm: NotesRealm): string {
-  return realm === "admin" ? "/v1/admin/copilot/notes" : "/v1/copilot/notes";
-}
-
-export function useCopilotNotes(session: Session, realm: NotesRealm, enabled = true) {
+export function useCopilotNotes(session: Session) {
   return useQuery<CopilotNotes>({
-    queryKey: notesKey(realm, session.orgSlug),
-    queryFn: () => apiRequest<CopilotNotes>(session, base(realm)),
+    queryKey: notesKey(session.orgSlug),
+    queryFn: () => apiRequest<CopilotNotes>(session, "/v1/copilot/notes"),
     refetchInterval: livePoll(NOTES_POLL_MS),
     // A view-as session is refused by the client route (`copilot:use`), so it never asks.
-    enabled: enabled && !session.impersonateOrg,
+    enabled: !session.impersonateOrg,
     staleTime: 30_000,
   });
 }
 
-/** The launcher's number: Pip's own notes nobody has seen. Linked items are the bell's. */
-export function launcherCount(data: CopilotNotes | undefined): number {
-  return data?.unread ?? 0;
-}
-
-/** Seen, put away, pressed. Client realm only: the operator's notes are read live and
- *  store nothing to mark. */
+/** Seen, put away, pressed. */
 export function useNoteActions(session: Session) {
   const client = useQueryClient();
-  const key = notesKey("client", session.orgSlug);
+  const key = notesKey(session.orgSlug);
   const refresh = () => void client.invalidateQueries({ queryKey: key });
   const post = (path: string) => apiRequest(session, path, { method: "POST" });
 
