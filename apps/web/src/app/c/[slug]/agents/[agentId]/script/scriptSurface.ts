@@ -70,7 +70,7 @@ export const OPENING_LINE_COPILOT_HELP =
   "notice is switched on, that notice is said just before this line; when both are off, this is " +
   "the first thing the caller hears. Do not repeat the AI or recording notice here. Keep it a " +
   "short, warm spoken greeting that names the business and offers help — not a description " +
-  "of the company. The agent's identity, goal, stages, objections and quick facts go in " +
+  "of the company. The agent's identity, goal, steps, push-backs and quick facts go in " +
   "their own sections, not here.";
 
 /** Said of every instruction field: the agent reads it, no caller hears it (PIP-06). */
@@ -88,13 +88,13 @@ export const IDENTITY_COPILOT_HELP =
  * "hints, not a rigid script") rather than a paragraph or a restated platform rule.
  */
 export const STEP_COPILOT_HELP =
-  "One stage of the call — a short plain-English instruction the agent follows in spirit, " +
+  "One step of the call — a short plain-English instruction the agent follows in spirit, " +
   'like "ask what the caller needs" or "take their name and read it back to confirm". A hint, ' +
   "not a rigid line to read out and not a description of the company.";
 
 /** A stage in "say" mode: the agent says its text as written, so it is a spoken line. */
 export const SAY_STEP_COPILOT_HELP =
-  "One stage of the call that the agent says word for word, so write exactly what the caller " +
+  "One step of the call that the agent says word for word, so write exactly what the caller " +
   "hears, in the callers' spoken language and everyday words: one or two short spoken " +
   "sentences, not an instruction and not a description of the company.";
 
@@ -169,13 +169,13 @@ export function scriptCopilotFields(
         ? spoken(
             text(
               `script-stages-${index}-instruction`,
-              `Stage ${index + 1}, said word for word`,
+              `Step ${index + 1}: exact words`,
               stage.instruction,
               SAY_STEP_COPILOT_HELP,
             ),
           )
-        : instruction(text(`script-stages-${index}-instruction`, `Stage ${index + 1}`, stage.instruction, STEP_COPILOT_HELP)),
-      spoken(text(`script-stages-${index}-sounds_like`, `How stage ${index + 1} sounds`, stage.sounds_like ?? "")),
+        : instruction(text(`script-stages-${index}-instruction`, `Step ${index + 1}: what it does`, stage.instruction, STEP_COPILOT_HELP)),
+      spoken(text(`script-stages-${index}-sounds_like`, `Step ${index + 1}: example line`, stage.sounds_like ?? "")),
     ]),
     ...script.objections.flatMap((o, index) => [
       text(`script-objections-${index}-objection`, `Push-back ${index + 1}`, o.objection),

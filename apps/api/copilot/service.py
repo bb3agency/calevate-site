@@ -716,7 +716,9 @@ class FillRefusedError(Exception):
     same to the owner, by the field's label and with no ids, and is what reaches the screen.
     `grounded_ids` are the fields this call named when it was grounded — its `because`
     quoted the latest message, or it repaired a grounded call — and empty otherwise. A repair
-    of this fill inherits the grounding for those fields and no others.
+    of this fill inherits the grounding for those fields and no others. `field_ids` are the
+    screen's fields the call named, so the panel can tell a refusal a later fill made good
+    from one that left a field unwritten (`CopilotStepEvent.field_ids`).
     """
 
     def __init__(
@@ -725,10 +727,12 @@ class FillRefusedError(Exception):
         *,
         plain: Sequence[str] | None = None,
         grounded_ids: frozenset[str] = frozenset(),
+        field_ids: Sequence[str] = (),
     ) -> None:
         self.reasons = tuple(reasons)
         self.plain = tuple(plain) if plain is not None else (MALFORMED_FILL_PLAIN,)
         self.grounded_ids = grounded_ids
+        self.field_ids = tuple(field_ids)
         super().__init__("; ".join(reasons))
 
     @property
@@ -1075,6 +1079,12 @@ def validate_fill(
             reasons,
             plain=list(dict.fromkeys(plain)),
             grounded_ids=named if grounded else frozenset(),
+            # Only ids this screen declared: the model's other strings never reach the panel.
+            field_ids=[
+                raw["field_id"]
+                for raw in raw_items
+                if isinstance(raw, dict) and raw.get("field_id") in by_id
+            ],
         )
     return tuple(items)
 
@@ -2525,7 +2535,11 @@ async def _run_tool_loop(
                 step = _step_end(
                     call, status="refused", detail="; ".join(refused.plain), started_at=None
                 )
-                yield CopilotEvent(step=step.model_copy(update={"args": ""}))
+                yield CopilotEvent(
+                    step=step.model_copy(
+                        update={"args": "", "field_ids": list(dict.fromkeys(refused.field_ids))}
+                    )
+                )
                 continue
 
             for fragment in held:
@@ -2534,7 +2548,11 @@ async def _run_tool_loop(
             # again rather than as a failure the repair never undid. No detail: the answer
             # and the fill card say what changed, and a third list of it is noise.
             step = _step_end(call, status="done", detail="", started_at=None)
-            yield CopilotEvent(step=step.model_copy(update={"args": ""}))
+            yield CopilotEvent(
+                step=step.model_copy(
+                    update={"args": "", "field_ids": [item.field_id for item in items]}
+                )
+            )
             yield CopilotEvent(fill=items)
             yield CopilotEvent(
                 spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)

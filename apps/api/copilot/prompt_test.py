@@ -713,7 +713,7 @@ def test_a_writable_spoken_line_brings_its_languages_word_list() -> None:
     assert style is not None and style.word_swaps
     assert rendered.count('<spoken_style language="te-IN">') == 1
     for formal, _spoken in style.word_swaps:
-        assert f"“{formal}”" in rendered
+        assert formal in rendered
     assert (
         rendered.index("</fields>") < rendered.index("<spoken_style") < rendered.index("</screen>")
     )

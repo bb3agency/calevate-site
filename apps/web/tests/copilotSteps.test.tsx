@@ -152,6 +152,39 @@ describe("the assistant's steps, as the person sees them", () => {
     expect(screen.queryByText(/callers do not say/)).toBeNull();
   });
 
+  it("reads a refused fill as tried again only when later fills wrote every one of its fields (9 Nov 2026)", () => {
+    const refused = step({
+      id: "a",
+      tool: "set_fields",
+      status: "refused",
+      label: "Filling in this form…",
+      detail: "Opening line used words callers do not say",
+      field_ids: ["script-opening_line", "script-stages-0-sounds_like"],
+    });
+    const filled = (id: string, field_ids: string[]) =>
+      step({ id, tool: "set_fields", status: "done", label: "Filled in this form", detail: "", field_ids });
+    const { rerender } = render(
+      <StepList steps={[refused, filled("b", ["script-stages-0-sounds_like", "script-opening_line"])]} />,
+    );
+    expect(screen.getByText("Checked 1 thing")).toBeTruthy();
+    open();
+    expect(screen.getByText("Tried again")).toBeTruthy();
+    expect(screen.queryByText(/Could not finish/)).toBeNull();
+    // The repair dropped the opening line, so that field was never written.
+    rerender(<StepList steps={[refused, filled("c", ["script-stages-0-sounds_like"])]} />);
+    expect(screen.getByText("1 of 2 steps did not finish")).toBeTruthy();
+    expect(screen.getByText("Could not finish filling in this form")).toBeTruthy();
+  });
+
+  it("says it is still working, not that it failed, while the answer is still arriving", () => {
+    const refused = step({ id: "a", tool: "set_fields", status: "refused", label: "Filling in this form…", detail: "x" });
+    const { rerender } = render(<StepList steps={[refused]} working />);
+    expect(screen.getByText("Still working…")).toBeTruthy();
+    expect(screen.queryByText("Could not finish what it tried")).toBeNull();
+    rerender(<StepList steps={[refused]} />);
+    expect(screen.getByText("Could not finish what it tried")).toBeTruthy();
+  });
+
   it("shows the tool's name on hover to the operator only", () => {
     const { container, rerender } = render(<StepList steps={[step()]} />);
     open();

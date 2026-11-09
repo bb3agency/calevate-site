@@ -479,6 +479,10 @@ class CopilotStepEvent(BaseModel):
     label: str | None = None
     #: A troubleshoot read's checklist, drawn as a card under the steps (D-935).
     diagnosis: CopilotDiagnosis | None = None
+    #: A form fill's fields, by the ids the screen declared; `None` on every other step. The
+    #: panel reads a refused fill whose every field a later fill wrote as tried again, and
+    #: one that left a field unwritten as not finished.
+    field_ids: list[str] | None = None
 
 
 class CopilotActionEvent(BaseModel):
