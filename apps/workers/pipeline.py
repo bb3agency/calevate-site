@@ -367,6 +367,50 @@ async def _resolve_agent(
     return (row[0], row[1]) if row else None
 
 
+#: A route switched off AFTER the call began: the call was taken by an agent we still owned,
+#: so it is ours to record. A publish that recreates an agent retires the old copy's route
+#: once no call is connected (`engine_workspaces.retire_moved_engine_agent`) and concluding
+#: an experiment retires its arms' routes at once (`agents/experiments.py`); the results of a
+#: call that had just ended are still on their way then, and the poller re-reads them later.
+#: `updated_at` is the instant the route went inactive: the writers of a route's other columns
+#: (publish, secrets, drift sweeps) act on active routes.
+_RETIRED_ROUTE_SQL: Final = (
+    "SELECT tenant_id, agent_id FROM engine_agent_routes WHERE engine_agent_ref = :ref "
+    "AND engine = :engine AND NOT active AND updated_at >= :began"
+)
+
+
+async def _route_of_call(
+    engine: str, engine_agent_ref: str | None, snapshot: ExecutionSnapshot
+) -> tuple[UUID, UUID] | None:
+    """The (tenant, agent) a call belongs to: its agent's active route, else a route retired
+    after the call began. Never for an account under erasure, whose routes were withdrawn so
+    that nothing more is written for it (`retention._WITHDRAW_ROUTES_SQL`). A call that began
+    after its route was retired keeps `_withdrawn_route_tenant`'s alarm (D-189)."""
+    async with untenanted_session() as session:
+        resolved = await _resolve_agent(session, engine, engine_agent_ref)
+        began = snapshot.started_at or snapshot.ended_at
+        if resolved is not None or not engine_agent_ref or began is None:
+            return resolved
+        row = (
+            await session.execute(
+                text(_RETIRED_ROUTE_SQL),
+                {"ref": engine_agent_ref, "engine": engine, "began": began},
+            )
+        ).first()
+    if row is None:
+        return None
+    tenant_id = UUID(str(row[0]))
+    async with tenant_session(tenant_id) as session:
+        erased = (
+            await session.execute(
+                text("SELECT EXISTS (SELECT 1 FROM tenant_erasure_requests WHERE tenant_id = :t)"),
+                {"t": tenant_id},
+            )
+        ).scalar()
+    return None if erased else (tenant_id, UUID(str(row[1])))
+
+
 async def _withdrawn_route_tenant(
     session: AsyncSession, engine: str, engine_agent_ref: str | None
 ) -> UUID | None:
@@ -569,8 +613,7 @@ async def _ingest_stages(
     # The snapshot's ref wins over the webhook's: the fetch is the truth (D-31), and
     # the poller path has no webhook payload at all.
     agent_ref = snapshot.engine_agent_ref or payload.get("engine_agent_ref")
-    async with untenanted_session() as session:
-        resolved = await _resolve_agent(session, engine_name, agent_ref)
+    resolved = await _route_of_call(engine_name, agent_ref, snapshot)
     if resolved is None:
         # One of our own forwarding-test legs (D-746): its agent is ours, not a client's,
         # and the test's settlement reads the leg back from the platform itself.
@@ -5507,8 +5550,7 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
     Costs one extra statement per completed execution and no extra round trip: every
     EXISTS probe rides the same SELECT as the call row.
     """
-    async with untenanted_session() as session:
-        resolved = await _resolve_agent(session, engine_name, snapshot.engine_agent_ref)
+    resolved = await _route_of_call(engine_name, snapshot.engine_agent_ref, snapshot)
     if resolved is None:
         return "missing_call"
     tenant_id, _agent_id = resolved
