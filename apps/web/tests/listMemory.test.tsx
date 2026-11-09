@@ -87,6 +87,18 @@ describe("the call log comes back as it was left", () => {
   });
 });
 
+describe("the call log opened from the home screen's missed calls", () => {
+  it("lists that IST day's calls without test calls, as the count did, and says so in chips", async () => {
+    window.history.replaceState(null, "", "/c/acme/calls?status=failed&day=2026-08-13&test_calls=false");
+    const path =
+      "/v1/calls?status=failed&since=2026-08-13T00%3A00%3A00%2B05%3A30&until=2026-08-14T00%3A00%3A00%2B05%3A30&test_calls=false&limit=100";
+    const { calls } = await renderClientPage(callsPage(), { ...callRoutes(), [path]: [call({ status: "failed" })] });
+    await waitFor(() => expect(lastCallsPath(calls)).toBe(path));
+    expect(await screen.findByRole("button", { name: /Remove the filter: 13 Aug/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove the filter: Test calls left out" })).toBeTruthy();
+  });
+});
+
 const COLUMNS: LeadList["columns"] = [
   { key: "name", label: "Name", kind: "fixed", type: "text" },
   { key: "phone", label: "Phone", kind: "fixed", type: "text" },

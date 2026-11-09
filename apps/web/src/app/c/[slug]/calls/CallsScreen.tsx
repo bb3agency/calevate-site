@@ -151,13 +151,20 @@ interface CallsMemory {
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/** The filters a link may name; a link that names any opens on what it names alone. */
+const LINK_FILTERS = ["status", "agent_id", "campaign_id", "day", "test_calls"];
+
+/** `?day=` (an IST date): the home screen's "missed calls today" opens on that day only. */
+function linkedDay(param: string | null): DateRange | null {
+  return param && DAY.test(param) ? { start: param, end: param } : null;
+}
+
 /**
  * Where the log was left, read once at mount, every value checked against what the
- * controls offer. A link that names a filter (`?status=`, `?agent_id=`, `?campaign_id=`)
- * opens on that filter alone, as it always did.
+ * controls offer. A link that names a filter opens on that filter alone, as it always did.
  */
 function rememberedCalls(slug: string, params: URLSearchParams): Partial<CallsMemory> {
-  if (params.has("status") || params.has("agent_id") || params.has("campaign_id")) return {};
+  if (LINK_FILTERS.some((name) => params.has(name))) return {};
   const kept = readScreenMemory<CallsMemory>(`${slug}:calls`) ?? {};
   const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
   const dates = kept.dates;
@@ -189,10 +196,12 @@ export function CallsScreen({ slug }: { slug: string }) {
   const [campaignId, setCampaignId] = useState<string | undefined>(() => params.get("campaign_id") || kept.campaignId);
   const [outcome, setOutcome] = useState<CallOutcome | undefined>(kept.outcome as CallOutcome | undefined);
   const [direction, setDirection] = useState<CallDirection | undefined>(kept.direction as CallDirection | undefined);
-  const [dates, setDates] = useState<DateRange | null>(kept.dates ?? null);
+  const [dates, setDates] = useState<DateRange | null>(() => linkedDay(params.get("day")) ?? kept.dates ?? null);
   // On by default: a trial account has only test calls, and a log that hid every one of
   // them would read as "nobody has called". Each one carries a "Test call" tag.
-  const [testCalls, setTestCalls] = useState(kept.testCalls ?? true);
+  const [testCalls, setTestCalls] = useState(() =>
+    params.get("test_calls") === "false" ? false : (kept.testCalls ?? true),
+  );
   /** Marked handled or not yet (D-893), and whether a call-back is waiting. */
   const [followUpFilter, setFollowUpFilter] = useState<"done" | "not_done" | undefined>(
     kept.followUp as "done" | "not_done" | undefined,
