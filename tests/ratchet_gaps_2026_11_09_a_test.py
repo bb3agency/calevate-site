@@ -79,6 +79,15 @@ async def test_call_back_outside_calling_hours_says_when_it_can_ring(
     async def after_hours(*_args: object, **_kwargs: object) -> DispatchDecision:
         return DispatchDecision(allowed=False, rule=CALLING_HOURS_RULE, reason="gate sentence")
 
+    # 21:30 IST: the gate is faked, but when the window opens next is read from the clock.
+    night = datetime(2026, 11, 9, 16, 0, tzinfo=UTC)
+
+    class _Night(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:  # type: ignore[override]
+            return night
+
+    monkeypatch.setattr(lead_dial, "datetime", _Night)
     monkeypatch.setattr(lead_dial.service, "plan_callback", planned)
     monkeypatch.setattr(lead_dial, "check_dispatch", after_hours)
 
@@ -90,5 +99,5 @@ async def test_call_back_outside_calling_hours_says_when_it_can_ring(
 
     assert out.eligible is False
     assert out.rule == CALLING_HOURS_RULE
-    assert out.opens_at is not None and out.opens_at > datetime.now(UTC)
-    assert out.reason == lead_dial.calling_hours_reason(out.opens_at, now=datetime.now(UTC))
+    assert out.opens_at is not None and out.opens_at > night
+    assert out.reason == lead_dial.calling_hours_reason(out.opens_at, now=night)

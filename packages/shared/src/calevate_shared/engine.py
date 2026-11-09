@@ -4398,17 +4398,36 @@ def introduces_itself(*, ai_notice: str, language: str) -> bool:
     )
 
 
+#: A person's name field and the one word after it (its title, "గారు"), as
+#: `call_script.fill_spoken_line` reads a name field.
+_PERSON_NAME_FIELD: Final = re.compile(r"\{\{\s*\w*name\w*\s*\}\}(?:\s+[^\s,.!?।]+)?")
+
+
 def _without_introduction(opening: str, names: Sequence[str]) -> str:
     """`opening` without the sentences before its last that say one of `names`: said after
     the agent's introduction, they would tell the caller who is calling a second time. The
-    last sentence stays whatever it says, because it holds the opening's question."""
+    last sentence stays whatever it says, because it holds the opening's question.
+
+    A dropped sentence that also greets the person by name ("{{lead_name}} గారు, వర్షను
+    రైతు ఖాతా నుండి.") gives its name and title to the next sentence kept, so the call
+    still greets them by name (founder, 9 Nov 2026: Rytu Khata calls never said the name)."""
     # A one-letter name (a placeholder agent) would match inside any word.
     wanted = [name for name in names if len(name.strip()) > 1]
     sentences = [s for s in _SENTENCE_END_SPACE.split(opening.strip()) if s]
     if len(sentences) < 2 or not wanted:
         return opening.strip()
-    kept = [s for s in sentences[:-1] if not names_used(s, wanted)]
-    return " ".join([*kept, sentences[-1]])
+    kept: list[str] = []
+    carried = ""
+    for sentence in sentences[:-1]:
+        if names_used(sentence, wanted):
+            person = _PERSON_NAME_FIELD.search(sentence)
+            if person is not None:
+                carried = f"{person.group(0).strip()},"
+            continue
+        kept.append(f"{carried} {sentence}" if carried else sentence)
+        carried = ""
+    last = f"{carried} {sentences[-1]}" if carried else sentences[-1]
+    return " ".join([*kept, last])
 
 
 def introduction_names(*, name: str, business: str, body: str | None) -> tuple[str, ...]:

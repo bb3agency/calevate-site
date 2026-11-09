@@ -36,7 +36,12 @@ from apps.api.db.session import tenant_session
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from apps.workers.first_run import greeting_fits
 from apps.workers.script_assist import INTRODUCED_OPENING_NOTE, ScriptBrief, language_problems
-from calevate_shared.call_script import PRONOUNCE_LEAD, CallScript, compile_call_script
+from calevate_shared.call_script import (
+    PRONOUNCE_LEAD,
+    CallScript,
+    compile_call_script,
+    fill_spoken_line,
+)
 from calevate_shared.engine import (
     AgentConfig,
     DisclosurePosture,
@@ -235,6 +240,39 @@ def test_the_introduction_comes_after_the_salutation_and_before_the_opening_line
     )
     # A greeting left at the opening line's start is dropped: the salutation already said it.
     assert first == (f"నమస్కారం అండి, {TE_AI} ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా? ఈ కాల్ రికార్డ్ అవుతుంది.")
+
+
+#: Rytu Khata's placed-call opening (9 Nov 2026), with its agent's taught name in the test's.
+NAMED_OPENING = (
+    f"నమస్కారం {{{{lead_name}}}} గారు, {TAUGHT_NAME}ను రైతు ఖాతా నుండి. "
+    "మీరు యాప్ రిజిస్టర్ అయ్యారు, సహాయం చేయడానికి కాల్ చేశాను. ఓకేనా అండి?"
+)
+
+
+def test_a_sentence_said_twice_keeps_the_persons_name_and_title() -> None:
+    """Production, 9 Nov 2026: the sentence naming the agent was dropped after its
+    introduction, and the lead's name with it, so no call greeted the person by name."""
+    first = join_first_words(
+        TE_AI, NAMED_OPENING, ai_notice=TE_AI, language="te-IN", names=(NAME, TAUGHT_NAME)
+    )
+    assert first == (
+        f"నమస్కారం అండి, {TE_AI} {{{{lead_name}}}} గారు, మీరు యాప్ రిజిస్టర్ అయ్యారు, "
+        "సహాయం చేయడానికి కాల్ చేశాను. ఓకేనా అండి?"
+    )
+    assert f"{TAUGHT_NAME}ను" not in first, "the agent is still not introduced twice"
+    assert "Ramesh గారు, మీరు" in fill_spoken_line(first, {"lead_name": "Ramesh"})
+    # No name on the list: the name and its title go, the rest reads on.
+    assert fill_spoken_line(first, {}).endswith(
+        "అండి. మీరు యాప్ రిజిస్టర్ అయ్యారు, సహాయం చేయడానికి కాల్ చేశాను. ఓకేనా అండి?"
+    )
+
+
+def test_a_name_in_the_last_sentence_is_untouched_and_none_is_carried_without_one() -> None:
+    opening = f"{TAUGHT_NAME}ను రైతు ఖాతా నుండి. {{{{lead_name}}}} గారు, ఓకేనా అండి?"
+    first = join_first_words(
+        TE_AI, opening, ai_notice=TE_AI, language="te-IN", names=(TAUGHT_NAME,)
+    )
+    assert first == f"నమస్కారం అండి, {TE_AI} {{{{lead_name}}}} గారు, ఓకేనా అండి?"
 
 
 def test_with_the_ai_notice_off_the_opening_line_keeps_its_greeting_and_comes_first() -> None:
