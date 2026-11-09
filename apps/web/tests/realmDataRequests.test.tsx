@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { API_BASE, apiRequest, type Session } from "@/lib/api/client";
+import { API_BASE, apiRequest, apiUpload, type Session } from "@/lib/api/client";
 import { ROTATION_DRAIN_CAP_MS, createRealmAuthn } from "@/lib/authn/realm";
 import { useRealmSession } from "@/lib/authn/useRealmSession";
 
@@ -120,6 +120,76 @@ describe("data requests and the rotation barrier", () => {
     expect(pending).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(pending).toHaveLength(2);
+  });
+});
+
+/** An `XMLHttpRequest` that records each send and answers when the test says. */
+function deferredXhr(): { sent: string[]; answer: () => void } {
+  const sent: string[] = [];
+  const loads: (() => void)[] = [];
+  class StubXhr {
+    upload = { addEventListener: vi.fn() };
+    withCredentials = false;
+    status = 200;
+    responseText = "{}";
+    url = "";
+    private listeners: Record<string, () => void> = {};
+    open(_method: string, url: string) {
+      this.url = url;
+    }
+    setRequestHeader() {}
+    getResponseHeader() {
+      return "application/json";
+    }
+    addEventListener(type: string, listener: () => void) {
+      this.listeners[type] = listener;
+    }
+    abort() {}
+    send() {
+      sent.push(this.url.slice(API_BASE.length));
+      loads.push(() => this.listeners.load?.());
+    }
+  }
+  vi.stubGlobal("XMLHttpRequest", StubXhr);
+  return { sent, answer: () => loads.shift()?.() };
+}
+
+describe("uploads and the rotation barrier", () => {
+  it("an upload waits while a rotation supersedes the cookie", async () => {
+    const pending = deferredFetch();
+    const xhr = deferredXhr();
+    const authn = createRealmAuthn("client");
+    const session: Session = { orgSlug: "acme", realm: authn.transport };
+
+    const rotating = authn.rotatingRequest("/step-up/verify", { method: "POST", body: { code: "1" } });
+    const upload = apiUpload(session, "/v1/kb/uploads", new FormData());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(xhr.sent, "an upload must not carry the cookie the rotation is superseding").toEqual([]);
+
+    pending[0].resolve(SESSION);
+    await rotating;
+    await vi.waitFor(() => expect(xhr.sent).toEqual(["/v1/kb/uploads"]));
+    xhr.answer();
+    await expect(upload).resolves.toEqual({});
+  });
+
+  it("a rotation waits for an upload already on the wire", async () => {
+    const pending = deferredFetch();
+    const xhr = deferredXhr();
+    const authn = createRealmAuthn("client");
+    const upload = apiUpload({ orgSlug: "acme", realm: authn.transport }, "/v1/kb/uploads", new FormData());
+    await vi.waitFor(() => expect(xhr.sent).toHaveLength(1));
+
+    const rotating = authn.rotatingRequest("/step-up/verify", { method: "POST" });
+    await Promise.resolve();
+    expect(pending, "the rotation must not supersede the cookie the upload is carrying").toHaveLength(0);
+
+    xhr.answer();
+    await upload;
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    pending[0].resolve(SESSION);
+    await expect(rotating).resolves.toEqual(SESSION);
   });
 });
 
