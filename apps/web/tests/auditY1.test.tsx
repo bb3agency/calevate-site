@@ -8,6 +8,7 @@ import { MainTask } from "@/app/c/[slug]/agents/[agentId]/sections/mainTask";
 import type { Section } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptOut } from "@/lib/api/script";
+import { UnsavedRegistry } from "@/lib/useUnsavedGuard";
 
 import { businessProfileFixture } from "./businessProfileFixture";
 import { renderClientPage } from "./harness";
@@ -74,6 +75,24 @@ describe("a Pip suggestion reviewed after the owner changed the draft (Y1-01)", 
     render(<ProposalReview current={BASE} base={BASE} proposal={proposal} onApply={() => undefined} onDiscard={() => undefined} />);
     expect(screen.queryByText(/after Pip wrote this|since\. Keeping/)).toBeNull();
     expect(screen.getByRole("button", { name: "Add it to my draft" })).toBeTruthy();
+  });
+});
+
+describe("a suggestion reworded in the review (Y1-06)", () => {
+  it("counts as unsaved work, so leaving the tab asks first", () => {
+    const report = vi.fn();
+    const proposal: CallScript = { ...BASE, goal: "Take orders and bookings." };
+    render(
+      <UnsavedRegistry.Provider value={{ report }}>
+        <ProposalReview current={BASE} base={BASE} proposal={proposal} onApply={() => undefined} onDiscard={() => undefined} />
+      </UnsavedRegistry.Provider>,
+    );
+    expect(report).not.toHaveBeenCalledWith(expect.anything(), true);
+    fireEvent.click(screen.getByRole("button", { name: "Edit The goal" }));
+    fireEvent.change(screen.getByLabelText("The goal", { selector: "textarea" }), {
+      target: { value: "Take orders, bookings and returns." },
+    });
+    expect(report).toHaveBeenLastCalledWith(expect.any(String), true);
   });
 });
 

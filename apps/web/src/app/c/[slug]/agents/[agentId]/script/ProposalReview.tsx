@@ -25,6 +25,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
 import {
@@ -109,6 +110,8 @@ export function ProposalReview({
   const [touched, setTouched] = useState<Set<string>>(() => new Set());
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [tried, setTried] = useState(false);
+  // The owner's rewording lives only here until "Add", so leaving the tab or the page asks.
+  useUnsavedGuard(touched.size > 0);
   const list = useRef<HTMLUListElement>(null);
   const keptCount = changes.filter((c) => kept.has(c.id)).length;
 
