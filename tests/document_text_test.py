@@ -408,9 +408,7 @@ def test_a_small_docx_whose_body_would_parse_into_gigabytes_is_refused_before_th
     count = (MAX_OOXML_PART_BYTES - len(head)) // len("<w:p/>") + 1
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(
-            "word/document.xml", head + "<w:p/>" * count + "</w:body></w:document>"
-        )
+        archive.writestr("word/document.xml", head + "<w:p/>" * count + "</w:body></w:document>")
     data = buffer.getvalue()
     assert len(data) < MAX_SOURCE_BYTES
 
@@ -424,7 +422,9 @@ def test_a_worksheet_over_the_part_ceiling_still_reads_because_it_is_streamed(
 ) -> None:
     """The ceiling is for parts parsed whole; a big sheet is streamed and stopped at
     `MAX_ROWS_PER_TABLE`, so refusing it would refuse an ordinary price list."""
-    data = _xlsx(("Prices", [["Item", "Price"]] + [[f"item {n}", n] for n in range(400)], "visible"))
+    data = _xlsx(
+        ("Prices", [["Item", "Price"]] + [[f"item {n}", n] for n in range(400)], "visible")
+    )
     sheet_size = zipfile.ZipFile(io.BytesIO(data)).getinfo("xl/worksheets/sheet1.xml").file_size
     whole = max(
         info.file_size
