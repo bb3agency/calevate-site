@@ -3605,6 +3605,20 @@ def _callback_number(data: dict[str, Any]) -> str | None:
     return normalize_india(raw) if isinstance(raw, str) and raw.strip() else None
 
 
+async def _campaign_contact_name(session: Any, *, campaign_id: Any, phone: str) -> str | None:
+    """The name the client's campaign list gives this number, or None."""
+    name = (
+        await session.execute(
+            text(
+                "SELECT name FROM campaign_contacts WHERE campaign_id = :camp "
+                "AND phone_e164 = :phone"
+            ),
+            {"camp": campaign_id, "phone": phone},
+        )
+    ).scalar()
+    return str(name).strip() or None if name is not None else None
+
+
 async def _upsert_lead(
     tenant_id: UUID,
     agent_id: UUID,
@@ -3665,6 +3679,14 @@ async def _upsert_lead(
             if not caller:
                 return None
         trial = bool(call_row[0]) if call_row else False
+        # A campaign call's person was named on the client's list, and the dial greeted
+        # them by it; the lead takes that name before any name the call heard, as a name
+        # from a lead source does (the merge below never replaces one already held).
+        listed = (
+            await _campaign_contact_name(session, campaign_id=call_row[1], phone=caller)
+            if call_row is not None and call_row[1] is not None
+            else None
+        )
         source = _lead_source(
             direction=direction,
             trial=trial,
@@ -3714,7 +3736,7 @@ async def _upsert_lead(
                     "tid": tenant_id,
                     "aid": agent_id,
                     "phone": caller,
-                    "name": data.get("name") or data.get("caller_name"),
+                    "name": listed or data.get("name") or data.get("caller_name"),
                     "source": source,
                     "trial": trial,
                     "data": _json(data),

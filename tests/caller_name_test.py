@@ -287,3 +287,66 @@ async def test_a_different_name_heard_later_never_replaces_the_leads(
             await session.execute(text("SELECT data FROM leads WHERE id = :l"), {"l": lead_id})
         ).scalar()
     assert captured["name"] == "Ramesh", "the name heard stays as the call's captured detail"
+
+
+@pytest.mark.rls
+async def test_a_campaign_lead_takes_the_name_on_the_clients_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production, 9 Nov 2026: every Rytu Khata campaign lead had no name though each list
+    row had one, so later calls to the lead (call backs, follow-ups) had no name to say."""
+    tenant_id, agent_id = await _seed_anjali()
+    phone = f"+9198{uuid.uuid4().int % 100000000:08d}"
+    campaign_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, status, "
+                "created_at, updated_at) VALUES (:id, :tid, :aid, 'Install help', 'service', "
+                "'running', now(), now())"
+            ),
+            {"id": campaign_id, "tid": tenant_id, "aid": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, name, "
+                "status, attempts, created_at, updated_at) VALUES (:i, :t, :c, :p, ' Ramesh ', "
+                "'dialing', 1, now(), now())"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "c": campaign_id, "p": phone},
+        )
+    monkeypatch.setattr(extraction_module, "get_extractor", lambda: _Runner({"name": "Rajesh"}))
+    call_id, snapshot = await _outbound_call(
+        tenant_id,
+        agent_id,
+        lead_phone=phone,
+        started_at=datetime.now(UTC),
+        turns=_turns(("agent", "Namaskaram."), ("caller", "Cheppandi.")),
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET campaign_id = :c WHERE id = :id"),
+            {"c": campaign_id, "id": call_id},
+        )
+    lead_id, _data = await _read_and_file(tenant_id, call_id, snapshot)
+    assert lead_id is not None
+    assert await _lead_name(tenant_id, lead_id) == "Ramesh", "the list's name, not a mishearing"
+
+
+@pytest.mark.rls
+async def test_a_call_outside_a_campaign_still_takes_the_name_it_heard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id = await _seed_anjali()
+    phone = f"+9198{uuid.uuid4().int % 100000000:08d}"
+    monkeypatch.setattr(extraction_module, "get_extractor", lambda: _Runner({"name": "Umesh"}))
+    call_id, snapshot = await _outbound_call(
+        tenant_id,
+        agent_id,
+        lead_phone=phone,
+        started_at=datetime.now(UTC),
+        turns=_turns(("agent", "Mee peru?"), ("caller", "Umesh.")),
+    )
+    lead_id, _data = await _read_and_file(tenant_id, call_id, snapshot)
+    assert lead_id is not None
+    assert await _lead_name(tenant_id, lead_id) == "Umesh"
