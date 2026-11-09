@@ -82,6 +82,25 @@ describe("auto top-up and the payment route it needs", () => {
     expect(screen.queryByRole("switch")).toBeNull();
   });
 
+  it("sends an owner with no mobile number to where they add it (D-976)", async () => {
+    await renderClientPage(<Panel />, {
+      "/v1/me": ME,
+      "/v1/billing/auto-recharge": SETTINGS,
+      "/v1/billing/auto-recharge/charges?limit=20": [],
+      "POST /v1/billing/auto-recharge/mandate": problem(422, {
+        kind: "business_rule",
+        type: "urn:calevate:error/auto_recharge_needs_contact",
+        title: "We cannot do that",
+        detail: "Automatic payments need your email address and mobile number.",
+        remediation: "Add your mobile number under Your account, then try again.",
+      }),
+      ...NO_TERM,
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Approve a payment method/ }));
+    const add = await screen.findByRole("link", { name: "Add your mobile number" });
+    expect(add.getAttribute("href")).toBe("/auth/account#mobile-number");
+  });
+
   it("offers the method and the switch where online payment is on, and states the setting while closed", async () => {
     await renderClientPage(<Panel />, {
       "/v1/me": ME,

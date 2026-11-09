@@ -217,7 +217,8 @@ async def record_alert_optin(
     """Append one row. Never updates, never deletes (hard rule 4).
 
     The number is taken as already-normalised E.164 — it comes from `users.phone`, which
-    the invitation flow writes, not from a form field. That is deliberate and it is the
+    the invitation flow and the person's own account page write (D-976), not from a field
+    of this form. That is deliberate and it is the
     other half of why this ledger needs no separate `notify_whatsapp_e164`: the opt-in is
     recorded against the number the alert would actually be sent to, read from the same
     row `resolve_destination` reads, so the consent key and the delivery key cannot
@@ -246,7 +247,7 @@ async def record_alert_optin(
         raise ProblemError.business_rule(
             "alert_optin_needs_a_number",
             "There is no mobile number on this account to send alerts to.",
-            remediation="Add a mobile number to the profile first, then opt in.",
+            remediation="Add your mobile number under Your account, then opt in.",
         )
     notice_version = ALERT_NOTICE_VERSION if status == "granted" else None
     if status == "granted":

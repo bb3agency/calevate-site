@@ -21,7 +21,7 @@ import {
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { resolvePlaceholders } from "@/lib/legal/placeholders";
+import { ADD_MOBILE_NUMBER_PATH } from "@/lib/authn/mobileNumber";
 import { leadWords, useBusinessCapabilities } from "@/lib/businessCapabilities";
 import { useClientRealm } from "@/lib/api/session";
 import { useMyAlertOptIn, useRecordMyAlertOptIn } from "@/lib/api/whatsappAlerts";
@@ -96,7 +96,7 @@ export function AlertsScreen() {
         value: current
           ? "the alert list below has loaded"
           : needsANumber(state.error)
-            ? "WhatsApp alerts are off: this login has no mobile number, and this screen cannot add one"
+            ? "WhatsApp alerts are off: this login has no mobile number; the owner adds it under Your account"
           : state.error != null
             ? "the settings failed to load — this is NOT evidence that alerts are off"
             : "still loading",
@@ -152,21 +152,18 @@ export function AlertsScreen() {
             </div>
             {needsANumber(state.error) ? (
               // A state, not a fault: the read refuses while the owner's login has no mobile
-              // number, and nothing on the client side can add one yet, so say "off" and
-              // give the one way forward.
+              // number. The number is added on Your account (D-976), so say "off" and give
+              // that one way forward.
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="flex items-center gap-2 text-body text-ink">
                   <ServiceLogo service="whatsapp" className="h-5 w-5" />
                   <span>
-                    WhatsApp <span className="text-meta text-ink-muted">Off · needs a mobile number on your login</span>
+                    WhatsApp <span className="text-meta text-ink-muted">Off · needs your mobile number</span>
                   </span>
                 </p>
-                <a
-                  className={SECONDARY_BUTTON_SM}
-                  href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent("WhatsApp alerts need my mobile number")}`}
-                >
-                  Contact us
-                </a>
+                <Link className={SECONDARY_BUTTON_SM} href={ADD_MOBILE_NUMBER_PATH}>
+                  Add your mobile number
+                </Link>
               </div>
             ) : state.error != null ? (
               <ProblemNotice error={state.error} onRetry={() => state.refetch()} />

@@ -206,8 +206,13 @@ class TestWiring:
         header: the same per-source secret, read from the `token` query parameter (or the
         header), compared in constant time by the same `verify_ingest_secret` before the
         body is read. It takes no tenant id (the source row names the account) and refuses
-        a source that is not a push source."""
-        assert len(exempt) <= 54, sorted(exempt)
+        a source that is not a push source.
+
+        RAISED 54 -> 55 for `POST /v1/auth/client/mobile-number` (D-976): a client user's
+        own mobile number. It needs the client session cookie and changes only the row of
+        the person whose session sent it, so like /password/change it has no permission to
+        gate, and an operator's view-as session holds no client cookie to reach it."""
+        assert len(exempt) <= 55, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

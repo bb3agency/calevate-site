@@ -3,6 +3,7 @@
 import { formatPayableINR } from "@/lib/numberDisplay";
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import Link from "next/link";
 
 import { TEXT_ACTION_DANGER } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
@@ -14,11 +15,13 @@ import {
   Disclosure,
   NoticeBox,
   ProblemNotice,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   ToggleSwitch,
   formatINR,
   formatIST,
 } from "@/components/ui";
+import { ADD_MOBILE_NUMBER_PATH } from "@/lib/authn/mobileNumber";
 import {
   MANDATE_STATUS_TEXT,
   type MandateMethod,
@@ -30,13 +33,16 @@ import {
   useWithdrawMandate,
 } from "@/lib/api/autoRecharge";
 import { useCreditPacks } from "@/lib/api/billing";
-import type { Session } from "@/lib/api/client";
+import { ApiProblem, type Session } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { rupeeProblem } from "@/lib/api/credits";
 import { lookup } from "@/lib/lookup";
 import { openRazorpayCheckout } from "@/lib/razorpayCheckout";
 
 import { Why } from "@/components/why";
+
+/** The approval's refusal while the approver's login has no mobile number. */
+const NEEDS_CONTACT = "auto_recharge_needs_contact";
 
 /** How long credit an automatic top-up adds lasts. */
 export function autoTopUpLasts(months: number): string {
@@ -326,6 +332,12 @@ export function AutoRechargePanel({
 
         {fieldProblem && <p className="text-meta text-ink-muted">{fieldProblem}</p>}
         <ProblemNotice error={save.error ?? start.error ?? checkoutProblem ?? confirm.error} />
+        {start.error instanceof ApiProblem && start.error.code === NEEDS_CONTACT && (
+          // The approval needs the approver's mobile, added on Your account (D-976).
+          <Link className={SECONDARY_BUTTON_SM} href={ADD_MOBILE_NUMBER_PATH}>
+            Add your mobile number
+          </Link>
+        )}
 
         <Why label="How this works">
           <p>

@@ -94,6 +94,11 @@ class MeOut(BaseModel):
     #: account, and the client UI must never look like the client's own session (D-22).
     email: str | None = None
     name: str | None = None
+    #: The mobile number on this person's own login, E.164, or None. Set by them on the
+    #: account page (`POST /v1/auth/client/mobile-number`, D-976) or by an invitation; read
+    #: here because that route is undeclared and returns no contact field. `None` in a
+    #: view-as session, as `email` is.
+    phone: str | None = None
 
 
 @router.get(
@@ -168,17 +173,18 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         withheld_acts = sorted(VIEW_AS_WITHHELD_ACTS)
     email: str | None = None
     name: str | None = None
+    phone: str | None = None
     if not principal.impersonating and principal.user_id is not None:
         # `users` is global with no RLS; reading by the principal's own id is what scopes
         # it, so this can only ever return the caller's row.
         own = (
             await session.execute(
-                text("SELECT email, name FROM users WHERE id = :uid"),
+                text("SELECT email, name, phone FROM users WHERE id = :uid"),
                 {"uid": principal.user_id},
             )
         ).first()
         if own is not None:
-            email, name = own[0], own[1]
+            email, name, phone = own[0], own[1], own[2]
     return MeOut(
         realm=principal.realm,
         user_id=principal.user_id,
@@ -189,6 +195,7 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         organization=org,
         email=email,
         name=name,
+        phone=phone,
     )
 
 

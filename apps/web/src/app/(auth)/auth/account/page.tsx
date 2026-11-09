@@ -2,7 +2,7 @@
 
 /**
  * `/auth/account`: a client user's own sign-in. Verify the address, change the password,
- * end sessions (D-174).
+ * end sessions (D-174), and add the mobile number on the login (D-976).
  *
  * The client-realm twin of `/auth/admin`. It does not carry the idle-timeout modal: §5.6
  * puts that on the admin realm only (30 minutes idle there against 12 hours here, because
@@ -26,6 +26,7 @@ import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { BACK_LINK, EmailRow, SessionsSection } from "@/components/authn/accountSections";
 import { AuthProblemNotice } from "@/components/authn/fields";
+import { MobileNumberRow } from "@/components/authn/mobileNumberRow";
 import { PasswordRow } from "@/components/authn/passwordRow";
 import { AccountPageSkeleton, AccountRowsSkeleton, IdentityBars } from "@/components/authn/skeletons";
 import { Section, TEXT_ACTION } from "@/components/console/section";
@@ -105,6 +106,16 @@ function ClientAccountBody() {
             />
           </SettingRows>
         </Section>
+
+        {/* D-976. Only once `/v1/me` has answered: a row drawn before it would offer "Add"
+            to a person who already has a number. A failed read is said under Account. */}
+        {me.data && (
+          <Section title="Contact">
+            <SettingRows className="border-y border-line">
+              <MobileNumberRow phone={me.data.phone ?? null} />
+            </SettingRows>
+          </Section>
+        )}
 
         <SessionsSection
           authn={clientAuthn}

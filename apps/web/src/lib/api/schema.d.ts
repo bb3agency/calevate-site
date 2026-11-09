@@ -5875,6 +5875,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/client/mobile-number": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add, change or remove the mobile number on your own login
+         * @description Stored as typed, normalised to E.164 (a 10-digit Indian mobile gains +91). No code is sent to it yet (D-976). Null or blank removes it. Refused with `mobile_number_invalid` when it cannot be read as a phone number. Every change is audited without the number.
+         */
+        post: operations["set_mobile_number_v1_auth_client_mobile_number_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/client/otp/request": {
         parameters: {
             query?: never;
@@ -27852,6 +27872,8 @@ export interface components {
             organization?: components["schemas"]["OrganizationOut"] | null;
             /** Permissions */
             permissions: string[];
+            /** Phone */
+            phone?: string | null;
             /** Realm */
             realm: string;
             /** Role */
@@ -28066,6 +28088,19 @@ export interface components {
             fixed_at: string;
             /** Kind */
             kind: string;
+        };
+        /** MobileNumberIn */
+        MobileNumberIn: {
+            /** Phone */
+            phone?: string | null;
+        };
+        /** MobileNumberOut */
+        MobileNumberOut: {
+            /**
+             * Change
+             * @enum {string}
+             */
+            change: "added" | "changed" | "removed" | "unchanged";
         };
         /** ModelPriceAttestIn */
         ModelPriceAttestIn: {
@@ -48848,6 +48883,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RevokedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_mobile_number_v1_auth_client_mobile_number_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MobileNumberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MobileNumberOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

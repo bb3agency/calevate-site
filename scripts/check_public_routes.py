@@ -361,6 +361,16 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_session",
     ),
+    "POST /v1/auth/client/mobile-number": PublicRoute(
+        why=(
+            "A signed-in person adds, changes or removes the mobile number on their own "
+            "login (D-976). It is not open: it takes the client session cookie and names "
+            "no account, so it can only change the row of the person whose session sent "
+            "it. Here rather than behind a permission for the reason /password/change is, "
+            "and an operator's view-as session holds no client cookie to reach it with."
+        ),
+        credential="_authenticated",
+    ),
     "POST /v1/auth/admin/stay-signed-in": PublicRoute(
         why=(
             "An operator's own 'Stay signed in' switch (D-766). It is not open: it takes an "

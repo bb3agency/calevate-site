@@ -402,7 +402,7 @@ async def _payer_contact(user_id: UUID) -> tuple[str, str, str]:
         raise ProblemError.business_rule(
             "auto_recharge_needs_contact",
             "Automatic payments need your email address and mobile number.",
-            remediation="Add a mobile number to your profile, then try again.",
+            remediation="Add your mobile number under Your account, then try again.",
         )
     return (str(row.name or row.email), str(row.email), str(row.phone))
 

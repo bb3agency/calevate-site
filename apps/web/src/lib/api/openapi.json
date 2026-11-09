@@ -37956,6 +37956,17 @@
             "title": "Permissions",
             "type": "array"
           },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
           "realm": {
             "title": "Realm",
             "type": "string"
@@ -38382,6 +38393,45 @@
           "fixed_at"
         ],
         "title": "MistakeFixOut",
+        "type": "object"
+      },
+      "MobileNumberIn": {
+        "additionalProperties": false,
+        "properties": {
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          }
+        },
+        "title": "MobileNumberIn",
+        "type": "object"
+      },
+      "MobileNumberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "change": {
+            "enum": [
+              "added",
+              "changed",
+              "removed",
+              "unchanged"
+            ],
+            "title": "Change",
+            "type": "string"
+          }
+        },
+        "required": [
+          "change"
+        ],
+        "title": "MobileNumberOut",
         "type": "object"
       },
       "ModelPriceAttestIn": {
@@ -82712,6 +82762,44 @@
           }
         },
         "summary": "End every session this person holds in this realm",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/mobile-number": {
+      "post": {
+        "description": "Stored as typed, normalised to E.164 (a 10-digit Indian mobile gains +91). No code is sent to it yet (D-976). Null or blank removes it. Refused with `mobile_number_invalid` when it cannot be read as a phone number. Every change is audited without the number.",
+        "operationId": "set_mobile_number_v1_auth_client_mobile_number_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MobileNumberIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MobileNumberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add, change or remove the mobile number on your own login",
         "tags": [
           "auth-client"
         ]

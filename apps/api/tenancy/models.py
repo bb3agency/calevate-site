@@ -420,6 +420,11 @@ class User(PKMixin, TimestampMixin, Base):
     email: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)
     phone: Mapped[str | None] = mapped_column(Text)  # E.164
+    # When this mobile number was confirmed by a code sent to it. NULL for every number
+    # today: an invitation or the person's own typing (D-976, `authn/mobile_number.py`)
+    # stores it unconfirmed, and changing the number clears this. Nothing may depend on it
+    # until the WhatsApp code step that sets it exists.
+    phone_verified_at: Mapped[datetime | None]
     # Re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7): a cached
     # session must not outlive a deactivation. It is also the client realm's whole
     # liveness rule for `authn/subjects.py`, so signing in and staying signed in agree

@@ -154,6 +154,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.analytics.routes import router as analytics_router
     from apps.api.announcements.routes import admin_router as announcements_admin_router
     from apps.api.announcements.routes import router as announcements_router
+    from apps.api.authn.mobile_number_routes import router as mobile_number_router
     from apps.api.authn.routes import (
         admin_auth_router,
         client_auth_router,
@@ -311,6 +312,8 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(self_serve_auth_router)
     # D-766: an operator's own "Stay signed in" switch, admin realm only.
     application.include_router(stay_signed_in_router)
+    # D-976: a client user's own mobile number, client realm only.
+    application.include_router(mobile_number_router)
     application.include_router(admin_router)
     # The ops hold queue. Its own `/v1/admin/compliance/...` prefix rather than a path
     # under `admin_router`: `/v1/admin/tenants/{tenant_id}` would swallow any literal

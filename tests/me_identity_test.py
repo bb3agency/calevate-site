@@ -49,17 +49,17 @@ async def _tenant() -> str:
     return str(created["slug"])
 
 
-async def _member(slug: str, *, name: str | None) -> tuple[str, str]:
+async def _member(slug: str, *, name: str | None, phone: str | None = None) -> tuple[str, str]:
     """A user with an owner membership. Returns (email, dev bearer token)."""
     user_id = uuid.uuid4()
     email = f"{user_id}@example.com"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, email, name, created_at, updated_at) "
-                "VALUES (:id, :email, :name, now(), now())"
+                "INSERT INTO users (id, email, name, phone, created_at, updated_at) "
+                "VALUES (:id, :email, :name, :phone, now(), now())"
             ),
-            {"id": user_id, "email": email, "name": name},
+            {"id": user_id, "email": email, "name": name, "phone": phone},
         )
     tenant_id = _TENANT_IDS[slug]
     async with tenant_session(tenant_id) as session:
@@ -89,9 +89,9 @@ async def _admin_token() -> str:
 @pytest.mark.asyncio
 async def test_a_member_reads_their_own_address_and_name() -> None:
     slug = await _tenant()
-    email, token = await _member(slug, name="Lakshmi Rao")
+    email, token = await _member(slug, name="Lakshmi Rao", phone="+919876543210")
     # A colleague in the same account, so "own row" is distinguishable from "a row".
-    await _member(slug, name="Someone Else")
+    await _member(slug, name="Someone Else", phone="+919876500011")
 
     async with _client() as http:
         response = await http.get(
@@ -102,6 +102,7 @@ async def test_a_member_reads_their_own_address_and_name() -> None:
     body = response.json()
     assert body["email"] == email
     assert body["name"] == "Lakshmi Rao"
+    assert body["phone"] == "+919876543210"
 
 
 @pytest.mark.asyncio
@@ -122,7 +123,7 @@ async def test_a_member_with_no_name_gets_null_rather_than_a_placeholder() -> No
 @pytest.mark.asyncio
 async def test_a_view_as_session_receives_no_address() -> None:
     slug = await _tenant()
-    await _member(slug, name="Lakshmi Rao")
+    await _member(slug, name="Lakshmi Rao", phone="+919876543210")
     operator = await _admin_token()
 
     async with _client() as http:
@@ -133,3 +134,4 @@ async def test_a_view_as_session_receives_no_address() -> None:
     assert response.json()["impersonating"] is True
     assert response.json()["email"] is None
     assert response.json()["name"] is None
+    assert response.json()["phone"] is None

@@ -153,8 +153,8 @@ describe("the client's own WhatsApp alert opt-in", () => {
   });
 
   it("shows WhatsApp as off, not as a failure, while the login has no mobile number", async () => {
-    // The read itself refuses (`_phone_of`); a signed-up owner has no number and nothing
-    // on the client side adds one, so a red "We cannot do that" would be permanent.
+    // The read itself refuses (`_phone_of`) until the owner adds a number on Your account
+    // (D-976), so the row says "off" and sends them there, never a red "We cannot do that".
     const { container } = await renderClientPage(
       <AlertsPage />,
       {
@@ -164,12 +164,15 @@ describe("the client's own WhatsApp alert opt-in", () => {
           type: "urn:calevate:error/alert_optin_needs_a_number",
           title: "We cannot do that",
           detail: "There is no mobile number on this account to send alerts to.",
-          remediation: "Add a mobile number to the profile first, then turn alerts on.",
+          remediation: "Add your mobile number under Your account, then turn alerts on.",
         }),
       },
     );
-    expect(await screen.findByText("Off · needs a mobile number on your login")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Contact us" }).getAttribute("href")).toMatch(/^mailto:/);
+    expect(await screen.findByText("Off · needs your mobile number")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Add your mobile number" }).getAttribute("href"),
+    ).toBe("/auth/account#mobile-number");
+    expect(screen.queryByRole("link", { name: "Contact us" })).toBeNull();
     expect(container.textContent).not.toContain("We cannot do that");
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -466,7 +469,7 @@ describe("the operator's record of a client's opt-in", () => {
           title: "This account has no active owner with a mobile number",
           detail: "This account has no active owner with a mobile number.",
           remediation:
-            "Add a mobile number to the owner's profile, then record the opt-in.",
+            "Ask the owner to add their mobile number under Your account, then record the opt-in.",
         }),
       ),
     );
@@ -478,7 +481,7 @@ describe("the operator's record of a client's opt-in", () => {
     });
     // The refusal names what to fix, and the write is not offered over a state nobody read.
     expect(container.textContent).toContain(
-      "Add a mobile number to the owner's profile",
+      "Ask the owner to add their mobile number under Your account",
     );
     expect(
       screen.queryByRole("button", { name: /Record that the owner agreed/ }),

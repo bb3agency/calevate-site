@@ -192,7 +192,7 @@ async def _phone_of(session: AsyncSession, user_id: UUID) -> str:
         raise ProblemError.business_rule(
             "alert_optin_needs_a_number",
             "There is no mobile number on this account to send alerts to.",
-            remediation="Add a mobile number to the profile first, then turn alerts on.",
+            remediation="Add your mobile number under Your account, then turn alerts on.",
         )
     return phone
 
@@ -229,7 +229,10 @@ async def _owner_of(session: AsyncSession, tenant_id: UUID) -> tuple[UUID, str]:
         raise ProblemError.business_rule(
             "alert_optin_no_owner_with_a_number",
             "This account has no active owner with a mobile number.",
-            remediation="Add a mobile number to the owner's profile, then record the opt-in.",
+            remediation=(
+                "Ask the owner to add their mobile number under Your account, then record "
+                "the opt-in."
+            ),
         )
     return UUID(str(row[0])), str(row[1])
 
