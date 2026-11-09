@@ -51,6 +51,7 @@ from apps.api.crm.service import lead_phone
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.whatsapp import accounts, templates
+from apps.api.whatsapp.webhooks import message_ref
 
 log = get_logger(__name__)
 
@@ -693,15 +694,15 @@ async def record_whatsapp_on_timeline(
 ) -> None:
     """One `notification` row on the lead's timeline, delivered or not: "we never followed
     up" is a fact the client is entitled to see (the hot-lead and escalation legs do the
-    same). Template NAME, the rule and Meta's message id only — never the values typed
-    into it."""
+    same). Template NAME, the rule and `message_ref` of Meta's message id only — never
+    the values typed into it, and never the id itself, which carries the number."""
     result = await session.execute(
         text(
             "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, created_at, "
             "updated_at) SELECT :id, tenant_id, id, 'notification', jsonb_strip_nulls("
             "jsonb_build_object('channel', 'whatsapp', 'kind', 'client_follow_up', "
             "'status', CAST(:status AS text), 'template', CAST(:template AS text), "
-            "'rule', CAST(:rule AS text), 'message_id', CAST(:mid AS text))), :actor, now(), "
+            "'rule', CAST(:rule AS text), 'message_ref', CAST(:mref AS text))), :actor, now(), "
             "now() FROM leads WHERE id = :lid"
         ),
         {
@@ -710,7 +711,7 @@ async def record_whatsapp_on_timeline(
             "status": out.status,
             "template": template,
             "rule": out.rule,
-            "mid": message_id,
+            "mref": None if message_id is None else message_ref(message_id),
             "actor": actor,
         },
     )
@@ -721,33 +722,39 @@ async def record_whatsapp_on_timeline(
 #: A WhatsApp message Meta accepted and later reported it could not deliver.
 NOT_DELIVERED_RULE: Final = "whatsapp_not_delivered"
 
-#: The second row for a failed delivery: copied from the send's own row (found by Meta's
-#: message id), so it lands on the same lead under the same template. A new row rather
-#: than an edit of the first, so the timeline keeps both facts: it was sent, then it
-#: failed. `NOT EXISTS` makes a redelivered report a no-op.
+#: The second row for a failed delivery: copied from the send's own row (found by the
+#: `message_ref` of Meta's message id), so it lands on the same lead under the same
+#: template. A new row rather than an edit of the first, so the timeline keeps both facts:
+#: it was sent, then it failed. `NOT EXISTS` makes a redelivered report a no-op.
 _NOT_DELIVERED_SQL: Final = (
     "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, created_at, "
     "updated_at) SELECT :id, e.tenant_id, e.lead_id, 'notification', jsonb_strip_nulls("
     "jsonb_build_object('channel', 'whatsapp', 'kind', 'client_follow_up', 'status', "
     "'failed', 'template', e.payload->>'template', 'rule', CAST(:rule AS text), "
-    "'message_id', CAST(:mid AS text), 'meta_code', CAST(:code AS text))), 'system', now(), "
-    "now() FROM lead_events e WHERE e.type = 'notification' "
+    "'message_ref', CAST(:mref AS text), 'meta_code', CAST(:code AS text))), 'system', "
+    "now(), now() FROM lead_events e WHERE e.type = 'notification' "
     "AND e.payload->>'kind' = 'client_follow_up' AND e.payload->>'status' = 'sent' "
-    "AND e.payload->>'message_id' = :mid AND NOT EXISTS (SELECT 1 FROM lead_events f "
+    "AND e.payload->>'message_ref' = :mref AND NOT EXISTS (SELECT 1 FROM lead_events f "
     "WHERE f.lead_id = e.lead_id AND f.type = 'notification' "
-    "AND f.payload->>'message_id' = :mid AND f.payload->>'status' = 'failed') LIMIT 1"
+    "AND f.payload->>'message_ref' = :mref AND f.payload->>'status' = 'failed') LIMIT 1"
 )
 
 
 async def record_whatsapp_not_delivered(
-    session: AsyncSession, *, message_id: str, meta_code: str | None
+    session: AsyncSession, *, ref: str, meta_code: str | None
 ) -> bool:
-    """Meta's failed-delivery report for a message sent to a lead, on that lead's timeline.
-    False when the message is not one of this tenant's lead messages (a hot-lead alert, an
-    in-call action, a message sent outside Calevate) or the report was already recorded."""
+    """Meta's failed-delivery report for a message sent to a lead, on that lead's timeline,
+    found by the report's `message_ref` (`whatsapp/webhooks`). False when the message is
+    not one of this tenant's lead messages (a hot-lead alert, an in-call action, a message
+    sent outside Calevate) or the report was already recorded."""
     result = await session.execute(
         text(_NOT_DELIVERED_SQL),
-        {"id": uuid7(), "mid": message_id, "rule": NOT_DELIVERED_RULE, "code": meta_code},
+        {
+            "id": uuid7(),
+            "mref": ref,
+            "rule": NOT_DELIVERED_RULE,
+            "code": meta_code,
+        },
     )
     return rowcount_of(result) > 0
 

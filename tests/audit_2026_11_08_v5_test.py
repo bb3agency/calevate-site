@@ -25,6 +25,7 @@ import pytest
 from apps.api.crm import swipe
 from apps.api.crm.service import _project_event
 from apps.api.db.session import tenant_session
+from apps.api.whatsapp.webhooks import message_ref
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.lead_assignment_test import _the_lead
@@ -134,16 +135,16 @@ async def test_a_failed_delivery_report_lands_on_the_leads_timeline_once() -> No
         )
     async with tenant_session(tenant_id) as session:
         assert await swipe.record_whatsapp_not_delivered(
-            session, message_id="wamid.v5test", meta_code="131026"
+            session, ref=message_ref("wamid.v5test"), meta_code="131026"
         )
     async with tenant_session(tenant_id) as session:
         # Meta redelivers; the second report writes nothing.
         assert not await swipe.record_whatsapp_not_delivered(
-            session, message_id="wamid.v5test", meta_code="131026"
+            session, ref=message_ref("wamid.v5test"), meta_code="131026"
         )
         # A message id no lead message carries (an alert, a send outside Calevate).
         assert not await swipe.record_whatsapp_not_delivered(
-            session, message_id="wamid.someone_else", meta_code=None
+            session, ref=message_ref("wamid.someone_else"), meta_code=None
         )
     rows = await _rows(tenant_id, lead_id)
     assert [r["status"] for r in rows] == ["sent", "failed"]
@@ -169,7 +170,7 @@ async def test_another_tenants_report_does_not_reach_this_lead() -> None:
         )
     async with tenant_session(other_id) as session:
         assert not await swipe.record_whatsapp_not_delivered(
-            session, message_id="wamid.v5cross", meta_code=None
+            session, ref=message_ref("wamid.v5cross"), meta_code=None
         )
     assert [r["status"] for r in await _rows(tenant_id, lead_id)] == ["sent"]
 

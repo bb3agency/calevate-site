@@ -29,6 +29,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.api.whatsapp import accounts
+from apps.api.whatsapp.webhooks import message_ref
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 from tests.conftest import mark_paid_for_tests
@@ -364,18 +365,19 @@ async def test_whatsapp_is_sent_only_with_consent_and_once_per_key(
             .scalars()
             .all()
         )
-        # Meta's id for the accepted message is kept, so a failed-delivery report finds it.
-        kept_id = (
+        # A digest of Meta's id for the accepted message is kept, so a failed-delivery
+        # report finds it; the id itself carries the person's number.
+        kept_ref = (
             await session.execute(
                 text(
-                    "SELECT payload->>'message_id' FROM lead_events WHERE lead_id = :l "
+                    "SELECT payload->>'message_ref' FROM lead_events WHERE lead_id = :l "
                     "AND payload->>'status' = 'sent'"
                 ),
                 {"l": lead_id},
             )
         ).scalar()
     assert statuses == ["blocked", "sent"]
-    assert kept_id == "wamid.stub"
+    assert kept_ref == message_ref("wamid.stub")
     assert await _audit(str(lead_id), "lead.whatsapp_follow_up") == 2
 
 

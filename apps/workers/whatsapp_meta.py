@@ -159,15 +159,13 @@ async def _apply(account_id: UUID, tenant_id: UUID, event: WabaEvent) -> str:
                 ),
                 {"id": account_id, "code": (event.code or "unknown")[:64]},
             )
-            message_id = event.detail.get("message_id")
-            if message_id:
+            ref = event.detail.get("message_ref")
+            if ref:
                 # A message sent to a lead said "sent" when Meta took it; the owner reads
                 # the lead's timeline, not our alert, so the failure goes there too.
                 from apps.api.crm.swipe import record_whatsapp_not_delivered
 
-                await record_whatsapp_not_delivered(
-                    session, message_id=message_id, meta_code=event.code
-                )
+                await record_whatsapp_not_delivered(session, ref=ref, meta_code=event.code)
             alert(
                 "WORKER_DELIVERY",
                 "whatsapp_message_not_delivered",

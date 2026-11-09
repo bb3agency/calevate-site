@@ -8,8 +8,9 @@ updates; Meta retries a failed delivery "for up to 7 days" and asks receivers to
 
 WHAT IS KEPT, WHAT IS DROPPED (hard rule 6). Only what an operator or the client acts on
 leaves this module: a template's verdict, an account or quality event's code, a failed
-delivery's error code and Meta's message id. A status's `recipient_id` is a person's number
-and is dropped here; an inbound customer message is counted and dropped (Calevate keeps no
+delivery's error code and a digest of Meta's message id (`message_ref`). A status's
+`recipient_id` is a person's number and is dropped here, and so is the message id itself,
+which carries the same number; an inbound customer message is counted and dropped (Calevate keeps no
 WhatsApp inbox — founder decision 6, send-only). Coexistence echoes (`smb_message_echoes`)
 are likewise not stored while coexistence is off; showing them is a condition of turning it
 on (OPERATIONS gate W-6).
@@ -72,6 +73,20 @@ def _s(value: Any, limit: int = 128) -> str | None:
 def _id(value: Any) -> str | None:
     found = _s(value, MAX_OBJECT_ID_LEN)
     return found if found is not None and found.isdigit() else None
+
+
+def message_ref(message_id: str) -> str:
+    """The one-way handle we keep in place of a WhatsApp message id.
+
+    A `wamid.` id is base64 of a record holding the recipient's number in clear: Meta's
+    example status id `wamid.HBgLMTY1MDM4Nzk0MzkVAgARGBI3...` decodes to the digits
+    16503879439 (developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples,
+    read 9 Nov 2026). Kept raw on a lead's timeline it would be the person's number in a
+    table neither erasure reaches (`scripts/check_erasure_coverage` exempts `lead_events`
+    because no producer writes one). The SHA-256 digest still pairs a failed-delivery
+    report with its send, and the id's random half keeps it from being reversed by trying
+    every number."""
+    return hashlib.sha256(message_id.encode("utf-8")).hexdigest()
 
 
 def _detail(**values: Any) -> dict[str, str]:
@@ -171,13 +186,14 @@ def _from_change(waba_id: str, name: str, value: dict[str, Any]) -> list[WabaEve
             errors = status.get("errors")
             first = errors[0] if isinstance(errors, list) and errors else {}
             code = _s(first.get("code"), 16) if isinstance(first, dict) else None
+            failed = _s(status.get("id"), 256)
             events.append(
                 WabaEvent(
                     waba_id,
                     "send_failed",
                     name,
                     code,
-                    _detail(message_id=_s(status.get("id"), 256)),
+                    _detail(message_ref=message_ref(failed) if failed else None),
                 )
             )
         return events
@@ -225,4 +241,5 @@ __all__ = [
     "WabaEvent",
     "event_from_payload",
     "extract_events",
+    "message_ref",
 ]
