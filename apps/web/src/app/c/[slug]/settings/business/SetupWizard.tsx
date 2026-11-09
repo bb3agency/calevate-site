@@ -35,6 +35,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { SetupDone } from "./SetupDone";
 import { SETUP } from "../../_ui/copy";
@@ -182,6 +183,8 @@ function Wizard({
   const problem = step ? stepProblem(draft, step.id) : null;
   const fields = save.error instanceof ApiProblem ? save.error.fields : undefined;
   const busy = save.isPending || setup.isPending;
+  // Typing not yet saved on any step: a reload, or the switch to "All answers", would drop it.
+  useUnsavedGuard(JSON.stringify(draft) !== JSON.stringify(loaded.draft));
 
   const saveAndNext = () => {
     if (!step || problem || busy) return;

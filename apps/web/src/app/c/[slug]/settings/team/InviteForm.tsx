@@ -73,6 +73,8 @@ export function InviteInline({
               onChange={(e) => {
                 setEmail(e.target.value);
                 setIssued(null);
+                // A refusal ("already on this team") was about the address before this one.
+                if (invite.error != null) invite.reset();
               }}
               autoComplete="off"
               placeholder="name@business.in"
