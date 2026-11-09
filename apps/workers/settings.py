@@ -1075,10 +1075,9 @@ CRON_JOBS = [
     # request without shortening the time to notice it.
     #
     # `max_tries` for its neighbour's reason, and more sharply: unlike the pipeline
-    # stall, this condition CANNOT self-heal between ticks. `execute_deletion_request`
-    # is enqueued once, in the request's own transaction, with no poller behind it — so
-    # the alarm going quiet on a transient database error is the whole failure, not a
-    # delay in reporting it.
+    # stall, this walk is the only thing that re-queues a failed `execute_deletion_request`
+    # (enqueued once, in the request's own transaction), so the walk going quiet on a
+    # transient database error stops the recovery as well as the alarm.
     #
     # THE MINUTE COMES FROM THE MODULE (`ERASURE_PROBE_MINUTE`) and is no longer :25,
     # which is `DISTILL_MINUTE`: the two heaviest hourly fan-outs were starting together

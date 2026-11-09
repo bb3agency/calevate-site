@@ -536,10 +536,10 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     written, the job was lost to a deploy or a dead worker, and the only signal was a
     status page nobody was watching returning `pending` indefinitely.
 
-    It cannot self-heal, and that is why it needs an alarm rather than a retry: the job is
-    enqueued once, in the request's own transaction, and `execute_deletion_request` has no
-    poller behind it the way the post-call pipeline has `reconcile_executions`. Once its
-    ladder is spent the request is simply open forever.
+    This walk is also the poller the job lacks: `execute_deletion_request` is enqueued once,
+    in the request's own transaction, and a run that raises is not retried, so the walk
+    queues every overdue request again (`deletion.redrive_stalled_erasures`, at most once an
+    hour each) as well as paging.
 
     Same cross-tenant shape as `report_stalled_pipeline` — `deletion_requests` is
     FORCE-RLS'd, so an untenanted probe would return zero rows for every tenant and report
