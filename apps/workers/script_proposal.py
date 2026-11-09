@@ -20,6 +20,7 @@ under `ASSIST_FEATURE_SCRIPT_DRAFT`.
 from __future__ import annotations
 
 from dataclasses import replace
+from functools import partial
 from typing import Any, Final
 from uuid import UUID
 
@@ -44,7 +45,9 @@ from apps.workers.opening_line import (
     write_opening,
 )
 from apps.workers.script_assist import (
+    ANSWER_UNUSABLE_CODE,
     CONVERT_INSTRUCTION,
+    AskTrace,
     JsonAnswer,
     ScriptBrief,
     ScriptDraft,
@@ -54,6 +57,20 @@ from apps.workers.script_assist import (
 log = get_logger(__name__)
 
 JOB_NAME: Final = script_proposals.PROPOSAL_JOB
+
+#: One model request's budget in this job, in place of the route's `ASSIST_TIMEOUT_S`: nobody
+#: waits on an HTTP response here, and a large script written whole (the edit returns every
+#: part) ran past 15 s and was thrown away. The ladder spends at most `ASSIST_LADDER_LEGS` of
+#: these, and the opening repairs after it their own route-sized budgets, all inside the
+#: worker's `job_timeout` (`tests/script_proposal_scale_2026_11_09_test.py` pins the sum).
+PROPOSAL_REQUEST_TIMEOUT_S: Final = 50.0
+
+#: One answer's token ceiling in this job. A ceiling, not a target: billing follows the
+#: tokens used. Gemini counts thinking tokens inside it, and a whole Telugu script with its
+#: example call ran into the route's 4,096; gemini-3.1-flash-lite's output limit is 65,536
+#: (aistudio.google.com/docs/models/gemini-3.1-flash-lite, May 2026), Azure's gpt-4o-mini
+#: 16,384, so this is the most both paid legs take. The Sarvam standby keeps its own 4,096.
+PROPOSAL_MAX_TOKENS: Final = 16_384
 
 
 async def _claim(tenant_id: UUID, agent_id: UUID, proposal_id: UUID) -> bool:
@@ -200,7 +217,10 @@ async def _written_opening(
 
 
 async def _draft(
-    tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal
+    tenant_id: UUID,
+    agent_id: UUID,
+    proposal: script_proposals.ScriptProposal,
+    trace: AskTrace | None = None,
 ) -> ScriptDraft:
     async with tenant_session(tenant_id) as session:
         context = await script_proposals.brief_for(session, tenant_id, agent_id)
@@ -208,6 +228,12 @@ async def _draft(
         quota = await read_ai_quota(session, tenant_id=tenant_id)
     exhausted = quota.at_ceiling or quota.platform_paused
     base = proposal.base_script
+    write = partial(
+        draft_script,
+        timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
+        max_tokens=PROPOSAL_MAX_TOKENS,
+        trace=trace,
+    )
     if proposal.mode == script_proposals.OPENING_MODE:
         return await _introduced_opening(context, base, tenant_leg, quota_exhausted=exhausted)
     if proposal.mode == script_proposals.WRITTEN_MODE:
@@ -221,11 +247,11 @@ async def _draft(
             direction=context.direction,
             language=context.language,
         )
-        return await draft_script(
+        return await write(
             brief, tenant_leg=tenant_leg, quota_exhausted=exhausted, instruction=CONVERT_INSTRUCTION
         )
     if proposal.mode == script_proposals.STARTER_MODE:
-        drafted = await draft_script(context, tenant_leg=tenant_leg, quota_exhausted=exhausted)
+        drafted = await write(context, tenant_leg=tenant_leg, quota_exhausted=exhausted)
         # An opening already on the agent was typed by the owner at creation: theirs, kept.
         kept = {
             field: line
@@ -236,7 +262,7 @@ async def _draft(
             return drafted
         return replace(drafted, script=drafted.script.model_copy(update=kept))
     if proposal.mode == "whole":
-        return await draft_script(
+        return await write(
             replace(context, answers=tuple(proposal.answers.items())),
             tenant_leg=tenant_leg,
             quota_exhausted=exhausted,
@@ -249,14 +275,14 @@ async def _draft(
                 "Your new document has no words we could read.",
                 remediation="Check it on the Knowledge page, then add it again.",
             )
-        return await draft_script(
+        return await write(
             context,
             tenant_leg=tenant_leg,
             quota_exhausted=exhausted,
             edit_of=base,
             change=knowledge_change(documents, both=context.direction == "both"),
         )
-    return await draft_script(
+    return await write(
         context,
         tenant_leg=tenant_leg,
         quota_exhausted=exhausted,
@@ -353,11 +379,39 @@ async def _opening_repaired(
     return script, spends
 
 
-async def _fail(tenant_id: UUID, agent_id: UUID, proposal_id: UUID, note: str) -> None:
+async def _fail(
+    tenant_id: UUID,
+    agent_id: UUID,
+    proposal_id: UUID,
+    note: str,
+    *,
+    reason: str,
+    trace: AskTrace | None = None,
+) -> None:
+    seen = trace or AskTrace()
     async with tenant_session(tenant_id) as session:
         await script_proposals.store_failed(
-            session, agent_id=agent_id, proposal_id=proposal_id, note=note
+            session,
+            agent_id=agent_id,
+            proposal_id=proposal_id,
+            note=note,
+            reason=reason,
+            left_out=seen.unwritten,
+            repairs=seen.repairs,
+            truncated=seen.truncated,
         )
+
+
+def refusal_note(refused: ProblemError, trace: AskTrace) -> str:
+    """What the owner reads when nothing could be written, as exact as what we know: the
+    parts that broke a rule and which rule, an answer too long to finish, else the refusal's
+    own sentences (the same ones the Script page's helper showed)."""
+    if refused.code == ANSWER_UNUSABLE_CODE and trace.unwritten:
+        return script_proposals.unwritten_note(trace.unwritten)
+    if trace.truncated:
+        return script_proposals.TOO_BIG_NOTE
+    note = " ".join(p for p in (refused.detail, refused.remediation) if p)
+    return note or script_proposals.FAILED_NOTE
 
 
 async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -374,26 +428,40 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return "not_pending"
 
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
+    trace = AskTrace()
     try:
-        draft = await _draft(tenant_id, agent_id, proposal)
+        draft = await _draft(tenant_id, agent_id, proposal, trace)
     except ProblemError as refused:
         log.info(
-            "script_proposal_refused", extra={"agent_id": str(agent_id), "reason": refused.code}
+            "script_proposal_refused",
+            extra={
+                "agent_id": str(agent_id),
+                "reason": refused.code,
+                "repairs": trace.repairs,
+                "truncated": trace.truncated,
+                "unwritten": len(trace.unwritten),
+            },
         )
         async with tenant_session(tenant_id) as session:
             await crm_assist.meter_refusal(
                 session, tenant_id=tenant_id, refusal=refused, feature=feature
             )
-        # The refusal's own sentences: written for the person, the same ones the Script
-        # page's helper showed.
-        note = " ".join(p for p in (refused.detail, refused.remediation) if p)
-        await _fail(tenant_id, agent_id, proposal_id, note or script_proposals.FAILED_NOTE)
+        await _fail(
+            tenant_id,
+            agent_id,
+            proposal_id,
+            refusal_note(refused, trace),
+            reason=refused.code,
+            trace=trace,
+        )
         return "refused"
     except Exception:
         # The Script page waits on this proposal until it is ready or failed, so a crash is
         # written down for the owner as well as logged for us.
         log.exception("script_proposal_crashed", extra={"agent_id": str(agent_id)})
-        await _fail(tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE)
+        await _fail(
+            tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE, reason="crashed"
+        )
         return "failed"
 
     drafted = draft.script
@@ -426,6 +494,9 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             script=script,
             unplaced=unplaced,
             disclosure=draft.capability.disclosure,
+            left_out=trace.left_out,
+            repairs=trace.repairs,
+            truncated=trace.truncated,
         )
         applied = (
             stored

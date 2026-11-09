@@ -35,6 +35,7 @@ an Azure answer Azure counted, its `usage`; it charges nothing.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -438,6 +439,126 @@ def edited_script(
     model changed must keep the language rules (`language_problems`); what the owner already
     had is never judged. `lenient` (an answer after the repair): a line still breaking a
     rule is put back to the owner's, and the rest is kept."""
+    return salvaged_edit(
+        raw,
+        current,
+        language=language,
+        allowed=allowed,
+        names=names,
+        introduced=introduced,
+        lint=lint,
+        woven=woven,
+        lenient=lenient,
+    )[0]
+
+
+#: The most problems one edit refusal names. The repair of an edit asks only for the parts
+#: they name (`TARGETED_REPAIR_NOTE`), so a long list costs a short answer, and a part left
+#: unnamed is a part the repair never gets the chance to fix.
+_EDIT_PROBLEMS_SENT: Final = 30
+
+
+@dataclass(frozen=True, slots=True)
+class LeftOut:
+    """A part of an edit that was not changed because what the model wrote for it broke a
+    rule: `part` is `stages.<id>` for a step, else the field name (`stages` alone is the
+    step list as a whole); `name` is the step's name; `added` marks a step the model added
+    that is therefore not added; `rule` is the rule it broke, in our words."""
+
+    part: str
+    name: str
+    rule: str
+    added: bool = False
+
+
+def left_out_parts(
+    problems: Sequence[str], edited: CallScript, current: CallScript
+) -> list[LeftOut]:
+    """Each part `problems` names (`path: rule`, a step by its index in `edited`), once,
+    with the first rule it broke."""
+    owned = {stage.id for stage in current.stages}
+    found: dict[str, LeftOut] = {}
+    for problem in problems:
+        path, _, rule = problem.partition(": ")
+        parts = path.split(".")
+        if parts[0] == "stages" and len(parts) > 1 and parts[1].isdigit():
+            index = int(parts[1])
+            if index >= len(edited.stages):
+                continue
+            stage = edited.stages[index]
+            entry = LeftOut(f"stages.{stage.id}", stage.name, rule, stage.id not in owned)
+        else:
+            entry = LeftOut(parts[0], "", rule)
+        found.setdefault(entry.part, entry)
+    return list(found.values())
+
+
+def _validation_problems(errors: Sequence[Any]) -> list[str]:
+    # Where and which rule, never the value: the value is the client's script.
+    return [f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}" for error in errors]
+
+
+def _owners_fields(
+    fields: dict[str, Any], current: CallScript, errors: Sequence[Any]
+) -> tuple[dict[str, Any], list[LeftOut]] | None:
+    """`fields` with each part a validation error names put back as `current` has it: a step
+    by its id (a step the model added is dropped), any other field whole. None when an error
+    names no part (a rule over the whole script), which nothing put back can be sure to fix."""
+    stages = fields.get("stages")
+    owned = {stage.id: stage for stage in current.stages}
+    bad_stages: dict[int, str] = {}
+    bad_fields: dict[str, str] = {}
+    for error in errors:
+        loc = error["loc"]
+        if not loc:
+            return None
+        head = str(loc[0])
+        if head == "stages" and len(loc) > 1 and isinstance(loc[1], int):
+            if not isinstance(stages, list) or loc[1] >= len(stages):
+                return None
+            bad_stages.setdefault(loc[1], error["msg"])
+        elif head in fields and head != "stages":
+            bad_fields.setdefault(head, error["msg"])
+        else:
+            return None
+    left_out = [LeftOut(name, "", rule) for name, rule in bad_fields.items()]
+    kept = {k: v for k, v in fields.items() if k not in bad_fields}
+    if bad_stages and isinstance(stages, list):
+        rebuilt: list[Any] = []
+        for i, item in enumerate(stages):
+            if i not in bad_stages:
+                rebuilt.append(item)
+                continue
+            stage_id = str(item.get("id", "")) if isinstance(item, dict) else ""
+            name = str(item.get("name", "")) if isinstance(item, dict) else ""
+            mine = owned.get(stage_id)
+            left_out.append(LeftOut(f"stages.{stage_id}", name, bad_stages[i], mine is None))
+            if mine is not None:
+                rebuilt.append(mine.model_dump())
+        kept["stages"] = ways_to_kept_steps(rebuilt)
+    return kept, left_out
+
+
+def salvaged_edit(
+    raw: dict[str, Any],
+    current: CallScript,
+    *,
+    language: str | None = None,
+    allowed: str = "",
+    names: Sequence[str] = (),
+    introduced: bool = False,
+    lint: LintContext | None = None,
+    woven: WovenNotices | None = None,
+    lenient: bool = False,
+) -> tuple[CallScript, list[LeftOut]]:
+    """`edited_script`, plus the parts a `lenient` read put back as the owner had them.
+
+    Strict (the first answer, and each targeted repair): any broken rule refuses the answer
+    with the problems for the repair. Lenient (once the repairs are spent, or a repair never
+    came back): each part still breaking a rule, or failing the script's own validation, is
+    put back as the owner had it and the rest is kept, the business copy's `salvage` rule
+    applied to an edit. Only an answer with nothing left once those parts are put back is
+    refused, and that refusal carries the parts (`UnusableAnswerError.left_out`)."""
     fields = _stages_where_they_belong(
         {k: v for k, v in raw.items() if k in CallScript.model_fields and k not in NOTICE_RECORDS},
         current,
@@ -446,15 +567,12 @@ def edited_script(
         # A step the change deleted leaves ways out pointing at it; they go as in a hand
         # delete, so the deletion is a valid script rather than a refused answer.
         fields = {**fields, "stages": ways_to_kept_steps(fields["stages"])}
+    put_back: list[LeftOut] = []
     try:
         edited = CallScript.model_validate({**current.model_dump(), **fields})
     except ValidationError as invalid:
         errors = invalid.errors(include_input=False, include_url=False)
-        # Where and which rule, never the value: the value is the client's script.
-        problems = [
-            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
-            for error in errors[:8]
-        ]
+        problems = _validation_problems(errors[:_EDIT_PROBLEMS_SENT])
         # One string, not a list: the log formatter reduces a list to "[N items]", which hid
         # exactly what an operator needs here. Paths and rule types only.
         where = "; ".join(
@@ -462,7 +580,14 @@ def edited_script(
             for error in errors[:8]
         )
         log.warning("script_assist_edit_unusable", extra={"where": where, "count": len(errors)})
-        raise UnusableAnswerError("; ".join(problems)) from invalid
+        owners = _owners_fields(fields, current, errors) if lenient else None
+        if owners is None:
+            raise UnusableAnswerError("; ".join(problems)) from invalid
+        try:
+            edited = CallScript.model_validate({**current.model_dump(), **owners[0]})
+        except ValidationError:
+            raise UnusableAnswerError("; ".join(problems)) from invalid
+        put_back = owners[1]
     if lenient:
         # Blanked again after its repair: the step was meant to go, so it goes, and the
         # review shows it as a step Pip removes, unticked until the owner keeps it.
@@ -478,17 +603,24 @@ def edited_script(
         woven=woven,
     )
     if problems and lenient:
-        # After the one repair: the lines still breaking a rule go back to the owner's, and
-        # the rest of the change is kept (A-07), rather than the owner getting nothing.
+        # The lines still breaking a rule go back to the owner's, and the rest of the change
+        # is kept (A-07), rather than the owner getting nothing.
+        put_back += left_out_parts(problems, edited, current)
         edited = owners_where(edited, current, problems)
         if edited == current:
-            raise UnusableAnswerError("; ".join(problems[:12]))
-        log.info("script_assist_lines_put_back", extra={"count": len(problems)})
+            refused = UnusableAnswerError("; ".join(problems[:_EDIT_PROBLEMS_SENT]))
+            refused.left_out = tuple(put_back)
+            raise refused
+        log.info("script_assist_lines_put_back", extra={"count": len(put_back)})
         problems = []
     if problems:
         log.warning("script_assist_language_unusable", extra={"count": len(problems)})
-        raise UnusableAnswerError("; ".join(problems[:12]))
-    return edited.model_copy(update={"raw_override": None, "schema_version": 2})
+        raise UnusableAnswerError("; ".join(problems[:_EDIT_PROBLEMS_SENT]))
+    if lenient and put_back and edited == current:
+        refused = UnusableAnswerError("; ".join(f"{p.part}: {p.rule}" for p in put_back))
+        refused.left_out = tuple(put_back)
+        raise refused
+    return edited.model_copy(update={"raw_override": None, "schema_version": 2}), put_back
 
 
 def owners_where(edited: CallScript, current: CallScript, problems: Sequence[str]) -> CallScript:
@@ -769,6 +901,9 @@ class ScriptDraft:
     #: The model that wrote it (`JsonAnswer.model`), for the meter.
     model: str | None = None
     earlier: tuple[PaidTurn, ...] = ()
+    #: The parts of an edit kept as the owner had them because what the model wrote for
+    #: them still broke a rule once its repairs were spent (`salvaged_edit`).
+    left_out: tuple[LeftOut, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -897,6 +1032,8 @@ class _RawJson:
     data: dict[str, Any] | None
     usage: TokenUsage | None = None
     service_tier: chat.ServiceTier = "standard"
+    #: The `max_tokens` valve fired (`finish_reason == "length"`); `data` is then None.
+    truncated: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1100,7 +1237,7 @@ async def _json_via_leg(
         # could yield a balanced PREFIX that reads as a short answer. "No answer" is the
         # honest result, carrying the billed tokens to the meter.
         log.warning("script_assist_draft_truncated", extra={"provider": provider})
-        return _RawJson(data=None, usage=outcome.usage, service_tier=tier)
+        return _RawJson(data=None, usage=outcome.usage, service_tier=tier, truncated=True)
     return _RawJson(
         data=_first_json_object(outcome.content) or None, usage=outcome.usage, service_tier=tier
     )
@@ -1153,7 +1290,7 @@ async def _json_via_sarvam(
         return None
     if outcome.finish_reason == "length":
         log.warning("script_assist_draft_truncated", extra={"provider": "sarvam"})
-        return _RawJson(data=None, usage=outcome.usage)
+        return _RawJson(data=None, usage=outcome.usage, truncated=True)
     return _RawJson(data=_first_json_object(outcome.content) or None, usage=outcome.usage)
 
 
@@ -1218,6 +1355,113 @@ REPAIR_NOTE: Final = (
     "Return the whole JSON again with exactly these fixed and nothing else changed."
 )
 
+#: The repair of an EDIT asks back only the parts that broke a rule, rather than the whole
+#: script again (`REPAIR_NOTE`): a whole script is the longest answer this module asks for,
+#: and asking for it twice is what ran a large edit out of its time and token budget, after
+#: which the owner got nothing. The answer is merged onto the previous one by step id
+#: (`merged_repair`), the search/replace edit's reason for existing.
+TARGETED_REPAIR_NOTE: Final = (
+    "Your previous answer could not be used as it is because of these problems: {problems}. "
+    "Return a JSON object holding ONLY the parts these problems name, each fixed: a step goes "
+    "in `stages` as the whole step with its id; any other part goes under its own name. "
+    "Leave out every part the problems do not name: it is kept from your previous answer."
+)
+
+#: How many targeted repairs one edit may ask for. Each asks only for the parts still broken,
+#: so the second is shorter than the first; a third has not been seen to fix what two did not,
+#: and every round is paid for.
+EDIT_REPAIR_ROUNDS: Final = 2
+
+
+@dataclass(frozen=True, slots=True)
+class TargetedRepair:
+    """How a repair asks for only the broken parts and folds the answer back: `note` builds
+    the repair turn from the problems and the previous answer, `merge` lays the repaired
+    parts over the previous answer."""
+
+    note: Callable[[str, dict[str, Any]], str]
+    merge: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]
+
+
+@dataclass(slots=True)
+class AskTrace:
+    """What one `ask_json` went through, for the caller to record and explain: whether an
+    answer was cut off at `max_tokens`, how many repairs were asked for, and the last
+    problems sent back (`path: rule`, never the answer's text). An edit also records the
+    parts it put back (`left_out`) or, when nothing was left, could not write (`unwritten`)."""
+
+    truncated: bool = False
+    repairs: int = 0
+    problems: str = ""
+    left_out: list[LeftOut] = field(default_factory=list)
+    unwritten: list[LeftOut] = field(default_factory=list)
+
+
+_STAGE_PATH: Final = re.compile(r"^stages\.(\d+)")
+
+
+def targeted_note(problems: str, previous: dict[str, Any]) -> str:
+    """`TARGETED_REPAIR_NOTE` for `problems`, each step named by its id as well as its place,
+    so the answer can be laid back by id whatever order it comes in."""
+    stages = _raw_stages(previous)
+
+    def with_id(problem: str) -> str:
+        found = _STAGE_PATH.match(problem)
+        if found is None or int(found.group(1)) >= len(stages):
+            return problem
+        item = stages[int(found.group(1))]
+        stage_id = item.get("id") if isinstance(item, dict) else None
+        if not stage_id:
+            return problem
+        return f'{found.group(0)} (id "{stage_id}"){problem[found.end() :]}'
+
+    return TARGETED_REPAIR_NOTE.format(
+        problems="; ".join(with_id(p) for p in problems.split("; ") if p)
+    )
+
+
+def _raw_stages(answer: dict[str, Any]) -> list[Any]:
+    stages = answer.get("stages")
+    if isinstance(stages, list):
+        return stages
+    steps = answer.get("steps")
+    # The model's slip `_stages_where_they_belong` corrects: the stages written as `steps`.
+    if isinstance(steps, list) and steps and all(isinstance(s, dict) and "id" in s for s in steps):
+        return steps
+    return []
+
+
+def merged_repair(
+    previous: dict[str, Any], repaired: dict[str, Any], *, known_ids: frozenset[str] = frozenset()
+) -> dict[str, Any]:
+    """`previous` with the parts `repaired` holds laid over it: a step replaces the one with
+    its id; a step with an id `previous` lacks is added only when the owner's script has it
+    (`known_ids`: a step the repair restores, such as a close the first answer dropped), since
+    any other new id is a renamed copy that would duplicate the step; any other field replaces
+    the previous one whole."""
+    merged = dict(previous)
+    stages = list(_raw_stages(previous))
+    if "stages" not in merged and stages:
+        merged["stages"] = stages
+    for key, value in repaired.items():
+        if key in ("stages", "steps") and isinstance(value, list):
+            if key == "steps" and not all(isinstance(s, dict) and "id" in s for s in value):
+                merged[key] = value
+                continue
+            at = {str(item.get("id")): i for i, item in enumerate(stages) if isinstance(item, dict)}
+            for item in value:
+                if not isinstance(item, dict) or "id" not in item:
+                    continue
+                stage_id = str(item["id"])
+                if stage_id in at:
+                    stages[at[stage_id]] = item
+                elif stage_id in known_ids:
+                    stages.append(item)
+            merged["stages"] = stages
+        else:
+            merged[key] = value
+    return merged
+
 
 #: The refusal code when the model answered but the answer still broke the rules after one
 #: repair. Distinct from `provider_unavailable`, whose words ("no assistant answered") would be
@@ -1239,6 +1483,8 @@ class UnusableAnswerError(ValueError):
     def __init__(self, problems: str) -> None:
         super().__init__(problems)
         self.problems = problems
+        #: The parts a lenient edit read put back before nothing was left (`salvaged_edit`).
+        self.left_out: tuple[LeftOut, ...] = ()
 
 
 def _parsed_with_problems[T](
@@ -1302,6 +1548,10 @@ async def ask_json[T](
     health_leg: provider_health.AiLeg = "script",
     gemini_only: bool = False,
     flex: FlexAllowance | None = None,
+    repair_rounds: int = 1,
+    targeted: TargetedRepair | None = None,
+    salvage: Callable[[dict[str, Any]], T | None] | None = None,
+    trace: AskTrace | None = None,
 ) -> JsonAnswer[T]:
     """THE dashboard AI ladder for a JSON answer: the paid leg `assist_capability` picks (the
     account's own Gemini model when it serves the dashboard, else Azure), the disclosed
@@ -1331,6 +1581,15 @@ async def ask_json[T](
     Flex tier. Its wait is added in front of the ladder's budgets rather than taken out of
     them, so a Flex fallback leaves the repair and the rest of the ladder exactly the time
     they had without it.
+
+    REPAIR AND SALVAGE. An answer `parse` refuses with problems is sent back to the same leg
+    up to `repair_rounds` times, each round with only what is still wrong. `targeted` makes
+    each round ask for the broken parts alone and lay them over the previous answer, so a
+    long answer is never asked for twice. Once the rounds are spent, or a round never came
+    back (cut off, out of time, no JSON), `salvage` reads the best answer the leg gave
+    leniently, keeping what passed (the business copy's partial save), before the ladder
+    moves on; the standby's answer is read the same way. Every round is part of one metered
+    request (`chat.sum_usage`). `trace` records what happened, for the caller to explain.
     """
     capability = assist_capability(
         tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, allow_azure=not gemini_only
@@ -1391,26 +1650,46 @@ async def ask_json[T](
             )
 
         paid = await paid_answer(asked)
-        value, problems = _parsed_with_problems(parse, paid.data if paid is not None else None)
+        data = paid.data if paid is not None else None
+        value, problems = _parsed_with_problems(parse, data)
         spent = paid.usage if paid is not None else None
         tier: chat.ServiceTier = paid.service_tier if paid is not None else "standard"
-        if value is None and problems is not None:
+        if trace is not None and paid is not None and paid.truncated:
+            trace.truncated = True
+        sent_back = problems is not None
+        rounds = 0
+        while value is None and problems is not None and rounds < repair_rounds:
+            rounds += 1
             tier = "standard"
-            # ONE REPAIR on the same leg, told what was wrong, before the fallback. A long
+            if trace is not None:
+                trace.repairs, trace.problems = rounds, problems
+            # A REPAIR on the same leg, told what was wrong, before the fallback. A long
             # structured answer that breaks one validation rule is usually right everywhere
             # else, and the fallback leg is slower and weaker at exactly this kind of answer.
-            assert paid is not None and paid.data is not None  # problems come from its parse
+            assert data is not None  # problems come from its parse
             repaired = await paid_answer(
                 repair=Repair(
-                    answer=json.dumps(paid.data, ensure_ascii=False),
-                    note=REPAIR_NOTE.format(problems=problems),
+                    answer=json.dumps(data, ensure_ascii=False),
+                    note=(
+                        targeted.note(problems, data)
+                        if targeted is not None
+                        else REPAIR_NOTE.format(problems=problems)
+                    ),
                 )
             )
-            if repaired is not None:
-                # A repair that never reached the provider cost nothing: the first
-                # attempt's known spend stays known rather than becoming "unreported".
-                spent = _usage_sum(spent, repaired.usage)
-                value = _parsed(parse, repaired.data)
+            if repaired is None:
+                # Never reached the provider, or out of time: nothing was spent on it, and
+                # the answer already given is still the best there is.
+                break
+            spent = _usage_sum(spent, repaired.usage)
+            if trace is not None and repaired.truncated:
+                trace.truncated = True
+            if repaired.data is None:
+                break
+            data = targeted.merge(data, repaired.data) if targeted is not None else repaired.data
+            value, problems = _parsed_with_problems(parse, data)
+        if value is None and sent_back and salvage is not None and data is not None:
+            value = _parsed(salvage, data)
         if value is not None:
             # `None` on Azure: `meter_assist` names the live `azure_openai_model`.
             return JsonAnswer(
@@ -1423,7 +1702,7 @@ async def ask_json[T](
         if paid is not None:
             # Billed as a request, refused as an answer: metered at its own model.
             earlier.append(PaidTurn(spent, capability, model))
-        answered_unusably = problems is not None
+        answered_unusably = sent_back
         if gemini_only:
             refusal = (
                 _answer_unusable()
@@ -1443,14 +1722,19 @@ async def ask_json[T](
     sarvam = await _json_via_sarvam(
         description,
         instruction,
-        max_tokens=max_tokens,
+        # Sarvam's own ceiling, whatever the paid leg was given: its lowest tier caps
+        # `max_tokens` at the module's default (`_DRAFT_MAX_TOKENS`).
+        max_tokens=min(max_tokens, _DRAFT_MAX_TOKENS),
         temperature=temperature,
         # The standby gets whatever the paid leg left, never less than one budget: a fixed
         # 15 s timed out on a long answer while the paid leg had failed in a second.
         timeout_s=time_left(standby_until),
         deadline=standby_until,
     )
-    value = _parsed(parse, sarvam.data) if sarvam is not None else None
+    if trace is not None and sarvam is not None and sarvam.truncated:
+        trace.truncated = True
+    # The standby is asked once, with no repair, so its answer is read the lenient way.
+    value = _parsed(salvage or parse, sarvam.data) if sarvam is not None else None
     if value is None:
         # Both legs silent: a refusal the owner can act on, not an empty answer. When the
         # paid leg DID answer and only the shape was wrong, saying "no assistant answered"
@@ -1483,6 +1767,9 @@ async def draft_script(
     instruction: str = _SYSTEM_INSTRUCTION,
     edit_of: CallScript | None = None,
     change: str = "",
+    timeout_s: float = ASSIST_TIMEOUT_S,
+    max_tokens: int = _DRAFT_MAX_TOKENS,
+    trace: AskTrace | None = None,
 ) -> ScriptDraft:
     """Draft a `CallScript` from a business description (the AI writing assist), or, with
     `CONVERT_INSTRUCTION`, propose sections for a hand-written prompt, or, with `edit_of`,
@@ -1491,12 +1778,20 @@ async def draft_script(
     `quota_exhausted` is the gate's verdict passed IN (this module has no session), so the
     ceiling reaches the one function that spends a token. `tenant_leg` is the account's own
     model, passed in the same way and for the same reason — it is a row.
+
+    `timeout_s` and `max_tokens` are one request's budget (`ask_json`); a job nobody waits on
+    gives a long script more of both. An edit's repairs ask only for the broken parts, and
+    what still breaks a rule after them is put back as the owner had it (`salvaged_edit`),
+    recorded in `ScriptDraft.left_out` and in `trace`.
     """
     # A bare string is the old one-box description; the builder now sends a full brief.
     full = ScriptBrief(description=brief) if isinstance(brief, str) else brief
     description = full.user_message()
     names = (full.business_name, full.agent_name)
     parse: Parser
+    salvage: Parser | None = None
+    targeted: TargetedRepair | None = None
+    seen = trace if trace is not None else AskTrace()
     if edit_of is not None:
         # "Change this" (founder, 10 Oct 2026): the current script with one change made,
         # section ids kept, so the Script page can show it section by section.
@@ -1505,8 +1800,8 @@ async def draft_script(
             f"{description}\nThe owner's change: {change.strip()}\nCurrent script (JSON):\n"
             f"{edit_of.model_dump_json(exclude={'raw_override', *NOTICE_RECORDS})}"
         )
-        strict = partial(
-            edited_script,
+        read_edit = partial(
+            salvaged_edit,
             current=edit_of,
             language=full.language,
             allowed=change,
@@ -1515,16 +1810,26 @@ async def draft_script(
             lint=full.lint_context(),
             woven=full.woven,
         )
-        answers = 0
 
-        def parse_edit(raw: dict[str, Any]) -> CallScript | None:
-            # The first answer is sent back with its problems for the one repair; a later
-            # one keeps what it got right (A-07).
-            nonlocal answers
-            answers += 1
-            return strict(raw, lenient=answers > 1)
+        def strict(raw: dict[str, Any]) -> CallScript | None:
+            # Each answer is sent back with its problems while repairs are left.
+            return read_edit(raw, lenient=False)[0]
 
-        parse = parse_edit
+        def lenient(raw: dict[str, Any]) -> CallScript | None:
+            # The repairs spent: keep what it got right (A-07), and say what was left out.
+            try:
+                script, put_back = read_edit(raw, lenient=True)
+            except UnusableAnswerError as nothing_left:
+                seen.unwritten = list(nothing_left.left_out)
+                raise
+            seen.left_out, seen.unwritten = put_back, []
+            return script
+
+        parse, salvage = strict, lenient
+        targeted = TargetedRepair(
+            note=targeted_note,
+            merge=partial(merged_repair, known_ids=frozenset(stage.id for stage in edit_of.stages)),
+        )
     else:
         # A conversion keeps the owner's own sentences, in whatever language they wrote them,
         # so only a textbook word the owner did not write is the model's to fix.
@@ -1553,6 +1858,12 @@ async def draft_script(
         azure_format=_draft_format(edit=edit_of is not None),
         tenant_leg=tenant_leg,
         quota_exhausted=quota_exhausted,
+        max_tokens=max_tokens,
+        timeout_s=timeout_s,
+        repair_rounds=EDIT_REPAIR_ROUNDS if targeted is not None else 1,
+        targeted=targeted,
+        salvage=salvage,
+        trace=seen,
     )
     return ScriptDraft(
         script=answer.value,
@@ -1560,6 +1871,7 @@ async def draft_script(
         usage=answer.usage,
         model=answer.model,
         earlier=answer.earlier,
+        left_out=tuple(seen.left_out),
     )
 
 
@@ -1567,19 +1879,28 @@ __all__ = [
     "ANSWER_UNUSABLE_CODE",
     "CONVERT_INSTRUCTION",
     "EDIT_INSTRUCTION",
+    "EDIT_REPAIR_ROUNDS",
     "OWNER_QUESTIONS",
     "REPAIR_NOTE",
+    "TARGETED_REPAIR_NOTE",
+    "AskTrace",
     "JsonAnswer",
+    "LeftOut",
     "ScriptBrief",
     "ScriptDraft",
+    "TargetedRepair",
     "UnusableAnswerError",
     "ask_json",
     "draft_script",
     "drafted_script",
     "edited_script",
     "language_problems",
+    "left_out_parts",
+    "merged_repair",
     "owners_where",
+    "salvaged_edit",
     "shape_problems",
+    "targeted_note",
     "ways_to_kept_steps",
     "without_placeholder_steps",
 ]

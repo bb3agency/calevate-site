@@ -27108,6 +27108,13 @@
             "title": "Id",
             "type": "string"
           },
+          "left_out": {
+            "items": {
+              "$ref": "#/components/schemas/LeftOutPartOut"
+            },
+            "title": "Left Out",
+            "type": "array"
+          },
           "mode": {
             "enum": [
               "change",
@@ -27186,6 +27193,7 @@
           "unplaced",
           "disclosure",
           "note",
+          "left_out",
           "requested_at",
           "draft_saved_at"
         ],
@@ -36112,6 +36120,36 @@
           "why"
         ],
         "title": "LeftOutOut",
+        "type": "object"
+      },
+      "LeftOutPartOut": {
+        "additionalProperties": false,
+        "description": "A part of the script Pip's suggestion leaves as the owner had it (ready), or could not\nwrite (failed), and why.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "part": {
+            "title": "Part",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "part",
+          "label",
+          "rule",
+          "added"
+        ],
+        "title": "LeftOutPartOut",
         "type": "object"
       },
       "LegalDocumentOut": {
@@ -50902,6 +50940,13 @@
             "title": "Id",
             "type": "string"
           },
+          "left_out": {
+            "items": {
+              "$ref": "#/components/schemas/LeftOutPartOut"
+            },
+            "title": "Left Out",
+            "type": "array"
+          },
           "mode": {
             "enum": [
               "change",
@@ -50980,6 +51025,7 @@
           "unplaced",
           "disclosure",
           "note",
+          "left_out",
           "requested_at"
         ],
         "title": "ScriptProposalOut",

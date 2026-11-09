@@ -17,15 +17,45 @@ import { useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
+import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { PipMark } from "@/components/illustration/pip";
 import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
-import { EMPTY_SCRIPT, useClearProposal, useScriptProposal, type CallScript } from "@/lib/api/script";
+import {
+  EMPTY_SCRIPT,
+  useClearProposal,
+  useScriptProposal,
+  type CallScript,
+  type ScriptProposal,
+} from "@/lib/api/script";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
+import { onePartRequest } from "./PipAsk";
 import { ProposalReview } from "./ProposalReview";
 import { DEFAULT_LIMITS, type Limits } from "./scriptModel";
 import { languageName } from "./sectionParts";
+
+/**
+ * The parts Pip left as the owner had them because its words for them broke a call rule:
+ * the rest of the suggestion is still offered, and these are named rather than dropped
+ * without a word.
+ */
+function LeftOutNotice({ parts }: { parts: ScriptProposal["left_out"] }) {
+  const one = parts.length === 1;
+  return (
+    <NoticeBox tone="neutral" title={`${parts.length} ${one ? "part" : "parts"} kept as you had ${one ? "it" : "them"}`}>
+      <ul className="mt-2 space-y-1 text-meta">
+        {parts.map((part) => (
+          <li key={part.part} className="break-words [overflow-wrap:anywhere]">
+            <span className="font-semibold">{part.label}</span>
+            {part.added ? " (not added)" : ""}: {part.rule}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-meta">Edit {one ? "it" : "them"} yourself, or ask {ASSISTANT_NAME} for one at a time.</p>
+    </NoticeBox>
+  );
+}
 
 /** Steps made from a hand-written script start empty, keeping the owner's own switches. */
 export function structuredBase(script: CallScript): CallScript {
@@ -82,7 +112,7 @@ export function PipProposal({
               ? `${ASSISTANT_NAME} is adding your new file to this script…`
               : `${ASSISTANT_NAME} is writing your suggestion…`}
           </span>{" "}
-          It takes about half a minute.
+          A big change can take a couple of minutes.
         </span>
       </p>
     );
@@ -91,6 +121,18 @@ export function PipProposal({
     return (
       <NoticeBox tone="warn" title={`${ASSISTANT_NAME} could not write that suggestion`} action={dismiss}>
         <p className="mt-1 text-meta">{proposal.note}</p>
+        {canWrite && (proposal.left_out ?? []).length > 0 && (
+          <ul aria-label="Parts to ask for one at a time" className="mt-2 flex flex-wrap gap-2">
+            {(proposal.left_out ?? []).map((part) => (
+              <li key={part.part}>
+                <AskAssistant
+                  label={`Ask for ${part.label.charAt(0).toLowerCase()}${part.label.slice(1)} alone`}
+                  prompt={onePartRequest(part.label, proposal.request)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </NoticeBox>
     );
   }
@@ -148,6 +190,7 @@ export function PipProposal({
           </p>
         )}
         {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
+        {(proposal.left_out ?? []).length > 0 && <LeftOutNotice parts={proposal.left_out} />}
         {steps &&
           (unplaced.length === 0 ? (
             <p className="text-meta text-ink">Every line of your script has a place in these steps.</p>

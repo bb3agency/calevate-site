@@ -1338,6 +1338,22 @@ async def settle_suggested_edits(
 # --- the suggestion Pip prepared (D-820) ------------------------------------------------
 
 
+class LeftOutPartOut(BaseModel):
+    """A part of the script Pip's suggestion leaves as the owner had it (ready), or could not
+    write (failed), and why."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: `stages.<id>` for a step, else the part's field name.
+    part: str
+    #: The part as the owner knows it ("Step “Ask the budget”", "The opening line").
+    label: str
+    #: The rule what Pip wrote for it broke, in the owner's words.
+    rule: str
+    #: A step Pip wanted to add, which is therefore not added.
+    added: bool
+
+
 class ScriptProposalOut(BaseModel):
     """A script suggestion Pip was asked for, reviewed part by part on the Script page."""
 
@@ -1368,6 +1384,9 @@ class ScriptProposalOut(BaseModel):
     disclosure: str | None
     #: Why it could not be written, in the owner's words, when `failed`.
     note: str | None
+    #: When `ready`, the parts kept as the owner had them because what Pip wrote for them
+    #: broke a rule; when `failed`, the parts it could not write. Empty when none.
+    left_out: list[LeftOutPartOut]
     requested_at: datetime
 
 
@@ -1402,6 +1421,15 @@ def _proposal_out(found: script_proposals.ScriptProposal) -> ScriptProposalOut:
         unplaced=found.unplaced,
         disclosure=found.disclosure,
         note=found.note,
+        left_out=[
+            LeftOutPartOut(
+                part=part.part,
+                label=script_proposals.part_label(part),
+                rule=part.rule,
+                added=part.added,
+            )
+            for part in found.left_out
+        ],
         requested_at=found.requested_at,
     )
 

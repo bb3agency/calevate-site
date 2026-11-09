@@ -442,11 +442,20 @@ function ScriptSuggestionProgress({ session, agentId }: { session: Session; agen
       </div>
     );
   }
+  // A suggestion that kept some parts as they were says so here too, not only on the tab.
+  const kept = status === "ready" ? (suggestion.data?.left_out?.length ?? 0) : 0;
   return (
-    <p role="status" className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
-      <Check aria-hidden className="h-3.5 w-3.5" />
-      {status === "ready" ? "Ready to review on the Script tab" : "Nothing is waiting on the Script tab"}
-    </p>
+    <div role="status">
+      <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
+        <Check aria-hidden className="h-3.5 w-3.5" />
+        {status === "ready" ? "Ready to review on the Script tab" : "Nothing is waiting on the Script tab"}
+      </p>
+      {kept > 0 ? (
+        <p className="mt-1 text-xs text-ink">
+          {kept === 1 ? "1 part is" : `${kept} parts are`} kept as you had {kept === 1 ? "it" : "them"}.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

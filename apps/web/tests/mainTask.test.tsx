@@ -146,6 +146,7 @@ describe("the main task under the agent's name", () => {
           base_script: { ...EMPTY_SCRIPT, goal: GOAL },
           script: null,
           unplaced: [],
+          left_out: [],
           disclosure: null,
           note: null,
           requested_at: "2026-11-09T08:00:00Z",

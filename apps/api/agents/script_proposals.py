@@ -18,8 +18,12 @@ The stored shape (JSON): `id`, `mode`, `status` (`drafting` | `ready` | `failed`
 (the person's change, or null), `answers` (the six owner answers, `whole` only),
 `base_script` (the script it was made from, fixed at request time), `requested_by`,
 `requested_at`, and for `knowledge` (D-923) `documents` and `document_names` (the uploads it
-is written from); once written `script`, `unplaced` (`steps` only) and `disclosure` (D-127
-G-6); on failure `note`, in the owner's words. Every write after the request is a
+is written from); once written `script`, `unplaced` (`steps` only), `disclosure` (D-127
+G-6) and `left_out` (the parts kept as the owner had them, each `part`, `name`, `rule`,
+`added`); on failure `note`, in the owner's words, `reason` (the refusal code) and
+`left_out` (the parts that could not be written). Either outcome records `repairs` (how many
+repairs were asked for) and `truncated` (an answer was cut off at its token ceiling), for an
+operator reading the row. Every write after the request is a
 compare-and-set on `id`, so a discarded or replaced request is never resurrected by the job
 that was drafting it.
 """
@@ -27,6 +31,7 @@ that was drafting it.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -55,6 +60,7 @@ from apps.api.first_run.models import MAX_DOCUMENTS
 from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 from apps.workers.script_assist import (
     OWNER_QUESTIONS,
+    LeftOut,
     ScriptBrief,
     ways_to_kept_steps,
     without_placeholder_steps,
@@ -121,6 +127,62 @@ FAILED_NOTE: Final = (
     "keeps happening, contact us."
 )
 
+#: When the answer was cut off at its token ceiling and nothing usable came back: the one
+#: failure the owner fixes by asking for less at a time.
+TOO_BIG_NOTE: Final = (
+    "This change was too big for Pip to write in one go. Ask for one part at a time, for "
+    "example the opening first, then the steps."
+)
+
+#: What a part of the script is called on the Script tab, for a field a left-out part names.
+_PART_LABELS: Final[dict[str, str]] = {
+    "stages": "The list of steps",
+    "opening_line": "The opening line",
+    "outbound_opening_line": "The opening line for calls it makes",
+    "goal": "The main task",
+    "business_line": "What the business does",
+    "identity": "Who the agent is",
+    "outbound_purpose": "Why it calls",
+    "faqs": "Quick facts",
+    "objections": "Answers to worries",
+    "ending": "How it ends the call",
+    "example_exchange": "The example call",
+    "style": "How it speaks",
+}
+
+_ASIDE: Final = re.compile(r"\s*\([^)]*\)")
+
+
+def part_label(part: LeftOut) -> str:
+    """The part's name as the owner knows it: a step by its name, a field by its label."""
+    if part.part.startswith("stages."):
+        return f"Step “{part.name}”" if part.name else "A step"
+    return _PART_LABELS.get(part.part, part.part.replace("_", " ").capitalize())
+
+
+def owner_rule(rule: str) -> str:
+    """A rule the model was told it broke, as the owner reads it: an aside in brackets goes,
+    since it may name the vendor a line mentioned (D-679), and the sentence is closed."""
+    said = _ASIDE.sub("", rule).strip().rstrip(".;")
+    return f"{said[:1].upper()}{said[1:]}." if said else "It broke one of the call rules."
+
+
+def unwritten_note(parts: Sequence[LeftOut]) -> str:
+    """The failure note when the parts Pip could not write are known: which, and why."""
+    shown = [f"{part_label(p)}: {owner_rule(p.rule).rstrip('.')}" for p in parts[:3]]
+    more = f" and {len(parts) - 3} more" if len(parts) > 3 else ""
+    return (
+        f"Pip could not write a clean version of {'; '.join(shown)}{more}. Edit those parts "
+        "yourself, or ask Pip to change one of them at a time."
+    )
+
+
+def _left_out_record(parts: Sequence[LeftOut]) -> list[dict[str, Any]]:
+    return [
+        {"part": p.part, "name": p.name, "rule": owner_rule(p.rule), "added": p.added}
+        for p in parts
+    ]
+
 
 @dataclass(frozen=True, slots=True)
 class ScriptProposal:
@@ -142,6 +204,24 @@ class ScriptProposal:
     #: The only lines a fix may change ("Fix them first"): the paths the script check named
     #: (`script_lint.script_problems`). Empty for every other proposal.
     paths: list[str] = field(default_factory=list)
+    #: Ready: the parts kept as the owner had them. Failed: the parts that could not be
+    #: written. Each `rule` is already in the owner's words (`owner_rule`).
+    left_out: list[LeftOut] = field(default_factory=list)
+    #: Failed: the refusal code (`assist_answer_unusable`, `provider_unavailable`, ...).
+    reason: str | None = None
+
+
+def _left_out(raw: Any) -> list[LeftOut]:
+    return [
+        LeftOut(
+            part=str(item.get("part", "")),
+            name=str(item.get("name", "")),
+            rule=str(item.get("rule", "")),
+            added=bool(item.get("added", False)),
+        )
+        for item in raw or []
+        if isinstance(item, dict)
+    ]
 
 
 def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
@@ -168,6 +248,8 @@ def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
         documents=[UUID(str(d)) for d in raw.get("documents") or []],
         document_names=[str(n) for n in raw.get("document_names") or []],
         paths=[str(p) for p in raw.get("paths") or []],
+        left_out=_left_out(raw.get("left_out")),
+        reason=raw.get("reason"),
     )
 
 
@@ -559,6 +641,9 @@ async def store_ready(
     script: CallScript,
     unplaced: list[str],
     disclosure: str | None,
+    left_out: Sequence[LeftOut] = (),
+    repairs: int = 0,
+    truncated: bool = False,
 ) -> bool:
     """The written proposal. False when the request was discarded or replaced meanwhile."""
     return await _update_if_current(
@@ -570,15 +655,36 @@ async def store_ready(
             "script": script.model_dump(mode="json"),
             "unplaced": unplaced,
             "disclosure": disclosure,
+            "left_out": _left_out_record(left_out),
+            "repairs": repairs,
+            "truncated": truncated,
         },
     )
 
 
 async def store_failed(
-    session: AsyncSession, *, agent_id: UUID, proposal_id: UUID, note: str
+    session: AsyncSession,
+    *,
+    agent_id: UUID,
+    proposal_id: UUID,
+    note: str,
+    reason: str | None = None,
+    left_out: Sequence[LeftOut] = (),
+    repairs: int = 0,
+    truncated: bool = False,
 ) -> bool:
     return await _update_if_current(
-        session, agent_id, proposal_id, {"status": "failed", "note": note[:400]}
+        session,
+        agent_id,
+        proposal_id,
+        {
+            "status": "failed",
+            "note": note[:400],
+            "reason": reason,
+            "left_out": _left_out_record(left_out),
+            "repairs": repairs,
+            "truncated": truncated,
+        },
     )
 
 
@@ -869,6 +975,7 @@ __all__ = [
     "STARTER_MODE",
     "SUGGESTION_WAITING",
     "SUGGEST_JOB",
+    "TOO_BIG_NOTE",
     "WRITTEN_MODE",
     "ProposalMode",
     "ProposalStatus",
@@ -877,6 +984,8 @@ __all__ = [
     "discard",
     "emptied_kept",
     "kept_to_paths",
+    "owner_rule",
+    "part_label",
     "queue_document_suggestions",
     "read_proposal",
     "request_knowledge_proposal",
@@ -887,5 +996,6 @@ __all__ = [
     "request_written_script",
     "store_failed",
     "store_ready",
+    "unwritten_note",
     "working_script",
 ]

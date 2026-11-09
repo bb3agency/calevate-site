@@ -44,6 +44,7 @@ const PROPOSAL: ScriptProposal = {
   base_script: SCRIPT,
   script: { ...SCRIPT, opening_line: "Namaskaram andi, thanks for calling Sunrise Organics!" },
   unplaced: [],
+  left_out: [],
   disclosure: null,
   note: null,
   requested_at: "2026-10-19T10:00:00+00:00",

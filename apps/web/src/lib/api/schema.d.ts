@@ -23977,6 +23977,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Left Out */
+            left_out: components["schemas"]["LeftOutPartOut"][];
             /**
              * Mode
              * @enum {string}
@@ -27211,6 +27213,21 @@ export interface components {
              * @enum {string}
              */
             why: "reading" | "failed";
+        };
+        /**
+         * LeftOutPartOut
+         * @description A part of the script Pip's suggestion leaves as the owner had it (ready), or could not
+         *     write (failed), and why.
+         */
+        LeftOutPartOut: {
+            /** Added */
+            added: boolean;
+            /** Label */
+            label: string;
+            /** Part */
+            part: string;
+            /** Rule */
+            rule: string;
         };
         /**
          * LegalDocumentOut
@@ -32588,6 +32605,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Left Out */
+            left_out: components["schemas"]["LeftOutPartOut"][];
             /**
              * Mode
              * @enum {string}
