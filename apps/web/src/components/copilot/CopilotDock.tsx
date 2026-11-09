@@ -152,7 +152,21 @@ export function CopilotDock({
   // different forms (it is unmounted, so there is nothing to reset).
   useEffect(() => {
     setIsOpen(false);
+    setKept(false);
   }, [holder]);
+
+  /*
+   * CLOSED WHILE PIP IS STILL ANSWERING, the panel stays mounted and hidden. Unmounting it
+   * aborts the request, the server then stops the run, and a long task closed to get on with
+   * the page came back as a question with its answer cut off. Kept until the screen changes
+   * (above) or until it is closed again with nothing arriving; reopening shows the answer
+   * and anything it filled, still undoable.
+   */
+  const [kept, setKept] = useState(false);
+  const answering = useRef(false);
+  const onAskingChange = useCallback((asking: boolean) => {
+    answering.current = asking;
+  }, []);
 
   // A button on the screen asked for the panel ("Let the assistant do this"). Opening is
   // the screen's request; SENDING stays the person's (`lib/copilot/launcher.ts`).
@@ -182,6 +196,7 @@ export function CopilotDock({
    *  focus return comes to exist on one of them and not the other. */
   const closePanel = useCallback(() => {
     shouldRestoreFocus.current = true;
+    setKept(answering.current);
     setIsOpen(false);
   }, []);
 
@@ -242,6 +257,7 @@ export function CopilotDock({
         onFocus={preloadPanel}
         onClick={() => {
           shouldRestoreFocus.current = isOpen;
+          if (isOpen) setKept(answering.current);
           setIsOpen((open) => !open);
         }}
         // THE CLIENT'S LAUNCHER IS A QUIET HEADER BUTTON (REDESIGN-2): bordered, ink,
@@ -297,10 +313,10 @@ export function CopilotDock({
       {mounted &&
         createPortal(
           <AnimatePresence>
-            {isOpen &&
+            {(isOpen || kept) &&
               !onWorkspace &&
               (session.impersonateOrg ? (
-                <ViewAsPanel
+                isOpen && <ViewAsPanel
                   key="view-as"
                   labelledBy={titleId}
                   onClose={closePanel}
@@ -318,6 +334,8 @@ export function CopilotDock({
                   placement="side"
                   request={request}
                   onRequestTaken={forgetRequest}
+                  hidden={!isOpen}
+                  onAskingChange={onAskingChange}
                 />
               ))}
           </AnimatePresence>,

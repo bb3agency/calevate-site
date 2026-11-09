@@ -2555,3 +2555,70 @@ describe("the side panel on a phone", () => {
     expect(document.activeElement).toBe(opens);
   });
 });
+
+/**
+ * CLOSING THE DRAWER WHILE PIP IS STILL ANSWERING (audit 10 Nov Y2-06). A long request is
+ * exactly when a person closes the drawer to get on with the page. The dock used to unmount
+ * the panel on every close, which aborted the request: the server stopped the run and the
+ * reopened drawer showed the question with the answer cut off and nothing to say why.
+ */
+describe("closing the drawer while an answer is arriving", () => {
+  afterEach(forgetOpenOffers);
+
+  it("KEEPS THE ANSWER GOING and shows all of it when the drawer is opened again", async () => {
+    const held = heldStream();
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input).replace(API_BASE, "");
+        if (path.startsWith("/v1/copilot/ask")) {
+          if (init?.signal) signals.push(init.signal);
+          return held.response;
+        }
+        if (path.startsWith("/v1/copilot/conversation")) {
+          return new Response(JSON.stringify({ turns: [], has_more: false }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        throw new Error(`unexpected request: ${path}`);
+      }),
+    );
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <CopilotDock session={SESSION} realm="client" />
+        </>,
+      ),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Ask Pip" }));
+    });
+    await ask("go through last month's leads and tell me who to call back");
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"Looking through 240 leads. "}\n\n');
+    });
+    expect(await screen.findByText(/Looking through 240 leads/)).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close Pip" }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(signals.length).toBe(1);
+    expect(signals[0].aborted).toBe(false);
+
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"Call these five first."}\n\n');
+      held.push('event: done\ndata: {"disclosure":null,"metered":true}\n\n');
+      held.release();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Ask Pip" }));
+    });
+
+    expect(await screen.findByText(/Call these five first\./)).toBeTruthy();
+    expect(screen.queryAllByText(/went wrong|stopped part-way|finished answering/i).length).toBe(0);
+  });
+});
