@@ -201,6 +201,28 @@ describe("the DigiLocker return", () => {
     await waitFor(() => expect(window.sessionStorage.getItem(pendingRunKey("acme"))).toBeNull());
   });
 
+  it("keeps the run through a passing failure and offers to ask again (Y5-06)", async () => {
+    window.sessionStorage.setItem(pendingRunKey("acme"), "run-blip");
+    let asks = 0;
+    await renderClientPage(
+      <VerifyBusinessPage />,
+      routes(OWNER, KYC_NOT_STARTED, {
+        [COMPLETE]: () => {
+          asks += 1;
+          return asks === 1
+            ? problem(503, { kind: "transient", retryable: true, detail: "We could not reach the check just now." })
+            : { status: "replay", record: KYC_NOT_STARTED };
+        },
+      }),
+    );
+    expect(await screen.findByText("We could not reach the check just now.")).toBeTruthy();
+    // A passing failure is not a final answer about the run, so a reload can still ask.
+    expect(window.sessionStorage.getItem(pendingRunKey("acme"))).toBe("run-blip");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("That DigiLocker visit was already recorded")).toBeTruthy();
+    expect(window.sessionStorage.getItem(pendingRunKey("acme"))).toBeNull();
+  });
+
   it("keeps the run while DigiLocker has not finished", async () => {
     window.sessionStorage.setItem(pendingRunKey("acme"), "run-2");
     await renderClientPage(
@@ -245,6 +267,8 @@ describe("DigiLocker asked for and unavailable", () => {
     );
     expect(await screen.findByText(/DigiLocker is down for now/)).toBeTruthy();
     expect(screen.getByText(/Please contact us/)).toBeTruthy();
+    // ...with a button to do it (Y5-06).
+    expect(screen.getByRole("link", { name: "Contact us" }).getAttribute("href")).toMatch(/^mailto:/);
     expect(screen.queryByText(/Upload the PAN card instead/)).toBeNull();
   });
 });
