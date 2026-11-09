@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { filledNotice, filledReply, keepingOnWire, panelNotice, savesOf } from "@/lib/copilot/keeping";
+import { filledNotice, filledReply, keepingOnWire, savesOf } from "@/lib/copilot/keeping";
 import { redactForWire } from "@/lib/copilot/redaction";
 import { mergeSurfaces } from "@/lib/copilot/registry";
 import { noFill, type CopilotSurface } from "@/lib/copilot/types";
@@ -30,26 +30,22 @@ describe("what the panel says after a fill", () => {
     expect(filledNotice(script)).not.toMatch(/save button/);
     // The fill lands before the autosave runs, so it never says the save has happened (PIP-13).
     expect(filledNotice(script)).not.toMatch(/is saved|saved as a draft/);
-    expect(panelNotice(script)).toMatch(/saved as a draft by themselves; nothing goes live until you press Put it live/);
   });
 
   it("keeps the save-button sentence for a form, which is also what an undeclared screen gets", () => {
     for (const form of [surface({ saves: "button" }), surface()]) {
       expect(filledNotice(form)).toBe("Nothing has been saved. Check the values, then use this screen's own save button.");
-      expect(panelNotice(form)).toBe("Nothing is saved until you press this screen's own save button. ");
     }
   });
 
   it("says a screen that saves at once does, and a filter only changed the view", () => {
     expect(filledNotice(surface({ saves: "immediate" }))).toMatch(/saves each change as it is made/);
     expect(filledNotice(surface({ saves: "view" }))).toBe("This only changed what the screen shows.");
-    expect(panelNotice(surface({ saves: "view" }))).toBe("");
   });
 
   it("says nothing about saving on a screen with nothing Pip can fill", () => {
     const readOnly = surface({ fields: [{ ...field, writable: false }], saves: "button" });
     expect(savesOf(readOnly)).toBeNull();
-    expect(panelNotice(readOnly)).toBe("");
     expect(keepingOnWire(readOnly)).toEqual({});
   });
 });

@@ -22,6 +22,8 @@ import { useKnowledgeGaps } from "@/lib/api/knowledgeGaps";
 import { useAccountReadiness } from "@/lib/api/readiness";
 import { useClientRealm } from "@/lib/api/session";
 import { activeTrial, trialEndsAt, useWallet } from "@/lib/api/wallet";
+import { openAssistant } from "@/lib/copilot/launcher";
+import { resolveDestination } from "@/lib/copilot/navigate";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -35,6 +37,7 @@ import { ReadFailedRow } from "./homeNotices";
 import { LatestCalls } from "./LatestCalls";
 import { LineNotice } from "./LineNotice";
 import { OutcomeSplit } from "./OutcomeSplit";
+import { PipNotes } from "./PipNotes";
 import { SentimentSplit } from "./SentimentSplit";
 import { SpendThisMonth } from "./SpendThisMonth";
 import { TrialCallPanel } from "./TrialCallPanel";
@@ -334,6 +337,14 @@ export function DashboardScreen({ slug }: { slug: string }) {
         ) : null}
         <ExistingNumberPrompt session={session} href={href} />
         <TrialCallPanel slug={slug} trial={data.trial} />
+        <PipNotes
+          session={session}
+          onOpen={({ route }) => {
+            const path = resolveDestination(route, slug);
+            if (path !== null) router.push(href(path));
+          }}
+          onAsk={(prompt) => openAssistant({ prompt })}
+        />
       </div>
 
       {/* One ranked list of next steps (the first agent, going live, the queue, hot leads,

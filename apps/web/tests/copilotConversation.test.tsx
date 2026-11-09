@@ -16,8 +16,6 @@ import {
   useCopilotSurfaceHolder,
 } from "@/lib/copilot/registry";
 
-import { nothingNoticed } from "./copilotNotesStub";
-
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
   useSearchParams: () => new URLSearchParams(),
@@ -82,8 +80,6 @@ function stubConversation(turns: { role: string; content: string }[]) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
-      const notes = nothingNoticed(path);
-      if (notes) return notes;
       calls.push(`${init?.method ?? "GET"} ${path}`);
       if (path.startsWith("/v1/copilot/conversation")) {
         if (init?.method === "DELETE") {
@@ -208,8 +204,6 @@ describe("while the stored conversation is still arriving (audit 8 Nov W4-01)", 
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         const path = String(input).replace(API_BASE, "");
-        const notes = nothingNoticed(path);
-        if (notes) return notes;
         if (path.startsWith("/v1/copilot/conversation")) {
           await new Promise<void>((resolve) => {
             release = resolve;
@@ -250,7 +244,7 @@ describe("while the stored conversation is still arriving (audit 8 Nov W4-01)", 
 
     await waitFor(() => expect(screen.getByText("Loading your conversation…")).toBeTruthy());
     expect(screen.queryByRole("region", { name: "Questions you could ask" })).toBeNull();
-    expect(screen.queryByText(/Small changes happen at once/)).toBeNull();
+    expect(screen.queryByText("What can I help with?")).toBeNull();
 
     await act(async () => {
       release?.();
@@ -267,8 +261,6 @@ describe("Try again after a refused question (audit 8 Nov W4-07)", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input).replace(API_BASE, "");
-        const notes = nothingNoticed(path);
-        if (notes) return notes;
         if (path.startsWith("/v1/copilot/ask")) {
           asks.push(JSON.parse(String(init?.body)) as (typeof asks)[number]);
           if (asks.length === 1) {

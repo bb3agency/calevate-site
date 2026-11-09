@@ -11,8 +11,6 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
 import { noFill, type CopilotSurface } from "@/lib/copilot/types";
 
-import { nothingNoticed } from "./copilotNotesStub";
-
 /**
  * THE ASSISTANT TAKES SOMEBODY TO A SCREEN — the browser's half of D-524.
  *
@@ -90,8 +88,6 @@ function stubAsk(chunks: string[]) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input).replace(API_BASE, "");
-      const notes = nothingNoticed(path);
-      if (notes) return notes;
       if (path.startsWith("/v1/copilot/ask")) return sse(chunks);
       throw new Error(`unexpected request: ${path}`);
     }),
@@ -336,8 +332,6 @@ describe('"take me to billing page"', () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        const notes = nothingNoticed(String(input).replace(API_BASE, ""));
-        if (notes) return notes;
         return new Response(
           new ReadableStream<Uint8Array>({
             async start(controller) {

@@ -15,10 +15,10 @@ import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, ScrollRegion, Skeleton
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
 import type { Session } from "@/lib/api/client";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
-import { filledNotice, filledReply, panelNotice } from "@/lib/copilot/keeping";
+import { filledNotice, filledReply } from "@/lib/copilot/keeping";
 import type { SurfaceHolder } from "@/lib/copilot/registry";
 import { unsavedWork } from "@/lib/copilot/unsaved";
-import { openingLine, suggestedQuestions } from "@/lib/copilot/suggestions";
+import { EMPTY_PANEL_QUESTION, suggestedQuestions } from "@/lib/copilot/suggestions";
 import { useBusinessCopy } from "@/lib/api/businessCopy";
 import { capabilitiesOf } from "@/lib/businessCapabilities";
 import { pipLocked } from "@/lib/copilot/conversation";
@@ -39,7 +39,6 @@ import { ChartCard } from "./ChartCard";
 import { JobCard } from "./JobCard";
 import { NavigationReceipt } from "./NavigationReceipt";
 import { PipConsentGate } from "./PipConsent";
-import { PipNotes } from "./PipNotes";
 import { ProposalCard } from "./ProposalCard";
 import { DiagnosisCard } from "./DiagnosisCard";
 import { StepList } from "./StepList";
@@ -183,6 +182,7 @@ export function CopilotPanel({
   const stick = useRef(true);
   const inputId = useId();
   const lengthId = useId();
+  const keysId = useId();
 
   const wantsQuota = realm === "client" && (conversation.atCeiling || confirmAtCeiling);
   const quota = useAiQuota(session, { enabled: wantsQuota });
@@ -399,10 +399,9 @@ export function CopilotPanel({
               </>
             )}
           </h2>
-          {/* The workspace page is titled Pip already; "Pip / Pip" says nothing twice. */}
-          {surface.title !== ASSISTANT_NAME && (
-            <p className="truncate text-meta text-ink-muted" title={surface.title}>{surface.title}</p>
-          )}
+          {/* No screen name under the title: the screen's `title` is written for the model
+              ("Agent: script") and reads as a route to an owner, who can see which screen
+              Pip is beside. */}
           {/* WHAT IT WILL ACT ON. Shown only when the screen has rows ticked, so "summarise
               these" has a visible "these". */}
           {selected !== null && (
@@ -464,8 +463,6 @@ export function CopilotPanel({
         </div>
       ) : (
       <>
-      {/* WHAT PIP NOTICED ON ITS OWN (D-936), above the conversation. */}
-      <PipNotes session={session} realm={realm} onOpen={onNavigate} onAsk={prefill} />
       <div className="relative flex min-h-0 flex-1 flex-col">
       <div
         ref={transcript}
@@ -482,29 +479,16 @@ export function CopilotPanel({
         }}
         className="flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-3 text-sm"
       >
-        {/* NEVER "it never saves anything": the write tools can offer to change a lead's
-            status, suppress a number or pause a campaign. What is true, and what this copy
-            must promise instead, is that it cannot DO any of them on its own — every one
-            arrives as a suggestion with a Confirm button — because a person told nothing
-            can ever be saved will not read the card before clicking. */}
-        {/* THE EMPTY PANEL (founder, REDESIGN-2): one human line that fits the screen, three
-            questions worth asking here, and the one sentence about what waits for the person.
-            Fields are mentioned only when the screen has some, and never counted. The
-            undeclared case keeps the honest sentence (D-501): the assistant cannot see this
-            screen, which is not the same as the screen being empty. */}
-        {/* Not while the stored conversation is still arriving: "ask me anything" above a
+        {/* THE EMPTY PANEL (founder, 9 Nov 2026: "just see how chatgpt homepage looks like,
+            simple"): one question, the same on every screen, up to three questions worth
+            asking here, and the ask box. How changes are kept and what waits for the person
+            is said where it applies, on the fill card, the suggestion card and the receipt,
+            not before anything has happened. Pip's notes live on the dashboard (D-936).
+            Not while the stored conversation is still arriving: an invitation above a
             loading skeleton tells somebody with a conversation that they have none. */}
         {conversation.turns.length === 0 && conversation.streaming === null && !conversation.loading && (
-          <div className="space-y-4">
-            <p className="text-body text-ink">
-              {surface.undeclared === true
-                ? "This screen hasn't told me what it shows yet. I can still look up your calls, leads, campaigns and agents."
-                : realm === "admin"
-                  ? surface.fields.length > 0
-                    ? "Ask me about this screen, or tell me what to fill in here."
-                    : "Ask me about the platform or the account you have open."
-                  : (intro ?? openingLine(surface.route, surface.fields.length > 0))}
-            </p>
+          <div className="space-y-4 pt-2">
+            <p className="text-heading text-ink">{intro ?? EMPTY_PANEL_QUESTION}</p>
             {realm === "client" && quickReplies.length === 0 && (
               // One row that scrolls sideways on a phone, rather than three tall pills; a
               // ScrollRegion so the row can be scrolled from a keyboard too.
@@ -528,12 +512,6 @@ export function CopilotPanel({
               </ul>
               </ScrollRegion>
             )}
-            <p className="text-meta text-ink-muted">
-              {panelNotice(surface)}
-              {realm === "admin"
-                ? "Any platform change waits for you to confirm."
-                : "Small changes happen at once and can be undone; anything that calls someone, costs money or can't be undone waits for you."}
-            </p>
           </div>
         )}
 
@@ -893,6 +871,9 @@ export function CopilotPanel({
         <label htmlFor={inputId} className="sr-only">
           Your question about this screen
         </label>
+        <p id={keysId} className="sr-only">
+          Enter sends. Shift and Enter start a new line.
+        </p>
         {tray.notice && <AttachmentNotice onDismiss={tray.dismissNotice} />}
         <AttachmentTray
           items={tray.items}
@@ -936,7 +917,9 @@ export function CopilotPanel({
           }}
           enterKeyHint="send"
           placeholder={surface.fields.length > 0 ? "Ask a question, or say what to fill in" : "Ask a question"}
-          aria-describedby={questionChars >= QUESTION_COUNT_FROM ? lengthId : undefined}
+          // The keys are told to a screen reader only: every chat box works this way, and a
+          // visible hint under it was one more line for an owner to read.
+          aria-describedby={questionChars >= QUESTION_COUNT_FROM ? `${keysId} ${lengthId}` : keysId}
           aria-invalid={overBy > 0 || undefined}
           className="block w-full resize-none bg-transparent px-1 py-1 text-body text-ink placeholder:text-ink-faint focus:outline-none"
         />
@@ -955,10 +938,8 @@ export function CopilotPanel({
           <div className="flex min-w-0 items-center gap-1">
             <AttachButton onFiles={tray.add} disabled={conversation.asking} available={tray.available} />
             {/* The sentence beside the paperclip takes this place while files can't be attached. */}
-            {tray.available !== false ? (
-              <p className="hidden px-1 text-meta text-ink-faint sm:block">
-                {tray.busy ? "Waiting for files to finish…" : "Enter to send · Shift+Enter for a new line"}
-              </p>
+            {tray.available !== false && tray.busy ? (
+              <p className="hidden px-1 text-meta text-ink-faint sm:block">Waiting for files to finish…</p>
             ) : null}
           </div>
           {/* ONE CONTROL, TWO JOBS, and it is never disabled while an answer is arriving.

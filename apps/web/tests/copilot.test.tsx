@@ -35,7 +35,6 @@ import {
 import { expectNoA11yViolations } from "./a11y";
 import { PLAN_ID, planFixture } from "./planFixture";
 import { stubDownloads } from "./harness";
-import { nothingNoticed } from "./copilotNotesStub";
 
 /**
  * `next/navigation` is re-mocked for this file because the PATHNAME is an input here
@@ -213,8 +212,6 @@ function stubCopilot(options: {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const raw = String(input).replace(API_BASE, "");
-      const notes = nothingNoticed(raw);
-      if (notes) return notes;
       // The admin realm's routes are the client ones under `/v1/admin`; the stub answers
       // both from one place so a test only has to say which realm it mounted.
       const path = raw.startsWith("/v1/admin/copilot/")
@@ -356,8 +353,6 @@ function renderHeld() {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
-      const notes = nothingNoticed(path);
-      if (notes) return notes;
       if (path.startsWith("/v1/copilot/ask")) {
         asks.push(typeof init?.body === "string" ? init.body : "");
         return held.response;
@@ -1445,11 +1440,9 @@ describe("the fallback surface", () => {
     });
     render(<DockMount />);
     await openDock();
-    // The header names the screen — "I can see you're on the billing screen".
-    expect(screen.getAllByText("Billing").length).toBe(1);
-    expect(
-      screen.getByText(/hasn't told me what it shows/),
-    ).toBeTruthy();
+    // The same one question as on every screen; the derived title goes to the model only.
+    expect(screen.getByText("What can I help with?")).toBeTruthy();
+    expect(screen.queryByText("Billing")).toBeNull();
 
     // THE POINT OF THE WHOLE CHANGE: a read-tool question is asked and answered from a
     // screen that declared nothing. The read tools run server-side off the account's own
