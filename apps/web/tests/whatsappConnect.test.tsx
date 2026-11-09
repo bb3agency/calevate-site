@@ -203,4 +203,24 @@ describe("Admin > Clients' WhatsApp", () => {
     expect(screen.getByText("3")).toBeTruthy();
     expect(screen.getByText(/Lakshmi Traders/, { selector: "p" })).toBeTruthy();
   });
+
+  it("asks nothing it can only be refused when the admin may not read clients' WhatsApp", async () => {
+    const { calls } = renderAdminPage(<WhatsAppAdminPage />, {
+      "/v1/admin/whatsapp": problem(403, { title: "Forbidden", detail: "Not allowed to read this." }),
+      "/v1/admin/me": {
+        user_id: "admin-2",
+        realm: "admin",
+        role: "support",
+        permissions: ["ops:manage"],
+        impersonating: false,
+      },
+    });
+    expect(await screen.findByText(/read clients' WhatsApp/)).toBeTruthy();
+    // Settle any request the screen fires, then check the restriction stands alone: no
+    // refusal box under it and no read sent.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText("Not allowed to read this.")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(calls.some((call) => call.path === "/v1/admin/whatsapp")).toBe(false);
+  });
 });

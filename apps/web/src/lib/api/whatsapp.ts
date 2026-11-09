@@ -195,9 +195,10 @@ export function useCreateTemplate(session: Session) {
   });
 }
 
-export function useAdminWhatsApp(): UseQueryResult<AdminWhatsApp> {
+export function useAdminWhatsApp(enabled = true): UseQueryResult<AdminWhatsApp> {
   return useQuery({
     queryKey: whatsappKeys.admin(),
     queryFn: () => apiRequest<AdminWhatsApp>(adminSession(), "/v1/admin/whatsapp"),
+    enabled,
   });
 }
