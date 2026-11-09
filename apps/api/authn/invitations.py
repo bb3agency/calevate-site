@@ -105,6 +105,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.authn.credentials import set_password
@@ -174,7 +175,9 @@ async def accept_with_password(
 
       1. read the invitation under `app.invite_hash` — the token names its own tenant, so
          this must happen before any tenant is known (the same widening
-         `tenancy/routes.py::accept_invitation` uses);
+         `tenancy/routes.py::accept_invitation` uses), then open the tenant transaction
+         that burns it, take the invitation's redemption lock there and read it again
+         (`_hold_redemption`); steps 2-4 run while that lock is held;
       2. find or create the `users` row, OUTSIDE any tenant session, because `users` is
          global and creating it inside a tenant transaction would tie an identity's
          existence to one tenant's write succeeding;
@@ -207,77 +210,81 @@ async def accept_with_password(
     tenant_id = UUID(str(row[0]))
     invited_email = str(row[1]).strip()
 
-    # Refused BEFORE any credential is written. `admin_service.accept_invitation` asks the
-    # same question again at the burn, but by then a password has been set and sessions
-    # revoked in their own transaction, and the refusal rolls back only the burn — so an
-    # invitation to a closed account stayed redeemable and every replay rewrote a password.
     async with tenant_session(tenant_id) as scoped:
+        await _hold_redemption(scoped, token_hash)
+        # Refused BEFORE any credential is written. `admin_service.accept_invitation` asks
+        # the same question again at the burn, but by then a password has been set and
+        # sessions revoked in their own transaction, and the refusal rolls back only the
+        # burn — so an invitation to a closed account stayed redeemable and every replay
+        # rewrote a password.
         await assert_account_open(scoped, tenant_id=tenant_id)
+        # The name typed at acceptance wins; the operator's copy fills a blank one (D-695).
+        user_id, created = await _find_or_create_user(
+            email=invited_email, name=name or row[2], phone=row[3], at=at
+        )
 
-    # The name typed at acceptance wins; the operator's copy fills a blank one (D-695).
-    user_id, created = await _find_or_create_user(
-        email=invited_email, name=name or row[2], phone=row[3], at=at
-    )
-
-    # D-955 (amends D-185). An existing account with a password whose address was never
-    # proved is RECLAIMED by the mailbox owner rather than refused: this token was mailed to
-    # the address and nowhere else (D-190, D-198), so redeeming it proves the mailbox, and
-    # the unproved credential may be a pre-hijacker's (Sudhodanan & Paverd, USENIX Security
-    # 2022, §6.2). The typed password replaces it and every session it opened is revoked.
-    # A PROVED account keeps D-185's rule: the typed password must be its current one.
-    #
-    # `created` is checked first and is not redundant with `has_password`: a row this call
-    # just inserted has no password yet, so the second clause would pass anyway — but only
-    # by accident of ordering, and a later change that set the password earlier would
-    # silently start treating every first-time invitee as a reclaim.
-    reclaiming = (
-        not created
-        and await has_password(INVITE_REALM, user_id)
-        and not await _address_proved(user_id)
-    )
-
-    if not created and not reclaiming:
-        await _prove_existing_account(user_id, password=password, at=at, ip=ip)
-
-    revoked = 0
-    first_password = not reclaiming and not await has_password(INVITE_REALM, user_id)
-    if reclaiming or first_password:
-        async with credential_session() as session:
-            await set_password(
-                session,
-                realm=INVITE_REALM,
-                subject_id=user_id,
-                password=password,
-                # The address the invitation was issued to, which IS this account's
-                # identity — the blocklist refuses a password that is nothing but a
-                # decorated form of it (NIST §3.1.1.2's "username, and derivatives
-                # thereof"). Taken from the invitation row rather than re-read, because
-                # `_find_or_create_user` may have written that row moments ago.
-                email=invited_email,
-                now=at,
-            )
-            # Same transaction as the write (`set_password`'s contract). Zero rows for an
-            # account that never had a password; on a reclaim, every session the unproved
-            # credential opened, so a pre-hijacker's live cookie dies with their password.
-            revoked = await revoke_subject_sessions(
-                session, realm=INVITE_REALM, subject_id=user_id, now=at
-            )
-    if reclaiming or first_password:
-        # After the password, so a password the policy refuses leaves the address exactly as
-        # unproved as it was and the invitation unburned for the retry.
+        # D-955 (amends D-185). An existing account with a password whose address was
+        # never proved is RECLAIMED by the mailbox owner rather than refused: this token was
+        # mailed to the address and nowhere else (D-190, D-198), so redeeming it proves the
+        # mailbox, and the unproved credential may be a pre-hijacker's (Sudhodanan & Paverd,
+        # USENIX Security 2022, §6.2). The typed password replaces it and every session it
+        # opened is revoked. A PROVED account keeps D-185's rule: the typed password must be
+        # its current one.
         #
-        # A FIRST password is marked proved too, on D-955's own premise: the token reached
-        # this mailbox and nowhere else. Leaving it unproved is what made the reclaim above a
-        # takeover: the invitee's real, in-use account looked like a squat, and the holder of
-        # any LATER invitation to the address (a forwarded link is enough) replaced its
-        # password and signed in as it in every organisation it belongs to.
-        await mark_email_verified(INVITE_REALM, user_id, at=at)
-        if reclaiming:
-            log.info(
-                "auth_invitation_reclaimed_unverified_account", extra={"user_id": str(user_id)}
-            )
+        # `created` is checked first and is not redundant with `has_password`: a row this
+        # call just inserted has no password yet, so the second clause would pass anyway —
+        # but only by accident of ordering, and a later change that set the password earlier
+        # would silently start treating every first-time invitee as a reclaim.
+        reclaiming = (
+            not created
+            and await has_password(INVITE_REALM, user_id)
+            and not await _address_proved(user_id)
+        )
 
-    async with tenant_session(tenant_id) as scoped:
+        if not created and not reclaiming:
+            await _prove_existing_account(user_id, password=password, at=at, ip=ip)
+
+        revoked = 0
+        first_password = not reclaiming and not await has_password(INVITE_REALM, user_id)
+        if reclaiming or first_password:
+            async with credential_session() as session:
+                await set_password(
+                    session,
+                    realm=INVITE_REALM,
+                    subject_id=user_id,
+                    password=password,
+                    # The address the invitation was issued to, which IS this account's
+                    # identity — the blocklist refuses a password that is nothing but a
+                    # decorated form of it (NIST §3.1.1.2's "username, and derivatives
+                    # thereof"). Taken from the invitation row rather than re-read, because
+                    # `_find_or_create_user` may have written that row moments ago.
+                    email=invited_email,
+                    now=at,
+                )
+                # Same transaction as the write (`set_password`'s contract). Zero rows for
+                # an account that never had a password; on a reclaim, every session the
+                # unproved credential opened, so a pre-hijacker's live cookie dies with
+                # their password.
+                revoked = await revoke_subject_sessions(
+                    session, realm=INVITE_REALM, subject_id=user_id, now=at
+                )
+        if reclaiming or first_password:
+            # After the password, so a password the policy refuses leaves the address
+            # exactly as unproved as it was and the invitation unburned for the retry.
+            #
+            # A FIRST password is marked proved too, on D-955's own premise: the token
+            # reached this mailbox and nowhere else. Leaving it unproved is what made the
+            # reclaim above a takeover: the invitee's real, in-use account looked like a
+            # squat, and the holder of any LATER invitation to the address (a forwarded
+            # link is enough) replaced its password and signed in as it in every
+            # organisation it belongs to.
+            await mark_email_verified(INVITE_REALM, user_id, at=at)
+            if reclaiming:
+                log.info(
+                    "auth_invitation_reclaimed_unverified_account",
+                    extra={"user_id": str(user_id)},
+                )
+
         await admin_service.accept_invitation(scoped, raw_token=token, user_id=user_id)
         role = (
             await scoped.execute(
@@ -324,6 +331,40 @@ async def accept_with_password(
         session=issued,
         business_name=str(business_name) if business_name else None,
     )
+
+
+async def _hold_redemption(scoped: AsyncSession, token_hash: str) -> None:
+    """Serialise redemptions of one invitation, and refuse the ones that arrive too late.
+
+    Called first in the tenant transaction that burns the invitation, so the lock is
+    released by exactly the COMMIT or ROLLBACK that decides whether it was burned. The burn
+    is a CAS, but the credential writes before it commit in their own transactions
+    (`credential_session` is a separate connection by design, D-165), so without this a
+    second press of the same link set the password again and revoked every session of the
+    account before losing the CAS, and could land that revoke after the winner's
+    `issue_session`, signing the new member out. Claiming the invitation first instead
+    would burn it before the password policy has spoken, and a refused password must leave
+    it redeemable.
+
+    The second read is the one that counts: under READ COMMITTED it runs after the
+    winner's commit, so the loser sees the burn and writes nothing.
+    """
+    await scoped.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"invitation_accept:{token_hash}"},
+    )
+    redeemable = (
+        await scoped.execute(
+            text(
+                "SELECT 1 FROM invitations WHERE token_hash = :hash "
+                "AND used_at IS NULL AND expires_at > now()"
+            ),
+            {"hash": token_hash},
+        )
+    ).first()
+    if redeemable is None:
+        log.info("auth_invitation_rejected")
+        raise _invalid()
 
 
 async def _address_proved(user_id: UUID) -> bool:
@@ -420,6 +461,9 @@ async def accept_for_verified_address(
         return None
     tenant_id = UUID(str(row[0]))
     async with tenant_session(tenant_id) as scoped:
+        # Waits out a password redemption of the same link that is mid-way through its
+        # credential writes, rather than burning the invitation under it.
+        await _hold_redemption(scoped, token_hash)
         await admin_service.accept_invitation(scoped, raw_token=token, user_id=user_id)
         role = (
             await scoped.execute(
