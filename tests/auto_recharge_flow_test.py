@@ -566,7 +566,9 @@ async def test_a_charge_failed_twice_is_counted_once() -> None:
     assert code == "unknown"
 
 
-async def test_settling_an_unknown_order_does_nothing_and_a_failed_one_fails_the_charge() -> None:
+async def test_settling_an_unknown_order_does_nothing_and_a_failed_one_only_notes_its_code() -> (
+    None
+):
     tenant_id = await _tenant()
     await _mandate(tenant_id, enabled=True)
     charge_id, order_id = await _pending_charge(tenant_id)
@@ -589,11 +591,20 @@ async def test_settling_an_unknown_order_does_nothing_and_a_failed_one_fails_the
         "SELECT status || ':' || failure_code FROM auto_recharge_charges WHERE id = :c",
         c=charge_id,
     )
-    assert row == "failed:BAD_REQUEST_ERROR"
-    assert await _notices(tenant_id, "recharge_failed") == 1
+    # The bank may still authorise it, so the charge stays pending until Razorpay's answer
+    # is final (`auto_recharge.expire_unanswered`); the client is told then.
+    assert row == "pending:BAD_REQUEST_ERROR"
+    assert await _notices(tenant_id, "recharge_failed") == 0
 
 
-async def test_a_charge_left_unanswered_past_the_window_is_failed() -> None:
+async def test_a_charge_left_unanswered_past_the_window_is_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _NoPayments:
+        async def order_payments(self, order_id: str) -> list[ProviderPayment]:
+            return []
+
+    monkeypatch.setattr(auto_recharge, "razorpay_api", lambda: _NoPayments())
     tenant_id = await _tenant()
     await _mandate(tenant_id, enabled=True)
     old_id, _ = await _pending_charge(tenant_id, age=auto_recharge.CHARGE_ANSWER_WINDOW * 2)

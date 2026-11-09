@@ -31,9 +31,12 @@ THE RULES THE FOUNDER SET, AND WHERE EACH IS ENFORCED
   captured charges in the IST month, under a row lock on the settings.
 - No double charge: `ux_auto_recharge_charges_one_pending` admits one pending charge per
   tenant, and Razorpay asks for exactly that ("Do not create another subsequent payment
-  until you get the status of the previous one").
-- Failures: the client is told each time; after `auto_recharge_max_failures` in a row the
-  switch goes off with a clear message.
+  until you get the status of the previous one"). A charge leaves `pending` only on
+  Razorpay's final answer: a capture, or a failure past `LATE_AUTHORISATION_WINDOW`
+  (`settle_charge`, `expire_unanswered`), so a late authorisation cannot land beside a
+  second debit.
+- Failures: the client is told each time, once the failure is final; after
+  `auto_recharge_max_failures` in a row the switch goes off with a clear message.
 - Per-debit limit: ₹15,000 without an additional factor of authentication, for cards and
   UPI alike (`razorpay_api.MANDATE_MAX_DEBIT_INR`).
 """
@@ -62,6 +65,7 @@ from apps.api.billing.razorpay_api import (
     MANDATE_MAX_DEBIT_INR,
     MANDATE_YEARS,
     MandateMethod,
+    ProviderPayment,
     razorpay_api,
 )
 from apps.api.billing.service import get_balance, to_paise
@@ -88,11 +92,25 @@ NoticeKind = Literal[
     "mandate_ended",
 ]
 
-#: A charge Razorpay has not answered after this long is failed by the sweep. UPI can take
-#: 24-36 hours to reflect a subsequent payment (`.../upi/create-subsequent-payments.md`);
-#: cards debit 36 hours 5 minutes after the pre-debit notification. Three days covers both
-#: with a margin, and Razorpay refunds anything it captures later than its own window.
+#: A charge still pending after this long is settled from Razorpay's record of its order
+#: (`expire_unanswered`). UPI can take 24-36 hours to reflect a subsequent payment
+#: (`.../upi/create-subsequent-payments.md`); cards debit 36 hours 5 minutes after the
+#: pre-debit notification.
 CHARGE_ANSWER_WINDOW: Final = timedelta(days=3)
+
+#: How long a `failed` payment can still turn into money. A bank that has not answered in
+#: 10 minutes gets the payment "marked as Failed due to timeout", then "Razorpay polls the
+#: bank at various intervals for 3 days, from the payment creation day" and marks it
+#: Authorized on success (`payments/payments/late-authorisation.md`, read 9 Nov 2026).
+#: Authorized payments are auto-captured by default within 3 days of creation
+#: (`payments/payments/capture-settings.md`), and "Payments in the `captured` state are never
+#: auto-refunded" (Razorpay auto-refunds page, relayed 9 Nov 2026), so a charge failed inside
+#: this window could still
+#: take the client's money after a second charge had been started.
+LATE_AUTHORISATION_WINDOW: Final = timedelta(days=3)
+
+#: `auto_recharge_charges.order_id` holds this placeholder until Razorpay returns an order.
+_CLAIM_ORDER_PREFIX: Final = "claim:"
 
 #: The recurring-payment call's refusals that do not prove nothing was asked of the bank: a
 #: timeout after the request left us, a 5xx (the provider may have created the payment
@@ -900,13 +918,20 @@ async def settle_charge(
     captured: bool,
     failure_code: str | None = None,
 ) -> None:
-    """Close the charge behind an `auto_recharge` order: captured or failed. Called by the
-    webhook in the transaction that credits (or marks) the payment.
+    """Close the charge behind an `auto_recharge` order on a capture, or note a failure.
+    Called by the webhook in the transaction that credits (or marks) the payment.
 
-    A capture also closes a charge already marked `failed`: `expire_unanswered` fails one
-    Razorpay has not answered in `CHARGE_ANSWER_WINDOW`, and the money can still land
-    after that. The caller has credited the wallet on the payment's own ledger ref, so the
-    row only has to say what happened; it credits nothing itself."""
+    A FAILURE DOES NOT CLOSE THE CHARGE. `payment.failed` is also what a bank that has not
+    answered within 10 minutes produces, and Razorpay keeps polling that bank for 3 days
+    and moves the payment to authorized if it succeeds (`LATE_AUTHORISATION_WINDOW`).
+    Closing the charge would free the one-pending slot and let the next sweep debit the
+    client a second time while the first can still land. So the code is kept on the
+    pending row and `expire_unanswered` fails it once Razorpay's own answer is final.
+
+    A capture also closes a charge already marked `failed` (one failed before this rule,
+    or by a refusal that proved nothing reached the bank). The caller has credited the
+    wallet on the payment's own ledger ref, so the row only has to say what happened; it
+    credits nothing itself."""
     row = (
         await session.execute(
             text(
@@ -922,7 +947,17 @@ async def settle_charge(
         return
     charge_id = UUID(str(row[0]))
     if not captured:
-        await _fail_charge(session, tenant_id=tenant_id, charge_id=charge_id, code=failure_code)
+        await session.execute(
+            text(
+                "UPDATE auto_recharge_charges SET failure_code = :code, updated_at = now() "
+                "WHERE id = :id AND status = 'pending'"
+            ),
+            {"code": (failure_code or "unknown")[:64], "id": charge_id},
+        )
+        log.info(
+            "auto_recharge_payment_failed_pending",
+            extra={"tenant_id": str(tenant_id), "charge_id": str(charge_id)},
+        )
         return
     await session.execute(
         text(
@@ -951,24 +986,138 @@ async def settle_charge(
     await _notice(session, tenant_id, "recharge_captured", amount_inr=Decimal(str(row[1])))
 
 
+ChargeVerdict = Literal["captured", "failed", "pending"]
+
+#: Payment states that may still become money: `created` (no bank answer yet) and
+#: `authorized`, which Razorpay auto-captures by default within 3 days of creation
+#: (`payments/payments/capture-settings.md`, read 9 Nov 2026).
+_PAYMENT_STILL_OPEN: Final = frozenset({"created", "authorized"})
+_PAYMENT_TOOK_MONEY: Final = frozenset({"captured", "refunded"})
+
+
+def charge_verdict(payments: list[ProviderPayment], *, now: datetime) -> ChargeVerdict:
+    """What Razorpay's payments on one charge order say about the charge.
+
+    `captured` when any of them took money (a refund later is its own ledger event).
+    `pending` while any can still take it: one `created` or `authorized`, or a `failed` one
+    younger than `LATE_AUTHORISATION_WINDOW`, which the bank can still authorise. `failed`
+    only when none can: every attempt failed past that window, or the order has no payment
+    at all three days on."""
+    if any(p.status in _PAYMENT_TOOK_MONEY for p in payments):
+        return "captured"
+    for payment in payments:
+        if payment.status in _PAYMENT_STILL_OPEN:
+            return "pending"
+        created = datetime.fromtimestamp(payment.created_at, UTC)
+        if payment.status == "failed" and now - created <= LATE_AUTHORISATION_WINDOW:
+            return "pending"
+    return "failed"
+
+
+async def _credit_late_capture(tenant_id: UUID, payment: ProviderPayment, *, order_id: str) -> None:
+    """Credit a capture the webhook never delivered, through the one captured-payment path
+    (`payment_events.apply_captured`, as `reconciliation` does), which closes the charge
+    with `settle_charge` and is idempotent on the payment id."""
+    from apps.api.billing.payment_events import apply_captured
+    from apps.api.billing.payment_objects import route_for
+    from apps.api.billing.payments import SUPPORTED_CURRENCY, CapturedPayment, paise_to_inr
+
+    route = await route_for(order_id)
+    await apply_captured(
+        None,
+        event="auto_recharge_reconcile",
+        event_id=None,
+        payment=CapturedPayment(
+            payment_id=payment.payment_id,
+            tenant_id=tenant_id,
+            amount_inr=paise_to_inr(payment.amount_paise),
+            currency=SUPPORTED_CURRENCY,
+            pack_id=None,
+            order_id=order_id,
+            international=payment.international,
+            token_id=payment.token_id,
+        ),
+        route=route,
+    )
+    if route is None or route.purpose != AUTO_RECHARGE:
+        # `apply_captured` closes the charge only for an order routed as a recharge; one
+        # whose route was never recorded is closed here. A no-op once it is captured.
+        async with tenant_session(tenant_id) as session:
+            await settle_charge(
+                session,
+                tenant_id=tenant_id,
+                order_id=order_id,
+                payment_id=payment.payment_id,
+                captured=True,
+            )
+
+
 async def expire_unanswered(tenant_id: UUID, *, now: datetime | None = None) -> int:
-    """Fail charges Razorpay has not answered within `CHARGE_ANSWER_WINDOW`."""
-    cutoff = (now or datetime.now(UTC)) - CHARGE_ANSWER_WINDOW
+    """Settle charges older than `CHARGE_ANSWER_WINDOW` from Razorpay's own record of the
+    order's payments (`RazorpayApi.order_payments`); return how many were failed.
+
+    Never by age alone: a charge whose payment can still capture stays pending, so the
+    one-pending slot keeps the next sweep from debiting the client again and the monthly
+    cap keeps counting it. A capture is credited once; a charge is failed only on
+    `charge_verdict`'s `failed`. A provider that cannot be read leaves the charge as it is.
+    """
+    at = now or datetime.now(UTC)
     async with tenant_session(tenant_id) as session:
         rows = (
             await session.execute(
                 text(
-                    "SELECT id FROM auto_recharge_charges WHERE tenant_id = :tid "
-                    "AND status = 'pending' AND created_at < :cutoff"
+                    "SELECT id, order_id, failure_code FROM auto_recharge_charges "
+                    "WHERE tenant_id = :tid AND status = 'pending' AND created_at < :cutoff"
                 ),
-                {"tid": tenant_id, "cutoff": cutoff},
+                {"tid": tenant_id, "cutoff": at - CHARGE_ANSWER_WINDOW},
             )
         ).all()
-        for (charge_id,) in rows:
-            await _fail_charge(
-                session, tenant_id=tenant_id, charge_id=UUID(str(charge_id)), code="no_answer"
-            )
-    return len(rows)
+    failed = 0
+    for charge_id, order_id, failure_code in rows:
+        payments: list[ProviderPayment] = []
+        if not str(order_id).startswith(_CLAIM_ORDER_PREFIX):
+            try:
+                payments = await razorpay_api().order_payments(str(order_id))
+            except ProblemError as exc:
+                log.warning(
+                    "auto_recharge_charge_unreadable",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "charge_id": str(charge_id),
+                        "code": exc.code,
+                    },
+                )
+                continue
+        verdict = charge_verdict(payments, now=at)
+        if verdict == "captured":
+            taken = next(p for p in payments if p.status in _PAYMENT_TOOK_MONEY)
+            try:
+                await _credit_late_capture(tenant_id, taken, order_id=str(order_id))
+            except ProblemError as exc:
+                # Money we cannot place (an amount or tenant our order record refuses) is
+                # left pending, so nothing else is debited, and alarmed for a person.
+                alert(
+                    "ROUTE_HANDLER",
+                    "auto_recharge_capture_unplaced",
+                    detail=(
+                        "an auto-recharge payment was captured and could not be credited; the "
+                        "charge stays pending, so no further recharge starts. Reconcile it."
+                    ),
+                    tenant_id=str(tenant_id),
+                    payment_id=taken.payment_id,
+                    refusal=exc.code,
+                )
+        elif verdict == "failed":
+            code = failure_code or next((p.error_code for p in payments if p.error_code), None)
+            async with tenant_session(tenant_id) as session:
+                await _fail_charge(
+                    session,
+                    tenant_id=tenant_id,
+                    charge_id=UUID(str(charge_id)),
+                    code=code or "no_answer",
+                )
+            failed += 1
+    return failed
 
 
 async def pending_mandates() -> list[tuple[UUID, str, str]]:
@@ -1001,13 +1150,16 @@ async def refresh_pending_mandate(tenant_id: UUID, customer_id: str, token_id: s
 
 __all__ = [
     "CHARGE_ANSWER_WINDOW",
+    "LATE_AUTHORISATION_WINDOW",
     "PAYMENT_NOTICE_JOB",
     "AutoRechargeState",
+    "ChargeVerdict",
     "MandateCheckout",
     "NoticeKind",
     "apply_token_status",
     "begin_mandate",
     "cancel_mandate",
+    "charge_verdict",
     "confirm_mandate",
     "due_tenants",
     "expire_unanswered",
