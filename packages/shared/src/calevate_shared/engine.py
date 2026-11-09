@@ -56,7 +56,12 @@ from calevate_shared.events import (
 )
 from calevate_shared.languages import find_language
 from calevate_shared.opening_notices import NONE_SAID, SaidNotices, says_ai
-from calevate_shared.spoken_guard import names_used, opens_with_greeting, without_greeting
+from calevate_shared.spoken_guard import (
+    WRITTEN_FORM_RULE,
+    names_used,
+    opens_with_greeting,
+    without_greeting,
+)
 from calevate_shared.spoken_style import (
     PackChoice,
     amounts_rule,
@@ -3005,7 +3010,8 @@ _REGISTER_BULLET: Final = (
 #:   word and sounded unnatural. A voice reads word boundaries as the text gives them, so the
 #:   rule says, for every language at once, that a suffix or particle is written joined to its
 #:   word. It is in English and names no language's words: the founder's native example for a
-#:   language is the `written_form` slot in `spoken_style.json`, quoted after this rule.
+#:   language is the `written_form` slot in `spoken_style.json`, quoted after this rule. The
+#:   sentence is `spoken_guard.WRITTEN_FORM_RULE`, which every writer of lines carries too.
 #: From the founder's Rytu Khata call of 6 Nov 2026:
 #: - The caller spoke over "Android or iPhone?" and the next turn asked it again word for word.
 #:   "Go on shorter" said nothing about the words, so the cut-off line came back unchanged;
@@ -3013,9 +3019,7 @@ _REGISTER_BULLET: Final = (
 #: - Asked "how do I use the app?", the agent said its explanation of what the app is a second
 #:   time. "Lead with the answer" did not tie the answer to the question; "to it, never your
 #:   last point again" does.
-_WRITTEN_FORM_BULLET: Final = (
-    "- Write as native speakers do: a suffix, particle or vowel joins its word.\n"
-)
+_WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
 

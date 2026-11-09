@@ -31,7 +31,11 @@ from typing import Any, Final
 
 from calevate_shared.call_script import MAX_SCRIPT_STAGES, CallScript
 from calevate_shared.engine import SARVAM_DEFAULT_LLM
-from calevate_shared.spoken_guard import generation_guidance, textbook_problem
+from calevate_shared.spoken_guard import (
+    SPOKEN_LINE_RULES,
+    generation_guidance,
+    textbook_problem,
+)
 
 from apps.api.agents.assist_leg import google_assist_leg
 from apps.api.agents.call_rules import OPENING_LINE_RULE, expect_rules, judge_rules, writer_rules
@@ -649,8 +653,8 @@ IMPROVE_INSTRUCTION: Final = (
     "letters, never the call language's script, except words added to a step already "
     "written in the call language, which keep its language; the opening_line is said, so it is "
     "in the call language as people speak it, "
-    "with the English words they use, never textbook words. Keep a step's instruction under "
-    "500 characters.\n"
+    "with the English words they use written in the letters the spoken register names, never "
+    f"textbook words. {SPOKEN_LINE_RULES} Keep a step's instruction under 500 characters.\n"
     "facts: when a test failed for a missing or wrong fact, the fact to pin: action (add, "
     "or fix to correct an existing pinned fact), fact_id (for fix, the id of that pinned "
     "fact, otherwise empty), question (what callers ask), answer (ONLY when the answer is "

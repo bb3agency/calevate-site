@@ -119,6 +119,38 @@ def latin_words(text: str, tag: str | None, *, names: Sequence[str] = ()) -> lis
     return list(dict.fromkeys(_LATIN_WORD.findall(text)))
 
 
+#: How a suffix or particle is written (F-5, founder's production call of 5 Nov 2026: a question
+#: particle written as its own word was read apart by the voice). One sentence for the in-call
+#: prompt's HOW TO SPEAK bullet (`engine._WRITTEN_FORM_BULLET`) and for every writer of lines
+#: (`SPOKEN_LINE_RULES`), so the opening the engine speaks word for word is held to what the
+#: in-call model is. In English, naming no language's words: the founder's example for a
+#: language is its `written_form` slot in `spoken_style.json`.
+WRITTEN_FORM_RULE: Final = (
+    "Write as native speakers do: a suffix, particle or vowel joins its word."
+)
+
+#: How a written line is marked for the voice, for every model that writes lines the agent says
+#: or that show how a call sounds (`generation_guidance`, and writers whose brief has no guide).
+#: Writer-only, so it costs the in-call prompt nothing (its own HOW TO SPEAK says the same
+#: things more tersely). Evidence, read 9 Nov 2026 (`docs/evidence/speech-naturalness-
+#: 2026-11-09/RESEARCH.md` P1-P6): Cartesia reads natural punctuation as its main pacing control
+#: and asks that each transcript end with ".", "?" or "!" (docs.cartesia.ai sonic-3 prompting-
+#: tips); ThinnestAI produces speech one sentence at a time and cuts at a full stop, so "Dr."
+#: stops halfway (thinnest-findings mirror 2026-10-29 `channels/voice.md:343-352`); phone
+#: numbers as digits separated by commas, never full stops (prompting-tips, Sonic 3.5 change);
+#: amounts in words because ThinnestAI's guide calls a written "₹1,200" unreliable
+#: (`guides/how-your-agent-sounds.md:47`). The ban on ellipses is the founder's ear (D-921).
+SPOKEN_LINE_RULES: Final = (
+    "Every line written for the agent to say, or to show how a call sounds, is read by a voice "
+    "that pauses only at a mark: one idea a sentence, a comma every few words where a speaker "
+    "breathes, and every sentence ends with a full stop (or the language's own), a question "
+    'mark on every question, or now and then "!". '
+    f"{WRITTEN_FORM_RULE} No ellipses, dashes, brackets, slashes, quotation marks, dotted "
+    "abbreviations, markdown, bullets, emoji or symbols such as the rupee sign. Amounts and "
+    "numbers in words, the way people say them; a phone number, OTP or code one digit at a "
+    "time, a comma after each digit."
+)
+
 #: The opening-line rules in the words both the writer's instruction and the problems sent
 #: back for its repair use, so the model is told a rule and refused for it in one sentence.
 OWN_LETTERS_RULE: Final = "write every word in the language's own letters, English words too"
@@ -243,8 +275,10 @@ def generation_guidance(
     if tag is not None and choice is not None:
         lines = pack_lines(tag, choice)
         if lines:
-            return "\n".join([*lines, pack_facts_rule(tag, choice)])
-    return writer_guidance(tag, business_type)
+            return "\n".join([*lines, pack_facts_rule(tag, choice), SPOKEN_LINE_RULES])
+    guide = writer_guidance(tag, business_type)
+    # Empty stays empty: a writer with no guide falls back to the register it has.
+    return f"{guide}\n{SPOKEN_LINE_RULES}" if guide else ""
 
 
 __all__ = [
@@ -253,8 +287,10 @@ __all__ = [
     "OWN_LETTERS_RULE",
     "OWN_LETTER_LANGUAGES",
     "QUESTION_END_RULE",
+    "SPOKEN_LINE_RULES",
     "TEXTBOOK_RULE",
     "UNINTRODUCED_RULE",
+    "WRITTEN_FORM_RULE",
     "Side",
     "english_problem",
     "generation_guidance",

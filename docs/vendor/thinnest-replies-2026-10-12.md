@@ -2683,3 +2683,47 @@ either way by the opt-out lists; the topic lists still miss a Telugu-script ques
 >
 > Thanks,
 > Umesh
+
+## 51. How a reply's text reaches the Cartesia voice (speech naturalness, 9 Nov 2026; DRAFTED, unsent)
+
+Why we ask: the founder wants the agents to sound as human as possible, and on a Studio agent
+the voice is Cartesia Sonic on our own key, but ThinnestAI builds the Cartesia request. What
+the docs say and do not say (research note `docs/evidence/speech-naturalness-2026-11-09/
+RESEARCH.md`, read 9 Nov 2026):
+
+- ThinnestAI produces speech "one sentence at a time" (`snapshots/2026-10-29/pages/channels/
+  voice.md:343-345`) and starts at the first comma once three words exist (§37). Nothing says
+  whether those pieces of one reply go to Cartesia as continuations of one context
+  (`continue: true`) or as separate requests. Cartesia says separately generated pieces cause
+  "sudden changes in prosody" at the seams, and continuations preserve it
+  (docs.cartesia.ai, capability-guides/stream-inputs-using-continuations). D-861 queued this
+  question on 23 Oct 2026; it was never sent.
+- The own-key voice settings (`PUT /agents/{id}/byok-voice`, `bring-your-own-keys.md:390-418`)
+  have no `language`, `locale` or `normalization` field. Cartesia reads numbers and dates by
+  the request's language unless `normalization` overrides it; its documented Hinglish recipe is
+  `language: hi` with `normalization: en-IN` (docs.cartesia.ai, capability-guides/
+  text-normalization; changelog Aug 2026). That is our "numbers the English way" rule (D-744)
+  done by the voice instead of the model.
+- Square-bracket notes are dropped from speech (`channels/voice.md:347-352`); angle-bracket
+  tags such as `<spell>` and `<break>` are not mentioned anywhere.
+
+UNVERIFIED until ThinnestAI answers. Nothing is built on any answer yet.
+
+> Subject: How a reply's text is sent to Cartesia on our own key
+>
+> Hi Ashutosh,
+>
+> A few questions about the Cartesia request on agents that use our own Cartesia key.
+>
+> 1. When one reply is spoken in pieces (from the first comma, then sentence by sentence),
+>    are the pieces sent to Cartesia as continuations of one context (`continue: true`), or
+>    as separate requests?
+> 2. For an agent whose language is te-IN (and one on hi-IN), what `language`, `locale` and
+>    `normalization` do you send to Cartesia?
+> 3. Could `normalization` be set per agent (for example `en-IN` on a Telugu agent), so
+>    numbers and amounts are read the English way, as Cartesia documents for Hindi?
+> 4. If a reply contains Cartesia's `<spell>` or `<break>` tags, are they passed through to
+>    Cartesia, removed, or read aloud?
+>
+> Thanks,
+> Umesh

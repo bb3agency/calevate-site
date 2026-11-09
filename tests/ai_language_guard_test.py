@@ -49,7 +49,9 @@ PURPOSE_TE = "మా కొత్త కారం పొడి గురిం�
 ADDRESS_TE = "కస్టమర్లను అండి అని పిలవాలి."
 #: Clean spoken Telugu: no word of the spoken-style list.
 OPENING = "నమస్తే అండి, రాఘవ ఆర్గానిక్స్ నుంచి, చెప్పండి?"
-SOUNDS = "ఏ item కావాలి అండి?"
+#: Every spoken line is held to the language's own letters (D-861), so the step's line is
+#: an agent line already in `spoken_style.json` (te-IN language pack draft).
+SOUNDS = "హా అండి, ఉంది. ఎంత కావాలి?"
 
 
 def _draft(**over: Any) -> dict[str, Any]:
@@ -130,7 +132,9 @@ def test_a_word_inside_another_word_is_not_caught() -> None:
 def test_the_writers_get_the_guidance_from_one_accessor() -> None:
     """FAILS IF: a writer's spoken guidance drifts from the one accessor the language packs
     plug into."""
-    assert spoken_guard.generation_guidance(TE, "retail") == writer_guidance(TE, "retail")
+    assert spoken_guard.generation_guidance(TE, "retail") == "\n".join(
+        [writer_guidance(TE, "retail"), spoken_guard.SPOKEN_LINE_RULES]
+    )
     assert spoken_guard.generation_guidance(TE, "retail", side="caller") == caller_guidance(
         TE, "retail"
     )
@@ -190,15 +194,18 @@ def test_a_spoken_line_naming_a_provider_is_sent_back_and_a_payment_name_is_not(
             _draft(sample_phrases=["మా Gemini assistant చెప్తుంది అండి"]), language=TE
         )
     assert "style.sample_phrases.0: names a technology company" in refused.value.problems
-    script = script_assist.drafted_script(
-        _draft(sample_phrases=["Google Pay లేదా GPay చేయొచ్చు అండి", "G Pay ఉంది అండి"]),
-        language=TE,
+    # A payment name is not a provider's; its English letters are a separate rule (D-861).
+    paying = script_assist._script_from_model_json(
+        _draft(sample_phrases=["Google Pay లేదా GPay చేయొచ్చు అండి", "G Pay ఉంది అండి"])
     )
-    assert script.style.sample_phrases[0].startswith("Google Pay")
+    assert not any(
+        "technology company" in problem for problem in script_assist.language_problems(paying, TE)
+    )
     owner = script_assist.drafted_script(
         _draft(sample_phrases=["Gemini Travels నుంచి అండి"]),
         language=TE,
         allowed="We are Gemini Travels",
+        names=("Gemini Travels",),
     )
     assert owner.style.sample_phrases == ["Gemini Travels నుంచి అండి"]
 
@@ -495,12 +502,13 @@ async def test_the_owners_own_telugu_in_an_instruction_saves() -> None:
 def test_writers_follow_the_language_pack_only_once_it_is_approved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert spoken_guard.generation_guidance("te-IN") == writer_guidance("te-IN", None)
+    rules = spoken_guard.SPOKEN_LINE_RULES
+    assert spoken_guard.generation_guidance("te-IN") == f"{writer_guidance('te-IN', None)}\n{rules}"
 
     choice = PackChoice(form="en", avoid="none")
     monkeypatch.setattr(spoken_guard, "shipped_pack_choice", lambda tag: choice)
     guidance = spoken_guard.generation_guidance("te-IN")
-    expected = [*pack_lines("te-IN", choice), pack_facts_rule("te-IN", choice)]
+    expected = [*pack_lines("te-IN", choice), pack_facts_rule("te-IN", choice), rules]
     assert guidance == "\n".join(expected)
     assert spoken_guard.generation_guidance("te-IN", side="caller") == caller_guidance(
         "te-IN", None

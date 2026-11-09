@@ -156,9 +156,8 @@ _SYSTEM_INSTRUCTION = (
     "never formal written language. Follow the spoken-style guide in the brief exactly: use "
     "the spoken word and never its formal form, use its tags and fillers lightly, say "
     "prices, quantities and times as its number rules say, and copy how its example "
-    "exchanges sound, never their facts. Keep every spoken line to one short sentence with "
-    'a comma where you breathe and a "?" on every question; no dashes, slashes, brackets, '
-    "ellipses or dotted abbreviations.\n"
+    "exchanges sound, never their facts. Keep every spoken line to one short sentence, "
+    "marked as the guide's last paragraph says.\n"
     f"Rules, the same ones the agent's tests check: {writer_rules()} Facts live in the "
     "knowledge base, which the agent searches. "
     "quick_facts only restates facts the owner wrote. The example_exchange shows style "
@@ -238,8 +237,9 @@ EDIT_INSTRUCTION = (
     "in parts the owner did not ask about. Instructions "
     "(business_line, identity, goal, outbound_purpose, tone, address_form, stage "
     "instructions, objection responses, ending) stay in plain English letters, never in the "
-    "call language's script; words the agent says stay in the call language, spoken, with "
-    "the English words people use, following the spoken-style guide in the brief (spoken "
+    "call language's script; words the agent says stay in the call language, spoken, every "
+    "word in the script that language is normally written in, the English words people use "
+    "too, written in that script as the spoken-style guide in the brief shows (spoken "
     "words, never their formal forms; its number and punctuation rules). What you write "
     f"keeps the rules the agent's tests check: {writer_rules()} {OPENING_LINE_RULE} Outside "
     "the opening lines do not write about being an AI or recording, and nowhere about call "
@@ -290,10 +290,11 @@ def language_problems(
     """What the model must fix in a script it wrote (D-831): an instruction in an Indic
     script, and a spoken line with a textbook word (`spoken_guard`), a provider's name
     (`business_copy.provider_problem`, D-679: callers hear these lines) or a break of the call
-    rules the practice tests check (`call_rules.said_line_problem`, D-849). The opening line,
-    which the engine speaks word for word, must also be in the language's own letters
-    (D-861, D-864), apart from `names` (the business's and the agent's), and, when the agent
-    is `introduced` by its AI notice first, must neither greet nor say those names (D-865),
+    rules the practice tests check (`call_rules.said_line_problem`, D-849). Every spoken line
+    must also be in the language's own letters (D-861, D-864), apart from `names` (the
+    business's and the agent's). The opening line, which the engine speaks word for word,
+    when the agent is `introduced` by its AI notice first, must neither greet nor say those
+    names (D-865),
     and with `woven` says the notices switched on in its own words and no other (D-971).
 
     Only the model's own writing is judged: with `before` (an edit), a field whose text the
@@ -337,9 +338,10 @@ def language_problems(
                 None
                 if path in callers or owners
                 else said_line_problem(path, text, opening=path in _OPENING_PATHS),
-                latin_word_problem(path, text, language, names=names)
-                if path in _OPENING_PATHS and not owners
-                else None,
+                # Every spoken line, not only the opening: a step's example line, a sample
+                # phrase or the example call in English letters teaches the in-call model to
+                # write them, and the voice then reads them (D-861).
+                None if owners else latin_word_problem(path, text, language, names=names),
                 introduced_opening_problem(path, text, names=names)
                 if path in _OPENING_PATHS
                 and introduced

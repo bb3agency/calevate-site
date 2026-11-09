@@ -22,7 +22,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from calevate_shared.engine import EngineCapabilities
+from calevate_shared.engine import CALL_INSTRUCTIONS, EngineCapabilities
 
 #: The section a key with no catalogue entry lands in. Only served when something is in it.
 OTHER_SECTION: Final = "other"
@@ -359,8 +359,12 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Agents use our shorter call rules",
         "On: our call rules replace ThinnestAI's default ones, which are read on every turn.",
         _THINNEST,
+        # ThinnestAI's figure: `docs/vendor/thinnest-replies-2026-10-12.md` §21.0 item 8, the
+        # same as `engine/thinnest.ENGINE_DEFAULT_CALL_RULES_CHARS`, which this module may not
+        # import (engine isolation); ours is measured from the text itself.
         details=(
-            "Ours are about 1,675 characters. Try a Telugu agent in practice tests (call mode) "
+            f"Ours are {len(CALL_INSTRUCTIONS)} characters; ThinnestAI's are about 1,675 "
+            "(VENDOR-STATED, 21 Oct 2026). Try a Telugu agent in practice tests (call mode) "
             "first. ThinnestAI's name for it is callInstructions."
         ),
     ),
