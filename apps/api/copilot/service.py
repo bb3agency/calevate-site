@@ -1080,10 +1080,13 @@ def validate_fill(
             plain=list(dict.fromkeys(plain)),
             grounded_ids=named if grounded else frozenset(),
             # Only ids this screen declared: the model's other strings never reach the panel.
+            # A string first: a list or object id is unhashable and `in by_id` would raise.
             field_ids=[
                 raw["field_id"]
                 for raw in raw_items
-                if isinstance(raw, dict) and raw.get("field_id") in by_id
+                if isinstance(raw, dict)
+                and isinstance(raw.get("field_id"), str)
+                and raw["field_id"] in by_id
             ],
         )
     return tuple(items)

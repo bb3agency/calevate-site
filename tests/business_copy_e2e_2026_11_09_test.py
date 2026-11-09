@@ -154,6 +154,25 @@ def test_a_screen_guess_the_ready_made_words_and_a_step_can_each_be_left_out() -
     assert copy.capabilities is not None and copy.capabilities.judged
 
 
+def test_a_part_refused_in_two_places_is_still_left_out_whole() -> None:
+    """FAILS IF: two refused fields of one whole part (two of the ready-made words, here)
+    read as "already out and still refused" within one pass, so the whole copy and its
+    profile were thrown away instead of that one part (audit 9 Nov 2026, round 4, X6)."""
+    raw = copy_dict()
+    raw["starter_words"]["caution"] = "Never promise an appointment slot."
+    raw["starter_words"]["topics"] = "the doctor's timings and prices"
+    _copy, problems = worker.answer_problems(raw, inputs=_inputs())
+    assert {p.partition(": ")[0] for p in problems} == {
+        "starter_words.caution",
+        "starter_words.topics",
+    }
+    kept = worker.salvage(raw, problems, inputs=_inputs())
+    assert kept is not None
+    copy, _why = kept
+    assert copy.starter_words is None
+    assert copy.capabilities is not None and copy.capabilities.judged
+
+
 @pytest.mark.parametrize("noun", ["రైతు", "our valued customers here", "farmer/user"])
 def test_a_refused_caller_noun_is_left_out_and_the_profile_kept(noun: str) -> None:
     """FAILS IF: one refused caller noun throws away the whole copy (production, 9 Nov 2026:
