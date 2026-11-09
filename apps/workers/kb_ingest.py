@@ -1341,6 +1341,17 @@ async def _recheck_link(
     """
     fetched = await fetch_page(url)
     async with tenant_session(tenant_id) as session:
+        # The fetch ran outside any transaction, and the sweep read this row before it, so
+        # the owner may have removed the link meanwhile; a change filed now would bring the
+        # removed name back. The row lock is the one `uploads.remove_upload` takes first, so
+        # a removal either finished before this (no row) or waits for this to commit.
+        still_linked = (
+            await session.execute(
+                text("SELECT 1 FROM kb_uploads WHERE id = :id FOR UPDATE"), {"id": upload_id}
+            )
+        ).first()
+        if still_linked is None:
+            return False
         if fetched is None:
             # A page we could not read proves nothing about whether it changed. The clock
             # still moves so one unreachable host cannot monopolise every tick.
