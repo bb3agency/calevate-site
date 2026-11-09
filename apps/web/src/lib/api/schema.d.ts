@@ -14612,10 +14612,14 @@ export interface components {
             example_questions: string[];
             /** Generated At */
             generated_at: string | null;
+            /** Generated Trigger */
+            generated_trigger: string | null;
             /** Language */
             language: string | null;
             /** Last Attempt At */
             last_attempt_at: string | null;
+            /** Last Problems */
+            last_problems: string[];
             /** Last Trigger */
             last_trigger: string | null;
             /** Model */

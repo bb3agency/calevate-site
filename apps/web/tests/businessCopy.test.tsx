@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import { BusinessCopySection, REFRESH_REQUEST, lastRefreshed, notJudged } from "@/app/c/[slug]/settings/business/BusinessCopySection";
 import { TeachBox, exampleSentences } from "@/app/c/[slug]/knowledge/TeachBox";
-import { capabilityLine, costLine, writtenLine } from "@/app/admin/tenants/[tenantId]/BusinessCopyPanel";
+import {
+  capabilityLine,
+  costLine,
+  lastRunLine,
+  learningLine,
+  writtenLine,
+} from "@/app/admin/tenants/[tenantId]/BusinessCopyPanel";
 import type { AdminBusinessCopy, BusinessCopy, GeneratedPlaceholders } from "@/lib/api/businessCopy";
 import { useClientSession } from "@/lib/api/session";
 import { useAssistantRequests, type AssistantRequest } from "@/lib/copilot/launcher";
@@ -244,6 +250,8 @@ describe("the operator's lines", () => {
     absorbed: true,
     last_trigger: "signup",
     last_attempt_at: "2026-10-19T04:30:00Z",
+    generated_trigger: "signup",
+    last_problems: [],
     capability_overrides: {},
   };
 
@@ -252,8 +260,35 @@ describe("the operator's lines", () => {
     expect(costLine({ ...admin, absorbed: false })).toContain("from the client's AI allowance");
     expect(writtenLine(admin)).toContain("account created");
     // `tenancy/business_copy.Trigger` has five values; first setup is one of them.
-    expect(writtenLine({ ...admin, last_trigger: "first_run" })).toContain("(first setup)");
+    expect(writtenLine({ ...admin, generated_trigger: "first_run" })).toContain("(first setup)");
     expect(writtenLine({ ...admin, generated_at: null })).toMatch(/^Not yet/);
+  });
+
+  it("names who asked for the copy in use, not who asked for the last run (9 Nov 2026)", () => {
+    const failedLater = {
+      ...admin,
+      generated_at: "2026-11-05T12:10:00Z",
+      generated_trigger: "refresh",
+      last_trigger: "operator",
+      last_attempt_at: "2026-11-09T05:00:00Z",
+      stop_reason: "answer_unusable" as const,
+      stop_message: "Not refreshed: the new examples did not pass our checks, so the ones you have were kept. Try again later.",
+    };
+    expect(writtenLine(failedLater)).toContain("(the owner asked)");
+    expect(writtenLine(failedLater)).not.toContain("operator");
+    // The console's own date format, not the copilot's `YYYY-MM-DD HH:mm IST` stamp.
+    expect(writtenLine(failedLater)).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    expect(writtenLine(failedLater)).toMatch(/05 Nov/);
+    expect(lastRunLine(failedLater)).toMatch(/^09 Nov.*\(an operator asked\): Not refreshed/);
+    expect(lastRunLine(admin)).toBeNull();
+    // A copy written before the write's trigger was recorded claims no author.
+    expect(writtenLine({ ...admin, generated_trigger: null })).not.toContain("(");
+  });
+
+  it("says why it is still learning after a refused run", () => {
+    expect(learningLine({ ...admin, stop_reason: "answer_unusable" })).toMatch(/did not pass our checks/);
+    expect(learningLine({ ...admin, stop_reason: "provider_unavailable" })).toMatch(/did not finish/);
+    expect(learningLine(admin)).toBe("Screens use neutral wording until it is worked out.");
   });
 
   it("shows each capability as judged, and says when it is not judged yet", () => {

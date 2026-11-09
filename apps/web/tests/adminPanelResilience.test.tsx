@@ -95,6 +95,30 @@ describe("a client overview panel", () => {
     );
   });
 
+  it("lists what a refused run failed on, in plain words (9 Nov 2026)", async () => {
+    const copy = {
+      ...NO_BUSINESS_COPY,
+      model: null,
+      cost_inr: null,
+      absorbed: false,
+      last_trigger: "operator",
+      last_attempt_at: "2026-11-09T05:00:00Z",
+      generated_trigger: null,
+      stop_reason: "answer_unusable",
+      stop_message: "Not refreshed: the new examples did not pass our checks, so the ones you have were kept. Try again later.",
+      last_problems: ["What the business does 'sells reason': too long"],
+      capability_overrides: {},
+    };
+    renderAdminPage(<BusinessCopyPanel tenantId={TENANT} />, {
+      [ADMIN_ME_PATH]: ME,
+      [`/v1/admin/tenants/${TENANT}/business-copy`]: copy,
+    });
+    expect(await screen.findByText("What failed")).toBeTruthy();
+    expect(screen.getByText("What the business does 'sells reason': too long")).toBeTruthy();
+    expect(screen.getByText(/did not pass our checks; what failed is listed below/)).toBeTruthy();
+    expect(screen.getByText(/\(an operator asked\): Not refreshed/)).toBeTruthy();
+  });
+
   it("keeps a crash inside the panel that crashed", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     renderAdminPage(

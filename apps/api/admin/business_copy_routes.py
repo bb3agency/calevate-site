@@ -18,7 +18,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -50,8 +50,14 @@ class AdminBusinessCopyOut(BusinessCopyOut):
     cost_inr: str | None
     #: True when that run was ours to pay for (a trial's first copy, an operator's refresh).
     absorbed: bool
+    #: Who asked for the LAST run, which may have written nothing.
     last_trigger: str | None
     last_attempt_at: datetime | None
+    #: Who asked for the run that wrote the copy in use; None when it was not recorded.
+    generated_trigger: str | None
+    #: The last run's problems in plain words: why it was refused, or what the stored copy
+    #: left out. Empty after a clean run.
+    last_problems: list[str] = Field(max_length=service.MAX_PROBLEMS)
     #: Capabilities an operator set, overriding the AI (`admin/capability_overrides`).
     capability_overrides: dict[str, bool]
 
@@ -66,6 +72,12 @@ def _admin_out(state: service.CopyState | None, overrides: dict[str, bool]) -> A
         absorbed=bool(state is not None and state.absorbed),
         last_trigger=state.last_trigger if state is not None else None,
         last_attempt_at=state.last_attempt_at if state is not None else None,
+        generated_trigger=state.generated_trigger if state is not None and has_copy else None,
+        last_problems=(
+            [service.explain_problem(p) for p in state.last_problems[: service.MAX_PROBLEMS]]
+            if state is not None
+            else []
+        ),
         capability_overrides=overrides,
     )
 

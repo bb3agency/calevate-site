@@ -21,8 +21,10 @@ version change, `upgrade_business_copies`). One run:
 4. **Ask Gemini, and only Gemini** (`script_assist.ask_json(gemini_only=True)`): the inputs
    include callers' questions, and the Sarvam standby's terms permit training on inputs
    (Sarvam ToS s.17.5). The answer must parse as `GeneratedCopy` and pass `copy_problems`;
-   one repair, then an honest stop (`answer_unusable`). A failure keeps the copy in use and
-   raises `business_copy_unavailable` for an operator.
+   one repair; then the parts the repair still gets wrong are left out where the copy can
+   do without them (`salvage`), else an honest stop (`answer_unusable`). A stop keeps the
+   copy in use, records its problems on the row for the admin panel (`last_problems`,
+   paths and rules only) and raises `business_copy_unavailable` for an operator.
 5. **Meter and store together**: the answer's tokens (with the cached-input split the
    ledger records) under the feature step 3 chose, and the new copy, in one transaction.
 
@@ -31,13 +33,15 @@ Nothing here is logged but ids, codes and counts (hard rule 6).
 
 from __future__ import annotations
 
+import copy as copylib
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final, cast
 from uuid import UUID
 
+from calevate_shared.call_script import SOUNDS_LIKE_MAX
 from calevate_shared.calling_window import ist_wall_clock
 from calevate_shared.languages import find_language
 from calevate_shared.spoken_guard import generation_guidance
@@ -70,10 +74,14 @@ from apps.api.tenancy.business_copy import (
     CAPABILITY_KEYS,
     CHIP_MAX,
     CLAIM_TTL,
+    CLINIC_WORD_LIST,
+    EMPTY_REPAIR,
+    LEFT_OUT,
     LINE_MAX,
     MAX_CHIPS,
     MAX_OBJECTIONS,
     MAX_PIP_QUESTIONS,
+    MAX_PROBLEMS,
     MAX_QUESTIONS,
     MAX_STEPS,
     MIN_CHIPS,
@@ -86,6 +94,7 @@ from apps.api.tenancy.business_copy import (
     SHORT_MAX,
     STARTER_WORD_KEYS,
     GeneratedCopy,
+    Placeholders,
     StopReason,
     Trigger,
     copy_problems,
@@ -116,7 +125,9 @@ JOB_NAME: Final = "generate_business_copy"
 #: (`upgrade_business_copies`, queued at worker start) rather than at its next 15-day check.
 #: Version 4: the capability profile, objections, caller noun and Pip questions.
 #: Version 5: the ready-made agents' own words (`StarterWords`, audit of 5 Nov 2026, G1-3).
-PROMPT_VERSION: Final = 5
+#: Version 6: the instruction states every rule the checks enforce (the medical words, the
+#: symbols, the ellipsis, the spoken push-backs, the line caps), so a first answer can pass.
+PROMPT_VERSION: Final = 6
 
 #: The description handed to the model, in characters.
 MAX_INPUT_CHARS: Final = 9000
@@ -266,6 +277,21 @@ class Inputs:
         return {job: len(steps) for job, steps in self.starter_steps.items()}
 
 
+#: The one place the instruction names the medical words: the check refuses each of them for
+#: a business that gives no health care, and "medical words" alone does not tell a model that
+#: "appointment" is one. Kept apart so a test can show no other part of the prompt leads the
+#: model towards them.
+MEDICAL_WORDS_RULE: Final = (
+    "Use medical or health-care words only when health_business is true or the description "
+    "itself uses them; these count as medical words, plurals too: "
+    + ", ".join(CLINIC_WORD_LIST)
+    + ". For a booking that is not health care say booking, visit, slot or meeting. When a "
+    "ready-made step below names something this business does not do (a doctor or a "
+    "hospital for a business that gives no health care), write its line for what this "
+    "business does at that step. "
+)
+
+
 def instruction_for(inputs: Inputs) -> str:
     """The system instruction. Fixed text first and the per-account parts last, so the
     fixed part is a prefix Gemini's implicit cache can reuse."""
@@ -289,12 +315,14 @@ def instruction_for(inputs: Inputs) -> str:
         "business must stand behind, so invent no offers, discounts or guarantees. "
         "Never copy a person's name, a phone number, an address or anything marked "
         "[redacted] or [phone ...] from the description. "
-        "Plain text only: no markdown, bullets, numbering, emoji, asterisks or brackets, and "
-        "never name a technology or AI company. "
-        "Everything is in plain English except the example lines, which are what the phone "
-        "agent says aloud, in the main call language named below, the way people speak it on "
-        "the phone, short, with numbers, prices and times in words and never digits, rupee "
-        "signs or slashes. "
+        "Plain text only: no markdown, bullets, numbering or emoji, and none of these "
+        "characters anywhere: * # ` _ ~ | [ ] < >. Never name a technology or AI company "
+        "unless the description itself names it. "
+        "Everything is in plain English except the spoken lines (every example_line, every "
+        "starter line and each objection's caller_says), which are what is said aloud on the "
+        "phone, in the main call language named below, the way people speak it, each under "
+        f"{SOUNDS_LIKE_MAX} characters, with numbers, prices and times in words: never "
+        "digits, rupee signs, slashes or an ellipsis. "
         "Fields: placeholders, one value per key ("
         + keys
         + f"); steps: {MIN_STEPS} to {MAX_STEPS} steps a call with this business goes "
@@ -325,9 +353,8 @@ def instruction_for(inputs: Inputs) -> str:
         "order, booking_job_title and booking_job_line are empty strings; when the business "
         "quotes no prices, no example names a price; when it sells nothing, no example "
         "speaks of buying, orders or sales. "
-        "Use medical or health-care words only when health_business is true or the "
-        "description itself uses them. "
-        f"objections: 0 to {MAX_OBJECTIONS} push-backs this business's callers really raise, "
+        + MEDICAL_WORDS_RULE
+        + f"objections: 0 to {MAX_OBJECTIONS} push-backs this business's callers really raise, "
         "only ones that fit what it does, none rather than a made-up one; caller_says is how "
         "a caller says it, short, in the main call language, and how_to_answer is short "
         "guidance in English. "
@@ -345,7 +372,8 @@ def instruction_for(inputs: Inputs) -> str:
         "never do or promise, as one sentence starting with Never. "
         f"Keep short values under {SHORT_MAX} characters, one-line values under {LINE_MAX}, "
         f"prose under {PROSE_MAX}, details under {CHIP_MAX} and questions under "
-        f"{QUESTION_MAX}. Only end_call_rules has a line break, between its two rules. "
+        f"{QUESTION_MAX}; each capability reason under {LINE_MAX}. Only end_call_rules has a "
+        "line break, between its two rules. "
         "Return ONLY the JSON object.\n"
         f"Main call language: {language_name}."
         + "\nReady-made scripts: "
@@ -358,27 +386,127 @@ def instruction_for(inputs: Inputs) -> str:
 def parse_answer(raw: dict[str, Any], *, inputs: Inputs) -> GeneratedCopy:
     """The model's answer as `GeneratedCopy`, or `UnusableAnswerError` naming what to fix,
     which `ask_json` sends back once. Paths and rules only, never the answer's text."""
+    copy, problems = answer_problems(raw, inputs=inputs)
+    if copy is None or problems:
+        raise _unusable(problems)
+    return copy
+
+
+def answer_problems(
+    raw: dict[str, Any], *, inputs: Inputs, left_out: frozenset[str] = frozenset()
+) -> tuple[GeneratedCopy | None, list[str]]:
+    """The answer as `GeneratedCopy` (None when it does not have the shape) and every rule
+    it breaks, as `path: rule`. `left_out` names the parts `salvage` removed, which are then
+    not asked for again."""
     try:
         copy = GeneratedCopy.model_validate(_without_empty_booking_job(raw))
     except ValidationError as invalid:
-        problems = [
+        return None, [
             f"{'.'.join(str(p) for p in error['loc'])}: {error['type']}"
             for error in invalid.errors(include_input=False, include_url=False)
         ]
-        raise _unusable(problems) from None
-    problems = [f"placeholders.{key}: missing" for key in missing_placeholders(copy.placeholders)]
+    problems = [
+        f"placeholders.{key}: missing"
+        for key in missing_placeholders(copy.placeholders)
+        if f"placeholders.{key}" not in left_out
+    ]
     problems += copy_problems(
         copy, health=health_allowed(copy), language=inputs.language, allowed=inputs.owner_words
     )
-    problems += screen_guide_problems(copy)
-    problems += profile_problems(copy)
+    if "screen_guide" not in left_out:
+        problems += screen_guide_problems(copy)
+    problems += [
+        problem
+        for problem in profile_problems(copy)
+        if not (problem.startswith("starter_words") and "starter_words" in left_out)
+    ]
     for job, count in inputs.starter_counts.items():
         given = len(getattr(copy.starter_lines, job))
-        if given != count:
+        if given != count and f"starter_lines.{job}" not in left_out:
             problems.append(f"starter_lines.{job}: exactly {count} lines, one per step")
-    if problems:
-        raise _unusable(problems)
-    return copy
+    return copy, problems
+
+
+# --- keeping what passed ------------------------------------------------------------------------
+
+#: The lists a refused part is taken out of, and how many items each must keep.
+_DROPPABLE_ITEMS: Final[dict[str, int]] = {
+    "objections": 0,
+    "pip_questions": 0,
+    "example_questions": MIN_QUESTIONS,
+    "caller_details": MIN_CHIPS,
+    "steps": MIN_STEPS,
+}
+#: Whole parts a stored copy may lack: every reader already treats them as not written yet
+#: (a copy from an earlier prompt has none of them).
+_DROPPABLE_PARTS: Final = frozenset({"starter_words", "screen_guide"})
+#: The placeholders a stored copy may lack: the screens show their neutral example instead.
+#: The first eight are required of every copy, and the booking job must agree with the
+#: capabilities, so neither is ever left out.
+_DROPPABLE_PLACEHOLDERS: Final = frozenset(
+    key
+    for key, field in Placeholders.model_fields.items()
+    if not field.is_required() and key not in BOOKING_JOB_KEYS
+)
+
+
+def salvage(
+    raw: dict[str, Any], problems: list[str], *, inputs: Inputs
+) -> tuple[GeneratedCopy, list[str]] | None:
+    """The final answer with each refused part taken out, when what is left is a whole copy,
+    and the problems that took each part out; None when a refused part cannot go.
+
+    Without this, ONE example line the checks refuse (a digit in a spoken line, a textbook
+    word) threw away the whole answer, the capability profile with it, and every scheduled
+    run tried and failed again: the profile was never judged. A part the screens can do
+    without (an example, a suggestion, a ready-made line set) is left out instead and the
+    screens show their neutral example for it. What every screen and plan relies on is
+    never left out: the capability judgement, the caller noun, the required placeholders and
+    the booking job, which must agree with the judgement."""
+    working = copylib.deepcopy(raw)
+    removed: set[str] = set()
+    why: list[str] = []
+    # Each pass removes at least one part or gives up, so the loop ends: a part refused for
+    # its shape hides the text rules behind it until it validates, hence more than one pass.
+    while _take_out(working, {p.partition(": ")[0] for p in problems}, removed):
+        why += problems
+        copy, problems = answer_problems(working, inputs=inputs, left_out=frozenset(removed))
+        if copy is not None and not problems:
+            return copy, why
+    return None
+
+
+def _take_out(working: dict[str, Any], paths: set[str], removed: set[str]) -> bool:
+    """Remove each path's part from `working`, recording in `removed` the parts whose absence
+    the checks must then accept; False when one may not be removed.
+
+    A path names a part the answer has (it comes from validating or checking that part), so
+    the list or object it sits in is there; anything else raises, which the parse's caller
+    reads as an unusable answer (`script_assist._parsed`)."""
+    drops: dict[str, set[int]] = {}
+    for path in paths:
+        parts = path.split(".")
+        head = parts[0]
+        if head in _DROPPABLE_ITEMS and len(parts) > 1 and parts[1].isdigit():
+            drops.setdefault(head, set()).add(int(parts[1]))
+        elif head in _DROPPABLE_PARTS:
+            working[head] = None
+            removed.add(head)
+        elif head == "placeholders" and len(parts) > 1 and parts[1] in _DROPPABLE_PLACEHOLDERS:
+            working["placeholders"].pop(parts[1], None)
+            removed.add(path)
+        elif head == "starter_lines" and len(parts) > 1 and parts[1] in LINE_SETS:
+            # One refused line spoils the set: lines are matched to steps by position.
+            working["starter_lines"][parts[1]] = []
+            removed.add(f"starter_lines.{parts[1]}")
+        else:
+            return False
+    for head, indexes in drops.items():
+        kept = [item for i, item in enumerate(working[head]) if i not in indexes]
+        if len(kept) < _DROPPABLE_ITEMS[head]:
+            return False
+        working[head] = kept
+    return True
 
 
 def _without_empty_booking_job(raw: dict[str, Any]) -> dict[str, Any]:
@@ -396,15 +524,53 @@ def _without_empty_booking_job(raw: dict[str, Any]) -> dict[str, Any]:
 
 
 def _unusable(problems: list[str]) -> UnusableAnswerError:
-    said = "; ".join(problems[:20])
+    said = "; ".join(problems[:MAX_PROBLEMS])
     # Field paths and our rule names, never the answer's text (hard rule 6).
     log.warning("business_copy_answer_unusable", extra={"problems": said})
     return UnusableAnswerError(said)
 
 
-def _parser(inputs: Inputs) -> Any:
+@dataclass(slots=True)
+class Attempts:
+    """What the parse saw across one run's two answers (`ask_json`: the first, then its one
+    repair), so the run can record why it stopped or what it left out."""
+
+    answers: int = 0
+    #: The last answer's problems, as `path: rule`.
+    problems: list[str] = field(default_factory=list)
+    #: The problems that took parts out of a stored copy (`salvage`).
+    left_out: list[str] = field(default_factory=list)
+
+    def record(self) -> list[str]:
+        """The problems to keep on the row: what was left out of the stored copy, or why the
+        run stopped, naming a repair that came back with nothing (only one answer parsed)."""
+        if self.left_out:
+            return [f"{LEFT_OUT}{p}" for p in self.left_out][:MAX_PROBLEMS]
+        if self.answers == 1 and self.problems:
+            return [EMPTY_REPAIR, *self.problems][:MAX_PROBLEMS]
+        return self.problems[:MAX_PROBLEMS]
+
+
+def _parser(inputs: Inputs, attempts: Attempts) -> Any:
+    """The parse `ask_json` calls on each answer. The first answer's problems go back to the
+    model; the repair is the last answer there will be, so the parts it still gets wrong are
+    left out where the copy can do without them (`salvage`) rather than losing it whole."""
+
     def parse(raw: dict[str, Any]) -> GeneratedCopy:
-        return parse_answer(raw, inputs=inputs)
+        attempts.answers += 1
+        copy, problems = answer_problems(raw, inputs=inputs)
+        if copy is not None and not problems:
+            attempts.problems = []
+            return copy
+        attempts.problems = problems[:MAX_PROBLEMS]
+        if attempts.answers > 1 and (kept := salvage(raw, problems, inputs=inputs)) is not None:
+            attempts.left_out = kept[1]
+            log.info(
+                "business_copy_parts_left_out",
+                extra={"problems": "; ".join(kept[1][:MAX_PROBLEMS])},
+            )
+            return kept[0]
+        raise _unusable(problems)
 
     return parse
 
@@ -552,14 +718,21 @@ async def claim(tenant_id: UUID, trigger: Trigger, *, now: datetime | None = Non
     return None if row is None else Claim(at=at, previous_hash=row[0], behind=bool(row[1]))
 
 
-async def _stop(tenant_id: UUID, held: Claim, reason: StopReason) -> StopReason:
+async def _stop(
+    tenant_id: UUID, held: Claim, reason: StopReason, problems: list[str] | None = None
+) -> StopReason:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE business_copies SET stop_reason = :reason, running_since = NULL, "
-                "updated_at = now() WHERE running_since = :at"
+                "last_problems = CAST(:problems AS jsonb), updated_at = now() "
+                "WHERE running_since = :at"
             ),
-            {"reason": reason, "at": held.at},
+            {
+                "reason": reason,
+                "problems": json.dumps(problems) if problems else None,
+                "at": held.at,
+            },
         )
     return reason
 
@@ -575,15 +748,27 @@ async def _release(tenant_id: UUID, held: Claim) -> None:
         )
 
 
+#: What the operator is told per stop: an answer our checks refused is not a provider outage,
+#: and sending the operator to the leg's health for it sent them to the wrong place.
+_ALARM_DETAIL: Final[dict[str, str]] = {
+    "answer_unusable": (
+        "A client's business examples came back from the AI model but did not pass our checks "
+        "after one repair, so the copy already in use was kept. The client's Business examples "
+        "panel in the admin console lists what failed."
+    ),
+    "provider_unavailable": (
+        "A client's business examples could not be written by the AI model, so the copy "
+        "already in use was kept. Check the business_copy leg's health "
+        "(ai_provider_degraded); the owner or an operator can refresh once it answers."
+    ),
+}
+
+
 def _alarm(tenant_id: UUID, reason: str) -> None:
     alert(
         "WORKER_TERMINAL",
         "business_copy_unavailable",
-        detail=(
-            "A client's business examples could not be written by the AI model, so the copy "
-            "already in use was kept. Check the business_copy leg's health "
-            "(ai_provider_degraded); the owner or an operator can refresh once it answers."
-        ),
+        detail=_ALARM_DETAIL.get(reason, _ALARM_DETAIL["provider_unavailable"]),
         tenant_id=str(tenant_id),
         reason=reason,
     )
@@ -622,6 +807,8 @@ async def _store(
     answer: JsonAnswer[GeneratedCopy],
     *,
     feature: str,
+    trigger: Trigger,
+    left_out: list[str],
 ) -> bool:
     """Meter the answer and store the copy in ONE transaction: a copy the ledger does not
     know about, or a charge for a copy that was not stored, are both impossible."""
@@ -654,7 +841,8 @@ async def _store(
                     "capability_overrides = CAST(:overrides AS jsonb), "
                     "language = :language, model = :model, inputs_hash = :hash, "
                     "prompt_version = :version, generated_at = now(), cost_inr = :cost, "
-                    "absorbed = :absorbed, "
+                    "absorbed = :absorbed, generated_trigger = :trigger, "
+                    "last_problems = CAST(:left_out AS jsonb), "
                     "stop_reason = NULL, running_since = NULL, updated_at = now() "
                     "WHERE running_since = :at RETURNING id"
                 ),
@@ -667,6 +855,8 @@ async def _store(
                     "version": PROMPT_VERSION,
                     "cost": metering.cost_inr,
                     "absorbed": feature == ASSIST_FEATURE_BUSINESS_COPY_ABSORBED,
+                    "trigger": trigger,
+                    "left_out": json.dumps(left_out) if left_out else None,
                     "at": held.at,
                 },
             )
@@ -687,11 +877,12 @@ async def _run(tenant_id: UUID, trigger: Trigger, held: Claim) -> str:
     if not leg.serves_dashboard:
         _alarm(tenant_id, "provider_unavailable")
         return await _stop(tenant_id, held, "provider_unavailable")
+    attempts = Attempts()
     try:
         answer: JsonAnswer[GeneratedCopy] = await ask_json(
             inputs.description,
             instruction_for(inputs),
-            parse=_parser(inputs),
+            parse=_parser(inputs, attempts),
             azure_format=answer_schema(inputs.starter_counts),
             tenant_leg=leg,
             max_tokens=MAX_ANSWER_TOKENS,
@@ -710,8 +901,18 @@ async def _run(tenant_id: UUID, trigger: Trigger, held: Claim) -> str:
             "answer_unusable" if refused.code == ANSWER_UNUSABLE_CODE else "provider_unavailable"
         )
         _alarm(tenant_id, reason)
-        return await _stop(tenant_id, held, reason)
-    if not await _store(tenant_id, held, inputs, answer, feature=feature):
+        return await _stop(
+            tenant_id, held, reason, attempts.record() if reason == "answer_unusable" else None
+        )
+    if not await _store(
+        tenant_id,
+        held,
+        inputs,
+        answer,
+        feature=feature,
+        trigger=trigger,
+        left_out=attempts.record(),
+    ):
         # The claim expired under a run that took longer than `CLAIM_TTL`, and another run
         # holds the row: that run's copy stands. The spend is on the ledger either way.
         return "claim_lost"
@@ -852,10 +1053,13 @@ async def _walk() -> str:
 
 __all__ = [
     "JOB_NAME",
+    "MEDICAL_WORDS_RULE",
     "PLACEHOLDER_MEANINGS",
     "PROMPT_VERSION",
     "UPGRADE_JOB",
+    "Attempts",
     "Inputs",
+    "answer_problems",
     "answer_schema",
     "claim",
     "gather_inputs",
@@ -864,6 +1068,7 @@ __all__ = [
     "instruction_for",
     "parse_answer",
     "queue_upgrade_on_start",
+    "salvage",
     "sweep_business_copies",
     "upgrade_business_copies",
 ]

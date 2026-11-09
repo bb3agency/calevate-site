@@ -803,6 +803,14 @@ class BusinessCopy(PKMixin, TimestampMixin, Base):
         CheckConstraint(
             "prompt_version IS NULL OR prompt_version > 0", name="prompt_version_positive"
         ),
+        CheckConstraint(
+            f"generated_trigger IS NULL OR generated_trigger IN {BUSINESS_COPY_TRIGGERS!r}",
+            name="generated_trigger_enum",
+        ),
+        CheckConstraint(
+            "last_problems IS NULL OR jsonb_typeof(last_problems) = 'array'",
+            name="last_problems_is_array",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -833,6 +841,12 @@ class BusinessCopy(PKMixin, TimestampMixin, Base):
     capability_overrides: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )
+    #: Who asked for the run that wrote the copy in use (`last_trigger` is the last run's,
+    #: which may have written nothing). NULL for a copy from before it was recorded.
+    generated_trigger: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: The last run's problems as `path: rule`, never the answer's text: why it stopped
+    #: (`answer_unusable`) or what the stored copy left out. NULL after a clean run.
+    last_problems: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
 
 #: A client's request for more calls at once (`tenancy/call_line_requests`, migration

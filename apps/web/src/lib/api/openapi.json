@@ -977,6 +977,17 @@
             ],
             "title": "Generated At"
           },
+          "generated_trigger": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated Trigger"
+          },
           "language": {
             "anyOf": [
               {
@@ -999,6 +1010,14 @@
               }
             ],
             "title": "Last Attempt At"
+          },
+          "last_problems": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Last Problems",
+            "type": "array"
           },
           "last_trigger": {
             "anyOf": [
@@ -1120,6 +1139,8 @@
           "absorbed",
           "last_trigger",
           "last_attempt_at",
+          "generated_trigger",
+          "last_problems",
           "capability_overrides"
         ],
         "title": "AdminBusinessCopyOut",
