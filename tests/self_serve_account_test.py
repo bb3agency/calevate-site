@@ -189,6 +189,7 @@ async def _sign_in(
     *,
     signup_open: bool = True,
     browser_nonce: str | None = None,
+    invited_email: str | None = None,
     **claims: Any,
 ) -> tuple[google.SignedIn, dict[str, Any]]:
     begun = google.begin(next_path="/c/somewhere")
@@ -206,6 +207,7 @@ async def _sign_in(
         state=state,
         browser_nonce=browser_nonce if browser_nonce is not None else begun.browser_nonce,
         signup_open=signup_open,
+        invited_email=invited_email,
     )
     return signed_in, seen
 
@@ -472,3 +474,76 @@ async def test_a_self_serve_business_starts_its_trial_at_once(
     assert trial is not None and trial.status == "active"
     assert trial.days == 9
     assert trial.free_minutes == 12
+
+
+async def test_an_invitee_accepts_with_google_while_self_serve_signup_is_closed(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """The invitation page offers "Accept with Google" on every deployment, and
+    `self_serve_signup_enabled` defaults off. A new invitee pressing it was refused
+    `no_account_for_google` ("use the invitation your workspace owner sent") while holding
+    that invitation. The invitation to the address Google vouches for opens the account."""
+    import httpx
+    from apps.api.authn import self_serve_routes
+    from apps.api.main import app
+    from tests.api_security_test import _make_tenant
+    from tests.member_invitations_test import mailed_invitation_token
+    from tests.members_test import _headers
+
+    async def closed() -> bool:
+        return False
+
+    monkeypatch.setattr(self_serve_routes, "_signup_is_open", closed)
+    tenant_id, slug, owner = await _make_tenant("owner")
+    invitee = _address("invitee")
+    planted.append(invitee)
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://api"
+    ) as http:
+        invited = await http.post(
+            "/v1/invitations",
+            json={"email": invitee, "role": "staff"},
+            headers=_headers(slug, owner),
+        )
+        assert invited.status_code == 201, invited.text
+        raw = await mailed_invitation_token(invitee)
+
+        started = await http.post("/v1/auth/client/google/start", json={"next": "/c"})
+        assert started.status_code == 200, started.text
+        state, nonce = _state_and_nonce(started.json()["authorize_url"])
+        token = _id_token(nonce, email=invitee)
+
+        async def exchange(code: str, nonce_in: str, client: Any) -> str:
+            return token
+
+        monkeypatch.setattr(google, "_exchange", exchange)
+        done = await http.post(
+            "/v1/auth/client/google/complete",
+            json={"code": "the-code", "state": state, "invitation_token": raw},
+        )
+
+    assert done.status_code == 200, done.text
+    assert done.json()["joined_slug"] == slug
+    assert done.json()["account_created"] is True
+    async with tenant_session(tenant_id) as session:
+        role = (
+            await session.execute(
+                text(
+                    "SELECT m.role FROM memberships m JOIN users u ON u.id = m.user_id "
+                    "WHERE lower(u.email) = :e"
+                ),
+                {"e": invitee.casefold()},
+            )
+        ).scalar()
+    assert role == "staff"
+
+
+async def test_an_invitation_to_another_address_opens_nothing_while_signup_is_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The invitation is leave for ITS address only: a Google account with a different
+    address is refused exactly as before."""
+    with pytest.raises(ProblemError) as refused:
+        await _sign_in(monkeypatch, signup_open=False, invited_email=_address("someone-else"))
+    assert refused.value.code == "no_account_for_google"

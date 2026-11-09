@@ -433,6 +433,28 @@ async def _prove_existing_account(
         )
 
 
+async def invited_address(token: str) -> str | None:
+    """The address a still-redeemable invitation was sent to, or None. Read-only.
+
+    For the Google path, which must decide whether a person with no account may have one
+    made BEFORE the invitation is burned: an invitation to the address Google has just
+    vouched for is the owner's leave to create that account, whatever the self-serve switch
+    says. Nothing is returned to the caller of the route, so this is no token oracle.
+    """
+    token_hash = sha256(token.encode()).hexdigest()
+    async with invite_session(token_hash) as lookup:
+        email = (
+            await lookup.execute(
+                text(
+                    "SELECT email FROM invitations WHERE token_hash = :hash "
+                    "AND used_at IS NULL AND expires_at > now()"
+                ),
+                {"hash": token_hash},
+            )
+        ).scalar()
+    return str(email).strip() if email is not None else None
+
+
 async def accept_for_verified_address(
     *, token: str, user_id: UUID, verified_email: str, ip: str | None
 ) -> JoinedWorkspace | None:
@@ -583,4 +605,5 @@ __all__ = [
     "JoinedWorkspace",
     "accept_for_verified_address",
     "accept_with_password",
+    "invited_address",
 ]

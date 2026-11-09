@@ -200,6 +200,11 @@ async def google_complete(
         state=payload.state,
         browser_nonce=request.cookies.get(cookie),
         signup_open=await _signup_is_open(),
+        invited_email=(
+            await invitations.invited_address(payload.invitation_token)
+            if payload.invitation_token
+            else None
+        ),
     )
     response.delete_cookie(cookie, path="/", secure=_is_secure(request), httponly=True)
 
