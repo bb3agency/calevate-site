@@ -1710,6 +1710,48 @@ describe("live tool-execution visibility", () => {
     expect(screen.queryByText("campaigns_list")).toBeNull();
     expect(screen.queryByText("84 ms")).toBeNull();
   });
+
+  const unfinished = {
+    id: "r9",
+    tool: "leads_search",
+    status: "running",
+    args: "{}",
+    detail: null,
+    elapsed_ms: null,
+    label: "Searching your leads…",
+  };
+
+  it("STOPS THE SPINNER when the answer is cut off mid-step: the step did not finish (audit 10 Nov Y2-01)", async () => {
+    stubCopilot({
+      // The connection closes after the step started and before its own terminal frame
+      // or `done`: a long task cut off part-way.
+      chunks: [`event: step\ndata: ${JSON.stringify(unfinished)}\n\n`],
+    });
+    renderPanel();
+    await ask("go through all my leads from last month");
+
+    expect(await screen.findByText("The connection closed before Pip finished answering.")).toBeTruthy();
+    // Nothing is still working, so nothing may spin and say it is.
+    expect(screen.queryByText("Searching your leads…")).toBeNull();
+    expect(screen.getByRole("button", { name: /Could not finish what it tried/ })).toBeTruthy();
+  });
+
+  it("STOPS THE SPINNER when the person presses Stop mid-step (audit 10 Nov Y2-01)", async () => {
+    const { held } = renderHeld();
+    await ask("go through all my leads from last month");
+    await act(async () => {
+      held.push(`event: step\ndata: ${JSON.stringify(unfinished)}\n\n`);
+    });
+    expect(await screen.findByText("Searching your leads…")).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    });
+
+    expect(screen.queryByText("Searching your leads…")).toBeNull();
+    expect(screen.getByRole("button", { name: /Could not finish what it tried/ })).toBeTruthy();
+    held.release();
+  });
 });
 
 /**

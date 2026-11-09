@@ -331,6 +331,17 @@ export const AI_CEILING_CODE = "ai_quota_exceeded";
 
 const NO_TURNS: CopilotTurn[] = [];
 
+/**
+ * The exchange has ended, so a step still `running` never got its terminal frame: the answer
+ * was cut off, refused or stopped part-way through it. It reads as not finished rather than
+ * keeping a spinner that says Pip is still at work on something nothing is running any more.
+ */
+export function settleSteps(steps: CopilotStep[]): CopilotStep[] {
+  return steps.some((step) => step.status === "running")
+    ? steps.map((step) => (step.status === "running" ? { ...step, status: "failed" } : step))
+    : steps;
+}
+
 /*
  * THE OPEN OFFER OUTLIVES THE PANEL, per tab and per account and realm. The dock unmounts
  * the panel whenever it closes, including the close it does itself when the screen's
@@ -580,6 +591,7 @@ export function useCopilotConversation(
     setStreaming(null);
     setAsking(false);
     setSettling(true);
+    setSteps(settleSteps);
     // NO `setError`: the person asked for this, and a refusal notice about their own
     // click is the console blaming them for using a control it offered.
   }, [appendTurn]);
@@ -787,6 +799,7 @@ export function useCopilotConversation(
           appendTurn({ role: "assistant", content: answer, wire: answerWire, id: turnIds.answer });
           setStreaming(null);
           setAsking(false);
+          setSteps(settleSteps);
         })
         .catch((cause: unknown) => {
           if (controller.signal.aborted) return;
@@ -798,6 +811,7 @@ export function useCopilotConversation(
           }
           setStreaming(null);
           setAsking(false);
+          setSteps(settleSteps);
           setError(cause);
         })
         .finally(() => {
