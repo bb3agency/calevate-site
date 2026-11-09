@@ -38,6 +38,7 @@ import {
   templateNameFrom,
   templateState,
   useCreateTemplate,
+  useFinishWhatsApp,
   useWhatsAppTemplates,
   type WhatsAppAccount,
   type WhatsAppTemplate,
@@ -79,6 +80,13 @@ export function Templates({
   const templates = useWhatsAppTemplates(session);
   const [adding, setAdding] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const finish = useFinishWhatsApp(session);
+  const finishFeedback = useActionFeedback(finish, { errorDisplay: "inline" });
+  // Calevate's standard templates that never reached Meta: the account's set-up re-submits
+  // them (`accounts.finish_setup`), and nothing else does.
+  const unsent = (templates.data ?? []).some(
+    (t) => t.account_id === account.id && t.origin === "calevate" && t.status === "submit_failed",
+  );
 
   return (
     <Section
@@ -99,6 +107,21 @@ export function Templates({
       }
     >
       {adding && <TemplateForm session={session} account={account} onDone={() => setAdding(false)} />}
+      {unsent && (
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <p className="text-body text-ink">Some standard messages did not reach Meta.</p>
+          <ActionButton
+            variant="secondary-sm"
+            status={finishFeedback.status}
+            disabled={!canWrite}
+            onClick={() => finishFeedback.run(account.id)}
+            pendingLabel="Sending…"
+            successLabel="Sent"
+          >
+            Send them again
+          </ActionButton>
+        </div>
+      )}
       {templates.isPending ? (
         <Skeleton rows={4} />
       ) : templates.error || !templates.data ? (

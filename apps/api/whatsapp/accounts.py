@@ -157,7 +157,9 @@ async def finish_setup(
         subscribed=account.webhooks_subscribed,
     )
     if outcome.status == "connected" and account.templates_seeded_at is None:
-        await signup.queue_templates(session, account_id=account.id, tenant_id=tenant_id)
+        await signup.queue_templates(
+            session, account_id=account.id, tenant_id=tenant_id, again=True
+        )
     return outcome
 
 

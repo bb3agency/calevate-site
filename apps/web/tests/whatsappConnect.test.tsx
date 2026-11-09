@@ -184,6 +184,26 @@ describe("Integrations > WhatsApp", () => {
     expect(await screen.findByText("Payment link")).toBeTruthy();
     expect(screen.getAllByText("Approved").length).toBeGreaterThan(0);
     expect(screen.getByText("Rejected by Meta")).toBeTruthy();
+    // Every standard template reached Meta, so there is nothing to send again.
+    expect(screen.queryByRole("button", { name: /Send them again/ })).toBeNull();
+  });
+
+  it("offers to send again a standard template that never reached Meta", async () => {
+    let finished = 0;
+    const unsent = TEMPLATES.map((t, i) => (i === 0 ? { ...t, status: "submit_failed" } : t));
+    await renderClientPage(
+      <IntegrationsPage />,
+      routes({
+        "/v1/whatsapp": WHATSAPP_CONNECTED,
+        "/v1/whatsapp/templates": unsent,
+        [`POST /v1/whatsapp/accounts/${ACCOUNT.id}/finish`]: () => {
+          finished += 1;
+          return { account: ACCOUNT, pin: null, failed_step: null };
+        },
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Send them again/ }));
+    await waitFor(() => expect(finished).toBe(1));
   });
 });
 
