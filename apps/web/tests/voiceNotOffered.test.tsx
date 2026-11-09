@@ -2,11 +2,13 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import PricingPage from "@/app/pricing/page";
+import RoiPage from "@/app/roi/page";
 import { WhatCallsCost } from "@/app/c/[slug]/billing/WhatCallsCost";
 import type { TierLabels } from "@/app/c/[slug]/billing/lots";
 import { RateCard } from "@/components/marketing/rateCard";
 import { RoiCalculator } from "@/components/marketing/roiCalculator";
 import { headlineVoice, type PublicRateCard } from "@/lib/api/rateCard";
+import { formatINR } from "@/lib/numberDisplay";
 
 import { RATE_CARD } from "./fixtures/rateCard";
 import { stubApi } from "./harness";
@@ -79,5 +81,62 @@ describe("a deployment where Studio is held back and Clear is sold", () => {
     const { container } = render(await PricingPage());
     const heading = container.querySelector("h1")?.textContent ?? "";
     expect(heading).toMatch(/^Talk time on the Clear voice/);
+  });
+});
+
+/**
+ * The ROI calculator's "from" figure and its working follow the card too. They named Studio
+ * as the voice the comparison opens on and Clear as the one that cannot be chosen, whatever
+ * the card said, so a deployment holding Studio back quoted Studio's figure and told a buyer
+ * the voice it sells was unavailable.
+ */
+describe("the ROI calculator's own words about which voice it prices", () => {
+  const BOTH_OPEN: PublicRateCard = {
+    ...RATE_CARD,
+    voice_not_offered: null,
+    voice_not_offered_notice: null,
+  };
+
+  function voiceLegend(container: HTMLElement): string {
+    const legend = Array.from(container.querySelectorAll("legend")).find((l) =>
+      (l.textContent ?? "").startsWith("Which voice"),
+    );
+    return legend?.textContent ?? "";
+  }
+
+  it("leads with the from figure of a voice that can be bought", () => {
+    const { container } = render(<RoiCalculator rateCard={STUDIO_HELD_BACK} />);
+    expect(voiceLegend(container)).toBe(
+      `Which voice your agents use — priced from ${formatINR(STUDIO_HELD_BACK.from_clear_inr_per_min)}/min`,
+    );
+  });
+
+  it("leads with the cheaper voice's from figure when both can be bought", () => {
+    const { container } = render(<RoiCalculator rateCard={BOTH_OPEN} />);
+    expect(voiceLegend(container)).toBe(
+      `Which voice your agents use — priced from ${formatINR(BOTH_OPEN.from_clear_inr_per_min)}/min`,
+    );
+  });
+
+  it("says the held-back voice cannot be chosen, and only that one", () => {
+    const { container } = render(<RoiCalculator rateCard={STUDIO_HELD_BACK} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("our published list rate on the Clear voice");
+    expect(text).toContain("The Studio voice is");
+    expect(text).toContain("which is why the comparison opens on the Clear voice");
+    expect(text).not.toContain("opens on the Studio voice");
+  });
+
+  it("does not call a voice unavailable when the card holds none back", () => {
+    const { container } = render(<RoiCalculator rateCard={BOTH_OPEN} />);
+    expect(container.textContent ?? "").not.toContain("cannot be chosen at the moment");
+  });
+
+  it("names the voice that can be bought in the /roi console illustration", async () => {
+    stubApi({ "/v1/public/rate-card": STUDIO_HELD_BACK });
+    const { container } = render(await RoiPage());
+    const text = container.textContent ?? "";
+    expect(text).toContain("Clear voice (1,284.50 min)");
+    expect(text).not.toContain("Studio voice (1,284.50 min)");
   });
 });

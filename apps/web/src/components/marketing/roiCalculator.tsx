@@ -98,6 +98,7 @@ import {
   packMinutes,
   packRate,
   ratePaisePerMin,
+  rateToTenThousandths,
   tierLabel,
   voiceNotOffered,
   voiceNotOfferedNotice,
@@ -398,6 +399,20 @@ function voiceOptions(
 }
 
 /**
+ * The cheapest minute a buyer can actually be put on: the lowest "from" figure among the
+ * voices the card does not hold back. Compared at the API's own 4dp scale, never as floats.
+ */
+function offeredFromRate(card: PublicRateCard): string {
+  const held = voiceNotOffered(card);
+  const rates = VOICE_TIERS.filter((voice) => voice !== held).map((voice) =>
+    cardFromRate(card, voice),
+  );
+  return rates.reduce((low, rate) =>
+    rateToTenThousandths(rate) < rateToTenThousandths(low) ? rate : low,
+  );
+}
+
+/**
  * The pack picker's options: the list rate FIRST (it is the default, and a radiogroup's
  * first option is where a keyboard user lands), then every pack with its rate and talk time
  * ON THE CHOSEN VOICE — the two numbers a buyer reasons about, both from the response.
@@ -471,6 +486,9 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // cannot run at, the direction `rateFor`'s warning above is about. The held-back voice
   // keeps its rate, its radio and the notice saying why it cannot be chosen.
   const [voice, setVoice] = useState<VoiceTier>(() => headlineVoice(card));
+  // The voice the working below explains, and the other one beside it.
+  const openedVoice = headlineVoice(card);
+  const otherVoice: VoiceTier = openedVoice === "studio" ? "clear" : "studio";
   const { rate: selectedRate, pack: selectedPack } = rateFor(
     card,
     voice,
@@ -732,7 +750,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                  and until D-629 it was the cheapest on the card — which is now a rung
                  nobody can choose. A legend leading with it would advertise a price no
                  agent can be run at. */
-              legend={`Which voice your agents use — priced from ${formatINR(cardFromRate(card, "studio"))}/min`}
+              legend={`Which voice your agents use — priced from ${formatINR(offeredFromRate(card))}/min`}
               options={voiceOptions(card)}
               value={voice}
               onChange={setVoice}
@@ -1211,25 +1229,35 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                     it is not selectable. Leading with `card.list_rate_inr_per_min` (the
                     Clear column) would explain the sum above with a rate the sum did not
                     use, since the arithmetic runs at whatever voice is selected. */}
-                {formatINR(rateFor(card, "studio", LIST_RATE).rate)}/min is
+                {formatINR(rateFor(card, openedVoice, LIST_RATE).rate)}/min is
                 our published list rate on the{" "}
-                {tierLabel(card, "studio")} voice, read from our own rate card
+                {tierLabel(card, openedVoice)} voice, read from our own rate card
                 when this page loaded
                 {/* The pack clause is CONDITIONAL for the same reason the voice captions'
                     is: on a flat column "a prepaid pack brings it down to ₹4.00/min"
                     quotes the list rate straight back as a discount. */}
-                {ladderFalls(card, "studio") && (
+                {ladderFalls(card, openedVoice) && (
                   <>
                     ; a prepaid pack brings it down to{" "}
-                    {formatINR(cardFromRate(card, "studio"))}/min
+                    {formatINR(cardFromRate(card, openedVoice))}/min
                   </>
                 )}
-                . The {tierLabel(card, "clear")} voice is{" "}
-                {formatINR(card.list_rate_inr_per_min)}/min on the same card
-                and cannot be chosen at the moment, for the reason printed
-                beside it above — which is why the comparison opens on the{" "}
-                {tierLabel(card, "studio")} voice, and at the list rate rather
-                than at the cheapest pack, on purpose.
+                . The {tierLabel(card, otherVoice)} voice is{" "}
+                {formatINR(rateFor(card, otherVoice, LIST_RATE).rate)}/min on the same card
+                {voiceNotOffered(card) === otherVoice ? (
+                  <>
+                    {" "}and cannot be chosen at the moment, for the reason printed
+                    beside it above — which is why the comparison opens on the{" "}
+                    {tierLabel(card, openedVoice)} voice, and at the list rate rather
+                    than at the cheapest pack, on purpose.
+                  </>
+                ) : (
+                  <>
+                    {" "}and can be picked above. The comparison opens on the{" "}
+                    {tierLabel(card, openedVoice)} voice, and at the list rate rather
+                    than at the cheapest pack, on purpose.
+                  </>
+                )}
               </li>
               <li>
                 <span className="font-medium text-ink">Telecallers needed</span>{" "}
