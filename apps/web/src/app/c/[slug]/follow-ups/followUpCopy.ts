@@ -113,6 +113,16 @@ const RESULT_WORDS: Record<string, string> = {
   "not_sent:no_consent": "Not sent: no consent",
   "not_sent:blocked": "Not sent: blocked",
   "not_sent:not_connected": "Not sent: WhatsApp not connected",
+  "not_sent:no_call": "Not sent: no call yet",
+  "not_sent:no_address": "Not sent: nobody to tell",
+  "not_sent:no_lead": "Not sent: no lead yet",
+  "skipped:no_lead": "Skipped: no lead yet",
+  already_told: "Team already told",
+  date_passed: "That date has passed",
+  no_date: "No date on file",
+  "failed:action_off": "The action is turned off",
+  // An outside action that may have run before a restart is never repeated.
+  "failed:unconfirmed": "Not repeated: it may already have run",
 };
 
 /** A run event's short result code, as words. `branch:interested` → "Went: Interested". */
@@ -121,6 +131,8 @@ export function resultWords(code: string | null): string {
   const known = lookup(RESULT_WORDS, code);
   if (known) return known;
   if (code.startsWith("branch:")) return `Went: ${exitWords(code.slice("branch:".length))}`;
+  // `blocked:<rule>` carries the compliance gate's rule name, which is not owner wording.
+  if (code.startsWith("blocked:")) return "Call not allowed";
   return humanise(code.replace(":", ": "));
 }
 

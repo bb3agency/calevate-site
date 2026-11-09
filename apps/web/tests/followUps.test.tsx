@@ -266,6 +266,22 @@ describe("the step tree", () => {
     expect(resultWords("delivery")).toBe("Started: a new lead");
     expect(resultWords("manual")).toBe("Started by hand");
   });
+
+  it("says every code the runner records in words, never as the code", () => {
+    // Every result `follow_ups/runner.py` records that the table above did not name.
+    expect(resultWords("already_told")).toBe("Team already told");
+    expect(resultWords("date_passed")).toBe("That date has passed");
+    expect(resultWords("no_date")).toBe("No date on file");
+    expect(resultWords("failed:action_off")).toBe("The action is turned off");
+    expect(resultWords("failed:unconfirmed")).toBe("Not repeated: it may already have run");
+    expect(resultWords("not_sent:no_call")).toBe("Not sent: no call yet");
+    expect(resultWords("not_sent:no_address")).toBe("Not sent: nobody to tell");
+    expect(resultWords("not_sent:no_lead")).toBe("Not sent: no lead yet");
+    expect(resultWords("skipped:no_lead")).toBe("Skipped: no lead yet");
+    // A refusal names a compliance rule; the owner reads that the call was not allowed.
+    expect(resultWords("blocked:no_consent_record")).toBe("Call not allowed");
+    expect(resultWords("blocked:trial_ended")).toBe("Call not allowed");
+  });
 });
 
 describe("the Follow-ups list", () => {
@@ -584,6 +600,22 @@ describe("the leads in it", () => {
       fireEvent.click(within(dialog).getByRole("button", { name: "Stop it" }));
     });
     await waitFor(() => expect(calls.some((call) => call.path === `${PATH}/runs/r1/stop`)).toBe(true));
+  });
+
+  it("calls a lead with no name on file unnamed, not still being added", async () => {
+    await detail({
+      [`${PATH}/runs`]: {
+        items: [
+          { ...RUNS.items[0], id: "r3", lead_id: "lead-3", lead_name: null },
+          { ...RUNS.items[0], id: "r4", lead_id: null, lead_name: null },
+        ],
+        next_cursor: null,
+      },
+    });
+    fireEvent.click(await screen.findByRole("tab", { name: "Leads" }));
+    const table = await screen.findByRole("table", { name: "Leads in this Follow-up" });
+    expect(within(table).getByRole("link", { name: "Unnamed lead" }).getAttribute("href")).toBe("/c/acme/leads/lead-3");
+    expect(within(table).getAllByText("Lead being added")).toHaveLength(1);
   });
 
   it("pages with the server's cursor", async () => {

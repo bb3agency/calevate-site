@@ -46,7 +46,10 @@ export function RunsTab({ followUp, canStop }: { followUp: FollowUpOut; canStop:
   const summaries = new Map(followUp.steps.map((step) => [step.id, step.summary]));
   const rows = runs.data?.pages.flatMap((page) => page.items);
 
-  const leadName = (run: FollowUpRunOut) => run.lead_name ?? "Lead being added";
+  // `lead_name` is the lead's own name, which most callers never give: a lead on file with
+  // no name is unnamed, not still being added (that is a run with no lead yet).
+  const leadName = (run: FollowUpRunOut) =>
+    run.lead_name?.trim() || (run.lead_id ? "Unnamed lead" : "Lead being added");
 
   const columns: DataColumn<FollowUpRunOut>[] = [
     {

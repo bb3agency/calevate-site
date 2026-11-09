@@ -46,6 +46,15 @@ afterEach(() => {
 });
 
 /**
+ * Empty the tab's session storage between tests, for the same reason: the call log and the
+ * leads table keep their filters and page there (`lib/screenMemory`), and the next test in
+ * the file must not open on the filters the previous one chose.
+ */
+afterEach(() => {
+  window.sessionStorage.clear();
+});
+
+/**
  * Unmount between tests.
  *
  * React Testing Library auto-registers this when `globals: true`, which we do not use
