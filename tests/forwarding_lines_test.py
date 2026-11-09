@@ -57,6 +57,40 @@ async def test_each_forwarding_table_shows_a_tenant_only_its_own_rows() -> None:
             assert seen == 1, table
 
 
+async def test_a_line_cannot_be_deleted_while_its_test_is_ringing() -> None:
+    """The delete cascades the test away: the settle then finds nothing, so our legs'
+    minutes are never metered and the arrival is billed to the client as a real call."""
+    tenant_id, *_ = await _ready("fwd-del")
+    line = await add_line(tenant_id)
+    test_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO forwarding_tests (id, tenant_id, line_id, status) "
+                "VALUES (:i, :t, :l, 'ringing')"
+            ),
+            {"i": test_id, "t": tenant_id, "l": line.id},
+        )
+    with pytest.raises(ProblemError) as refused:
+        async with tenant_session(tenant_id) as session:
+            await service.delete_line(
+                session, principal=owner(tenant_id), tenant_id=tenant_id, line_id=line.id
+            )
+    assert refused.value.code == "forwarding_test_running"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE forwarding_tests SET status = 'settled', settled_at = now() WHERE id = :i"
+            ),
+            {"i": test_id},
+        )
+        await service.delete_line(
+            session, principal=owner(tenant_id), tenant_id=tenant_id, line_id=line.id
+        )
+        left = (await session.execute(text("SELECT count(*) FROM forwarded_lines"))).scalar_one()
+    assert left == 0
+
+
 async def test_a_line_records_the_choice_and_the_attestation() -> None:
     tenant_id, *_ = await _ready()
     line = await add_line(tenant_id, number="98123 45670", ring_seconds=25)

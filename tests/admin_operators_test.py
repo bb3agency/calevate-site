@@ -697,6 +697,43 @@ async def test_a_superadmin_who_lost_the_authority_mid_request_changes_nothing(l
     assert (row[0], row[1]) == (SUPERADMIN_ROLE, None)
 
 
+async def test_a_revoked_superadmin_cannot_add_an_operator_or_resend_a_link_mid_request() -> None:
+    """A create or a resend authorised before the actor's revocation committed must not
+    land: the create would hand a revoked operator a new superadmin account whose setup
+    link goes to a mailbox they still hold."""
+    actor_id = _id_of(await _make_admin())
+    pending_id = await _make_operator()
+    async with untenanted_session() as session:
+        await session.execute(
+            text("UPDATE admin_users SET deactivated_at = now() WHERE id = :id"),
+            {"id": actor_id},
+        )
+    stale = _principal(actor_id)  # authorised before the revocation landed
+    address = f"comeback-{uuid.uuid4().hex[:8]}@example.com"
+    with pytest.raises(ProblemError) as creating:
+        await operators.create_operator(
+            actor=stale,
+            email=address,
+            name=None,
+            role=SUPERADMIN_ROLE,
+            reason="fixture",
+            ip=None,
+        )
+    with pytest.raises(ProblemError) as resending:
+        await operators.reissue_setup_link(
+            actor=stale, operator_id=pending_id, reason="fixture", ip=None
+        )
+    assert creating.value.status == 403 and resending.value.status == 403
+    async with untenanted_session() as session:
+        created = (
+            await session.execute(
+                text("SELECT count(*) FROM admin_users WHERE lower(email) = lower(:e)"),
+                {"e": address},
+            )
+        ).scalar()
+    assert created == 0
+
+
 async def test_a_role_change_on_a_revoked_operator_is_a_404() -> None:
     """The other state a rowcount of 0 can mean. The CAS cannot distinguish them, so the
     read that follows it does — otherwise a promotion aimed at a revoked account would

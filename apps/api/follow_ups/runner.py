@@ -346,7 +346,7 @@ async def _queue_drive(session: AsyncSession, run: Run, *, reason: str) -> None:
 
 # --- starting ------------------------------------------------------------------------
 
-StartOutcome = Literal["started", "already_in", "not_again", "not_matched"]
+StartOutcome = Literal["started", "already_in", "not_again", "not_matched", "not_live"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +464,18 @@ async def start_run(
         return Started("not_matched")
     if await _again_refused(session, follow_up.id, lead_id, follow_up.settings.again):
         return Started("not_again")
+    # The status is re-read under FOR SHARE, which waits on `turn_off`/`pause`'s FOR UPDATE.
+    # Every caller read "live" earlier and unlocked, so a start racing a turn-off would
+    # otherwise insert a run after `stop_runs` swept, left waiting under an off Follow-up
+    # until `end_overdue`, and carried on if the owner turned it back on.
+    still_live = (
+        await session.execute(
+            text("SELECT status = 'live' FROM follow_ups WHERE id = :fid FOR SHARE"),
+            {"fid": follow_up.id},
+        )
+    ).scalar()
+    if not still_live:
+        return Started("not_live")
     wake_at = await _turn(session, follow_up.id, follow_up.settings.starts_per_hour, moment)
     queue = queue or wake_at > moment
     row = (
@@ -1459,7 +1471,8 @@ async def start_for_call(session: AsyncSession, *, tenant_id: UUID, call_id: UUI
         await session.execute(
             text(
                 "SELECT direction, agent_id, lead_id, from_e164, to_e164, outcome_tag, "
-                "business_outcome, trial_call OR paid_test_call OR forwarding_test_id IS NOT NULL "
+                "business_outcome, trial_call OR paid_test_call OR forwarding_test_id IS NOT NULL, "
+                "caller_id_hidden, (SELECT l.phone_e164 FROM leads l WHERE l.id = c.lead_id) "
                 "FROM calls c WHERE id = :cid AND NOT EXISTS (SELECT 1 FROM follow_up_runs r "
                 "WHERE r.last_call_id = c.id OR r.waiting_call_id = c.id) AND NOT EXISTS ("
                 "SELECT 1 FROM scheduled_callbacks s WHERE s.last_call_id = c.id AND "
@@ -1472,6 +1485,11 @@ async def start_for_call(session: AsyncSession, *, tenant_id: UUID, call_id: UUI
         return []
     direction = str(call[0])
     phone = call[4] if direction == "outbound" else call[3]
+    if call[8]:
+        # A forwarded call that showed the business's own number (D-746): the person is
+        # the call-back number they gave, which the pipeline filed as the call's lead, or
+        # nobody. The network's number would have the Follow-up ring the business itself.
+        phone = call[9]
     if not phone:
         return []
     keys = {k for k in (normalise(call[5]), call[6]) if k}

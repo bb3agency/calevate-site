@@ -400,12 +400,14 @@ async def test_an_unknown_tenant_alarms_once_and_not_twice(
 ) -> None:
     """`razorpay_unknown_tenant` alerts where it is raised, with a sharper sentence than
     the general guard could carry, so the guard must not fire a second alarm for the one
-    delivery."""
+    delivery. It is acknowledged: no redelivery can make the tenant appear, and a 4xx gets
+    the webhook disabled after 24 hours of retries."""
     raw, headers = _sign(_payment_envelope(payment_id=_payment_id("GHOST"), tenant_id=uuid.uuid4()))
     with caplog.at_level("ERROR"):
         async with _client() as http:
             response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
-    assert response.status_code == 404, response.text
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "unattributed"
     assert _route_alerts(caplog) == ["razorpay_unknown_tenant"]
 
 
@@ -858,22 +860,34 @@ async def test_the_callback_refuses_when_the_key_secret_is_missing(
 
 
 # ============================================================================
-# refund.processed — an unknown tenant is real money we cannot attribute (404)
+# refund.processed — an unknown tenant is real money we cannot attribute
 # ============================================================================
 
 
-async def test_a_refund_for_an_unknown_tenant_404s_and_writes_nothing() -> None:
-    """A valid-UUID tenant in the notes that names no organization is a 404, not a silent
-    ack: the money is real and must reach a human, not nobody's wallet
-    (payment_routes.py:656-658)."""
+async def test_a_refund_for_an_unknown_tenant_is_alarmed_acknowledged_and_writes_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A valid-UUID tenant in the notes that names no organization reaches a human through
+    the page alarm, and is acknowledged rather than refused so it cannot disable the
+    webhook; it never reaches anybody's wallet."""
     ghost = uuid.uuid4()
     raw, headers = _sign(
         _refund_envelope(refund_id=_refund_id("GHOST"), payment_id="pay_g", tenant_id=ghost)
     )
-    async with _client() as http:
-        response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
-    assert response.status_code == 404
-    assert response.json()["type"].endswith("/not_found")
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "unattributed"
+    assert response.json()["entry_id"] is None
+    assert _route_alerts(caplog) == ["razorpay_unknown_tenant"]
+    async with tenant_session(ghost) as session:
+        rows = (
+            await session.execute(
+                text("SELECT count(*) FROM credit_ledger WHERE tenant_id = :t"), {"t": ghost}
+            )
+        ).scalar()
+    assert rows == 0
 
 
 # ============================================================================

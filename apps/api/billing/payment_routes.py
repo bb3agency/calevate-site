@@ -90,6 +90,7 @@ from apps.api.billing.engine_minutes import (
 )
 from apps.api.billing.list_rates import card_at, card_with_rates, pending_cards
 from apps.api.billing.payment_events import (
+    UNKNOWN_TENANT_CODE,
     EventResult,
     EventStatus,
     apply_captured,
@@ -210,13 +211,15 @@ TopUpRead = Annotated[Principal, Depends(requires("billing:read", realm="client"
 RefundWrite = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
 
 #: Refusals that ALREADY alerted where they were raised, so the guard in `razorpay_webhook`
-#: does not fire a second alarm for one delivery. `_apply_captured_payment` and
-#: `_apply_refund` both alert `razorpay_unknown_tenant` before raising `not_found`, and
-#: that sentence names the case better than a general "we could not apply this" could.
-_SELF_ALERTING_REFUSALS: Final = frozenset({"not_found"})
+#: does not fire a second alarm for one delivery. `payment_events` alerts
+#: `razorpay_unknown_tenant` before raising it, and that sentence names the case better
+#: than a general "we could not apply this" could.
+_SELF_ALERTING_REFUSALS: Final = frozenset({UNKNOWN_TENANT_CODE})
 #: A signed event naming no account of ours (`payments.extract_captured_payment`,
 #: `payments.extract_refund`): acknowledged with an alarm, never refused.
 UNATTRIBUTED_PAYMENT_CODE: Final = "payment_tenant_unresolved"
+#: Every refusal the receiver acknowledges with 200 `unattributed` after its alarm.
+_ACKNOWLEDGED_REFUSALS: Final = frozenset({UNATTRIBUTED_PAYMENT_CODE, UNKNOWN_TENANT_CODE})
 
 # The route this intent claims its idempotency key under. A literal, matching the
 # `crm/routes.py` convention of naming the templated path rather than the resolved one.
@@ -1185,17 +1188,18 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
                 problem_code=exc.code,
                 event=event,
             )
-        if exc.code != UNATTRIBUTED_PAYMENT_CODE:
+        if exc.code not in _ACKNOWLEDGED_REFUSALS:
             raise
-        # Acknowledged, not refused. Notes never appear on a redelivery, so a 4xx only
+        # Acknowledged, not refused. Notes never appear on a redelivery, and a tenant the
+        # note names never appears either (`payment_tenant_unknown`), so a 4xx only
         # makes Razorpay retry for 24 hours and then DISABLE the webhook, stopping every
         # payment event after it (https://razorpay.com/docs/webhooks/best-practices/, read
         # 10 Nov 2026). Dashboard refunds, payment links and automatic refunds of
         # uncaptured payments (which also send refund events,
         # https://razorpay.com/docs/webhooks/refunds/) all arrive without our note. The
         # alarm above has fired, and the daily reconciliation lists the id
-        # (`unattributed:` / `refund:`) and never debits a wallet that holds no top-up for
-        # the payment.
+        # (`unattributed:` / `payment_tenant_unknown:` / `refund:`) and never debits a
+        # wallet that holds no top-up for the payment.
         result = EventResult(status="unattributed")
     if result.status == "ignored":
         log.info("razorpay_event_ignored", extra={"event": event})

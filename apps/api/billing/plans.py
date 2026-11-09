@@ -83,6 +83,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, date, datetime, timedelta
+from typing import Final
 from uuid import UUID
 
 from calevate_shared.calling_window import IST
@@ -106,7 +107,11 @@ log = get_logger(__name__)
 # `now()` inside a CTE and having to guess whether that was a decision.
 NOW_SQL = "now()"
 
-_BILLING_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+_BILLING_MONTH = re.compile(r"\A[0-9]{4}-(0[1-9]|1[0-2])\Z")
+#: The years a billing month may name. Outside them the month's IST bounds cannot be
+#: built (`9999-12` ends in year 10000; `0001-01` begins before year 1 in UTC), which
+#: surfaced as a 500 rather than the 422 below.
+_BILLING_YEARS: Final = range(2000, 9999)
 
 # THE PLAN'S SECOND OVERAGE RATE, read in the ONE place every reader of it reads it.
 #
@@ -196,7 +201,7 @@ def parse_billing_month(month: str) -> tuple[int, int]:
     and a month we cannot parse is one we cannot honestly price. A 422 saying what the
     format is beats a ₹0.00 invoice for `?month=july`.
     """
-    if not _BILLING_MONTH.match(month):
+    if not _BILLING_MONTH.match(month) or int(month[:4]) not in _BILLING_YEARS:
         raise ProblemError(
             kind="validation",
             code="invalid_billing_month",

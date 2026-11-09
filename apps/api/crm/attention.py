@@ -107,6 +107,16 @@ BLOCK_REMEDIES: dict[str, str] = {
     "no_form_consent": "The form did not confirm permission to call. Add the consent "
     "checkbox to your form, or call them yourself.",
     "agent_not_live": "Your agent is not published yet.",
+    # Refusals of the dial itself, which a new lead now keeps (`ingest.service.ingest_lead`).
+    "agent_not_published": "Your agent is not published yet.",
+    "engine_rejected": (
+        "The phone system would not place this call, so nobody was rung. Call them yourself, "
+        "or ask us to look."
+    ),
+    "carrier_dial_precondition_failed": (
+        "We could not read the agent's opening line, so we did not dial. Check the opening "
+        "line and save it again."
+    ),
     # Pushed lead sources (D-942, `ingest/portals.py`).
     "marked_do_not_call": "Your CRM marks this person do-not-call, so we did not ring them.",
     "not_a_direct_enquiry": (

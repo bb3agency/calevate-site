@@ -147,6 +147,22 @@ async def test_two_views_cannot_share_a_name_and_the_refusal_says_so() -> None:
     assert second.json()["type"].endswith("/saved_view_name_taken")
 
 
+async def test_a_name_of_only_spaces_is_a_validation_error_not_a_taken_name() -> None:
+    """It passed `min_length=1`, was stripped to "" and broke the table's CHECK, which
+    came back as "You already have a view called “”." (409)."""
+    a = await _tenant()
+    async with _client() as http:
+        created = await http.post(VIEWS, json={"name": "   "}, headers=a.headers)
+        kept = await http.post(VIEWS, json={"name": "  Hot  "}, headers=a.headers)
+        renamed = await http.patch(
+            f"{VIEWS}/{kept.json()['id']}", json={"name": " "}, headers=a.headers
+        )
+    assert created.status_code == 422, created.text
+    assert kept.status_code == 201, kept.text
+    assert kept.json()["name"] == "Hot"
+    assert renamed.status_code == 422, renamed.text
+
+
 async def test_clearing_the_column_choice_is_an_empty_list_and_stores_as_null() -> None:
     """`null` means "leave it alone" on a PATCH, so `[]` is the clear. One spelling of
     "no choice made" reaches the column, which the CHECK constraint also insists on."""

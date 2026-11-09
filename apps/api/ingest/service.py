@@ -902,10 +902,16 @@ async def ingest_lead(
         )
         return {"lead_id": resolved_lead, "dispatched": None, "call_id": unconfirmed.call_id}
     except ProblemError as refused:
-        if refused.code in ENGINE_PERSON_REFUSALS:
-            # The voice platform will not call this person, and nothing rang. Recorded like
-            # a gate refusal and committed: raising would roll the lead back, and the
-            # sender's retry would ask to dial the same person again.
+        retry_soon = refused.code in LINE_REFUSALS or refused.kind == "transient"
+        if refused.code in ENGINE_PERSON_REFUSALS or (
+            refused.code != CALLING_HOURS_RULE and not retry_soon
+        ):
+            # Nothing rang (`dispatch_call` raises `DialUnconfirmedError` whenever the phone
+            # may be ringing): the voice platform will not call this person, or refused the
+            # dial for a reason a resend would meet again (its balance, the agent's setup).
+            # Recorded like a gate refusal and committed: raising would roll back the lead
+            # this delivery already wrote, and the push and Meta receivers ack a refusal,
+            # so the enquiry would be lost for good.
             await follow_up_runner.call_refused(session, call_ref, rule=refused.code)
             await _timeline(
                 session, config.tenant_id, resolved_lead, "blocked", {"rule": refused.code}
@@ -928,10 +934,8 @@ async def ingest_lead(
                 source_execution_id=run_key,
                 received_at=received_at,
             )
-        if refused.code not in LINE_REFUSALS:
-            raise
-        # Every line, or every dial slot this second, was taken: nothing rang, and the
-        # person is no less owed a call than a moment ago. Raising would roll the lead back
+        # Every line or dial slot was taken, or the platform throttled us: nothing rang, and
+        # the person is no less owed a call than a moment ago. Raising would roll the lead back
         # with it, so the call is booked as a call-back due now, which the dispatch tick
         # dials as soon as a line frees (inside `callbacks.service.GRACE`).
         return await _defer_to_callback(
@@ -1434,28 +1438,13 @@ def validate_mapping(mapping: dict[str, str]) -> dict[str, str]:
     return cleaned
 
 
-async def create_lead_source(
-    session: AsyncSession,
-    *,
-    tenant_id: UUID,
-    source: str,
-    mapping: dict[str, str],
-    supplied_secret: str | None,
-) -> tuple[UUID, str | None]:
-    """Returns `(id, minted_secret)`; `minted_secret` is None when the client brought
-    their own (Meta), because there is nothing of ours to show them once.
+def _secret_to_mint(source: str, supplied_secret: str | None) -> str | None:
+    """The secret we generate for `source`, or None when the client supplies it (Meta).
 
-    Created ACTIVE, for the reason `create_sheets_endpoint` gives: there is a route to
-    disable and a route to re-enable, so an inactive-on-create row would be a source
-    that silently 404s every delivery while its screen says it exists.
-
-    Created with no agent: who calls its leads is the "Call new leads" Follow-up's choice
-    (`new_lead_caller`).
+    Asked on create AND on rotation: a Meta source rotated without the App Secret would
+    store a random value Meta never signs with, and every delivery would fail its
+    signature once the grace ran out.
     """
-    # A pushed sender's body is not ours to shape, so an empty mapping on one of them means
-    # "the sender's documented fields", never "take the body as it comes".
-    cleaned = validate_mapping(mapping or portals.preset_mapping(source))
-
     needs_supplied = source in CLIENT_SUPPLIED_SECRET_SOURCES
     if needs_supplied and not supplied_secret:
         raise ProblemError(
@@ -1477,11 +1466,34 @@ async def create_lead_source(
             code="app_secret_not_accepted",
             title="This source does not take a secret you supply",
             detail="We generate the secret for this kind of lead source and show it once.",
-            remediation="Create the source without a secret and copy the one we return.",
+            remediation="Leave the secret out and copy the one we return.",
             fields=[{"field": "app_secret", "rule": "not_accepted", "message": source}],
         )
+    return None if needs_supplied else mint_secret()
 
-    minted = None if needs_supplied else mint_secret()
+
+async def create_lead_source(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    source: str,
+    mapping: dict[str, str],
+    supplied_secret: str | None,
+) -> tuple[UUID, str | None]:
+    """Returns `(id, minted_secret)`; `minted_secret` is None when the client brought
+    their own (Meta), because there is nothing of ours to show them once.
+
+    Created ACTIVE, for the reason `create_sheets_endpoint` gives: there is a route to
+    disable and a route to re-enable, so an inactive-on-create row would be a source
+    that silently 404s every delivery while its screen says it exists.
+
+    Created with no agent: who calls its leads is the "Call new leads" Follow-up's choice
+    (`new_lead_caller`).
+    """
+    # A pushed sender's body is not ours to shape, so an empty mapping on one of them means
+    # "the sender's documented fields", never "take the body as it comes".
+    cleaned = validate_mapping(mapping or portals.preset_mapping(source))
+    minted = _secret_to_mint(source, supplied_secret)
     webhook_id = uuid7()
     await session.execute(
         text(
@@ -1585,7 +1597,6 @@ async def rotate_secret(
             detail=f"The old secret may stay valid for at most {MAX_GRACE_MINUTES} minutes.",
             fields=[{"field": "grace_minutes", "rule": "range", "message": str(grace_minutes)}],
         )
-    minted = None if supplied_secret else mint_secret()
     # The tenant is the sealing context's (D-735), so it is read before the rotation. The
     # read locks the row: the UPDATE below then always finds it, and under RLS another
     # tenant's source and no source are the same 404 here (ProblemError.not_found says so).
@@ -1598,6 +1609,7 @@ async def rotate_secret(
     if locked is None:
         raise ProblemError.not_found("Lead source")
     tenant_id, source = locked[0], str(locked[1])
+    minted = _secret_to_mint(source, supplied_secret)
     sealed = seal_source_secret(
         supplied_secret or minted or "", tenant_id=tenant_id, webhook_id=webhook_id
     )

@@ -26,6 +26,7 @@ its E.164 (hard rule 6).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Final, Literal
@@ -776,42 +777,54 @@ async def record_tenant_engine_number(
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
+    cleared: list[_ClearedLine] = []
     released = False
     if engine_numbers.is_platform_line(payload.e164):
         # ANY NUMBER MAY BE GIVEN TO A CLIENT, the one Calevate's test calls ring from too
         # (founder, 3 Nov 2026). Giving it takes it off that use first, committed before
         # the record, so it is never both a client's line and a test line: free trials
         # place no test call until another number is set.
-        await _release_platform_line(request, principal, payload.e164)
+        cleared = await _release_platform_line(request, principal, payload.e164)
         tasks.add_task(propagate)
         released = True
-    async with tenant_session(tenant_id) as scoped:
-        if not await service.tenant_exists(scoped, tenant_id):
-            raise ProblemError.not_found("Client")
-        recorded = await engine_numbers.record_engine_number(
-            scoped,
-            tenant_id=tenant_id,
-            e164=payload.e164,
-            direction=payload.direction,
-            agent_id=payload.agent_id,
-            purpose=payload.purpose,
-            platform_line_released=released,
-        )
-        await write_audit(
-            scoped,
-            action="number.engine_recorded",
-            actor=principal,
-            tenant_id=tenant_id,
-            object_type="phone_number",
-            object_id=str(recorded.number_id),
-            ip=client_request_ip(request),
-            # The series and the outcome, never the number itself (hard rule 6).
-            summary={
-                "series": recorded.series,
-                "priced": recorded.client_inr_per_month is not None,
-                "platform_attachment": recorded.attachment,
-            },
-        )
+    try:
+        async with tenant_session(tenant_id) as scoped:
+            if not await service.tenant_exists(scoped, tenant_id):
+                raise ProblemError.not_found("Client")
+            recorded = await engine_numbers.record_engine_number(
+                scoped,
+                tenant_id=tenant_id,
+                e164=payload.e164,
+                direction=payload.direction,
+                agent_id=payload.agent_id,
+                purpose=payload.purpose,
+                platform_line_released=released,
+            )
+            await write_audit(
+                scoped,
+                action="number.engine_recorded",
+                actor=principal,
+                tenant_id=tenant_id,
+                object_type="phone_number",
+                object_id=str(recorded.number_id),
+                ip=client_request_ip(request),
+                # The series and the outcome, never the number itself (hard rule 6).
+                summary={
+                    "series": recorded.series,
+                    "priced": recorded.client_inr_per_month is not None,
+                    "platform_attachment": recorded.attachment,
+                },
+            )
+    except Exception:
+        # The record was refused (the client is on a free trial, another client answers
+        # the number, it is already recorded) after the release committed. Left cleared,
+        # every free trial and forwarding test would stop until someone noticed, for a
+        # number no client got. The error response skips the background task, so this
+        # propagates the restore itself.
+        if cleared:
+            await _restore_platform_line(request, principal, cleared)
+            await propagate()
+        raise
     return RecordedEngineNumberOut(
         number_id=recorded.number_id,
         e164=recorded.e164,
@@ -845,7 +858,47 @@ async def calls_on_platform_lines(session: AsyncSession) -> int:
     return int(trials) + await forwarding_legs_in_use(session)
 
 
-async def _release_platform_line(request: Request, principal: Principal, e164: str) -> None:
+@dataclass(frozen=True, slots=True)
+class _ClearedLine:
+    """A test-line setting the release cleared: its value before, and its revision after,
+    so a restore lands only if nobody has set the key since."""
+
+    key: str
+    value: str
+    revision: int
+
+
+async def _restore_platform_line(
+    request: Request, principal: Principal, cleared: list[_ClearedLine]
+) -> None:
+    assert principal.user_id is not None, "the release refused an unnamed operator"
+    async with untenanted_session() as glob:
+        for line in cleared:
+            if await current_revision(glob, line.key) != line.revision:
+                continue
+            result = await set_value(
+                glob,
+                key=line.key,
+                value=line.value,
+                note="Restored: the number was not given",
+                actor_id=principal.user_id,
+                expected_revision=line.revision,
+            )
+            if result.recorded:
+                await write_audit(
+                    glob,
+                    action="platform.config_set",
+                    actor=principal,
+                    object_type="platform_settings",
+                    object_id=line.key,
+                    ip=client_request_ip(request),
+                    summary={"config_key": line.key, "reason": "Restored: not given"},
+                )
+
+
+async def _release_platform_line(
+    request: Request, principal: Principal, e164: str
+) -> list[_ClearedLine]:
     """Take `e164` off every test use, in its own committed transaction, audited as the
     console's own setting change. Refused while a test call is on it: re-pointing a line
     under a live call is undocumented (`agents.service._hold_trial_line`)."""
@@ -860,6 +913,7 @@ async def _release_platform_line(request: Request, principal: Principal, e164: s
                 remediation="Try again in a few minutes, once it ends.",
             )
         settings = get_settings()
+        cleared: list[_ClearedLine] = []
         for key in _PLATFORM_LINE_KEYS:
             named = getattr(settings, key)
             if not named or digits(named) != digits(e164):
@@ -882,6 +936,8 @@ async def _release_platform_line(request: Request, principal: Principal, e164: s
                     ip=client_request_ip(request),
                     summary={"config_key": key, "reason": "Given to a client"},
                 )
+                cleared.append(_ClearedLine(key=key, value=named, revision=result.revision))
+    return cleared
 
 
 class BusinessDetailsOut(BaseModel):

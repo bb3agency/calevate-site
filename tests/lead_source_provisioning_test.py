@@ -479,6 +479,41 @@ async def test_a_rotated_meta_app_secret_keeps_verifying_deliveries_in_flight() 
     assert stranger.status_code == 401, stranger.text
 
 
+async def test_a_rotation_takes_a_secret_exactly_where_a_create_does() -> None:
+    """Rotating a Meta source with no App Secret stored a random value Meta never signs
+    with, so every delivery failed once the grace ran out; rotating a minted source with
+    a secret of the client's installed it and returned no secret at all. Both are refused,
+    and neither moves the stored secret."""
+    _, slug, token = await _make_tenant()
+    async with _client() as http:
+        meta = (
+            await _create_source(
+                http, slug, token, source="meta_lead_ads", app_secret="the-meta-app-secret"
+            )
+        ).json()
+        form = (await _create_source(http, slug, token)).json()
+        meta_bare = await http.post(
+            f"/v1/lead-sources/{meta['id']}/rotate-secret",
+            json={"grace_minutes": 0},
+            headers=_headers(slug, token),
+        )
+        form_supplied = await http.post(
+            f"/v1/lead-sources/{form['id']}/rotate-secret",
+            json={"grace_minutes": 0, "app_secret": "mine-thanks"},
+            headers=_headers(slug, token),
+        )
+        still_works = await http.post(
+            form["ingest_path"],
+            json={"phone_number": "9876500121"},
+            headers={SECRET_HEADER: form["secret"]},
+        )
+    assert meta_bare.status_code == 422, meta_bare.text
+    assert meta_bare.json()["type"].endswith("/app_secret_required")
+    assert form_supplied.status_code == 422, form_supplied.text
+    assert form_supplied.json()["type"].endswith("/app_secret_not_accepted")
+    assert still_works.status_code != 401, still_works.text
+
+
 async def test_staff_may_look_but_not_provision() -> None:
     """SEC-COMP §5: staff do not get org settings. A lead source mints a credential that
     dials this tenant's customers on arrival, so it is org settings."""

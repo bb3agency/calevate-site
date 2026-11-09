@@ -76,21 +76,71 @@ async def test_a_busy_account_books_the_call_back_and_keeps_the_lead(
     assert row[4] is True
 
 
-async def test_any_other_refusal_still_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+async def _leads_and_callbacks(tenant_id: Any, e164: str) -> tuple[int, int]:
+    async with tenant_session(tenant_id) as session:
+        leads = (
+            await session.execute(
+                text("SELECT count(*) FROM leads WHERE phone_e164 = :p"), {"p": e164}
+            )
+        ).scalar_one()
+        booked = (
+            await session.execute(
+                text("SELECT count(*) FROM scheduled_callbacks WHERE phone_e164 = :p"),
+                {"p": e164},
+            )
+        ).scalar_one()
+    return int(leads), int(booked)
+
+
+async def test_a_dial_the_platform_refuses_keeps_the_lead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dial the voice platform refused outright (its balance spent, the agent's setup
+    refused) rang nobody. It used to re-raise and roll back the lead this delivery wrote;
+    the push and Meta receivers then acked the refusal, so the enquiry was lost for good."""
     from apps.api.core.errors import ProblemError
 
     async def _refuse(*_args: object, **_kwargs: object) -> str:
-        raise ProblemError.business_rule("agent_not_published", "Not published.")
+        raise ProblemError(
+            kind="dependency",
+            code="engine_rejected",
+            title="Refused",
+            detail="Refused.",
+            remediation="Try later.",
+        )
 
     monkeypatch.setattr(ingest_service, "dispatch_call", _refuse)
-    _tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
     async with _client() as http:
         response = await http.post(
             f"/hooks/v1/ingest/{webhook_id}",
             json={"phone_number": "9876507703", "full_name": "Not Deferred"},
             headers={SECRET_HEADER: SECRET},
         )
-    assert response.status_code >= 400
+    assert response.status_code == 202, response.text
+    assert response.json()["blocked"] == "engine_rejected"
+    assert await _leads_and_callbacks(tenant_id, "+919876507703") == (1, 0)
+
+
+async def test_a_throttled_dial_keeps_the_lead_and_books_the_call_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.engine.dial_lines import engine_backoff_refusal
+
+    async def _refuse(*_args: object, **_kwargs: object) -> str:
+        raise engine_backoff_refusal()
+
+    monkeypatch.setattr(ingest_service, "dispatch_call", _refuse)
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
+    async with _client() as http:
+        response = await http.post(
+            f"/hooks/v1/ingest/{webhook_id}",
+            json={"phone_number": "9876507705", "full_name": "Throttled"},
+            headers={SECRET_HEADER: SECRET},
+        )
+    assert response.status_code == 202, response.text
+    assert response.json()["blocked"] == "engine_rate_limited"
+    assert await _leads_and_callbacks(tenant_id, "+919876507705") == (1, 1)
 
 
 @pytest.mark.parametrize(
