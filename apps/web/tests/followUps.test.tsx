@@ -586,6 +586,22 @@ describe("the leads in it", () => {
     await waitFor(() => expect(calls.some((call) => call.path === `${PATH}/runs/r1/stop`)).toBe(true));
   });
 
+  it("calls a lead with no name on file unnamed, not still being added", async () => {
+    await detail({
+      [`${PATH}/runs`]: {
+        items: [
+          { ...RUNS.items[0], id: "r3", lead_id: "lead-3", lead_name: null },
+          { ...RUNS.items[0], id: "r4", lead_id: null, lead_name: null },
+        ],
+        next_cursor: null,
+      },
+    });
+    fireEvent.click(await screen.findByRole("tab", { name: "Leads" }));
+    const table = await screen.findByRole("table", { name: "Leads in this Follow-up" });
+    expect(within(table).getByRole("link", { name: "Unnamed lead" }).getAttribute("href")).toBe("/c/acme/leads/lead-3");
+    expect(within(table).getAllByText("Lead being added")).toHaveLength(1);
+  });
+
   it("pages with the server's cursor", async () => {
     const { calls } = await detail({
       [`${PATH}/runs`]: { ...RUNS, next_cursor: "c2" },
