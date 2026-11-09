@@ -687,6 +687,17 @@ async def _account_open(tenant_id: UUID) -> bool:
     return found is not None
 
 
+#: Behind: the copy in use was written under an older prompt, or no copy was ever written
+#: because OUR side failed (the checks refused the answer, or the model was unreachable).
+#: Either is ours to rewrite daily (`_due`, `_absorbed`). A missing copy stopped by the
+#: client's used-up allowance is not: that would hand them free daily generations.
+_BEHIND_SQL: Final = (
+    "(CASE WHEN generated IS NULL "
+    "THEN stop_reason IN ('answer_unusable', 'provider_unavailable') "
+    "ELSE prompt_version IS DISTINCT FROM :version END)"
+)
+
+
 async def claim(tenant_id: UUID, trigger: Trigger, *, now: datetime | None = None) -> Claim | None:
     """Take the account's row for one run, or None while another run holds it."""
     at = now or datetime.now(UTC)
@@ -704,8 +715,7 @@ async def claim(tenant_id: UUID, trigger: Trigger, *, now: datetime | None = Non
                     "UPDATE business_copies SET running_since = :at, last_trigger = :trigger, "
                     "last_attempt_at = :at, updated_at = now() "
                     "WHERE running_since IS NULL OR running_since < :stale "
-                    "RETURNING inputs_hash, generated IS NOT NULL "
-                    "AND prompt_version IS DISTINCT FROM :version"
+                    f"RETURNING inputs_hash, {_BEHIND_SQL}"
                 ),
                 {
                     "at": at,
@@ -790,8 +800,9 @@ async def _may_spend(tenant_id: UUID, *, absorbed: bool) -> StopReason | None:
 async def _absorbed(tenant_id: UUID, trigger: Trigger, *, behind: bool = False) -> bool:
     """Ours to pay for: an operator's refresh, a trial account's first generation and the
     one after its owner's first brief (D-855), and the check that rewrites a copy because
-    OUR prompt changed (`behind`). Nobody on the account asked for that last one, and a
-    used-up allowance would otherwise leave the account on an outdated copy."""
+    OUR prompt changed or our side failed to write the first one (`behind`). Nobody on the
+    account asked for that last one, and a used-up allowance would otherwise leave the
+    account on an outdated copy."""
     if trigger == "operator" or (trigger == "scheduled" and behind):
         return True
     if trigger not in ("signup", "first_run"):
@@ -953,16 +964,14 @@ _DIRECTORY: Final = (
 )
 
 
-_ROW_STATE: Final = (
-    "SELECT last_attempt_at, generated IS NOT NULL AND prompt_version IS DISTINCT FROM :version "
-    "FROM business_copies"
-)
+_ROW_STATE: Final = f"SELECT last_attempt_at, {_BEHIND_SQL} FROM business_copies"
 
 
 async def _due(tenant_id: UUID, *, now: datetime) -> bool:
-    """Due when the copy in use was written under an older prompt (any account, trials too:
-    the rewrite is ours, `_absorbed`), or else when it is not a trial (founder: trials get no
-    scheduled refresh) and was not looked at for 15 days. Once an IST day at most, by the key:
+    """Due when the copy is behind (`_BEHIND_SQL`: an older prompt, or no copy because our
+    side failed; any account, trials too: the rewrite is ours, `_absorbed`), or else when it
+    is not a trial (founder: trials get no scheduled refresh) and was not looked at for 15
+    days. Once an IST day at most, by the key:
     `now` is a UTC instant, whose own date would split an Indian day at 05:30 and let the
     upgrade walk queued by a deploy before then and the 10:44 walk both queue (D-709)."""
     async with tenant_session(tenant_id) as session:
