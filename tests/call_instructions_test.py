@@ -275,10 +275,11 @@ async def test_the_drift_sweep_reports_and_repairs_the_call_rules() -> None:
 async def test_publish_reads_the_console_and_saving_it_republishes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert get_settings().thinnest_call_instructions is False
+    # On by default (founder, 9 Nov 2026); switching it off in the console still reaches publish.
+    assert get_settings().thinnest_call_instructions is True
     assert applies_rule("thinnest_call_instructions").applies == LIVE_AGENTS
     tenant_id, agent_id, _headers = await _tenant()
-    monkeypatch.setattr(get_settings(), "thinnest_call_instructions", True)
+    monkeypatch.setattr(get_settings(), "thinnest_call_instructions", False)
     async with tenant_session(tenant_id) as session:
         await prompts.write_prompt_version(
             session,
@@ -291,7 +292,7 @@ async def test_publish_reads_the_console_and_saving_it_republishes(
         cfg = _to_config(
             tenant_id, await _load_agent(session, tenant_id, agent_id), engine=HostingEngine()
         )
-    assert cfg.engine_call_instructions is True
+    assert cfg.engine_call_instructions is False
     assert "engine_call_instructions" not in cfg.model_dump()
 
 

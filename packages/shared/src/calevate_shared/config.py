@@ -502,9 +502,10 @@ class Settings(BaseSettings):
     #: hand-over rule instead (`calevate_shared.engine.OWN_RULES_HANDOVER_RULE`).
     #: VENDOR-STATED, ThinnestAI's email of 21 Oct 2026 (`docs/vendor/
     #: thinnest-replies-2026-10-12.md` §21); `Agent.ownRules` is in the live openapi.json
-    #: (21 Oct 2026, §23), so OPERATIONS gate T-31 is met and the founder flips it. Saving it
-    #: republishes every live agent.
-    thinnest_own_rules: bool = False
+    #: (21 Oct 2026, §23), so OPERATIONS gate T-31 is met. On by default (founder, 9 Nov 2026:
+    #: "lets make ours default"; production has run it since 21 Oct). Saving it republishes
+    #: every live agent.
+    thinnest_own_rules: bool = True
     #: Practice tests and the register eval talk to the agent through Test Chat's call mode
     #: (`mode: "call"`, D-847): the agent's call prompt, the model its calls use and, on our
     #: Gemini key, the call's thinking level. `TestChatRequest.mode` is in the live
@@ -513,10 +514,11 @@ class Settings(BaseSettings):
     #: Every agent is published with our call rules (`calevate_shared.engine.
     #: CALL_INSTRUCTIONS`) as `voice.callInstructions`, which replaces ThinnestAI's ~1,675
     #: character default call rules on every turn (D-850; field in the live openapi.json,
-    #: 21 Oct 2026). Off: `null`, the defaults. Flip only after a Test Chat call-mode run on
-    #: a Telugu agent shows no regression (OPERATIONS gate T-33). Saving it republishes every
-    #: live agent.
-    thinnest_call_instructions: bool = False
+    #: 21 Oct 2026). Off: `null`, the defaults. On by default (founder, 9 Nov 2026: "lets make
+    #: ours default"; production has run it since 21 Oct, and tests/call_instructions_test
+    #: maps each default sentence to where ours carries it). Saving it republishes every live
+    #: agent.
+    thinnest_call_instructions: bool = True
     #: How every agent decides the caller has finished (`voice.turnDetection`, D-849). `timer`
     #: is what agents have always been sent (D-767); `ear` is for the founder's trial of
     #: real-time recognition, which waits through a pause mid-sentence; `timer_v2` (D-940) is

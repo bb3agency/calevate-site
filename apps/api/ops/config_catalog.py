@@ -364,8 +364,8 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         # import (engine isolation); ours is measured from the text itself.
         details=(
             f"Ours are {len(CALL_INSTRUCTIONS)} characters; ThinnestAI's are about 1,675 "
-            "(VENDOR-STATED, 21 Oct 2026). Try a Telugu agent in practice tests (call mode) "
-            "first. ThinnestAI's name for it is callInstructions."
+            "(VENDOR-STATED, 21 Oct 2026); every one of theirs is carried by ours or by the "
+            "agent's own prompt. ThinnestAI's name for it is callInstructions."
         ),
     ),
     "thinnest_turn_detection": _m(
