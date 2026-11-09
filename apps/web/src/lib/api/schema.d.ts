@@ -29858,6 +29858,8 @@ export interface components {
             kb_drift: components["schemas"]["KbDriftOut"];
             /** Load Shed Mode */
             load_shed_mode: string;
+            /** Load Shed Reason */
+            load_shed_reason: string | null;
             /** Outbound Halted */
             outbound_halted: boolean;
             outbox_dead_letters: components["schemas"]["DeadLetterQueueOut"];

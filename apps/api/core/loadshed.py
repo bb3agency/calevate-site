@@ -364,6 +364,7 @@ async def set_platform_status(
     mode: LoadShedMode | None = None,
     outbound_halted: bool | None = None,
     halt_reason: str | None = None,
+    load_shed_reason: str | None = None,
     actor_id: str | None,
 ) -> PlatformStatus:
     """Write the durable row, invalidate the cache, then write the new value THROUGH.
@@ -385,6 +386,10 @@ async def set_platform_status(
     incident must not erase why dialling stopped. The permanent history is `audit_log`;
     this column answers only "why is outbound stopped RIGHT NOW".
 
+    `load_shed_reason` has the same contract with `mode`: written in the same UPDATE
+    whenever a mode is written, NULL on `normal`, and NULL when the writer gives none (a
+    maintenance window flipping the mode), so a reason never outlives the mode it explained.
+
     It is not returned in `PlatformStatus` deliberately: this dataclass is the hot-path
     shed decision, cached in Redis and read on every request, and the reason is only
     ever for a human. `ops.service.read_halt_state` reads it durably, uncached, on the
@@ -396,6 +401,10 @@ async def set_platform_status(
     if mode is not None:
         sets.append("load_shed_mode = :mode")
         params["mode"] = mode
+        sets.append("load_shed_reason = :load_shed_reason")
+        params["load_shed_reason"] = (
+            None if mode == "normal" else ((load_shed_reason or "").strip() or None)
+        )
     if outbound_halted is not None:
         sets.append("outbound_halted = :halted")
         params["halted"] = outbound_halted

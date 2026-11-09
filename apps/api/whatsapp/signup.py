@@ -57,7 +57,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
-from apps.api.reliability.service import enqueue_outbox_once
+from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 from apps.api.whatsapp import graph
 
 log = get_logger(__name__)
@@ -411,7 +411,23 @@ async def connect(
     return outcome
 
 
-async def queue_templates(session: AsyncSession, *, account_id: UUID, tenant_id: UUID) -> None:
+async def queue_templates(
+    session: AsyncSession, *, account_id: UUID, tenant_id: UUID, again: bool = False
+) -> None:
+    """Queue the standard templates' submission: once at connect, again on `finish_setup`.
+
+    The connect's key is spent forever, so the retry after a failed seed (left unstamped by
+    `templates.seed_standard` for exactly this) goes through `enqueue_outbox` instead. A
+    second seed running beside the first submits nothing twice: `insert_template` hands a
+    row back only while it is `submit_failed`, under the row's lock.
+    """
+    if again:
+        await enqueue_outbox(
+            session,
+            job=SEED_TEMPLATES_JOB,
+            payload={"tenant_id": str(tenant_id), "account_id": str(account_id)},
+        )
+        return
     await enqueue_outbox_once(
         session,
         job=SEED_TEMPLATES_JOB,
