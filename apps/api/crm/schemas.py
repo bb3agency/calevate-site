@@ -727,7 +727,7 @@ class LeadLensIn(Strict):
     last_outcome: OutcomeTag | None = None
     #: Which way its latest call went.
     direction: Literal["inbound", "outbound"] | None = None
-    #: False leaves out leads whose latest call was a free-trial test call.
+    #: False leaves out leads whose latest call was a test call, free-trial or paid.
     test_calls: bool = True
     #: True: a call-back is waiting for it; False: none is.
     callback_open: bool | None = None

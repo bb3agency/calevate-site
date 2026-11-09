@@ -123,6 +123,8 @@ const CALLS_PAGE_SIZE = 100;
 
 /** Statuses a link may ask for; only shown as a chip that clears them. */
 const STATUS_WORDS: Record<string, string> = {
+  // The home screen's "missed calls": unanswered, busy, voicemail and failed together.
+  missed: "missed",
   in_progress: "in progress",
   completed: "completed",
   no_answer: "unanswered",
@@ -406,7 +408,7 @@ export function CallsScreen({ slug }: { slug: string }) {
       { key: "status_link", label: "Status chosen by a link", value: status ? (lookup(STATUS_WORDS, status) ?? status) : "none" },
       { key: "agent_link", label: "Agent chosen by a link", value: agentId ? (agentName ?? agentId) : "none" },
       { key: "campaign_link", label: "Only one campaign's calls?", value: campaignId ? "yes, chosen by a link from that campaign" : "no" },
-      { key: "test_calls", label: "Are free-trial test calls included?", value: testCalls ? "yes" : "no" },
+      { key: "test_calls", label: "Are test calls included?", value: testCalls ? "yes" : "no" },
       { key: "rows_loaded", label: "Call rows loaded so far", value: String(rows.length) },
       {
         key: "more_pages",

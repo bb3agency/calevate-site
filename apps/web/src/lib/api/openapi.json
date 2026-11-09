@@ -84969,6 +84969,7 @@
             }
           },
           {
+            "description": "One call status, or `missed`: no answer, busy, voicemail and failed together",
             "in": "query",
             "name": "status",
             "required": false,
@@ -84981,6 +84982,7 @@
                   "type": "null"
                 }
               ],
+              "description": "One call status, or `missed`: no answer, busy, voicemail and failed together",
               "title": "Status"
             }
           },
@@ -85084,13 +85086,13 @@
             }
           },
           {
-            "description": "False leaves out free-trial test calls",
+            "description": "False leaves out test calls, free-trial and paid (D-859) alike",
             "in": "query",
             "name": "test_calls",
             "required": false,
             "schema": {
               "default": true,
-              "description": "False leaves out free-trial test calls",
+              "description": "False leaves out test calls, free-trial and paid (D-859) alike",
               "title": "Test Calls",
               "type": "boolean"
             }
@@ -85201,6 +85203,7 @@
         "operationId": "export_calls_v1_calls_export_csv_get",
         "parameters": [
           {
+            "description": "One call status, or `missed`: no answer, busy, voicemail and failed together",
             "in": "query",
             "name": "status",
             "required": false,
@@ -85213,6 +85216,7 @@
                   "type": "null"
                 }
               ],
+              "description": "One call status, or `missed`: no answer, busy, voicemail and failed together",
               "title": "Status"
             }
           },

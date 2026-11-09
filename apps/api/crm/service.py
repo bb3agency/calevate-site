@@ -63,7 +63,7 @@ from apps.api.crm.lens import (
 )
 from apps.api.crm.live_calls import LIVE_STATE_SQL, RUNNING_SQL, live_state_params
 from apps.api.crm.outcomes import normalise as normalise_outcome
-from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
+from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL, IST_ZONE
 from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
@@ -2901,11 +2901,14 @@ _DAILY_CLASS_COUNTS_SQL = ", ".join(
 # counts the day row itself and scores an empty day as 1. `calls.status` is NOT NULL,
 # so counting it counts matched calls and nothing else.
 #
-# The `recent` bound is a plain comparison against the raw timestamptz, not against the
-# IST day: `calls` today carries no index on `started_at` (the tenant policy's
-# `ix_calls_tenant_id` is what bounds this scan, as it does for every other aggregate in
-# this function), but a predicate written as a function of the column could not use one
-# if it ever landed, and this one can.
+# The `recent` bound is plain comparisons against the raw timestamptz, not against the IST
+# day, so `ix_calls_tenant_started` and `ix_calls_tenant_created` can each serve one arm.
+#
+# A call is filed under the day of `lens.CALL_AT` (connected, else placed), the instant the
+# call log filters by. On `started_at` alone a dial that ended without ringing (`started_at`
+# NULL, status `failed`) was in no bucket, so "missed calls today" counted fewer calls than
+# its own link (`/calls?status=missed&day=...`) listed. A call still queued with no
+# `started_at` stays out: a booked campaign is not a day's traffic yet.
 #
 # 8 days is a deliberate SUPERSET of the 7-day window, not an off-by-one: the oldest
 # bucket opens at IST midnight six days back, which is at most 6d23h59m before `now()`,
@@ -2916,9 +2919,15 @@ WITH days AS (
     FROM generate_series({DASHBOARD_DAYS - 1}, 0, -1) AS days_back
 ),
 recent AS (
-    SELECT status, {IST_DAY_SQL} AS ist_date
+    SELECT status, ({CALL_AT} AT TIME ZONE '{IST_ZONE}')::date AS ist_date
     FROM calls c
-    WHERE started_at >= now() - interval '{DASHBOARD_DAYS + 1} days' AND {REAL_CALL_SQL}
+    WHERE (
+        c.started_at >= now() - interval '{DASHBOARD_DAYS + 1} days'
+        OR (
+            c.started_at IS NULL AND NOT c.status = ANY(:class_in_flight)
+            AND c.created_at >= now() - interval '{DASHBOARD_DAYS + 1} days'
+        )
+    ) AND {REAL_CALL_SQL}
 )
 SELECT d.ist_date, count(r.status) AS total, {_DAILY_CLASS_COUNTS_SQL}
 FROM days d LEFT JOIN recent r ON r.ist_date = d.ist_date
