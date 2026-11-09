@@ -670,12 +670,13 @@ async def test_the_default_emotion_reaches_the_engine_on_publish(
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
     tuning = voice_tuning.config_tuning(row["voice_tuning"], byok_voice_id=VOICE)
-    assert tuning == ByokVoiceTuning(emotion=voice_tuning.DEFAULT_STUDIO_EMOTION)
+    pinned = voice_tuning.DEFAULT_STUDIO_MODEL
+    assert tuning == ByokVoiceTuning(emotion=voice_tuning.DEFAULT_STUDIO_EMOTION, model=pinned)
     handler, seen = _recorder(
         {
             ("PATCH", "/agents/ag_1"): httpx.Response(200, json={"id": "ag_1"}),
-            ("PUT", "/agents/ag_1/byok-voice"): _saved(emotion="calm"),
+            ("PUT", "/agents/ag_1/byok-voice"): _saved(emotion="calm", agentModel=pinned),
         }
     )
     await _engine(handler).update_agent(f"ag_1@{WS}", _studio(engine_byok_voice_tuning=tuning))
-    assert _puts(seen) == [{"voice": VOICE, "emotion": "calm"}]
+    assert _puts(seen) == [{"voice": VOICE, "emotion": "calm", "model": pinned}]

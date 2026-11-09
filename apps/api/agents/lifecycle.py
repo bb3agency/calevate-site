@@ -90,6 +90,7 @@ from apps.api.agents.starters import JobChoice, apply_starter, direction_for, st
 from apps.api.agents.voice_pick import voice_gender
 from apps.api.agents.voice_tuning import (
     DEFAULT_STUDIO_EMOTION,
+    DEFAULT_STUDIO_MODEL,
     OLD_VOICE_MODEL,
     fit_speed,
     is_studio_voice,
@@ -595,6 +596,9 @@ async def update_agent(
         voice=(set_engine_voice_id, engine_voice_id),
         model=(set_engine_model_id, engine_model_id),
     )
+    becomes_studio = (
+        set_engine_voice_id and is_studio_voice(engine_voice_id) and not is_studio_voice(row[2])
+    )
 
     # ONE STATEMENT WITH `coalesce`, NOT AN ASSEMBLED ASSIGNMENT LIST. Building
     # `SET name = :name, ...` from the fields that were supplied is the obvious shape and
@@ -635,6 +639,11 @@ async def update_agent(
             "AND studio_voice_emotion IS NULL "
             "AND studio_voice_model IS DISTINCT FROM CAST(:old_voice_model AS text) "
             "THEN CAST(:studio_default_emotion AS text) ELSE studio_voice_emotion END, "
+            # D-977: and on the dated voice model, unless an operator set one, so a vendor
+            # update to the moving `sonic-3.6` cannot change how its calls sound.
+            "studio_voice_model = CASE WHEN CAST(:studio_default_model AS text) IS NOT NULL "
+            "AND studio_voice_model IS NULL "
+            "THEN CAST(:studio_default_model AS text) ELSE studio_voice_model END, "
             # D-884: the agent's speed follows it to the new voice, fitted to that rung's
             # range (`voice_tuning.fit_speed`), so the next publish sends a value it takes.
             "studio_voice_speed = CASE WHEN :set_engine_voice_id "
@@ -657,13 +666,8 @@ async def update_agent(
             "set_engine_voice_id": set_engine_voice_id,
             "engine_model_id": engine_model_id,
             "set_engine_model_id": set_engine_model_id,
-            "studio_default_emotion": (
-                DEFAULT_STUDIO_EMOTION
-                if set_engine_voice_id
-                and is_studio_voice(engine_voice_id)
-                and not is_studio_voice(row[2])
-                else None
-            ),
+            "studio_default_emotion": DEFAULT_STUDIO_EMOTION if becomes_studio else None,
+            "studio_default_model": DEFAULT_STUDIO_MODEL if becomes_studio else None,
             "old_voice_model": OLD_VOICE_MODEL,
             "fitted_speed": fit_speed(
                 Decimal(str(row[6])) if row[6] is not None else None,
