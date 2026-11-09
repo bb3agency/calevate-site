@@ -1,7 +1,7 @@
 """a lead's WhatsApp timeline rows keep a digest of Meta's message id, not the id
 
 Revision ID: d9a4e7c2b1f6
-Revises: c3f8a1d6e4b9
+Revises: e5a9c3d7b2f8
 Create Date: 2026-11-09 22:00:00.000000
 
 A `wamid.` message id is base64 of a record holding the recipient's number in clear, so
@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "d9a4e7c2b1f6"
-down_revision: str | None = "c3f8a1d6e4b9"
+down_revision: str | None = "e5a9c3d7b2f8"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
