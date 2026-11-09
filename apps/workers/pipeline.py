@@ -192,7 +192,7 @@ from apps.api.reliability.service import (
 from apps.api.team_alerts import service as team_alerts
 from apps.api.tenancy.business_copy import capabilities_for
 from apps.api.tenancy.business_profile import BUSINESS_LANGUAGE_SQL
-from apps.api.tenancy.engine_workspace import engine_has_workspaces
+from apps.api.tenancy.engine_workspace import engine_has_workspaces, workspace_for_tenant
 from apps.workers import call_language, call_timeline, storage
 from apps.workers import extraction as extraction_module
 from apps.workers.after_call_callbacks import book_requested_callback
@@ -200,6 +200,7 @@ from apps.workers.caller_name import self_names, without_self_names
 from apps.workers.engine_charges import reconcile_call_charge
 from apps.workers.engine_delivery import (
     UNSTATED_STATUS,
+    FindsPlacedCalls,
     awaiting_transcript,
     execution_truth,
     placed_call_id,
@@ -5794,10 +5795,100 @@ _OUTSTANDING_CALLS_SQL = (
     # asked anyway, it was a 404 counted as `outstanding_probe_incomplete` every sweep for a
     # day. It is adopted when the engine's own record of the call arrives (the listing
     # carries it, `_ADOPT_UNCONFIRMED_DIAL_SQL`), and its contact is settled by the dial
-    # path and `campaign_dispatch._reap_stuck_dialing`.
+    # path and `campaign_dispatch._reap_stuck_dialing`. The engine is asked about it by our
+    # reference instead (`_UNCONFIRMED_DIALS_SQL`).
     "AND c.engine_call_id NOT LIKE :unconfirmed "
     "ORDER BY began LIMIT :cap"
 )
+
+# A DIAL WHOSE ANSWER WE LOST AND NOTHING ADOPTED. Its row holds our placeholder and
+# `queued` until the engine's record of the call arrives (`_ADOPT_UNCONFIRMED_DIAL_SQL`). If
+# the engine never placed it, nothing ever arrives: the call log shows it dialling for ever
+# and it holds an outbound line until `ENGINE_LINE_HORIZON`. So the engine is asked by the
+# reference we placed the call under (`FindsPlacedCalls`): a call it holds is re-driven
+# through the ingest, which adopts the row; none is the proof that nobody was rung, and the
+# row is closed `failed` with `dial_lost`, which the owner sees as a call that did not go
+# through. Closing by age alone was the alternative and was not taken: the row's age says
+# nothing about whether the person was rung.
+#
+# The placeholder id is kept, so a call the engine lists only later is still adopted, and
+# the upsert's terminal guard lets only its `completed` replace `failed`.
+
+#: How long a placeholder row is left before the engine is asked. A dial that went out rings
+#: at once (we never book one for later, `engine/thinnest.start_outbound_call`), and a
+#: response is lost to a request timeout measured in seconds, so ten minutes is long past
+#: both. The same wait the outstanding probe gives a call before asking.
+UNCONFIRMED_DIAL_PROBE_AFTER = OUTSTANDING_PROBE_AFTER
+
+#: Rows read per tenant per sweep, oldest first. No upper age bound: the engine's search by
+#: reference is not windowed, and the oldest rows are the ones on screen longest.
+UNCONFIRMED_DIAL_PROBE_PER_TENANT = 20
+
+# A row whose campaign contact is still `dialing` is left to `campaign_dispatch.
+# _reap_stuck_dialing`, which exhausts that contact. Closed `failed` first, the contact would
+# reach `_settle_unanswered_dials` and the retry ladder: a second dial to the person.
+_UNCONFIRMED_DIALS_SQL = (
+    "SELECT c.id FROM calls c "
+    "WHERE c.engine_call_id LIKE :unconfirmed AND c.status = 'queued' "
+    "AND c.direction = 'outbound' AND c.created_at < now() - :after "
+    "AND NOT (c.engine_call_id = ANY(CAST(:set_aside AS text[]))) "
+    "AND NOT EXISTS (SELECT 1 FROM campaign_contacts cc "
+    "  WHERE cc.last_call_id = c.id AND cc.status = 'dialing') "
+    "ORDER BY c.created_at LIMIT :cap"
+)
+
+#: Compare-and-set on the placeholder and `queued`, so a row adopted or closed by anything
+#: else meanwhile is left as that left it.
+_CLOSE_LOST_DIAL_SQL = (
+    "UPDATE calls SET status = 'failed', not_placed_reason = 'dial_lost', updated_at = now() "
+    "WHERE id = :id AND engine_call_id = :local AND status = 'queued' "
+    "AND NOT EXISTS (SELECT 1 FROM campaign_contacts cc "
+    "  WHERE cc.last_call_id = calls.id AND cc.status = 'dialing')"
+)
+
+
+async def _placed_call_handle(
+    engine: FindsPlacedCalls, tenant_id: UUID, call_id: UUID
+) -> str | None:
+    """The engine's handle for the call placed under `call_id`, or None when it holds none.
+
+    Asked in the client's own workspace and in the developer workspace, because a dial goes
+    out from either: the client's agents from its own, a trial-line test call and an agent
+    published before D-693 from ours. The search is by our own unique call id, so the
+    developer workspace cannot answer with another client's call."""
+    for scope in dict.fromkeys([await workspace_for_tenant(tenant_id), None]):
+        with in_workspace(scope):
+            handle = await engine.find_placed_call(str(call_id))
+        if handle is not None:
+            return handle
+    return None
+
+
+async def _settle_lost_dial(
+    engine_name: str, finder: FindsPlacedCalls, tenant_id: UUID, call_id: UUID
+) -> bool:
+    """Adopt or close one placeholder row; True when it was closed. Raises when the engine
+    could not answer, which leaves the row as it was."""
+    handle = await _placed_call_handle(finder, tenant_id, call_id)
+    if handle is not None:
+        # The listing sweep's job and key: the ingest reads the call, finds our reference
+        # on it and adopts the row (`_ADOPT_UNCONFIRMED_DIAL_SQL`).
+        await enqueue(
+            INGEST_JOB,
+            {"engine": engine_name, "execution_id": handle, "source": "reconciliation"},
+            job_id=job_id_for(INGEST_JOB, engine_name, handle, "reconcile"),
+        )
+        record_reconciliation_repair(kind="unconfirmed_dial_found")
+        return False
+    async with tenant_session(tenant_id) as session:
+        closed = rowcount_of(
+            await session.execute(
+                text(_CLOSE_LOST_DIAL_SQL),
+                {"id": call_id, "local": unconfirmed_engine_call_id(call_id)},
+            )
+        )
+    log.warning("unconfirmed_dial_closed", extra={"call_id": str(call_id), "closed": closed})
+    return bool(closed)
 
 
 async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
@@ -5812,9 +5903,13 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
     and the alert, so a repair count reads as a FLOOR rather than a total.
     """
     engine = get_engine()
+    # An engine that cannot be asked about a dial by our reference leaves placeholder rows
+    # alone: without that answer, closing one would be a guess about whether a person was rung.
+    finder = engine if isinstance(engine, FindsPlacedCalls) else None
     repaired = 0
     unreached = 0
     abandoned = 0
+    lost_closed = 0
     probes = 0
     truncated = False
     excluded = await set_aside_ids(_OUTSTANDING_SET_ASIDE_SWEEP)
@@ -5842,6 +5937,23 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
                         },
                     )
                 ).all()
+                lost = (
+                    []
+                    if finder is None
+                    else (
+                        await session.execute(
+                            text(_UNCONFIRMED_DIALS_SQL),
+                            {
+                                "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
+                                "after": UNCONFIRMED_DIAL_PROBE_AFTER,
+                                "set_aside": excluded,
+                                "cap": UNCONFIRMED_DIAL_PROBE_PER_TENANT,
+                            },
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
         except Exception:
             # The tenant id, never the exception's payload: a psycopg error string can
             # quote the row that broke it, and these rows are calls (hard rule 6).
@@ -5899,6 +6011,29 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             )
             record_reconciliation_repair(kind="outside_listing_window")
             repaired += 1
+        for lost_id in lost:
+            if truncated or probes >= OUTSTANDING_PROBE_BUDGET:
+                truncated = True
+                break
+            probes += 1
+            call_id = UUID(str(lost_id))
+            try:
+                # `lost` is read only when the engine is a finder.
+                closed = await _settle_lost_dial(
+                    engine.name, cast(FindsPlacedCalls, finder), tenant_id, call_id
+                )
+            except Exception:
+                log.warning(
+                    "unconfirmed_dial_unreadable",
+                    extra={"call_id": str(call_id), "engine": engine.name},
+                )
+                unreached += 1
+                closed = False
+            lost_closed += closed
+            if not closed:
+                # Found and re-driven, unreadable, or taken by something else: not asked
+                # again until the set-aside lapses.
+                unmoved.append(unconfirmed_engine_call_id(call_id))
         if not truncated:
             # A tenant cut part-way is not reached, so the next sweep starts with it.
             await cursor.reached(tenant_id)
@@ -5927,7 +6062,8 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             detail=(
                 f"{unreached} tenant(s) or call(s) could not be probed, so repaired="
                 f"{repaired} is a floor rather than a total — check the worker log for "
-                "outstanding_probe_failed and outstanding_probe_unreadable"
+                "outstanding_probe_failed, outstanding_probe_unreadable and "
+                "unconfirmed_dial_unreadable"
             ),
             engine=engine.name,
         )
@@ -5945,7 +6081,10 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             ),
             engine=engine.name,
         )
-    return f"repaired={repaired} probed={probes} unreached={unreached} abandoned={abandoned}"
+    return (
+        f"repaired={repaired} probed={probes} unreached={unreached} abandoned={abandoned} "
+        f"lost_dials_closed={lost_closed}"
+    )
 
 
 async def _listing_over_workspaces(engine: VoiceEngine, since: datetime) -> ExecutionListing:

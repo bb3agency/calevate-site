@@ -4551,6 +4551,37 @@ class ThinnestEngine:
         call = data if "event" in document and isinstance(data, dict) else document
         return wire_str(call.get("reference"))
 
+    async def find_placed_call(self, reference: str) -> str | None:
+        """The call we placed under `reference` (our `calls.id`), in the ambient workspace,
+        or None when the platform holds none.
+
+        `GET /calls?reference=` lists "only calls placed with this `reference`", matched
+        exactly (snapshots/2026-10-29/pages/api-reference/calls/list-calls.md:484-493). A
+        call booked for later is listed only once it has rung (list-calls.md:457-459); our
+        dials send `ifOutsideHours: refuse` and no `scheduledAt`, so none is booked.
+
+        None is a positive answer that the call does not exist, so anything short of a
+        page that holds exactly our reference raises instead: a page without `items`, or
+        rows naming another reference (a filter the platform ignored)."""
+        workspace = workspace_of(None)
+        payload = await self._request(
+            "GET",
+            "/calls",
+            route="/calls",
+            workspace=workspace,
+            params={"reference": reference, "limit": 1},
+        )
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise _bad_response("The voice platform answered a list without its items.")
+        if not items:
+            return None
+        row = items[0] if isinstance(items[0], dict) else {}
+        handle = _call_id_of(row)
+        if handle is None or wire_str(row.get("reference")) != reference:
+            raise _bad_response("The voice platform answered a call search with another call.")
+        return scoped_handle(handle, workspace)
+
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """`GET /calls?since=` with the cursor (list-calls.md:56-61). `since` filters on
         when the call started, which is the Protocol's anchor.

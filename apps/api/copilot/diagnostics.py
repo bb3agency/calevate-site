@@ -566,11 +566,10 @@ async def diagnose_call(session: AsyncSession, tenant_id: UUID, call_id: UUID) -
     async def record() -> Check:
         label = "How the call ended"
         if found[4] is not None:
-            reason = (
-                "the number it was to call from was taken away"
-                if found[4] == "from_number_withdrawn"
-                else "the calling platform held it"
-            )
+            reason = {
+                "from_number_withdrawn": "the number it was to call from was taken away",
+                "dial_lost": "it never went through and the calling platform has no record of it",
+            }.get(str(found[4]), "the calling platform held it")
             return problem(
                 "record",
                 label,
