@@ -29,7 +29,10 @@ export function DailySummaryOffer({ session }: { session: Session }) {
   // Still asking is not an answer, and an offer before it would be one to a switch already on.
   if (state.isPending || state.data.enabled) return null;
   return (
-    <div className="space-y-2 border-y border-line py-4">
+    // `gap`, not `space-y`: ActionButton renders a screen-reader status span after the
+    // button, so `space-y` gave the button a bottom margin and the block 8px more room
+    // below than above.
+    <div className="flex flex-col items-start gap-2 border-y border-line py-4">
       <p className="text-body text-ink">Get a summary of each day, every evening.</p>
       {save.error != null && <ProblemNotice error={save.error} />}
       <ActionButton

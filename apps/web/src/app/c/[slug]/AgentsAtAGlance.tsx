@@ -61,7 +61,11 @@ export function AgentsAtAGlance({
 
   return (
     <Section title="Your agents">
-      <ul className="divide-y divide-line border-y border-line">
+      {/* From `sm`, one grid shared by every row (subgrid), so the call counts and status
+          pills line up down the list whatever each pill says. On a phone each row keeps its
+          own flex layout: a shared column as wide as the longest pill would squeeze every
+          agent's name into a sliver. */}
+      <ul className="-mx-2 divide-y divide-line border-y border-line sm:grid sm:grid-cols-[minmax(0,1fr)_auto_auto_auto] sm:gap-x-4">
         {current.map((agent) => (
           <AgentLine
             key={agent.id}
@@ -90,7 +94,7 @@ function AgentLine({
   const state = liveState(agent, onTrial);
   const role = lookup(DIRECTION_COPY, agent.direction)?.label ?? agent.direction;
   return (
-    <li className="relative flex items-center gap-4 py-3.5 transition-colors duration-(--duration-fast) has-[a:hover]:bg-ink/[0.03]">
+    <li className="relative flex items-center gap-4 rounded-md px-2 py-3 transition-colors duration-(--duration-fast) ease-out has-[a:hover]:bg-ink/[0.03] sm:col-span-full sm:grid sm:min-h-[4.875rem] sm:grid-cols-subgrid">
       <div className="min-w-0 flex-1">
         <Link
           href={href}
@@ -110,7 +114,9 @@ function AgentLine({
           <span className="block text-meta text-ink-muted">calls so far</span>
         </p>
       ) : null}
-      <StatusPill tone={state.tone}>{state.label}</StatusPill>
+      <span className="justify-self-start">
+        <StatusPill tone={state.tone}>{state.label}</StatusPill>
+      </span>
       <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-ink-faint" />
     </li>
   );
