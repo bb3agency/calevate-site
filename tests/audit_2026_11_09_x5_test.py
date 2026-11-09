@@ -69,9 +69,7 @@ async def test_a_dial_whose_opening_could_not_be_read_is_proven_not_placed() -> 
 
 
 async def test_a_platform_that_did_not_answer_is_not_called_a_missing_agent() -> None:
-    refusal = await _refusal(
-        {("GET", "/agents/ag_1"): httpx.Response(502, json={"error": "x"})}
-    )
+    refusal = await _refusal({("GET", "/agents/ag_1"): httpx.Response(502, json={"error": "x"})})
     assert "missing" not in (refusal.detail or "")
     assert "Publish" not in (refusal.remediation or "")
 

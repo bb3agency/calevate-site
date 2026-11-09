@@ -139,7 +139,6 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_text
 from apps.api.engine.capabilities import (
-    DIAL_PRECONDITION_FAILED,
     ENGINE_KB_LINK_UNREADABLE,
     NO_CREDENTIALS_REASON,
     engine_lacks,
@@ -1267,7 +1266,9 @@ def _dial_precondition_failed(
     log.warning("thinnest_dial_precondition_failed", extra={"missing": missing})
     return ProblemError(
         kind="dependency",
-        code=DIAL_PRECONDITION_FAILED,
+        # `capabilities.DIAL_PRECONDITION_FAILED`, spelled out for the alarm-wiring scan,
+        # which resolves a literal or a constant of this module only.
+        code="carrier_dial_precondition_failed",
         title="The call could not be started",
         detail=detail or f"The voice platform could not start this call: the {missing} is missing.",
         remediation=remediation or "Publish the agent again. If it keeps failing, contact us.",
