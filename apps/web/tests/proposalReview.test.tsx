@@ -224,6 +224,28 @@ describe("Fix them first, seen before it is used (A-02, A-15)", () => {
       message: "Pip could not fix these. Edit them, or put it live anyway.",
     });
   });
+
+  it("names each warning the fix still leaves (founder, 10 Nov 2026)", () => {
+    const left = [{ part: "script", label: "The script", rule: 'Still to fix: no step asks for "Their crop".', added: false }];
+    expect(fixOutcome({ ...proposal(CURRENT), left_out: left })).toEqual({
+      kind: "nothing",
+      message: "Pip could not fix these: The script. Edit them, or put it live anyway.",
+    });
+    const fixed = { ...CURRENT, goal: "Take orders, one question at a time." };
+    render(
+      <FixReview
+        before={CURRENT}
+        after={fixed}
+        pending={false}
+        error={null}
+        onUse={() => undefined}
+        onDiscard={() => undefined}
+        left={left}
+      />,
+    );
+    expect(screen.getByText("Pip could not fix everything")).toBeTruthy();
+    expect(screen.getByText(/no step asks for "Their crop"/)).toBeTruthy();
+  });
 });
 
 describe("the opening Pip rewrote to say the notices (A-05)", () => {
