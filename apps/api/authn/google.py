@@ -439,10 +439,17 @@ async def finish(
     state: str,
     browser_nonce: str | None,
     signup_open: bool,
+    invited_email: str | None = None,
     client: httpx.AsyncClient | None = None,
     now: datetime | None = None,
 ) -> SignedIn:
-    """Finish a Google sign-in and start a Calevate session. See the module docstring."""
+    """Finish a Google sign-in and start a Calevate session. See the module docstring.
+
+    `invited_email` is the address of a live invitation the person arrived with. An
+    invitation to the very address Google vouches for opens an account even while
+    self-serve signup is closed: the owner who invited them has already decided they may
+    have one, and the invitation page offers "Accept with Google" on every deployment.
+    """
     require_configured()
     at = now or datetime.now(UTC)
     claims = _state_claims(state, browser_nonce)
@@ -497,7 +504,10 @@ async def finish(
             await _link(subject_id, sub, at)
             linked = True
         else:
-            if not signup_open:
+            invited = (
+                invited_email is not None and invited_email.strip().casefold() == email.casefold()
+            )
+            if not signup_open and not invited:
                 raise _refused(
                     "no_account_for_google",
                     "There is no Calevate account for this Google account",
