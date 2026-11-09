@@ -1,13 +1,16 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { adminSession } from "@/lib/api/admin";
+import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
+import { adminSession, type TenantSummary } from "@/lib/api/admin";
 import { useRecordRestatement, useRecordTopUp, type Payment } from "@/lib/api/credits";
 import { useEndTrial } from "@/lib/api/trials";
 
-import { stubApi } from "./harness";
+import { renderAdminRoute, routeParams } from "./adminRoute";
+import { stillLoading, stubApi } from "./harness";
 
 /**
  * Frontend audit lane Y7 (10 Nov 2026): admin account management.
@@ -82,5 +85,76 @@ describe("ending a trial as converted", () => {
     });
 
     await waitFor(() => expect(keys()).toEqual(expect.arrayContaining([PAID, TRIAL])));
+  });
+});
+
+/*
+ * Y7-02. "Cancel it" in an invitation's row menu cut the owner's live link the moment it
+ * was chosen: one mis-tap in a menu, beside "Wrong address?", and the owner's email stops
+ * working. Every other row menu on the admin console that ends something asks first.
+ */
+describe("cancelling an invitation", () => {
+  const PEOPLE_TENANT = "0192f0aa-7777-7000-8000-0000000000d7";
+  const PEOPLE_PATH = `/v1/admin/tenants/${PEOPLE_TENANT}`;
+  const INVITE = {
+    id: "0192f0aa-7777-7000-8000-0000000000e1",
+    email: "o***@sri-traders.example",
+    role: "owner",
+    invited_at: "2026-11-09T05:30:00Z",
+    expires_at: "2026-11-12T05:30:00Z",
+    last_sent_at: "2026-11-09T05:30:00Z",
+    send_count: 1,
+  };
+
+  async function renderPeople() {
+    return renderAdminRoute(<TenantMembersPage params={routeParams({ tenantId: PEOPLE_TENANT })} />, {
+      [ADMIN_ME_PATH]: {
+        realm: "admin",
+        user_id: "0192f0aa-7777-7000-8000-0000000000d2",
+        role: "operator",
+        permissions: ["org:read", "admin:tenants"],
+      } satisfies AdminMe,
+      [PEOPLE_PATH]: {
+        id: PEOPLE_TENANT,
+        name: "Sri Traders",
+        slug: "sri-traders",
+        status: "onboarding",
+        plan_tier: "prepaid",
+        vertical_template: "clinic",
+        live_agents: 0,
+        calls_7d: 0,
+        leads: 0,
+        last_call_at: null,
+        holds: [],
+        capped: false,
+      } satisfies TenantSummary,
+      [`${PEOPLE_PATH}/members`]: [],
+      [`${PEOPLE_PATH}/invitations`]: [INVITE],
+      [`DELETE ${PEOPLE_PATH}/invitations/${INVITE.id}`]: null,
+      [`${PEOPLE_PATH}/whatsapp-alerts`]: stillLoading(),
+    });
+  }
+
+  it("asks before the link stops working, and cancels only on the second click", async () => {
+    const { calls } = await renderPeople();
+    await screen.findByText(INVITE.email);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: `More actions for ${INVITE.email}` }));
+    });
+    const choice = await screen.findByRole("menuitem", { name: "Cancel it" });
+    await act(async () => {
+      fireEvent.click(choice);
+    });
+
+    const dialog = await screen.findByRole("dialog");
+    expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel the invitation" }));
+    });
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith(INVITE.id))).toBe(true),
+    );
   });
 });
