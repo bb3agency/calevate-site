@@ -44,7 +44,9 @@ written docs page still says English-only (:415). Emotion is offered on every St
 every language (D-843), and nothing here refuses it by language.
 
 An agent whose voice becomes a Studio one with no emotion set starts on
-`DEFAULT_STUDIO_EMOTION` (`lifecycle.update_agent`, the one writer of an agent's voice).
+`DEFAULT_STUDIO_EMOTION`, and with no voice model set on `DEFAULT_STUDIO_MODEL`
+(`lifecycle.update_agent`, the one writer of an agent's voice). A null model still means the
+key's own on the wire and in the read-back; an operator may choose it.
 """
 
 from __future__ import annotations
@@ -72,6 +74,7 @@ from apps.api.agents.models import (
     STUDIO_VOICE_EMOTIONS,
     STUDIO_VOICE_MODELS,
     STUDIO_VOICE_OLD_MODEL,
+    STUDIO_VOICE_PINNED_MODEL,
     STUDIO_VOICE_SPEED_MAX,
     STUDIO_VOICE_SPEED_MIN,
     STUDIO_VOICE_VOLUME_MAX,
@@ -113,6 +116,9 @@ ANY_VOICE_FIELDS: Final[tuple[str, ...]] = ("speed",)
 #: The emotion an agent starts on when its voice becomes a Studio one with none set
 #: (founder decision 21 Oct 2026, D-843). Never written over an emotion a person set.
 DEFAULT_STUDIO_EMOTION: Final = "calm"
+#: The voice model an agent starts on when its voice becomes a Studio one with none set
+#: (founder decision 9 Nov 2026, D-977). Never written over a model an operator set.
+DEFAULT_STUDIO_MODEL: Final = STUDIO_VOICE_PINNED_MODEL
 #: Samples a client account may hear per IST day (D-843). Each is spoken on our voice key and
 #: charged to us per character, so the cap bounds what we absorb.
 CLIENT_PREVIEWS_PER_DAY: Final = 20
@@ -503,6 +509,7 @@ __all__ = [
     "CLIENT_FIELDS",
     "CLIENT_PREVIEWS_PER_DAY",
     "DEFAULT_STUDIO_EMOTION",
+    "DEFAULT_STUDIO_MODEL",
     "DICTIONARY_ID_PATTERN",
     "EMOTIONS",
     "FIELDS",

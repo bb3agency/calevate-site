@@ -280,6 +280,10 @@ QUIET_TABLES: Final[dict[str, str]] = {
         "the undo record of example lines migration d7c2e9a4f6b1 changed; written once by "
         "that migration and no screen reads it"
     ),
+    "studio_voice_model_pins": (
+        "the undo record of voice models migration e5a9c3d7b2f8 set; written once by that "
+        "migration and no screen reads it"
+    ),
     "announcement_dismissals": "one person's own dismissals; their screen updates on the write",
     "notification_reads": "one person's own read marks; their screen updates on the write",
     "platform_announcements": (

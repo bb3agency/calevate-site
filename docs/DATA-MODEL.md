@@ -365,6 +365,10 @@ script_line_changes(id, tenant_id, agent_id FK agents CASCADE, target IN (draft,
   -- d7c2e9a4f6b1, D-894. Every script step the migration that took the stock Telugu
   -- "సరే అండి," off changed or queued, so its downgrade restores exactly those steps.
   -- FORCEd tenant_isolation.
+studio_voice_model_pins(id, tenant_id, agent_id FK agents CASCADE UNIQUE, model, created_at)
+  -- e5a9c3d7b2f8, D-977. Every Studio agent with no voice model that the migration put on
+  -- `sonic-3.6-2026-08-27`, so its downgrade clears exactly those. FORCEd tenant_isolation;
+  -- zero-rows proof `tests/studio_model_pin_test.py`.
 team_alert_contacts(id, tenant_id, channel IN (email, whatsapp) DEFAULT email,
   address 3..254, whatsapp_credential_id NULL, whatsapp_template/_language/_number_id/
   _values NULL (all set for whatsapp), is_default, verified_at, code_hash, code_expires_at,

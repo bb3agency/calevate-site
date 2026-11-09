@@ -245,6 +245,11 @@ STUDIO_VOICE_MODELS: tuple[str, ...] = (
     "sonic-3",
     "sonic-2",
 )
+#: The model a Studio agent speaks on unless an operator picks another (D-977). The dated
+#: release rather than `sonic-3.6`, which "follows Cartesia's latest stable snapshot" while
+#: "the dated one never changes" (snapshots/2026-10-29/pages/api-reference/agents/
+#: set-agent-byok-voice.md:9), so a vendor update cannot change how calls sound overnight.
+STUDIO_VOICE_PINNED_MODEL = "sonic-3.6-2026-08-27"
 #: The one model that takes no speed, volume or emotion.
 STUDIO_VOICE_OLD_MODEL = "sonic-2"
 STUDIO_VOICE_DICTIONARY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$"
@@ -1335,6 +1340,26 @@ class ScriptLineChange(PKMixin, Base):
     stage_index: Mapped[int] = mapped_column(Integer, nullable=False)
     before_text: Mapped[str] = mapped_column(Text, nullable=False)
     after_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text("now()"), nullable=False
+    )
+
+
+class StudioVoiceModelPin(PKMixin, Base):
+    """One Studio agent that migration `e5a9c3d7b2f8` put on the pinned voice model because
+    it had none (D-977), recorded so the downgrade clears exactly those and never a model an
+    operator chose."""
+
+    __tablename__ = "studio_voice_model_pins"
+    __table_args__ = (UniqueConstraint("agent_id", name="agent"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    model: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()"), nullable=False
     )

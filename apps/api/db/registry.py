@@ -144,6 +144,9 @@ TENANT_TABLES = [
     # Example-line steps the platform changed for an owner, so the change undoes exactly
     # (migration `d7c2e9a4f6b1`).
     "script_line_changes",
+    # Studio agents migration `e5a9c3d7b2f8` put on the pinned voice model, so its downgrade
+    # clears exactly those (D-977).
+    "studio_voice_model_pins",
     # The teach box and the improvement loop (founder decisions 9 and 11, migration
     # a8d3f6c1e924): taught facts, a teaching under review, rules waiting for an agent's
     # script, and test cases saved from real calls.
