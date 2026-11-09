@@ -6,15 +6,23 @@ import NewClientPage from "@/app/admin/new/page";
 import { PipProposal } from "@/app/c/[slug]/agents/[agentId]/script/PipProposal";
 import { TaughtRules } from "@/app/c/[slug]/agents/[agentId]/script/TaughtRules";
 import { END, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
+import { Actions } from "@/app/c/[slug]/agents/actions/Actions";
 import { SpendPanel } from "@/app/c/[slug]/billing/SpendPanel";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
+import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
+import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import { ToastProvider } from "@/components/arc/toast";
+import type { ActionTool } from "@/lib/api/actions";
 import type { ScheduledCallback } from "@/lib/api/callbacks";
 import type { Me, Session } from "@/lib/api/client";
+import { DNC_LIST_LIMIT } from "@/lib/api/dnc";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { OUTBOUND_CONSENT_POLICY_PATH } from "@/lib/api/outboundConsent";
 import { EMPTY_SCRIPT, type CallScript, type ScriptProposal } from "@/lib/api/script";
+import { useClientSession } from "@/lib/api/session";
 
+import { WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 import { problem, renderAdminPage, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /** Deep audit 10 Nov 2026, D1 (the web app). Each block fails on the source before its fix. */
@@ -310,5 +318,127 @@ describe("D1-08 the month's spend tiles name the month in words", () => {
     );
     await screen.findByText("Calls · November 2026");
     expect(container.textContent).not.toContain("2026-11");
+  });
+});
+
+describe("D1-09 a view-as operator is not offered switching an action on", () => {
+  const VIEW_AS: Me = {
+    user_id: "op1",
+    realm: "client",
+    role: "owner",
+    permissions: ["org:read", "org:manage"],
+    impersonating: true,
+    withheld_acts: ["actions.switch_on", "actions.test_unapproved"],
+    organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  };
+  const OFF: ActionTool = {
+    id: "tool-1",
+    agent_id: "agent-1",
+    kind: "custom_api",
+    name: "Look up an order",
+    description: "Finds the caller's order by its number.",
+    trigger: "during_call",
+    enabled: false,
+    params: [],
+    config: {},
+    credential_id: null,
+    pre_call_message: null,
+    provider: null,
+  };
+
+  function Panel() {
+    const session = useClientSession();
+    return <Actions agentId="agent-1" session={session} />;
+  }
+
+  it("holds the switches that would turn something on, and says why", async () => {
+    await renderClientPage(<Panel />, {
+      "/v1/me": VIEW_AS,
+      "/v1/agents/agent-1/actions": { api_actions_enabled: false, calendar_available: false, tools: [OFF] },
+      "/v1/integrations/credentials": [],
+    });
+    const master = await screen.findByRole("switch", { name: /use actions on calls/i });
+    await waitFor(() => expect(master.matches(":disabled")).toBe(true));
+    expect(screen.getByRole("switch", { name: "Look up an order" }).matches(":disabled")).toBe(true);
+    expect(screen.getByText(/cannot switch an action on from a view-as session/)).toBeTruthy();
+  });
+
+  it("still lets the operator switch one off", async () => {
+    await renderClientPage(<Panel />, {
+      "/v1/me": VIEW_AS,
+      "/v1/agents/agent-1/actions": {
+        api_actions_enabled: true,
+        calendar_available: false,
+        tools: [{ ...OFF, enabled: true }],
+      },
+      "/v1/integrations/credentials": [],
+    });
+    const row = await screen.findByRole("switch", { name: "Look up an order" });
+    await waitFor(() => expect(row.matches(":disabled")).toBe(false));
+  });
+});
+
+describe("D1-09 a view-as operator is not offered the owner's acts on do-not-call and integrations", () => {
+  const OPERATOR: Me = {
+    user_id: "op1",
+    realm: "client",
+    role: "owner",
+    permissions: ["org:read", "org:manage", "leads:read", "leads:dispatch"],
+    impersonating: true,
+    withheld_acts: ["compliance.dnc_optout_restore", "integrations.connect"],
+    organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  };
+
+  it("does not offer Restore on a person's opt-out", async () => {
+    await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": OPERATOR,
+      [OUTBOUND_CONSENT_POLICY_PATH]: { outbound_requires_consent: false },
+      [`/v1/dnc?limit=${DNC_LIST_LIMIT}`]: [
+        {
+          id: "0192f0aa-4444-7000-8000-0000000000aa",
+          phone_e164: "+919876543210",
+          added_at: "2026-07-01T10:00:00Z",
+          removable: false,
+          restorable: true,
+          scope: "tenant",
+          source: "call_optout",
+        },
+      ],
+    });
+    expect(await screen.findByText("opt-out — an owner can restore it")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Restore / })).toBeNull();
+  });
+
+  it("lets the operator check an account but not add or remove one", async () => {
+    await renderClientPage(<IntegrationsPage />, {
+      "/v1/me": OPERATOR,
+      "/v1/integrations/credentials": [
+        {
+          id: "cred-1",
+          kind: "aisensy",
+          label: "AiSensy key",
+          last_four: "1234",
+          version: 1,
+          non_secret: {},
+          created_at: "2026-08-01T10:00:00Z",
+          updated_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+      ...WHATSAPP_OFF_ROUTES,
+      "/v1/integrations/connections/status": {
+        google_calendar: false,
+        zoho_crm: false,
+        hubspot: false,
+        sheets_share_with: null,
+      },
+      "/v1/integrations/endpoints": [],
+      "/v1/integrations/events": { events: ["lead.created"], sheets_delivery_available: false },
+      "/v1/integrations/deliveries": [],
+    });
+    const add = (await screen.findByRole("button", { name: "Add a key" })) as HTMLButtonElement;
+    await waitFor(() => expect(add.disabled).toBe(true));
+    expect((screen.getByRole("button", { name: "Disconnect AiSensy key" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Check AiSensy key" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/cannot connect or remove an account from a view-as session/)).toBeTruthy();
   });
 });

@@ -85,7 +85,17 @@ const KEY_KINDS: { kind: KeyKind; label: string; hint: string }[] = [
   { kind: "custom_api", label: "Your own API key", hint: "Sent only to your own address." },
 ];
 
-export function ConnectedAccounts({ session, canWrite }: { session: Session; canWrite: boolean }) {
+export function ConnectedAccounts({
+  session,
+  canWrite,
+  canConnect = canWrite,
+}: {
+  session: Session;
+  canWrite: boolean;
+  /** Connecting, replacing or removing an account is the owner's (`integrations.connect`):
+   * a view-as operator may check one, never connect or disconnect it. */
+  canConnect?: boolean;
+}) {
   const creds = useCredentials(session);
   const status = useConnectionsStatus(session);
   const { signIn, connect, complete, error: signInError, statusFor } = useAccountSignIn(session);
@@ -117,7 +127,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
       <button
         type="button"
         className={TEXT_ACTION_DANGER}
-        disabled={!canWrite}
+        disabled={!canConnect}
         onClick={() => setPendingDelete(c)}
         aria-label={`Disconnect ${c.label}`}
       >
@@ -184,7 +194,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
                       <ActionButton
                         variant="secondary-sm"
                         status={statusFor(s.kind)}
-                        disabled={!canWrite || !available || (connect.isPending && connect.variables !== s.kind)}
+                        disabled={!canConnect || !available || (connect.isPending && connect.variables !== s.kind)}
                         onClick={() => signIn(s.kind)}
                         pendingLabel="Opening sign-in…"
                         successLabel="Connected"
@@ -195,7 +205,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
                       <ActionButton
                         variant="secondary-sm"
                         status={statusFor(s.kind)}
-                        disabled={!canWrite || !available || (connect.isPending && connect.variables !== s.kind)}
+                        disabled={!canConnect || !available || (connect.isPending && connect.variables !== s.kind)}
                         onClick={() => signIn(s.kind)}
                         pendingLabel="Opening sign-in…"
                         successLabel="Connected"
@@ -220,7 +230,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
 
       <WhatsAppSection
         session={session}
-        canWrite={canWrite}
+        canWrite={canConnect}
         onPasteKey={(kind) => {
           setAddKind(kind);
           setAdding(true);
@@ -237,7 +247,7 @@ export function ConnectedAccounts({ session, canWrite }: { session: Session; can
           <button
             type="button"
             className={SECONDARY_BUTTON_SM}
-            disabled={!canWrite}
+            disabled={!canConnect}
             onClick={() => setAdding((v) => !v)}
             aria-expanded={adding}
           >

@@ -17,6 +17,7 @@ import { ServiceLogo } from "@/components/console/serviceLogo";
 import { FIELD, ProblemNotice } from "@/components/ui";
 import { PROVIDER_LABELS, useConnectionsStatus, useCredentials, type OAuthKind } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
+import { useActAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -53,6 +54,8 @@ export function AccountRow({
   const creds = useCredentials(session);
   const status = useConnectionsStatus(session);
   const { signIn, connect, complete, error } = useAccountSignIn(session);
+  // Connecting an account is the owner's (`integrations.connect`); view-as sets actions up only.
+  const connectAccess = useActAccess(session, "org:manage", "integrations.connect", "connect an account");
   const [picking, setPicking] = useState(false);
   const { href } = useClientRealm();
 
@@ -91,7 +94,8 @@ export function AccountRow({
     <button
       type="button"
       className={TEXT_ACTION}
-      disabled={!available || connect.isPending}
+      disabled={!available || connect.isPending || !connectAccess.allowed}
+      title={connectAccess.reason ?? undefined}
       onClick={() => signIn(kind)}
     >
       {connect.isPending ? "Opening…" : mine.length ? "Connect another account" : `Connect ${service}`}

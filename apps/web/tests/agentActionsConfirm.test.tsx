@@ -8,12 +8,23 @@ import { describe, expect, it } from "vitest";
 import { ConnectedAccounts } from "@/app/c/[slug]/integrations/ConnectedAccounts";
 import { ToolRow } from "@/app/c/[slug]/agents/actions/ToolRow";
 import type { ActionTool, IntegrationCredential } from "@/lib/api/actions";
-import type { Session } from "@/lib/api/client";
+import type { Me, Session } from "@/lib/api/client";
 
 import { renderClientPage } from "./harness";
 import { WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
 import { relPosix } from "./repoPaths";
 import { blankComments } from "./sourceScan";
+
+/** The toggles and Test it ask who is signed in (the view-as withheld acts, D-587). */
+const OWNER_ME: Me = {
+  user_id: "u1",
+  realm: "client",
+  role: "owner",
+  permissions: ["org:read", "org:manage"],
+  impersonating: false,
+  withheld_acts: [],
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 /**
  * DELETING AN ACTION OR A SAVED SECRET ASKS IN THE PRODUCT'S OWN DIALOG.
@@ -130,7 +141,7 @@ describe("removing a configured action", () => {
   it("asks in ConfirmDialog and only then sends the DELETE", async () => {
     const { calls } = await renderClientPage(
       <ToolRow tool={TOOL} agentId="agent-1" session={SESSION} />,
-      { "DELETE /v1/agents/agent-1/actions/tool-1": {} },
+      { "/v1/me": OWNER_ME, "DELETE /v1/agents/agent-1/actions/tool-1": {} },
     );
 
     // REDESIGN-2: a row's rare controls sit behind Manage, so the row scans as a list.
@@ -179,6 +190,7 @@ describe("editing a configured action", () => {
     const { calls } = await renderClientPage(
       <ToolRow tool={STORED} agentId="agent-1" session={SESSION} />,
       {
+        "/v1/me": OWNER_ME,
         ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,
@@ -224,6 +236,7 @@ describe("editing a configured action", () => {
     const { calls } = await renderClientPage(
       <ToolRow tool={STORED} agentId="agent-1" session={SESSION} />,
       {
+        "/v1/me": OWNER_ME,
         ...WHATSAPP_OFF_ROUTES,
         "/v1/integrations/connections/status": {
           google_calendar: false,

@@ -32,6 +32,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { AccountRow } from "./AccountRow";
+import { useSwitchOnWithheld } from "./viewAsWithheld";
 import {
   BOOKING_DEFAULTS,
   HOUR_CHOICES,
@@ -73,6 +74,9 @@ export function BookingSetup({
   const create = useCreateAction(session, agentId);
   const update = useUpdateAction(session, agentId);
   const setMaster = useSetMasterSwitch(session, agentId);
+  // Under view-as the two halves are created off (`agent_tools.add_action`) and switching
+  // actions on is the owner's, so the operator sets booking up and leaves it off.
+  const onWithheld = useSwitchOnWithheld(session);
   // The three writes run as one action (below), which owns the button's state; each
   // refusal is the ProblemNotice under the form, so none of them toasts.
   useActionFeedback(create, { errorDisplay: "inline" });
@@ -145,7 +149,7 @@ export function BookingSetup({
       else await create.mutateAsync(bodies.check);
       if (book) await update.mutateAsync({ toolId: book.id, body: bodies.book });
       else await create.mutateAsync(bodies.book);
-      if (!masterOn) await setMaster.mutateAsync(true);
+      if (!masterOn && onWithheld === null) await setMaster.mutateAsync(true);
       onDone();
     },
     { errorDisplay: "inline" },
@@ -267,9 +271,9 @@ export function BookingSetup({
             type="submit"
             status={submit.status}
             disabled={blocked !== null}
-            successLabel={editing ? "Saved" : "Turned on"}
+            successLabel={editing ? "Saved" : onWithheld ? "Set up" : "Turned on"}
           >
-            {editing ? "Save changes" : "Turn on booking"}
+            {editing ? "Save changes" : onWithheld ? "Set up booking" : "Turn on booking"}
           </ActionButton>
         </div>
       </Section>

@@ -14,7 +14,7 @@ import { ConfirmDialog } from "@/components/confirmDialog";
 import { TEXT_ACTION, TEXT_ACTION_DANGER } from "@/components/console/section";
 import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { Disclosure, ProblemNotice, ToggleSwitch } from "@/components/ui";
+import { Disclosure, ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
 import {
   useCredentials,
   useDeleteAction,
@@ -28,6 +28,7 @@ import { AfterCallMove } from "./AfterCallMove";
 import { toolLogo, toolProblem, toolSummary } from "./jobs";
 import { KINDS } from "./params";
 import { RunsPanel, TestPanel } from "./ToolRow";
+import { useSwitchOnWithheld } from "./viewAsWithheld";
 
 export function ToolDetail({
   tool,
@@ -46,6 +47,7 @@ export function ToolDetail({
 }) {
   const creds = useCredentials(session);
   const setEnabled = useSetActionEnabled(session, agentId);
+  const onWithheld = useSwitchOnWithheld(session);
   const remove = useDeleteAction(session, agentId);
   useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
@@ -83,9 +85,10 @@ export function ToolDetail({
           label="Use it on calls"
           hint={tool.enabled ? "Your agent can do this on calls." : "Your agent will not do this."}
           checked={tool.enabled}
-          disabled={setEnabled.isPending}
+          disabled={setEnabled.isPending || (!tool.enabled && onWithheld !== null)}
           onChange={(next) => setEnabled.mutate({ toolId: tool.id, enabled: next })}
         />
+        {!tool.enabled && <RestrictionNote reason={onWithheld} />}
         {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
       </div>
 

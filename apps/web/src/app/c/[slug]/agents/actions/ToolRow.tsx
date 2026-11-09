@@ -23,6 +23,7 @@ import {
   formatIST,
   NoticeBox,
   ProblemNotice,
+  RestrictionNote,
   Skeleton,
   ToggleSwitch,
 } from "@/components/ui";
@@ -43,6 +44,7 @@ import { lookup } from "@/lib/lookup";
 import { ActionForm } from "./ActionForm";
 import { humanName, jobFor } from "./jobs";
 import { KINDS, LEAD_FIELD_PREFIX } from "./params";
+import { useSwitchOnWithheld, useWithheldFromViewAs } from "./viewAsWithheld";
 
 // The kinds whose test needs a number to stand in for the caller's: one of the business's
 // own (the server refuses any other for a WhatsApp or payment-link test).
@@ -60,6 +62,7 @@ export function ToolRow({
   session: Session;
 }) {
   const setEnabled = useSetActionEnabled(session, agentId);
+  const onWithheld = useSwitchOnWithheld(session);
   const remove = useDeleteAction(session, agentId);
   useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline" });
@@ -90,7 +93,7 @@ export function ToolRow({
           <ToggleSwitch
             label={<span className="sr-only">{title}</span>}
             checked={tool.enabled}
-            disabled={setEnabled.isPending}
+            disabled={setEnabled.isPending || (!tool.enabled && onWithheld !== null)}
             onChange={(next) => setEnabled.mutate({ toolId: tool.id, enabled: next })}
           />
           <button
@@ -107,6 +110,7 @@ export function ToolRow({
           </button>
         </div>
       </div>
+      {!tool.enabled && <RestrictionNote reason={onWithheld} />}
       {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
       {/* While the dialog is open the refusal renders inside it, so it is not printed twice. */}
       {remove.error && !confirmingRemoval ? <ProblemNotice error={remove.error} /> : null}
@@ -203,6 +207,10 @@ export function TestPanel({
 }) {
   const test = useTestAction(session, agentId);
   const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
+  // A test sends the stored key to the address the action names; under view-as that waits
+  // until the owner has switched the action on (`actions.test_unapproved`).
+  const testWithheld = useWithheldFromViewAs(session, "actions.test_unapproved", "test an action the owner has not switched on");
+  const testBlocked = tool.credential_id !== null && !tool.enabled ? testWithheld : null;
   // `tool.params` is a list of open dicts on the wire; read fields defensively (String())
   // rather than asserting onto a generated type (the wire-fixture guard bans that).
   // Values the agent collects, plus captured details: a test caller usually has no lead, so
@@ -272,10 +280,12 @@ export function TestPanel({
         status={testFeedback.status}
         pendingLabel="Running…"
         successLabel="Ran"
+        disabled={testBlocked !== null}
         onClick={() => testFeedback.run({ toolId: tool.id, values, testPhone: testPhone.trim() || null })}
       >
         Run test
       </ActionButton>
+      <RestrictionNote reason={testBlocked} />
       {test.isError ? <ProblemNotice error={test.error} /> : null}
       {test.data ? (
         <NoticeBox

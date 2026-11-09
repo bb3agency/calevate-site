@@ -14,7 +14,7 @@ import {
   SECONDARY_BUTTON_SM,
   formatIST,
 } from "@/components/ui";
-import { useWriteAccess } from "@/lib/api/hooks";
+import { useActAccess, useWriteAccess } from "@/lib/api/hooks";
 import {
   useDeactivateEndpoint,
   useDeliveries,
@@ -60,6 +60,9 @@ export function IntegrationsScreen() {
   const deactivateFeedback = useActionFeedback(deactivate, { errorDisplay: "inline" });
   const options = useEndpointOptions(session);
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
+  // Accounts and keys are the owner's to connect (`integrations.connect`), even when a
+  // view-as operator may manage where events go.
+  const connect = useActAccess(session, "org:manage", "integrations.connect", "connect or remove an account");
   const [adding, setAdding] = useState(false);
   const [stopping, setStopping] = useState<Endpoint | null>(null);
   const [editing, setEditing] = useState<Endpoint | null>(null);
@@ -102,7 +105,8 @@ export function IntegrationsScreen() {
       <PageHeader description="Accounts your agents use, and where leads go." />
       <RestrictionNote reason={write.reason} />
 
-      <ConnectedAccounts session={session} canWrite={write.allowed} />
+      {connect.reason !== write.reason && <RestrictionNote reason={connect.reason} />}
+      <ConnectedAccounts session={session} canWrite={write.allowed} canConnect={connect.allowed} />
 
       <Section
         title="Send results to"

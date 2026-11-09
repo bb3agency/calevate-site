@@ -17,7 +17,7 @@ import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { TEXT_ACTION } from "@/components/console/section";
 import { ServiceLogo } from "@/components/console/serviceLogo";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
-import { Disclosure, FIELD, FIELD_LABEL, ProblemNotice, ToggleSwitch } from "@/components/ui";
+import { Disclosure, FIELD, FIELD_LABEL, ProblemNotice, RestrictionNote, ToggleSwitch } from "@/components/ui";
 import {
   RUN_STATUS_LABELS,
   useCredentials,
@@ -30,6 +30,7 @@ import { lookup } from "@/lib/lookup";
 
 import { addMinutesLocal, daysLabel, hourLabel, keptHours, lengthLabel, readBooking } from "./jobs";
 import { ToolRow } from "./ToolRow";
+import { useSwitchOnWithheld, useWithheldFromViewAs } from "./viewAsWithheld";
 
 
 export function BookingJob({
@@ -47,6 +48,7 @@ export function BookingJob({
 }) {
   const creds = useCredentials(session);
   const setEnabled = useSetActionEnabled(session, agentId);
+  const onWithheld = useSwitchOnWithheld(session);
   useActionFeedback(setEnabled, { errorDisplay: "inline" });
   const settings = readBooking(check, book);
   const kept = keptHours(check, book);
@@ -66,11 +68,12 @@ export function BookingJob({
         label="Use it on calls"
         hint={on ? "Your agent offers free times and books them." : "Your agent will not book anything."}
         checked={on}
-        disabled={setEnabled.isPending || parts.length < 2}
+        disabled={setEnabled.isPending || parts.length < 2 || (!on && onWithheld !== null)}
         onChange={(next) => {
           for (const t of parts) setEnabled.mutate({ toolId: t.id, enabled: next });
         }}
       />
+      {!on && <RestrictionNote reason={onWithheld} />}
       {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
       </div>
 
@@ -139,6 +142,8 @@ function TryIt({
 }) {
   const test = useTestAction(session, agentId);
   const testFeedback = useActionFeedback(test, { errorDisplay: "inline" });
+  const testWithheld = useWithheldFromViewAs(session, "actions.test_unapproved", "test an action the owner has not switched on");
+  const testBlocked = check.credential_id !== null && !check.enabled ? testWithheld : null;
   const [at, setAt] = useState("");
   const startParam = typeof check.config.start_param === "string" ? check.config.start_param : "start";
   const endParam = typeof check.config.end_param === "string" ? check.config.end_param : "end";
@@ -161,7 +166,7 @@ function TryIt({
         className="mt-3 flex flex-wrap items-end gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!at) return;
+          if (!at || testBlocked !== null) return;
           test.mutate({
             toolId: check.id,
             values: { [startParam]: at, [endParam]: addMinutesLocal(at, minutes * 3) },
@@ -182,13 +187,14 @@ function TryIt({
           type="submit"
           variant="secondary"
           status={testFeedback.status}
-          disabled={!at}
+          disabled={!at || testBlocked !== null}
           pendingLabel="Checking…"
           successLabel="Checked"
         >
           Check this time
         </ActionButton>
       </form>
+      <RestrictionNote reason={testBlocked} />
       {test.isError ? (
         <div className="mt-3">
           <ProblemNotice error={test.error} />
