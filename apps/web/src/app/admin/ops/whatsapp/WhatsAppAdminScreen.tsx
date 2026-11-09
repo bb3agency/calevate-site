@@ -17,7 +17,7 @@ import { Section } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { ProgressBar } from "@/components/interior/progress-bar";
 import { ProblemNotice, RestrictionNote, Skeleton, formatIST } from "@/components/ui";
-import { useAdminAccess } from "@/app/admin/access";
+import { identityAnswerPending, useAdminAccess, useAdminMe } from "@/app/admin/access";
 import { useAdminWhatsApp, type AdminWhatsApp } from "@/lib/api/whatsapp";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 
@@ -64,7 +64,10 @@ function setupRows(data: AdminWhatsApp): ChecklistRow[] {
 
 export function WhatsAppAdminScreen() {
   const access = useAdminAccess("admin:tenants", "read clients' WhatsApp");
-  const report = useAdminWhatsApp();
+  // Gated on the permission: the read carries the same one, so a refused admin would get a
+  // refusal box (and a pointless request) under the restriction that already says why.
+  const identityLoading = identityAnswerPending(useAdminMe());
+  const report = useAdminWhatsApp(!identityLoading && !access.refused);
   const data = report.data;
   const accounts = data?.clients.flatMap((c) => c.accounts) ?? [];
   const quietFor = hoursSince(data?.last_event_at);
@@ -92,7 +95,7 @@ export function WhatsAppAdminScreen() {
     <div className="max-w-4xl space-y-10 pb-12">
       <PageHeader description="Each client's own WhatsApp, connected through Meta with Calevate as the Tech Provider." />
       <RestrictionNote reason={access.refused ? access.reason : null} />
-      {report.isPending ? (
+      {access.refused ? null : report.isPending ? (
         <Skeleton rows={6} />
       ) : report.isError ? (
         <ProblemNotice error={report.error} onRetry={() => void report.refetch()} />

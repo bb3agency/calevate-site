@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { focusManager } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { OPS_INR_LLM_PRICES } from "./fixtures/opsInrLlmPrices";
 
@@ -738,6 +739,32 @@ describe("the ops screen when the platform state cannot be read", () => {
       "the current state could not be read",
     );
     expect(container.textContent).not.toContain("ops:manage");
+  });
+
+  it("stops saying calling is running when a LATER read fails", async () => {
+    // The first read lands; the 30-second poll then fails (the database went away mid-
+    // incident). The last good answer is no longer the platform's position, and the strip
+    // and the switch must not keep reporting it in green.
+    let failing = false;
+    renderAdminPage(
+      <OpsPage />,
+      routes(() =>
+        failing
+          ? problem(503, { title: "Service unavailable", detail: "The database is not reachable.", retryable: true })
+          : platform(),
+      ),
+    );
+    await screen.findByText("Outbound calling is running");
+
+    failing = true;
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+
+    await screen.findByText("The database is not reachable.");
+    expect(screen.queryByText("Outbound calling is running")).toBeNull();
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(screen.getByText("We do not know whether outbound calling is halted")).toBeTruthy();
+    focusManager.setFocused(undefined);
   });
 });
 

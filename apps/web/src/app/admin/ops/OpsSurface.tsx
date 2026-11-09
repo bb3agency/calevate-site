@@ -177,7 +177,9 @@ export function OpsSurface() {
   // permission, which is what its own nav entry has always declared.
   const access = opsAccess(mayManage, state);
 
-  const platform = state.data;
+  // Error before data, as the three readers below already do: a failed poll leaves the last
+  // answer in `data`, and a halt applied since would otherwise sit under a green "Running".
+  const platform = state.error ? undefined : state.data;
   /*
    * The SAME three readers the panels below are given, computed once and handed to both.
    * Reaching into `state.data.kb_drift` here instead would be a second opinion about
@@ -290,17 +292,17 @@ export function OpsSurface() {
 
       {state.isLoading ? (
         <Skeleton rows={4} />
-      ) : state.data ? (
+      ) : platform ? (
         <>
           {/* THE PRIMARY SURFACE: the big red switch, first under the facts. */}
           <div id="outbound" className="scroll-mt-4">
-            <OutboundHaltPanel state={state.data} access={access} />
+            <OutboundHaltPanel state={platform} access={access} />
           </div>
           <div id="slowdown" className="scroll-mt-4">
-            <LoadShedPanel state={state.data} access={access} />
+            <LoadShedPanel state={platform} access={access} />
           </div>
           <div id="registration" className="scroll-mt-4">
-            <TmRegistrationPanel registration={state.data.tm_registration} access={access} />
+            <TmRegistrationPanel registration={platform.tm_registration} access={access} />
           </div>
         </>
       ) : (
