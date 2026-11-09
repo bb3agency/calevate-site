@@ -106,7 +106,7 @@ import {
   updateSection,
   validate,
 } from "./scriptModel";
-import { SectionList } from "./SectionList";
+import { SectionList, stepAnchor } from "./SectionList";
 import { SectionEditor } from "./SectionEditor";
 import { HandWritten } from "./HandWritten";
 import { ScriptHistory, useScriptRestore } from "./ScriptHistory";
@@ -404,11 +404,24 @@ function Editor({
   };
   const restoring = useScriptRestore(agentId, restored);
 
-  const addOne = () => {
-    const made = addSection(script);
+  // A new step opens in place and the page goes to it, so the owner lands on what they
+  // just added rather than hunting for it below the fold.
+  const [arrive, setArrive] = useState<string | null>(null);
+  const addAt = (at?: number) => {
+    const made = addSection(script, {}, at);
     edit(made.script);
     setSelected(made.id);
+    setArrive(made.id);
   };
+  const addOne = () => addAt();
+  useEffect(() => {
+    if (!arrive) return;
+    const card = document.getElementById(stepAnchor(arrive));
+    if (!card) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    card.scrollIntoView?.({ behavior: still ? "auto" : "smooth", block: "start" });
+    setArrive(null);
+  }, [arrive, sections]);
   const keep = (next: CallScript) => {
     setUndo({ before: script, after: next });
     setKeptSuggestion(true);
@@ -549,6 +562,8 @@ function Editor({
           readOnly={!write.allowed}
           onOpen={(id) => setSelected((open) => (open === id ? null : id))}
           onMove={(from, to) => edit((s) => moveSection(s, from, to))}
+          onDelete={write.allowed ? (id) => setDeleting(id) : undefined}
+          onInsert={write.allowed && sections.length < limits.maxSections ? addAt : undefined}
           editor={editor}
         />
       )}
