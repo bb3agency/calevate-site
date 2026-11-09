@@ -18,6 +18,7 @@ import {
   FIELD_HINT,
   FIELD_LABEL,
   NoticeBox,
+  ProblemNotice,
   SECONDARY_BUTTON_SM,
   ScrollRegion,
   formatINRExact,
@@ -125,6 +126,10 @@ export function RateCardPanel({
       {/* §52: no table of invented cells. A card that could not be read is said as itself —
           including the case that matters most while this is being built, which is a
           deployment whose API does not publish this read at all. */}
+      {/* The server's reason and a way to read again: without them the warning below was a
+          dead end that only a reload of the whole screen got past. */}
+      {query.error && <ProblemNotice error={query.error} onRetry={() => void query.refetch()} />}
+
       {!query.isLoading && card === null && (
         <NoticeBox
           tone="warn"

@@ -717,6 +717,24 @@ describe("the rate card an operator is about to date", () => {
     expect(container.textContent).not.toContain("Thin margin");
     expect(container.textContent).not.toContain("rungs earn less than");
   });
+
+  it("says why the card could not be read and reads it again on Try again", async () => {
+    let failing = true;
+    renderOps(
+      routes({
+        [OPS_RATE_CARD_PATH]: () =>
+          failing ? problem(503, { title: "The rate card is unavailable right now.", retryable: true }) : card(),
+      }),
+    );
+
+    await screen.findByText("We could not read the rate card");
+    // The panel was a dead end: a warning with no reason and no way to read it again
+    // short of reloading the whole configuration screen.
+    failing = false;
+    fireEvent.click(await screen.findByRole("button", { name: /try again/i }));
+    await screen.findByText("17.60%");
+    expect(screen.queryByText("We could not read the rate card")).toBeNull();
+  });
 });
 
 describe("the voice price that decides whether a tier can be sold", () => {
