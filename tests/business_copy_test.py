@@ -441,7 +441,8 @@ def test_objections_caller_noun_and_pip_questions_parse_and_are_bounded() -> Non
     too_many["objections"] = too_many["objections"] * (business_copy.MAX_OBJECTIONS + 1)
     too_many_questions = copy_dict()
     too_many_questions["pip_questions"] = ["Who called?"] * (business_copy.MAX_PIP_QUESTIONS + 1)
-    for noun in ("the customers of the shop", "customer!", ""):
+    # A closing mark alone is tidied away ("customer!" is "customer"), so it is not here.
+    for noun in ("the customers of the shop", "రైతు", ""):
         bad = copy_dict()
         bad["caller_noun"] = noun
         with pytest.raises(script_assist.UnusableAnswerError):

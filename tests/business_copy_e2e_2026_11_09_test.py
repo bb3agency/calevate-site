@@ -154,6 +154,31 @@ def test_a_screen_guess_the_ready_made_words_and_a_step_can_each_be_left_out() -
     assert copy.capabilities is not None and copy.capabilities.judged
 
 
+@pytest.mark.parametrize("noun", ["రైతు", "our valued customers here", "farmer/user"])
+def test_a_refused_caller_noun_is_left_out_and_the_profile_kept(noun: str) -> None:
+    """FAILS IF: one refused caller noun throws away the whole copy (production, 9 Nov 2026:
+    Rytu Khata's profile stayed unjudged on "What it calls its callers: not in the expected
+    form"); every reader says "person" or "caller" without it."""
+    raw = copy_dict()
+    raw["caller_noun"] = noun
+    _copy, problems = worker.answer_problems(raw, inputs=_inputs())
+    assert any(p.startswith("caller_noun") for p in problems)
+    kept = worker.salvage(raw, problems, inputs=_inputs())
+    assert kept is not None
+    copy, _why = kept
+    assert copy.caller_noun is None
+    assert copy.capabilities is not None and copy.capabilities.judged
+
+
+@pytest.mark.parametrize("noun", ["Farmer.", '"customer"', " member, "])
+def test_a_caller_noun_in_stray_marks_is_kept_as_the_word(noun: str) -> None:
+    raw = copy_dict()
+    raw["caller_noun"] = noun
+    copy, problems = worker.answer_problems(raw, inputs=_inputs())
+    assert not problems and copy is not None
+    assert copy.caller_noun == noun.strip(' .,"').lower()
+
+
 def test_a_rule_hidden_behind_a_shape_error_is_still_checked() -> None:
     """FAILS IF: a copy is stored once its shape errors are trimmed without the text rules
     those errors hid being checked (a required example with a medical word here)."""
@@ -172,7 +197,6 @@ def test_a_rule_hidden_behind_a_shape_error_is_still_checked() -> None:
             lambda raw: raw["capabilities"]["sells"].update(reason="x" * 200),
             "the judgement itself",
         ),
-        (lambda raw: raw.update(caller_noun="our valued customers!"), "the caller noun"),
         (
             lambda raw: raw["placeholders"].update(knowledge_title="Doctor's timings"),
             "a required placeholder",

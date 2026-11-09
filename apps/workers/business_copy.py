@@ -36,6 +36,7 @@ from __future__ import annotations
 import copy as copylib
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final, cast
@@ -399,7 +400,7 @@ def answer_problems(
     it breaks, as `path: rule`. `left_out` names the parts `salvage` removed, which are then
     not asked for again."""
     try:
-        copy = GeneratedCopy.model_validate(_without_empty_booking_job(raw))
+        copy = GeneratedCopy.model_validate(_tidy_caller_noun(_without_empty_booking_job(raw)))
     except ValidationError as invalid:
         return None, [
             f"{'.'.join(str(p) for p in error['loc'])}: {error['type']}"
@@ -416,9 +417,7 @@ def answer_problems(
     if "screen_guide" not in left_out:
         problems += screen_guide_problems(copy)
     problems += [
-        problem
-        for problem in profile_problems(copy)
-        if not (problem.startswith("starter_words") and "starter_words" in left_out)
+        problem for problem in profile_problems(copy) if problem.partition(":")[0] not in left_out
     ]
     for job, count in inputs.starter_counts.items():
         given = len(getattr(copy.starter_lines, job))
@@ -438,8 +437,10 @@ _DROPPABLE_ITEMS: Final[dict[str, int]] = {
     "steps": MIN_STEPS,
 }
 #: Whole parts a stored copy may lack: every reader already treats them as not written yet
-#: (a copy from an earlier prompt has none of them).
-_DROPPABLE_PARTS: Final = frozenset({"starter_words", "screen_guide"})
+#: (a copy from an earlier prompt has none of them). The caller noun is one: every screen
+#: and plan that uses it says "person" or "caller" without it, and holding the whole copy on
+#: it left a client's profile unjudged on every run (production, 9 Nov 2026).
+_DROPPABLE_PARTS: Final = frozenset({"starter_words", "screen_guide", "caller_noun"})
 #: The placeholders a stored copy may lack: the screens show their neutral example instead.
 #: The first eight are required of every copy, and the booking job must agree with the
 #: capabilities, so neither is ever left out.
@@ -461,8 +462,8 @@ def salvage(
     run tried and failed again: the profile was never judged. A part the screens can do
     without (an example, a suggestion, a ready-made line set) is left out instead and the
     screens show their neutral example for it. What every screen and plan relies on is
-    never left out: the capability judgement, the caller noun, the required placeholders and
-    the booking job, which must agree with the judgement."""
+    never left out: the capability judgement, the required placeholders and the booking
+    job, which must agree with the judgement."""
     working = copylib.deepcopy(raw)
     removed: set[str] = set()
     why: list[str] = []
@@ -490,6 +491,10 @@ def _take_out(working: dict[str, Any], paths: set[str], removed: set[str]) -> bo
         if head in _DROPPABLE_ITEMS and len(parts) > 1 and parts[1].isdigit():
             drops.setdefault(head, set()).add(int(parts[1]))
         elif head in _DROPPABLE_PARTS:
+            if head in removed:
+                # Already out and still refused: another pass would remove nothing, so the
+                # loop in `salvage` would never end.
+                return False
             working[head] = None
             removed.add(head)
         elif head == "placeholders" and len(parts) > 1 and parts[1] in _DROPPABLE_PLACEHOLDERS:
@@ -507,6 +512,19 @@ def _take_out(working: dict[str, Any], paths: set[str], removed: set[str]) -> bo
             return False
         working[head] = kept
     return True
+
+
+#: Marks a model puts around a word ("Farmer.", '"customer"') that are not the word.
+_NOUN_EDGE: Final = re.compile(r"^[\s\"'`.,;:!?]+|[\s\"'`.,;:!?]+$")
+
+
+def _tidy_caller_noun(raw: dict[str, Any]) -> dict[str, Any]:
+    """The caller noun without quotes or a closing mark around it, so a sound word is not
+    refused for a stray full stop; anything else is still checked as the model wrote it."""
+    noun = raw.get("caller_noun")
+    if not isinstance(noun, str):
+        return raw
+    return {**raw, "caller_noun": _NOUN_EDGE.sub("", noun)}
 
 
 def _without_empty_booking_job(raw: dict[str, Any]) -> dict[str, Any]:
