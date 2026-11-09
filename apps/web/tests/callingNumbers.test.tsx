@@ -107,6 +107,37 @@ describe("the calling numbers card", () => {
     expect(screen.getByText("Confirmed on 30 Oct.")).toBeTruthy();
   });
 
+  it("closes Change once the new list is confirmed, and lets it be left unchanged (Y5-03)", async () => {
+    const CONFIRMED = declaration({
+      recorded: true,
+      state: "notified",
+      notified_on: "2026-10-30",
+      declared_clis: ["+919848022338", "+914049001234"],
+      attested: true,
+      attested_version: 2,
+      effective: true,
+      undeclared_clis: [],
+      blocker: null,
+    });
+    await renderClientPage(<CallingNumbers pageFacts={[]} />, {
+      "/v1/me": OWNER,
+      [PATH]: CONFIRMED,
+      [`POST ${PATH}`]: { ...CONFIRMED, notified_on: "2026-11-10" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+    // A way back without sending anything.
+    fireEvent.click(screen.getByRole("button", { name: "Keep these numbers" }));
+    expect(screen.queryByRole("button", { name: "Confirm numbers" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /On behalf of this business/ }));
+    const confirm = screen.getByRole("button", { name: "Confirm numbers" });
+    await waitFor(() => expect(confirm.getAttribute("aria-disabled")).toBeNull());
+    fireEvent.click(confirm);
+    expect(await screen.findByText("Confirmed on 10 Nov.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Confirm numbers" })).toBeNull();
+  });
+
   it("asks again when the account confirmed on an older wording", async () => {
     await renderClientPage(<CallingNumbers pageFacts={[]} />, {
       "/v1/me": OWNER,

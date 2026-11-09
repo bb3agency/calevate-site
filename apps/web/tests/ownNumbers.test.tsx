@@ -329,6 +329,8 @@ describe("the three steps, as the server names them", () => {
     expect(screen.getByText("Approval withdrawn by the authority.")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Ask us to correct them" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
+    // "Please contact us" is a button, not a sentence with nowhere to go (Y5-05).
+    expect(screen.getByRole("link", { name: "Contact us" }).getAttribute("href")).toMatch(/^mailto:/);
   });
 
   it("says numbers are not on sale yet while no price is set", async () => {

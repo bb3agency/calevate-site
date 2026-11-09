@@ -9,7 +9,7 @@ import { dialledForm, renderCode } from "@/lib/api/forwarding";
 import { useClientRealm } from "@/lib/api/session";
 
 import { ADMIN_FORWARDING, CODES, LINE, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
-import { renderAdminPage, renderClientPage, type Routes } from "./harness";
+import { problem, renderAdminPage, renderClientPage, type Routes } from "./harness";
 
 const ME = {
   user_id: "u1",
@@ -73,6 +73,33 @@ describe("Phone numbers > Your existing number", () => {
     fireEvent.change(await change(), { target: { value: "0" } });
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect((await change()).value).toBe("20");
+  });
+
+  it("does not reopen Change or Stop using on the last attempt's refusal (Y5-02)", async () => {
+    await renderClientPage(
+      <PhoneNumbersSettingsPage />,
+      settingsRoutes({
+        "PATCH /v1/forwarding/lines/l1": problem(409, { title: "Conflict", detail: "That change was refused." }),
+        "DELETE /v1/forwarding/lines/l1": problem(409, { title: "Conflict", detail: "That removal was refused." }),
+      }),
+    );
+    const change = await screen.findByRole("button", { name: "Change" });
+    await waitFor(() => expect((change as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(change);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("That change was refused.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Change" }));
+    expect(screen.queryByText("That change was refused.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop using this number" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop using it" }));
+    expect(await screen.findByText("That removal was refused.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop using this number" }));
+    await screen.findByRole("button", { name: "Stop using it" });
+    expect(screen.queryByText("That removal was refused.")).toBeNull();
   });
 
   it("fills the Calevate number and ring time into the codes, with no tel: links", async () => {

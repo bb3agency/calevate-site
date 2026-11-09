@@ -134,6 +134,24 @@ describe("auto-recharge card", () => {
     await expectNoA11yViolations(container, "auto-recharge card");
   });
 
+  it("states the approved per-top-up limit, not the platform ceiling, once a method is approved (Y5-01)", async () => {
+    // `save_settings` refuses switching on an amount over `mandate_max_inr`
+    // (auto_recharge_over_mandate), so the ceiling hint must be the approved one.
+    await renderClientPage(<Panel />, {
+      "/v1/me": ME,
+      "/v1/billing/auto-recharge": {
+        ...SETTINGS,
+        mandate_status: "confirmed",
+        mandate_method: "upi",
+        mandate_max_inr: "2000.00",
+      },
+      "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
+    });
+    expect(await screen.findByText(/At most ₹2,000 each time/)).toBeTruthy();
+    expect(screen.queryByText(/At most ₹15,000/)).toBeNull();
+  });
+
   it("explains a paused approval and why auto-recharge went off", async () => {
     await renderClientPage(<Panel />, {
       "/v1/me": ME,

@@ -309,6 +309,10 @@ export function TopUp({ session }: { session: Session }) {
                   {formatPayableINR(selected.amount)}
                 </strong>
               </>
+            ) : choice === CUSTOM && amount !== "" ? (
+              /* An amount IS chosen, outside what the server takes: say the range while the
+                 field still has focus, before its own range message shows on blur. */
+              `Enter ${formatINR(String(MIN_TOPUP_INR))} to ${formatINR(String(MAX_TOPUP_INR))}`
             ) : (
               "Choose an amount"
             )}

@@ -222,6 +222,8 @@ function LineSettings({
                   // line changed since this row mounted, must not be what Save sends.
                   setMode(line.mode);
                   setSeconds(line.ring_seconds || DEFAULT_RING_SECONDS);
+                  // A refusal belongs to the attempt it answered, not to the next edit.
+                  change.reset();
                   setEditing(true);
                 }}
               >
@@ -297,7 +299,12 @@ function LineSettings({
         <TestPanel session={session} line={line} allowed={allowed} available={testingAvailable} />
       </div>
 
-      <button type="button" className={TEXT_ACTION_DANGER} disabled={!allowed} onClick={() => setConfirming(true)}>
+      <button type="button" className={TEXT_ACTION_DANGER} disabled={!allowed}
+        onClick={() => {
+          remove.reset();
+          setConfirming(true);
+        }}
+      >
         Stop using this number
       </button>
       {confirming && (

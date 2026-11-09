@@ -17,6 +17,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
   formatISTDay,
@@ -24,7 +25,7 @@ import {
 } from "@/components/ui";
 import type { WriteAccess } from "@/lib/api/hooks";
 import { ENTITY_TYPES, entityTypeLabel, type KycRecord } from "@/lib/api/kyc";
-import type { Session, UploadProgress } from "@/lib/api/client";
+import { ApiProblem, type Session, type UploadProgress } from "@/lib/api/client";
 import { ViewerBlockedError } from "@/lib/api/protectedFile";
 import {
   ACCEPT_ATTRIBUTE,
@@ -46,6 +47,7 @@ import {
   useUploadKycDocument,
   type OutboundPledge,
 } from "@/lib/api/verifyBusiness";
+import { resolvePlaceholders } from "@/lib/legal/placeholders";
 import { lookup } from "@/lib/lookup";
 
 /** Who may change what, as the server will rule it. Uploads and the pledge are the
@@ -741,6 +743,12 @@ function DigiLockerPath({ session, record, access }: { session: Session; record:
       <div className="space-y-1 text-body text-ink">
         <p>DigiLocker is down for now. Please contact us.</p>
         <p className="text-ink-muted">A PAN upload cannot replace this check.</p>
+        <a
+          className={`${SECONDARY_BUTTON_SM} mt-2`}
+          href={`mailto:${resolvePlaceholders("{{SUPPORT_EMAIL}}")}?subject=${encodeURIComponent("DigiLocker check for our business")}`}
+        >
+          Contact us
+        </a>
       </div>
     ) : (
       <p className="text-body text-ink">DigiLocker is not ready yet. Upload the PAN card instead.</p>
@@ -865,7 +873,11 @@ export function DigiLockerReturn({ session }: { session: Session }) {
         },
         // A refusal is final for this reference too (another account's run, an unknown one,
         // verification switched off), so it must not greet every later visit to the page.
-        onError: () => forgetPendingRun(org),
+        // A passing failure (no reply, a retryable 5xx) says nothing about the run, so it is
+        // kept for "Try again" and for the next visit.
+        onError: (error) => {
+          if (!(error instanceof ApiProblem && error.retryable)) forgetPendingRun(org);
+        },
       }),
     [mutate, org],
   );
@@ -882,7 +894,7 @@ export function DigiLockerReturn({ session }: { session: Session }) {
 
   if (!ref) return null;
   if (complete.isPending) return <Skeleton rows={2} />;
-  if (complete.error) return <ProblemNotice error={complete.error} />;
+  if (complete.error) return <ProblemNotice error={complete.error} onRetry={() => askAbout(ref)} />;
   if (complete.data?.status === "pending") {
     return (
       <NoticeBox
