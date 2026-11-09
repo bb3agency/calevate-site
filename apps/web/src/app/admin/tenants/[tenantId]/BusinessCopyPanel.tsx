@@ -10,7 +10,7 @@ import {
   ProblemNotice,
   Skeleton,
   formatINRExact,
-  formatISTStamp,
+  formatIST,
 } from "@/components/ui";
 import {
   useAdminBusinessCopy,
@@ -79,7 +79,7 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
             ) : undefined
           }
         >
-          Screens use neutral wording until it is worked out.
+          {learningLine(data)}
         </NoticeBox>
       )}
       <SettingRows>
@@ -102,8 +102,18 @@ export function BusinessCopyPanel({ tenantId }: { tenantId: string }) {
           }
         />
         <SettingRow label="Cost of the copy in use" value={costLine(data)} />
-        {data.stop_reason ? (
-          <SettingRow label="Last run" value={data.stop_message ?? data.stop_reason} />
+        {lastRunLine(data) ? <SettingRow label="Last run" value={lastRunLine(data)} /> : null}
+        {problems(data).length > 0 ? (
+          <SettingRow
+            label={data.stop_reason ? "What failed" : "Left out"}
+            value={
+              <ul className="list-disc space-y-1 pl-5">
+                {problems(data).map((problem) => (
+                  <li key={problem}>{problem}</li>
+                ))}
+              </ul>
+            }
+          />
         ) : null}
         <SettingRow label="Calls its callers" value={data.caller_noun ?? "Not judged yet"} />
         {CAPABILITY_ROWS.map(([key, label]) => (
@@ -192,12 +202,38 @@ export function capabilityLine(judged: Capability | null | undefined): string {
   return judged.reason ? `${verdict}: ${judged.reason}` : verdict;
 }
 
-/** Exported for the test. */
+/**
+ * When the copy in use was written and who asked for THAT run. `last_trigger` is the last
+ * run's, which may have written nothing: beside the write time it named an operator's failed
+ * refresh as the author of a copy the client paid for. Exported for the test.
+ */
 export function writtenLine(data: AdminBusinessCopy): string {
   if (data.refreshing) return "Being written now";
   if (!data.generated_at) return "Not yet: the per-trade examples are shown";
+  const why = lookup(TRIGGER, data.generated_trigger);
+  return `${formatIST(data.generated_at)}${why ? ` (${why})` : ""}`;
+}
+
+/** The last run that wrote nothing: when, who asked, and what happened. Exported for the test. */
+export function lastRunLine(data: AdminBusinessCopy): string | null {
+  if (!data.stop_reason) return null;
   const why = lookup(TRIGGER, data.last_trigger);
-  return `${formatISTStamp(data.generated_at)}${why ? ` (${why})` : ""}`;
+  const when = data.last_attempt_at ? `${formatIST(data.last_attempt_at)}${why ? ` (${why})` : ""}: ` : "";
+  return `${when}${data.stop_message ?? data.stop_reason}`;
+}
+
+/** What the last run's checks refused, or what the stored copy left out, in plain words. */
+function problems(data: AdminBusinessCopy): readonly string[] {
+  return data.last_problems ?? [];
+}
+
+/** The banner's sentence: after a refused run, say so rather than "still learning" alone. */
+export function learningLine(data: AdminBusinessCopy): string {
+  if (data.stop_reason === "answer_unusable")
+    return "The last try did not pass our checks; what failed is listed below. Screens use neutral wording until it is worked out.";
+  if (data.stop_reason && data.stop_reason !== "inputs_unchanged")
+    return "The last try did not finish; see Last run below. Screens use neutral wording until it is worked out.";
+  return "Screens use neutral wording until it is worked out.";
 }
 
 /** Exported for the test. */

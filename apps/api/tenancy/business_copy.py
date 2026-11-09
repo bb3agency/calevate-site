@@ -216,10 +216,14 @@ class StepSuggestion(_Strict):
 
 
 class StarterLines(_Strict):
-    """One example line per step of each ready-made starter, in step order."""
+    """One example line per step of each ready-made starter, in step order.
 
-    answer_calls: list[Spoken] = Field(min_length=1, max_length=MAX_STARTER_LINES)
-    call_leads: list[Spoken] = Field(min_length=1, max_length=MAX_STARTER_LINES)
+    Empty only in a copy stored with that set left out (`apps/workers/business_copy.salvage`):
+    a set whose count does not match the starter is never used (`starters.with_example_lines`),
+    so its steps keep no line, as before the first copy."""
+
+    answer_calls: list[Spoken] = Field(max_length=MAX_STARTER_LINES)
+    call_leads: list[Spoken] = Field(max_length=MAX_STARTER_LINES)
 
 
 class ScreenGuide(_Strict):
@@ -375,9 +379,26 @@ class GeneratedCopy(_Strict):
 #: The clinic vocabulary `tests/clinic_words_guard_test.py` keeps out of shared copy (D-731):
 #: the guard imports this pattern, so the two cannot drift. Allowed in AI-written text only
 #: for a health business or in the owner's own words (`health_words_problem`).
+#: The words themselves, singular, for the copy run's instruction: "medical words" alone does
+#: not tell a model that "appointment" is one, and an answer refused for a rule the model was
+#: never told cannot be repaired.
+CLINIC_WORD_LIST: Final[tuple[str, ...]] = (
+    "clinic",
+    "hospital",
+    "patient",
+    "doctor",
+    "dentist",
+    "dental",
+    "appointment",
+    "symptom",
+    "prescription",
+    "healthcare",
+    "OPD",
+)
+#: `CLINIC_WORD_LIST` with the plurals; "dental", "healthcare" and "OPD" take none.
+_NO_PLURAL: Final = frozenset({"dental", "healthcare", "OPD"})
 CLINIC_WORDS: Final = re.compile(
-    r"\b(?:clinics?|hospitals?|patients?|doctors?|dentists?|dental|appointments?|symptoms?|"
-    r"prescriptions?|healthcare|OPD)\b",
+    r"\b(?:" + "|".join(w if w in _NO_PLURAL else f"{w}s?" for w in CLINIC_WORD_LIST) + r")\b",
     re.IGNORECASE,
 )
 
@@ -402,9 +423,12 @@ def provider_words(text: str) -> frozenset[str]:
 def provider_problem(where: str, text: str, *, allowed: str = "") -> str | None:
     """A problem for a line an AI wrote that names a provider; None when it names none. A name
     that also appears in `allowed` (the owner's own words) is theirs, not the model's."""
-    if not provider_words(text) - provider_words(allowed):
+    named = provider_words(text) - provider_words(allowed)
+    if not named:
         return None
-    return f"{where}: names a technology company"
+    # The names are our own list's words, never the line's other text (hard rule 6); a model
+    # told only "a technology company" cannot tell which word to take out.
+    return f"{where}: names a technology company ({', '.join(sorted(named))})"
 
 
 def _health_words(text: str) -> frozenset[str]:
@@ -417,9 +441,16 @@ def health_words_problem(where: str, text: str, *, health: bool, allowed: str = 
     health business; None otherwise. Judged from what the business is rather than its listed
     type: a pharmacy filed under retail may say "doctor", a grocery may not. A word the
     owner's own description uses (`allowed`) is theirs, as in `provider_problem`."""
-    if health or not _health_words(text) - _health_words(allowed):
+    if health:
         return None
-    return f"{where}: medical words, and this business is not a health business"
+    used = _health_words(text) - _health_words(allowed)
+    if not used:
+        return None
+    # The words are `CLINIC_WORD_LIST`'s, so naming them quotes our list, not the line.
+    return (
+        f"{where}: medical words ({', '.join(sorted(used))}), and this business is not a "
+        "health business"
+    )
 
 
 #: Formatting a screen or a voice would show literally: markdown marks and bullets.
@@ -535,8 +566,8 @@ def screen_text_problems(path: str, value: str, *, clinic: bool, allowed: str = 
         problems.append(f"{path}: no markdown, bullets or symbols")
     if _EMOJI.search(value):
         problems.append(f"{path}: no emoji")
-    if provider_words(value):
-        problems.append(f"{path}: names a technology company")
+    if named := provider_problem(path, value, allowed=allowed):
+        problems.append(named)
     if worded := health_words_problem(path, value, health=clinic, allowed=allowed):
         problems.append(worded)
     return problems
@@ -558,7 +589,7 @@ def copy_problems(
         elif len(lines) > 1:
             problems.append(f"{path}: one line, no line breaks")
         problems += screen_text_problems(path, value, clinic=health, allowed=allowed)
-        if spoken and (worded := textbook_problem(path, value, language)):
+        if spoken and (worded := textbook_problem(path, value, language, allowed=allowed)):
             problems.append(worded)
         if spoken and _NOT_SPOKEN.search(value):
             problems.append(f"{path}: numbers in words, no digits, rupee signs or slashes")
@@ -616,12 +647,27 @@ class CopyState:
     last_trigger: str | None
     last_attempt_at: datetime | None
     stop_reason: str | None
+    #: Who asked for the run that wrote the copy in use; `last_trigger` is the LAST run's,
+    #: which may have written nothing. None for a copy written before it was recorded.
+    generated_trigger: str | None = None
+    #: The last run's problems as `path: rule` (never the answer's text): why it was refused
+    #: (`answer_unusable`), or what a stored copy left out. Empty after a clean run.
+    last_problems: tuple[str, ...] = ()
 
 
 _SELECT: Final = (
     "SELECT generated, language, model, generated_at, cost_inr, absorbed, running_since, "
-    "last_trigger, last_attempt_at, stop_reason FROM business_copies"
+    "last_trigger, last_attempt_at, stop_reason, generated_trigger, last_problems "
+    "FROM business_copies"
 )
+
+#: At most this many problems are kept on the row and sent back to the model.
+MAX_PROBLEMS: Final = 20
+
+#: A problem the run records itself rather than a check: the repair came back with nothing.
+EMPTY_REPAIR: Final = "answer: the second try came back empty or cut off"
+#: The prefix of a problem recording what a stored copy left out.
+LEFT_OUT: Final = "left out "
 
 
 def parse_stored(raw: Any) -> GeneratedCopy | None:
@@ -655,7 +701,71 @@ async def read_state(session: AsyncSession) -> CopyState | None:
         last_trigger=row[7],
         last_attempt_at=row[8],
         stop_reason=row[9],
+        generated_trigger=row[10],
+        last_problems=tuple(str(p) for p in row[11] if isinstance(p, str))
+        if isinstance(row[11], list)
+        else (),
     )
+
+
+#: What each part of the answer is, in an operator's words, for `explain_problem`.
+_PART_NAMES: Final[dict[str, str]] = {
+    "placeholders": "example text",
+    "steps": "suggested step",
+    "caller_details": "detail to ask callers",
+    "example_questions": "example question",
+    "screen_guide": "on-screen help judgement",
+    "capabilities": "what the business does",
+    "objections": "caller push-back",
+    "caller_noun": "what it calls its callers",
+    "pip_questions": "question for Pip",
+    "starter_words": "ready-made agents' words",
+    "answer": "the answer",
+}
+_SET_NAMES: Final[dict[str, str]] = {
+    "answer_calls": "ready-made answering agent",
+    "call_leads": "ready-made calling agent",
+}
+#: Pydantic's error types, as a person says them.
+_TYPE_WORDS: Final[dict[str, str]] = {
+    "missing": "missing",
+    "string_too_long": "too long",
+    "string_too_short": "empty",
+    "too_long": "too many",
+    "too_short": "too few",
+    "string_pattern_mismatch": "not in the expected form",
+    "extra_forbidden": "not asked for",
+    "bool_type": "not a yes or no",
+    "string_type": "not text",
+}
+
+
+def explain_problem(problem: str) -> str:
+    """One recorded problem (`path: rule`) in an operator's words: "Ready-made answering
+    agent, line 3: numbers in words, no digits, rupee signs or slashes". Admin screens only;
+    the rule half is ours and already plain, so only the path is translated."""
+    left_out = problem.startswith(LEFT_OUT)
+    body = problem.removeprefix(LEFT_OUT) if left_out else problem
+    path, _, rule = body.partition(": ")
+    parts = path.split(".")
+    head = parts[0]
+    if head == "starter_lines" and len(parts) > 1:
+        where = _SET_NAMES.get(parts[1], parts[1])
+        if len(parts) > 2 and parts[2].isdigit():
+            where += f", line {int(parts[2]) + 1}"
+    elif len(parts) > 1 and parts[1].isdigit():
+        where = f"{_PART_NAMES.get(head, head)} {int(parts[1]) + 1}"
+        if len(parts) > 2:
+            where += f" ({parts[2].replace('_', ' ')})"
+    elif len(parts) > 1:
+        where = f"{_PART_NAMES.get(head, head)} '{' '.join(parts[1:]).replace('_', ' ')}'"
+    else:
+        where = _PART_NAMES.get(head, head.replace("_", " "))
+    where = where[:1].upper() + where[1:]
+    said = _TYPE_WORDS.get(rule, rule)
+    if left_out:
+        return f"Left out: {where}" + (f" ({said})" if said else "")
+    return f"{where}: {said}" if said else where
 
 
 async def copy_for(session: AsyncSession, tenant_id: UUID) -> GeneratedCopy | None:
@@ -722,10 +832,14 @@ __all__ = [
     "CAPABILITY_KEYS",
     "CLAIM_TTL",
     "CLINIC_WORDS",
+    "CLINIC_WORD_LIST",
     "EARLIER_CONTACT_RULE",
+    "EMPTY_REPAIR",
     "JOB",
+    "LEFT_OUT",
     "MAX_OBJECTIONS",
     "MAX_PIP_QUESTIONS",
+    "MAX_PROBLEMS",
     "MESSAGE_BLANK",
     "PLACEHOLDER_KEYS",
     "REFRESH_EVERY",
@@ -752,6 +866,7 @@ __all__ = [
     "claims_earlier_contact",
     "copy_for",
     "copy_problems",
+    "explain_problem",
     "health_allowed",
     "health_words_problem",
     "missing_placeholders",

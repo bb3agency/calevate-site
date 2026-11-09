@@ -566,7 +566,9 @@ def test_the_instruction_names_the_call_language_and_the_starters() -> None:
     said = worker.instruction_for(_inputs())
     assert "Main call language: Telugu" in said
     assert "Find out what they need" in said
-    assert not business_copy.CLINIC_WORDS.search(said)
+    # Named once, in the rule that forbids them, and nowhere that would lead a model to them.
+    assert said.count(worker.MEDICAL_WORDS_RULE) == 1
+    assert not business_copy.CLINIC_WORDS.search(said.replace(worker.MEDICAL_WORDS_RULE, ""))
 
 
 def test_the_strict_schema_is_closed_and_counts_the_starter_lines() -> None:

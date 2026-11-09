@@ -92,21 +92,26 @@ ALLOWED: tuple[tuple[str, frozenset[str], str], ...] = (
         "apps/api/tenancy/business_copy.py",
         frozenset(
             {
-                "clinics",
-                "hospitals",
-                "patients",
-                "doctors",
-                "dentists",
+                "hospital",
+                "patient",
+                "doctor",
+                "dentist",
                 "dental",
-                "appointments",
-                "symptoms",
-                "prescriptions",
+                "appointment",
+                "symptom",
+                "prescription",
                 "healthcare",
                 "opd",
             }
         ),
-        "the pattern itself (`CLINIC_WORDS`, which this guard imports), refusing those words "
-        "in a non-clinic account's AI-written examples (D-827)",
+        "the word list itself (`CLINIC_WORD_LIST`, behind the `CLINIC_WORDS` this guard "
+        "imports), refusing those words in a non-clinic account's AI-written examples (D-827)",
+    ),
+    (
+        "apps/workers/business_copy.py",
+        frozenset({"doctor", "hospital"}),
+        "the copy run's rule telling the model which words it may not use for a business "
+        "that gives no health care (`MEDICAL_WORDS_RULE`)",
     ),
 )
 

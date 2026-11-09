@@ -24,7 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.db.base import uuid7
-from apps.api.tenancy.business_copy import CAPABILITY_KEYS
+from apps.api.tenancy.business_copy import CAPABILITY_KEYS, Capabilities
 
 #: The reason stored with an operator's verdict. Plain: an owner may read it.
 OVERRIDE_REASON: Final = "Set by Calevate."
@@ -48,6 +48,11 @@ def apply_overrides(generated: dict[str, Any], raw: Any) -> tuple[dict[str, Any]
     stored: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
     ai: dict[str, Any] = dict(stored.get("ai") or {})
     capabilities = generated.get("capabilities")
+    if decided and not isinstance(capabilities, dict):
+        # A copy written before the profile existed (prompt version 3 or older) has no
+        # `capabilities`; skipping it recorded the decision and changed nothing any reader
+        # sees. It starts from the unknown profile, which clearing the override restores.
+        capabilities = Capabilities.unknown().model_dump(mode="json")
     if decided and isinstance(capabilities, dict):
         capabilities = dict(capabilities)
         for key, applies in decided.items():
