@@ -391,6 +391,14 @@ async def contest(
             "The contested amount must be more than zero and at most the disputed amount.",
             remediation="Leave it empty to contest the whole amount.",
         )
+    if amount != to_paise(amount):
+        # Refused, never rounded: a rounded figure is a different amount from the one the
+        # operator typed (`payments.inr_to_paise` holds the same line).
+        raise ProblemError.business_rule(
+            "dispute_amount_invalid",
+            "The contested amount can have at most two digits after the point.",
+            remediation='Send it in rupees and paise, for example "1500.50".',
+        )
     # Every file is checked before the first is sent, so a bad last file cannot leave
     # documents at Razorpay that no contest names. A read one byte past the limit is enough
     # to know a file is too big without holding all of it.
@@ -418,7 +426,7 @@ async def contest(
         await api.contest_dispute(
             dispute_id,
             summary=summary,
-            amount_paise=inr_to_paise(to_paise(amount)),
+            amount_paise=inr_to_paise(amount),
             evidence={evidence_kind: doc_ids},
         )
         or "under_review"

@@ -81,6 +81,13 @@ EventStatus = Literal[
 ]
 
 _UNKNOWN_TENANT: Final = "razorpay_unknown_tenant"
+#: The refusal for a signed event whose tenant is not here: none resolved, or an id that
+#: is absent or erased. The signature already proves Razorpay sent it, so it is not a
+#: forgery signal. The receiver acknowledges it rather than answering 4xx, because no
+#: redelivery can make the tenant appear and Razorpay disables a webhook that keeps
+#: failing for 24 hours (https://razorpay.com/docs/webhooks/best-practices/, read
+#: 10 Nov 2026).
+UNKNOWN_TENANT_CODE: Final = "payment_tenant_unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,10 +117,20 @@ def _notes_tenant(entity: dict[str, Any] | None) -> UUID | None:
         return None
 
 
+def _unknown_tenant() -> ProblemError:
+    alert("ROUTE_HANDLER", _UNKNOWN_TENANT)
+    return ProblemError(
+        kind="not_found",
+        code=UNKNOWN_TENANT_CODE,
+        title="Organization not found",
+        detail="This payment names an account we could not find.",
+        remediation="Reconcile it by hand: runbooks/topup-payments.md.",
+    )
+
+
 async def _require_tenant(session: Any, tenant_id: UUID) -> None:
     if not await tenant_exists(session, tenant_id):
-        alert("ROUTE_HANDLER", _UNKNOWN_TENANT)
-        raise ProblemError.not_found("Organization")
+        raise _unknown_tenant()
 
 
 async def apply_captured(
@@ -451,8 +468,7 @@ async def apply_dispute(envelope: Any, *, event: str, event_id: str | None) -> E
     else:
         tenant_id = notes_tenant
     if tenant_id is None:
-        alert("ROUTE_HANDLER", _UNKNOWN_TENANT)
-        raise ProblemError.not_found("Organization")
+        raise _unknown_tenant()
     async with tenant_session(tenant_id) as session:
         await _require_tenant(session, tenant_id)
         claim = await claim_inbox_event(

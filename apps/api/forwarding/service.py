@@ -432,13 +432,32 @@ async def delete_line(
 ) -> None:
     """Forget a published number. The client should also switch the forward off on its
     phone; the screen shows the codes for that before the button."""
+    # Refused while its test is placing or ringing: the delete cascades the test away, so
+    # the settle finds nothing (our legs' minutes are never metered) and the arrival is
+    # billed to the client and filed as a lead.
     deleted = (
         await session.execute(
-            text("DELETE FROM forwarded_lines WHERE id = :id RETURNING id"), {"id": line_id}
+            text(
+                "DELETE FROM forwarded_lines l WHERE l.id = :id AND NOT EXISTS ("
+                "SELECT 1 FROM forwarding_tests t WHERE t.line_id = l.id "
+                "AND t.status IN ('placing', 'ringing')) RETURNING l.id"
+            ),
+            {"id": line_id},
         )
     ).first()
     if deleted is None:
-        raise ProblemError.not_found("Forwarded number")
+        exists = (
+            await session.execute(
+                text("SELECT 1 FROM forwarded_lines WHERE id = :id"), {"id": line_id}
+            )
+        ).first()
+        if exists is None:
+            raise ProblemError.not_found("Forwarded number")
+        raise ProblemError.conflict(
+            "forwarding_test_running",
+            "A test call is running on this number.",
+            remediation="Try again in a few minutes, once the test ends.",
+        )
     remaining = (await session.execute(text("SELECT count(*) FROM forwarded_lines"))).scalar_one()
     if remaining == 0:
         await _queue_prompt_line(session, tenant_id)

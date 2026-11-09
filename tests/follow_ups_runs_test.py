@@ -580,6 +580,75 @@ async def test_the_call_ended_trigger_matches_and_never_feeds_itself() -> None:
     assert (await _run(tenant_id, follow_up_id))["last_call_id"] == missed
 
 
+async def test_a_start_that_read_live_before_a_turn_off_committed_starts_nothing() -> None:
+    """Every caller of `start_run` reads the Follow-up as live unlocked. A start whose read
+    came before a turn-off committed inserted its run after `stop_runs` had swept, and the
+    run sat waiting under an off Follow-up, to carry on if the owner turned it back on."""
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await publish(tenant_id, steps=[{"id": "s1", "kind": "wait", "days": 1}])
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        stale = await runner.version(
+            session, (await service.get(session, follow_up_id)).live_version_id
+        )  # type: ignore[arg-type]
+    async with tenant_session(tenant_id) as session:
+        await service.turn_off(session, follow_up_id)
+    async with tenant_session(tenant_id) as session:
+        started = await runner.start_run(
+            session,
+            tenant_id=tenant_id,
+            follow_up=stale,
+            lead_id=lead_id,
+            phone_e164=phone,
+            trigger_ref="manual:race",
+        )
+        runs = (
+            await session.execute(
+                text("SELECT count(*) FROM follow_up_runs WHERE follow_up_id = :f"),
+                {"f": follow_up_id},
+            )
+        ).scalar_one()
+    assert started.outcome == "not_live"
+    assert runs == 0
+
+
+async def test_a_forwarded_call_showing_the_business_number_follows_up_the_real_caller() -> None:
+    """D-746: a forwarded call whose network number is the business's own is filed under
+    the call-back number the caller gave, or under nobody. The Follow-up took the network
+    number, so a "call back missed calls" journey rang the business itself."""
+    tenant_id, agent_id = await _dialable_tenant()
+    follow_up_id = await publish(
+        tenant_id,
+        trigger={"kind": "call_ended", "calls": "inbound", "outcomes": ["missed"]},
+        steps=[{"id": "s1", "kind": "wait", "minutes": 5}],
+    )
+    business_number = _phone()
+    lead_id, given = await _lead(tenant_id, agent_id)
+    with_number = await _call(
+        tenant_id, agent_id, lead_id=lead_id, phone=business_number, outcome="missed"
+    )
+    nobody = await _call(tenant_id, agent_id, lead_id=None, phone=business_number, outcome="missed")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET caller_id_hidden = true WHERE id = ANY(:ids)"),
+            {"ids": [with_number, nobody]},
+        )
+        assert await runner.start_for_call(session, tenant_id=tenant_id, call_id=nobody) == []
+        started = await runner.start_for_call(session, tenant_id=tenant_id, call_id=with_number)
+        assert len(started) == 1
+        phones = (
+            (
+                await session.execute(
+                    text("SELECT phone_e164 FROM follow_up_runs WHERE follow_up_id = :f"),
+                    {"f": follow_up_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert phones == [given]
+
+
 async def test_a_lead_date_starts_each_lead_once_per_date() -> None:
     tenant_id, agent_id = await _dialable_tenant()
     follow_up_id = await publish(

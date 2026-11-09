@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from calevate_shared.business_outcomes import LeadMove
@@ -34,7 +34,7 @@ from calevate_shared.events import (
     ObjectionKind,
 )
 from calevate_shared.extraction import GoalVerdict, NextStepBy, OutcomeTag
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from apps.api.agents.trial_panel import TrialPanelOut
 from apps.api.core.schemas import Strict
@@ -1059,8 +1059,14 @@ class SavedViewFilters(Strict):
         return v
 
 
+#: A saved view's name, trimmed BEFORE the length check: a name of spaces passed
+#: `min_length=1`, was stripped to "" by the service, broke the table's CHECK, and came
+#: back as "you already have a view called “”" (409) instead of a 422.
+ViewName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=60)]
+
+
 class SavedViewIn(Strict):
-    name: str = Field(min_length=1, max_length=60)
+    name: ViewName
     filters: SavedViewFilters = Field(default_factory=SavedViewFilters)
     #: Column keys in the order the chooser left them. `null` = "whatever this agent
     #: has", which keeps a view useful when the capture list grows.
@@ -1077,7 +1083,7 @@ class SavedViewUpdateIn(Strict):
     and this field does not need the ambiguity: an empty selection has no other meaning.
     """
 
-    name: str | None = Field(default=None, min_length=1, max_length=60)
+    name: ViewName | None = None
     filters: SavedViewFilters | None = None
     columns: list[str] | None = Field(default=None, max_length=40)
 
@@ -1154,14 +1160,14 @@ class CallViewFilters(Strict):
 
 
 class CallSavedViewIn(Strict):
-    name: str = Field(min_length=1, max_length=60)
+    name: ViewName
     filters: CallViewFilters = Field(default_factory=CallViewFilters)
 
 
 class CallSavedViewUpdateIn(Strict):
     """Rename or re-pin; an omitted field is left alone."""
 
-    name: str | None = Field(default=None, min_length=1, max_length=60)
+    name: ViewName | None = None
     filters: CallViewFilters | None = None
 
 

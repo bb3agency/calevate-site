@@ -721,6 +721,10 @@ async def _contest(
         ("NaN", None, "dispute_amount_invalid"),
         ("0", None, "dispute_amount_invalid"),
         ("400.01", None, "dispute_amount_invalid"),
+        # A fraction of a paisa was rounded and contested as a different amount, or
+        # rounded to zero and refused in top-up words.
+        ("150.005", None, "dispute_amount_invalid"),
+        ("0.001", None, "dispute_amount_invalid"),
         (None, "text/plain", "dispute_evidence_invalid"),
     ],
 )
@@ -1128,7 +1132,7 @@ async def test_a_dispute_naming_no_client_is_refused_and_alarmed(
             event="payment.dispute.created",
             event_id=None,
         )
-    assert refused.value.code == "not_found"
+    assert refused.value.code == payment_events.UNKNOWN_TENANT_CODE
     assert alerts == ["razorpay_unknown_tenant"]
 
 

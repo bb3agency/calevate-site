@@ -340,6 +340,10 @@ async def create_operator(
     address = email.strip()
     operator_id = uuid7()
     async with credential_session() as session:
+        # Re-proved at the write like a role change: an operator revoked while this request
+        # was in flight could otherwise mint a new account, superadmin included, whose
+        # setup link goes to a mailbox they still hold.
+        await _hold_actor_authority(session, actor, operator_id)
         try:
             await session.execute(
                 text(
@@ -568,6 +572,7 @@ async def reissue_setup_link(
     """
     at = now or datetime.now(UTC)
     async with credential_session() as session:
+        await _hold_actor_authority(session, actor, operator_id)
         account = await _account(session, operator_id, live_only=True)
         if await subjects_with_password(session, realm=ADMIN_REALM, subject_ids=[operator_id]):
             raise ProblemError.conflict(

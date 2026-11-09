@@ -31,7 +31,12 @@ import pytest
 from apps.api.billing import caps as billing_caps
 from apps.api.billing import service as billing
 from apps.api.billing.invoice import build_invoice
-from apps.api.billing.plans import IST, month_pricing_instant, parse_billing_month
+from apps.api.billing.plans import (
+    IST,
+    ist_month_window,
+    month_pricing_instant,
+    parse_billing_month,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
@@ -396,8 +401,10 @@ def test_a_month_that_is_not_a_month_is_refused() -> None:
     """`month` is an unvalidated query parameter on three routes. It now selects the
     PLAN that prices the answer, so a value we cannot parse cannot be waved through to
     a ₹0.00 statement."""
-    for bad in ("july", "2026-13", "2026-7", "2026", ""):
+    # The last three passed the pattern and then raised ValueError/OverflowError building
+    # the month's IST bounds: a 500 on every route that takes `month`.
+    for bad in ("july", "2026-13", "2026-7", "2026", "", "9999-12", "0001-01", "2026-07\n"):
         with pytest.raises(ProblemError) as raised:
-            parse_billing_month(bad)
+            ist_month_window(bad)
         assert raised.value.status == 422
         assert raised.value.code == "invalid_billing_month"

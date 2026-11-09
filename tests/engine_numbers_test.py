@@ -366,6 +366,55 @@ async def test_a_calevate_number_is_offered_only_while_no_client_and_no_test_cal
     assert stored is None
 
 
+async def test_a_refused_record_puts_the_test_line_back(
+    vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The release commits before the record. A record then refused (here: another client's
+    agent answers the number) left the trial line cleared, so every free trial stopped
+    placing test calls for a number no client got."""
+    admin_id, headers = await _admin()
+    await _attested(admin_id)
+    tenant_id, _agent_id, _ref = await _client_with_agent()
+    _neighbour, _their_agent, their_ref = await _client_with_agent()
+    trial = _number()
+    vendor.hold(trial, agent=their_ref)
+    from apps.api.ops.config_service import current_revision, set_value
+
+    async with untenanted_session() as session:
+        await set_value(
+            session,
+            key="trial_caller_number",
+            value=f"+{trial}",
+            note="fixture",
+            actor_id=admin_id,
+            expected_revision=await current_revision(session, "trial_caller_number"),
+        )
+    monkeypatch.setattr(get_settings(), "trial_caller_number", f"+{trial}")
+
+    async def idle(_session: Any) -> int:
+        return 0
+
+    monkeypatch.setattr(number_routes, "calls_on_platform_lines", idle)
+    refused = await _record(tenant_id, {"e164": f"+{trial}"}, headers)
+
+    assert (refused.status_code, _code(refused)) == (409, "engine_number_answered_by_other_client")
+    async with untenanted_session() as session:
+        stored = (
+            await session.execute(
+                text("SELECT value FROM platform_settings WHERE key = 'trial_caller_number'")
+            )
+        ).scalar_one()
+        await set_value(
+            session,
+            key="trial_caller_number",
+            value=None,
+            note="fixture cleanup",
+            actor_id=admin_id,
+            expected_revision=await current_revision(session, "trial_caller_number"),
+        )
+    assert stored == f"+{trial}"
+
+
 async def test_the_trial_number_answered_by_calevates_line_agent_can_be_given(
     vendor: FakeVendor, monkeypatch: pytest.MonkeyPatch
 ) -> None:

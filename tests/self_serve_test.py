@@ -700,8 +700,9 @@ async def test_a_payment_for_an_unknown_tenant_credits_nothing() -> None:
             "/hooks/v1/razorpay", content=untagged_raw, headers=untagged_headers
         )
 
-    assert unknown.status_code == 404, unknown.text
-    # Acknowledged (a 4xx would get the webhook disabled after 24 hours of retries).
+    # Both acknowledged (a 4xx would get the webhook disabled after 24 hours of retries).
+    assert unknown.status_code == 200, unknown.text
+    assert unknown.json()["status"] == "unattributed"
     assert untagged.status_code == 200, untagged.text
     assert untagged.json()["status"] == "unattributed"
 
