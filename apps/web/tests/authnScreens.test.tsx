@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import AcceptInvitationPage from "@/app/(auth)/auth/accept-invitation/page";
 import AdminResetPasswordPage from "@/app/(auth)/auth/admin/reset-password/page";
 import AdminSignInPage from "@/app/(auth)/auth/admin/sign-in/page";
 import ClientForgotPasswordPage from "@/app/(auth)/auth/forgot-password/page";
@@ -757,5 +758,41 @@ describe("a reset link, end to end on each realm", () => {
     expect(screen.getByRole("link", { name: "Go to sign-in" }).getAttribute("href")).toBe(
       entry.signIn,
     );
+  });
+});
+
+/**
+ * An invitation link pressed a second time (a second tab, the email opened twice) loses to
+ * the first press and is refused as `invitation_invalid`; the server serialises the two
+ * since V1-03. The person is a member by then, so the refusal keeps no form that can only
+ * fail again, and offers the way in.
+ */
+describe("an invitation link that was already used", () => {
+  const SPENT = problem(422, {
+    type: "urn:calevate:auth/invitation_invalid",
+    title: "That invitation is no longer usable",
+    detail: "This invitation has been used or has expired.",
+    kind: "business_rule",
+  });
+
+  it("drops the form and offers sign-in", async () => {
+    window.history.replaceState(null, "", `/auth/accept-invitation?token=${"t".repeat(40)}`);
+    await renderPage(<AcceptInvitationPage />, {
+      ...SIGNED_OUT,
+      "GET /v1/auth/client/sign-in-options": { google: false },
+      "POST /v1/auth/client/invitations/accept": SPENT,
+    });
+    const password = "x".repeat(MIN_PASSWORD_CHARS_BY_REALM.client);
+    fireEvent.change(await screen.findByLabelText("New password"), {
+      target: { value: password },
+    });
+    fireEvent.change(screen.getByLabelText("Type it again"), { target: { value: password } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Accept and create my account" }));
+    });
+    expect(await screen.findByText(/This invitation cannot be used/)).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Already joined? Sign in" });
+    expect(link.getAttribute("href")).toBe("/auth/sign-in");
+    expect(screen.queryByLabelText("New password")).toBeNull();
   });
 });
