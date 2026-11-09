@@ -16,6 +16,7 @@ import { useState } from "react";
 import { NoticeBox, ProblemNotice, SECONDARY_BUTTON, Skeleton } from "@/components/ui";
 import { openSheetsPicker, useCredentials } from "@/lib/api/actions";
 import type { Session } from "@/lib/api/client";
+import { useClientRealm } from "@/lib/api/session";
 import { type PickedSheet, pickSpreadsheet } from "@/lib/googlePicker";
 
 export interface ChosenSheet {
@@ -38,6 +39,7 @@ export function SheetChooser({
   disabled?: boolean;
   label?: string;
 }) {
+  const { href } = useClientRealm();
   const creds = useCredentials(session);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -53,7 +55,7 @@ export function SheetChooser({
       <NoticeBox tone="neutral" title="Connect Google Sheets first">
         Connect it on{" "}
         <Link
-          href={`/c/${session.orgSlug}/integrations`}
+          href={href(`/c/${session.orgSlug}/integrations`)}
           className="font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
         >
           Integrations
