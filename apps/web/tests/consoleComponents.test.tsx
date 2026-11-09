@@ -57,6 +57,33 @@ describe("Tabs (vendored interior)", () => {
     expect(document.getElementById(selected.getAttribute("aria-controls") ?? "")).not.toBeNull();
     expect(other.getAttribute("aria-controls")).toBeNull();
   });
+
+  it("keeps a keepMounted panel, and what it holds, under another tab", () => {
+    function Typed() {
+      const [text, setText] = useState("");
+      return <input aria-label="Ask" value={text} onChange={(e) => setText(e.target.value)} />;
+    }
+    render(
+      <Tabs
+        items={[
+          { value: "talk", label: "Conversation" },
+          { value: "tasks", label: "Tasks" },
+        ]}
+        keepMounted={["talk"]}
+        renderPanel={(value, selected) =>
+          value === "talk" ? <Typed /> : <p>{selected ? "tasks shown" : "tasks hidden"}</p>
+        }
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Ask"), { target: { value: "half an answer" } });
+    fireEvent.click(screen.getByRole("tab", { name: "Tasks" }));
+    expect(screen.getByText("tasks shown")).toBeTruthy();
+    const kept = screen.getByLabelText("Ask", { selector: "input" }) as HTMLInputElement;
+    expect(kept.value).toBe("half an answer");
+    expect(kept.closest("[role=tabpanel]")?.hasAttribute("hidden")).toBe(true);
+    fireEvent.click(screen.getByRole("tab", { name: "Conversation" }));
+    expect((screen.getByLabelText("Ask") as HTMLInputElement).value).toBe("half an answer");
+  });
 });
 
 function Segmented({ initial }: { initial: string }) {

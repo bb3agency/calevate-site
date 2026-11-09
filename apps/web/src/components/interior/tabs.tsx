@@ -167,7 +167,13 @@ export type TabsProps = {
   defaultValue?: string;
   onValueChange?: (value: string) => void;
   activation?: TabsActivation;
-  renderPanel?: (value: string) => ReactNode;
+  /** `selected` is false for a panel kept mounted under another tab (`keepMounted`). */
+  renderPanel?: (value: string, selected: boolean) => ReactNode;
+  /**
+   * Tabs whose panel stays mounted, hidden, while another tab shows: work in flight there
+   * (a streamed answer) is not cancelled by a look at another tab.
+   */
+  keepMounted?: readonly string[];
   label?: string;
   panelClassName?: string;
   className?: string;
@@ -189,6 +195,7 @@ export function Tabs({
   onValueChange,
   activation = "automatic",
   renderPanel,
+  keepMounted = [],
   label = "Tabs",
   panelClassName = "",
   className = "",
@@ -226,15 +233,23 @@ export function Tabs({
         </div>
       </ScrollRegion>
 
-      {renderPanel ? (
-        <div
-          key={tabs.value}
-          {...tabs.getPanelProps(tabs.value)}
-          className={`text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand ${panelClassName}`}
-        >
-          {renderPanel(tabs.value)}
-        </div>
-      ) : null}
+      {renderPanel
+        ? items
+            .filter((item) => item.value === tabs.value || keepMounted.includes(item.value))
+            .map((item) => {
+              const selected = item.value === tabs.value;
+              return (
+                <div
+                  key={item.value}
+                  {...tabs.getPanelProps(item.value)}
+                  hidden={!selected}
+                  className={`text-ink outline-none focus-visible:ring-2 focus-visible:ring-brand ${panelClassName}`}
+                >
+                  {renderPanel(item.value, selected)}
+                </div>
+              );
+            })
+        : null}
     </div>
   );
 }

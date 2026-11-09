@@ -85,7 +85,8 @@ export function ClientAssistantWorkspace({
         value={tab}
         onValueChange={setTab}
         panelClassName="pt-4"
-        renderPanel={(value) => {
+        keepMounted={["conversation"]}
+        renderPanel={(value, selected) => {
           switch (value) {
             case "approvals":
               return <ApprovalsInbox session={session} />;
@@ -105,6 +106,7 @@ export function ClientAssistantWorkspace({
                   realm="client"
                   labelledBy={titleId}
                   placement="page"
+                  hidden={!selected}
                   onNavigate={onNavigate}
                 />
               );
@@ -135,7 +137,8 @@ export function AdminAssistantWorkspace({
         value={tab}
         onValueChange={setTab}
         panelClassName="pt-4"
-        renderPanel={(value) =>
+        keepMounted={["conversation"]}
+        renderPanel={(value, selected) =>
           value === "activity" ? (
             <ActivityLog session={session} realm="admin" />
           ) : (
@@ -145,6 +148,7 @@ export function AdminAssistantWorkspace({
               realm="admin"
               labelledBy={titleId}
               placement="page"
+              hidden={!selected}
               onNavigate={onNavigate}
             />
           )
