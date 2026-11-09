@@ -406,6 +406,7 @@ async def test_ops_can_read_and_record_the_platform_tm_registration() -> None:
         "load_shed_mode",
         "outbound_halted",
         "halt_reason",
+        "load_shed_reason",
         "tm_registration",
         "outbox_dead_letters",
         # D-123. The second MEASUREMENT on a payload of switches, and it arrives by the

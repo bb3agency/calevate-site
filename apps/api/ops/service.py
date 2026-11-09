@@ -105,6 +105,22 @@ async def read_halt_state(session: AsyncSession) -> HaltState:
     return HaltState(outbound_halted=halted, reason=(row[1] or None) if halted else None)
 
 
+async def read_load_shed_reason(session: AsyncSession, *, mode: str) -> str | None:
+    """Why the platform is in `mode`, or None when the row says it is in another mode.
+
+    `mode` is the caller's (the write's own result, or the read's force-refreshed cache);
+    a reason written for a different mode than the one shown is not returned beside it.
+    """
+    row = (
+        await session.execute(
+            text("SELECT load_shed_mode, load_shed_reason FROM platform_state WHERE id = 1")
+        )
+    ).first()
+    if row is None or row[0] != mode or mode == "normal":
+        return None
+    return row[1] or None
+
+
 @dataclass(frozen=True, slots=True)
 class TmRegistration:
     """What the registrar says about Calevate, as the platform last verified it."""

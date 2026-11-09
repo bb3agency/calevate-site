@@ -609,6 +609,7 @@ function platform(over: Partial<PlatformState> = {}): PlatformState {
     load_shed_mode: "normal",
     outbound_halted: false,
     halt_reason: null,
+    load_shed_reason: null,
     outbox_dead_letters: deadLetters(),
     engine_drift: engineDrift(),
     kb_drift: kbDrift(),
@@ -911,6 +912,33 @@ describe("the big red switch", () => {
 
     await screen.findByText("Outbound calling is HALTED for every client");
     expect(container.textContent).toContain("none was recorded with this halt");
+  });
+
+  it("shows why the platform was slowed, so whoever finds it slowed can judge it", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          load_shed_mode: "reduced",
+          load_shed_reason: "database under heavy load — lift when replication catches up",
+        }),
+      ),
+    );
+
+    await screen.findByText("Outbound calling is running");
+    expect(container.textContent).toContain(
+      "database under heavy load — lift when replication catches up",
+    );
+  });
+
+  it("says a slowdown carries no reason rather than implying it was routine", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform({ load_shed_mode: "reduced", load_shed_reason: null })),
+    );
+
+    await screen.findByText("Outbound calling is running");
+    expect(container.textContent).toContain("none was recorded with this change");
   });
 
   it("prints a load-shed mode this build cannot name instead of rendering a function", async () => {

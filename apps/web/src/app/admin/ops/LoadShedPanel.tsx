@@ -147,6 +147,12 @@ export function LoadShedPanel({ state, access }: { state: PlatformState; access:
               </>
             )}
           </p>
+          {current !== "normal" && (
+            <p className="mt-1">
+              <span className="font-medium text-ink">Reason on the record:</span>{" "}
+              {state.load_shed_reason ?? "none was recorded with this change."}
+            </p>
+          )}
         </NoticeBox>
 
         {setState.error && (

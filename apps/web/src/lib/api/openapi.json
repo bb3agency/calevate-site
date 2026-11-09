@@ -43644,6 +43644,17 @@
             "title": "Load Shed Mode",
             "type": "string"
           },
+          "load_shed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Load Shed Reason"
+          },
           "outbound_halted": {
             "title": "Outbound Halted",
             "type": "boolean"
@@ -43659,6 +43670,7 @@
           "load_shed_mode",
           "outbound_halted",
           "halt_reason",
+          "load_shed_reason",
           "tm_registration",
           "outbox_dead_letters",
           "engine_drift",

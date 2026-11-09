@@ -271,6 +271,8 @@ class PlatformState(Base):
     # The big red switch (FLOWS §5): halts ALL tenants' outbound dispatch at once.
     outbound_halted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     halt_reason: Mapped[str | None] = mapped_column(Text)
+    # Why the platform was slowed: written with `load_shed_mode`, cleared on `normal`.
+    load_shed_reason: Mapped[str | None] = mapped_column(Text)
     changed_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     changed_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     # Calevate's OWN telemarketer registration (SEC-COMP §3). One fact for the whole

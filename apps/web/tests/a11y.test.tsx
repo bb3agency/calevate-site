@@ -1393,6 +1393,7 @@ const PLATFORM = {
   load_shed_mode: "normal",
   outbound_halted: false,
   halt_reason: null,
+  load_shed_reason: null,
   outbox_dead_letters: {
     depth: 9,
     oldest_at: "2026-08-04T04:15:00Z",

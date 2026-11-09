@@ -155,6 +155,7 @@ from apps.api.ops.reply_times import ReplyTimeReport, reply_time_report
 from apps.api.ops.service import (
     TmRegistration,
     read_halt_state,
+    read_load_shed_reason,
     read_tm_registration,
     set_tm_registration,
 )
@@ -374,6 +375,9 @@ class PlatformStateOut(BaseModel):
     # (`ops.service.read_halt_state`) so the dashboard cannot show a halt from one
     # instant next to a reason from another.
     halt_reason: str | None
+    # Why the platform is slowed, for whoever finds it slowed. Null in `normal`, and null
+    # when the row's mode is not the one beside it (`ops.service.read_load_shed_reason`).
+    load_shed_reason: str | None
     # The third global switch on this row, and the only one that is a legal fact rather
     # than an operational one: when it is not live, no tenant may launch a campaign.
     tm_registration: TmRegistrationOut
@@ -657,6 +661,7 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
         load_shed_mode=load_shed_mode,
         outbound_halted=halt.outbound_halted,
         halt_reason=halt.reason,
+        load_shed_reason=await read_load_shed_reason(session, mode=load_shed_mode),
         tm_registration=_tm_out(await read_tm_registration(session)),
         outbox_dead_letters=DeadLetterQueueOut(
             depth=dlq.depth,
@@ -766,6 +771,7 @@ async def set_platform(
         mode=payload.load_shed_mode,
         outbound_halted=payload.outbound_halted,
         halt_reason=payload.reason,
+        load_shed_reason=payload.reason,
         actor_id=str(principal.user_id) if principal.user_id else None,
     )
     halt = await read_halt_state(session)
