@@ -16,6 +16,7 @@
 import { useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ExpandableText } from "@/components/arc/expandable-text";
 import { PipMark } from "@/components/illustration/pip";
 import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { useClientSession } from "@/lib/api/session";
@@ -126,7 +127,11 @@ export function PipProposal({
         limits={limits}
         language={languageName(language)}
       >
-        {proposal.request && <p className="text-meta text-ink-muted">You asked: “{proposal.request}”</p>}
+        {proposal.request && (
+          <ExpandableText lines={2} textClassName="whitespace-pre-line text-meta text-ink-muted">
+            {`You asked: “${requestLines(proposal.request)}”`}
+          </ExpandableText>
+        )}
         {proposal.mode === "whole" && <p className="text-meta text-ink-muted">Drafted from your answers.</p>}
         {proposal.mode === "opening" && (
           <p className="text-meta text-ink-muted">An opening line for after your agent says who it is.</p>
@@ -171,4 +176,13 @@ export function PipProposal({
       )}
     </section>
   );
+}
+
+/**
+ * The request as it was asked, its numbered points on lines of their own. Pip often writes
+ * the request out in full ("1. Opening line: ... 2. Step 1: ..."), and as one paragraph it
+ * read as a wall of text above the changes (founder, 9 Nov 2026).
+ */
+export function requestLines(request: string): string {
+  return request.trim().replace(/\s+(\d{1,2})\.\s+(?=\S)/g, "\n$1. ");
 }
