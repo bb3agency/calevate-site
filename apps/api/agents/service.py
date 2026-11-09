@@ -217,7 +217,7 @@ from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import session_tenant, tenant_session
 from apps.api.engine import get_engine, require_capability
-from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
+from apps.api.engine.capabilities import DIAL_PRECONDITION_FAILED, ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.engine.catalogue import HostsVoices
 from apps.api.engine.dial_lines import (
     CARRIER_LINES_LOCK_KEY,
@@ -318,6 +318,9 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # request is built, so no line was seized and the contact keeps its place — the
         # same standing as a missing caller id, and for the same reason.
         ENGINE_COMPLIANCE_FLOOR_ABSENT,
+        # The adapter could not build the dial (the agent's opening line unreadable or
+        # missing, too many call variables) and sent no `POST /calls`.
+        DIAL_PRECONDITION_FAILED,
         # The engine account's call ceiling (`engine/dial_lines.py`): every outbound line is
         # in use, raised by `dispatch_call` before the intent row is written.
         LINES_BUSY_RULE,

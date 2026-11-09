@@ -189,6 +189,7 @@ from apps.api.engine.trial_line import TRIAL_LINE_AGENT_NAME, TrialLineAgent
 from apps.api.engine.vendor_http import (
     REQUEST_TIMEOUT_S,
     SCOPE_NOT_FOUND_CODES,
+    EngineRateLimitedError,
     EngineRejectedError,
     recipient_opted_out_error,
     vendor_audio_request,
@@ -513,10 +514,6 @@ _SPEAKERS: Final[dict[str, Speaker]] = {"agent": "agent", "customer": "caller"}
 # the agent counts one account holds.
 _NAME_TAG_PREFIX: Final = " #cv-"
 _NAME_TAG_RE: Final = re.compile(r" #cv-[0-9a-f]{12}$")
-
-# The code `agents.service.DIAL_NOT_PLACED_CODES` already treats as "refused before any
-# request was sent".
-DIAL_PRECONDITION_FAILED: Final = "carrier_dial_precondition_failed"
 
 #: The 403 codes that say our key's level is too low for the request (errors.md:89-90 in
 #: snapshots/2026-10-15). Another 403 is about the person, the number or the workspace.
@@ -1262,14 +1259,19 @@ def _bad_response(detail: str) -> ProblemError:
     )
 
 
-def _dial_precondition_failed(*, missing: str) -> ProblemError:
+def _dial_precondition_failed(
+    *, missing: str, detail: str | None = None, remediation: str | None = None
+) -> ProblemError:
+    """A dial refused before `POST /calls` was sent: nobody was rung."""
     log.warning("thinnest_dial_precondition_failed", extra={"missing": missing})
     return ProblemError(
         kind="dependency",
-        code=DIAL_PRECONDITION_FAILED,
+        # `capabilities.DIAL_PRECONDITION_FAILED`, spelled out for the alarm-wiring scan,
+        # which resolves a literal or a constant of this module only.
+        code="carrier_dial_precondition_failed",
         title="The call could not be started",
-        detail=f"The voice platform could not start this call: the {missing} is missing.",
-        remediation="Publish the agent again. If it keeps failing, contact us.",
+        detail=detail or f"The voice platform could not start this call: the {missing} is missing.",
+        remediation=remediation or "Publish the agent again. If it keeps failing, contact us.",
     )
 
 
@@ -3431,16 +3433,35 @@ class ThinnestEngine:
             data = await self._request(
                 "GET", f"/agents/{raw}", route="/agents/{ref}", workspace=workspace
             )
+        except EngineRateLimitedError:
+            # Already a not-placed refusal, and the one the dial path holds every dial off
+            # for: reworded as a missing agent, a throttle would send the owner to republish.
+            raise
         except ProblemError as exc:
-            raise _dial_precondition_failed(missing="published agent") from exc
+            if isinstance(exc, EngineRejectedError) and exc.object_absent:
+                raise _dial_precondition_failed(missing="published agent") from exc
+            raise _dial_precondition_failed(
+                missing="agent read",
+                detail="The voice platform did not answer while the call was being prepared, "
+                "so nobody was called.",
+                remediation="Try again in a minute. If it keeps failing, contact us.",
+            ) from exc
         greeting = wire_str(data.get("greeting"))
         values: dict[str, str | None] = {**variables}
         spoken = fill_spoken_line(greeting or "", values)
         if not spoken:
             raise _dial_precondition_failed(missing="agent's opening line")
-        return self._within(
-            spoken, PURPOSE_MAX_CHARS, code="engine_greeting_too_long", what="opening"
-        )
+        if len(spoken) > PURPOSE_MAX_CHARS:
+            # This call's details can lengthen an opening the publish accepted (a long name
+            # in `{{name}}`), so it is refused here as a dial nobody was rung for.
+            raise _dial_precondition_failed(
+                missing="opening line within the limit",
+                detail=f"The agent's opening line comes to {len(spoken)} characters with this "
+                f"call's details filled in, and a call's first words may be at most "
+                f"{PURPOSE_MAX_CHARS}. Nobody was called.",
+                remediation="Shorten the agent's opening line and publish it again.",
+            )
+        return spoken
 
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext

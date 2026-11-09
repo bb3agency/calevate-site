@@ -266,6 +266,12 @@ def require_speech_leg(leg: SpeechLeg, *, engine: VoiceEngine, value: str | None
 #: the ladder and the dial can be retried once the prompt is right.
 ENGINE_COMPLIANCE_FLOOR_ABSENT: Final = "engine_compliance_floor_absent"
 
+#: An adapter could not build a dial (the agent's opening line unreadable or missing, the
+#: call's variables over the limit) and sent nothing to place it. In `DIAL_NOT_PLACED_CODES`
+#: for the floor's reason: without it the dial reads as "the phone may have rung", which
+#: finishes a campaign contact for good and holds an outbound line for a call never placed.
+DIAL_PRECONDITION_FAILED: Final = "carrier_dial_precondition_failed"
+
 
 def require_call_compliance_floor(*, engine: VoiceEngine, prompt_on_the_wire: str | None) -> None:
     """Refuse a dial that would place a call with no truthful-answer rule on it.
@@ -362,6 +368,7 @@ def require_kb_text(text: str, *, engine: VoiceEngine, url: str | None = None) -
 
 
 __all__ = [
+    "DIAL_PRECONDITION_FAILED",
     "ENGINE_CAPABILITY_ABSENT",
     "ENGINE_COMPLIANCE_FLOOR_ABSENT",
     "ENGINE_KB_LINK_UNREADABLE",
