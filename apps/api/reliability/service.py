@@ -100,6 +100,16 @@ OUTBOX_UNKNOWN_JOB_GRACE = timedelta(minutes=30)
 #: `authn.service.AUTH_EMAIL_JOB` and `team_alerts.service.CODE_JOB`.
 SCRUB_AT_PUBLISH_JOBS: frozenset[str] = frozenset({"deliver_auth_email", "send_team_contact_code"})
 
+#: Jobs whose payload is still read after a run succeeds, so `mark_outbox_consumed` keeps
+#: it. A CRM delivery's message is the body its scheduled retries and "Send again" re-send
+#: (`integrations.service.claim_due_retries`, `resend_delivery`), and the record that a lead
+#: went to LeadSquared which its echo check reads (`ingest/routes._sent_to_leadsquared`).
+#: A first attempt that schedules its retry returns normally, so scrubbing on success sent
+#: every retry an empty body. Held until the 90-day prune or an erasure
+#: (`retention._erase_outbox_messages`), the window "Send again" promises. Held equal to
+#: `integrations.service.OUTBOUND_WEBHOOK_JOB` by `tests/audit_2026_11_09_x3_test.py`.
+KEEP_PAYLOAD_AFTER_RUN_JOBS: frozenset[str] = frozenset({"deliver_outbound_webhook"})
+
 #: How long a published message may go without a successful run before it counts as lost.
 #: Longer than arq's longest result window (`WorkerSettings.keep_result`, one hour), so a
 #: re-publish of a failed run is not refused by the result its id still holds; a message
@@ -792,7 +802,8 @@ async def mark_outbox_published(
     deploy, a run that failed for good) unrecoverable: nothing had its arguments any more.
     So `SCRUB_AT_PUBLISH_JOBS` keep the D-170 rule above, and every other job keeps its
     payload until its run succeeds, when `mark_outbox_consumed` forgets it in the statement
-    that records the success — the exposure is "until the work is done", not ninety days.
+    that records the success — the exposure is "until the work is done", not ninety days
+    (`KEEP_PAYLOAD_AFTER_RUN_JOBS` excepted: their body is still read after a success).
     `consume_by` is the deadline `sweep_unconsumed_outbox` holds a run to.
     """
     # A re-publish arq refused because the run is still queued or running did not attempt
@@ -863,17 +874,19 @@ async def outbox_message_consumed(session: AsyncSession, *, message_id: UUID, jo
 
 async def mark_outbox_consumed(session: AsyncSession, *, message_id: UUID, job: str) -> None:
     """Record that a run of this message succeeded, and forget its payload in the same
-    statement: from here the row only answers "was this done". First writer wins. The
-    status column is the dispatcher's, with one exception: a dead-lettered row whose run
-    then succeeded leaves the DLQ (to `published`, so it is pruned), since nobody should
-    replay work that was done."""
+    statement (except `KEEP_PAYLOAD_AFTER_RUN_JOBS`): from here the row only answers "was
+    this done". First writer wins. The status column is the dispatcher's, with one
+    exception: a dead-lettered row whose run then succeeded leaves the DLQ (to `published`,
+    so it is pruned), since nobody should replay work that was done."""
     await session.execute(
         text(
-            "UPDATE outbox_messages SET consumed_at = now(), payload = '{}'::jsonb, "
+            "UPDATE outbox_messages SET consumed_at = now(), "
+            "payload = CASE WHEN job = ANY(CAST(:keep AS text[])) THEN payload "
+            "ELSE '{}'::jsonb END, "
             "status = CASE WHEN status = 'failed' THEN 'published' ELSE status END "
             "WHERE id = :id AND job = :job AND consumed_at IS NULL"
         ),
-        {"id": message_id, "job": job},
+        {"id": message_id, "job": job, "keep": sorted(KEEP_PAYLOAD_AFTER_RUN_JOBS)},
     )
 
 
@@ -1524,6 +1537,7 @@ async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) 
 
 __all__ = [
     "IDEMPOTENCY_TTL",
+    "KEEP_PAYLOAD_AFTER_RUN_JOBS",
     "OUTBOX_CLAIM_LEASE",
     "OUTBOX_CONSUME_DEADLINE",
     "OUTBOX_MAX_ATTEMPTS",

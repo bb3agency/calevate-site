@@ -364,7 +364,14 @@ async def record_kyc(
             "  verification_reference = COALESCE(EXCLUDED.verification_reference, "
             "    kyc_records.verification_reference), "
             "  verified_name = COALESCE(EXCLUDED.verified_name, kyc_records.verified_name), "
-            "  submitted_at = COALESCE(kyc_records.submitted_at, EXCLUDED.submitted_at), "
+            # A record moving INTO review from anything but review is a new submission and
+            # takes a new instant, as `submit_for_manual_review` does: the decision notice
+            # is keyed on it (`kyc_review.decide_kyc_review`), so a signatory run after a
+            # rejection that kept the old instant found the key spent and the client was
+            # never told the second decision.
+            "  submitted_at = CASE WHEN EXCLUDED.status = 'submitted' "
+            "    AND kyc_records.status NOT IN ('submitted', 'in_review') THEN now() "
+            "    ELSE COALESCE(kyc_records.submitted_at, EXCLUDED.submitted_at) END, "
             f"  verified_at = {'now()' if verified else 'NULL'}, "
             "  updated_at = now()"
         ),
