@@ -62,6 +62,8 @@ import { lookup } from "@/lib/lookup";
 
 import { recordPaymentConfirmation } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { paidKey } from "./paidStatus";
+import { trialKey } from "./trials";
 
 import type { components } from "./schema";
 
@@ -139,6 +141,18 @@ export function creditsKey(tenantId: string): readonly unknown[] {
 export function invalidateWallet(client: QueryClient, tenantId: string): void {
   void client.invalidateQueries({ queryKey: creditsKey(tenantId) });
   void client.invalidateQueries({ queryKey: ["admin", "tenant", tenantId] });
+}
+
+/**
+ * After a write that can make this the account's first payment (`billing/first_payment`:
+ * a recorded or restated bank transfer, a trial ended as converted, a super admin's
+ * make-paid): the server marks the account paid and converts a running trial, and the
+ * Credits page shows both beside the wallet.
+ */
+export function invalidatePaymentCredited(client: QueryClient, tenantId: string): void {
+  invalidateWallet(client, tenantId);
+  void client.invalidateQueries({ queryKey: paidKey(tenantId) });
+  void client.invalidateQueries({ queryKey: trialKey(tenantId) });
 }
 
 /**
@@ -351,7 +365,7 @@ export function useRecordTopUp(session: Session, tenantId: string) {
     // The balance and the ledger both moved — and on a replay neither did, which is
     // just as important to re-read: the screen must show the ledger as it IS, not the
     // one it had before a colleague's entry landed.
-    onSuccess: () => invalidateWallet(client, tenantId),
+    onSuccess: () => invalidatePaymentCredited(client, tenantId),
   });
 }
 
@@ -590,7 +604,7 @@ export function useRecordRestatement(session: Session, tenantId: string) {
     // The balance, the ledger and the payment's own total all moved — and the third is
     // what the NEXT restatement of this payment would be measured against, so a stale
     // one on screen is how somebody restates from a figure that is no longer true.
-    onSuccess: () => invalidateWallet(client, tenantId),
+    onSuccess: () => invalidatePaymentCredited(client, tenantId),
   });
 }
 
