@@ -523,3 +523,101 @@ async def test_the_inviter_is_handed_nothing_they_could_redeem(planted: Planted)
     # And with nothing to redeem, the address is still free — the squat is not merely
     # harder, it is unreachable from where an attacker stands.
     assert await _user_id(address) is None
+
+
+@pytest.mark.asyncio
+async def test_a_second_press_of_the_link_does_not_sign_the_new_member_out(
+    planted: Planted, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two redemptions of one invitation at once, for an address with no account yet.
+
+    The interleaving is forced: the first redemption to reach the password write waits for
+    the second to reach it too, and the second waits until the first has issued its
+    session. Without serialisation both had decided "first password" before either wrote
+    one, so the second set the password again and revoked the winner's fresh session before
+    losing the burn. Serialised, the second never reaches the password write, so each wait
+    gives up after a moment and the redemptions run one after the other.
+    """
+    import asyncio
+    import contextlib
+    from typing import Any
+
+    from apps.api.authn import invitations
+    from apps.api.authn.credentials import set_password as real_set_password
+    from apps.api.authn.sessions import IssuedSession
+    from apps.api.authn.sessions import issue_session as real_issue_session
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, slug, session_token = await planted.tenant()
+    address = planted.address("double-press")
+    raw = await _invite(slug, session_token, address, "staff")
+
+    second_arrived = asyncio.Event()
+    first_issued = asyncio.Event()
+    password_writes = 0
+
+    async def _wait(event: asyncio.Event) -> None:
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(event.wait(), timeout=1.0)
+
+    async def set_password(*args: Any, **kwargs: Any) -> None:
+        nonlocal password_writes
+        password_writes += 1
+        if password_writes == 1:
+            await _wait(second_arrived)
+        else:
+            second_arrived.set()
+            await _wait(first_issued)
+        await real_set_password(*args, **kwargs)
+
+    async def issue_session(*args: Any, **kwargs: Any) -> IssuedSession:
+        issued = await real_issue_session(*args, **kwargs)
+        first_issued.set()
+        return issued
+
+    monkeypatch.setattr(invitations, "set_password", set_password)
+    monkeypatch.setattr(invitations, "issue_session", issue_session)
+
+    async def _accept() -> invitations.AcceptedInvitation:
+        return await invitations.accept_with_password(
+            token=raw, password=REDEMPTION_PASSWORD, name=None, ip=None
+        )
+
+    outcomes = await asyncio.gather(_accept(), _accept(), return_exceptions=True)
+
+    winners = [o for o in outcomes if isinstance(o, invitations.AcceptedInvitation)]
+    losers = [o for o in outcomes if isinstance(o, ProblemError)]
+    assert len(winners) == 1 and len(losers) == 1, outcomes
+    assert losers[0].code == "invitation_invalid"
+    assert losers[0].status == 422
+    assert password_writes == 1, "the losing redemption must not write a credential"
+    assert await _session_live(winners[0].session.token), "the new member was signed out"
+    assert await _memberships(tenant_id, address) == 1
+    assert await _password_signs_in(winners[0].user_id, REDEMPTION_PASSWORD)
+
+
+@pytest.mark.asyncio
+async def test_a_google_redemption_joins_once_and_refuses_the_replay(planted: Planted) -> None:
+    """The Google path takes the same redemption lock: the first redemption joins, and a
+    second one of the same link gets the plain refusal, not a second membership."""
+    from apps.api.authn import invitations
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, slug, session_token = await planted.tenant()
+    address = planted.address("google-joiner")
+    raw = await _invite(slug, session_token, address, "staff")
+    user_id, created = await invitations._find_or_create_user(
+        email=address, name=None, at=datetime.now(UTC)
+    )
+    assert created
+
+    joined = await invitations.accept_for_verified_address(
+        token=raw, user_id=user_id, verified_email=address, ip=None
+    )
+    assert joined is not None and joined.tenant_id == tenant_id
+    with pytest.raises(ProblemError) as replay:
+        await invitations.accept_for_verified_address(
+            token=raw, user_id=user_id, verified_email=address, ip=None
+        )
+    assert replay.value.code == "invitation_invalid"
+    assert await _memberships(tenant_id, address) == 1
