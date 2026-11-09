@@ -118,9 +118,13 @@ function createStore(): Store {
     commit(toasts.map((t) => (t.id === id ? next : t)));
   };
   const toast: ToastApi["toast"] = ({ id, kind = "info", duration, ...rest }) => {
-    if (id && toasts.some((t) => t.id === id)) {
-      update(id, { kind, duration, ...rest });
-      return id;
+    const found = id ? toasts.find((t) => t.id === id) : undefined;
+    if (found) {
+      // A whole new statement in the same place, not a patch (`update` is the patch): a
+      // success replacing a failure must not keep the failure's code, sentence or Try again.
+      const next: ToastRecord = { ...rest, id: found.id, kind, duration: durationFor(kind, duration), version: found.version + 1 };
+      commit(toasts.map((t) => (t.id === found.id ? next : t)));
+      return found.id;
     }
     seq += 1;
     const record: ToastRecord = {
