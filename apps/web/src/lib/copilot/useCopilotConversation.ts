@@ -353,9 +353,19 @@ export function settleSteps(steps: CopilotStep[]): CopilotStep[] {
  */
 const openOffers = new Map<string, CopilotProposal>();
 
-/** Test seam: forget every held offer. */
+/*
+ * THE BACKGROUND TASKS THIS TAB STARTED outlive the panel for the same reason. The answer
+ * that starts one says its progress shows in the panel, and a close (or a move to another
+ * screen, which closes it) used to drop the card: the reopened panel said "Started in the
+ * background" with nothing to follow. Only ids and the starting frame are held; each card
+ * reads its job's state from the server.
+ */
+const startedJobs = new Map<string, CopilotJobFrame[]>();
+
+/** Test seam: forget every held offer and background task. */
 export function forgetOpenOffers(): void {
   openOffers.clear();
+  startedJobs.clear();
 }
 
 export function useCopilotConversation(
@@ -416,6 +426,8 @@ export function useCopilotConversation(
     if (offerKey === null) return;
     const held = openOffers.get(offerKey);
     if (held !== undefined) setOffer((current) => current ?? held);
+    const started = startedJobs.get(offerKey);
+    if (started !== undefined) setJobs((current) => (current.length > 0 ? current : started));
   }, [offerKey]);
   /** Confirmed: the card stays as the record of what happened, but a reopened panel must
    *  not offer a token the server has already spent. */
@@ -570,10 +582,11 @@ export function useCopilotConversation(
     setActions([]);
     setCharts([]);
     setJobs([]);
+    if (offerKey !== null) startedJobs.delete(offerKey);
     setNavigation(null);
     setSteps([]);
     clearFilled();
-  }, [queries, realm, session, setProposal]);
+  }, [offerKey, queries, realm, session, setProposal]);
 
   const stop = useCallback(() => {
     const controller = inFlight.current;
@@ -764,11 +777,12 @@ export function useCopilotConversation(
             setCharts((previous) => [...previous, spec]);
           },
           onJob: (started) => {
-            setJobs((previous) =>
-              previous.some((job) => job.job_id === started.job_id)
-                ? previous
-                : [...previous, started],
-            );
+            setJobs((previous) => {
+              if (previous.some((job) => job.job_id === started.job_id)) return previous;
+              const next = [...previous, started];
+              if (offerKey !== null) startedJobs.set(offerKey, next);
+              return next;
+            });
           },
           onNavigate: (destination) => {
             // HELD, NOT PERFORMED. The panel moves once the answer has finished arriving —
@@ -837,7 +851,7 @@ export function useCopilotConversation(
           }
         });
     },
-    [appendTurn, holder, queries, session, setProposal, sync, turns],
+    [appendTurn, holder, offerKey, queries, session, setProposal, sync, turns],
   );
 
   /**

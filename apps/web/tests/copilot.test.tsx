@@ -1683,6 +1683,8 @@ describe("an action the assistant has already taken", () => {
 });
 
 describe("an action that can be undone (D-694)", () => {
+  afterEach(forgetOpenOffers);
+
   it("OFFERS UNDO while the window is open, and none when there is no log row", async () => {
     const undoable = {
       ...ACTION,
@@ -1715,6 +1717,24 @@ describe("an action that can be undone (D-694)", () => {
     await ask("mark all of yesterday's leads as contacted");
 
     expect(await screen.findByText("Mark yesterday's leads contacted")).toBeTruthy();
+  });
+
+  it("KEEPS FOLLOWING THE BACKGROUND JOB after the panel is closed and opened again (audit 10 Nov Y2-03)", async () => {
+    stubCopilot({
+      chunks: [
+        'event: job\ndata: {"job_id":"0192f0aa-0000-7000-8000-00000000c001","status":"queued","goal":"Mark yesterday\'s leads contacted","detail":"Started in the background."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    const first = renderPanel();
+    await ask("mark all of yesterday's leads as contacted");
+    expect(await screen.findByText("Mark yesterday's leads contacted")).toBeTruthy();
+    // The dock unmounts the panel on every close and on every move to another screen.
+    first.unmount();
+
+    renderPanel();
+    expect(await screen.findByText("Mark yesterday's leads contacted")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
   });
 });
 
