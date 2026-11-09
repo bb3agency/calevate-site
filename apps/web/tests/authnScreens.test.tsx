@@ -8,6 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AcceptInvitationPage from "@/app/(auth)/auth/accept-invitation/page";
+import AdminBootstrapPage from "@/app/(auth)/auth/admin/bootstrap/page";
 import AdminResetPasswordPage from "@/app/(auth)/auth/admin/reset-password/page";
 import AdminSignInPage from "@/app/(auth)/auth/admin/sign-in/page";
 import ClientForgotPasswordPage from "@/app/(auth)/auth/forgot-password/page";
@@ -793,6 +794,34 @@ describe("an invitation link that was already used", () => {
     expect(await screen.findByText(/This invitation cannot be used/)).toBeTruthy();
     const link = screen.getByRole("link", { name: "Already joined? Sign in" });
     expect(link.getAttribute("href")).toBe("/auth/sign-in");
+    expect(screen.queryByLabelText("New password")).toBeNull();
+  });
+});
+
+/** "Sign in instead" needs the way to sign in, not a form that refuses again. */
+describe("an operator setup link for an account that already has a password", () => {
+  it("drops the form and offers the operator sign-in", async () => {
+    window.history.replaceState(null, "", `/auth/admin/bootstrap?token=${"t".repeat(40)}`);
+    await renderPage(<AdminBootstrapPage />, {
+      ...SIGNED_OUT,
+      "POST /v1/auth/admin/bootstrap/confirm": problem(409, {
+        type: "urn:calevate:auth/already_bootstrapped",
+        title: "This deployment already has an administrator",
+        detail: "An operator account with a password already exists.",
+        kind: "conflict",
+      }),
+    });
+    const password = "x".repeat(MIN_PASSWORD_CHARS_BY_REALM.admin);
+    fireEvent.change(await screen.findByLabelText("New password"), {
+      target: { value: password },
+    });
+    fireEvent.change(screen.getByLabelText("Type it again"), { target: { value: password } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Set the password" }));
+    });
+    expect(await screen.findByText(/Sign in instead/)).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Go to sign-in" });
+    expect(link.getAttribute("href")).toBe("/auth/admin/sign-in");
     expect(screen.queryByLabelText("New password")).toBeNull();
   });
 });

@@ -26,6 +26,7 @@ import { AuthCard, AuthHeading, AuthPageFrame } from "@/components/authPage";
 import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPasswordForm";
 import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { ADMIN_SIGN_IN_PATH, confirmAdminBootstrap } from "@/lib/authn/adminAuthn";
+import { AUTHN_CODES } from "@/lib/authn/problems";
 
 export default function AdminBootstrapPage() {
   return (
@@ -46,6 +47,12 @@ export default function AdminBootstrapPage() {
                 </p>
               </>
             }
+            // The refusal says "Sign in instead"; the form could only be refused again.
+            deadLink={{
+              code: AUTHN_CODES.alreadyBootstrapped,
+              href: ADMIN_SIGN_IN_PATH,
+              label: "Go to sign-in",
+            }}
             onSubmit={({ token, password }) => confirmAdminBootstrap({ token, password })}
             renderSuccess={() => (
               <div>
