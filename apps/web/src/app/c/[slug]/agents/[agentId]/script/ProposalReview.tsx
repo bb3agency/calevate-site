@@ -18,21 +18,24 @@
  * owner made since is never offered back, and the kept ones are applied to `current`.
  */
 
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { TEXT_ACTION } from "@/components/console/section";
-import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { StatusPill } from "@/components/console/statusPill";
+import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
 
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
 import {
   applyTraced,
+  changedSegments,
   diffScripts,
   keptAtFirst,
   partText,
   removesContent,
   renamedOnly,
+  spoken,
   type Change,
   type PartKey,
 } from "./scriptDiff";
@@ -181,6 +184,15 @@ export function ProposalReview({
         <p className="mt-1 text-meta text-ink-muted">
           Untick or edit any. Kept ones go to your draft, not live.
         </p>
+        {changes.length > 1 && (
+          <ul aria-label="Changes by kind" className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+            {tally(changes).map((line) => (
+              <li key={line.tone}>
+                <StatusPill tone={line.tone}>{line.label}</StatusPill>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
       {children}
       {changes.length === 0 ? (
@@ -299,7 +311,7 @@ function Row({
           <label htmlFor={`${id}-keep`} className="cursor-pointer text-body font-medium text-ink">
             {headline(change)}
           </label>
-          <span className="text-meta text-ink-muted">{kindLabel(change)}</span>
+          <StatusPill tone={kindTone(change)}>{kindLabel(change)}</StatusPill>
           {edited && <span className="text-meta font-medium text-brand-strong">Edited by you</span>}
         </div>
         {children}
@@ -353,9 +365,10 @@ function PartBody({
   onChange: (next: CallScript) => void;
 }) {
   const id = domId(change);
+  const suggested = partText(edited, change.part);
   return (
     <div className="mt-1.5 space-y-1.5">
-      {change.before && <Quote tone="before" text={change.before} />}
+      {change.before && <Quote tone="before" text={change.before} against={suggested || undefined} />}
       {open ? (
         <Editing id={id}>
           <PartEditor part={change.part} script={edited} idBase={id} issues={issues} language={language} onChange={onChange} />
@@ -363,7 +376,7 @@ function PartBody({
         </Editing>
       ) : (
         <>
-          <Quote tone="after" text={partText(edited, change.part) || "(left empty)"} />
+          <Quote tone="after" text={suggested || "(left empty)"} against={change.before || undefined} />
           <RowErrors issues={issues} />
         </>
       )}
@@ -416,7 +429,7 @@ function SectionBody({
   const suggested = [renamed && `Name: ${after.name}`, sectionReadable(after)].filter(Boolean).join("\n");
   return (
     <div className="mt-1.5 space-y-1.5">
-      {before && <Quote tone="before" text={before} />}
+      {before && <Quote tone="before" text={before} against={suggested || undefined} />}
       {open ? (
         <Editing id={id}>
           <SectionFields
@@ -431,7 +444,7 @@ function SectionBody({
         </Editing>
       ) : (
         <>
-          <Quote tone="after" text={suggested || "(left empty)"} />
+          <Quote tone="after" text={suggested || "(left empty)"} against={before || undefined} />
           <RowErrors issues={issues} />
         </>
       )}
@@ -467,12 +480,54 @@ export function kindLabel(change: Change): string {
 }
 
 /**
+ * How loud a row's kind is. What changes the call (a step or part added, changed or taken
+ * away) carries a tone; a rename or a move, which changes nothing a caller hears, stays quiet.
+ * The word beside the dot says it, so the tone is never the only signal.
+ */
+export function kindTone(change: Change): NoticeTone {
+  switch (change.kind) {
+    case "part":
+      if (removesContent(change)) return "stop";
+      return change.before ? "warn" : "ok";
+    case "section-added":
+      return "ok";
+    case "section-removed":
+      return "stop";
+    case "section-changed":
+      return renamedOnly(change) ? "neutral" : "warn";
+    case "order":
+      return "info";
+  }
+}
+
+/** The counts above the list: what is new, changed and removed, for a glance at the size. */
+export function tally(changes: readonly Change[]): { tone: NoticeTone; label: string }[] {
+  const count = (tone: NoticeTone) => changes.filter((c) => kindTone(c) === tone).length;
+  const lines: { tone: NoticeTone; n: number; label: (n: number) => string }[] = [
+    { tone: "ok", n: count("ok"), label: (n) => `${n} new` },
+    { tone: "warn", n: count("warn"), label: (n) => `${n} changed` },
+    { tone: "stop", n: count("stop"), label: (n) => `${n} removed` },
+    { tone: "info", n: count("info"), label: () => "Steps moved" },
+  ];
+  return lines.filter((l) => l.n > 0).map((l) => ({ tone: l.tone, label: l.label(l.n) }));
+}
+
+/**
  * One side of a change. A rule down the left marks the side, rather than two filled boxes
  * that made every row equally loud: the suggestion carries the brand rule and full ink, what
  * is there now stays muted. Four lines is enough to judge most changes; longer text opens
  * in full on request.
  */
-export function Quote({ tone, text }: { tone: "before" | "after"; text: string }) {
+export function Quote({
+  tone,
+  text,
+  against,
+}: {
+  tone: "before" | "after";
+  text: string;
+  /** The other side of the change: the sentences this side adds or drops are marked. */
+  against?: string;
+}) {
   const after = tone === "after";
   return (
     <div
@@ -484,8 +539,43 @@ export function Quote({ tone, text }: { tone: "before" | "after"; text: string }
         {after ? "Suggested" : "Now"}
       </span>
       <ExpandableText lines={4} moreLabel="Show all" textClassName="whitespace-pre-wrap">
-        {text}
+        {against ? <Marked text={text} against={against} tone={tone} /> : text}
       </ExpandableText>
     </div>
   );
 }
+
+/**
+ * A quote with the sentences that changed marked: on the suggestion, what is new (green
+ * ground, underlined); on what is there now, what goes (red ground, struck through). The
+ * line style and the words read out before each ("New:", "Removed:") carry the meaning
+ * without the colour. Sentences both sides say alike stay plain, so a long step reads as
+ * the one or two lines Pip actually changed.
+ */
+function Marked({ text, against, tone }: { text: string; against: string; tone: "before" | "after" }) {
+  const after = tone === "after";
+  const segments = changedSegments(text, against);
+  // Every sentence changed: the whole quote is new, and marking all of it says nothing more.
+  if (segments.every((s) => s.changed || spoken(s.text) === "")) return <>{text}</>;
+  return (
+    <>
+      {segments.map((segment, i) => (
+        <Fragment key={i}>
+          {segment.changed ? (
+            <mark className={after ? MARK_NEW : MARK_GONE}>
+              <span className="sr-only">{after ? "New: " : "Removed: "}</span>
+              {segment.text}
+            </mark>
+          ) : (
+            segment.text
+          )}
+          {segment.gap}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+const MARK_BASE = "rounded-sm px-0.5 text-ink decoration-1 underline-offset-2 [box-decoration-break:clone]";
+const MARK_NEW = `${MARK_BASE} bg-success-soft underline decoration-success dark:bg-success/25`;
+const MARK_GONE = `${MARK_BASE} bg-danger-soft line-through decoration-danger dark:bg-danger/25`;

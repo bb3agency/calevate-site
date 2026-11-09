@@ -1033,6 +1033,9 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/agents/{agent_id}/script/proposal/starter": BoundedByConstruction(
         by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
     ),
+    "POST /v1/agents/{agent_id}/script/proposal/main-task": BoundedByConstruction(
+        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
+    ),
     "POST /v1/agents/{agent_id}/script/opening-line/after-introduction": BoundedByConstruction(
         by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
     ),

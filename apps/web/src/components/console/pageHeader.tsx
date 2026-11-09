@@ -72,11 +72,18 @@ export function PageHeader({
             </div>
           )}
           {!title && status && <div className="flex flex-wrap items-center gap-2">{status}</div>}
-          {description && (
-            <p className={`max-w-prose text-[14px] text-ink-muted ${title || status ? "mt-1" : ""}`}>
-              {description}
-            </p>
-          )}
+          {description &&
+            (typeof description === "string" ? (
+              <p className={`max-w-prose text-[14px] text-ink-muted ${title || status ? "mt-1" : ""}`}>
+                {description}
+              </p>
+            ) : (
+              // A composed description (an agent's main task with its own controls) may hold
+              // blocks and a form, which a <p> cannot.
+              <div className={`max-w-prose text-[14px] text-ink-muted ${title || status ? "mt-1" : ""}`}>
+                {description}
+              </div>
+            ))}
           {meta && (
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-faint">{meta}</div>
           )}

@@ -79943,6 +79943,47 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/agents/{agent_id}/script/proposal/main-task": {
+      "post": {
+        "description": "\"Re-adjust script\" on the agent page. Queues a `change` suggestion that brings the working script (the draft, else the saved script) into line with its own main task (`goal`); poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches the draft until it is kept, nor a caller until it is put live. Refused with `script_main_task_missing` when there is no main task, `script_main_task_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.",
+        "operationId": "readjust_script_to_main_task_v1_agents__agent_id__script_proposal_main_task_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask Pip to re-adjust the script to the agent's main task",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/script/proposal/starter": {
       "post": {
         "description": "The new-agent flow's \"Try again\" after the script written at creation failed. Queues the same whole-script suggestion `POST /v1/agents` with a `starter` does; poll `GET .../proposal`. A draft agent still on its untouched starter takes it at once, as at creation.",

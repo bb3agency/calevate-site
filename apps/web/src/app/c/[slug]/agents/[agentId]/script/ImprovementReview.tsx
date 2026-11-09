@@ -334,8 +334,8 @@ function EditRow({
           {edit.label}
         </label>
         {edit.why && <p className="text-meta text-ink [overflow-wrap:anywhere]">{edit.why}</p>}
-        {edit.before && <Quote tone="before" text={edit.before} />}
-        <Quote tone="after" text={edit.after} />
+        {edit.before && <Quote tone="before" text={edit.before} against={edit.after || undefined} />}
+        <Quote tone="after" text={edit.after} against={edit.before || undefined} />
         {testTitle && <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">Fixes: {testTitle}</p>}
       </div>
     </li>

@@ -310,6 +310,72 @@ async def request_written_opening(
     )
 
 
+#: The change asked for by "Re-adjust script" on the agent page (founder, 9 Nov 2026). An
+#: ordinary `change` request, so the writer's rules, its repair, the woven notices (D-971) and
+#: the review on the Script tab are the ones every Pip change gets. It names the main task
+#: rather than leaving the writer to find it in the script, because the owner may have just
+#: edited it there and wants the rest of the script brought into line with it.
+MAIN_TASK_CHANGE: Final = (
+    "Adjust this script to its main task: {goal}\n"
+    "Rework the steps, the questions it asks, its answers when callers push back and how it "
+    "ends the call so each one serves that task. Keep what already serves it, keep the "
+    "opening line unless it works against the task, and change nothing only for the sake of "
+    "changing it."
+)
+
+#: Refused when the agent has no main task to adjust the script to.
+MAIN_TASK_MISSING: Final = "script_main_task_missing"
+#: Refused for a script written as one text: the writer edits a script in steps (A-01).
+MAIN_TASK_HAND_WRITTEN: Final = "script_main_task_hand_written"
+
+
+async def request_main_task_fit(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    requested_by: UUID | None,
+) -> ScriptProposal:
+    """Ask for the working script adjusted to its own main task (`CallScript.goal`).
+
+    Made from the working copy, so a main task the owner has just saved into the draft is the
+    one used. Never replaces a suggestion waiting for review (A-14)."""
+    status = (
+        await session.execute(
+            text("SELECT status FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id},
+        )
+    ).scalar_one_or_none()
+    if status is None:
+        raise ProblemError.not_found("Agent")
+    if status == "archived":
+        raise archived_refusal("edited")
+    base = await working_script(session, agent_id)
+    if base.is_raw:
+        raise ProblemError.business_rule(
+            MAIN_TASK_HAND_WRITTEN,
+            "Pip cannot re-adjust a script written as one text.",
+            remediation="Turn it into steps on the Script tab first.",
+        )
+    goal = base.goal.strip()
+    if not goal:
+        raise ProblemError.business_rule(
+            MAIN_TASK_MISSING,
+            "This agent has no main task yet.",
+            remediation="Add its main task, then re-adjust the script.",
+        )
+    return await _request(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        mode="change",
+        change=MAIN_TASK_CHANGE.format(goal=goal),
+        answers={},
+        requested_by=requested_by,
+        replace_ready=False,
+    )
+
+
 #: Refused when a new request would replace a suggestion the owner has not kept or
 #: discarded yet (A-14).
 SUGGESTION_WAITING: Final = "script_suggestion_waiting"
