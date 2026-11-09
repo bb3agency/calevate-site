@@ -589,11 +589,20 @@ async def backfill_call_translations(ctx: dict[str, Any]) -> str:
     reached = settled = 0
     async for tenant_id in resumed_walk("call_translations", tenant_ids, budget):
         reached += 1
-        # First, so a call whose pass died is a candidate in this same tick.
-        settled += await _settle_interrupted(tenant_id)
-        found.extend(
-            (at, tenant_id, call_id) for at, call_id in await _untried_candidates(tenant_id, budget)
-        )
+        # One account that raises is skipped, not the tick: the cursor does not move past an
+        # item whose body raised, so an uncaught error here would stop the walk at that
+        # account on every tick and no other account's calls would be queued again.
+        try:
+            # First, so a call whose pass died is a candidate in this same tick.
+            settled += await _settle_interrupted(tenant_id)
+            candidates = await _untried_candidates(tenant_id, budget)
+        except Exception as exc:
+            log.warning(
+                "call_translation_backfill_tenant_failed",
+                extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
+            )
+            continue
+        found.extend((at, tenant_id, call_id) for at, call_id in candidates)
 
     found.sort(key=lambda item: item[0], reverse=True)
     queued = 0
