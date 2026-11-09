@@ -199,6 +199,7 @@ from apps.api.billing.engine_minutes import (
     record_engine_rate_key,
 )
 from apps.api.compliance.caller_memory import MEMORY_ON_SQL
+from apps.api.compliance.dnc_recall import RECALL_CAUSE_CONSENT, enqueue_dnc_recall
 from apps.api.compliance.platform_dnc import PLATFORM_DNC_BLOCK_CODE, platform_dnc_refusal
 from apps.api.compliance.trial_access import (
     TRIAL_MIN_CALL_SECONDS,
@@ -245,7 +246,9 @@ from apps.api.engine.vendor_http import (
 from apps.api.forwarding.service import has_forwarded_line
 from apps.api.ingest.lead_policy import machine_detection_on
 from apps.api.legal.service import assert_agreements_accepted
+from apps.api.ops.halt import queue_dial_recall
 from apps.api.ops.maintenance import read_open_window
+from apps.api.ops.service import read_halt_state
 from apps.api.reliability.engine_actions import (
     ACTION_ENGINES,
     ensure_agent_actions,
@@ -4424,10 +4427,55 @@ async def dispatch_call(
     # every caller as "not placed", and the campaign and call-back loops then ring the
     # person again (D-841). Both writes below are bookkeeping; each one that fails is
     # logged and alarmed, and the handle is returned.
-    await _confirm_dial(tenant_id, call_id=call_id, handle=handle)
+    if await _confirm_dial(tenant_id, call_id=call_id, handle=handle):
+        await _recall_if_stopped_while_dialling(tenant_id, call_id=call_id, phone_e164=phone_e164)
     if lead_id is not None:
         await _link_dial_to_lead(session, call_id=call_id, lead_id=lead_id)
     return handle
+
+
+#: The person-level refusals a suppression written while a dial was in flight can raise:
+#: a do-not-call entry and a withdrawn or declined consent. The others (not India, erased,
+#: no consent record, expired consent) cannot appear between the gate and the dial.
+_RECALLED_PERSON_RULES: Final = {"dnc": None, "no_consent": RECALL_CAUSE_CONSENT}
+
+
+async def _recall_if_stopped_while_dialling(
+    tenant_id: UUID, *, call_id: UUID, phone_e164: str
+) -> None:
+    """Hand a dial accepted after the big red switch or a suppression to that recall.
+
+    Both recalls (`workers/dial_recall`, `workers/dnc_recall`) scan only dials that carry
+    the vendor's handle, so one thrown between the gate and `_confirm_dial` (the pre-dial
+    lookup and the `POST /calls` round trip) scanned past this dial while it was still a
+    `local:` placeholder, and nothing scanned again (D-428's open window). Asking again here,
+    AFTER the handle is committed, closes it whichever way the race falls: a halt or entry
+    committed before this read is seen and recalled now; one committed after it enqueues its
+    own recall, whose scan runs after this dial's handle is stamped and finds it. A second
+    recall of a dial the first already stopped is a no-op (`recall_requested_at`).
+
+    Never raises: the vendor has accepted the call, and a raise reads as "not placed".
+    """
+    from apps.api.compliance.service import person_level_refusal
+
+    try:
+        async with tenant_session(tenant_id) as recheck:
+            # The durable row on this connection, not the 15-second hot-path cache: the
+            # halt that matters here is one thrown seconds ago.
+            if (await read_halt_state(recheck)).outbound_halted:
+                await queue_dial_recall()
+            refusal = await person_level_refusal(
+                recheck, tenant_id=tenant_id, phone_e164=phone_e164
+            )
+            if refusal is not None and refusal.rule in _RECALLED_PERSON_RULES:
+                await enqueue_dnc_recall(
+                    recheck,
+                    tenant_id=tenant_id,
+                    phones=[phone_e164],
+                    cause=_RECALLED_PERSON_RULES[refusal.rule],
+                )
+    except Exception as exc:
+        _alarm_unconfirmed_bookkeeping(call_id, step="stop_recheck", exc=exc)
 
 
 async def _link_dial_to_lead(session: AsyncSession, *, call_id: UUID, lead_id: UUID) -> None:
@@ -4632,7 +4680,7 @@ async def _lend_client_number(
     )
 
 
-async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
+async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> bool:
     """Stamp the vendor's handle onto the intent row, in its own transaction.
 
     Guarded by `NOT EXISTS` rather than left to the unique index: the poller can already
@@ -4645,7 +4693,8 @@ async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
 
     Any other failure (the database unreachable, a pool timeout) leaves the row in the same
     state, unconfirmed and reaped the same way, and is alarmed rather than raised: the call
-    is ringing, and a raise would be read as "not placed" (`dispatch_call`).
+    is ringing, and a raise would be read as "not placed" (`dispatch_call`). Returns False
+    only then: the database did not answer, so nothing else is asked of it for this dial.
     """
     try:
         async with tenant_session(tenant_id) as confirm:
@@ -4662,9 +4711,10 @@ async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
         stamped = 0
     except Exception as exc:
         _alarm_unconfirmed_bookkeeping(call_id, step="handle_stamp", exc=exc)
-        return
+        return False
     if stamped == 0:
         log.warning("dial_handle_not_stamped", extra={"call_id": str(call_id)})
+    return True
 
 
 async def _close_unplaced_dial(
