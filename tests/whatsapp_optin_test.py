@@ -1078,3 +1078,60 @@ def test_the_notice_names_no_stage_a_business_may_not_have() -> None:
 
     assert whatsapp_optin.ALERT_NOTICE_VERSION == "whatsapp-alerts-v2"
     assert "hot" not in whatsapp_optin.ALERT_NOTICE_TEXT.lower()
+
+
+async def _second_owner(tenant_id: UUID, phone: str) -> str:
+    """Another owner of the same account, joined after the first, with their own number."""
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, phone, created_at, updated_at) "
+                "VALUES (:id, :email, :phone, now(), now())"
+            ),
+            {"id": user_id, "email": f"{user_id}@example.com", "phone": phone},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :tid, :uid, 'owner', now() + interval '1 minute', now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
+        )
+    return f"dev:client:{user_id}"
+
+
+async def test_an_owner_who_opted_in_is_alerted_when_an_earlier_owner_has_a_number() -> None:
+    """FAILS IF: the alert goes to the earliest owner who has a number rather than to an
+    owner who agreed. Since D-976 any owner can add a number on Your account (an automatic
+    top-up asks for one), so the founding owner adding theirs silently stopped the alerts a
+    co-owner had turned on, while the co-owner's screen still said they were on."""
+    tenant_id, slug, _, _first = await _tenant("two-owners")
+    token = await _second_owner(tenant_id, OTHER_E164)
+
+    async with _client() as client:
+        response = await client.post(
+            ENDPOINT,
+            json={"status": "granted", "notice_version": whatsapp_optin.ALERT_NOTICE_VERSION},
+            headers=_headers(token, slug),
+        )
+        assert response.status_code == 201, response.text
+        shown = await client.get(ENDPOINT, headers=_headers(token, slug))
+    assert shown.json()["messageable"] is True
+
+    async with tenant_session(tenant_id) as session:
+        destination = await whatsapp.resolve_destination(session, tenant_id)
+    assert destination is not None
+    assert destination.to_e164 == OTHER_E164, "the owner who agreed is the one alerted"
+    assert destination.opt_in_at is not None
+
+    # The operator surface reads the same subject the alert job sends to.
+    admin_token = await _make_admin()
+    async with _client() as client:
+        operator_view = await client.get(
+            ADMIN_ENDPOINT.format(tenant_id=tenant_id),
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+    assert operator_view.status_code == 200, operator_view.text
+    assert operator_view.json()["messageable"] is True
