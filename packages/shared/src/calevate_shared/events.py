@@ -36,11 +36,14 @@ Speaker = Literal["agent", "caller"]
 #: `from_number_withdrawn`: the number the call was to ring from was taken off the agent.
 #: `lines_full`: every one of the account's call lines was in use, so the dial was refused
 #: before anything rang (written by our dial path, not read from the engine).
-NotPlacedReason = Literal["from_number_withdrawn", "unstated", "lines_full"]
+#: `dial_lost`: the dial's answer never reached us and the engine, asked by the reference we
+#: placed it under, holds no such call (written by `pipeline.reconcile_outstanding_calls`).
+NotPlacedReason = Literal["from_number_withdrawn", "unstated", "lines_full", "dial_lost"]
 NOT_PLACED_REASONS: tuple[NotPlacedReason, ...] = (
     "from_number_withdrawn",
     "unstated",
     "lines_full",
+    "dial_lost",
 )
 
 # Statuses after which no further audio is expected. `completed` is the only one that

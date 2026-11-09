@@ -87,6 +87,16 @@ class NamesPlacedCalls(Protocol):
     def placed_reference(self, snapshot: ExecutionSnapshot) -> str | None: ...
 
 
+@runtime_checkable
+class FindsPlacedCalls(Protocol):
+    """An adapter that can look a call up by the id we placed it under (`ThinnestEngine`).
+
+    `find_placed_call` returns the engine's handle, or None only when the engine positively
+    holds no such call in the ambient workspace; any answer it cannot vouch for raises."""
+
+    async def find_placed_call(self, reference: str) -> str | None: ...
+
+
 def placed_call_id(engine: VoiceEngine, snapshot: ExecutionSnapshot) -> UUID | None:
     """Our `calls.id` for an outbound call the engine says we placed, or None."""
     if snapshot.direction != "outbound" or not isinstance(engine, NamesPlacedCalls):
@@ -295,6 +305,7 @@ async def post_call_truth(
 
 __all__ = [
     "UNSTATED_STATUS",
+    "FindsPlacedCalls",
     "NamesPlacedCalls",
     "ReadsDeliveries",
     "awaiting_transcript",

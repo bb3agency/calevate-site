@@ -526,6 +526,7 @@ NOT_PLACED_WORDS: Final[dict[str, str]] = {
     "lines_full": (
         "Not placed: all your call lines were busy. The campaign tries again when a line is free."
     ),
+    "dial_lost": "This call did not go through, so nobody was rung.",
 }
 
 
