@@ -96,11 +96,13 @@ export function RightsDesk({
   // person has an erasure running is waiting on that erasure, not on the owner: the server
   // answers the row when the erasure completes, so the desk is re-read until it does.
   const register = useDeletionRequests(session);
-  const erasing = new Set(
-    (register.data ?? []).filter((entry) => entry.status === "pending").map((entry) => entry.subject_ref),
-  );
+  // Until the register is read, no row is said to be waiting: the answer buttons stay, and the
+  // server refuses an "erased" answer whose erasure has not finished (`rights_erasure_not_finished`).
+  const erasing = register.isSuccess
+    ? new Set(register.data.filter((entry) => entry.status === "pending").map((entry) => entry.subject_ref))
+    : null;
   const waitsOn = (request: RightsRequest) =>
-    request.kind === "erasure" && request.status === "open" && erasing.has(request.subject_ref);
+    erasing !== null && request.kind === "erasure" && request.status === "open" && erasing.has(request.subject_ref);
   const desk = useRightsDesk(session, { waitsOn });
   const [logging, setLogging] = useState(false);
   // Held here, not in the form: the drawer closes on success and unmounts the form, and

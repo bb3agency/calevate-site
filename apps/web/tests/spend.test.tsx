@@ -5,6 +5,7 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import FleetSpendPage from "@/app/admin/spend/page";
 import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
 import type { Me } from "@/lib/api/client";
+import { formatBillingMonth } from "@/lib/billingMonth";
 import type {
   FleetSpend,
   Spend,
@@ -463,7 +464,7 @@ describe("the client's spend screen", () => {
     expect(text).not.toContain("1015900.10"); // ungrouped, symbol-less: not formatted at all
     // Minutes read under the one-decimal display rule; the statement keeps the exact figure.
     // Asserted on the TILE by its own label: the agent row below carries the same figure.
-    expect(tileValue(container, `Minutes used · ${IST_MONTH}`)).toBe("42.5");
+    expect(tileValue(container, `Minutes used · ${formatBillingMonth(IST_MONTH)}`)).toBe("42.5");
   });
 
   it("carries no cost or margin, even when the payload does", async () => {
