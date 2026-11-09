@@ -12,7 +12,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import { FIELD, FIELD_HINT, FIELD_LABEL, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -38,6 +38,10 @@ export function TeamList({ canWrite, reason }: { canWrite: boolean; reason: stri
   const session = useClientSession();
   const contacts = useTeamContacts(session);
   const [adding, setAdding] = useState(false);
+  // Held by the list, not the form: the form closes on success, and "Code sent" is said
+  // after it has gone.
+  const add = useAddTeamContact(session);
+  const addFeedback = useActionFeedback(add, { errorDisplay: "inline", successToast: "Code sent" });
 
   if (contacts.isLoading) {
     return (
@@ -66,6 +70,8 @@ export function TeamList({ canWrite, reason }: { canWrite: boolean; reason: stri
       <li className="py-4">
         {adding && room ? (
           <AddContact
+            add={add}
+            status={addFeedback.status}
             accounts={data.whatsapp_accounts}
             canWrite={canWrite}
             reason={reason}
@@ -77,7 +83,10 @@ export function TeamList({ canWrite, reason }: { canWrite: boolean; reason: stri
             className={SECONDARY_BUTTON_SM}
             disabled={!canWrite}
             title={reason ?? undefined}
-            onClick={() => setAdding(true)}
+            onClick={() => {
+              if (!add.isPending) add.reset();
+              setAdding(true);
+            }}
           >
             Add someone from your team
           </button>
@@ -165,19 +174,21 @@ function ContactRow({ contact, canWrite, reason }: { contact: TeamContact; canWr
 }
 
 function AddContact({
+  add,
+  status,
   accounts,
   canWrite,
   reason,
   onDone,
 }: {
+  add: ReturnType<typeof useAddTeamContact>;
+  status: FeedbackStatus;
   accounts: TeamContacts["whatsapp_accounts"];
   canWrite: boolean;
   reason: string | null;
   onDone: () => void;
 }) {
   const { session, href } = useClientRealm();
-  const add = useAddTeamContact(session);
-  const feedback = useActionFeedback(add, { errorDisplay: "inline", successToast: "Code sent" });
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
   const [address, setAddress] = useState("");
   const [account, setAccount] = useState(accounts[0]?.id ?? "");
@@ -293,7 +304,7 @@ function AddContact({
       ) : null}
       {add.error ? <ProblemNotice error={add.error} /> : null}
       <div className="flex flex-wrap gap-2">
-        <ActionButton type="submit" variant="primary-sm" status={feedback.status} successLabel="Code sent" disabled={!canWrite} title={reason ?? undefined}>
+        <ActionButton type="submit" variant="primary-sm" status={status} successLabel="Code sent" disabled={!canWrite} title={reason ?? undefined}>
           Add and send code
         </ActionButton>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>

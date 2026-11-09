@@ -26,7 +26,7 @@ export const DESK_COPY = {
 } as const;
 
 export function daysLeftLine(days: number): string {
-  if (days < 0) return `${-days} days overdue`;
+  if (days < 0) return days === -1 ? "1 day overdue" : `${-days} days overdue`;
   if (days === 0) return "Due today";
   return days === 1 ? "1 day left" : `${days} days left`;
 }

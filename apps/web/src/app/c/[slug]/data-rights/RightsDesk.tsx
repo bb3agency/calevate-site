@@ -92,6 +92,10 @@ export function RightsDesk({
 }) {
   const desk = useRightsDesk(session);
   const [logging, setLogging] = useState(false);
+  // Held here, not in the form: the drawer closes on success and unmounts the form, and
+  // "Logged" is said after it has gone.
+  const log = useLogRightsRequest(session);
+  useActionFeedback(log, { errorDisplay: "inline", successToast: "Logged" });
 
   return (
     <section aria-labelledby="rights-desk-heading" className="space-y-3">
@@ -105,7 +109,10 @@ export function RightsDesk({
         <button
           type="button"
           className={PRIMARY_BUTTON}
-          onClick={() => setLogging(true)}
+          onClick={() => {
+            if (!log.isPending) log.reset();
+            setLogging(true);
+          }}
           disabled={!canWrite}
           title={writeReason ?? undefined}
         >
@@ -114,7 +121,7 @@ export function RightsDesk({
       </div>
 
       {desk.error ? (
-        <ProblemNotice error={desk.error} />
+        <ProblemNotice error={desk.error} onRetry={() => void desk.refetch()} />
       ) : !desk.data ? (
         <Skeleton rows={3} label={COPY.loading} />
       ) : desk.data.items.length === 0 ? (
@@ -141,7 +148,7 @@ export function RightsDesk({
       )}
 
       <Drawer open={logging} onClose={() => setLogging(false)} title={COPY.log} width="md">
-        <LogForm session={session} onDone={() => setLogging(false)} />
+        <LogForm log={log} onDone={() => setLogging(false)} />
       </Drawer>
     </section>
   );
@@ -228,9 +235,13 @@ function DeskRow({
   );
 }
 
-function LogForm({ session, onDone }: { session: Session; onDone: () => void }) {
-  const log = useLogRightsRequest(session);
-  useActionFeedback(log, { errorDisplay: "inline", successToast: "Logged" });
+function LogForm({
+  log,
+  onDone,
+}: {
+  log: ReturnType<typeof useLogRightsRequest>;
+  onDone: () => void;
+}) {
   const [kind, setKind] = useState<Kind>("access");
   const [channel, setChannel] = useState<Channel>("phone");
   const [phone, setPhone] = useState("");

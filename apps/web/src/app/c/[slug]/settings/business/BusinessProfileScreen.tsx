@@ -4,9 +4,10 @@ import { Section } from "@/components/console/section";
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { SectionEditor, stepProblem } from "@/components/businessProfile/SectionEditor";
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { SettingRow, SettingRows } from "@/components/console/settingRow";
 import { SegmentedControl, type SegmentedOption } from "@/components/interior/segmented-control";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
@@ -24,6 +25,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { UnsavedRegistry, type UnsavedRegistryValue } from "@/lib/useUnsavedGuard";
 
 import { SetupChecklist } from "../../SetupChecklist";
 import { BusinessCopySection } from "./BusinessCopySection";
@@ -48,18 +50,57 @@ export function BusinessProfileScreen() {
   const router = useRouter();
   const params = useSearchParams();
   const steps = params.get("mode") === STEPS_MODE;
+  // Switching mode unmounts the other way's forms and their typing with them, and
+  // `beforeunload` never sees an in-app move. The sections report their unsaved edits here
+  // (`useUnsavedGuard`), the same registry `SettingsLayout` keeps, and the switch asks first.
+  const drafts = useRef(new Set<string>());
+  const registry = useMemo<UnsavedRegistryValue>(
+    () => ({
+      report: (id, dirty) => {
+        if (dirty) drafts.current.add(id);
+        else drafts.current.delete(id);
+      },
+    }),
+    [],
+  );
+  const [pending, setPending] = useState<string | null>(null);
+  const go = (mode: string) =>
+    router.replace(mode === STEPS_MODE ? setupHref(href) : href("/settings/business"), { scroll: false });
   return (
     <div className="space-y-5">
       <SegmentedControl
         label="How to answer"
         options={MODES}
         value={steps ? STEPS_MODE : "all"}
-        onValueChange={(mode) =>
-          router.replace(mode === STEPS_MODE ? setupHref(href) : href("/settings/business"), { scroll: false })
-        }
+        onValueChange={(mode) => {
+          if (mode === (steps ? STEPS_MODE : "all")) return;
+          if (drafts.current.size > 0) setPending(mode);
+          else go(mode);
+        }}
         fill
       />
-      {steps ? <SetupWizard /> : <AllAnswers />}
+      <UnsavedRegistry.Provider value={registry}>
+        {steps ? <SetupWizard /> : <AllAnswers />}
+      </UnsavedRegistry.Provider>
+      {pending !== null ? (
+        <ConfirmDialog
+          title="Leave without saving?"
+          confirmLabel="Discard changes"
+          pendingLabel="Discarding…"
+          cancelLabel="Keep editing"
+          pending={false}
+          error={null}
+          onCancel={() => setPending(null)}
+          onConfirm={() => {
+            const to = pending;
+            setPending(null);
+            drafts.current.clear();
+            go(to);
+          }}
+        >
+          <p>Your changes to the business profile have not been saved.</p>
+        </ConfirmDialog>
+      ) : null}
     </div>
   );
 }

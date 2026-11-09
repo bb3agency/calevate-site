@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
 import { StatusPill } from "@/components/console/statusPill";
 import { FileDrop } from "@/components/fileDrop";
@@ -39,10 +39,16 @@ import { ACCEPT_ATTRIBUTE, MAX_UPLOAD_MB, isReadCopy, reachesAgents, uploadState
  */
 export function ReaderDrawer({
   upload,
+  replace,
   onClose,
   onRemove,
 }: {
   upload: KbUpload;
+  /**
+   * The row's own upload: a replacement closes this reader when it lands, so the toast
+   * saying it arrived has to belong to the row that stays.
+   */
+  replace: ReturnType<typeof useUploadDocument>;
   onClose: () => void;
   /** Closes the reader and asks the row's own Remove question. */
   onRemove: () => void;
@@ -63,6 +69,9 @@ export function ReaderDrawer({
   const write = useWriteAccess(session, "kb:write", "change your knowledge");
   const [renaming, setRenaming] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  // Held here, not in the form: the form closes on success, and "Renamed" is said after.
+  const rename = useRenameUpload(session);
+  const renameFeedback = useActionFeedback(rename, { errorDisplay: "inline", successToast: "Renamed" });
   const state = uploadState(upload);
   const reaches = reachesAgents(upload) && upload.is_live && upload.ingest_status !== "error";
   const isLink = upload.source_kind === "url";
@@ -83,11 +92,26 @@ export function ReaderDrawer({
       footer={
         write.allowed ? (
           <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setRenaming(true)}>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              onClick={() => {
+                rename.reset();
+                setRenaming(true);
+              }}
+            >
               Rename
             </button>
             {!isLink ? (
-              <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setReplacing(true)}>
+              <button
+                type="button"
+                className={SECONDARY_BUTTON_SM}
+                onClick={() => {
+                  // A refusal from an earlier try belongs to that try, not to this one.
+                  if (!replace.isPending) replace.reset();
+                  setReplacing(true);
+                }}
+              >
                 Replace file
               </button>
             ) : null}
@@ -103,8 +127,15 @@ export function ReaderDrawer({
         <RestrictionNote reason={write.allowed ? null : write.reason} />
         <p className="text-meta text-ink-muted [text-wrap:pretty]">{state.meaning}</p>
         <CallInstructions upload={upload} />
-        {renaming ? <RenameForm upload={upload} onDone={() => setRenaming(false)} /> : null}
-        {replacing ? <ReplaceFile upload={upload} onDone={onClose} /> : null}
+        {renaming ? (
+          <RenameForm
+            upload={upload}
+            rename={rename}
+            status={renameFeedback.status}
+            onDone={() => setRenaming(false)}
+          />
+        ) : null}
+        {replacing ? <ReplaceFile upload={upload} send={replace} onDone={onClose} /> : null}
 
         {words.isLoading ? (
           <Skeleton rows={6} label={`Loading the words of ${upload.name}`} />
@@ -162,11 +193,18 @@ export function ReaderDrawer({
   );
 }
 
-function RenameForm({ upload, onDone }: { upload: KbUpload; onDone: () => void }) {
-  const session = useClientSession();
+function RenameForm({
+  upload,
+  rename,
+  status,
+  onDone,
+}: {
+  upload: KbUpload;
+  rename: ReturnType<typeof useRenameUpload>;
+  status: FeedbackStatus;
+  onDone: () => void;
+}) {
   const [name, setName] = useState(upload.name);
-  const rename = useRenameUpload(session);
-  const feedback = useActionFeedback(rename, { errorDisplay: "inline", successToast: "Renamed" });
   const cleaned = name.trim();
   const valid = cleaned.length >= 2 && cleaned.length <= 120;
   return (
@@ -195,7 +233,7 @@ function RenameForm({ upload, onDone }: { upload: KbUpload; onDone: () => void }
         <ActionButton
           type="submit"
           variant="primary-sm"
-          status={feedback.status}
+          status={status}
           pendingLabel="Saving…"
           successLabel="Saved"
           disabled={!valid || cleaned === upload.name}
@@ -214,13 +252,15 @@ function RenameForm({ upload, onDone }: { upload: KbUpload; onDone: () => void }
  * A new file under the SAME name: the server makes it the next version of this item, and it
  * takes this one's place once it is read. The old version is kept as history.
  */
-function ReplaceFile({ upload, onDone }: { upload: KbUpload; onDone: () => void }) {
-  const session = useClientSession();
-  const send = useUploadDocument(session);
-  useActionFeedback(send, {
-    errorDisplay: "inline",
-    successToast: `Reading the new ${upload.name}. It replaces the old one.`,
-  });
+function ReplaceFile({
+  upload,
+  send,
+  onDone,
+}: {
+  upload: KbUpload;
+  send: ReturnType<typeof useUploadDocument>;
+  onDone: () => void;
+}) {
   const [percent, setPercent] = useState<number | null>(null);
   const [sending, setSending] = useState<File | null>(null);
   return (

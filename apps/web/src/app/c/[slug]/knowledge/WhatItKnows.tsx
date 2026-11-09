@@ -248,7 +248,7 @@ export function WhatItKnows({
             ) : (
               <ul className="divide-y divide-line border-y border-line">
                 {shownFiles.map((upload) => (
-                  <UploadRow key={upload.id} upload={upload} />
+                  <UploadRow key={upload.id} upload={upload} canWrite={canWrite} />
                 ))}
               </ul>
             )}
@@ -262,7 +262,7 @@ export function WhatItKnows({
             <Group title="Links" count={links.length} hidden={filtered && shownLinks.length === 0}>
               <ul className="divide-y divide-line border-y border-line">
                 {shownLinks.map((upload) => (
-                  <UploadRow key={upload.id} upload={upload} />
+                  <UploadRow key={upload.id} upload={upload} canWrite={canWrite} />
                 ))}
               </ul>
             </Group>

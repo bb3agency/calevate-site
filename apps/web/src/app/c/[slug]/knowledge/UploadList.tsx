@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { CheckCircle2, FileText, Globe, ImageIcon, Trash2 } from "lucide-react";
 
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { RowMenu } from "@/components/arc/menu";
 import { TaskSteps } from "@/components/interior/task-steps";
 import {
@@ -23,6 +23,7 @@ import {
   useKbChunks,
   useKbUpload,
   useOriginalLink,
+  useUploadDocument,
   type KbUpload,
 } from "@/lib/api/kb";
 import { useClientSession } from "@/lib/api/session";
@@ -40,7 +41,16 @@ const KIND_ICONS = {
 } as const;
 
 /** One file, photo or web page the account sent, watching itself while it moves. */
-export function UploadRow({ upload, query = "" }: { upload: KbUpload; query?: string }) {
+export function UploadRow({
+  upload,
+  canWrite,
+  query = "",
+}: {
+  upload: KbUpload;
+  /** `kb:write`: removing, discarding and replacing are refused without it. */
+  canWrite: boolean;
+  query?: string;
+}) {
   const session = useClientSession();
   // The row's OWN poll while it is moving, and silence once it is not. `watch.data ?? upload`
   // rather than a manufactured empty: the list's own answer is a real fact about this row,
@@ -54,6 +64,19 @@ export function UploadRow({ upload, query = "" }: { upload: KbUpload; query?: st
   const removeFeedback = useActionFeedback(remove, {
     errorDisplay: "inline",
     successToast: `Removed ${shown.name}`,
+  });
+  // Held by the row rather than by the panels that start them: "Throw this away" closes
+  // its panel and Replace file closes the reader on success, and a toast belongs to the
+  // component that is still mounted when the answer lands.
+  const discard = useDeleteUpload(session);
+  const discardFeedback = useActionFeedback(discard, {
+    errorDisplay: "inline",
+    successToast: `Threw away what we read from ${shown.name}`,
+  });
+  const replace = useUploadDocument(session);
+  useActionFeedback(replace, {
+    errorDisplay: "inline",
+    successToast: `Reading the new ${shown.name}. It replaces the old one.`,
   });
   // Its pending face is the menu item's "Opening…"; the refusal is drawn under the row.
   useActionFeedback(original, { errorDisplay: "inline" });
@@ -191,7 +214,9 @@ export function UploadRow({ upload, query = "" }: { upload: KbUpload; query?: st
                       onSuccess: (answer) => window.open(answer.url, "_blank", "noopener,noreferrer"),
                     }),
                 },
-            { id: "remove", label: "Remove", tone: "danger", onSelect: () => setConfirmingRemoval(true) },
+            ...(canWrite
+              ? [{ id: "remove", label: "Remove", tone: "danger" as const, onSelect: () => setConfirmingRemoval(true) }]
+              : []),
           ]}
         />
       </div>
@@ -202,11 +227,20 @@ export function UploadRow({ upload, query = "" }: { upload: KbUpload; query?: st
         </div>
       )}
 
-      {reviewing && <ExtractedText upload={shown} onDone={() => setReviewing(false)} />}
+      {reviewing && (
+        <ExtractedText
+          upload={shown}
+          canWrite={canWrite}
+          discard={discard}
+          discardStatus={discardFeedback.status}
+          onDone={() => setReviewing(false)}
+        />
+      )}
 
       {reading && (
         <ReaderDrawer
           upload={shown}
+          replace={replace}
           onClose={() => setReading(false)}
           onRemove={() => {
             setReading(false);
@@ -247,7 +281,20 @@ export function UploadRow({ upload, query = "" }: { upload: KbUpload; query?: st
  * The chunks are the same ones the pasted-text preview shows, from the same route: what is
  * on this screen is exactly what the agent is given, not a second rendering of it.
  */
-function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => void }) {
+function ExtractedText({
+  upload,
+  canWrite,
+  discard,
+  discardStatus,
+  onDone,
+}: {
+  upload: KbUpload;
+  canWrite: boolean;
+  /** The row's own delete, so its "Threw away" toast outlives this panel. */
+  discard: ReturnType<typeof useDeleteUpload>;
+  discardStatus: FeedbackStatus;
+  onDone: () => void;
+}) {
   const session = useClientSession();
   const chunks = useKbChunks(session, upload.source_id);
   const confirm = useConfirmUpload(session);
@@ -268,13 +315,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
     "kb.self_approve",
     "publish what we read under this account's name",
   );
-  const discard = useDeleteUpload(session);
   const confirmFeedback = useActionFeedback(confirm, { errorDisplay: "inline" });
-  // This panel closes on success, so the toast says what happened.
-  const discardFeedback = useActionFeedback(discard, {
-    errorDisplay: "inline",
-    successToast: `Threw away what we read from ${upload.name}`,
-  });
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
   return (
@@ -325,14 +366,19 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
           Yes, this is right
         </ActionButton>
-        <button
-          type="button"
-          onClick={() => setConfirmingDiscard(true)}
-          className={SECONDARY_BUTTON_SM}
-        >
-          <Trash2 aria-hidden className="h-3.5 w-3.5" />
-          Throw this away
-        </button>
+        {canWrite ? (
+          <button
+            type="button"
+            onClick={() => {
+              discard.reset();
+              setConfirmingDiscard(true);
+            }}
+            className={SECONDARY_BUTTON_SM}
+          >
+            <Trash2 aria-hidden className="h-3.5 w-3.5" />
+            Throw this away
+          </button>
+        ) : null}
       </div>
 
       {confirmingDiscard && (
@@ -340,7 +386,7 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
           title={`Throw away what we read from ${upload.name}?`}
           confirmLabel="Throw it away"
           pendingLabel="Removing…"
-          status={discardFeedback.status}
+          status={discardStatus}
           successLabel="Thrown away"
           error={discard.error}
           onCancel={() => setConfirmingDiscard(false)}
