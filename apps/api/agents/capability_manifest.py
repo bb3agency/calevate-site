@@ -98,7 +98,7 @@ async def lint_context_for(
     row = (
         await session.execute(
             text(
-                "SELECT a.name, o.name FROM agents a "
+                "SELECT a.name, o.name, a.language_primary FROM agents a "
                 "JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
             ),
@@ -112,6 +112,7 @@ async def lint_context_for(
         facts=" ".join(await owner_facts(session, tenant_id=tenant_id, agent_id=agent_id)),
         agent_name=str(row[0] or ""),
         business_name=str(row[1] or ""),
+        language=str(row[2] or ""),
         collect=tuple(
             field.label for field in await script_builder.collect_fields(session, agent_id)
         ),

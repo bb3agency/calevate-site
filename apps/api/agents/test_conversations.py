@@ -87,10 +87,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.actions import service as action_service
 from apps.api.agents import handoff, script_builder, trial_results
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
-from apps.api.agents.script_lint import CapabilityManifest
+from apps.api.agents.script_lint import CapabilityManifest, presumed_lines
 from apps.api.agents.trial_results import OWNERS, Owner, owner_of, result_owner
 from apps.api.agents.turn_checks import (
     JOB_KINDS,
+    SCRIPT_KINDS,
     SOUND_KINDS,
     TurnProblem,
     claims_done,
@@ -612,6 +613,8 @@ def speech_problems(
     today: date | None = None,
     opening: str = "",
     prior_contact: bool | None = None,
+    presumed: Sequence[str] = (),
+    names: Sequence[str] | None = None,
 ) -> list[TurnProblem]:
     """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
     once, in the order they first appear. Each reply is judged against the caller line it
@@ -630,6 +633,7 @@ def speech_problems(
             caller_said=turn.said,
             language=language,
             caller_chose_english=chose_english,
+            names=names,
         ):
             if problem.kind not in seen:
                 seen.add(problem.kind)
@@ -646,6 +650,7 @@ def speech_problems(
             today=today,
             opening=opening,
             prior_contact=prior_contact,
+            presumed=presumed,
         )
         if p.kind not in seen
     ]
@@ -681,6 +686,12 @@ class RuleContext:
     #: calls), so a reply asking its question again is caught (D-912). The test chat does
     #: not say it, so it is not one of the turns.
     opening: str = ""
+    #: The lines of script steps reached by callers they do not fit
+    #: (`script_lint.presumed_lines`), so a reply saying one fails as the script's.
+    presumed: tuple[str, ...] = ()
+    #: The business's name, left as written when a reply is checked for English letters;
+    #: None where nobody read the agent, which skips that check.
+    names: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -872,6 +883,8 @@ def hard_check(
         # A practice caller is new to the business, so any earlier enquiry or call the agent
         # mentions is invented unless its script or facts say callers enquired.
         prior_contact=False,
+        presumed=rules.presumed,
+        names=rules.names,
     )
     if scenario.probe == "person":
         # The test chat's sandbox switches off anything that would ring a person and "says
@@ -888,7 +901,12 @@ def hard_check(
         return HardCheck(
             verdict="failed",
             reason=" ".join(dict.fromkeys(problem.reason for problem in job)),
-            fix="platform",
+            # Only the script's own kinds go to the improver; any other is ours.
+            fix=(
+                "script_step"
+                if all(problem.kind in SCRIPT_KINDS for problem in job)
+                else "platform"
+            ),
             limit=opt_out.limit if opt_out is not None else None,
             sounds=sounds,
         )
@@ -1078,9 +1096,14 @@ class AgentBrief:
     #: What the business does with its callers (`agents/business_fit`), so practice callers
     #: ask what its callers ask and never push back on a price it does not quote.
     fit: BusinessFit = UNKNOWN
+    #: The lines of steps the script reaches with callers they do not fit
+    #: (`script_lint.presumed_lines`).
+    presumed: tuple[str, ...] = ()
 
     def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
         return RuleContext(
+            presumed=self.presumed,
+            names=(self.business_name,),
             opening=" ".join(line for line in (self.opening_line, self.placed_opening) if line),
             hand_over=self.hand_over,
             hand_over_reason=self.hand_over_reason,
@@ -1280,6 +1303,7 @@ async def load_brief(session: AsyncSession, agent_id: UUID) -> AgentBrief:
         real_calls=await count_real_calls(session, agent_id),
         caller_has_screen=bool(row[8]),
         fit=(await business_fit(session, row[4])).for_agent(live.policies),
+        presumed=presumed_lines(live),
         placed_opening=(
             placed_call_line(
                 body=row[9],

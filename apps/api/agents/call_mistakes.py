@@ -111,6 +111,20 @@ LESSONS: Final[dict[str, Lesson]] = {
         "Ask once a topic is finished; while helping step by step, give the next step.",
         'HOW TO SPEAK: "Mid-task ... \\"Anything else?\\" only once a topic is done"',
     ),
+    # The founder's Rytu Khata call of 9 Nov 2026 (20:32): replies opening with the same
+    # words and turns of four sentences, neither of which the call page named. English
+    # letters in a Telugu reply are judged in practice runs only, where the business's own
+    # name is known and left alone (`turn_checks.turn_problems(names=)`).
+    "same_opening": Lesson(
+        "Began reply after reply with the same words",
+        "React only when it fits what was said, in new words, and often not at all.",
+        'HOW TO SPEAK: "React only if it fits what they said, never the same way twice in a call"',
+    ),
+    "too_long": Lesson(
+        "Said too much in one turn",
+        "Say one or two short sentences, then let the caller speak.",
+        'HOW TO SPEAK: "one or two short sentences, then wait"',
+    ),
     "false_history": Lesson(
         "Said the caller had enquired or spoken to you before, when they had not",
         "Say why you are calling without claiming an earlier enquiry or call.",

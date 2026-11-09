@@ -43,6 +43,7 @@ from calevate_shared.call_script import CallScript, ConversationStage, extract_v
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
+from calevate_shared.spoken_guard import has_indic_letters, latin_word_problem
 
 from apps.api.compliance.call_purpose import Finding, first_finding
 
@@ -145,6 +146,9 @@ class LintContext:
     #: The labels of the lead details the agent collects (`script_builder.collect_fields`),
     #: each of which some step should ask.
     collect: tuple[str, ...] = ()
+    #: The agent's call language, against which a line in English letters is found (D-861).
+    #: Empty skips that check.
+    language: str = ""
 
 
 def _promo(text: str, context: LintContext) -> Finding | None:
@@ -447,6 +451,21 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
         if text.strip() and path not in callers
         for problem in spoken_line_problems(path, text, context)
     ]
+    # Here and not in `spoken_line_problems`, whose writers check it already
+    # (`script_assist.language_problems`): an owner's line written before D-861 (23 Oct 2026),
+    # or by hand, is shown on the card too. The in-call model copies a step's line, English
+    # letters included (founder's Rytu Khata call of 9 Nov 2026: "Android" and "iPhone").
+    # Only a line in the call's own letters that mixes English letters in: a line wholly in
+    # English is a different choice, the language the owner wrote it in.
+    names = (context.business_name, context.agent_name)
+    found += [
+        problem
+        for path, text in spoken_fields(script)
+        if text.strip()
+        and path not in callers
+        and has_indic_letters(text)
+        and (problem := latin_word_problem(path, text, context.language, names=names))
+    ]
     found += [
         problem
         for path, text in instruction_fields(script)
@@ -681,36 +700,151 @@ def _sets_up(stage: ConversationStage) -> bool:
     return bool(_SETS_UP.search(text)) and (bool(stage.procedure) or bool(_HELPS.search(text)))
 
 
+#: An instruction that takes the caller's use as given ("they already use the app").
+_PRESUMES_USE: Final = re.compile(
+    r"\b(?:already|since (?:they|you)|as (?:they|you))\b[^.;?]{0,25}\b(?:us(?:e|es|ed|ing)|user)\b|"
+    r"\b(?:they|you) (?:are|were|have been|had been) (?:already )?using\b",
+    re.IGNORECASE,
+)
+#: A way out whose condition says the caller uses it: the only way a step that takes their
+#: use as given may be reached. Having it, installing it or registering is not using it:
+#: the Rytu Khata caller of 9 Nov 2026 had registered and never used the app.
+_SAYS_USES: Final = re.compile(r"\b(?:us(?:e|es|ed|ing)|user|tried)\b", re.IGNORECASE)
+_DENIES: Final = re.compile(
+    r"n't\b|\b(?:not|never|no|nor|yet to|only|without|stopped|unused)\b", re.IGNORECASE
+)
+#: A step that decides for itself who it is for: it asks first whether the caller uses it,
+#: or goes on only for callers who said they do. A linear script (a new draft has no ways
+#: out) can gate a step only this way.
+_ASKS_WHETHER_USES: Final = re.compile(
+    r"\b(?:ask|check|find out|confirm)\w*\b[^.;?]{0,30}\b(?:whether|if)\b[^.;?]{0,40}"
+    r"\b(?:us(?:e|es|ed|ing)|tried)\b",
+    re.IGNORECASE,
+)
+_ONLY_IF_USES: Final = re.compile(
+    r"\b(?:if|when|once)\s+(?:they|the caller)\b[^.;?,]{0,25}\b(?:us(?:e|es|ed|ing)|tried)\b",
+    re.IGNORECASE,
+)
+
+
+def _gates_itself(instruction: str) -> bool:
+    if _ASKS_WHETHER_USES.search(instruction):
+        return True
+    match = _ONLY_IF_USES.search(instruction)
+    return match is not None and not _DENIES.search(match.group(0))
+
+
 def _asks_experience(stage: ConversationStage) -> bool:
     return bool(_ASKS_EXPERIENCE.search(f"{stage.name} {stage.instruction}"))
 
 
-def order_problems(script: CallScript) -> list[str]:
-    """A step that asks how the caller uses or likes something, on a path of the call that
-    also helps them set it up: before it, they do not have it yet; right after it, they have
-    not used it. Either way the question cannot be answered on that call (the Rytu Khata
-    call of 6 Nov 2026: "I only just installed it, how would I be using it?")."""
+def _presumes_use(stage: ConversationStage) -> bool:
+    """Whether a step needs the caller to use the thing already: it asks how they use or like
+    it, or takes their use as given. One that asks whether they use it first does not."""
+    text = f"{stage.name} {stage.instruction}"
+    if _gates_itself(stage.instruction):
+        return False
+    return _asks_experience(stage) or bool(_PRESUMES_USE.search(text))
+
+
+def _says_uses(condition: str) -> bool:
+    return bool(_SAYS_USES.search(condition)) and not _DENIES.search(condition)
+
+
+def _reached_unasked(script: CallScript) -> set[int]:
+    """The steps the call reaches with a caller who has not said they use it: from the first
+    step, along every way out except one whose condition says they do (`_says_uses`).
+    "Otherwise" and the step after carry no answer, so they never gate."""
+    if not script.stages:
+        return set()
+    at = {stage.id: i for i, stage in enumerate(script.stages)}
+    seen = {0}
+    todo = [0]
+    while todo:
+        index = todo.pop()
+        stage = script.stages[index]
+        targets = [b.target for b in stage.branches if not _says_uses(b.when)]
+        if stage.otherwise:
+            targets.append(stage.otherwise)
+        elif index + 1 < len(script.stages):
+            targets.append(script.stages[index + 1].id)
+        for target in targets:
+            i = at.get(target)
+            if i is not None and i not in seen:
+                seen.add(i)
+                todo.append(i)
+    return seen
+
+
+def _order_findings(script: CallScript) -> list[tuple[int, str]]:
+    """(step index, problem) for each step asked of a caller who cannot answer it."""
     setup = [i for i, stage in enumerate(script.stages) if _sets_up(stage)]
-    problems: list[str] = []
+    unasked = _reached_unasked(script)
+    found: list[tuple[int, str]] = []
     for i, stage in enumerate(script.stages):
-        if not _asks_experience(stage) or _sets_up(stage):
+        if _sets_up(stage) or not _presumes_use(stage):
             continue
         reach = _reachable(script, i)
         before = next((s for s in setup if s in reach), None)
         after = next((s for s in setup if i in _reachable(script, s)), None)
-        if before is None and after is None:
-            continue
-        when = (
-            f"before step {before + 1} helps them set it up"
-            if before is not None
-            else f"right after step {(after or 0) + 1} helps them set it up"
-        )
-        problems.append(
-            f"stages.{i}.instruction: asks how the caller uses or likes it, and the call can "
-            f"reach it {when}, when they cannot answer it; ask it only on the way for callers "
-            "who already had it, and after setting it up show them the first thing to do."
-        )
-    return problems
+        if _asks_experience(stage) and (before is not None or after is not None):
+            when = (
+                f"before step {before + 1} helps them set it up"
+                if before is not None
+                else f"right after step {(after or 0) + 1} helps them set it up"
+            )
+            found.append(
+                (
+                    i,
+                    f"stages.{i}.instruction: asks how the caller uses or likes it, and the call "
+                    f"can reach it {when}, when they cannot answer it; ask it only on the way "
+                    "for callers who said they use it, and after setting it up show them the "
+                    "first thing to do.",
+                )
+            )
+        elif i in unasked:
+            found.append(
+                (
+                    i,
+                    f"stages.{i}.instruction: takes as given that the caller uses it, and the "
+                    "call reaches it with callers who have not said so (having it, installing "
+                    "it or registering is not using it); ask first, as a question, whether they "
+                    "use it, and come here only through a way out whose condition says they "
+                    "do, or have this step ask that first and its line ask rather than say it.",
+                )
+            )
+    return found
+
+
+def order_problems(script: CallScript) -> list[str]:
+    """A step asked of a caller who cannot answer it:
+
+    - how the caller uses or likes something, on a path that also helps them set it up:
+      before it they do not have it yet, right after it they have not used it (the Rytu
+      Khata call of 6 Nov 2026: "I only just installed it, how would I be using it?");
+    - a step that takes their use as given, reached without a way out whose condition says
+      they use it (the Rytu Khata call of 9 Nov 2026: "you already use the app, what for?"
+      to a caller who had only registered). Asking before assuming, and branching on the
+      answer, is the conversation-design default ("Don't ask the user a question if you're
+      not prepared to handle their answer", developers.google.com/assistant/
+      conversation-design/questions, read 9 Nov 2026).
+
+    Read in the English instructions and conditions only, so it works for any call language.
+    """
+    return [problem for _i, problem in _order_findings(script)]
+
+
+def presumed_lines(script: CallScript) -> tuple[str, ...]:
+    """What the agent says at each step `order_problems` names: a line a caller who cannot
+    answer it hears, which the practice checks look for in the replies
+    (`turn_checks.conversation_problems`)."""
+    lines: list[str] = []
+    for i, _problem in _order_findings(script):
+        stage = script.stages[i]
+        line = stage.instruction if stage.mode == "say" else stage.sounds_like
+        if line.strip():
+            lines.append(line.strip())
+    return tuple(dict.fromkeys(lines))
 
 
 #: Punctuation stripped from a word's ends: ASCII, the danda, curly quotes and dashes.
@@ -776,13 +910,81 @@ def repeated_line_problems(script: CallScript) -> list[str]:
     return problems
 
 
+#: A step told to do what the opening line already did: greet, say who is calling, or ask
+#: whether now is a good time. Read in the English instructions only.
+_REDOES_OPENING: Final = re.compile(
+    r"\b(?:greet\w*|introduce (?:yourself|herself|himself|the agent)|"
+    r"identify (?:yourself|herself|himself)|say who (?:you are|is calling)|"
+    r"(?:ask|check)\w* (?:if|whether) (?:they|it is|now)\b[^.;]{0,30}"
+    r"\b(?:talk|speak|good time|convenient|free|suits?)\b)",
+    re.IGNORECASE,
+)
+
+
+def opening_redone_problems(script: CallScript) -> list[str]:
+    """A step that greets, introduces the agent or asks whether now suits, in a script with
+    an opening line. The engine says the opening first, word for word, and the model follows
+    the step it is on: on the founder's Rytu Khata call of 9 Nov 2026 (20:32) the first step
+    said "greet the lead by name, identify yourself, ask if they can talk now", and the
+    agent greeted and introduced itself a second time after the opening had."""
+    if not (script.opening_line.strip() or script.outbound_opening_line.strip()):
+        return []
+    return [
+        f"stages.{i}.instruction: greets, says who is calling or asks if now is a good time, "
+        "which the opening line already did; leave that out and start this step from what "
+        "comes after it."
+        for i, stage in enumerate(script.stages)
+        if stage.mode == "guide" and _REDOES_OPENING.search(stage.instruction)
+    ]
+
+
+#: The words before a line's first mark that count as how it opens: a short reaction.
+_OPENER_MAX_WORDS: Final = 3
+_FIRST_MARK: Final = re.compile(r"[,.!?;:\N{DEVANAGARI DANDA}]")
+
+
+def _line_opener(text: str) -> str | None:
+    head = _FIRST_MARK.split(" ".join(text.split()), maxsplit=1)
+    if len(head) < 2:
+        return None
+    words = [w.casefold() for w in head[0].split()]
+    return " ".join(words) if 0 < len(words) <= _OPENER_MAX_WORDS else None
+
+
+def same_opener_problems(script: CallScript) -> list[str]:
+    """A step's line that opens with the same short reaction as an earlier step's line. The
+    in-call model copies how a step's line opens, so lines that all open alike make every
+    reply open alike (founder's Rytu Khata call of 9 Nov 2026: three replies running began
+    with the same "OK"). Read by words, so it works in any language."""
+    seen: dict[str, int] = {}
+    problems: list[str] = []
+    for i, stage in enumerate(script.stages):
+        path = f"stages.{i}.{'instruction' if stage.mode == 'say' else 'sounds_like'}"
+        line = stage.instruction if stage.mode == "say" else stage.sounds_like
+        said = _line_opener(line)
+        if said is None:
+            continue
+        if said in seen:
+            problems.append(
+                f"{path}: opens with the same words as step {seen[said] + 1}'s line; the agent "
+                "copies how lines open, so its replies would all begin alike. Open it with its "
+                "own point."
+            )
+        else:
+            seen[said] = i
+    return problems
+
+
 def flow_problems(script: CallScript) -> list[str]:
     """What the whole call's shape gets wrong: a placeholder step, a question asked before
-    the caller can answer it, the same thing said twice."""
+    the caller can answer it, the same thing said twice, a step that redoes the opening,
+    lines that all open alike."""
     return [
         *placeholder_problems(script),
         *order_problems(script),
         *repeated_line_problems(script),
+        *opening_redone_problems(script),
+        *same_opener_problems(script),
     ]
 
 
@@ -805,6 +1007,7 @@ __all__ = [
     "placeholder_instruction",
     "placeholder_problems",
     "plain",
+    "presumed_lines",
     "question_count",
     "repeated_line_problems",
     "script_problems",

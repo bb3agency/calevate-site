@@ -78,9 +78,10 @@ OPENING_WRITER_INSTRUCTION: Final = (
     "that only places calls says which business is calling and what about, and asks whether "
     "now is a good time to talk, nothing else. Never a line any business could use, never a "
     "list of products, an offer, a discount or a figure the owner's facts do not give, never "
-    "that the person enquired, asked or showed interest (only the call's own data may say "
-    "that), and about being an AI or the call being recorded exactly what the rules below "
-    "say, in a few words of its own woven into the line, never a separate stiff sentence. "
+    "that the person enquired, asked or showed interest, or already has or uses something "
+    "(only the call's own data may say that), and about being an AI or the call being "
+    "recorded exactly what the rules below say, in a few words of its own woven into the "
+    "line, never a separate stiff sentence. "
     "Write it in "
     "the call language as people say it on the phone, following the spoken-style guide in the "
     "brief. The brief ends with the rules the line is checked against; a line that breaks "
@@ -237,7 +238,8 @@ def _writer_problems(
 PLACED_TASK: Final = (
     "This opening_line is the one the agent says on a call it PLACES: it rang the person, so "
     "it says which business is calling and what about, never that the person enquired or "
-    "asked, and asks whether now is a good time to talk. If it names the person, "
+    "asked, or has or uses something the call's own data does not say, and asks whether now "
+    "is a good time to talk. If it names the person, "
     f"{NAME_PLACEMENT_RULE}. "
 )
 

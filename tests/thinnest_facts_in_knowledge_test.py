@@ -65,9 +65,12 @@ SCRIPT = f"[IDENTITY] Sunrise Clinic receptionist\n{FACTS}\n[TASK FLOW]\nGreet, 
 #: 6 Nov 2026: no greeting in any later turn, a line spoken over comes back in new words, and
 #: a question is answered rather than the last point repeated.
 #: 8 Nov 2026 (D-973): our own caller-memory section is gone; memory is the engine's alone.
+#: 9 Nov 2026: a suffix joins its word where the language's print does, and a placed call
+#: takes nothing the person has or uses from a step's line; a step that says to greet or
+#: introduce is told that is done; a reaction is never the same twice in a call.
 PINNED = (
-    "f0368cc3d8e82985072ec1a92feaccb442be80f22e1504ddab206fe10e64747a",
-    "91fc5d47c5e9e317feb8b1dba0deaa3d90f884fd39d1cf7fafcd7e20a399270a",
+    "07172c6949c1700ed44e4d9722a0e6b907a80359b569e69ea6e0b0fc511b8664",
+    "5af5f17a8dac8a90f06da3ac74fe8eafccad58856e4aac33694369ffb0a710aa",
 )
 
 

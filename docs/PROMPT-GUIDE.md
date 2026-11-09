@@ -400,7 +400,15 @@ invitation to trim guardrails.
   language, that a suffix or question particle joins its word and a mark goes only where a
   speaker pauses (`engine._WRITTEN_FORM_BULLET`). The language's own example is the founder's
   `written_form` line in `spoken_style.json`, quoted after the rule for the primary language;
-  it is empty until he writes it.
+  it is empty until he writes it. Since 9 Nov 2026 the rule joins "as the language's print
+  does": Telugu print joins a case marker to an English loanword, standard Hindi writes it
+  apart from a noun (evidence: `docs/evidence/speech-naturalness-2026-11-09/PRESUPPOSITION.md`).
+- **Nothing about the person is taken from a step's line (9 Nov 2026).** On a placed call,
+  START OF THE CALL says never to say what the person enquired, has or uses unless they or
+  THIS CALL said so, and that a step's "sounds like" line is only an example
+  (`engine.CALL_REASON_RULE`). The script check (`script_lint.order_problems`) finds a step
+  that takes the caller's use as given and is reached without a way out whose condition says
+  they use it; the practice check `presumed_state` fails a reply that says that step's line.
 - **A greeting is not a language switch (D-849).** "Hello", "OK" or a word or two keeps the
   language the agent greeted in; it switches when the caller says a sentence in another
   language or asks. On 21 Oct 2026 a Telugu agent answered a pickup "Hello" in English until
