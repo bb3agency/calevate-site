@@ -549,13 +549,19 @@ async def _fixed_further(
             log.exception("script_fix_repair_crashed", extra={"agent_id": str(agent_id)})
             break
         spends.append(draft)
-        repaired = script_proposals.kept_to_paths(
-            draft.script, script, paths, unasked=fix.unasked(script, paths)
-        )
+        try:
+            repaired = script_proposals.kept_to_paths(
+                draft.script, script, paths, unasked=fix.unasked(script, paths)
+            )
+            repaired_left = fix.targeted(repaired)
+        except Exception:
+            # Inside the loop rather than the caller's guard, which would drop `spends`:
+            # the repairs answered are paid for and must reach the meter (hard rule 7).
+            log.exception("script_fix_repair_unusable", extra={"agent_id": str(agent_id)})
+            break
         if repaired == script:
             break
-        script = repaired
-        left = fix.targeted(script)
+        script, left = repaired, repaired_left
     log.info("script_fix_checked", extra={"passes": len(spends), "left": len(left)})
     return _Repaired(script, spends, left)
 

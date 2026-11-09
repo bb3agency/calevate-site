@@ -33,7 +33,9 @@ def _script(instruction: str, line: str) -> CallScript:
     return CallScript(
         schema_version=2,
         stages=[
-            ConversationStage(id="signup", name="Signup", instruction=instruction, sounds_like=line),
+            ConversationStage(
+                id="signup", name="Signup", instruction=instruction, sounds_like=line
+            ),
             ConversationStage(id="close", name="Close", instruction="Thank them and end the call."),
         ],
     )
@@ -132,3 +134,34 @@ async def test_the_job_stores_the_fix_and_meters_it(monkeypatch: pytest.MonkeyPa
     async with tenant_session(tenant_id) as session:
         stored = await script_proposals.read_proposal(session, agent_id)
     assert stored is not None and stored.status == "ready"
+
+
+@pytest.mark.rls
+async def test_a_repair_pass_that_cannot_be_used_is_still_metered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a repair pass the model answered is dropped from the meter when keeping it
+    to the named lines fails, because the caller's guard replaced the passes' spends with
+    none (hard rule 7)."""
+    from tests import fix_lines_all_at_once_2026_11_10_test as fixall
+
+    kept_to_paths = script_proposals.kept_to_paths
+    calls: list[int] = []
+
+    def keep(*args: Any, **kwargs: Any) -> CallScript:
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("cannot keep this repair")
+        return kept_to_paths(*args, **kwargs)
+
+    monkeypatch.setattr(script_proposals, "kept_to_paths", keep)
+    still_said = "Rytu Khata app lets you keep farm accounts on your phone easily."
+    _stored, changes, metered = await fixall._run(
+        monkeypatch,
+        [
+            fixall._script(still_said, collect=[fixall.DETAIL]),
+            fixall._script(fixall.FIXED_LINE, collect=[fixall.DETAIL]),
+        ],
+    )
+    assert len(changes) == 2
+    assert len(metered) == 2
