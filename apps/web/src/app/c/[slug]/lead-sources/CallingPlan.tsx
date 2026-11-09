@@ -135,7 +135,7 @@ export function CallingPlan({
   savedAgents,
   onSave,
 }: {
-  plan: { data?: LeadCalling; isLoading: boolean; error: unknown };
+  plan: { data?: LeadCalling; isLoading: boolean; error: unknown; refetch: () => unknown };
   agents: Agent[] | undefined;
   canWrite: boolean;
   refusal: string | null;
@@ -163,7 +163,7 @@ export function CallingPlan({
   if (!plan.data || !draft) {
     return (
       <Card title="How new leads are called">
-        <ProblemNotice error={plan.error} />
+        <ProblemNotice error={plan.error} onRetry={() => void plan.refetch()} />
       </Card>
     );
   }

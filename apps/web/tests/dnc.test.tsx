@@ -406,6 +406,23 @@ describe("when the list itself does not load", () => {
     expect(container.textContent).not.toContain(PHONE);
   });
 
+  it("offers Try again when who-this-account-may-call did not load, and shows the switch once it does", async () => {
+    let reads = 0;
+    await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": ME,
+      [LIST_PATH]: [],
+      [OUTBOUND_CONSENT_POLICY_PATH]: () => {
+        reads += 1;
+        return reads === 1
+          ? problem(503, { title: "Service unavailable", kind: "transient", retryable: true })
+          : { outbound_requires_consent: false };
+      },
+    });
+    const region = await screen.findByRole("region", { name: "Who this account may call" });
+    fireEvent.click(await within(region).findByRole("button", { name: "Try again" }));
+    expect(await within(region).findByRole("switch")).toBeTruthy();
+  });
+
   it("says so when it cannot even find out whether you may write", async () => {
     // `/v1/me` failing used to delete the Add card in silence — "we could not ask" and
     // "you may not" rendered identically, as empty space, and the client's only clue was
