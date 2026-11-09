@@ -174,7 +174,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.consent import read_messaging_consent
 from apps.api.compliance.service import check_dispatch
-from apps.api.compliance.whatsapp_optin import read_alert_optin
+from apps.api.compliance.whatsapp_optin import alert_subject
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
@@ -526,32 +526,20 @@ async def resolve_destination(session: AsyncSession, tenant_id: UUID) -> Destina
     **The read is keyed to (tenant, THIS user, THIS number), and all three legs matter.**
     They are what lets that ledger carry no expiry column: an owner handover finds no row
     for the new person, a changed number finds no row for the new number, and a
-    deactivated owner is excluded by the query above — each fails closed on a fact we
+    deactivated owner is excluded by `alert_subject` — each fails closed on a fact we
     observe at send time rather than on a clock that would switch a client's hot-lead
-    alerts off on a day nobody is watching.
+    alerts off on a day nobody is watching. With several owners, the one who agreed is
+    the one alerted (`alert_subject`).
     """
-    row = (
-        await session.execute(
-            text(
-                "SELECT u.id, u.phone FROM memberships m JOIN users u ON u.id = m.user_id "
-                "WHERE m.tenant_id = :tid AND m.role = 'owner' "
-                "AND u.deactivated_at IS NULL AND u.phone IS NOT NULL "
-                "ORDER BY m.created_at LIMIT 1"
-            ),
-            {"tid": tenant_id},
-        )
-    ).first()
-    if row is None or not row[1]:
+    subject = await alert_subject(session, tenant_id=tenant_id)
+    if subject is None:
         return None
-    user_id, phone_e164 = UUID(str(row[0])), str(row[1])
-    state = await read_alert_optin(
-        session, tenant_id=tenant_id, user_id=user_id, phone_e164=phone_e164
-    )
     # `messageable`, not `status == "granted"`: the property is where "what counts as a
     # live opt-in" is defined, and the two must not be able to disagree — the same rule
     # `resolve_escalation_destination` follows for the consumer ledger.
     return Destination(
-        to_e164=phone_e164, opt_in_at=state.captured_at if state.messageable else None
+        to_e164=subject.phone_e164,
+        opt_in_at=subject.optin.captured_at if subject.optin.messageable else None,
     )
 
 

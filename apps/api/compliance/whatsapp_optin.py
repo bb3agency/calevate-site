@@ -88,6 +88,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Final
 from uuid import UUID
 
 from sqlalchemy import text
@@ -160,6 +161,52 @@ class AlertOptIn:
 
 
 NO_OPT_IN = AlertOptIn(status="none")
+
+
+@dataclass(frozen=True, slots=True)
+class AlertSubject:
+    """The owner an account's alerts go to, their number, and their current opt-in."""
+
+    user_id: UUID
+    phone_e164: str
+    optin: AlertOptIn
+
+
+# Every active owner with a number, earliest member first.
+_OWNERS_WITH_A_NUMBER: Final = text(
+    "SELECT u.id, u.phone FROM memberships m JOIN users u ON u.id = m.user_id "
+    "WHERE m.tenant_id = :tid AND m.role = 'owner' "
+    "AND u.deactivated_at IS NULL AND u.phone IS NOT NULL "
+    "ORDER BY m.created_at, m.user_id"
+)
+
+
+async def alert_subject(session: AsyncSession, *, tenant_id: UUID) -> AlertSubject | None:
+    """The one answer to "which owner do this account's alerts go to", for the alert jobs
+    and the operator surface alike.
+
+    The earliest owner who has AGREED, at the number they agreed on; failing that, the
+    earliest owner with a number, whose state is then `none` or `withdrawn` and refuses.
+    Picking the earliest owner with a number regardless of agreement was the old rule, and
+    it let a co-owner's opt-in be shadowed by a founding owner who merely added a number
+    (D-976 made that a field on Your account), so the co-owner's screen said alerts were on
+    while every alert was refused. None when no active owner has a number.
+    """
+    first: AlertSubject | None = None
+    for user_id, phone in (await session.execute(_OWNERS_WITH_A_NUMBER, {"tid": tenant_id})).all():
+        if not phone:
+            continue
+        subject = AlertSubject(
+            user_id=UUID(str(user_id)),
+            phone_e164=str(phone),
+            optin=await read_alert_optin(
+                session, tenant_id=tenant_id, user_id=UUID(str(user_id)), phone_e164=str(phone)
+            ),
+        )
+        if subject.optin.messageable:
+            return subject
+        first = first or subject
+    return first
 
 
 async def read_alert_optin(
@@ -355,6 +402,8 @@ __all__ = [
     "NO_OPT_IN",
     "RECORDABLE_STATUSES",
     "AlertOptIn",
+    "AlertSubject",
+    "alert_subject",
     "read_alert_optin",
     "record_alert_optin",
 ]

@@ -198,9 +198,10 @@ async def _phone_of(session: AsyncSession, user_id: UUID) -> str:
 
 
 async def _owner_of(session: AsyncSession, tenant_id: UUID) -> tuple[UUID, str]:
-    """The tenant's owner and their number — the SAME query `resolve_destination` runs.
+    """The tenant's owner and their number — `whatsapp_optin.alert_subject`, the SAME
+    answer `resolve_destination` uses.
 
-    Deliberately the same shape rather than a convenient variation: the operator surface
+    Deliberately the same function rather than a convenient variation: the operator surface
     must record the opt-in against exactly the person the worker would send to, or an
     operator could evidence one human's agreement and the alert would reach another.
 
@@ -214,18 +215,8 @@ async def _owner_of(session: AsyncSession, tenant_id: UUID) -> tuple[UUID, str]:
     """
     if not await tenant_exists(session, tenant_id):
         raise ProblemError.not_found("Client")
-    row = (
-        await session.execute(
-            text(
-                "SELECT u.id, u.phone FROM memberships m JOIN users u ON u.id = m.user_id "
-                "WHERE m.tenant_id = :tid AND m.role = 'owner' "
-                "AND u.deactivated_at IS NULL AND u.phone IS NOT NULL "
-                "ORDER BY m.created_at LIMIT 1"
-            ),
-            {"tid": tenant_id},
-        )
-    ).first()
-    if row is None or not row[1]:
+    subject = await whatsapp_optin.alert_subject(session, tenant_id=tenant_id)
+    if subject is None:
         raise ProblemError.business_rule(
             "alert_optin_no_owner_with_a_number",
             "This account has no active owner with a mobile number.",
@@ -234,7 +225,7 @@ async def _owner_of(session: AsyncSession, tenant_id: UUID) -> tuple[UUID, str]:
                 "the opt-in."
             ),
         )
-    return UUID(str(row[0])), str(row[1])
+    return subject.user_id, subject.phone_e164
 
 
 @router.get(
