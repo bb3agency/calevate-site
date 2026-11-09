@@ -1071,7 +1071,7 @@ async def list_deliveries(
                 # two permissions further up.
                 "d.payload_ref IS NOT NULL, d.next_attempt_at, "
                 "(d.status = 'failed' AND w.active AND EXISTS (SELECT 1 FROM outbox_messages m "
-                "  WHERE m.id = d.outbox_message_id)) "
+                "  WHERE m.id = d.outbox_message_id AND m.payload <> '{}'::jsonb)) "
                 "FROM webhook_deliveries d JOIN outbound_webhooks w ON w.id = d.endpoint_id "
                 "WHERE d.direction = 'out' "
                 "AND d.endpoint_id IN (SELECT id FROM outbound_webhooks) "

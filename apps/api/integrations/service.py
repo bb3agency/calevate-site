@@ -1033,7 +1033,8 @@ async def resend_delivery(session: AsyncSession, *, delivery_id: UUID) -> None:
             "  reason = NULL, last_at = now() "
             "WHERE d.id = :id AND d.direction = 'out' AND d.status = 'failed' "
             "  AND d.endpoint_id IN (SELECT id FROM outbound_webhooks WHERE active) "
-            "  AND EXISTS (SELECT 1 FROM outbox_messages m WHERE m.id = d.outbox_message_id)"
+            "  AND EXISTS (SELECT 1 FROM outbox_messages m WHERE m.id = d.outbox_message_id "
+            "  AND m.payload <> '{}'::jsonb)"
         ),
         {"id": delivery_id, "retrying": RETRYING},
     )
@@ -1043,7 +1044,7 @@ async def resend_delivery(session: AsyncSession, *, delivery_id: UUID) -> None:
         await session.execute(
             text(
                 "SELECT d.status, w.active, EXISTS (SELECT 1 FROM outbox_messages m "
-                "  WHERE m.id = d.outbox_message_id) "
+                "  WHERE m.id = d.outbox_message_id AND m.payload <> '{}'::jsonb) "
                 "FROM webhook_deliveries d JOIN outbound_webhooks w ON w.id = d.endpoint_id "
                 "WHERE d.id = :id AND d.direction = 'out'"
             ),
@@ -1123,7 +1124,8 @@ async def claim_due_retries(
         DueRetry(
             delivery_id=UUID(str(r[0])),
             attempt=int(r[1] or 0) + 1,
-            payload=r[2] if isinstance(r[2], dict) else None,
+            # `{}` is a body a run scrubbed before `KEEP_PAYLOAD_AFTER_RUN_JOBS`: not held.
+            payload=r[2] if isinstance(r[2], dict) and r[2] else None,
         )
         for r in rows
     ]

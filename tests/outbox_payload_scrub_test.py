@@ -162,6 +162,9 @@ async def test_the_scrub_and_the_status_flip_are_one_statement() -> None:
     assert statements == 1, f"{statements} UPDATEs — the scrub must ride the status flip"
     assert "payload = CASE WHEN job = ANY(CAST(:scrub AS text[])) THEN '{}'::jsonb" in source
     # Every other job keeps its payload until its run succeeds, and forgets it in the
-    # statement that records the success (L5-03, `tests/outbox_unconsumed_test.py`).
+    # statement that records the success (L5-03, `tests/outbox_unconsumed_test.py`), bar
+    # the jobs whose body is read after a success (`KEEP_PAYLOAD_AFTER_RUN_JOBS`).
     consumed = inspect.getsource(service.mark_outbox_consumed)
-    assert "consumed_at = now(), payload = '{}'::jsonb" in consumed
+    assert consumed.count("UPDATE outbox_messages") == 1
+    assert "consumed_at = now(), " in consumed
+    assert "ELSE '{}'::jsonb END" in consumed
