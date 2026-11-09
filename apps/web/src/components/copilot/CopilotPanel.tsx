@@ -670,7 +670,12 @@ export function CopilotPanel({
             would talk over the answer — which is the thing a screen-reader user is waiting
             for and which IS announced. Kept after the answer has arrived too, so a person
             can still see which of their data was read and what each lookup returned. */}
-        <StepList steps={conversation.steps} answer={latestAnswer} realm={realm} />
+        <StepList
+          steps={conversation.steps}
+          answer={latestAnswer}
+          realm={realm}
+          working={conversation.streaming !== null}
+        />
 
         {/* WHY SOMETHING DID NOT WORK (D-935): a troubleshoot read's checklist, the cause
             open with its one button. The admin realm gets no button that would ask its Pip

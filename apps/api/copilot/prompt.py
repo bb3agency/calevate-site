@@ -90,7 +90,7 @@ import re
 from typing import Any, Final
 from xml.sax.saxutils import escape, quoteattr
 
-from calevate_shared.spoken_guard import textbook_note
+from calevate_shared.spoken_guard import generation_guidance, textbook_note
 from calevate_shared.spoken_style import style_for
 
 from apps.api.copilot.identity import ASSISTANT_NAME
@@ -754,12 +754,14 @@ def _render_field(field: CopilotField) -> str:
 
 
 def render_spoken_styles(payload: CopilotAskIn) -> str:
-    """One `<spoken_style>` per call language of a writable line callers hear: the
-    language's whole textbook-word list with what to say instead (D-832).
+    """One `<spoken_style>` per call language of a writable line callers hear: the guide
+    every writer of spoken lines gets (`spoken_guard.generation_guidance`, the one the
+    script writer reads), so Pip filling the Script tab writes to the same rules as the AI
+    drafting it.
 
-    `service.validate_fill` refuses a fill whose spoken line uses one of these words, so the
-    writer is given the same list up front rather than learning it one refusal at a time:
-    on 5 Nov 2026 a whole-script rewrite was refused for two of them. In the screen block
+    `service.validate_fill` refuses a fill whose spoken line uses a word of the language's
+    textbook list, so every listed word is in the block: a guide that does not name one (a
+    language pack names only its own avoid list) gets the rest appended. In the screen block
     rather than the static prompt because only a screen with such a field needs it, and the
     static prefix must stay the same bytes on every request (module docstring, point 1).
     """
@@ -770,13 +772,25 @@ def render_spoken_styles(payload: CopilotAskIn) -> str:
     )
     blocks: list[str] = []
     for language in languages:
+        guide = generation_guidance(language)
         style = style_for(language)
-        if style is None or not style.word_swaps:
+        unnamed = [swap for swap in (style.word_swaps if style else ()) if swap[0] not in guide]
+        if unnamed:
+            guide = "\n".join(
+                part
+                for part in (
+                    guide,
+                    "Never these textbook words either; use what people say instead: "
+                    + textbook_note(unnamed),
+                )
+                if part
+            )
+        if not guide:
             continue
         blocks.append(
-            f"<spoken_style language={xml_attr(language)}>Lines callers hear in this language "
-            "never use these textbook words; use what people say instead: "
-            f"{xml_text(textbook_note(style.word_swaps))}</spoken_style>"
+            f"<spoken_style language={xml_attr(language)}>How lines callers hear are written "
+            f"in this language; a fill using a textbook word listed here is refused.\n"
+            f"{xml_text(guide)}</spoken_style>"
         )
     return "\n".join(blocks)
 

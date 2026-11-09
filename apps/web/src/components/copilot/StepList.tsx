@@ -30,7 +30,9 @@ import type { CopilotStep } from "@/lib/copilot/types";
  * reader to act, so the warning colour would be an alarm with no action behind it. A step
  * that failed and then succeeded when Pip tried the same thing again is not a problem at
  * all: it reads "Tried again", without the reason it was first refused, and is not counted
- * in the summary.
+ * in the summary. Until the answer has finished arriving the summary reads "Still
+ * working…": a refusal goes back to Pip to mend, and on a long rewrite the mending turn
+ * runs for a minute with no step of its own, which otherwise reads as a final failure.
  *
  * ## No repeated sentences
  *
@@ -46,10 +48,13 @@ export function StepList({
   steps,
   answer = "",
   realm = "client",
+  working = false,
 }: {
   steps: CopilotStep[];
   answer?: string;
   realm?: "client" | "admin";
+  /** The answer is still arriving, though no step is running: Pip is between steps. */
+  working?: boolean;
 }) {
   // Open for ONE exchange's list, named by its first step: the panel keeps this component
   // mounted across questions, and a plain boolean opened the next answer's list unasked.
@@ -77,11 +82,14 @@ export function StepList({
   }
 
   const retried = recoveredSteps(steps);
-  const problems = steps.filter((step) => isProblem(step) && !retried.has(step.id)).length;
+  // While the answer is still coming, a refused step is one Pip is being told how to mend:
+  // calling it unfinished then is a verdict the next frame may reverse.
+  const problems = working ? 0 : steps.filter((step) => isProblem(step) && !retried.has(step.id)).length;
   // A retry that worked is one thing done, not two.
   const counted = steps.length - retried.size;
-  const summary =
-    problems > 0
+  const summary = working
+    ? "Still working…"
+    : problems > 0
       ? problems === counted
         ? "Could not finish what it tried"
         : `${problems} of ${counted} steps did not finish`
@@ -99,7 +107,9 @@ export function StepList({
       >
         {/* The summary's glyph carries the outcome's colour so a reader sees "something
             did not finish" without opening the list; the steps inside stay quiet. */}
-        {problems > 0 ? (
+        {working ? (
+          <Loader2 aria-hidden className="h-3.5 w-3.5 shrink-0 animate-spin text-ink-faint motion-reduce:animate-none" />
+        ) : problems > 0 ? (
           <CircleMinus aria-hidden className={`h-3.5 w-3.5 ${TONE_INK.warn}`} />
         ) : (
           <Check aria-hidden className={`h-3.5 w-3.5 ${TONE_INK.ok}`} />
@@ -135,12 +145,25 @@ function isProblem(step: CopilotStep): boolean {
   return step.status === "failed" || step.status === "refused";
 }
 
-/** Problem steps that a later run of the same tool finished: a retry that worked. */
+/**
+ * Problem steps that a later run of the same tool finished: a retry that worked.
+ *
+ * A form fill names its fields (`field_ids`), so a refused fill counts as tried again only
+ * when later fills wrote every one of them: a rewrite whose repair dropped a field left that
+ * field unwritten, and that stays a step that did not finish. Other steps carry no fields,
+ * so for them a later finished run of the same tool is the retry.
+ */
 function recoveredSteps(steps: CopilotStep[]): Set<string> {
   const recovered = new Set<string>();
   steps.forEach((step, index) => {
     if (!isProblem(step)) return;
     const later = steps.slice(index + 1).filter((next) => next.status === "done");
+    const fields = step.field_ids ?? [];
+    if (fields.length > 0) {
+      const written = new Set(later.filter((next) => next.tool === step.tool).flatMap((next) => next.field_ids ?? []));
+      if (fields.every((id) => written.has(id))) recovered.add(step.id);
+      return;
+    }
     // An area call written in the wrong form (`leads_do`) is refused under the area's name,
     // and its corrected retry is framed under the action it resolves to, so the two never
     // share a tool name.

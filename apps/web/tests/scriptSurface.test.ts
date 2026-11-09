@@ -141,6 +141,19 @@ describe("the lines callers hear, and the screen's present state (D-832)", () =>
     ).toBe(false);
   });
 
+  it("names each step's boxes the way the Script tab does, never as a stage (9 Nov 2026)", () => {
+    const script: CallScript = {
+      ...STRUCTURED,
+      stages: [{ ...STRUCTURED.stages[0], mode: "say" }, STRUCTURED.stages[1]],
+    };
+    const labels = new Map(scriptCopilotFields(script, false, "te-IN").map((f) => [f.id, f.label]));
+    expect(labels.get("script-stages-0-instruction")).toBe("Step 1: exact words");
+    expect(labels.get("script-stages-0-sounds_like")).toBe("Step 1: example line");
+    expect(labels.get("script-stages-1-instruction")).toBe("Step 2: what it does");
+    expect(labels.get("script-stages-1-sounds_like")).toBe("Step 2: example line");
+    for (const label of labels.values()) expect(label).not.toMatch(/stage/i);
+  });
+
   it("marks a stage said word for word as spoken, with its own help, and a guide stage as an instruction", () => {
     const script: CallScript = {
       ...STRUCTURED,

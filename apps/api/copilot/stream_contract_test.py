@@ -137,6 +137,10 @@ EXPECTED: dict[str, dict[str, Any]] = {
             "label": '{"anyOf": [{"type": "string"}, {"type": "null"}]}',
             # D-935: a troubleshoot read's checklist card.
             "diagnosis": '{"anyOf": [{"$ref": "#/$defs/CopilotDiagnosis"}, {"type": "null"}]}',
+            # A form fill's fields, so a refusal a later fill made good reads as tried again.
+            "field_ids": (
+                '{"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}]}'
+            ),
         },
         "required": ["args", "id", "status", "tool"],
     },

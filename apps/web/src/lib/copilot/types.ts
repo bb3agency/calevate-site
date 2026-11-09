@@ -417,6 +417,11 @@ export interface CopilotStep {
    * steps. Absent on every other step.
    */
   diagnosis?: CopilotDiagnosis | null;
+  /**
+   * A form fill's fields, by this screen's own ids; absent on every other step. A refused
+   * fill whose every field a later fill wrote reads as tried again (`StepList`).
+   */
+  field_ids?: string[] | null;
 }
 
 /** One troubleshoot check's button: a console screen, or a sentence sent to Pip. */
