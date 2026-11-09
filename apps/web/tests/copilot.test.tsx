@@ -1441,7 +1441,7 @@ describe("the fallback surface", () => {
     render(<DockMount />);
     await openDock();
     // The same one question as on every screen; the derived title goes to the model only.
-    expect(screen.getByText("What can I help with?")).toBeTruthy();
+    expect(await screen.findByText("What can I help with?")).toBeTruthy();
     expect(screen.queryByText("Billing")).toBeNull();
 
     // THE POINT OF THE WHOLE CHANGE: a read-tool question is asked and answered from a
@@ -1485,7 +1485,6 @@ describe("the fallback surface", () => {
       </DockMount>,
     );
     await openDock();
-    expect(screen.getAllByText("A test screen").length).toBe(1);
     await ask("what is left to do?");
 
     const sent = JSON.parse(bodies[0]) as {

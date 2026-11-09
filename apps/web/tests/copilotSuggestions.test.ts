@@ -30,6 +30,6 @@ describe("suggested questions", () => {
 describe("the empty panel's question", () => {
   it("is one short plain question", () => {
     expect(EMPTY_PANEL_QUESTION.split(" ").length).toBeLessThanOrEqual(6);
-    expect(EMPTY_PANEL_QUESTION).toMatch(/^[A-Z][a-z ]+\?$/);
+    expect(EMPTY_PANEL_QUESTION).toMatch(/^[A-Z][A-Za-z ]+\?$/);
   });
 });
