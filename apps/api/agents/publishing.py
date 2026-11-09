@@ -1308,14 +1308,24 @@ async def undo_staged(*, tenant_id: UUID, agent_id: UUID) -> UndoResult:
                 discarded_version=None,
                 live_version=row.live_version,
             )
-        await session.execute(
+        # Pinned to the draft read above, for `apply_to_live`'s reason: a draft saved after
+        # that read is not discarded by an Undo whose person never saw it.
+        result = await session.execute(
             text(
                 "UPDATE agents SET system_prompt_id = live_prompt_id, updated_at = now() "
                 "WHERE id = :aid AND deleted_at IS NULL "
-                "AND system_prompt_id IS DISTINCT FROM live_prompt_id"
+                "AND system_prompt_id IS DISTINCT FROM live_prompt_id "
+                "AND system_prompt_id = (SELECT pv.id FROM prompt_versions pv "
+                "WHERE pv.agent_id = :aid AND pv.version = :version)"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "version": row.draft_version},
         )
+        if rowcount_of(result) == 0:
+            raise ProblemError.conflict(
+                "stale_pending_change",
+                "The staged script changed while this request was in flight.",
+                remediation="Reload the agent and review the current draft before undoing.",
+            )
     log.info(
         "agent_changes_undone",
         extra={

@@ -285,6 +285,35 @@ async def test_apply_never_puts_live_a_draft_saved_after_its_check(
     assert live == applied, "a version nobody reviewed was put on the phone line"
 
 
+async def test_undo_never_discards_a_draft_saved_after_its_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Undo read the staged draft, then moved the pointer back from whatever was staged by
+    then: a colleague's newer save was dropped and the answer named the older version."""
+    tenant_id, agent_id, _ref, _engine = await _live_agent_with_a_staged_draft()
+    original = publishing._load
+
+    async def load_then_colleague_saves(session: object, aid: uuid.UUID) -> object:
+        row = await original(session, aid)  # type: ignore[arg-type]
+        async with tenant_session(tenant_id) as other:
+            await prompts.write_prompt_version(
+                other,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                body="A colleague's newer draft, saved mid-undo.",
+                notes=None,
+                created_by=None,
+            )
+        return row
+
+    monkeypatch.setattr(publishing, "_load", load_then_colleague_saves)
+    with pytest.raises(ProblemError) as exc:
+        await publishing.undo_staged(tenant_id=tenant_id, agent_id=agent_id)
+    assert exc.value.code == "stale_pending_change"
+    draft, live = await _pointers(tenant_id, agent_id)
+    assert draft is not None and live is not None and draft > live, "the newer draft was dropped"
+
+
 # --- 4. undo moves the draft pointer only ------------------------------------
 
 
