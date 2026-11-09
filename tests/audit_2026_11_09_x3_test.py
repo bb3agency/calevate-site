@@ -150,12 +150,19 @@ async def test_other_jobs_still_forget_their_payload_on_success() -> None:
                 "at": datetime.now(UTC) - timedelta(seconds=1),
             },
         )
-        await mark_outbox_consumed(session, message_id=message_id, job="notify_hot_lead")
-        payload: Any = (
+        try:
+            await mark_outbox_consumed(session, message_id=message_id, job="notify_hot_lead")
+            payload: Any = (
+                await session.execute(
+                    text("SELECT payload FROM outbox_messages WHERE id = :i"), {"i": message_id}
+                )
+            ).scalar_one()
+        finally:
+            # Every dispatcher walks the whole outbox oldest-first: a backdated row left here
+            # would sit at the head of every other suite's queue.
             await session.execute(
-                text("SELECT payload FROM outbox_messages WHERE id = :i"), {"i": message_id}
+                text("DELETE FROM outbox_messages WHERE id = :i"), {"i": message_id}
             )
-        ).scalar_one()
     assert payload == {}
 
 
