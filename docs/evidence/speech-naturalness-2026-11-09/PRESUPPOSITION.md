@@ -80,6 +80,13 @@ sudo -u postgres psql -d calevate -c "WITH a AS (SELECT ag.id, ag.live_prompt_id
 sudo -u postgres psql -d calevate -c "SELECT c.id AS call_id, c.started_at AT TIME ZONE 'Asia/Kolkata' AS started_ist, t.idx, t.speaker, t.text ~ '^\s*[A-Za-z]' AS starts_latin, t.text LIKE '%చేసుకున్నారా%' AS has_a, t.text LIKE '%వాడుతున్నారు కదా%' AS has_b, t.text LIKE '%యాప్ ను%' AS split_app_nu FROM calls c JOIN agents ag ON ag.id = c.agent_id JOIN organizations o ON o.id = c.tenant_id JOIN transcript_turns t ON t.call_id = c.id WHERE o.name ILIKE '%rytu%' AND ag.name ILIKE 'varsha%' AND c.started_at >= '2026-11-09 00:00+05:30' AND (t.text LIKE '%చేసుకున్నారా%' OR t.text LIKE '%వాడుతున్నారు కదా%') ORDER BY c.started_at, t.idx;"
 ```
 
+3c. For the 20:32 call: whether Varsha is a screen agent, which steps greet or introduce, and
+which lines open with the repeated reactions or hold English letters or the web address.
+
+```
+sudo -u postgres psql -d calevate -c "WITH a AS (SELECT ag.id, ag.caller_has_screen, ag.live_prompt_id FROM agents ag JOIN organizations o ON o.id = ag.tenant_id WHERE o.name ILIKE '%rytu%' AND ag.name ILIKE 'varsha%' AND ag.deleted_at IS NULL) SELECT a.caller_has_screen, (p.structured_script->>'opening_line') LIKE '%{{lead_name}}%' AS opening_has_name, st.ord AS step, st.v->>'name' AS name, (st.v->>'instruction') ~* 'greet|introduce|identify yourself|can talk now|good time' AS step_redoes_opening, (st.v->>'sounds_like') LIKE 'సరే అండి%' AS line_opens_sare, (st.v->>'sounds_like') LIKE 'చాలా మంచిది%' AS line_opens_chala, (st.v->>'sounds_like') ~ '[A-Za-z]' AS line_latin, (st.v->>'sounds_like' || ' ' || (st.v->>'instruction')) ~* 'www|\.com|డాట్' AS has_web_address FROM a JOIN prompt_versions p ON p.id = a.live_prompt_id, jsonb_array_elements(p.structured_script->'stages') WITH ORDINALITY AS st(v, ord) ORDER BY st.ord;"
+```
+
 How to read the results:
 
 - **3a confirms the hypothesis** when a step has `line_b = t`, its instruction asks what they
@@ -87,6 +94,99 @@ How to read the results:
   installing or registering.
 - **The stray "a" came from us** if `latin_first = t` on either query. Otherwise it came from
   the paste.
+
+- **3c**: `caller_has_screen = t` confirms that the screen agents' rule spelled the address.
+  `step_redoes_opening = t` on step 1 confirms the double introduction. `line_opens_sare` or
+  `line_opens_chala` on two or more steps confirms that the repeated reaction was copied from
+  the step lines.
+
+## 3d. The founder's call of 9 Nov 2026, 20:32: root causes
+
+1. **Double introduction.** The opening (said by the engine, word for word) greets, names
+   Varsha and Rytu Khata and asks if now suits. Step 1's instruction says to greet the lead
+   by name, identify yourself, state why, and ask if they can talk now. START OF THE CALL
+   already said "Never greet again in any turn ... repeat it or its names, or re-ask if now
+   suits" (`engine.OPENING_CONTINUES_RULE`), but no rule named a step. The model follows the
+   step it is on.
+   - `script_lint.repeated_line_problems` compares lines only (a 0.6 word overlap), never an
+     instruction, so the step was flagged at most for its line, which the owner left.
+2. **Web address spelled letter by letter.** This is our rule. `engine.screen_steps_bullet`
+   (D-906) said "Spell a web address one letter at a time, each by its English letter name".
+   It is composed only for an agent with `caller_has_screen`; whether Varsha has it is
+   UNVERIFIED until query 3c runs. If not, the address came from the step lines or the
+   knowledge. The digit-by-digit rule names numbers and codes only, so it is not the cause.
+   - Research (read 9 Nov 2026): Retell's guide says "Read recognizable words in website
+     addresses normally, spell out initials, and say "dot" for periods" (nklaundry.com
+     becomes "en kay laundry dot com"; docs.retellai.com/build/prompt-situation-guide).
+   - Phonic's agents spell only "when confirming something easily misheard"
+     (docs.phonic.ai prompting guide).
+   - Vapi's support suggests a spoken "w w w dot", so leaving out www is our choice, not a
+     consensus. The founder's ear decides.
+3. **"Android" and "iPhone" in English letters.** The te-IN register line in every prompt says
+   "every word in Telugu letters, English words too" (`spoken_style.json:11`). Two causes are
+   possible, and the second is UNVERIFIED until 3c's `line_latin` answers it:
+   - BUSINESS FACTS says "Say names as your facts give them, never translated"
+     (`engine._NAMES_RULE`), which can read as keeping a brand in English letters;
+   - the step's line holds the English words, and the model copies it.
+
+   Writers have refused English letters in every spoken field since d904f2acf, but the
+   readiness card never checked an owner's existing lines, and no practice check looked for
+   English letters inside a Telugu reply (`turn_checks._foreign_letter` checks other Indian
+   and non-Indian scripts, not Latin).
+4. **The same reaction every turn.** `thinnest_call_instructions` is on in production (founder,
+   9 Nov 2026), so the engine's default call rules are not read. The causes are ours:
+   - every te-IN prompt says "Fillers, lightly: సరే అండి, హా, అవునా, కదా"
+     (`spoken_style.register_guidance`, `spoken_style.json:603`, `PROMPT_FILLERS = 4`), and
+     the first filler named is the repeated opener;
+   - the writer's examples, which Pip's script writer reads, open with "సరే అండి" five times
+     (`spoken_style.json:24, 72, 82, 156, 174`, and the punctuation example at `:711`), so
+     Pip-written step lines open alike, which 3c's `line_opens_*` answers;
+   - "never the same way twice" can be read as "not twice in a row".
+
+   ThinnestAI's always-added speaking rules (about 1,876 characters, D-850) are not shared,
+   so whether they ask for an acknowledgement is UNKNOWN.
+5. **Long turns.** HOW TO SPEAK already says "one or two short sentences, then wait", and
+   ThinnestAI's guide says "Two sentences is plenty" (`how-your-agent-sounds.md:59-72`).
+   - Turn 4 was long because step 1 bundled a greeting, an introduction, why and a question
+     (cause 1).
+   - Turn 10 was long because of the spelled address (cause 2).
+   - Turn 14's text was not read here.
+   - No real-call check measured length: `too_long` was a practice note only.
+
+The opening has no `{{lead_name}}`, because Pip rewrote it. This is noted only; it is
+script-level.
+
+## 3e. What changed for the 20:32 call
+
+- `OPENING_CONTINUES_RULE` ends: "A step says to greet, say who you are or ask if now suits?
+  That is done: do the rest."
+- `script_lint.opening_redone_problems` (in `flow_problems`, so on the readiness card, in
+  "Fix them first" and in the writer's repair round) finds a step that greets, introduces or
+  asks if now suits in a script with an opening. `SCRIPT_FLOW_RULE` tells every writer that
+  the first stage starts from what comes after the opening.
+- `screen_steps_bullet`: "Say a web address as it reads, no www: a word as a word, initials
+  each by its English letter name ..., "dot" as a word. Spell a word by letters only if they
+  cannot find it, or send the link if a tool can."
+- English letters:
+  - `script_lint.script_problems` runs `latin_word_problem` on every spoken line in the
+    call's own letters that mixes English letters in, with the agent's language
+    (`LintContext.language`, set by `capability_manifest.lint_context_for`). It leaves out the
+    business's and agent's names, and a line wholly in English;
+  - `turn_checks.turn_problems(names=)` notes English letters in a reply that is in the
+    call's own letters, as `foreign_script`;
+  - practice runs pass the business name (`RuleContext.names`). Real calls do not, because
+    the name is not known there.
+- Same reaction:
+  - HOW TO SPEAK says "never the same way twice in a call";
+  - `script_lint.same_opener_problems` finds step lines that open with the same short
+    reaction;
+  - `SCRIPT_FLOW_RULE` says no two lines open alike;
+  - the real-call page now names `same_opening` and `too_long` (`call_mistakes.LESSONS`).
+- First words: when a repeat introduction is dropped, `engine._PERSON_NAME_FIELD` carries the
+  name field and one word after it only when a break follows that word. "Hello {{lead_name}}
+  this is Varsha." no longer carries "{{lead_name}} this," (audit X6).
+- Per call 7,719 / 6,844 (caps raised by 6 for "in a call"). The founder decides whether to
+  change the first filler or the five example lines, which are Telugu text.
 
 ## 4. What changed (code)
 
@@ -121,12 +221,22 @@ How to read the results:
 
 ## 5. Prompt sizes (`tests/agent_prompt_budget_test.py` reference)
 
-| | Before | After | Cap |
+| | Before | After | Cap before → after |
 | - | - | - | - |
-| Three languages | 7,707 | 7,712 | 7,713 |
-| One language | 6,832 | 6,837 | 6,838 |
+| Three languages | 7,707 | 7,719 | 7,713 → 7,719 |
+| One language | 6,832 | 6,844 | 6,838 → 6,844 |
+| Full v2 reference (`agent_intelligence_test`) | 8,249 | 8,345 | 8,250 → 8,350 |
+| START OF THE CALL less the quoted opening ("both" agent) | ≤919 | 1,077 | <920 → <1,080 |
 
-The CALL_REASON_RULE growth sits in START OF THE CALL, which only placed-call agents carry.
+Where the growth came from:
+
+- The written-form rule: +2.
+- "In a call" on the reaction rule: +10. The only cap raise on the per-call caps is the 6 this
+  needed.
+- CALL_REASON_RULE: +72, placed calls only.
+- The step-redoes-the-opening sentence: +86, every agent with an opening.
+
+The last two are in START OF THE CALL, which the per-call reference does not carry.
 
 ## 6. What only the founder can write (Telugu)
 
@@ -143,3 +253,26 @@ The CALL_REASON_RULE growth sits in START OF THE CALL, which only placed-call ag
    conjunct, and split.
 6. hi-IN `written_form`: a line with a postposition written apart from its noun, to confirm
    the Hindi reading of the new rule.
+7. The te-IN fillers: the first filler every prompt names is the repeated "OK" reaction.
+   Decide whether to move it, and whether to rewrite the five writer examples that open with
+   it.
+
+## 7. Pip prompt for Varsha's script (for the founder to send)
+
+> Fix Varsha's script, keeping its opening line and close as they are:
+>
+> 1. Step 1 must not greet, say who is calling or ask if now is a good time, because the
+>    opening already did. Start it with why we are calling.
+> 2. Never take for granted that the person uses the app. Add a step that asks, as a
+>    question, whether they have started using the Rytu Khata app. If they say they use it,
+>    go to the step that asks what they use it for most. If they have not used it, only
+>    registered, or have not installed it, go to the step that helps them install it or
+>    shows the first thing to do. Never ask those callers what they use it for or how they
+>    like it.
+> 3. Rewrite every line that says they already use or have the app so it asks instead.
+> 4. No two step lines start with the same words, and no line starts with a stock reaction.
+>    Open each with its own point.
+> 5. Every word in Telugu letters, phone and app names too. Each case ending and question
+>    ending joined to its word, with no space between an English word and its Telugu ending.
+> 6. Say the website as words with "dot com", or offer to send the link. Never spell it letter
+>    by letter.

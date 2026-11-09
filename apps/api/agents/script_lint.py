@@ -43,6 +43,7 @@ from calevate_shared.call_script import CallScript, ConversationStage, extract_v
 from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import extend as _extend
 from calevate_shared.engine import NAME_VARIABLE
+from calevate_shared.spoken_guard import has_indic_letters, latin_word_problem
 
 from apps.api.compliance.call_purpose import Finding, first_finding
 
@@ -145,6 +146,9 @@ class LintContext:
     #: The labels of the lead details the agent collects (`script_builder.collect_fields`),
     #: each of which some step should ask.
     collect: tuple[str, ...] = ()
+    #: The agent's call language, against which a line in English letters is found (D-861).
+    #: Empty skips that check.
+    language: str = ""
 
 
 def _promo(text: str, context: LintContext) -> Finding | None:
@@ -446,6 +450,21 @@ def script_problems(script: CallScript, context: LintContext) -> list[str]:
         for path, text in spoken_fields(script)
         if text.strip() and path not in callers
         for problem in spoken_line_problems(path, text, context)
+    ]
+    # Here and not in `spoken_line_problems`, whose writers check it already
+    # (`script_assist.language_problems`): an owner's line written before D-861 (23 Oct 2026),
+    # or by hand, is shown on the card too. The in-call model copies a step's line, English
+    # letters included (founder's Rytu Khata call of 9 Nov 2026: "Android" and "iPhone").
+    # Only a line in the call's own letters that mixes English letters in: a line wholly in
+    # English is a different choice, the language the owner wrote it in.
+    names = (context.business_name, context.agent_name)
+    found += [
+        problem
+        for path, text in spoken_fields(script)
+        if text.strip()
+        and path not in callers
+        and has_indic_letters(text)
+        and (problem := latin_word_problem(path, text, context.language, names=names))
     ]
     found += [
         problem
@@ -891,13 +910,81 @@ def repeated_line_problems(script: CallScript) -> list[str]:
     return problems
 
 
+#: A step told to do what the opening line already did: greet, say who is calling, or ask
+#: whether now is a good time. Read in the English instructions only.
+_REDOES_OPENING: Final = re.compile(
+    r"\b(?:greet\w*|introduce (?:yourself|herself|himself|the agent)|"
+    r"identify (?:yourself|herself|himself)|say who (?:you are|is calling)|"
+    r"(?:ask|check)\w* (?:if|whether) (?:they|it is|now)\b[^.;]{0,30}"
+    r"\b(?:talk|speak|good time|convenient|free|suits?)\b)",
+    re.IGNORECASE,
+)
+
+
+def opening_redone_problems(script: CallScript) -> list[str]:
+    """A step that greets, introduces the agent or asks whether now suits, in a script with
+    an opening line. The engine says the opening first, word for word, and the model follows
+    the step it is on: on the founder's Rytu Khata call of 9 Nov 2026 (20:32) the first step
+    said "greet the lead by name, identify yourself, ask if they can talk now", and the
+    agent greeted and introduced itself a second time after the opening had."""
+    if not (script.opening_line.strip() or script.outbound_opening_line.strip()):
+        return []
+    return [
+        f"stages.{i}.instruction: greets, says who is calling or asks if now is a good time, "
+        "which the opening line already did; leave that out and start this step from what "
+        "comes after it."
+        for i, stage in enumerate(script.stages)
+        if stage.mode == "guide" and _REDOES_OPENING.search(stage.instruction)
+    ]
+
+
+#: The words before a line's first mark that count as how it opens: a short reaction.
+_OPENER_MAX_WORDS: Final = 3
+_FIRST_MARK: Final = re.compile(r"[,.!?;:\N{DEVANAGARI DANDA}]")
+
+
+def _line_opener(text: str) -> str | None:
+    head = _FIRST_MARK.split(" ".join(text.split()), maxsplit=1)
+    if len(head) < 2:
+        return None
+    words = [w.casefold() for w in head[0].split()]
+    return " ".join(words) if 0 < len(words) <= _OPENER_MAX_WORDS else None
+
+
+def same_opener_problems(script: CallScript) -> list[str]:
+    """A step's line that opens with the same short reaction as an earlier step's line. The
+    in-call model copies how a step's line opens, so lines that all open alike make every
+    reply open alike (founder's Rytu Khata call of 9 Nov 2026: three replies running began
+    with the same "OK"). Read by words, so it works in any language."""
+    seen: dict[str, int] = {}
+    problems: list[str] = []
+    for i, stage in enumerate(script.stages):
+        path = f"stages.{i}.{'instruction' if stage.mode == 'say' else 'sounds_like'}"
+        line = stage.instruction if stage.mode == "say" else stage.sounds_like
+        said = _line_opener(line)
+        if said is None:
+            continue
+        if said in seen:
+            problems.append(
+                f"{path}: opens with the same words as step {seen[said] + 1}'s line; the agent "
+                "copies how lines open, so its replies would all begin alike. Open it with its "
+                "own point."
+            )
+        else:
+            seen[said] = i
+    return problems
+
+
 def flow_problems(script: CallScript) -> list[str]:
     """What the whole call's shape gets wrong: a placeholder step, a question asked before
-    the caller can answer it, the same thing said twice."""
+    the caller can answer it, the same thing said twice, a step that redoes the opening,
+    lines that all open alike."""
     return [
         *placeholder_problems(script),
         *order_problems(script),
         *repeated_line_problems(script),
+        *opening_redone_problems(script),
+        *same_opener_problems(script),
     ]
 
 

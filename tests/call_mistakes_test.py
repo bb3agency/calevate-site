@@ -52,7 +52,13 @@ def test_the_sri_estates_call_shows_what_went_wrong_where() -> None:
     """Turn 9 says again the area question turn 5 asked; turn 11 asks turn 9's question
     again word for word. The greeting after the person's "Hello" is the opening, not a
     second greeting."""
-    assert mistakes_in(SRI_ESTATES, language="te-IN") == {"said_again": 9, "asked_again": 11}
+    # Turn 13 opens the third reply with the same word (`same_opening`, a real-call lesson
+    # since the Rytu Khata call of 9 Nov 2026).
+    assert mistakes_in(SRI_ESTATES, language="te-IN") == {
+        "said_again": 9,
+        "asked_again": 11,
+        "same_opening": 13,
+    }
 
 
 def test_a_line_the_caller_spoke_over_may_be_said_again() -> None:

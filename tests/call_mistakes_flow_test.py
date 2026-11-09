@@ -131,6 +131,8 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
         ("false_history", 3),
         ("said_again", 9),
         ("asked_again", 11),
+        # The third reply opening with the same word (a real-call lesson since 9 Nov 2026).
+        ("same_opening", 13),
     ]
 
     headers = await _org_headers(tenant_id)
@@ -138,7 +140,12 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
         detail = (await http.get(f"/v1/calls/{call_id}", headers=headers)).json()
         listed = await http.get(f"/v1/agents/{agent_id}/call-mistakes", headers=headers)
         missing = await http.get(f"/v1/agents/{uuid7()}/call-mistakes", headers=headers)
-    assert [m["kind"] for m in detail["mistakes"]] == ["false_history", "said_again", "asked_again"]
+    assert [m["kind"] for m in detail["mistakes"]] == [
+        "false_history",
+        "said_again",
+        "asked_again",
+        "same_opening",
+    ]
     assert detail["mistakes"][1]["label"] == call_mistakes.LESSONS["said_again"].label
     assert listed.status_code == 200, listed.text
     body = listed.json()
@@ -149,6 +156,7 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
         ("false_history", 1),
         ("said_again", 1),
         ("asked_again", 1),
+        ("same_opening", 1),
     }
     assert {m["state"] for m in body["items"]} <= {"fixing", "fixed", "back"}
     assert body["items"][0]["last_call_id"] == str(call_id)

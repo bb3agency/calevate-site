@@ -3019,6 +3019,11 @@ _REGISTER_BULLET: Final = (
 #: - Asked "how do I use the app?", the agent said its explanation of what the app is a second
 #:   time. "Lead with the answer" did not tie the answer to the question; "to it, never your
 #:   last point again" does.
+#: From the founder's Rytu Khata call of 9 Nov 2026, 20:32: three replies running opened with
+#: the same "OK" and two more with the same "very good". Our call rules replace the engine's
+#: default ones on
+#: that account, so nothing of the engine's asked for an acknowledgement; "never the same way
+#: twice" was read as "not twice in a row", which "in a call" closes.
 _WRITTEN_FORM_BULLET: Final = f"- {WRITTEN_FORM_RULE}\n"
 #: The agent's default call language (`AgentConfig.language_primary`).
 DEFAULT_PRIMARY_LANGUAGE: Final = "te-IN"
@@ -3035,7 +3040,7 @@ VOICE_STYLE_GUIDANCE: Final = (
     "- Open with a few words and a comma; one or two short sentences, then wait.\n"
     '- Asked something? Lead with the answer to it, never your last point again or "do you '
     'want to know". Told something? '
-    "React only if it fits what they said, never the same way twice, often not.\n"
+    "React only if it fits what they said, never the same way twice in a call, often not.\n"
     '- One question a turn, on one thing, last; choices for times ("morning or evening?"), '
     "never for counts or amounts, not even as examples. Never re-ask what they said or repeat a "
     "sentence.\n"
@@ -3084,9 +3089,15 @@ _PACK_REGISTER_BULLET: Final = f'- Never say "uhm". {_SWITCH_RULE}\n'
 #: - A label is said word for word, in the call's letters (D-861), so the caller can match
 #:   what they hear to what they see; the "no lists or links" bullet stays, because it is
 #:   about what the agent writes, not about what is on the caller's screen.
-#: - A web address is spelled by English letter names, a comma between, in the call's letters
-#:   (`spoken_style.spelled_address`): "A" written as one Telugu letter reads as the Telugu
-#:   word for "which", and the comma gives each letter its own pause.
+#: - A web address is said as it reads: its words as words, only initials by English letter
+#:   names, a comma between, in the call's letters (`spoken_style.spelled_address`): "A"
+#:   written as one Telugu letter reads as the Telugu word for "which", and the comma gives
+#:   each letter its own pause. Spelling every letter read the Rytu Khata address as eighteen
+#:   letters on the founder's call of 9 Nov 2026. "Read recognizable words in website
+#:   addresses normally, spell out initials, and say "dot" for periods" (docs.retellai.com/
+#:   build/prompt-situation-guide, read 9 Nov 2026); a word is spelled only when it was not
+#:   understood, as Phonic's agents do by default (docs.phonic.ai prompting guide, read 9 Nov
+#:   2026). Sending the link, where a tool can, spares the caller typing it.
 _NO_REPEAT: Final = "Never re-ask what they said or repeat a sentence."
 _SCREEN_NO_REPEAT: Final = (
     "Never re-ask what they said or repeat a sentence; a step they could not do, say again, "
@@ -3101,9 +3112,10 @@ def screen_steps_bullet(language: str | None) -> str:
     spelled = f' ("{example}")' if example else ""
     return (
         "- They follow you on their screen: one step a turn, naming what to tap by its label "
-        "word for word in the call's letters, then wait until they say it is done. Spell a web "
-        "address one letter at a time, each by its English letter name in the call's letters, "
-        f'a comma between, "dot" as a word{spelled}.\n'
+        "word for word in the call's letters, then wait until they say it is done. Say a web "
+        "address as it reads, no www: a word as a word, initials each by its English letter "
+        f'name in the call\'s letters, a comma between, "dot" as a word{spelled}. Spell a word '
+        "by letters only if they cannot find it, or send the link if a tool can.\n"
     )
 
 
@@ -4402,9 +4414,11 @@ def introduces_itself(*, ai_notice: str, language: str) -> bool:
     )
 
 
-#: A person's name field and the one word after it (its title, "గారు"), as
-#: `call_script.fill_spoken_line` reads a name field.
-_PERSON_NAME_FIELD: Final = re.compile(r"\{\{\s*\w*name\w*\s*\}\}(?:\s+[^\s,.!?।]+)?")
+#: A person's name field and the one word after it when a break follows that word (its title,
+#: "<name> <title>,"), as `call_script.fill_spoken_line` reads a name field. With no break
+#: after the next word, that word begins the sentence's own words ("Hello {{lead_name}} this
+#: is Varsha."), so only the field is carried.
+_PERSON_NAME_FIELD: Final = re.compile(r"\{\{\s*\w*name\w*\s*\}\}(?:\s+[^\s,.!?।]+(?=\s*[,.!?।]))?")
 
 
 def _without_introduction(opening: str, names: Sequence[str]) -> str:
@@ -4689,12 +4703,17 @@ START_OF_CALL_HEADER: Final = "--- START OF THE CALL ---"
 #: second greeting with no restart. "Never greet" read as "do not start over"; the rule now
 #: says the first turn's greeting was the only one in the call. "Never restart" went to pay
 #: for it: "repeat it" already forbids saying the opening again.
+#: The last sentence (founder's Rytu Khata call of 9 Nov 2026, 20:32): the script's first step
+#: said "greet the lead by name, identify yourself, ask if they can talk now", and after the
+#: opening had done all three the model greeted and introduced itself again. The step is what
+#: the model follows at that moment, so the rule names the step, not only the turn.
 OPENING_CONTINUES_RULE: Final = (
     " Never greet again in any turn, say hello back, repeat it or its names, or re-ask if now "
     "suits, even after answering. Asked who or why, or the business "
     "name said back? Both in one line, once, wait. A hello or yes, in any language, is a yes: "
     "go on with why you call or your first question. A no, busy or later? Ask when suits them, "
-    "or close politely. Forgot us? Who and why, go on. Later hello? You're here, go on."
+    "or close politely. Forgot us? Who and why, go on. Later hello? You're here, go on. "
+    "A step says to greet, say who you are or ask if now suits? That is done: do the rest."
 )
 
 

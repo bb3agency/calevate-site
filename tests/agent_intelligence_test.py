@@ -293,7 +293,10 @@ def test_a_full_v2_prompt_fits_the_engine_and_the_guide_budget() -> None:
     # The founder's Rytu Khata call of 6 Nov 2026: a line the caller spoke over comes back in
     # new words, a question is answered rather than the last point repeated, and no greeting
     # in any later turn (8,199 before); `PER_CALL_MAX` held.
-    assert len(prompt) <= 8_250
+    # The founder's Rytu Khata calls of 9 Nov 2026: a suffix joins as the language's print
+    # does, a step that says to greet or introduce is told that is done, and a reaction is
+    # never the same twice in a call (8,249 before, 8,345 after).
+    assert len(prompt) <= 8_350
 
 
 # --- script v2 (item 4) ---------------------------------------------------------------------

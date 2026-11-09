@@ -254,8 +254,13 @@ def test_a_guided_call_with_step_by_step_lists_fits_with_margin() -> None:
 #: because standard Hindi writes a case marker apart from a noun. The rule that a placed call
 #: takes nothing the person has or uses from a step's line is in START OF THE CALL, which
 #: these agents do not carry.
-PER_CALL_MAX = 7_713
-PER_CALL_ONE_LANGUAGE_MAX = 6_838
+#: The founder's Rytu Khata call of 9 Nov 2026 (20:32) RAISED both by 6 (7,719/6,844): three
+#: replies running opened with the same "OK" though "never the same way twice" was already
+#: there, read as "not twice in a row"; "in a call" (+10) closes it. Our call rules replace
+#: the engine's default ones on that account (`thinnest_call_instructions` on since 21 Oct
+#: 2026), so the repetition was ours to fix.
+PER_CALL_MAX = 7_719
+PER_CALL_ONE_LANGUAGE_MAX = 6_844
 
 
 def _platform_only(languages_extra: list[str]) -> AgentConfig:

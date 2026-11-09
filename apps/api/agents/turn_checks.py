@@ -37,7 +37,13 @@ from calevate_shared.call_words import LivePattern as _LivePattern
 from calevate_shared.call_words import say as _say
 from calevate_shared.call_words import words as _word_list
 from calevate_shared.languages import find_language
-from calevate_shared.spoken_guard import opens_with_greeting, textbook_note, textbook_words
+from calevate_shared.spoken_guard import (
+    has_indic_letters,
+    latin_words,
+    opens_with_greeting,
+    textbook_note,
+    textbook_words,
+)
 from calevate_shared.spoken_style import style_for
 
 from apps.api.agents.script_lint import CapabilityManifest, unbacked_promise
@@ -718,20 +724,27 @@ def _language_problems(
 
 
 def turn_problems(
-    reply: str, *, caller_said: str = "", language: str = "", caller_chose_english: bool = False
+    reply: str,
+    *,
+    caller_said: str = "",
+    language: str = "",
+    caller_chose_english: bool = False,
+    names: Sequence[str] | None = None,
 ) -> list[TurnProblem]:
     """Every problem in one agent reply, the platform's first. `caller_said` is the caller's
     line this reply answers; it decides whether a longer reply was asked for. `language`
     selects the spoken-style word list; without it the formal-word check is skipped.
     `caller_chose_english`: an earlier caller line spoke English (`speaks_english`), so a
-    reply in English to a bare "okay" is not leaving the agent's language."""
+    reply in English to a bare "okay" is not leaving the agent's language. `names` (the
+    business's and the agent's) are left as written when English letters are looked for;
+    None skips that check, for a caller that does not know them."""
     if not reply.strip():
         return []
     found = _symbol_problems(reply)
     found += _language_problems(
         reply, caller_said, language, caller_chose_english=caller_chose_english
     )
-    found += _script_and_number_problems(reply, language)
+    found += _script_and_number_problems(reply, language, names)
     formal = _formal_problem(reply, language)
     if formal:
         found.append(formal)
@@ -901,15 +914,37 @@ def _foreign_letter(reply: str, language: str) -> str | None:
     return match.group(0) if match else None
 
 
-def _script_and_number_problems(reply: str, language: str) -> list[TurnProblem]:
+def _english_letters(reply: str, language: str, names: Sequence[str]) -> list[str]:
+    """Words in English letters inside a reply in a language whose lines are written wholly
+    in its own letters (D-861, `spoken_guard.latin_words`), as on the founder's Rytu Khata
+    call of 9 Nov 2026 ("Android", "iPhone"). Only a reply that is in the call's own letters
+    at all: a reply wholly in English is a language choice, which `wrong_language` judges."""
+    if not has_indic_letters(reply):
+        return []
+    return latin_words(reply, language, names=names)
+
+
+def _script_and_number_problems(
+    reply: str, language: str, names: Sequence[str] | None = None
+) -> list[TurnProblem]:
     found: list[TurnProblem] = []
     foreign = _foreign_letter(reply, language)
+    english = _english_letters(reply, language, names) if not foreign and names is not None else []
     if foreign:
         found.append(
             TurnProblem(
                 "foreign_script",
                 f"It wrote letters of another language's script ({_quoted(foreign)}), which "
                 "the voice cannot say.",
+            )
+        )
+    elif english:
+        found.append(
+            TurnProblem(
+                "foreign_script",
+                f"It wrote {', '.join(_quoted(w) for w in english)} in English letters in a "
+                "reply in the call's own letters; every word is written in the call's "
+                "letters, English words and names too.",
             )
         )
     style = style_for(language) if language else None

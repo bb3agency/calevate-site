@@ -614,6 +614,7 @@ def speech_problems(
     opening: str = "",
     prior_contact: bool | None = None,
     presumed: Sequence[str] = (),
+    names: Sequence[str] | None = None,
 ) -> list[TurnProblem]:
     """The shape problems in a conversation's replies (`agents/turn_checks`), each kind
     once, in the order they first appear. Each reply is judged against the caller line it
@@ -632,6 +633,7 @@ def speech_problems(
             caller_said=turn.said,
             language=language,
             caller_chose_english=chose_english,
+            names=names,
         ):
             if problem.kind not in seen:
                 seen.add(problem.kind)
@@ -687,6 +689,9 @@ class RuleContext:
     #: The lines of script steps reached by callers they do not fit
     #: (`script_lint.presumed_lines`), so a reply saying one fails as the script's.
     presumed: tuple[str, ...] = ()
+    #: The business's name, left as written when a reply is checked for English letters;
+    #: None where nobody read the agent, which skips that check.
+    names: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -879,6 +884,7 @@ def hard_check(
         # mentions is invented unless its script or facts say callers enquired.
         prior_contact=False,
         presumed=rules.presumed,
+        names=rules.names,
     )
     if scenario.probe == "person":
         # The test chat's sandbox switches off anything that would ring a person and "says
@@ -1097,6 +1103,7 @@ class AgentBrief:
     def rules(self, *, agreements_waiting: bool = False) -> RuleContext:
         return RuleContext(
             presumed=self.presumed,
+            names=(self.business_name,),
             opening=" ".join(line for line in (self.opening_line, self.placed_opening) if line),
             hand_over=self.hand_over,
             hand_over_reason=self.hand_over_reason,
