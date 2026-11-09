@@ -251,6 +251,40 @@ async def test_apply_refuses_a_draft_that_moved_under_the_operator() -> None:
     assert exc.value.code == "stale_pending_change"
 
 
+async def test_apply_never_puts_live_a_draft_saved_after_its_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The version check and the pointer write are two statements. A draft a colleague saves
+    between them must be refused, not applied: the write moves the pointer to the version
+    that was checked or to nothing."""
+    tenant_id, agent_id, _ref, _engine = await _live_agent_with_a_staged_draft()
+    checked, applied = await _pointers(tenant_id, agent_id)
+    assert checked is not None
+    original = publishing._load
+
+    async def load_then_colleague_saves(session: object, aid: uuid.UUID) -> object:
+        row = await original(session, aid)  # type: ignore[arg-type]
+        async with tenant_session(tenant_id) as other:
+            await prompts.write_prompt_version(
+                other,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                body="A colleague's half-finished script, saved mid-apply.",
+                notes=None,
+                created_by=None,
+            )
+        return row
+
+    monkeypatch.setattr(publishing, "_load", load_then_colleague_saves)
+    with pytest.raises(ProblemError) as exc:
+        await publishing.apply_to_live(
+            tenant_id=tenant_id, agent_id=agent_id, expected_version=checked
+        )
+    assert exc.value.code == "stale_pending_change"
+    _draft, live = await _pointers(tenant_id, agent_id)
+    assert live == applied, "a version nobody reviewed was put on the phone line"
+
+
 # --- 4. undo moves the draft pointer only ------------------------------------
 
 

@@ -1239,13 +1239,17 @@ async def apply_to_live(
                 engine_synced=False,
             )
 
+        # Pinned to the version checked above, not to whatever the draft pointer holds when
+        # this runs: a draft saved between the read and this write is refused, never applied.
         result = await session.execute(
             text(
                 "UPDATE agents SET live_prompt_id = system_prompt_id, updated_at = now() "
                 "WHERE id = :aid AND deleted_at IS NULL "
-                "AND system_prompt_id IS DISTINCT FROM live_prompt_id"
+                "AND system_prompt_id IS DISTINCT FROM live_prompt_id "
+                "AND system_prompt_id = (SELECT pv.id FROM prompt_versions pv "
+                "WHERE pv.agent_id = :aid AND pv.version = :version)"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "version": row.draft_version},
         )
         if rowcount_of(result) == 0:
             # Someone applied or undid between the read and the write.
