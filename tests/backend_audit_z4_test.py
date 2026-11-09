@@ -156,3 +156,69 @@ def _ist_midnight() -> str:
     """Today 00:00 in India, as the Calls screen's `day=` link sends it."""
     day = (datetime.now(UTC) + timedelta(hours=5, minutes=30)).date()
     return f"{day.isoformat()}T00:00:00+05:30"
+
+
+# --- Z4-03: an after-call call back on a forwarded call that hid the caller ---------------
+
+#: The business's own number, which the network showed in place of the caller's.
+_BUSINESS = "+919900011122"
+
+
+async def _hidden_caller_call() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """A completed inbound call STEP 1e marked `caller_id_hidden` (D-746)."""
+    from tests.pipeline_audit_test import _completed_call
+
+    tenant_id, _execution_id, call_id = await _completed_call("z4hidden", caller=_BUSINESS)
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(
+                text("UPDATE calls SET caller_id_hidden = true WHERE id = :c RETURNING agent_id"),
+                {"c": call_id},
+            )
+        ).scalar_one()
+    return tenant_id, uuid.UUID(str(agent_id)), call_id
+
+
+async def _book_after_call(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID, call_id: uuid.UUID, data: dict[str, object]
+) -> object:
+    from apps.workers.after_call_callbacks import book_requested_callback
+    from calevate_shared.extraction import ExtractionOutput
+
+    async with tenant_session(tenant_id) as session:
+        return await book_requested_callback(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            call_id=call_id,
+            engine_call_id=None,
+            # What the pipeline hands over: the number the network showed.
+            phone_e164=_BUSINESS,
+            call_at=datetime.now(UTC),
+            extraction=ExtractionOutput(
+                callback_requested=True, next_step_by="business", data=data
+            ),
+            opted_out=False,
+        )
+
+
+async def _booked_numbers(tenant_id: uuid.UUID, call_id: uuid.UUID) -> list[str]:
+    async with tenant_session(tenant_id) as session:
+        rows = await session.execute(
+            text("SELECT phone_e164 FROM scheduled_callbacks WHERE source_call_id = :c"),
+            {"c": call_id},
+        )
+        return [str(r[0]) for r in rows.all()]
+
+
+async def test_a_hidden_caller_is_rung_on_the_number_they_gave_not_the_business() -> None:
+    tenant_id, agent_id, call_id = await _hidden_caller_call()
+    booked = await _book_after_call(tenant_id, agent_id, call_id, {"other_number": "98765 43210"})
+    assert booked is not None
+    assert await _booked_numbers(tenant_id, call_id) == ["+919876543210"]
+
+
+async def test_a_hidden_caller_who_gave_no_number_gets_no_call_back() -> None:
+    tenant_id, agent_id, call_id = await _hidden_caller_call()
+    assert await _book_after_call(tenant_id, agent_id, call_id, {}) is None
+    assert await _booked_numbers(tenant_id, call_id) == []
