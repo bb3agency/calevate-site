@@ -122,7 +122,7 @@ export function MainTask({
 
   if (editing) {
     return (
-      <form
+      <form noValidate
         className="mb-2 space-y-2 text-ink"
         onSubmit={(event) => {
           event.preventDefault();

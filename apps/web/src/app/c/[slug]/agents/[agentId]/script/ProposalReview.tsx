@@ -475,7 +475,7 @@ const SINCE_NOTE: Record<Since, (change: Change) => string> = {
   changed: (change) =>
     change.kind === "part"
       ? "You changed this since. Keeping this replaces your change."
-      : "You changed this step since. Keeping this replaces your change.",
+      : "You changed this step. Keeping this replaces your edit.",
 };
 
 /**

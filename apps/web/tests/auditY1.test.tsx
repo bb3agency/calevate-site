@@ -65,7 +65,7 @@ describe("a Pip suggestion reviewed after the owner changed the draft (Y1-01)", 
     render(<ProposalReview current={current} base={BASE} proposal={proposal} onApply={onApply} onDiscard={() => undefined} />);
 
     const row = screen.getByText("Price").closest("li")!;
-    expect(within(row).getByText("You changed this step since. Keeping this replaces your change.")).toBeTruthy();
+    expect(within(row).getByText("You changed this step. Keeping this replaces your edit.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add it to my draft" }));
     expect(onApply).toHaveBeenCalledOnce();
   });

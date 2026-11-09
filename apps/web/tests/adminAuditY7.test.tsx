@@ -60,7 +60,7 @@ describe("a payment credited to the wallet", () => {
 
     await act(async () => {
       await result.current.mutateAsync({
-        payment: { payment_ref: "UTR-1" } as Payment,
+        payment: { payment_ref: "UTR-1", credited_inr: "5000.00", entries: 1, first_at: "2026-11-01T10:00:00Z" } satisfies Payment,
         correctedAmountInr: "5000",
         reason: "bank statement",
       });
