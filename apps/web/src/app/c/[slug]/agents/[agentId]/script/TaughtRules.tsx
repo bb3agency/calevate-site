@@ -17,7 +17,7 @@ import type { CallScript } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import { useProposedRules, useResolveRule } from "@/lib/api/teach";
 
-import { addSection } from "./scriptModel";
+import { insertSection, sectionsOf, updateSection } from "./scriptModel";
 
 const IDENTITY_MAX = 1000;
 
@@ -29,11 +29,14 @@ function sectionName(text: string): string {
 export function TaughtRules({
   agentId,
   script,
+  maxSections,
   canWrite,
   onChange,
 }: {
   agentId: string;
   script: CallScript;
+  /** The account's step limit (`limitsFrom`), never a number written here. */
+  maxSections: number;
   canWrite: boolean;
   onChange: (next: CallScript) => void;
 }) {
@@ -47,6 +50,7 @@ export function TaughtRules({
       vars.status === "dismissed" ? "Rule set aside for this agent" : "Rule added to your draft",
   });
   const busy = resolveFeedback.status === "pending";
+  const full = sectionsOf(script).length >= maxSections;
   if (rules.error) return <ProblemNotice error={rules.error} onRetry={() => void rules.refetch()} />;
   // Nothing is said about taught rules until the list has arrived.
   if (!rules.data) return null;
@@ -90,10 +94,17 @@ export function TaughtRules({
                   <button
                     type="button"
                     className={TEXT_ACTION}
-                    disabled={busy || (script.stages?.length ?? 0) >= 12}
+                    disabled={busy || full}
+                    title={full ? `The script has ${maxSections} steps, the most it can hold.` : undefined}
                     onClick={() => {
+                      // `insertSection`, not `addSection`: a last step whose Then ends the
+                      // call would never reach a step appended after it.
+                      const made = insertSection(script, sectionsOf(script).length);
                       onChange(
-                        addSection(script, { name: sectionName(rule.text), instruction: rule.text.slice(0, 600) }).script,
+                        updateSection(made.script, made.id, {
+                          name: sectionName(rule.text),
+                          instruction: rule.text.slice(0, 600),
+                        }),
                       );
                       resolveFeedback.run({ ruleId: rule.id, status: "applied" });
                     }}

@@ -748,7 +748,13 @@ function Editor({
               {steps}
               {!twoColumns && pip}
               <div className="max-w-3xl space-y-8">
-              <TaughtRules agentId={agentId} script={script} canWrite={write.allowed} onChange={(next) => edit(next)} />
+              <TaughtRules
+                agentId={agentId}
+                script={script}
+                maxSections={limits.maxSections}
+                canWrite={write.allowed}
+                onChange={(next) => edit(next)}
+              />
               <fieldset disabled={!write.allowed} className="min-w-0">
                 <legend className="sr-only">About the agent and the call</legend>
                 <ScriptParts
