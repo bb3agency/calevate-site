@@ -1,11 +1,13 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PipProposal } from "@/app/c/[slug]/agents/[agentId]/script/PipProposal";
+import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import { TaughtRules } from "@/app/c/[slug]/agents/[agentId]/script/TaughtRules";
 import { END, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import { ToastProvider } from "@/components/arc/toast";
+import type { ScheduledCallback } from "@/lib/api/callbacks";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptProposal } from "@/lib/api/script";
 
@@ -195,5 +197,43 @@ describe("D1-03 a suggestion's Add and Discard wait for each other", () => {
     const adding = (await screen.findByRole("button", { name: "Adding…" })) as HTMLButtonElement;
     expect(adding.disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("D1-04 a call-back's due mark counts down on an open screen", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("turns In 2 min into Overdue without a reload, and re-reads the list meanwhile", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date("2026-11-10T10:00:00Z"));
+    const row: ScheduledCallback = {
+      id: "0192f0aa-3333-7000-8000-000000000001",
+      agent_id: "0192f0aa-2222-7000-8000-000000000002",
+      lead_id: null,
+      phone_e164: "+91******3211",
+      requested_at: "2026-11-10T10:01:30Z",
+      status: "scheduled",
+      attempts: 0,
+      explanation: "Booked for the time the caller asked for.",
+      last_call_id: null,
+      settled_at: null,
+      held: false,
+      note: null,
+      follow_up: null,
+    };
+    const list = "/v1/callbacks?limit=200&open_only=false";
+    const view = await renderClientPage(<CallbacksPage />, {
+      "/v1/me": { ...OWNER, permissions: ["leads:read", "leads:dispatch"] },
+      [list]: [row],
+    });
+    expect((await screen.findAllByText("In 2 min")).length).toBeGreaterThan(0);
+    const reads = () => view.calls.filter((c) => c.url.includes("/v1/callbacks?")).length;
+    const before = reads();
+    act(() => {
+      vi.advanceTimersByTime(3 * 60_000);
+    });
+    await waitFor(() => expect(screen.getAllByText("Overdue").length).toBeGreaterThan(0));
+    expect(screen.queryByText("In 2 min")).toBeNull();
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
   });
 });
