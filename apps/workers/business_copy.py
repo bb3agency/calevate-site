@@ -973,7 +973,12 @@ async def _due(tenant_id: UUID, *, now: datetime) -> bool:
     is not a trial (founder: trials get no scheduled refresh) and was not looked at for 15
     days. Once an IST day at most, by the key:
     `now` is a UTC instant, whose own date would split an Indian day at 05:30 and let the
-    upgrade walk queued by a deploy before then and the 10:44 walk both queue (D-709)."""
+    upgrade walk queued by a deploy before then and the 10:44 walk both queue (D-709).
+
+    A behind copy's key also names the prompt version: the key is spent for ever
+    (`enqueue_outbox_once`), so without it a deploy that bumps the prompt after that day's
+    10:44 walk had queued the old version's check found the key taken, and the account
+    waited until the next day for its rewrite."""
     async with tenant_session(tenant_id) as session:
         row = (await session.execute(text(_ROW_STATE), {"version": PROMPT_VERSION})).first()
         behind = row is not None and bool(row[1])
@@ -986,9 +991,14 @@ async def _due(tenant_id: UUID, *, now: datetime) -> bool:
             session,
             job=JOB_NAME,
             payload={"tenant_id": str(tenant_id), "trigger": "scheduled"},
-            dedupe_key=f"business-copy:{tenant_id}:{ist_wall_clock(now).date().isoformat()}",
+            dedupe_key=_day_key(tenant_id, now=now, behind=behind),
         )
     return True
+
+
+def _day_key(tenant_id: UUID, *, now: datetime, behind: bool) -> str:
+    day = f"business-copy:{tenant_id}:{ist_wall_clock(now).date().isoformat()}"
+    return f"{day}:v{PROMPT_VERSION}" if behind else day
 
 
 async def sweep_business_copies(ctx: dict[str, Any]) -> str:

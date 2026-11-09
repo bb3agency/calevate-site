@@ -50,4 +50,4 @@ async def test_a_copy_check_is_queued_once_per_ist_day_across_0530_ist(
             .scalars()
             .all()
         )
-    assert keys == [f"business-copy:{tenant_id}:2026-11-10"]
+    assert keys == [f"business-copy:{tenant_id}:2026-11-10:v{worker.PROMPT_VERSION}"]

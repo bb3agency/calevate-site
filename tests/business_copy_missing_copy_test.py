@@ -12,7 +12,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session
+from apps.api.db.session import admin_session, tenant_session
 from apps.workers import business_copy as worker
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
@@ -24,7 +24,7 @@ async def _row(
     *,
     generated: str | None,
     attempted: datetime,
-    stop_reason: str = "answer_unusable",
+    stop_reason: str | None = "answer_unusable",
 ) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -68,6 +68,40 @@ async def test_a_trial_account_with_no_copy_is_due_the_day_after_its_failed_firs
     now = datetime(2026, 11, 10, 5, 14, tzinfo=UTC)
     await _row(tenant_id, generated=None, attempted=now - timedelta(days=1))
     assert await worker._due(tenant_id, now=now) is True
+
+
+async def test_a_prompt_bump_after_the_days_check_still_queues_the_rewrite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production, 9 Nov 2026: the 10:44 walk spent the day's key on the old prompt's check,
+    the deploy's upgrade walk found it taken, and the account was not rewritten that day."""
+    _trial(monkeypatch, False)
+    tenant_id, _slug, _token = await _make_tenant()
+    now = datetime(2026, 11, 10, 8, 0, tzinfo=UTC)
+    await _row(tenant_id, generated=None, attempted=now - timedelta(days=20), stop_reason=None)
+    assert await worker._due(tenant_id, now=now) is True
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE business_copies SET generated = CAST(:g AS jsonb), prompt_version = :v, "
+                "stop_reason = NULL"
+            ),
+            {"g": _json(copy_dict()), "v": worker.PROMPT_VERSION - 1},
+        )
+    assert await worker._due(tenant_id, now=now) is True
+    async with admin_session() as session:
+        keys = set(
+            (
+                await session.execute(
+                    text("SELECT dedupe_key FROM outbox_messages WHERE dedupe_key LIKE :k"),
+                    {"k": f"business-copy:{tenant_id}:%"},
+                )
+            )
+            .scalars()
+            .all()
+        )
+    day = f"business-copy:{tenant_id}:2026-11-10"
+    assert keys == {day, f"{day}:v{worker.PROMPT_VERSION}"}
 
 
 async def test_a_current_copy_tried_yesterday_is_not_due(
