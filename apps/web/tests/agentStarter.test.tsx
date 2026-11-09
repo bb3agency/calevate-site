@@ -101,6 +101,7 @@ function proposal(status: ScriptProposal["status"]): ScriptProposal {
     base_script: STARTER,
     script: status === "ready" ? WRITTEN : null,
     unplaced: [],
+    left_out: [],
     disclosure: null,
     note: null,
     requested_at: "2026-11-03T10:00:00Z",

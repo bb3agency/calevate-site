@@ -49,6 +49,11 @@ export const IDEAS: readonly ChangeIdea[] = [
 
 /** What Pip is asked, in the words the owner sees in its ask box. */
 export const changeRequest = (change: string) => `Change this agent's script: ${change}`;
+/** One part of a change Pip could not write, asked for on its own (`label` names it). */
+export const onePartRequest = (label: string, change: string | null) => {
+  const part = label.charAt(0).toLowerCase() + label.slice(1);
+  return change ? `Change only ${part} in this agent's script: ${change}` : `Rewrite only ${part} in this agent's script.`;
+};
 export const WHOLE_REQUEST = "Draft the whole script for this agent. Ask me the six questions first.";
 /** The same request from a screen that is not the agent's own Script page. */
 export const wholeRequestFor = (agentName: string) =>

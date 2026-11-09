@@ -2335,6 +2335,7 @@ describe("changing what an agent is", () => {
       base_script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
       script: status === "ready" ? { ...EMPTY_SCRIPT, opening_line: "नमस्ते जी, आज क्या चाहिए?" } : null,
       unplaced: [],
+      left_out: [],
       disclosure: null,
       note: null,
       requested_at: "2026-11-02T10:00:00Z",

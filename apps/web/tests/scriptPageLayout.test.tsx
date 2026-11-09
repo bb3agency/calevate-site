@@ -286,6 +286,7 @@ const PROPOSAL: ScriptProposal = {
   base_script: FULL,
   script: { ...FULL, opening_line: "Namaskaram andi, Raghava Organics!" },
   unplaced: [],
+  left_out: [],
   disclosure: null,
   note: null,
   requested_at: "2026-10-18T10:00:00+00:00",

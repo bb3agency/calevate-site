@@ -196,6 +196,7 @@ describe("Fix them first, seen before it is used (A-02, A-15)", () => {
     base_script: CURRENT,
     script,
     unplaced: [],
+    left_out: [],
     documents: [],
     request: null,
     disclosure: null,

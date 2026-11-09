@@ -52,6 +52,7 @@ const PROPOSAL: ScriptProposal = {
   base_script: SCRIPT,
   script: { ...SCRIPT, opening_line: "Namaskaram andi, Sunrise Organics ki call chesinanduku thanks!" },
   unplaced: [],
+  left_out: [],
   disclosure: null,
   note: null,
   requested_at: "2026-10-19T10:00:00+00:00",
@@ -124,5 +125,51 @@ describe("the Script tab tells Pip where the suggestion and the draft stand", ()
     await screen.findByRole("heading", { name: "1 suggested change" });
     expect(screen.getByText(/From your new file: “prices.pdf”/)).toBeTruthy();
     expect(screen.queryByText(/You asked/)).toBeNull();
+  });
+});
+
+/**
+ * A large change Pip could only partly write (founder, 9 Nov 2026): the parts it kept as the
+ * owner had them are named with the rule they broke, beside the rest of the suggestion, and a
+ * change it could not write at all offers each named part as its own ask.
+ */
+describe("a suggestion that leaves parts out says which and why", () => {
+  const routes = (proposal: ScriptProposal) => ({
+    "/v1/me": OWNER,
+    "/v1/agents/agent-1": agentRow(),
+    "/v1/agents/agent-1/script": OUT,
+    "/v1/business-profile": businessProfileFixture(),
+    "POST /v1/agents/agent-1/script/preview": { compiled: "x", instructions_chars: 10, instructions_limit: 8000, native_steps: 0 },
+    "/v1/agents/agent-1/script/proposed-rules": [],
+    "/v1/agents/agent-1/pending": settledPending(),
+    "/v1/agents/agent-1/script/proposal": { proposal },
+  });
+  const part = { part: "stages.budget", label: "Step “Ask the budget”", rule: "Asks two questions; ask one and wait.", added: false };
+
+  it("names each part kept as the owner had it, beside the rest of the suggestion", async () => {
+    await renderClientPage(
+      <ScriptBuilder agentId="agent-1" knowledgeHref="/c/acme/knowledge" trainingHref="/c/acme/agents/agent-1" />,
+      routes({ ...PROPOSAL, left_out: [part] }),
+    );
+    await screen.findByRole("heading", { name: "1 suggested change" });
+    expect(screen.getByText("1 part kept as you had it")).toBeTruthy();
+    expect(screen.getByText("Step “Ask the budget”")).toBeTruthy();
+    expect(screen.getByText(/Asks two questions; ask one and wait\./)).toBeTruthy();
+  });
+
+  it("offers each part it could not write as its own ask", async () => {
+    await renderClientPage(
+      <ScriptBuilder agentId="agent-1" knowledgeHref="/c/acme/knowledge" trainingHref="/c/acme/agents/agent-1" />,
+      routes({
+        ...PROPOSAL,
+        status: "failed",
+        script: null,
+        left_out: [part],
+        note: "Pip could not write a clean version of Step “Ask the budget”: Asks two questions; ask one and wait.",
+      }),
+    );
+    await screen.findByText(/could not write a clean version of Step “Ask the budget”/);
+    const ask = screen.getByRole("button", { name: /^Ask for step “Ask the budget” alone/ });
+    expect(ask.getAttribute("title")).toBe("Change only step “Ask the budget” in this agent's script: Make the opening line warmer");
   });
 });

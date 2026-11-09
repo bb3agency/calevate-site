@@ -188,6 +188,7 @@ describe("the opening line's room (D-846)", () => {
       base_script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram, Raghava Organics nundi." },
       script: status === "ready" ? { ...EMPTY_SCRIPT, opening_line: "Emi kavali andi?" } : null,
       unplaced: [],
+      left_out: [],
       disclosure: null,
       note: null,
       requested_at: "2026-11-02T10:00:00Z",
