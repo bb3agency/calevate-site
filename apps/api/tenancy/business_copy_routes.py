@@ -59,7 +59,7 @@ class BusinessCopyOut(BaseModel):
     #: A run is in progress.
     refreshing: bool
     #: Why the last run wrote nothing, and the sentence a person reads about it. None when
-    #: the last run wrote the copy in use.
+    #: the last run wrote the copy in use, or while a run is in progress.
     stop_reason: service.StopReason | None
     stop_message: str | None
 
@@ -75,7 +75,9 @@ def _shown(placeholders: service.Placeholders) -> service.Placeholders:
 
 def render(state: service.CopyState | None) -> BusinessCopyOut:
     copy = state.copy if state is not None else None
-    reason = state.stop_reason if state is not None else None
+    # A run in progress has no outcome yet: the last run's stop sentence beside "Pip is
+    # writing them now" reads as the new refresh's failure.
+    reason = state.stop_reason if state is not None and not state.running else None
     return BusinessCopyOut(
         placeholders=_shown(copy.placeholders) if copy is not None else None,
         steps=list(copy.steps) if copy is not None else [],
