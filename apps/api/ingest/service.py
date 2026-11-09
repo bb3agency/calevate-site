@@ -173,7 +173,13 @@ def normalize_phone(raw: str) -> str | None:
     # the other.
     digits = "".join(str(unicodedata.decimal(c)) for c in text if c.isdecimal())
 
-    if text.startswith("+"):
+    if len(digits) == 13 and digits.startswith("910") and digits[3] in "6789":
+        # `+91 (0) 98765 43210`: the country code AND the trunk prefix, a common way an
+        # Indian business card prints a mobile. Kept whole it is `+9109876543210`, which
+        # passes the E.164 shape, rings nobody, and as a do-not-call entry never matches
+        # the person's real number. The `0` is dropped for the national form's reason.
+        candidate: str | None = _INDIA_PREFIX + digits[3:]
+    elif text.startswith("+"):
         # The sender named a country; we take their word for it but not their typos.
         candidate = "+" + digits if 10 <= len(digits) <= 15 else None
     elif len(digits) == 10 and digits[0] in "6789":
@@ -190,7 +196,7 @@ def normalize_phone(raw: str) -> str | None:
         # THE TRUNK PREFIX IS NOT PART OF THE NUMBER, which is why it is dropped rather
         # than kept: E.164 is the international form and `0` has no place in it.
         #
-        # AND THIS IS THE ONLY COUNTRY-SPECIFIC WIDENING, deliberately. It rests on the
+        # AND THIS (WITH `+91 (0)` ABOVE) IS THE ONLY COUNTRY-SPECIFIC WIDENING. It rests on the
         # same premise the ten-digit arm above already rests on — that a number with no
         # country code, in an Indian domestic shape, is Indian — and that premise is
         # explicit product scope rather than an assumption: `compliance/service.py`'s
