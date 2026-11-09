@@ -220,12 +220,12 @@ services:
       # nested read; more jobs than connections only queue on the pool's 5s timeout
       # (`Settings.worker_max_jobs`). arq's own default is 10.
       WORKER_MAX_JOBS: ${WORKERS_MAX_JOBS:-5}
-    # A memory ceiling, so a job that balloons (a Word or Excel file may expand to
-    # `document_text.MAX_OOXML_EXPANDED_BYTES` of text) gets THIS container OOM-killed and
+    # A memory ceiling, so a job that balloons gets THIS container OOM-killed and
     # restarted, its jobs retried, rather than the host's OOM killer choosing Postgres. The
     # starter is 4 GB (DEPLOYMENT §2b); less Postgres `shared_buffers` (768 MB) and Redis
     # `maxmemory` (256 MB) leaves 3 GB for the OS, Postgres backends, api, voice-runtime and
-    # the web server, and the worker gets at most half of it. Raise it with the box.
+    # the web server. This worker and `workers-bulk` together get at most 2.5 GB of it.
+    # Raise both with the box.
     mem_limit: ${WORKERS_MEM_LIMIT:-1536m}
     depends_on:
       redis: {condition: service_healthy}
@@ -252,6 +252,12 @@ services:
       # connection for a nested read (`tests/starter_sizing_test.py`).
       DB_POOL_SIZE: ${WORKERS_BULK_DB_POOL_SIZE:-2}
       WORKER_MAX_JOBS: ${WORKERS_BULK_MAX_JOBS:-1}
+    # Document reads run HERE (`core/queue.BULK_JOBS`), so this is the container a hostile
+    # Word or Excel file aims at. One parse is bounded by
+    # `document_ingest.MAX_OOXML_PART_BYTES` (worst measured peak 582 MB, idle 186 MB); the
+    # ceiling makes anything unmeasured (a PDF, a second slot) kill this container, not
+    # Postgres.
+    mem_limit: ${WORKERS_BULK_MEM_LIMIT:-1024m}
     depends_on:
       redis: {condition: service_healthy}
     # `BulkWorkerSettings.job_completion_wait` (300s, one whole job timeout) drains inside

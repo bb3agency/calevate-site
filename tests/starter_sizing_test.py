@@ -154,9 +154,14 @@ def _megabytes(value: str) -> int:
 def test_the_worker_has_a_memory_ceiling_inside_what_the_starter_can_spare() -> None:
     """Without a ceiling a ballooning job is the host OOM killer's problem, and its pick
     can be Postgres."""
-    text = COMPOSE.read_text(encoding="utf-8")
-    workers = text.split("\n  workers:\n", 1)[1].split("\n  migrate:\n", 1)[0]
-    assert "mem_limit: ${WORKERS_MEM_LIMIT:-" in workers
+    services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+    # Each service by itself: `workers-bulk` is where documents are read (BULK_JOBS), and a
+    # text search spanning both blocks once passed on the main worker's line alone.
+    assert services["workers"]["mem_limit"].startswith("${WORKERS_MEM_LIMIT:-")
+    assert services["workers-bulk"]["mem_limit"].startswith("${WORKERS_BULK_MEM_LIMIT:-")
     assert _megabytes(_defaults()["REDIS_MAXMEMORY"]) == STARTER_REDIS_MAXMEMORY_MB
     spare = STARTER_RAM_MB - STARTER_SHARED_BUFFERS_MB - STARTER_REDIS_MAXMEMORY_MB
-    assert _megabytes(_defaults()["WORKERS_MEM_LIMIT"]) <= spare // 2
+    both = _megabytes(_defaults()["WORKERS_MEM_LIMIT"]) + _megabytes(
+        _defaults()["WORKERS_BULK_MEM_LIMIT"]
+    )
+    assert both <= spare - 512, both
