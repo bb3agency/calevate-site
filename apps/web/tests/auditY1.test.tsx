@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
 import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
@@ -185,6 +185,32 @@ describe("Add a step from the keyboard (Y1-04)", () => {
     await waitFor(() => expect(cards()).toHaveLength(3));
     await waitFor(() => expect(cards()[2].contains(document.activeElement)).toBe(true));
     expect(["INPUT", "TEXTAREA"]).toContain(document.activeElement?.tagName);
+  });
+});
+
+describe("a step added in the flow picture (Y1-07)", () => {
+  it("does not pull the page to it, or take the focus, when the list is shown later", async () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ ...real(query), matches: query.includes("min-width") || real(query).matches })) as typeof window.matchMedia;
+    const scrolled = vi.fn();
+    const scroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrolled;
+    onTestFinished(() => {
+      window.matchMedia = real;
+      Element.prototype.scrollIntoView = scroll;
+    });
+    await renderClientPage(page, routes(scriptOut({ ...BASE, stages: [GREET, CLOSE] })));
+    const menu = async () => fireEvent.click(await screen.findByRole("button", { name: "More actions for this script" }));
+    await menu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Show the call as a flow" }));
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Steps of the call, in order" })).toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "Add a step" }));
+    await menu();
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Show the steps as a list" }));
+    await screen.findByRole("list", { name: "Steps of the call, in order" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(scrolled).not.toHaveBeenCalled();
+    expect(["INPUT", "TEXTAREA"]).not.toContain(document.activeElement?.tagName);
   });
 });
 
