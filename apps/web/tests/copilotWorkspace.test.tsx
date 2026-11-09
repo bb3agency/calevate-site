@@ -372,3 +372,68 @@ describe("the tasks tab when one poll fails (audit 10 Nov Y2-05)", () => {
     expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
   });
 });
+
+/** Render a workspace list, let it load, then fail its next poll with a dropped connection. */
+async function failNextPoll(
+  ui: React.ReactElement,
+  extra: Record<string, unknown>,
+  route: string,
+  queryKey: readonly unknown[],
+  loaded: string | RegExp,
+) {
+  const routes: Record<string, unknown> = { ...workspaceRoutes(), ...extra };
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  await renderClientPage(ui, routes as Parameters<typeof renderClientPage>[1], "acme", client);
+  expect((await screen.findAllByText(loaded)).length).toBeGreaterThan(0);
+  routes[route] = new NoReply();
+  await act(async () => {
+    await client.refetchQueries({ queryKey });
+  });
+  expect(client.getQueryCache().findAll({ queryKey })[0]?.state.status).toBe("error");
+  await act(async () => {
+    await new Promise((settle) => setTimeout(settle, 100));
+  });
+}
+
+describe("the other workspace lists when one poll fails (audit 10 Nov Y2-05)", () => {
+  it("keeps a running plan on screen", async () => {
+    const running = planFixture({ status: "running", can_approve: false, done_count: 70 });
+    await failNextPoll(
+      <WithSession>
+        {(session) => <TasksList session={session} onOpenApprovals={() => undefined} />}
+      </WithSession>,
+      {
+        "/v1/copilot/plans?limit=10": { plans: [running] },
+        [`/v1/copilot/plans/${PLAN_ID}`]: running,
+      },
+      "/v1/copilot/plans?limit=10",
+      ["copilot-plans"],
+      "70 of 140 done",
+    );
+    expect(screen.getByRole("region", { name: "Plans" })).toBeTruthy();
+  });
+
+  it("keeps the approvals waiting on screen", async () => {
+    await failNextPoll(
+      <WithSession>{(session) => <ApprovalsInbox session={session} />}</WithSession>,
+      {},
+      "/v1/copilot/approvals",
+      ["copilot-approvals"],
+      /do-not-call list so no campaign/,
+    );
+    expect(screen.getByRole("button", { name: /do-not-call list so no campaign/ })).toBeTruthy();
+  });
+
+  it("keeps the activity log on screen", async () => {
+    await failNextPoll(
+      <WithSession>{(session) => <ActivityLog session={session} realm="client" />}</WithSession>,
+      {},
+      "/v1/copilot/actions?limit=30",
+      ["copilot-actions"],
+      DONE_ACTION.summary as string,
+    );
+    expect(screen.getByText(DONE_ACTION.summary as string)).toBeTruthy();
+  });
+});

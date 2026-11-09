@@ -40,8 +40,8 @@ export function TasksList({
   const plans = useRecentPlans(session);
   // PLANS FIRST (D-893): a change over many records, approved once, running here. A failed
   // read says so rather than reading as "no plans".
-  const planList = plans.isSuccess ? plans.data.plans : [];
-  const planSection = plans.isError ? (
+  const planList = plans.data?.plans ?? [];
+  const planSection = plans.isError && plans.data === undefined ? (
     <ProblemNotice error={plans.error} onRetry={() => void plans.refetch()} />
   ) : planList.length > 0 ? (
       <section aria-label="Plans" className="space-y-3">
