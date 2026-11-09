@@ -6,10 +6,10 @@ touching `/etc/nginx` (D-167, DEPLOYMENT §11) — the deploy stages files into 
 directory and names one command with no arguments; it composes no privileged command of its
 own. Nothing here is installed by hand in the normal case.
 
-> **Nothing in this directory has been loaded by an nginx process.** It has never been
-> through `nginx -t`, because no nginx exists where it was written. Read §4 before
-> believing any of it works. The same caveat `infra/backup/README.md` carries, for the
-> same reason.
+> **This config is live on the production VPS**, installed by hand rather than by
+> `calevate-nginx-apply`: the deploy account has no sudo, so `vps-deploy.sh` stops with the
+> `sudo install` lines and a sudo-capable login installs them, runs `nginx -t` and reloads
+> (DEPLOYMENT §4d step 4). The privileged script itself has not been installed on a host.
 
 ---
 

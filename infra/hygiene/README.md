@@ -3,10 +3,10 @@
 The daily host clean. `docs/DEPLOYMENT.md` §7 listed this as "still unbuilt" for as long as
 that section has existed; it is built now, and this file is the authority on what it does.
 
-> **Nothing here has been installed on a host.** No VPS exists (`infra/README.md`,
-> `docs/evidence/raghava-deploy-teardown.md` §9.1 item 1). `systemd-analyze verify` has not
-> been run against these units because there is no systemd in the environment that wrote
-> them. Read §5 before believing any of it works.
+> **`calevate-hygiene.timer` is installed on the production VPS**: `systemctl list-timers
+> 'calevate-*'` listed it on 10 Oct 2026 (DEPLOYMENT §7). `systemd-analyze verify` has not
+> been run against these units in the environment that wrote them. Read §5 before believing
+> the rest of it works.
 
 ---
 

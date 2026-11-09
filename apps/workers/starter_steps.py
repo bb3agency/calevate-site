@@ -29,6 +29,7 @@ from sqlalchemy import text
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
 from apps.api.agents.starter_plans import (
+    STAMP_WRITE_SQL,
     STEP_FOCUS_MAX,
     STEP_TITLE_MAX,
     Plan,
@@ -154,7 +155,8 @@ async def _store(tenant_id: UUID, known: str, answer: JsonAnswer[dict[str, Plan]
             stored = (
                 await session.execute(
                     text(
-                        "UPDATE organizations SET starter_plans = CAST(:plans AS jsonb) "
+                        "UPDATE organizations SET starter_plans = CAST(:plans AS jsonb) || "
+                        f"{STAMP_WRITE_SQL} "
                         "WHERE id = :tid RETURNING id"
                     ),
                     {"tid": tenant_id, "plans": plans_to_json(answer.value)},

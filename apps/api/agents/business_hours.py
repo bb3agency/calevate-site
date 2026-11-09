@@ -150,7 +150,7 @@ async def count_after_hours_calls(session: AsyncSession, *, since: datetime) -> 
 
     The hours are the client's one business profile (D-695), read once; the calls query
     returns one timestamp per call in the window, bounded by platform capacity
-    (`PLATFORM_LINES_TOTAL`), not by the tenant's history.
+    (`engine/dial_lines.engine_concurrency_cap`), not by the tenant's history.
 
     Runs inside the caller's tenant-scoped session, so RLS decides which profile and which
     calls are visible (hard rule 1). It counts only `True`: with no hours recorded every

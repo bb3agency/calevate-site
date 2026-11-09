@@ -25,7 +25,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.assist_leg import account_assist_leg
-from apps.api.agents.starter_plans import business_known
+from apps.api.agents.starter_plans import STAMP_WRITE_SQL, business_known
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.models import ASSIST_FEATURE_LEAD_FIELDS
 from apps.api.core.errors import ProblemError
@@ -134,7 +134,8 @@ async def _store(tenant_id: UUID, known: str, answer: JsonAnswer[ProfileWording]
             stored = (
                 await session.execute(
                     text(
-                        "UPDATE organizations SET profile_wording = CAST(:wording AS jsonb) "
+                        "UPDATE organizations SET profile_wording = CAST(:wording AS jsonb) || "
+                        f"{STAMP_WRITE_SQL} "
                         "WHERE id = :tid RETURNING id"
                     ),
                     {"tid": tenant_id, "wording": wording_to_json(known, answer.value)},

@@ -1,12 +1,13 @@
 # infra/
 
-Infrastructure that is not application code. Today this directory contains exactly one
-thing: the **object-store lifecycle rule** — the mechanism three modules in `apps/` have
-been naming for a while and which, until now, did not exist.
+Infrastructure that is not application code. Each subdirectory has its own README and
+status: `nginx/` (the edge config, live on the VPS), `hygiene/` (the daily host clean, its
+timer installed on the VPS), `backup/` (wal-g and the offsite dump), `privileged/` (the
+deploy account's root grant, not installed), `minio/` (the dev object store image) and the
+**object-store lifecycle rule** this file describes — `object-lifecycle/` and `terraform/`.
 
-> **Nothing in this directory has been applied to anything.** No cloud credentials exist
-> in the environment that wrote it. Read §5 before believing any of it works in
-> production.
+> **The lifecycle rule has not been applied to anything.** No cloud credentials exist in
+> the environment that wrote it. Read §5 before believing any of it works in production.
 
 ---
 

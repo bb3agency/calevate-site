@@ -26,7 +26,7 @@ DRAFTS. Where what the business already gave us (its profile, its facts, its ear
 its files) answers a question, Pip drafts the answer and names that source; a draft without
 a source is never offered. Drafting calls a model, so it runs in the worker
 (`workers/teach_questions.py`), never here. A read queues at most `MAX_DRAFTS_PER_READ`
-drafts, each once per fingerprint of its inputs (`enqueue_outbox_once`), and a cached draft
+drafts, each once per change of its inputs (the `teach_questions` row), and a cached draft
 is reused until those inputs change.
 """
 
@@ -48,7 +48,7 @@ from apps.api.agents.test_conversations import PRICE_PATTERN, missing_facts
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.insights.detection import withheld_topics
-from apps.api.reliability.service import enqueue_outbox_once
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.teach import facts as fact_store
 from apps.api.teach.models import MAX_DISMISS_REASON_CHARS, MAX_QUESTION_KEY_CHARS
 from apps.api.tenancy.business_copy import capabilities_for
@@ -340,24 +340,31 @@ async def list_questions(
 async def _queue_draft(
     session: AsyncSession, *, tenant_id: UUID, key: str, fingerprint: str
 ) -> None:
-    """Mark the draft as being written for these inputs, and queue the worker once per
-    fingerprint. A draft from older inputs is cleared, so it is never offered stale."""
-    await session.execute(
+    """Mark the draft as being written for these inputs, and queue the worker when this call
+    moved the row onto them. A draft from older inputs is cleared, so it is never offered stale.
+
+    The row is the dedupe, not an outbox key: a key per fingerprint was spent for good, so
+    inputs that went A, B and back to A left the row `queued` for A with no job ever coming.
+    The upsert only writes when the fingerprint differs, and a concurrent read waits on the
+    row lock and then writes nothing, so one move queues one job."""
+    moved = await session.execute(
         text(
             "INSERT INTO teach_questions (id, tenant_id, question_key, inputs_hash, "
             "draft_status, created_at, updated_at) VALUES (:id, :tid, :key, :hash, 'queued', "
             "now(), now()) ON CONFLICT (tenant_id, question_key) DO UPDATE SET "
             "inputs_hash = EXCLUDED.inputs_hash, draft_status = 'queued', draft = NULL, "
             "draft_source_kind = NULL, draft_source_label = NULL, updated_at = now() "
-            "WHERE teach_questions.inputs_hash IS DISTINCT FROM EXCLUDED.inputs_hash"
+            "WHERE teach_questions.inputs_hash IS DISTINCT FROM EXCLUDED.inputs_hash "
+            "RETURNING id"
         ),
         {"id": uuid7(), "tid": tenant_id, "key": key, "hash": fingerprint},
     )
-    await enqueue_outbox_once(
+    if moved.first() is None:
+        return
+    await enqueue_outbox(
         session,
         job=DRAFT_JOB,
         payload={"tenant_id": str(tenant_id), "question_key": key, "inputs_hash": fingerprint},
-        dedupe_key=f"{DRAFT_JOB}:{tenant_id}:{key}:{fingerprint}",
     )
 
 

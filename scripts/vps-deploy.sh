@@ -31,8 +31,8 @@
 # a hostname or a path. If you ever find yourself adding a `--set-secret` flag here, the
 # answer is the secrets manager, not this file.
 #
-# NOT RUN AGAINST ANYTHING YET. Nothing in this repo has been deployed; see DEPLOYMENT
-# §4a for the hand-first checklist and its pass condition.
+# Production has been deployed by hand with this script since 22 Sep 2026; automatic deploys
+# are off and the rollback has never been drilled (DEPLOYMENT §4d).
 #
 # Usage:
 #   scripts/vps-deploy.sh                       # deploy what changed since last deploy
@@ -334,8 +334,7 @@ preflight() {
 # nothing rather than erroring, so `in_plan` answered "no" to every question and every
 # check inside those two blocks silently never ran. Not a check that was wrong: a check
 # that was NOT THERE, while three documents said it was and the deploy printed nothing
-# either way. The class of defect is the one CLAUDE.md calls half-wired, and the only
-# reason it was survivable is that nobody has run this script.
+# either way. The class of defect is the one CLAUDE.md calls half-wired.
 #
 # Called from `main` immediately after `resolve_plan` and BEFORE `--dry-run` exits, so
 # `scripts/vps-deploy.sh --dry-run --all` — the first command DEPLOYMENT §9 step 4 tells an
@@ -708,6 +707,12 @@ components_for_paths() {
       # The seed data the api and the workers read at run time (retention defaults,
       # vertical templates).
       scripts/seed.py|scripts/__init__.py)
+        hit[api]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
+      # Read at run time from the image: `core/alarm_guide` takes each alarm mail's "what it
+      # means / what to do" from alarm-index.md, and the admin Pip searches the runbooks.
+      # Not voice-runtime: its alarm mails take the new text at its next deploy, because a
+      # document edit is not worth an ack gap on the receiver (hard rule 3).
+      runbooks/*)
         hit[api]=1; hit[workers]=1; hit[workers-bulk]=1 ;;
       # Everything else under apps/api is the monolith proper. Workers import it
       # (the post-call pipeline is built on those modules); voice-runtime does not.

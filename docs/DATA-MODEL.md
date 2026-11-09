@@ -1467,18 +1467,10 @@ engine_capacity(id PK=1, platform_lines_total INT, inbound_reserve INT,
   sarvam_concurrency INT, trunk_channels INT, updated_at)
   -- singleton config; effective outbound pool = MIN(all three) − inbound_reserve;
   -- values come from verification item 8, reviewed on any vendor plan change.
-  -- SHIPPED INSTEAD (M1): the dispatcher holds ONE constant, PLATFORM_LINES_TOTAL = 10
-  -- (with MIN_INBOUND_RESERVE = 4) in apps/workers/campaign_dispatch.py — deliberately a
-  -- constant until the pilot produces real numbers, so the measured value has exactly one
-  -- place to land. The table lands when there is more than one number to store.
-  -- ⚠ THE PILOT IS NOT NEEDED FOR THE FIRST OF THOSE NUMBERS AND THIS COMMENT USED TO
-  -- IMPLY IT WAS: the vendor publishes the account's ceiling on a read endpoint —
-  -- GET /user/me returns concurrency:{max,current}
-  -- (bolna-findings/mirror/pages/api-reference/user/info.md:78-87) — and the paid tier
-  -- "scal[es] automatically with monthly usage" (pricing/outbound-calling-concurrency.md:19),
-  -- so a correct constant decays without a deploy. inbound_reserve is a separate question
-  -- and a live one: their docs say inbound is never queued or restricted at all, which
-  -- would make the reserve free throughput — pilot gate 13, FLOWS §5, do NOT act on prose.
+  -- SHIPPED INSTEAD: the console setting THINNEST_MAX_CONCURRENT_CALLS (the workspace's
+  -- lines) with INBOUND_RESERVED_LINES / INBOUND_RESERVE_RATIO, combined by
+  -- apps/api/engine/dial_lines.outbound_line_pool, which the dispatcher and the dial gate
+  -- both read. The table lands when there is more than one number to store.
 invoices(id, tenant_id, period, lines JSONB, subtotal, gst, total,
   status ENUM[draft,sent,paid,overdue], razorpay_ref)
   -- SHIPPED INSTEAD (M2): an invoice is a DERIVED STATEMENT, not a row. `build_invoice`

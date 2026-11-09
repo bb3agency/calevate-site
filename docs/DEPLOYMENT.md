@@ -541,7 +541,8 @@ when it is set the job runs `scripts/vps-deploy.sh --checkout <sha>` instead of
 
 ### 3a. The self-hosted runner — the exact steps, none of which has been run
 
-**Nothing below has been executed.** There is no VPS, no runner, and no repo Secret. This
+**Nothing below has been executed.** The VPS exists (§4d), but there is no runner and no
+repo Secret. This
 is a checklist for a human with a shell on the box, written out because the raghava
 teardown (`docs/evidence/raghava-deploy-teardown.md`) shows every one of these choices
 being made badly somewhere, and because a runner is the one component here that holds a
@@ -1044,10 +1045,10 @@ patterns fail), `certbot certonly --webroot` (NEVER `certbot --nginx` — it rew
 templated config), `000-default.conf` with Cloudflare Origin CA cert on
 `default_server` (the 525 fix), `cloudflare-only.conf` origin IP allowlist.
 
-> **STATUS (Aug 2026): the config now lives in `infra/nginx/` and has never been loaded
-> by an nginx process.** Read `infra/nginx/README.md` before this section — it is the
-> authority on what is there, where each file installs, and what has never been run.
-> `scripts/vps-deploy.sh` renders and installs it (§4 step 12). Two items of the
+> **STATUS: the config lives in `infra/nginx/` and is live on the VPS**, installed by a
+> sudo-capable login from the `sudo install` lines `scripts/vps-deploy.sh` prints (§4d
+> step 4). Read `infra/nginx/README.md` before this section — it is the authority on what
+> is there and where each file installs. Two items of the
 > inheritance above are deliberately NOT built and are named as gaps rather than
 > approximated: the **maintenance gate** (its single-hop `error_page 401 =503` shape is
 > hard-won and a half-remembered version fails exactly when it is needed — §10 keeps the
