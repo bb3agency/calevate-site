@@ -186,8 +186,28 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
   const toastId = useId();
   const optionsRef = useRef(options);
   optionsRef.current = options;
-  const { mutate, reset, status, submittedAt, data, error, variables } = mutation;
+  const { mutate, mutateAsync, reset, status, submittedAt, data, error, variables } = mutation;
   const held = useHeldSuccess(status === "success" ? submittedAt : 0);
+
+  // A submission started by `run` is announced from its own promise, which settles whether
+  // or not this component is still mounted: a form or drawer that closes itself on success
+  // (or is closed while it saves) unmounts before an effect could see the outcome, and its
+  // toast was lost. The effect below announces only submissions `run` never started.
+  const viaRun = useRef(false);
+  const run = useCallback(
+    (vars: TVars) => {
+      viaRun.current = true;
+      mutateAsync(vars).then(
+        (result) => raiseSuccess(toasts, toastId, optionsRef.current, result, vars),
+        (failure: unknown) => {
+          const current = optionsRef.current;
+          if ((current.errorDisplay ?? "toast") !== "toast") return;
+          raiseFailure(toasts, toastId, failure, current.errorTitle ?? FALLBACK_ERROR_TITLE, () => run(vars));
+        },
+      );
+    },
+    [mutateAsync, toasts, toastId],
+  );
 
   const announced = useRef("");
   useEffect(() => {
@@ -195,6 +215,7 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
     const key = `${submittedAt}:${status}`;
     if (announced.current === key) return;
     announced.current = key;
+    if (viaRun.current) return;
     const current = optionsRef.current;
     if (status === "success") {
       raiseSuccess(toasts, toastId, current, data as TData, variables as TVars);
@@ -203,7 +224,6 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
     }
   }, [status, submittedAt, data, error, variables, mutate, toasts, toastId]);
 
-  const run = useCallback((vars: TVars) => mutate(vars), [mutate]);
   const shown: FeedbackStatus =
     status === "pending" ? "pending" : status === "error" ? "error" : held ? "success" : "idle";
   return { status: shown, run, error, reset };
