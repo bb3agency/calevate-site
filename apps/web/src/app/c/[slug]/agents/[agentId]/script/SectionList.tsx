@@ -144,14 +144,6 @@ export function SectionList({
                   onClick={() => onInsert(index)}
                 />
               )}
-              {onInsert && index === sections.length - 1 && !drag && (
-                <InsertStep
-                  place="below"
-                  shown={hovered === index}
-                  label={`Add a step after ${index + 1}`}
-                  onClick={() => onInsert(index + 1)}
-                />
-              )}
               <div className="flex">
               <div className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line py-3">
                 <span className="text-heading tabular-nums text-ink" aria-hidden>
@@ -227,6 +219,16 @@ export function SectionList({
               {selected === section.id && editor ? (
                 <div className="border-t border-line px-4 py-4 sm:pl-16">{editor}</div>
               ) : null}
+              {/* After the card in the document, where it is drawn, so the keyboard and a
+                  screen reader reach "after 3" once they have passed step 3. */}
+              {onInsert && index === sections.length - 1 && !drag && (
+                <InsertStep
+                  place="below"
+                  shown={hovered === index}
+                  label={`Add a step after ${index + 1}`}
+                  onClick={() => onInsert(index + 1)}
+                />
+              )}
             </li>
           );
         })}

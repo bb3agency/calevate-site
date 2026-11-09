@@ -424,6 +424,9 @@ function Editor({
     if (!card) return;
     const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     card.scrollIntoView?.({ behavior: still ? "auto" : "smooth", block: "start" });
+    // Focus goes into the new step too: from the keyboard, "Add a step" otherwise left it on
+    // the button, now a step further down, with the new step's fields behind it.
+    card.querySelector<HTMLElement>("input, textarea")?.focus({ preventScroll: true });
     setArrive(null);
   }, [arrive, sections]);
   const keep = (next: CallScript) => {

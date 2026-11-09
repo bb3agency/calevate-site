@@ -151,6 +151,23 @@ describe("a step added after a step that ends the call (Y1-02)", () => {
   });
 });
 
+describe("Add a step from the keyboard (Y1-04)", () => {
+  it("reaches 'after the last step' once past that step, and lands in the new step's fields", async () => {
+    const script: CallScript = { ...BASE, stages: [GREET, CLOSE] };
+    await renderClientPage(page, routes(scriptOut(script)));
+    const after = await screen.findByRole("button", { name: "Add a step after 2" });
+    const lastDelete = screen.getByRole("button", { name: "Delete Close" });
+    // Tab order is document order: the button must come after step 2's own controls.
+    expect(lastDelete.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    after.focus();
+    fireEvent.click(after);
+    await waitFor(() => expect(cards()).toHaveLength(3));
+    await waitFor(() => expect(cards()[2].contains(document.activeElement)).toBe(true));
+    expect(["INPUT", "TEXTAREA"]).toContain(document.activeElement?.tagName);
+  });
+});
+
 describe("the main task edited in the header while the builder holds unsaved steps (Y1-03)", () => {
   it("joins both: the new task and the owner's unsaved step, with no conflict to choose", async () => {
     const script: CallScript = { ...BASE, goal: "Take orders.", stages: [GREET, CLOSE] };
