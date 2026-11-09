@@ -356,11 +356,18 @@ async def save_auto_recharge(
                 remediation="Choose UPI Autopay or a card and approve it once.",
             )
         if row.mandate_max_inr is not None and amount_inr > Decimal(str(row.mandate_max_inr)):
+            limit = display_inr(Decimal(str(row.mandate_max_inr)))
+            # An approval's per-payment limit is fixed when the bank approves it, and the
+            # screen offers only "Withdraw approval" beside a confirmed one, so a higher
+            # limit is reached by withdrawing and approving again at the new amount.
             raise ProblemError.business_rule(
                 "auto_recharge_over_mandate",
-                f"Your approved limit is {display_inr(Decimal(str(row.mandate_max_inr)))} per "
-                "payment.",
-                remediation="Lower the recharge amount, or approve a new payment method.",
+                f"Your approved limit is {limit} per payment.",
+                remediation=(
+                    f"Lower the recharge amount to {limit} or less. For a higher amount, "
+                    "withdraw the approval, then approve the payment method again with "
+                    "the new amount."
+                ),
             )
     # The INSERT arm always proposes `enabled = false` and only the UPDATE arm takes `:en`:
     # Postgres checks CHECK constraints on the proposed row BEFORE it detects the conflict,
