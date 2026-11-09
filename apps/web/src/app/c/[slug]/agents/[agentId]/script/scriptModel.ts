@@ -236,6 +236,26 @@ export function addSection(
   return { script: withSections(script, next), id };
 }
 
+/**
+ * "Add a step" at a place in the call: a blank step at `at` that the call reaches. The step
+ * before it hands its "Then" to the new one and goes on to it, so a step that ended the call
+ * or jumped to the step after (`otherwise` set, not left as "the next step") does not skip
+ * the step added after it. Without this the new step sat after a step ending the call, which
+ * every agent that does both calling jobs has (`starters._block`), and was never reached.
+ */
+export function insertSection(script: CallScript, at: number): { script: CallScript; id: string } {
+  const made = addSection(script, {}, at);
+  const before = at > 0 ? sectionsOf(script)[at - 1] : undefined;
+  if (!before?.otherwise) return made;
+  const handed = withSections(
+    made.script,
+    sectionsOf(made.script).map((s) =>
+      s.id === before.id ? { ...s, otherwise: "" } : s.id === made.id ? { ...s, otherwise: before.otherwise } : s,
+    ),
+  );
+  return { script: handed, id: made.id };
+}
+
 export function updateSection(script: CallScript, id: string, patch: Partial<Section>): CallScript {
   return withSections(
     script,

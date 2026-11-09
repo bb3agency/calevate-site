@@ -93,8 +93,8 @@ import {
   type SavedCopy,
 } from "./scriptDraft";
 import {
-  addSection,
   connect,
+  insertSection,
   limitsFrom,
   moveSection,
   pointersTo,
@@ -274,7 +274,11 @@ function Editor({
     const next = reconcileDraft(script, base, incoming, lastSave);
     if (next.kind === "adopt") adopt(incoming);
     else if (next.kind === "rebase") setBase(incoming);
-    else if (next.kind === "conflict") setConflict(true);
+    else if (next.kind === "merge") {
+      setScript(next.script);
+      setBase(incoming);
+      setConflict(false);
+    } else if (next.kind === "conflict") setConflict(true);
   }
 
   const write = useWriteAccess(session, "org:manage", "change this script");
@@ -407,21 +411,26 @@ function Editor({
   // A new step opens in place and the page goes to it, so the owner lands on what they
   // just added rather than hunting for it below the fold.
   const [arrive, setArrive] = useState<string | null>(null);
-  const addAt = (at?: number) => {
-    const made = addSection(script, {}, at);
+  const addAt = (at: number) => {
+    const made = insertSection(script, at);
     edit(made.script);
     setSelected(made.id);
     setArrive(made.id);
   };
-  const addOne = () => addAt();
+  const addOne = () => addAt(sections.length);
   useEffect(() => {
     if (!arrive) return;
+    // Once only: a step added in the flow picture has no card, and a pending arrival would
+    // pull the page and the focus to it whenever the list was shown later.
+    setArrive(null);
     const card = document.getElementById(stepAnchor(arrive));
     if (!card) return;
     const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     card.scrollIntoView?.({ behavior: still ? "auto" : "smooth", block: "start" });
-    setArrive(null);
-  }, [arrive, sections]);
+    // Focus goes into the new step too: from the keyboard, "Add a step" otherwise left it on
+    // the button, now a step further down, with the new step's fields behind it.
+    card.querySelector<HTMLElement>("input, textarea")?.focus({ preventScroll: true });
+  }, [arrive]);
   const keep = (next: CallScript) => {
     setUndo({ before: script, after: next });
     setKeptSuggestion(true);
@@ -813,7 +822,9 @@ function Editor({
           onConfirm={() => {
             const id = deleting;
             setDeleting(null);
-            setSelected(null);
+            // Only the deleted step's editor closes: a card's own delete leaves the step
+            // being written open.
+            setSelected((open) => (open === id ? null : open));
             edit((s) => removeSection(s, id));
           }}
         >

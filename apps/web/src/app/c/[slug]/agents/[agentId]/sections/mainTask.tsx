@@ -174,7 +174,7 @@ export function MainTask({
       <div className="mb-1 flex flex-wrap items-center gap-x-3 text-ink">
         <span>No main task yet.</span>
         {canWrite && steps && (
-          <button type="button" className={TEXT_ACTION_SM} onClick={startEditing}>
+          <button ref={editButton} type="button" className={TEXT_ACTION_SM} onClick={startEditing}>
             Add its main task
           </button>
         )}

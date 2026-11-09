@@ -25,6 +25,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
 import {
@@ -96,14 +97,21 @@ export function ProposalReview({
   children?: ReactNode;
 }) {
   const changes = useMemo(() => diffScripts(base ?? current, proposal), [base, current, proposal]);
+  // What the owner did to the draft since Pip wrote this: a change to a step they deleted
+  // has nothing left to apply to, and one to a step or part they edited replaces their edit.
+  const since = useMemo(() => sinceWritten(changes, base, current), [changes, base, current]);
   // A removal starts unticked: the owner keeps it only after looking at it (A-04).
-  const [kept, setKept] = useState<Set<string>>(() => keptAtFirst(changes));
+  const [ticked, setKept] = useState<Set<string>>(() => keptAtFirst(changes));
+  const kept = useMemo(() => new Set([...ticked].filter((id) => since.get(id) !== "deleted")), [ticked, since]);
+  const offered = changes.filter((c) => since.get(c.id) !== "deleted").length;
   // The proposal as the owner reworded it. The parent keys this component by proposal id,
   // so a new suggestion always starts from Pip's own words.
   const [edited, setEdited] = useState<CallScript>(proposal);
   const [touched, setTouched] = useState<Set<string>>(() => new Set());
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [tried, setTried] = useState(false);
+  // The owner's rewording lives only here until "Add", so leaving the tab or the page asks.
+  useUnsavedGuard(touched.size > 0);
   const list = useRef<HTMLUListElement>(null);
   const keptCount = changes.filter((c) => kept.has(c.id)).length;
 
@@ -210,6 +218,7 @@ export function ProposalReview({
                 kept={on}
                 edited={touched.has(change.id)}
                 open={open.has(change.id)}
+                since={since.get(change.id)}
                 onKeep={(next) => setIn(setKept, change.id, next)}
                 onOpen={(next) => setIn(setOpen, change.id, next)}
                 onReset={() => reset(change)}
@@ -251,11 +260,11 @@ export function ProposalReview({
             title={gate ?? undefined}
             onClick={add}
           >
-            {keptCount === changes.length
-              ? changes.length === 1
+            {keptCount === offered && offered > 0
+              ? offered === 1
                 ? "Add it to my draft"
-                : `Add all ${changes.length} to my draft`
-              : `Add ${keptCount} of ${changes.length} to my draft`}
+                : `Add all ${offered} to my draft`
+              : `Add ${keptCount} of ${offered} to my draft`}
           </button>
           <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDiscard}>
             Discard
@@ -280,6 +289,7 @@ function Row({
   kept,
   edited,
   open,
+  since,
   onKeep,
   onOpen,
   onReset,
@@ -289,13 +299,15 @@ function Row({
   kept: boolean;
   edited: boolean;
   open: boolean;
+  since?: Since;
   onKeep: (on: boolean) => void;
   onOpen: (on: boolean) => void;
   onReset: () => void;
   children: ReactNode;
 }) {
   const id = domId(change);
-  const editable = change.kind !== "section-removed" && change.kind !== "order";
+  const gone = since === "deleted";
+  const editable = !gone && change.kind !== "section-removed" && change.kind !== "order";
   return (
     // An unticked change fades, so what will be applied is visible at a glance.
     <li className={`flex items-start gap-3 py-3 transition-opacity duration-150 ${kept ? "" : "opacity-55"}`}>
@@ -304,6 +316,7 @@ function Row({
         type="checkbox"
         className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand-strong)]"
         checked={kept}
+        disabled={gone}
         onChange={(e) => onKeep(e.target.checked)}
       />
       <div className="min-w-0 flex-1">
@@ -314,6 +327,9 @@ function Row({
           <StatusPill tone={kindTone(change)}>{kindLabel(change)}</StatusPill>
           {edited && <span className="text-meta font-medium text-brand-strong">Edited by you</span>}
         </div>
+        {since && (
+          <p className={`mt-1 text-meta ${gone ? "text-ink-muted" : "text-warn"}`}>{SINCE_NOTE[since](change)}</p>
+        )}
         {children}
         {editable && (
           <div className="mt-1.5 flex flex-wrap gap-x-4">
@@ -450,6 +466,38 @@ function SectionBody({
       )}
     </div>
   );
+}
+
+type Since = "deleted" | "changed";
+
+const SINCE_NOTE: Record<Since, (change: Change) => string> = {
+  deleted: () => "You deleted this step after Pip wrote this.",
+  changed: (change) =>
+    change.kind === "part"
+      ? "You changed this since. Keeping this replaces your change."
+      : "You changed this step since. Keeping this replaces your change.",
+};
+
+/**
+ * Each change's standing against what the owner did to the draft after Pip wrote it from
+ * `base`, read from the same comparison the review lists (`diffScripts(base, current)`).
+ * A step the owner deleted is `deleted`: `applyTraced` has nothing to apply the change to
+ * and drops it, so it cannot be kept or counted. A step or part they edited is `changed`:
+ * keeping it puts Pip's whole step or part over their edit, which the row says.
+ */
+function sinceWritten(changes: readonly Change[], base: CallScript | undefined, current: CallScript): Map<string, Since> {
+  const out = new Map<string, Since>();
+  if (!base) return out;
+  const owner = new Set(diffScripts(base, current).map((c) => c.id));
+  for (const change of changes) {
+    if (change.kind === "part") {
+      if (owner.has(change.id)) out.set(change.id, "changed");
+    } else if (change.kind === "section-changed" || change.kind === "section-removed") {
+      if (owner.has(`remove:${change.before.id}`)) out.set(change.id, "deleted");
+      else if (change.kind === "section-changed" && owner.has(`change:${change.before.id}`)) out.set(change.id, "changed");
+    }
+  }
+  return out;
 }
 
 function RowErrors({ issues }: { issues: Issue[] }) {
