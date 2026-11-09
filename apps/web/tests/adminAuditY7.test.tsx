@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import { adminSession, type TenantSummary } from "@/lib/api/admin";
+import { useRecordTerms } from "@/lib/api/commercials";
 import { useRecordRestatement, useRecordTopUp, type Payment } from "@/lib/api/credits";
 import { useEndTrial } from "@/lib/api/trials";
 
@@ -155,6 +156,36 @@ describe("cancelling an invitation", () => {
     });
     await waitFor(() =>
       expect(calls.some((call) => call.method === "DELETE" && call.path.endsWith(INVITE.id))).toBe(true),
+    );
+  });
+});
+
+/*
+ * Y7-03. Recording commercial terms re-arms the spend-cap gate in the same transaction
+ * (`billing/terms.record_terms` -> `recompute_capped`), in both directions. The "Capped"
+ * pill in the account header above the Commercials form, the directory row, the ceilings
+ * panel and the health board all kept the state from before the save.
+ */
+describe("recording commercial terms", () => {
+  it("refreshes every read that carries the spend-cap flag", async () => {
+    stubApi({ [`POST /v1/admin/tenants/${TENANT}/commercial-terms`]: { changed: true } });
+    const { wrapper, keys } = harness();
+    const { result } = renderHook(() => useRecordTerms(adminSession(), TENANT), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({ terms: {} as never, confirm: null });
+    });
+
+    await waitFor(() =>
+      expect(keys()).toEqual(
+        expect.arrayContaining([
+          JSON.stringify(["admin", "commercial-terms", TENANT]),
+          JSON.stringify(["admin", "tenant", TENANT]),
+          JSON.stringify(["admin", "tenants"]),
+          JSON.stringify(["billing-caps"]),
+          JSON.stringify(["admin", "client-health"]),
+        ]),
+      ),
     );
   });
 });
