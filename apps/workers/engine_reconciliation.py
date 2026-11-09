@@ -334,6 +334,11 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
         # The route was deleted between the batch read and now. Nothing to record and
         # nothing wrong — the object is no longer ours to watch.
         return None
+    if state == "not_published":
+        # An archived agent, or one holding no vendor agent: stamped above so it goes to
+        # the back of the queue, and nothing below is put back on an object we no longer
+        # operate (archiving retired its actions on purpose).
+        return None
 
     # THE INBOUND HALF OF THE VERDICT (D-564). `record_drift` above is the OUTBOUND half's
     # evidence — `check_dispatch` reads that column. Inbound reaches nothing of ours before

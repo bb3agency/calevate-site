@@ -722,6 +722,40 @@ async def test_a_soft_deleted_agent_is_skipped_rather_than_failing_the_tick() ->
     assert (await _route(ref))[0] is None
 
 
+async def test_an_archived_agent_is_left_alone_and_moves_to_the_back_of_the_queue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Archiving (the console's Delete) releases the numbers and retires the in-call actions,
+    and leaves the vendor agent standing with its route active. The sweep must not read it
+    back, put its actions or settings back, or alarm about it; and it must stamp the route,
+    or the never-moving timestamp would hold a batch slot from a live agent every tick."""
+    engine = RecordingEngine()
+    tenant_id, agent_id, ref = await _published_agent(engine)
+    await _only(ref)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET status = 'archived', archived_at = now() WHERE id = :a"),
+            {"a": agent_id},
+        )
+    repaired: list[str] = []
+
+    async def no_repair(**kw: Any) -> None:
+        repaired.append(str(kw.get("engine_agent_ref")))
+
+    monkeypatch.setattr(engine_reconciliation, "check_agent_actions", no_repair)
+    monkeypatch.setattr(engine_reconciliation, "check_call_start", no_repair)
+    monkeypatch.setattr(engine_reconciliation, "check_agent_settings", no_repair)
+    engine.calls.clear()
+
+    with _engine(engine):
+        assert await sweep_engine_drift({}) == "checked=0 drifted=0"
+    assert engine.names() == [], "an archived agent cost a vendor round trip"
+    assert repaired == [], "the sweep put an archived agent's actions or settings back"
+    state, checked_at, _ = await _route(ref)
+    assert state == "not_published"
+    assert checked_at is not None, "the archived route keeps the head of the queue"
+
+
 async def test_a_route_deleted_mid_sweep_records_nothing_and_is_not_counted() -> None:
     """A sweep works from a snapshot, so the object can be unpublished between the batch
     read and the round trip. `record_drift` returns False on zero rows, and that must be a

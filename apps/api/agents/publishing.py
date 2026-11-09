@@ -1047,6 +1047,13 @@ async def engine_drift_for(
     # declined to pay.
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
+        if row["status"] == "archived":
+            # Archiving leaves the vendor agent standing with nothing bound to it
+            # (`lifecycle.archive_agent`); we no longer operate it, so it is not compared,
+            # and the sweep does not put back the actions and settings archiving retired.
+            return _not_published(
+                agent_id, engine.name, "This agent is deleted, so it is not compared."
+            )
         # WHO A PUBLISH RIGHT NOW WOULD SEND (D-533), resolved through the ONE resolver
         # the publish itself uses. Not optional and not a shortcut: the destination is a
         # function of the clock, so a sweep that rebuilt it any other way — or skipped it —
@@ -1090,26 +1097,32 @@ async def engine_drift_for(
             # read back; that guard is in `verify_publish` itself, so a future caller
             # cannot lose it.
             if not isinstance(ref, str) or not ref:
-                return EngineDrift(
-                    agent_id=str(agent_id),
-                    engine=engine.name,
-                    engine_agent_ref=None,
-                    checked=False,
-                    state="not_published",
-                    prompt_applied=None,
-                    disclosure_applied=None,
-                    prompt_disclosure_applied=None,
-                    truthful_answer_applied=None,
-                    confidentiality_applied=None,
-                    voice_applied=None,
-                    handoff_applied=None,
-                    detail=(
-                        "This agent is not on the voice platform, so there is nothing to compare."
-                    ),
+                return _not_published(
+                    agent_id,
+                    engine.name,
+                    "This agent is not on the voice platform, so there is nothing to compare.",
                 )
             target, config = ref, _to_config(tenant_id, row, engine=engine, handoff=handoff)
 
     return await _drift_of(engine, agent_id, target, config)
+
+
+def _not_published(agent_id: UUID, engine: str, detail: str) -> EngineDrift:
+    return EngineDrift(
+        agent_id=str(agent_id),
+        engine=engine,
+        engine_agent_ref=None,
+        checked=False,
+        state="not_published",
+        prompt_applied=None,
+        disclosure_applied=None,
+        prompt_disclosure_applied=None,
+        truthful_answer_applied=None,
+        confidentiality_applied=None,
+        voice_applied=None,
+        handoff_applied=None,
+        detail=detail,
+    )
 
 
 async def _drift_of(
@@ -1226,13 +1239,17 @@ async def apply_to_live(
                 engine_synced=False,
             )
 
+        # Pinned to the version checked above, not to whatever the draft pointer holds when
+        # this runs: a draft saved between the read and this write is refused, never applied.
         result = await session.execute(
             text(
                 "UPDATE agents SET live_prompt_id = system_prompt_id, updated_at = now() "
                 "WHERE id = :aid AND deleted_at IS NULL "
-                "AND system_prompt_id IS DISTINCT FROM live_prompt_id"
+                "AND system_prompt_id IS DISTINCT FROM live_prompt_id "
+                "AND system_prompt_id = (SELECT pv.id FROM prompt_versions pv "
+                "WHERE pv.agent_id = :aid AND pv.version = :version)"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "version": row.draft_version},
         )
         if rowcount_of(result) == 0:
             # Someone applied or undid between the read and the write.
@@ -1291,14 +1308,24 @@ async def undo_staged(*, tenant_id: UUID, agent_id: UUID) -> UndoResult:
                 discarded_version=None,
                 live_version=row.live_version,
             )
-        await session.execute(
+        # Pinned to the draft read above, for `apply_to_live`'s reason: a draft saved after
+        # that read is not discarded by an Undo whose person never saw it.
+        result = await session.execute(
             text(
                 "UPDATE agents SET system_prompt_id = live_prompt_id, updated_at = now() "
                 "WHERE id = :aid AND deleted_at IS NULL "
-                "AND system_prompt_id IS DISTINCT FROM live_prompt_id"
+                "AND system_prompt_id IS DISTINCT FROM live_prompt_id "
+                "AND system_prompt_id = (SELECT pv.id FROM prompt_versions pv "
+                "WHERE pv.agent_id = :aid AND pv.version = :version)"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "version": row.draft_version},
         )
+        if rowcount_of(result) == 0:
+            raise ProblemError.conflict(
+                "stale_pending_change",
+                "The staged script changed while this request was in flight.",
+                remediation="Reload the agent and review the current draft before undoing.",
+            )
     log.info(
         "agent_changes_undone",
         extra={
