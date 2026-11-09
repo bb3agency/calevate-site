@@ -34012,6 +34012,8 @@ export interface components {
             /** Handoffs */
             handoffs: components["schemas"]["SubjectExportHandoffOut"][];
             lead: components["schemas"]["SubjectExportLeadOut"] | null;
+            /** Leads */
+            leads: components["schemas"]["SubjectExportLeadOut"][];
             /** Phone E164 */
             phone_e164: string;
             /** Remembered */
