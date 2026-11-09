@@ -1,9 +1,16 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
+import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
 import type { Section } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
-import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
+import type { Me } from "@/lib/api/client";
+import { EMPTY_SCRIPT, type CallScript, type ScriptOut } from "@/lib/api/script";
+
+import { businessProfileFixture } from "./businessProfileFixture";
+import { renderClientPage } from "./harness";
+import { agentRow, settledPending } from "./fixtures/sharedReads";
 
 /**
  * Frontend audit 10 Nov 2026, lane Y1 (client agent screens: the script builder).
@@ -66,5 +73,133 @@ describe("a Pip suggestion reviewed after the owner changed the draft (Y1-01)", 
     render(<ProposalReview current={BASE} base={BASE} proposal={proposal} onApply={() => undefined} onDiscard={() => undefined} />);
     expect(screen.queryByText(/after Pip wrote this|since\. Keeping/)).toBeNull();
     expect(screen.getByRole("button", { name: "Add it to my draft" })).toBeTruthy();
+  });
+});
+
+// --- the builder ---------------------------------------------------------------------------
+
+const OWNER: Me = {
+  user_id: "u1",
+  realm: "client",
+  role: "owner",
+  permissions: ["agents:read", "org:read", "org:manage"],
+  impersonating: false,
+  withheld_acts: [],
+  organization: { id: "o1", name: "Raghava Organics", slug: "acme", status: "active" },
+};
+
+const SAVED_AT = "2026-11-10T09:00:00.000001+00:00";
+const page = (
+  <ScriptBuilder agentId="agent-1" knowledgeHref="/c/acme/knowledge" trainingHref="/c/acme/agents/agent-1?section=training" />
+);
+
+function scriptOut(script: CallScript, draft: { script: CallScript; saved_at: string } | null = null): ScriptOut {
+  return {
+    script,
+    draft,
+    stored_schema_version: 2,
+    context: null,
+    version: 3,
+    is_freeform: false,
+    has_pending: false,
+    standard_variables: [],
+  };
+}
+
+const routes = (script: unknown, extra: Record<string, unknown> = {}) => ({
+  "/v1/me": OWNER,
+  "/v1/agents/agent-1": agentRow(),
+  "/v1/agents/agent-1/script": script,
+  "/v1/agents/agent-1/script/tests": { available: false, unavailable_reason: "Not yet.", cost_note: "", latest: null, history: [] },
+  "POST /v1/agents/agent-1/script/preview": { compiled: "", instructions_chars: 2000, instructions_limit: 8000, native_steps: 0 },
+  "POST /v1/agents/agent-1/script/check": { warnings: [] },
+  "/v1/agents/agent-1/script/proposed-rules": [],
+  "/v1/agents/agent-1/script/proposal": { proposal: null },
+  "/v1/business-profile": businessProfileFixture(),
+  "/v1/agents/agent-1/pending": settledPending(),
+  ...extra,
+});
+
+function cards(): HTMLElement[] {
+  const list = screen.getByRole("list", { name: "Steps of the call, in order" });
+  return Array.from(list.querySelectorAll<HTMLElement>(":scope > li"));
+}
+
+describe("a step added after a step that ends the call (Y1-02)", () => {
+  it("is reached: the step before it goes on to it, and it ends the call instead", async () => {
+    // An agent that does both calling jobs closes each block with an explicit end
+    // (`starters._block`), and an owner can pick "End the call" on any step.
+    const script: CallScript = { ...BASE, stages: [GREET, { ...CLOSE, otherwise: "end" }] };
+    await renderClientPage(page, routes(scriptOut(script)));
+    await screen.findByRole("list", { name: "Steps of the call, in order" });
+    expect(cards()[1].textContent).toContain("Then: End the call");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add a step after 2" }));
+    await waitFor(() => expect(cards()).toHaveLength(3));
+    expect(cards()[1].textContent).not.toContain("End the call");
+    expect(cards()[2].textContent).toContain("Then: End the call");
+  });
+
+  it("between two steps, sits on the way from the first to the second", async () => {
+    const script: CallScript = { ...BASE, stages: [{ ...GREET, otherwise: "close" }, CLOSE] };
+    await renderClientPage(page, routes(scriptOut(script)));
+    fireEvent.click(await screen.findByRole("button", { name: "Add a step between 1 and 2" }));
+    await waitFor(() => expect(cards()).toHaveLength(3));
+    // Greet no longer jumps over the new step to Close.
+    expect(cards()[0].textContent).not.toContain("Close");
+    expect(cards()[1].textContent).toContain("Then: 3. Close");
+  });
+});
+
+describe("the main task edited in the header while the builder holds unsaved steps (Y1-03)", () => {
+  it("joins both: the new task and the owner's unsaved step, with no conflict to choose", async () => {
+    const script: CallScript = { ...BASE, goal: "Take orders.", stages: [GREET, CLOSE] };
+    let current = scriptOut(script, { script, saved_at: SAVED_AT });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const { calls } = await renderClientPage(
+      page,
+      routes(() => current, { "PUT /v1/agents/agent-1/script/draft": { saved_at: "2026-11-10T09:10:00+00:00" } }),
+      "acme",
+      qc,
+    );
+    await screen.findByRole("list", { name: "Steps of the call, in order" });
+    // A new step with nothing written yet: the autosave waits for it.
+    fireEvent.click(await screen.findByRole("button", { name: "Add a step after 2" }));
+    await waitFor(() => expect(cards()).toHaveLength(3));
+
+    // The header's Edit saved a new main task into the draft (`MainTask`).
+    const later = "2026-11-10T09:05:00+00:00";
+    current = scriptOut(script, { script: { ...script, goal: "Take orders and bookings." }, saved_at: later });
+    await act(async () => {
+      await qc.invalidateQueries();
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("This draft was changed somewhere else")).toBeNull();
+    expect(cards()).toHaveLength(3);
+
+    fireEvent.change(screen.getByPlaceholderText("For example: Ask what they need and when."), {
+      target: { value: "Ask what else they need." },
+    });
+    await waitFor(() => expect(calls.some((c) => c.method === "PUT")).toBe(true), { timeout: 4000 });
+    const body = JSON.parse(calls.find((c) => c.method === "PUT")?.body ?? "{}");
+    expect(body.base_saved_at).toBe(later);
+    expect(body.script.goal).toBe("Take orders and bookings.");
+    expect(body.script.stages).toHaveLength(3);
+  });
+
+  it("still asks when both changed the same part", async () => {
+    const script: CallScript = { ...BASE, goal: "Take orders.", stages: [GREET, CLOSE] };
+    let current = scriptOut(script, { script, saved_at: SAVED_AT });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(page, routes(() => current), "acme", qc);
+    await screen.findByRole("list", { name: "Steps of the call, in order" });
+    fireEvent.click(await screen.findByRole("button", { name: "Add a step after 2" }));
+    await waitFor(() => expect(cards()).toHaveLength(3));
+    // Somebody else changed the steps too.
+    current = scriptOut(script, { script: { ...script, stages: [GREET] }, saved_at: "2026-11-10T09:05:00+00:00" });
+    await act(async () => {
+      await qc.invalidateQueries();
+    });
+    expect(await screen.findByText("This draft was changed somewhere else")).toBeTruthy();
   });
 });

@@ -91,6 +91,8 @@ export type Reconciled =
   | { kind: "adopt" }
   /** The editor's own save came back while the owner kept typing: it becomes the new base. */
   | { kind: "rebase" }
+  /** Somebody else's copy changed other parts than the owner's edits: both, on its stamp. */
+  | { kind: "merge"; script: CallScript }
   /** Keep the owner's edits; somebody else's copy is now the stored one. */
   | { kind: "conflict" };
 
@@ -113,7 +115,28 @@ export function reconcileDraft(
     return sameScript(local, lastSave.script) ? { kind: "adopt" } : { kind: "rebase" };
   }
   if (sameScript(local, incoming.script)) return { kind: "adopt" };
-  return { kind: "conflict" };
+  const joined = mergeParts(base.script, local, incoming.script);
+  return joined ? { kind: "merge", script: joined } : { kind: "conflict" };
+}
+
+/**
+ * A three-way merge by part (the script's top-level keys): each part takes whichever side
+ * changed it from `base`. Null when both changed the same part differently, which the owner
+ * must choose between. The agent page's header saves a new main task (`goal`) into the draft
+ * while the builder may hold unsaved steps (a blank new step holds the autosave), and a
+ * conflict there made the owner throw one of the two away.
+ */
+export function mergeParts(base: CallScript, local: CallScript, incoming: CallScript): CallScript | null {
+  const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const keys = new Set([...Object.keys(base), ...Object.keys(local), ...Object.keys(incoming)]) as Set<keyof CallScript>;
+  const out: Record<string, unknown> = {};
+  for (const key of keys) {
+    const [b, l, i] = [base[key], local[key], incoming[key]];
+    if (same(l, b)) out[key] = i;
+    else if (same(i, b) || same(i, l)) out[key] = l;
+    else return null;
+  }
+  return out as unknown as CallScript;
 }
 
 /** How long typing must pause before the draft is saved. */
