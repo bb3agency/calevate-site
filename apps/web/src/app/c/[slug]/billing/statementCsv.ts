@@ -44,7 +44,7 @@ import { walletEntryLabel, type WalletEntry } from "@/lib/api/wallet";
 /** RFC 4180 §2 quoting, plus the spreadsheet-formula guard argued in the header. */
 function cell(value: string, { guardFormulas }: { guardFormulas: boolean }): string {
   const guarded =
-    guardFormulas && /^[=+\-@]/.test(value) ? `'${value}` : value;
+    guardFormulas && /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
   return `"${guarded.replace(/"/g, '""')}"`;
 }
 
