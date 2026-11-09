@@ -6,6 +6,7 @@ import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import { daysLeftLine } from "@/app/c/[slug]/data-rights/deskCopy";
 import { BusinessProfileScreen } from "@/app/c/[slug]/settings/business/BusinessProfileScreen";
 import { TeamList } from "@/app/c/[slug]/settings/alerts/TeamList";
+import TeamPage from "@/app/c/[slug]/settings/team/page";
 import { ToastProvider } from "@/components/arc/toast";
 import type { Me } from "@/lib/api/client";
 import type { BusinessProfile } from "@/lib/api/businessProfile";
@@ -340,5 +341,40 @@ describe("Y6-05b the one-at-a-time wizard asks too", () => {
     fireEvent.change(typed() as HTMLInputElement, { target: { value: "14 MG Road, Hyderabad" } });
     fireEvent.click(screen.getByRole("radio", { name: "All answers" }));
     expect(await screen.findByRole("dialog", { name: "Leave without saving?" })).toBeTruthy();
+  });
+});
+
+describe("Y6-06 a refusal about one address does not stand beside the next one typed", () => {
+  it("clears the invite refusal when the owner types another address", async () => {
+    const me: Me = { ...OWNER, user_id: "m1" };
+    await renderClientPage(<TeamPage />, {
+      "/v1/me": me,
+      "/v1/members": [{ id: "m1", name: "Anita", role: "owner" }],
+      "/v1/team/members": [
+        { id: "m1", name: "Anita", email: "anita@clinic.example", role: "owner", joined_at: "2026-07-01T09:00:00Z" },
+      ],
+      "/v1/invitations": (call: ApiCall) =>
+        call.method === "POST" ? problem(409, { title: "That person is already on this team" }) : [],
+    });
+    const box = await screen.findByRole("textbox", { name: "Their email address" });
+    fireEvent.change(box, { target: { value: "anita@clinic.example" } });
+    fireEvent.click(screen.getByRole("button", { name: /Send invite/ }));
+    expect(await screen.findByText("That person is already on this team")).toBeTruthy();
+    fireEvent.change(box, { target: { value: "ravi@clinic.example" } });
+    expect(screen.queryByText("That person is already on this team")).toBeNull();
+  });
+
+  it("clears the link refusal when the owner types another address", async () => {
+    await knowledge(OWNER, [], {
+      "POST /v1/kb/links": problem(422, { title: "We cannot save that address" }),
+    });
+    fireEvent.click(await screen.findByRole("radio", { name: "Website link" }));
+    const box = screen.getByLabelText("Web address") as HTMLInputElement;
+    await waitFor(() => expect(box.disabled).toBe(false));
+    fireEvent.change(box, { target: { value: "http://localhost/prices" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save link" }));
+    expect(await screen.findByText("We cannot save that address")).toBeTruthy();
+    fireEvent.change(box, { target: { value: "https://rytu.in/prices" } });
+    expect(screen.queryByText("We cannot save that address")).toBeNull();
   });
 });

@@ -185,7 +185,11 @@ export function AddLink({ allowed, reason }: { allowed: boolean; reason: string 
               required
               value={url}
               disabled={!allowed || link.isPending}
-              onChange={(event) => setUrl(event.target.value)}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                // The refusal was about the address before this one.
+                if (link.error != null) link.reset();
+              }}
               placeholder="https://your-website.in/prices"
               className={`${FIELD_INLINE} w-full pl-8`}
             />
