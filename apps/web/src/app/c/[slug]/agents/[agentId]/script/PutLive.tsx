@@ -149,6 +149,7 @@ function ScriptWarnings({
         after={fixed}
         pending={keep.isPending}
         error={keep.error}
+        left={proposal.left_out}
         onUse={() =>
           keep.mutate(
             { proposalId: proposal.id, script: fixed, baseSavedAt: savedAt },
@@ -327,9 +328,30 @@ export function fixOutcome(
     return { kind: "failed", message: proposal.note ?? "Pip could not fix these lines this time." };
   }
   if (diffScripts(proposal.base_script, proposal.script).length === 0) {
-    return { kind: "nothing", message: "Pip could not fix these. Edit them, or put it live anyway." };
+    const left = proposal.left_out.map((part) => part.label);
+    const which = left.length > 0 ? `: ${left.join(", ")}` : "";
+    return { kind: "nothing", message: `Pip could not fix these${which}. Edit them, or put it live anyway.` };
   }
   return { kind: "review" };
+}
+
+/** The warnings a fix still leaves, by name, so using it never ends in the same warning
+ * unannounced. */
+function FixLeft({ parts }: { parts: ScriptProposal["left_out"] }) {
+  if (parts.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-meta font-medium text-ink">Pip could not fix everything</p>
+      <ul className="mt-1 space-y-1 text-meta text-ink">
+        {parts.map((part, i) => (
+          <li key={`${part.part}-${i}`} className="break-words [overflow-wrap:anywhere]">
+            <span className="font-semibold">{part.label}</span>: {part.rule}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-meta text-ink-muted">Edit {parts.length === 1 ? "it" : "them"} yourself, or put it live anyway.</p>
+    </div>
+  );
 }
 
 /**
@@ -344,6 +366,7 @@ export function FixReview({
   error,
   onUse,
   onDiscard,
+  left = [],
 }: {
   before: CallScript;
   after: CallScript;
@@ -351,6 +374,8 @@ export function FixReview({
   error: unknown;
   onUse: () => void;
   onDiscard: () => void;
+  /** The warnings the fix still leaves (`left_out`). */
+  left?: ScriptProposal["left_out"];
 }) {
   const changes = diffScripts(before, after);
   return (
@@ -372,6 +397,7 @@ export function FixReview({
           );
         })}
       </ul>
+      <FixLeft parts={left} />
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <button type="button" className={SECONDARY_BUTTON_SM} disabled={pending} onClick={onUse}>
           {pending ? "Using them…" : "Use these fixes"}
@@ -394,14 +420,21 @@ function changeTexts(change: Change): [string, string] {
     case "part":
       return [change.before, change.after];
     case "section-changed":
-      return [sectionReadable(change.before), sectionReadable(change.after)];
+      return [fixedStep(change.before), fixedStep(change.after)];
     case "section-added":
-      return ["", sectionReadable(change.after)];
+      return ["", fixedStep(change.after)];
     case "section-removed":
-      return [sectionReadable(change.before), ""];
+      return [fixedStep(change.before), ""];
     case "order":
       return [change.before.join(", "), change.after.join(", ")];
   }
+}
+
+/** A step as the fix shows it: its text and the details it asks for, since a fix may add a
+ * detail no step asked for to one step's list. */
+function fixedStep(section: Parameters<typeof sectionReadable>[0]): string {
+  const text = sectionReadable(section);
+  return section.collect.length > 0 ? `${text}\nAsks for: ${section.collect.join(", ")}` : text;
 }
 
 /** Follows the fix being written and hands it over once it is ready or failed. Mounted only

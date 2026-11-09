@@ -38,7 +38,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final, Literal, get_args
 from uuid import UUID
 
-from calevate_shared.call_script import CallScript, ScriptPolicies, upgrade_to_v2
+from calevate_shared.call_script import (
+    MAX_STAGE_COLLECT,
+    CallScript,
+    ScriptPolicies,
+    upgrade_to_v2,
+)
 from calevate_shared.engine import introduces_itself
 from calevate_shared.lead_fields import business_only
 from calevate_shared.opening_notices import WovenNotices
@@ -148,6 +153,8 @@ _PART_LABELS: Final[dict[str, str]] = {
     "ending": "How it ends the call",
     "example_exchange": "The example call",
     "style": "How it speaks",
+    # A warning a fix still leaves that is about the steps as a whole ("no step asks for").
+    "script": "The script",
 }
 
 _ASIDE: Final = re.compile(r"\s*\([^)]*\)")
@@ -204,8 +211,9 @@ class ScriptProposal:
     #: The only lines a fix may change ("Fix them first"): the paths the script check named
     #: (`script_lint.script_problems`). Empty for every other proposal.
     paths: list[str] = field(default_factory=list)
-    #: Ready: the parts kept as the owner had them. Failed: the parts that could not be
-    #: written. Each `rule` is already in the owner's words (`owner_rule`).
+    #: Ready: the parts kept as the owner had them, and for a fix each warning it still
+    #: leaves (`fix_left`). Failed: the parts that could not be written. Each `rule` is
+    #: already in the owner's words (`owner_rule`).
     left_out: list[LeftOut] = field(default_factory=list)
     #: Failed: the refusal code (`assist_answer_unusable`, `provider_unavailable`, ...).
     reason: str | None = None
@@ -863,13 +871,20 @@ def _put(data: Any, parts: list[str], value: str) -> None:
         data[last] = value
 
 
-def kept_to_paths(written: CallScript, base: CallScript, paths: Sequence[str]) -> CallScript:
+def kept_to_paths(
+    written: CallScript,
+    base: CallScript,
+    paths: Sequence[str],
+    *,
+    unasked: Sequence[str] = (),
+) -> CallScript:
     """`base` with only the lines at `paths` taken from `written` (A-02): a fix asked for
     the lines the script check named and may change nothing else, whatever the model
     returned. A step is matched by its id, since the model may reorder steps; a line the
     model emptied, or a path it no longer has, stays as the owner wrote it. A finding about
-    the whole script ("no step asks for X") may reword step instructions, nothing more. The
-    two findings about the call's shape are the exception, below."""
+    the whole script ("no step asks for X") may reword step instructions and add each label
+    in `unasked` to the details one step collects (`_collect_from`), nothing more. The two
+    findings about the call's shape are the exception, below."""
     allowed = {p for p in paths if p != "script"}
     if "script" in paths:
         allowed |= {f"stages.{i}.instruction" for i in range(len(base.stages))}
@@ -890,6 +905,8 @@ def kept_to_paths(written: CallScript, base: CallScript, paths: Sequence[str]) -
         if isinstance(before, str) and isinstance(after, str) and after.strip():
             _put(out, parts, after)
     kept = CallScript.model_validate(out)
+    if "script" in paths and unasked:
+        kept = _collect_from(written, kept, unasked)
     # Two findings are about the call's shape, not a line, and their fix is not a reworded
     # instruction (`script_lint.flow_problems`): a step in the wrong place on the call is
     # fixed by its ways out or its place, and a placeholder step by taking it out.
@@ -930,6 +947,86 @@ def _ways_from(written: CallScript, kept: CallScript) -> CallScript:
             "stages": ways_to_kept_steps([stage.model_dump(mode="json") for stage in stages]),
         }
     )
+
+
+def _collect_from(written: CallScript, kept: CallScript, unasked: Sequence[str]) -> CallScript:
+    """`kept` with each label in `unasked` added to the details of the first step that
+    `written` (matched by id) has collecting it, while that step has room. Only those labels
+    are taken: any other detail the model put in a list stays out. A step's `collect` is what
+    `script_lint.unasked_details` accepts as asking for a detail in any language, where its
+    English-word reading of an instruction cannot see a step written in Telugu or Hindi."""
+    stages = list(kept.stages)
+    collects = {s.id: {c.casefold() for c in s.collect} for s in written.stages}
+    for raw in unasked:
+        label = " ".join(raw.split())[:80]
+        key = label.casefold()
+        for i, stage in enumerate(stages):
+            has = {c.casefold() for c in stage.collect}
+            if key in collects.get(stage.id, set()) and key not in has:
+                if len(stage.collect) < MAX_STAGE_COLLECT:
+                    stages[i] = stage.model_copy(update={"collect": [*stage.collect, label]})
+                break
+    return kept.model_copy(update={"stages": stages})
+
+
+def finding_key(problem: str, script: CallScript) -> str:
+    """Where a script check finding is, by the step's id rather than its place, so a finding
+    is still recognised after a fix moved or removed a step before it."""
+    path = problem.partition(": ")[0]
+    head, _, rest = path.partition(".")
+    index, _, field_path = rest.partition(".")
+    if head == "stages" and index.isdigit() and int(index) < len(script.stages):
+        return f"stages#{script.stages[int(index)].id}.{field_path}"
+    return path
+
+
+#: How a fix finding that no step asks for a detail is fixed, in any call language.
+_UNASKED_FIX: Final = (
+    'For a detail no step asks for: add that detail, word for word as quoted, to the "collect" '
+    "list of the one step where the call reaches it, and have that step's instruction ask it "
+    "as one question. Change no other step for it."
+)
+
+
+def fix_change(problems: Sequence[str], script: CallScript) -> str:
+    """What the writer is asked for when fixing script check findings: each finding at its
+    real place in the script JSON it is given (`stages.9.sounds_like`, numbered from 0, with
+    the step's id and name), not the owner's "Step 10", which named the step after it."""
+
+    def where(problem: str) -> str:
+        path, _, rest = problem.partition(": ")
+        parts = path.split(".")
+        if parts[0] == "stages" and len(parts) > 1 and parts[1].isdigit():
+            index = int(parts[1])
+            if index < len(script.stages):
+                stage = script.stages[index]
+                return f'{path} (step id "{stage.id}", named "{stage.name}"): {rest}'
+        return f"{path}: {rest}"
+
+    lines = [
+        "Fix only these problems the script check found, and change nothing else. Each "
+        "starts with the field it is in, as a path in the script JSON (stages counted from 0).",
+        *(f"- {where(problem)}" for problem in problems),
+    ]
+    if any(problem.startswith("script: ") for problem in problems):
+        lines.append(_UNASKED_FIX)
+    return "\n".join(lines)
+
+
+def fix_left(problems: Sequence[str], script: CallScript) -> list[LeftOut]:
+    """Each finding a fix could not clear, as a part of the proposal the owner reads: the
+    step it is in (by id and name) or the field, and the warning itself."""
+    left: list[LeftOut] = []
+    for problem in problems:
+        path, _, rest = problem.partition(": ")
+        parts = path.split(".")
+        part, name = parts[0], ""
+        if part == "stages" and len(parts) > 1 and parts[1].isdigit():
+            index = int(parts[1])
+            if index < len(script.stages):
+                part, name = f"stages.{script.stages[index].id}", script.stages[index].name
+        left.append(LeftOut(part, name, f"Still to fix: {rest}"))
+    return left
 
 
 #: The parts an automatic suggestion may not empty (`emptied_kept`).
@@ -985,6 +1082,9 @@ __all__ = [
     "brief_for",
     "discard",
     "emptied_kept",
+    "finding_key",
+    "fix_change",
+    "fix_left",
     "kept_to_paths",
     "owner_rule",
     "part_label",

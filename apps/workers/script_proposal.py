@@ -5,6 +5,9 @@ writes the proposal with `script_assist.draft_script` — the same call, prompt,
 ladder the Script page's own helper used — meters it, and stores it for review. It never
 touches the draft and never puts anything live. An opening line the model wrote that breaks
 the opening rule is repaired by the opening writer before it is stored (`opening_line`, D-957).
+A fix ("Fix them first") is checked again with the script check that named its lines and the
+findings still there are repaired (`_fixed_further`); any left after that are stored for the
+owner to read.
 
 A job rather than a call inside Pip's answer: the draft is two model legs at most, which does
 not belong inside the action's database transaction (D-748's reason for the improve job) nor
@@ -19,7 +22,8 @@ under `ASSIST_FEATURE_SCRIPT_DRAFT`.
 
 from __future__ import annotations
 
-from dataclasses import replace
+import time
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import Any, Final
 from uuid import UUID
@@ -29,14 +33,17 @@ from sqlalchemy import text
 
 from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.capability_manifest import lint_context_for
+from apps.api.agents.script_lint import LintContext, script_problems, unasked_details
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
 from apps.api.kb.service import knowledge_agents
-from apps.workers.extraction import TenantModelLeg
+from apps.workers.extraction import ASSIST_LADDER_LEGS, ASSIST_TIMEOUT_S, TenantModelLeg
 from apps.workers.first_run import documents_block
 from apps.workers.opening_line import (
     WrittenOpening,
@@ -71,6 +78,19 @@ PROPOSAL_REQUEST_TIMEOUT_S: Final = 50.0
 #: (aistudio.google.com/docs/models/gemini-3.1-flash-lite, May 2026), Azure's gpt-4o-mini
 #: 16,384, so this is the most both paid legs take. The Sarvam standby keeps its own 4,096.
 PROPOSAL_MAX_TOKENS: Final = 16_384
+
+#: The passes a fix ("Fix them first") may spend after its first on the findings it still
+#: leaves: generate, check with the same script check, repair what is left. The edit's own
+#: repairs cannot do this, since they skip a problem the owner's script already had.
+FIX_REPAIR_PASSES: Final = 2
+
+#: The opening repairs' share of the job, kept free for them after any fix repair.
+_OPENINGS_BUDGET_S: Final = 2 * ASSIST_LADDER_LEGS * ASSIST_TIMEOUT_S
+#: Room left at the end of the job for storing and metering.
+_JOB_MARGIN_S: Final = 30.0
+#: A fix repair is started only with at least this long left for each model request: less
+#: and a whole script written again would time out, a paid request thrown away.
+FIX_REPAIR_MIN_TIMEOUT_S: Final = 20.0
 
 
 async def _claim(tenant_id: UUID, agent_id: UUID, proposal_id: UUID) -> bool:
@@ -221,7 +241,11 @@ async def _draft(
     agent_id: UUID,
     proposal: script_proposals.ScriptProposal,
     trace: AskTrace | None = None,
+    change: str | None = None,
 ) -> ScriptDraft:
+    """The proposal's first draft. `change`, for a fix, is the writer's request with the
+    findings at their real paths (`script_proposals.fix_change`) in place of the stored
+    request, which is in the owner's words."""
     async with tenant_session(tenant_id) as session:
         context = await script_proposals.brief_for(session, tenant_id, agent_id)
         tenant_leg = await account_assist_leg(session)
@@ -287,7 +311,7 @@ async def _draft(
         tenant_leg=tenant_leg,
         quota_exhausted=exhausted,
         edit_of=base,
-        change=proposal.request or "",
+        change=change if change is not None else proposal.request or "",
     )
 
 
@@ -414,6 +438,128 @@ def refusal_note(refused: ProblemError, trace: AskTrace) -> str:
     return note or script_proposals.FAILED_NOTE
 
 
+@dataclass(frozen=True, slots=True)
+class _Fix:
+    """What a fix ("Fix them first") is checked against, and the findings it was asked to
+    clear, found again on the proposal's own base script."""
+
+    #: The route's check (`fix_script_lines`): the agent's lint context, promo off.
+    lint: LintContext
+    #: The base script's findings at the proposal's paths.
+    findings: list[str]
+    #: Those findings' places by step id (`script_proposals.finding_key`), so they are still
+    #: recognised after a pass moved or removed a step.
+    keys: frozenset[str]
+
+    def targeted(self, script: CallScript) -> list[str]:
+        """The findings on `script` at a place the fix was asked to clear."""
+        return [
+            problem
+            for problem in script_problems(script, self.lint)
+            if script_proposals.finding_key(problem, script) in self.keys
+        ]
+
+    def unasked(self, script: CallScript, paths: list[str]) -> tuple[str, ...]:
+        """The details no step of `script` asks for, when the fix may add them to a step."""
+        return tuple(unasked_details(script, self.lint.collect)) if "script" in paths else ()
+
+
+async def _fix_of(
+    tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal
+) -> _Fix:
+    async with tenant_session(tenant_id) as session:
+        context = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent_id)
+    lint = replace(context, promo=False)
+    base = proposal.base_script
+    named = set(proposal.paths)
+    findings = [p for p in script_problems(base, lint) if p.partition(": ")[0] in named]
+    return _Fix(lint, findings, frozenset(script_proposals.finding_key(p, base) for p in findings))
+
+
+@dataclass(frozen=True, slots=True)
+class _Repaired:
+    script: CallScript
+    #: Each repair pass, paid or refused, for the meter (hard rule 7).
+    spends: list[ScriptDraft | ProblemError]
+    #: The findings still there once the passes are spent.
+    left: list[str]
+
+
+def _repair_timeout(started: float) -> float | None:
+    """One model request's budget for a fix repair starting now, or None when the job has
+    too little left: the repairs share the job with the opening repairs after them, inside
+    `WORKER_JOB_TIMEOUT_S`, so a killed job never leaves a paid answer unmetered."""
+    left = WORKER_JOB_TIMEOUT_S - _JOB_MARGIN_S - _OPENINGS_BUDGET_S - (time.monotonic() - started)
+    per_request = min(PROPOSAL_REQUEST_TIMEOUT_S, left / ASSIST_LADDER_LEGS)
+    return per_request if per_request >= FIX_REPAIR_MIN_TIMEOUT_S else None
+
+
+async def _repair_draft(
+    tenant_id: UUID, agent_id: UUID, script: CallScript, change: str, timeout_s: float
+) -> ScriptDraft:
+    """One fix repair, written as the first pass was: the same brief, model and allowance,
+    read again since the pass before it spent some."""
+    async with tenant_session(tenant_id) as session:
+        context = await script_proposals.brief_for(session, tenant_id, agent_id)
+        tenant_leg = await account_assist_leg(session)
+        quota = await read_ai_quota(session, tenant_id=tenant_id)
+    return await draft_script(
+        context,
+        tenant_leg=tenant_leg,
+        quota_exhausted=quota.at_ceiling or quota.platform_paused,
+        edit_of=script,
+        change=change,
+        timeout_s=timeout_s,
+        max_tokens=PROPOSAL_MAX_TOKENS,
+    )
+
+
+async def _fixed_further(
+    tenant_id: UUID, agent_id: UUID, fix: _Fix, script: CallScript, started: float
+) -> _Repaired:
+    """`script` (the first pass, kept to its paths) checked again with the route's check,
+    and up to `FIX_REPAIR_PASSES` repairs naming only the findings still there. Stops when
+    none is left, a pass changes nothing, a pass is refused or the job runs short of time;
+    what is still there is returned for the owner to read (`script_proposals.fix_left`)."""
+    spends: list[ScriptDraft | ProblemError] = []
+    left = fix.targeted(script)
+    for _ in range(FIX_REPAIR_PASSES):
+        if not left:
+            break
+        timeout_s = _repair_timeout(started)
+        if timeout_s is None:
+            log.info("script_fix_repair_out_of_time", extra={"left": len(left)})
+            break
+        paths = sorted({problem.partition(": ")[0] for problem in left})
+        try:
+            draft = await _repair_draft(
+                tenant_id,
+                agent_id,
+                script,
+                script_proposals.fix_change(left, script),
+                timeout_s,
+            )
+        except ProblemError as refused:
+            log.info("script_fix_repair_refused", extra={"reason": refused.code})
+            spends.append(refused)
+            break
+        except Exception:
+            # The fix already written is paid for and stored; a failed repair only means
+            # the owner reads which warnings are left.
+            log.exception("script_fix_repair_crashed", extra={"agent_id": str(agent_id)})
+            break
+        spends.append(draft)
+        repaired = script_proposals.kept_to_paths(
+            draft.script, script, paths, unasked=fix.unasked(script, paths)
+        )
+        if repaired == script:
+            break
+        script = repaired
+        left = fix.targeted(script)
+    log.info("script_fix_checked", extra={"passes": len(spends), "left": len(left)})
+    return _Repaired(script, spends, left)
+
+
 async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
@@ -427,10 +573,24 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
     if proposal is None or proposal.id != proposal_id:
         return "not_pending"
 
+    started = time.monotonic()
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     trace = AskTrace()
+    fix: _Fix | None = None
     try:
-        draft = await _draft(tenant_id, agent_id, proposal, trace)
+        if proposal.paths:
+            fix = await _fix_of(tenant_id, agent_id, proposal)
+            draft = await _draft(
+                tenant_id,
+                agent_id,
+                proposal,
+                trace,
+                script_proposals.fix_change(fix.findings, proposal.base_script)
+                if fix.findings
+                else None,
+            )
+        else:
+            draft = await _draft(tenant_id, agent_id, proposal, trace)
     except ProblemError as refused:
         log.info(
             "script_proposal_refused",
@@ -465,9 +625,24 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         return "failed"
 
     drafted = draft.script
-    if proposal.paths:
+    left_out = list(trace.left_out)
+    repairs: list[ScriptDraft | ProblemError] = []
+    if fix is not None:
         # A fix changes the lines the check named and nothing else (A-02).
-        drafted = script_proposals.kept_to_paths(drafted, proposal.base_script, proposal.paths)
+        drafted = script_proposals.kept_to_paths(
+            drafted,
+            proposal.base_script,
+            proposal.paths,
+            unasked=fix.unasked(proposal.base_script, proposal.paths),
+        )
+        try:
+            repaired = await _fixed_further(tenant_id, agent_id, fix, drafted, started)
+        except Exception:
+            # As the opening repair below: the first pass is paid for and is stored.
+            log.exception("script_fix_check_crashed", extra={"agent_id": str(agent_id)})
+            repaired = _Repaired(drafted, [], [])
+        drafted, repairs = repaired.script, repaired.spends
+        left_out += script_proposals.fix_left(repaired.left, drafted)
     elif proposal.mode == script_proposals.KNOWLEDGE_MODE:
         drafted = script_proposals.emptied_kept(drafted, proposal.base_script)
     try:
@@ -493,8 +668,16 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             proposal_id=proposal_id,
             script=script,
             unplaced=unplaced,
-            disclosure=draft.capability.disclosure,
-            left_out=trace.left_out,
+            # A repair answered by the standby is disclosed like a first pass would be (G-6).
+            disclosure=next(
+                (
+                    spent.capability.disclosure
+                    for spent in (draft, *repairs)
+                    if not isinstance(spent, ProblemError) and spent.capability.disclosure
+                ),
+                None,
+            ),
+            left_out=left_out,
             repairs=trace.repairs,
             truncated=trace.truncated,
         )
@@ -507,6 +690,7 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         )
         spends: list[ScriptDraft | JsonAnswer[WrittenOpening] | ProblemError | None] = [
             draft,
+            *repairs,
             *opening_spends,
         ]
         for spent in spends:
