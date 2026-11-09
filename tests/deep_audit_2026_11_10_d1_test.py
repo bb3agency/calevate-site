@@ -79,7 +79,9 @@ async def _log(tenant_id: uuid.UUID, kind: str, phone: str) -> rights_desk.Right
         )
 
 
-async def _row(tenant_id: uuid.UUID, request_id: uuid.UUID) -> tuple[str, str | None, uuid.UUID | None]:
+async def _row(
+    tenant_id: uuid.UUID, request_id: uuid.UUID
+) -> tuple[str, str | None, uuid.UUID | None]:
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
@@ -123,9 +125,7 @@ async def test_the_erasure_answers_the_persons_open_request_when_it_completes() 
         filed = await request_erasure(session, tenant_id=tenant_id, phone_e164=phone)
     assert (await _row(tenant_id, erasure.id))[0] == "open", "filing is not answering"
 
-    await execute_deletion_request(
-        {}, {"tenant_id": str(tenant_id), "request_id": str(filed.id)}
-    )
+    await execute_deletion_request({}, {"tenant_id": str(tenant_id), "request_id": str(filed.id)})
 
     assert await _row(tenant_id, erasure.id) == ("answered", "erased", filed.id)
     assert (await _row(tenant_id, access.id))[0] == "open", "only an erasure request is answered"
