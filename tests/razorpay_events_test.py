@@ -368,13 +368,17 @@ async def test_a_verified_payment_we_cannot_attribute_raises_an_alarm(
     """A payment taken OUTSIDE our checkout (a payment link, a dashboard payment) carries
     no `notes.calevate_tenant_id`. The signature verified, so the money is real — and
     before this alarm the only trace was a 4xx in an access log while the provider retried
-    into the same wall and the client watched an unmoved balance."""
+    into the same wall and the client watched an unmoved balance.
+
+    It is ACKNOWLEDGED, not refused: notes never appear on a redelivery, and a 4xx makes
+    Razorpay retry for 24 hours and then disable the webhook, stopping every payment event
+    after it."""
     raw, headers = _sign(_payment_envelope(payment_id=_payment_id("NONOTE"), tenant_id=None))
     with caplog.at_level("ERROR"):
         async with _client() as http:
             response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
-    assert response.status_code == 422, response.text
-    assert response.json()["type"].endswith("payment_tenant_unresolved")
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "unattributed"
     assert "razorpay_money_unapplied" in _route_alerts(caplog)
 
 
@@ -485,14 +489,21 @@ async def test_a_partial_refund_debits_only_that_much() -> None:
     assert response.json()["balance_inr"] == "1500.00", "2500 minus a 1000 partial refund"
 
 
-async def test_a_refund_without_tenant_notes_is_unattributable() -> None:
+async def test_a_refund_without_tenant_notes_is_acknowledged_and_moves_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A dashboard refund, or Razorpay's automatic refund of an uncaptured payment, carries
+    no tenant note. Refused with a 4xx it was retried for 24 hours and then the webhook was
+    disabled; it is acknowledged, alarmed, and left to the daily reconciliation."""
     raw, headers = _sign(
         _refund_envelope(refund_id=_refund_id("NOTEN"), payment_id="pay_x", tenant_id=None)
     )
-    async with _client() as http:
-        response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
-    assert response.status_code == 422
-    assert response.json()["type"].endswith("/payment_tenant_unresolved")
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "unattributed"
+    assert "razorpay_money_unapplied" in _route_alerts(caplog)
 
 
 async def test_a_refund_with_a_bad_signature_credits_nothing() -> None:

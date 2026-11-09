@@ -4180,6 +4180,7 @@ async def _engine_minute_cost(
             at=at,
             carrier_only=snapshot.billing is not None and snapshot.billing.carrier_only,
             forwarded=snapshot.forwarded,
+            engine_agent_ref=snapshot.engine_agent_ref,
         )
     if not priced.priced:
         alert(

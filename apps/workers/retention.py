@@ -3811,7 +3811,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
-                text("SELECT completed_at FROM tenant_erasure_requests WHERE id = :rid"),
+                # Locked to commit, as `execute_deletion_request` is: a re-driven copy
+                # (`tenant_erasure._redrive_if_stalled`) waits here and then finds the
+                # request completed, instead of running every arm again (object-store
+                # deletions included) and then failing on the `deleted_at` invariant.
+                text("SELECT completed_at FROM tenant_erasure_requests WHERE id = :rid FOR UPDATE"),
                 {"rid": request_id},
             )
         ).first()

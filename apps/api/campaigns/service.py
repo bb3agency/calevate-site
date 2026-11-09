@@ -906,10 +906,16 @@ async def add_contacts(
     The check is also the ONLY thing between the request and an INSERT carrying
     `campaign_id` as a foreign key: admitting a null status would surface as a raw
     integrity error rather than a refusal anyone can read.
+
+    The status is read `FOR SHARE`, the other half of `launch_campaign`'s `FOR UPDATE`: an
+    upload racing a launch either commits before the launch reads the list (so its rows
+    are gated and DNC-scrubbed with the rest) or waits and then finds the campaign
+    running. Unlocked, both read `draft`, and the upload's rows landed after the scrub,
+    under a campaign whose confirmed count did not include them.
     """
     status = (
         await session.execute(
-            text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+            text("SELECT status FROM campaigns WHERE id = :cid FOR SHARE"), {"cid": campaign_id}
         )
     ).scalar()
     if status is None:
@@ -1441,6 +1447,11 @@ async def launch_campaign(
     # `dispatch_blockers`' neighbour and is called to RENDER a disabled button, and a
     # screen refresh must not take locks on the row an operator is trying to retire.
     await hold_agent_for_campaign_start(session, await _agent_of_campaign(session, campaign_id))
+    # And the campaign row, so a contact upload cannot land between the gate and scrub
+    # below and the CAS (`add_contacts` reads the status `FOR SHARE`).
+    await session.execute(
+        text("SELECT 1 FROM campaigns WHERE id = :cid FOR UPDATE"), {"cid": campaign_id}
+    )
     blockers = await launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
     if blockers:
         raise ProblemError(

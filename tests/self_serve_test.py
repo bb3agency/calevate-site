@@ -701,8 +701,9 @@ async def test_a_payment_for_an_unknown_tenant_credits_nothing() -> None:
         )
 
     assert unknown.status_code == 404, unknown.text
-    assert untagged.status_code == 422, untagged.text
-    assert untagged.json()["type"].endswith("/payment_tenant_unresolved")
+    # Acknowledged (a 4xx would get the webhook disabled after 24 hours of retries).
+    assert untagged.status_code == 200, untagged.text
+    assert untagged.json()["status"] == "unattributed"
 
 
 async def test_a_non_inr_payment_is_refused() -> None:

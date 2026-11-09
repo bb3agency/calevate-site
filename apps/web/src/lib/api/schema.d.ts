@@ -37860,7 +37860,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "mandate" | "dispute" | "fee_paid";
+            status: "credited" | "refunded" | "duplicate" | "failed" | "ignored" | "authorized" | "refund_failed" | "unattributed" | "mandate" | "dispute" | "fee_paid";
         };
         /** WeekSpeed */
         WeekSpeed: {

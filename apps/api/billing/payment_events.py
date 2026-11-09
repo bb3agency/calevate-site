@@ -74,6 +74,7 @@ EventStatus = Literal[
     "ignored",
     "authorized",
     "refund_failed",
+    "unattributed",
     "mandate",
     "dispute",
     "fee_paid",
