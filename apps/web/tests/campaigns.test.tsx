@@ -638,6 +638,41 @@ describe("one campaign's page", () => {
     expect(container.textContent).toContain("national do-not-disturb check");
   });
 
+  it("gives a running campaign stopped by an offer in its agent's script a way to that agent", async () => {
+    await renderClientPage(
+      campaignPage(),
+      detail(
+        progressFixture({
+          status: "running",
+          launched_at: "2026-10-14T04:30:00Z",
+          not_calling: [{ rule: "script_promotional", reason: "The script is promotional." }],
+        }),
+      ),
+    );
+    await screen.findByText("Not calling anyone right now");
+    expect(screen.getByRole("link", { name: "Open the agent" }).getAttribute("href")).toBe(
+      `/c/acme/agents/${AGENT_ID}`,
+    );
+  });
+
+  it("gives a draft refused for the truthful-answer rule a way to the agent that lost it", async () => {
+    await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ status: "draft" }), {
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: {
+          ready: false,
+          blockers: [
+            { rule: "truthful_answer_drift", reason: "This agent is no longer carrying the rule. Publish it again." },
+          ],
+        },
+      }),
+    );
+    await screen.findByText(/no longer carrying the rule/);
+    expect(screen.getByRole("link", { name: "Open the agent" }).getAttribute("href")).toBe(
+      `/c/acme/agents/${AGENT_ID}`,
+    );
+  });
+
   it("holds Resume after a complaint spike until the review is confirmed", async () => {
     const rendered = await renderClientPage(
       campaignPage(),

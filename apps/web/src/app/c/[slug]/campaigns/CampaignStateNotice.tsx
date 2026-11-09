@@ -87,7 +87,7 @@ export function CampaignStateNotice({
         <p className="font-semibold">Not calling anyone right now</p>
         <ul className="space-y-3">
           {progress.not_calling.map((blocker) => {
-            const fix = blockerDestination(blocker.rule, at, campaignId);
+            const fix = blockerDestination(blocker.rule, at, campaignId, progress.agent_id);
             const note = lookup(BLOCKER_COPY, blocker.rule);
             const why = note?.why ?? (note?.whyFromServer ? blocker.reason : undefined);
             return (

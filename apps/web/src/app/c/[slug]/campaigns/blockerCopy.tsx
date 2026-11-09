@@ -255,15 +255,21 @@ const KYC_BLOCKERS = [
 export const A2P_DECLARATION_BLOCKERS = ["a2p_declaration_missing", "a2p_number_undeclared"];
 
 /**
- * Where a client goes to clear a rule whose fix lives on another screen. `at` turns a path
- * under `/c/{slug}` into a link that keeps a view-as session. Labels are button words:
- * a verb and the thing, nothing more.
+ * Where a client goes to clear a rule whose fix is on an account or agent screen, for any
+ * refused dial: a campaign's checklist and "Not calling" notice, and a one-off call's
+ * refusal. `at` turns a path under `/c/{slug}` into a link that keeps a view-as session.
+ * `agentId` is the agent the refusal is about; the rules fixed on that agent's own page
+ * (an offer in its script, the truthful-answer rule gone from it) link there. Labels are
+ * button words: a verb and the thing, nothing more.
  */
-export function blockerDestination(
+export function fixDestination(
   rule: string,
   at: (path: string) => string,
-  campaignId: string,
+  agentId?: string | null,
 ): { href: string; label: string } | undefined {
+  if ((rule === "script_promotional" || rule === "truthful_answer_drift") && agentId)
+    return { href: at(`/agents/${agentId}`), label: "Open the agent" };
+  if (rule === "truthful_answer_drift") return { href: at("/agents"), label: "Open Agents" };
   if (rule === "no_credits" || rule === "trial_campaigns_unavailable")
     return { href: at("/billing?tab=credits"), label: "Add credit" };
   if (rule === "spend_cap") return { href: at("/billing?tab=usage"), label: "Raise spending limit" };
@@ -276,6 +282,18 @@ export function blockerDestination(
   if (rule.startsWith("number_")) return { href: at("/phone-number"), label: "Open Phone number" };
   if (rule === "agent_not_live" || rule === "agent_inbound_only" || rule === "disclosure_missing")
     return { href: at("/agents"), label: "Open Agents" };
+  return undefined;
+}
+
+/** A campaign's blocker: `fixDestination`, or the campaign's own edit page for the rules it clears. */
+export function blockerDestination(
+  rule: string,
+  at: (path: string) => string,
+  campaignId: string,
+  agentId?: string | null,
+): { href: string; label: string } | undefined {
+  const elsewhere = fixDestination(rule, at, agentId);
+  if (elsewhere) return elsewhere;
   if (
     rule === "agent_archived" ||
     rule === "agent_missing" ||

@@ -117,10 +117,7 @@ export function LaunchGate({
           prompt={rewritePrompt(progress.data?.agent_name ?? "this campaign's agent")}
         />
       ) : undefined;
-    const link =
-      blocker.rule === "script_promotional" && progress.data?.agent_id
-        ? { href: at(`/agents/${progress.data.agent_id}`), label: "Open the agent" }
-        : blockerDestination(blocker.rule, at, campaignId);
+    const link = blockerDestination(blocker.rule, at, campaignId, progress.data?.agent_id);
     const detail =
       note?.owner || why ? (
         <>
