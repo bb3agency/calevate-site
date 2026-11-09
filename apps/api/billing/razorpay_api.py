@@ -391,6 +391,20 @@ class RazorpayApi(RazorpayOrders):
             raise _unreadable()
         return payment
 
+    async def order_payments(self, order_id: str) -> list[ProviderPayment]:
+        """`GET /v1/orders/:id/payments` (`api/orders/fetch-payments.md`, read 9 Nov 2026):
+        a collection whose `items` are payment entities, every attempt made on the order. A
+        body without an `items` list is refused rather than read as "no payments", because
+        the caller frees a recharge slot on an empty answer."""
+        body = await self._send("GET", f"/orders/{order_id}/payments")
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise _unreadable()
+        payments = [normalize_payment(item) for item in items]
+        if any(payment is None for payment in payments):
+            raise _unreadable()
+        return [payment for payment in payments if payment is not None]
+
     async def list_payments(self, *, since: int, until: int) -> list[ProviderPayment]:
         """`GET /v1/payments?from&to&count&skip`, every page."""
         return [

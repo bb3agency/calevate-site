@@ -1001,7 +1001,7 @@ async def test_a_payment_whose_notes_name_another_client_than_its_order_is_refus
     )
 
 
-async def test_a_failed_auto_recharge_debit_fails_its_charge() -> None:
+async def test_a_failed_auto_recharge_debit_keeps_its_charge_pending_with_the_code() -> None:
     tenant_id = await _tenant()
     order_id = _id("order")
     async with tenant_session(tenant_id) as session:
@@ -1046,7 +1046,8 @@ async def test_a_failed_auto_recharge_debit_fails_its_charge() -> None:
                 {"o": order_id},
             )
         ).one()
-    assert tuple(row) == ("failed", "BAD_REQUEST_ERROR")
+    # Pending, not failed: the bank may still authorise it (`auto_recharge.settle_charge`).
+    assert tuple(row) == ("pending", "BAD_REQUEST_ERROR")
 
 
 @pytest.mark.parametrize(

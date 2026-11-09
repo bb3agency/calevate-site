@@ -683,6 +683,9 @@ class FakeApi:
     async def list_payments(self, **_: Any) -> list[ProviderPayment]:
         return self.payments
 
+    async def order_payments(self, order_id: str) -> list[ProviderPayment]:
+        return [p for p in self.payments if p.order_id == order_id]
+
     async def list_refunds(self, **_: Any) -> list[ProviderRefundRow]:
         return self.refunds
 

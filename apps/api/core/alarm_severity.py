@@ -803,6 +803,8 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "auto_recharge_disabled": "attention",
     # Our code raised for some wallets in a sweep tick; it runs again in five minutes.
     "auto_recharge_sweep_crashed": "attention",
+    # A captured recharge we could not credit: the client paid and the wallet does not show it.
+    "auto_recharge_capture_unplaced": "page",
     "payment_notice_no_billing_email": "attention",
     "rate_card_notice_fanout_budget_reached": "attention",
     "rate_card_notice_no_billing_email": "attention",

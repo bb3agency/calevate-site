@@ -368,6 +368,10 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "The payment provider holds payments our ledger cannot explain",
         "Client wallets may be missing money, or hold money that does not match.",
     ),
+    "auto_recharge_capture_unplaced": _s(
+        "An automatic recharge was paid and not credited",
+        "One client's wallet is missing a payment, and their automatic recharges are held.",
+    ),
     "platform_fee_paid_twice": _s(
         "A platform fee was paid twice",
         "One client has paid money that is not recorded anywhere.",
