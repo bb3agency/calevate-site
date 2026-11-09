@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { publicPageMetadata } from "@/lib/seo/metadata";
 
-import { fetchPublicRateCard, tierLabel } from "@/lib/api/rateCard";
+import { fetchPublicRateCard, headlineVoice, tierLabel } from "@/lib/api/rateCard";
 import Link from "next/link";
 
 import { ArrowRight } from "lucide-react";
@@ -120,7 +120,7 @@ export default async function RoiPage() {
   // `await fetchPublicRateCard()` would be indirection with nothing inside it.
   const rateCard = await fetchPublicRateCard();
   // The voice an agent can be put on today, named by the card (the calculator opens there).
-  const offeredVoice = rateCard === null ? null : tierLabel(rateCard, "studio");
+  const offeredVoice = rateCard === null ? null : tierLabel(rateCard, headlineVoice(rateCard));
 
   return (
     <MarketingPage>

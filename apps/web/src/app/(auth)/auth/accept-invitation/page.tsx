@@ -32,6 +32,7 @@ import { MissingLinkCode, SetPasswordForm } from "@/components/authn/setPassword
 import { NoticeBox, PRIMARY_BUTTON } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import { ROLE_COPY } from "@/lib/api/members";
+import { AUTHN_CODES } from "@/lib/authn/problems";
 import {
   CLIENT_SIGN_IN_PATH,
   acceptInvitation,
@@ -68,6 +69,13 @@ export default function AcceptInvitationPage() {
                 </p>
               </>
             )}
+            // A used link is most often this person's own earlier press (a second tab, the
+            // email opened twice): they are a member already, so the way out is signing in.
+            deadLink={{
+              code: AUTHN_CODES.invitationInvalid,
+              href: CLIENT_SIGN_IN_PATH,
+              label: "Already joined? Sign in",
+            }}
             onSubmit={({ token, password, name }) => acceptInvitation({ token, password, name })}
             renderSuccess={(result) => <Joined result={result} />}
             renderMissingToken={
