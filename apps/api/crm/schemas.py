@@ -26,6 +26,7 @@ from uuid import UUID
 
 from calevate_shared.business_outcomes import LeadMove
 from calevate_shared.events import (
+    CallInsights,
     InsightNoReason,
     InsightOutcome,
     IssueKind,
@@ -34,7 +35,14 @@ from calevate_shared.events import (
     ObjectionKind,
 )
 from calevate_shared.extraction import GoalVerdict, NextStepBy, OutcomeTag
-from pydantic import ConfigDict, Field, StringConstraints, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from apps.api.agents.trial_panel import TrialPanelOut
 from apps.api.core.schemas import Strict
@@ -384,6 +392,23 @@ class CallInsightsOut(Strict):
     objections: list[CallInsightNoteOut]
     issues: list[CallInsightNoteOut]
     next_step: CallInsightNextStepOut | None
+
+
+def insights_out(value: object) -> CallInsightsOut | None:
+    """A stored `calls.insights` (a dumped `CallInsights`, texts already redacted) for the
+    call view and the subject export; None when there is none or it no longer reads as one."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        held = CallInsights.model_validate(value)
+    except ValidationError:
+        return None
+    return CallInsightsOut.model_validate(
+        held.model_dump(
+            exclude={"next_step": {"followed_up_at"}},
+            mode="json",
+        )
+    )
 
 
 class CallDetailOut(CallSummaryOut):

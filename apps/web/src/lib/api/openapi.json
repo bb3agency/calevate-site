@@ -53958,6 +53958,11 @@
             "title": "Call Id",
             "type": "string"
           },
+          "captured": {
+            "additionalProperties": true,
+            "title": "Captured",
+            "type": "object"
+          },
           "direction": {
             "anyOf": [
               {
@@ -53980,6 +53985,17 @@
             ],
             "title": "Duration S"
           },
+          "goal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Reason"
+          },
           "headline": {
             "anyOf": [
               {
@@ -53990,6 +54006,16 @@
               }
             ],
             "title": "Headline"
+          },
+          "insights": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallInsightsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "next_step": {
             "anyOf": [
@@ -54016,6 +54042,13 @@
           "recording_available": {
             "title": "Recording Available",
             "type": "boolean"
+          },
+          "said": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Said",
+            "type": "object"
           },
           "started_at": {
             "anyOf": [
@@ -54058,7 +54091,11 @@
           "duration_s",
           "outcome_tag",
           "summary",
-          "recording_available"
+          "recording_available",
+          "goal_reason",
+          "insights",
+          "captured",
+          "said"
         ],
         "title": "SubjectExportCallOut",
         "type": "object"
@@ -54263,6 +54300,10 @@
             "title": "Consent Records",
             "type": "integer"
           },
+          "follow_ups": {
+            "title": "Follow Ups",
+            "type": "integer"
+          },
           "handoffs": {
             "title": "Handoffs",
             "type": "integer"
@@ -54293,7 +54334,8 @@
           "campaign_contacts",
           "remembered_facts",
           "callbacks",
-          "handoffs"
+          "handoffs",
+          "follow_ups"
         ],
         "title": "SubjectExportCountsOut",
         "type": "object"
@@ -54386,6 +54428,62 @@
           "recordings_destroyed_by"
         ],
         "title": "SubjectExportErasureOut",
+        "type": "object"
+      },
+      "SubjectExportFollowUpOut": {
+        "additionalProperties": false,
+        "description": "A Follow-up (automated sequence of calls and messages) this number is in or was in\n(`follow_up_runs`), which \u00a712 stops and forgets.",
+        "properties": {
+          "end_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Reason"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "follow_up_name": {
+            "title": "Follow Up Name",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "follow_up_name",
+          "status",
+          "started_at",
+          "ended_at",
+          "end_reason"
+        ],
+        "title": "SubjectExportFollowUpOut",
         "type": "object"
       },
       "SubjectExportHandoffOut": {
@@ -54624,6 +54722,13 @@
               }
             ]
           },
+          "follow_ups": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportFollowUpOut"
+            },
+            "title": "Follow Ups",
+            "type": "array"
+          },
           "generated_at": {
             "title": "Generated At",
             "type": "string"
@@ -54685,6 +54790,7 @@
           "remembered",
           "callbacks",
           "handoffs",
+          "follow_ups",
           "counts"
         ],
         "title": "SubjectExportOut",

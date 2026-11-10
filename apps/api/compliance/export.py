@@ -74,6 +74,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.caller_ref import caller_refs
 from apps.api.core.logging import get_logger
+from apps.api.crm.schemas import insights_out
 
 log = get_logger(__name__)
 
@@ -154,6 +155,21 @@ def mask_foreign_numbers(value: str | None, *, subject_phone: str) -> str | None
 
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def _insights(value: object, *, subject_phone: str) -> dict[str, Any] | None:
+    """A stored `calls.insights` as the call screen reads it, with the caller's quoted words
+    masked like a summary."""
+    read = insights_out(value)
+    if read is None:
+        return None
+    document = read.model_dump(mode="json")
+    for note in (*document["objections"], *document["issues"]):
+        note["text"] = mask_foreign_numbers(note["text"], subject_phone=subject_phone) or ""
+    if document["next_step"] is not None:
+        step = document["next_step"]
+        step["note"] = mask_foreign_numbers(step["note"], subject_phone=subject_phone) or ""
+    return document
 
 
 def _lead_record(row: Any) -> dict[str, Any]:
@@ -240,10 +256,12 @@ async def build_subject_export(
     call_rows = (
         await session.execute(
             text(
-                "SELECT id, direction, started_at, duration_s, outcome_tag, summary, "
-                "(recording_url IS NOT NULL), summary_local, headline, next_step FROM calls "
-                "WHERE from_e164 = :phone OR to_e164 = :phone "
-                "ORDER BY started_at ASC NULLS LAST, id ASC"
+                "SELECT c.id, c.direction, c.started_at, c.duration_s, c.outcome_tag, "
+                "c.summary, (c.recording_url IS NOT NULL), c.summary_local, c.headline, "
+                "c.next_step, c.goal_reason, c.insights, ce.data, ce.unlisted FROM calls c "
+                "LEFT JOIN call_extractions ce ON ce.call_id = c.id "
+                "WHERE c.from_e164 = :phone OR c.to_e164 = :phone "
+                "ORDER BY c.started_at ASC NULLS LAST, c.id ASC"
             ),
             {"phone": phone_e164},
         )
@@ -265,6 +283,21 @@ async def build_subject_export(
             # A boolean, not a link (decision 2). The audited recording endpoint is the
             # only way to the bytes.
             "recording_available": bool(row[6]),
+            # What §12 empties on each call beside the summary, and what the client's call
+            # screen shows: why the call did or did not reach its goal, the caller's
+            # objections and problems in their own words, and the details captured on THIS
+            # call. The lead carries only the latest value of each detail, so an address
+            # given on an earlier call and since replaced lives here and nowhere else.
+            "goal_reason": mask_foreign_numbers(row[10], subject_phone=phone_e164),
+            "insights": _insights(row[11], subject_phone=phone_e164),
+            # Verbatim, like `lead.data` (decision 3): fields the client defined to
+            # describe this caller.
+            "captured": row[12] or {},
+            # The caller's own words for a choice field none of its options matched.
+            "said": {
+                str(key): mask_foreign_numbers(str(value), subject_phone=phone_e164) or ""
+                for key, value in (row[13] or {}).items()
+            },
         }
         for row in call_rows
     ]
@@ -496,6 +529,31 @@ async def build_subject_export(
             for row in handoff_rows
         ]
 
+    # THE AUTOMATED SEQUENCES THIS NUMBER IS IN. §12 stops and forgets a person's Follow-up
+    # runs (`retention._erase_follow_up_runs`); a run is the business's record that this
+    # number is being worked through scheduled calls and messages, and it can exist with no
+    # lead at all (a run started from a date or a delivery).
+    follow_up_rows = (
+        await session.execute(
+            text(
+                "SELECT f.name, r.status, r.started_at, r.ended_at, r.end_reason "
+                "FROM follow_up_runs r JOIN follow_ups f ON f.id = r.follow_up_id "
+                "WHERE r.phone_e164 = :phone ORDER BY r.started_at ASC, r.id ASC"
+            ),
+            {"phone": phone_e164},
+        )
+    ).all()
+    follow_ups: list[dict[str, Any]] = [
+        {
+            "follow_up_name": str(row[0]),
+            "status": str(row[1]),
+            "started_at": _iso(row[2]),
+            "ended_at": _iso(row[3]),
+            "end_reason": row[4],
+        }
+        for row in follow_up_rows
+    ]
+
     document: dict[str, Any] = {
         "phone_e164": phone_e164,
         "generated_at": datetime.now(UTC).isoformat(),
@@ -510,6 +568,7 @@ async def build_subject_export(
         "remembered": remembered,
         "callbacks": callbacks,
         "handoffs": handoffs,
+        "follow_ups": follow_ups,
         "counts": {
             "leads": len(lead_rows),
             "calls": len(calls),
@@ -520,6 +579,7 @@ async def build_subject_export(
             "remembered_facts": len(remembered),
             "callbacks": len(callbacks),
             "handoffs": len(handoffs),
+            "follow_ups": len(follow_ups),
         },
     }
 

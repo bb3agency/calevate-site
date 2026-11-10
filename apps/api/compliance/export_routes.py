@@ -78,6 +78,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
 from apps.api.core.schemas import Strict
+from apps.api.crm.schemas import CallInsightsOut
 
 router = APIRouter(prefix="/v1/compliance/subject-export", tags=["compliance"])
 
@@ -154,6 +155,16 @@ class SubjectExportCallOut(Strict):
     headline: str | None = None
     next_step: str | None = None
     recording_available: bool
+    # Why the call did or did not reach its goal (model prose, masked like `summary`).
+    goal_reason: str | None
+    # The objections and problems the caller voiced, quoted texts redacted on write and
+    # masked like `summary`; null when the call was not read for them.
+    insights: CallInsightsOut | None
+    # The details captured on THIS call: the per-tenant extraction schema, verbatim like
+    # `SubjectExportLeadOut.data` and acknowledged in `check_redaction_exposure` with it.
+    captured: dict[str, Any]
+    # The caller's own words for a choice field none of its options matched, masked.
+    said: dict[str, str]
 
 
 class SubjectExportTurnOut(Strict):
@@ -288,6 +299,17 @@ class SubjectExportHandoffOut(Strict):
     summary: str | None
 
 
+class SubjectExportFollowUpOut(Strict):
+    """A Follow-up (automated sequence of calls and messages) this number is in or was in
+    (`follow_up_runs`), which §12 stops and forgets."""
+
+    follow_up_name: str
+    status: str
+    started_at: str | None
+    ended_at: str | None
+    end_reason: str | None
+
+
 class SubjectExportCountsOut(Strict):
     """What the document contains, stated in the document.
 
@@ -305,6 +327,7 @@ class SubjectExportCountsOut(Strict):
     remembered_facts: int
     callbacks: int
     handoffs: int
+    follow_ups: int
 
 
 class SubjectExportOut(Strict):
@@ -330,6 +353,7 @@ class SubjectExportOut(Strict):
     remembered: list[SubjectExportRememberedOut]
     callbacks: list[SubjectExportCallbackOut]
     handoffs: list[SubjectExportHandoffOut]
+    follow_ups: list[SubjectExportFollowUpOut]
     counts: SubjectExportCountsOut
 
 

@@ -476,6 +476,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "the call that it keeps a note, and that the business's own privacy notice "
                 "says so. NOT MATERIAL: nothing new is kept, used or shared.",
             ),
+            Revision(
+                "28",
+                False,
+                "Section 12.3 adds what the subject access export now also carries: the "
+                "details each call captured, the objections raised on it, and the automated "
+                "follow-ups the number is in. NOT MATERIAL: the person is told more of what "
+                "is already held.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

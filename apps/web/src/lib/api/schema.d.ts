@@ -33773,18 +33773,29 @@ export interface components {
         SubjectExportCallOut: {
             /** Call Id */
             call_id: string;
+            /** Captured */
+            captured: {
+                [key: string]: unknown;
+            };
             /** Direction */
             direction: string | null;
             /** Duration S */
             duration_s: number | null;
+            /** Goal Reason */
+            goal_reason: string | null;
             /** Headline */
             headline?: string | null;
+            insights: components["schemas"]["CallInsightsOut"] | null;
             /** Next Step */
             next_step?: string | null;
             /** Outcome Tag */
             outcome_tag: string | null;
             /** Recording Available */
             recording_available: boolean;
+            /** Said */
+            said: {
+                [key: string]: string;
+            };
             /** Started At */
             started_at: string | null;
             /** Summary */
@@ -33874,6 +33885,8 @@ export interface components {
             campaign_contacts: number;
             /** Consent Records */
             consent_records: number;
+            /** Follow Ups */
+            follow_ups: number;
             /** Handoffs */
             handoffs: number;
             /** Leads */
@@ -33927,6 +33940,23 @@ export interface components {
             recordings_destroyed_by: string | null;
             /** Recordings Pending Destruction */
             recordings_pending_destruction: number;
+        };
+        /**
+         * SubjectExportFollowUpOut
+         * @description A Follow-up (automated sequence of calls and messages) this number is in or was in
+         *     (`follow_up_runs`), which §12 stops and forgets.
+         */
+        SubjectExportFollowUpOut: {
+            /** End Reason */
+            end_reason: string | null;
+            /** Ended At */
+            ended_at: string | null;
+            /** Follow Up Name */
+            follow_up_name: string;
+            /** Started At */
+            started_at: string | null;
+            /** Status */
+            status: string;
         };
         /**
          * SubjectExportHandoffOut
@@ -34009,6 +34039,8 @@ export interface components {
             counts: components["schemas"]["SubjectExportCountsOut"];
             do_not_call: components["schemas"]["SubjectExportDoNotCallOut"];
             erasure: components["schemas"]["SubjectExportErasureOut"] | null;
+            /** Follow Ups */
+            follow_ups: components["schemas"]["SubjectExportFollowUpOut"][];
             /** Generated At */
             generated_at: string;
             /** Handoffs */

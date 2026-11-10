@@ -380,6 +380,11 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
         "number survives it by design, which is the allowance the route declares "
         "(tests/subject_export_test.py)"
     ),
+    "SubjectExportCallOut.goal_reason": (
+        "model prose on why the call did or did not reach its goal, masked by "
+        "`export.mask_foreign_numbers` like `SubjectExportCallOut.summary` "
+        "(tests/journey_audit_2026_11_10_e7_test.py)"
+    ),
     "SubjectExportHandoffOut.summary": (
         "the hand-off brief, redacted on its way into `handoff_attempts` and masked by "
         "`export.mask_foreign_numbers` like `SubjectExportCallOut.summary` "
@@ -433,6 +438,11 @@ ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
         "subject access document. It is the subject's OWN data by construction — the "
         "client defined those fields to describe this caller — so masking it would "
         "corrupt the very answer the request asks for (compliance/export.py decision 3)."
+    ),
+    "SubjectExportCallOut.captured": (
+        "one call's own extracted fields (`call_extractions.data`) inside the DPDP subject "
+        "access document, the same schema-driven payload and the same reasoning as "
+        "SubjectExportLeadOut.data (tests/journey_audit_2026_11_10_e7_test.py)."
     ),
     # ACTIONS feature. Free-form by NECESSITY (three kinds carry three config shapes; an
     # external test reply is arbitrary) and none is populated from a live call's transcript:
