@@ -43,11 +43,14 @@ export function TrialTestCall({ tenantId, clientName }: { tenantId: string; clie
   const [number, setNumber] = useState("");
   const [confirming, setConfirming] = useState(false);
 
-  if (agents.isLoading || !tenant.data) return <Skeleton rows={2} label="Loading agents" />;
+  if (tenant.error) {
+    return <ProblemNotice error={tenant.error} onRetry={() => void tenant.refetch()} />;
+  }
   if (agents.error) {
     return <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} />;
   }
-  const ready = (agents.data ?? []).filter((agent) => DIALLABLE.has(agent.status));
+  if (!tenant.data || !agents.data) return <Skeleton rows={2} label="Loading agents" />;
+  const ready = agents.data.filter((agent) => DIALLABLE.has(agent.status));
   if (ready.length === 0) {
     return (
       <p className="text-body text-ink-muted">
