@@ -6,7 +6,16 @@ Each test names the failure it guards against and failed on the tree before its 
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
+from uuid import UUID
+
+import pytest
+from apps.api.compliance.processor_erasure import OVERDUE_AFTER_DAYS, open_tasks_for_request
+from apps.api.db.session import tenant_session
+from sqlalchemy import text
+from tests.processor_erasure_test import _REAL_EXECUTION_ID
+from tests.processor_erasure_test import _tenant as _erasure_tenant
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "apps" / "web" / "src" / "app"
@@ -70,3 +79,68 @@ def test_the_resolver_refuses_a_wrong_literal_and_accepts_a_placeholder() -> Non
     assert _served("/admin/payments", patterns)
     assert not _served("/admin/payments/disputes", patterns)
     assert not _served("/admin/tenants/credits", patterns)
+
+
+@pytest.mark.rls
+async def test_the_vendor_erasure_page_names_the_tenants_its_command_needs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """E5-04. `processor_erasure_overdue` sends the operator to `scripts.processor_erasure`,
+    which refuses to run without `--tenant` (the tasks are FORCE-RLS'd), while the page said
+    only "across N tenant(s)" and the runbook printed the command without `--tenant`. The
+    operator could not run the step the page pointed at."""
+    from apps.workers import dispatcher
+
+    raised: list[tuple[str, dict[str, object]]] = []
+
+    def _capture(stage: str, code: str, detail: str = "", **ids: object) -> None:
+        del stage, detail
+        raised.append((code, ids))
+
+    tenant_id = await _erasure_tenant()
+
+    async def _one() -> list[UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(dispatcher, "alert", _capture)
+    monkeypatch.setattr(dispatcher, "_all_tenants", _one)
+    async with tenant_session(tenant_id) as session:
+        await open_tasks_for_request(
+            session,
+            tenant_id=tenant_id,
+            request_ref=uuid.uuid4(),
+            request_kind="subject",
+            subject_ref="e5",
+            vendor_refs=[_REAL_EXECUTION_ID],
+            processors=("voice_engine",),
+        )
+        await session.execute(
+            text(
+                "UPDATE processor_erasure_tasks SET opened_at = now() - "
+                "make_interval(days => :d) WHERE tenant_id = :t"
+            ),
+            {"d": OVERDUE_AFTER_DAYS + 1, "t": tenant_id},
+        )
+
+    await dispatcher.report_overdue_erasures({})
+
+    pages = [ids for code, ids in raised if code == "processor_erasure_overdue"]
+    assert pages, "an unanswered vendor erasure obligation must page"
+    assert pages[0].get("tenant_1") == str(tenant_id)
+
+
+def test_the_runbooks_run_the_vendor_erasure_script_with_its_tenant() -> None:
+    from scripts import processor_erasure
+
+    commands = [
+        line.split("scripts.processor_erasure", 1)[1].split()
+        for book in ("processor-erasure.md", "alarm-index.md")
+        for line in (RUNBOOKS / book).read_text(encoding="utf-8").splitlines()
+        if "python -m scripts.processor_erasure " in line
+    ]
+    assert commands
+    for argv in commands:
+        assert argv[:1] == ["--tenant"], f"runbook runs the script without --tenant: {argv}"
+    with pytest.raises(SystemExit) as refused:
+        processor_erasure.main(["list"])
+    assert refused.value.code == 2
