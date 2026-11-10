@@ -864,6 +864,36 @@ describe("meet your agent", () => {
     expect(await screen.findByText("Your phone is ringing", {}, { timeout: 8000 })).toBeTruthy();
   }, 15000);
 
+  it("shows used-up trial Studio minutes as a limit with its way forward, not an error to try again (journey audit E1)", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built(),
+        "/v1/agents": [agent({ published: true })],
+        [`/v1/calls?agent_id=${AGENT_ID}&limit=1`]: [],
+        "/v1/trial": TRIAL,
+        "/v1/legal/readiness": { ...READINESS, documents: [], outstanding_documents: 0 },
+        "/v1/compliance/outbound-pledge": { ...PLEDGE, is_current: true },
+        "POST /v1/trial/calls": problem(422, {
+          type: "https://calevate.tech/problems/trial_studio_minutes_used",
+          code: "trial_studio_minutes_used",
+          kind: "business_rule",
+          title: "Your Studio minutes for the trial are used up",
+          detail: "This free trial includes 15 minutes of test calls on Studio voices.",
+          remediation: "Switch this agent to a Clear voice, or add credit to keep using Studio.",
+        }),
+      }),
+    );
+    const call = await screen.findByRole("button", { name: /Call me now/ });
+    fireEvent.change(screen.getByRole("textbox", { name: "Your mobile number" }), { target: { value: "98765 43210" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /This number is my own/ }));
+    fireEvent.click(call);
+    expect(await screen.findByText(/Switch this agent to a Clear voice/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Choose a Clear voice" }).getAttribute("href")).toContain("section=voice");
+    expect(screen.getByRole("link", { name: "Add credit" }).getAttribute("href")).toContain("tab=credits");
+    expect(screen.queryByRole("button", { name: /Try again/ })).toBeNull();
+  });
+
   it("says the trial line's refusal in the server's words", async () => {
     await renderClientPage(
       page,
