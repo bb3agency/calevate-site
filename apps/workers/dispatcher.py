@@ -12,7 +12,7 @@ coordination: whoever wins the row publishes it, everyone else moves on.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Final
 from uuid import UUID
 
 from arq.jobs import SerializationError
@@ -526,6 +526,18 @@ async def _all_tenants() -> list[UUID]:
     return [UUID(str(row)) for row in rows]
 
 
+#: How many tenants a `processor_erasure_overdue` page names, as `tenant_<n>` ids.
+PROCESSOR_TENANTS_NAMED: Final = 20
+
+
+def processor_tenant_refs(tenant_ids: list[UUID]) -> dict[str, str]:
+    """`tenant_<n>` ids for the first `PROCESSOR_TENANTS_NAMED` tenants, in walk order."""
+    return {
+        f"tenant_{index}": str(tenant_id)
+        for index, tenant_id in enumerate(tenant_ids[:PROCESSOR_TENANTS_NAMED], start=1)
+    }
+
+
 async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     """A DPDP erasure that was filed and never executed, surfaced (P6.5).
 
@@ -575,6 +587,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     unanswered = 0
     held_past_floor = 0
     processor_tenants = 0
+    processor_tenant_ids: list[UUID] = []
     rights_now = datetime.now(UTC)
     rights_soon = rights_now + timedelta(days=RIGHTS_REMINDER_DAYS)
     rights_overdue = 0
@@ -622,6 +635,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
             unanswered += int(stuck.unanswered or 0)
             held_past_floor += int(stuck.held_past_floor or 0)
             processor_tenants += 1
+            processor_tenant_ids.append(tenant_id)
         if rights.overdue or rights.due_soon:
             rights_overdue += int(rights.overdue or 0)
             rights_due_soon += int(rights.due_soon or 0)
@@ -668,6 +682,9 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                 + " A task whose outstanding calls all still wait inside their recording "
                 "floor is not counted and needs nothing. runbooks/processor-erasure.md"
             ),
+            # `scripts.processor_erasure` needs `--tenant` (the tasks are FORCE-RLS'd), so the
+            # page names the tenants or the operator cannot run the command it points at.
+            **processor_tenant_refs(processor_tenant_ids),
         )
     if rights_overdue or rights_due_soon:
         alert(
