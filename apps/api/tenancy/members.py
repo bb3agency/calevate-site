@@ -196,15 +196,18 @@ async def acting_member_role(session: AsyncSession, user_id: UUID) -> str | None
     """The role work queued by this person runs with now, or None if it must not run.
 
     For a background run acting as a client member (a Pip job, routine or approved plan):
-    no membership of the session's tenant, or a person deactivated platform-wide, is None.
-    A request is refused for a deactivated person by `core/auth._load_client_principal`;
-    queued work never passes through it, so the deactivation is read here instead.
+    no membership of the session's tenant, a person deactivated platform-wide, or an account
+    that is closed (`deleted_at`) or churned, is None. `core/auth._load_client_principal`
+    refuses a request on each of those; queued work never passes through it, so they are
+    read here instead, with the same predicate on the account.
     """
     role = (
         await session.execute(
             text(
                 "SELECT m.role FROM memberships m JOIN users u ON u.id = m.user_id "
-                "WHERE m.user_id = :uid AND u.deactivated_at IS NULL"
+                "JOIN organizations o ON o.id = m.tenant_id "
+                "WHERE m.user_id = :uid AND u.deactivated_at IS NULL "
+                "AND o.deleted_at IS NULL AND o.status <> 'churned'"
             ),
             {"uid": user_id},
         )
