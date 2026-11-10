@@ -64,7 +64,7 @@ from apps.api.compliance.service import (
     MAINTENANCE_DRAIN_RULE,
     check_dispatch,
 )
-from apps.api.core.alerting import record_speed_to_lead
+from apps.api.core.alerting import alert, record_speed_to_lead
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
@@ -949,24 +949,48 @@ async def ingest_lead(
             source_execution_id=run_key,
             received_at=received_at,
         )
-    await _timeline(session, config.tenant_id, resolved_lead, "call", {"engine_call_id": handle})
-    placed = (
-        await session.execute(text("SELECT id FROM calls WHERE engine_call_id = :h"), {"h": handle})
-    ).scalar()
-    await follow_up_runner.wait_on_call(
-        session, run.id, call_id=UUID(str(placed)) if placed is not None else None
-    )
-    # The next try, in case nobody answers (D-716); checked again when it falls due.
-    await follow_up_runner.book_retry(
-        session,
-        tenant_id=config.tenant_id,
-        run_id=run.id,
-        step=call_step,
-        lead_id=resolved_lead,
-        agent_id=agent_id,
-        phone_e164=phone,
-        attempt=0,
-    )
+    # The phone is ringing, so from here nothing may roll back the lead and the caller's
+    # inbox claim: the sender's retry would find no claim and ring the person again. The
+    # bookkeeping runs in a SAVEPOINT; a failure loses the timeline entry or the next try
+    # (alarmed), never the claim (`agents.service._link_dial_to_lead`'s rule, D-841).
+    try:
+        async with session.begin_nested():
+            await _timeline(
+                session, config.tenant_id, resolved_lead, "call", {"engine_call_id": handle}
+            )
+            placed = (
+                await session.execute(
+                    text("SELECT id FROM calls WHERE engine_call_id = :h"), {"h": handle}
+                )
+            ).scalar()
+            await follow_up_runner.wait_on_call(
+                session, run.id, call_id=UUID(str(placed)) if placed is not None else None
+            )
+            # The next try, in case nobody answers (D-716); checked again when it falls due.
+            await follow_up_runner.book_retry(
+                session,
+                tenant_id=config.tenant_id,
+                run_id=run.id,
+                step=call_step,
+                lead_id=resolved_lead,
+                agent_id=agent_id,
+                phone_e164=phone,
+                attempt=0,
+            )
+    except Exception as exc:
+        log.error(
+            "dial_bookkeeping_failed",
+            extra={"lead_id": str(resolved_lead), "step": "ingest", "error": type(exc).__name__},
+        )
+        alert(
+            "CORE_LOGIC",
+            "dial_bookkeeping_failed",
+            detail=(
+                f"a new lead's call the voice platform accepted could not be recorded "
+                f"(ingest, {type(exc).__name__}); it was not dialled again"
+            ),
+            lead_id=str(resolved_lead),
+        )
     elapsed = time.time() - received_at
     record_speed_to_lead(elapsed, outcome="dispatched")
     log.info(

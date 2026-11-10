@@ -128,3 +128,47 @@ async def test_a_pause_landing_behind_the_claim_holds_the_rest_of_the_batch(
     assert held["status"] == "scheduled"
     assert held["last_refusal_rule"] == callbacks.CAMPAIGN_PAUSED_RULE
     assert int(held["attempts"]) == 0, "a held call-back was charged an attempt"
+
+
+async def test_a_lead_rung_inline_is_not_rung_again_when_its_bookkeeping_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The engine accepted the dial, then a write after it failed. Raising would roll back
+    the lead and the inbox claim with it, and the form vendor's retry of the same
+    submission would ring the person a second time."""
+    from apps.api.follow_ups import runner as follow_up_runner
+    from apps.api.ingest.routes import SECRET_HEADER
+    from sqlalchemy.exc import OperationalError
+    from tests.lead_ingest_test import SECRET, _client, _tenant_with_ingest
+
+    tenant_id, _agent_id, webhook_id = await _tenant_with_ingest()
+    engine = get_engine()
+    original = engine.start_outbound_call
+    rung: list[str] = []
+
+    async def dial(ref: str, to: str, ctx: CallContext) -> str:
+        rung.append(to)
+        return await original(ref, to, ctx)
+
+    real_book_retry = follow_up_runner.book_retry
+
+    async def failing_book_retry(*args: object, **kwargs: object) -> object:
+        if len(rung) == 1:
+            raise OperationalError("INSERT scheduled_callbacks", {}, ConnectionError("blip"))
+        return await real_book_retry(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(engine, "start_outbound_call", dial)
+    monkeypatch.setattr(follow_up_runner, "book_retry", failing_book_retry)
+    submission = {"phone_number": "9876508877", "full_name": "Rung Once"}
+    for _ in range(2):  # the delivery, then the sender's retry of it
+        async with _client() as http:
+            await http.post(
+                f"/hooks/v1/ingest/{webhook_id}", json=submission, headers={SECRET_HEADER: SECRET}
+            )
+
+    assert rung == ["+919876508877"], f"the lead was rung {len(rung)} times"
+    async with tenant_session(tenant_id) as session:
+        leads = (
+            await session.execute(text("SELECT count(*) FROM leads WHERE phone_e164 = :p"), {"p": "+919876508877"})
+        ).scalar_one()
+    assert leads == 1, "the enquiry was lost with the failed write"
