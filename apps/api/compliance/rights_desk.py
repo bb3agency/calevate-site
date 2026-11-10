@@ -275,7 +275,7 @@ async def _assert_erasure_answers(
         raise ProblemError.business_rule(
             "rights_erasure_not_finished",
             "That erasure is still running.",
-            remediation="This request is marked answered on its own when the erasure finishes.",
+            remediation="We mark it answered for you when the erasure finishes.",
         )
 
 

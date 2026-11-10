@@ -23,7 +23,6 @@ from sqlalchemy import text
 from tests.campaign_transitions_test import _launchable_campaign
 from tests.campaign_transitions_test import _tenant as _outbound_tenant
 from tests.conftest import create_org_with_receptionist
-from tests.healer_number_forward_test import _attest
 from tests.smoke_pipeline_test import _seed_tenant
 
 # --- Z3-N1: a late call of a retired route is metered at its own route's rate --------------
@@ -50,7 +49,6 @@ async def test_a_late_call_of_a_retired_route_is_metered_at_that_routes_rate() -
     at = datetime(2002, 3, 7, tzinfo=UTC) + timedelta(
         microseconds=uuid.uuid4().int % 86_400_000_000
     )
-    await _attest(at, {"studio": "2.50", "premium": "2.00"})
     tenant_id, agent_id = await _seed_tenant(f"d2rate_{uuid.uuid4().hex[:10]}")
     old_ref, new_ref = f"d2old_{uuid.uuid4().hex}", f"d2new_{uuid.uuid4().hex}"
     await _route(tenant_id, agent_id, ref=old_ref, active=False, rate_key="studio")
