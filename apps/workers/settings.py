@@ -1327,13 +1327,13 @@ CRON_JOBS = [
         minute={OWNER_DIGEST_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
-    # PACK CREDIT PAST ITS EXPIRY (D-840): daily, keyed per lot, so a missed tick lapses the
-    # credit a day late and a doubled one lapses nothing twice. :11 shares its minute with
-    # no other fleet walk.
+    # PACK CREDIT PAST ITS EXPIRY (D-840): hourly at :11 (founder, 10 Nov 2026), keyed per
+    # lot. The debit draws every open lot without filtering on `expires_at`, so a lapsed lot
+    # stays spendable until this runs; hourly bounds that to the hour rather than a day. A
+    # doubled tick lapses nothing twice. :11 shares its minute with no other fleet walk.
     _cron(
         traced_job(expire_credit_lots),
         walk=fleet_wide("one tenant_session per organization, then one per due lot"),
-        hour={8},
         minute={11},
         max_tries=WORKER_MAX_TRIES,
     ),

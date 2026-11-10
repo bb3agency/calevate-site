@@ -13,7 +13,7 @@ from decimal import Decimal
 import pytest
 from apps.api.callbacks import service as callbacks
 from apps.api.compliance.deletion import request_erasure
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.workers import callbacks as callbacks_worker
 from apps.workers.callbacks import dispatch_due_callbacks
@@ -170,7 +170,9 @@ async def test_a_lead_rung_inline_is_not_rung_again_when_its_bookkeeping_fails(
     assert rung == ["+919876508877"], f"the lead was rung {len(rung)} times"
     async with tenant_session(tenant_id) as session:
         leads = (
-            await session.execute(text("SELECT count(*) FROM leads WHERE phone_e164 = :p"), {"p": "+919876508877"})
+            await session.execute(
+                text("SELECT count(*) FROM leads WHERE phone_e164 = :p"), {"p": "+919876508877"}
+            )
         ).scalar_one()
     assert leads == 1, "the enquiry was lost with the failed write"
 
@@ -297,11 +299,28 @@ async def test_a_grant_notice_whose_client_email_keeps_failing_is_not_posted_aga
         "actor_id": None,
         "reason": "e6",
     }
-    for attempt in range(1, WORKER_MAX_TRIES):
-        with pytest.raises(Retry):
-            await comp_notices.notify_comp({"job_try": attempt}, payload)
+    # The superadmin leg must have someone to email, whatever the shared database holds.
+    super_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            sql(
+                "INSERT INTO admin_users (id, name, role, email, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', :email, now(), now())"
+            ),
+            {"id": super_id, "email": f"ops-{super_id.hex[:12]}@example.com"},
+        )
+    try:
+        for attempt in range(1, WORKER_MAX_TRIES):
+            with pytest.raises(Retry):
+                await comp_notices.notify_comp({"job_try": attempt}, payload)
 
-    outcome = await comp_notices.notify_comp({"job_try": WORKER_MAX_TRIES}, payload)
+        outcome = await comp_notices.notify_comp({"job_try": WORKER_MAX_TRIES}, payload)
+    finally:
+        async with untenanted_session() as session:
+            await session.execute(
+                sql("UPDATE admin_users SET deactivated_at = now() WHERE id = :id"),
+                {"id": super_id},
+            )
 
     assert outcome == "undelivered:client", "the last try must end the run, not fail it"
     assert fired == ["comp_notice_undelivered"]

@@ -260,7 +260,7 @@ __all__ = [
     "Booked",
     "book_requested_callback",
     "callback_number",
-    "number_to_ring",
     "caller_slot",
     "default_slot",
+    "number_to_ring",
 ]

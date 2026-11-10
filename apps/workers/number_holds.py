@@ -144,16 +144,16 @@ async def _settle_hold(tenant_id: UUID, hold: OpenHold, now: datetime, tally: Co
                 # after this read queues a resume pass, which waits on this row and finds
                 # the number gone.
                 if await stopped_reason(session, tenant_id=tenant_id, now=now) is None:
-                    raise _NoLongerStopped
+                    raise _NoLongerStoppedError
                 await release_engine_number(
                     session, tenant_id=tenant_id, number_id=hold.number_id, by_admin=False
                 )
                 tally["released"] += 1
-    except _NoLongerStopped:
+    except _NoLongerStoppedError:
         tally["kept"] += 1
 
 
-class _NoLongerStopped(Exception):
+class _NoLongerStoppedError(Exception):
     """Rolls back a release claim whose tenant is no longer stopped."""
 
 

@@ -63,7 +63,7 @@ import type { TierLabels } from "./lots";
  *
  * 5. **Credit lasts 12 months — and calls are not the only thing that spends it.** Terms
  *    6.1 (revision 19, D-840): a purchase's lot is stamped with `credit_lots.expires_at`
- *    when it is credited, the daily `expire_credit_lots` lapses what is left after it, and
+ *    when it is credited, the hourly `expire_credit_lots` lapses what is left after it, and
  *    a lot bought before the switch has no term. The months come from the card
  *    (`credit_expiry_months`), so the claim follows the console setting. CALLS ARE
  *    NOT THE ONLY DRAWDOWN, and a claim that they are is contradicted two cards below on

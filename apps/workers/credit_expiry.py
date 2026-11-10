@@ -1,7 +1,7 @@
-"""The daily job that lapses pack credit past its expiry, and the email that warns before it
+"""The hourly job that lapses pack credit past its expiry, and the email that warns before it
 (D-840, `billing/credit_expiry.py`).
 
-    expire_credit_lots      daily, IST — one tenant_session per organization, then one
+    expire_credit_lots      hourly at :11 — one tenant_session per organization, then one
                              transaction per due lot, then the lapse notices it owes
     notify_credit_lapsing   from the outbox, once per lot
 
@@ -11,7 +11,7 @@ directory only (hard rule 1), as `workers/number_rental.py` does.
 
 THE NOTICE IS PROMISED, NOT SENT, BY THE SWEEP: each open lot with credit left that lapses
 within `LAPSE_NOTICE_WINDOW` gets one outbox row keyed `credit_lapse_notice:<lot_id>`
-(`enqueue_outbox_once`), so a daily sweep that sees the same lot thirty times promises one
+(`enqueue_outbox_once`), so an hourly sweep that sees the same lot for thirty days promises one
 email. The job re-reads the lot before sending and says nothing about one already spent or
 closed.
 
@@ -124,7 +124,7 @@ async def expire_credit_lots(ctx: dict[str, Any]) -> str:
             "credit_expiry_incomplete",
             detail=(
                 f"{failed} credit lot(s) past their expiry could not be expired; their "
-                "credit is still spendable. The next daily run tries them again."
+                "credit is still spendable. The next hourly run tries them again."
             ),
         )
     if notice_failed:
@@ -133,7 +133,7 @@ async def expire_credit_lots(ctx: dict[str, Any]) -> str:
             "credit_lapse_notice_promise_failed",
             detail=(
                 f"{notice_failed} tenant(s) could not be checked for credit lapsing soon; "
-                "the next daily run asks again."
+                "the next hourly run asks again."
             ),
         )
     summary = {

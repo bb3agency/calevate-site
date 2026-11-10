@@ -836,7 +836,7 @@ price, and that price belongs to the PURCHASE rather than to the account.** The 
 carries its term (D-840, on since D-897, Terms 6.1 revision 19): credit bought from 27 Oct 2026
 lasts 12 months from the day it is credited, the buy screen states the term and the date
 (`credit_lapses_on_if_bought_now` on the pack card), the billing page shows each purchase's
-lapse date, the owner is emailed 30 days before, and the daily expiry job then lapses what is
+lapse date, the owner is emailed 30 days before, and the hourly expiry job then lapses what is
 left. Credit bought before then, grants and operator overrides never lapse. Where the card
 discounts a bigger pack it does so as a falling rate, never as bonus credits (the D-728 card
 is flat); and it is two rates,

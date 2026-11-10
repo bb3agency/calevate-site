@@ -1305,7 +1305,7 @@ credit_lots(id, tenant_id, source ENUM-as-CHECK[topup,grant,bonus_legacy,migrati
 --   a purchase (`source = topup`) opened while `Settings.credit_pack_expiry_months` is set
 --   (default 12) gets `expires_at` = opened_at + that many IST calendar months, frozen with the
 --   lot's other terms; grants, overrides and every lot opened before the switch carry NULL
---   and never expire. `workers/credit_expiry.expire_credit_lots` (daily 08:11 IST) lapses what
+--   and never expire. `workers/credit_expiry.expire_credit_lots` (hourly at :11) lapses what
 --   is left by one negative `adjustment` row (`meta.kind = credit_expiry`) and closes the lot,
 --   and promises one `notify_credit_lapsing` email per lot 30 days before.
 --   What a bigger pack buys is no longer BONUS

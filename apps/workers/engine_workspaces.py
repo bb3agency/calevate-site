@@ -78,13 +78,13 @@ from apps.api.tenancy.call_lines import (
 )
 from apps.api.tenancy.engine_retention import queue_retention_sync
 from apps.api.tenancy.engine_workspace import (
-    OFFBOARD_JOB,
     OWED_STATES,
     engine_has_workspaces,
     external_ref_for,
     is_own_workspace,
     queue_workspace_provisioning,
     read_workspace_state,
+    resume_workspace_offboarding,
     workspace_directory,
     workspaces_in_review,
 )
@@ -191,9 +191,7 @@ async def _activate(tenant_id: UUID, workspace: str) -> bool:
                 {"ws": workspace, "tid": tenant_id},
             )
             if rowcount_of(owed):
-                await enqueue_outbox(
-                    session, job=OFFBOARD_JOB, payload={"tenant_id": str(tenant_id)}
-                )
+                await resume_workspace_offboarding(session, tenant_id=tenant_id)
             else:
                 log.error(
                     "engine_workspace_made_after_delete",
