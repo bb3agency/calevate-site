@@ -36,7 +36,7 @@ from apps.api.billing.service import get_balance, to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.brand import PRODUCT
 from apps.api.core.logging import get_logger
-from apps.api.core.queue import job_try
+from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.rbac import SUPERADMIN_ROLE
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
@@ -178,8 +178,8 @@ RETRY_BACKOFF_S: Final[tuple[float, ...]] = (60.0, 300.0)
 def _retry(attempt: int, *, tenant_id: UUID, leg: str) -> NoReturn:
     """A send that was not accepted. `arq.Retry`, not a plain raise: arq 0.28 re-runs a job
     only for `Retry`, `RetryJob` or `CancelledError` (`arq/worker.py` `run_job`), so any
-    other exception is terminal on the first attempt. Past `max_tries` arq gives up and
-    `install_arq_terminal_alerter` raises the alarm."""
+    other exception is terminal on the first attempt. Never called on the last try, which
+    ends the job with `comp_notice_undelivered` instead (`notify_comp`)."""
     log.warning(
         "comp_notice_send_failed",
         extra={"tenant_id": str(tenant_id), "leg": leg, "attempt": attempt},
@@ -234,12 +234,22 @@ async def notify_comp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     # Ours first, the client's last: a failure raises and ARQ re-runs the whole job, so
     # whatever went before a failure is sent again. A repeated internal email is noise; a
     # client told twice about one gift reads as two gifts.
+    #
+    # The last try never raises: a run ending in `Retry` past `max_tries` is a failed run,
+    # which the outbox re-publishes as try 1 once `OUTBOX_CONSUME_DEADLINE` passes, and that
+    # run would post the notice and email every super admin again. It records what was not
+    # delivered and ends instead.
+    last_try = attempt >= WORKER_MAX_TRIES
+    undelivered: list[str] = []
     subject, body = superadmin_email(
         kind=kind, amount=amount, business=business, slug=slug, actor=actor, reason=reason
     )
     for address in supers:
         if not await _send(address, subject, body, cta=None, purpose=EmailPurpose.OPERATOR):
-            _retry(attempt, tenant_id=tenant_id, leg="superadmin")
+            if not last_try:
+                _retry(attempt, tenant_id=tenant_id, leg="superadmin")
+            undelivered.append("superadmin")
+            break
     if not supers:
         alert("WORKER_DELIVERY", "comp_notice_no_superadmin_email", tenant_id=str(tenant_id))
 
@@ -252,9 +262,23 @@ async def notify_comp(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
             cta="Open your dashboard",
             purpose=EmailPurpose.BILLING,
         ):
-            _retry(attempt, tenant_id=tenant_id, leg="client")
+            if not last_try:
+                _retry(attempt, tenant_id=tenant_id, leg="client")
+            undelivered.append("client")
     else:
         alert("WORKER_DELIVERY", "comp_notice_no_billing_email", tenant_id=str(tenant_id))
+
+    if undelivered:
+        alert(
+            "WORKER_DELIVERY",
+            "comp_notice_undelivered",
+            detail=(
+                f"the email about a complimentary grant was not accepted after {attempt} "
+                f"tries ({', '.join(undelivered)}); the dashboard notice is up"
+            ),
+            tenant_id=str(tenant_id),
+        )
+        return "undelivered:" + ",".join(undelivered)
 
     log.info(
         "comp_notices_sent",

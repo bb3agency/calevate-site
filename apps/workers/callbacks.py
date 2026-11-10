@@ -165,6 +165,9 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                         session, callback.id, rule="lead_on_a_call", reason=ON_A_CALL_REASON
                     )
                     continue
+            if await callbacks.hold_if_campaign_paused(session, callback.id):
+                blocked += 1
+                continue
             # A call-back its campaign's pause held keeps to that campaign's calling hours
             # once released (D-914); the gate below knows only the platform's.
             if await callbacks.defer_to_window(
@@ -250,7 +253,9 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                 lead_id=callback.lead_id,
                 phone_e164=callback.phone_e164,
             )
-            link = callbacks.link_callback_to_call(callback.id, campaign_id=origin.campaign_id)
+            link = callbacks.link_callback_to_call(
+                callback.id, phone_e164=callback.phone_e164, campaign_id=origin.campaign_id
+            )
             try:
                 # THE ONE OUTBOUND ENTRY POINT. Not a parallel dial path: everything a dial
                 # is supposed to inherit — the A/B arm, the resolved DLT header, the intent
@@ -277,6 +282,12 @@ async def dispatch_due_callbacks(tenant_id: UUID, slots: int) -> dict[str, int]:
                     ),
                     contact_details=origin.details,
                 )
+            except callbacks.CallbackNoLongerClaimedError:
+                # Settled by another writer since the claim (an erasure, in practice).
+                # Nothing was dialled and the row already says why, so nothing is written.
+                log.info("callback_settled_before_dial", extra={"callback_id": str(callback.id)})
+                blocked += 1
+                continue
             except DialUnconfirmedError as unconfirmed:
                 await callbacks.settle(
                     session,

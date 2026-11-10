@@ -83,7 +83,7 @@ async def test_a_deferral_reason_does_not_outlive_the_dial_that_followed_it() ->
                 "to_e": CALLER,
             },
         )
-        await callbacks.link_callback_to_call(callback_id)(session, call_id)
+        await callbacks.link_callback_to_call(callback_id, phone_e164=CALLER)(session, call_id)
         assert await callbacks.settle_dialled(session) == 1
         row = await callbacks.get_callback(session, callback_id)
         await session.commit()

@@ -78,6 +78,7 @@ from apps.api.tenancy.call_lines import (
 )
 from apps.api.tenancy.engine_retention import queue_retention_sync
 from apps.api.tenancy.engine_workspace import (
+    OFFBOARD_JOB,
     OWED_STATES,
     engine_has_workspaces,
     external_ref_for,
@@ -123,12 +124,18 @@ def _is_plan_refusal(exc: EngineRejectedError) -> bool:
     return exc.vendor_status == 402 or (exc.vendor_code or "") in PLAN_CODES
 
 
+#: The states a provisioning pass may move a workspace out of. A closure that lands while
+#: the pass is at the vendor sets `offboarding`, and nothing the pass learns may undo it.
+_PROVISIONING_OWNS: Final = "status NOT IN ('offboarding', 'deleted')"
+
+
 async def _set_state(tenant_id: UUID, *, status: str, code: str | None, attempt: bool) -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "UPDATE tenant_engine_workspaces SET status = :status, last_error_code = :code, "
-                "attempts = attempts + :inc, updated_at = now() WHERE tenant_id = :tid"
+                "attempts = attempts + :inc, updated_at = now() "
+                f"WHERE tenant_id = :tid AND {_PROVISIONING_OWNS}"
             ),
             {"status": status, "code": code, "inc": 1 if attempt else 0, "tid": tenant_id},
         )
@@ -155,21 +162,44 @@ async def _org(tenant_id: UUID) -> tuple[str, bool] | None:
     return str(row[0]), row[2] is None and row[1] != "churned"
 
 
-async def _activate(tenant_id: UUID, workspace: str) -> None:
+async def _activate(tenant_id: UUID, workspace: str) -> bool:
     """Record the workspace as the tenant's, and owe it the follow-ups, in one transaction:
     the business details (sent once the KYC record is verified), its calls at once, and the
-    tenant's existing do-not-call list, pushed in chunks."""
+    tenant's existing do-not-call list, pushed in chunks. False when the account closed
+    while the workspace was being made: it is then recorded for its offboarding instead."""
     from apps.api.campaigns.engine_business_details import queue_business_details_submission
 
     async with tenant_session(tenant_id) as session:
-        await session.execute(
+        activated = await session.execute(
             text(
                 "UPDATE tenant_engine_workspaces SET status = 'active', workspace_id = :ws, "
                 "provisioned_at = COALESCE(provisioned_at, now()), last_error_code = NULL, "
-                "deleted_at = NULL, updated_at = now() WHERE tenant_id = :tid"
+                "deleted_at = NULL, updated_at = now() "
+                f"WHERE tenant_id = :tid AND {_PROVISIONING_OWNS}"
             ),
             {"ws": workspace, "tid": tenant_id},
         )
+        if rowcount_of(activated) == 0:
+            # The offboarding job needs the workspace's id to delete it and found none when
+            # it ran, so the id is recorded under `offboarding` and the job queued again.
+            owed = await session.execute(
+                text(
+                    "UPDATE tenant_engine_workspaces SET workspace_id = :ws, "
+                    "provisioned_at = COALESCE(provisioned_at, now()), updated_at = now() "
+                    "WHERE tenant_id = :tid AND status = 'offboarding'"
+                ),
+                {"ws": workspace, "tid": tenant_id},
+            )
+            if rowcount_of(owed):
+                await enqueue_outbox(
+                    session, job=OFFBOARD_JOB, payload={"tenant_id": str(tenant_id)}
+                )
+            else:
+                log.error(
+                    "engine_workspace_made_after_delete",
+                    extra={"tenant_id": str(tenant_id), "workspace_id": workspace},
+                )
+            return False
         await queue_business_details_submission(session, tenant_id=tenant_id)
         # How many calls at once the client may have there (F7), owed from the start.
         await queue_call_lines_sync(session, tenant_id=tenant_id)
@@ -197,6 +227,7 @@ async def _activate(tenant_id: UUID, workspace: str) -> None:
                 },
             )
     log.info("engine_workspace_active", extra={"tenant_id": str(tenant_id)})
+    return True
 
 
 async def provision_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -277,8 +308,7 @@ async def provision_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any
             tenant_id=str(tenant_id),
         )
         return "refused_developer_workspace"
-    await _activate(tenant_id, found.workspace_id)
-    return "active"
+    return "active" if await _activate(tenant_id, found.workspace_id) else "closed_meanwhile"
 
 
 async def _provision_failed(job_ctx: dict[str, Any], tenant_id: UUID, exc: Exception) -> None:

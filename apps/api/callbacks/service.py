@@ -644,6 +644,28 @@ async def defer_to_window(
     return opens
 
 
+async def hold_if_campaign_paused(session: AsyncSession, callback_id: UUID) -> bool:
+    """Put a claimed call-back back to wait when its campaign paused or stopped after the
+    claim, and say whether it did (D-914).
+
+    `claim_due` skips such call-backs, but the tick dials its batch one at a time, so a
+    pause landing behind the claim would still ring the rest. Read per call-back at the
+    moment of dialling, as `campaign_dispatch` re-reads its campaign per contact. Deferred
+    under the hold's own rule, so the next tick's `hold_for_paused_campaigns`,
+    `release_resumed` and `call_off_for_stopped_campaigns` treat it like any waiting row.
+    """
+    result = await session.execute(
+        text(
+            "UPDATE scheduled_callbacks s SET status = 'scheduled', attempts = s.attempts - 1, "
+            "  next_attempt_at = now(), last_refusal_rule = :rule, "
+            "  last_refusal_reason = :reason, updated_at = now() "
+            f"WHERE s.id = :id AND s.status = 'dialing' AND {_PAUSED_OR_STOPPED}"
+        ),
+        {"id": callback_id, "rule": CAMPAIGN_PAUSED_RULE, "reason": CAMPAIGN_PAUSED_REASON},
+    )
+    return rowcount_of(result) > 0
+
+
 async def defer_recalled(
     session: AsyncSession, *, call_id: UUID, rule: str, reason: str | None
 ) -> int:
@@ -704,8 +726,12 @@ async def settle(
     )
 
 
+class CallbackNoLongerClaimedError(Exception):
+    """The call-back was settled by another writer between its claim and its dial."""
+
+
 def link_callback_to_call(
-    callback_id: UUID, *, campaign_id: UUID | None = None
+    callback_id: UUID, *, phone_e164: str, campaign_id: UUID | None = None
 ) -> Callable[[AsyncSession, UUID], Awaitable[None]]:
     """`dispatch_call`'s `on_reserved` hook: point the promise at the call it became.
 
@@ -720,16 +746,28 @@ def link_callback_to_call(
     for `campaign_dispatch._link_contact_to_call`'s reason (nothing later writes the column).
     The contact's own `last_call_id` is left on the campaign's call: its outcome is what the
     campaign achieved, and the call-back joins its row by number like an opt-out does.
+
+    The UPDATE is the CAS that stops a dial from a stale claim. The tick dials from the
+    copy `claim_due` returned; a DPDP erasure committed since cancels the row and
+    anonymises its number but writes nothing the gate reads, so only this row still knows.
+    Matching `status = 'dialing'` AND the claimed number, and raising when nothing matched,
+    rolls the intent row back before the engine is called (the same guard as
+    `campaign_dispatch._link_contact_to_call`).
     """
 
     async def link(session: AsyncSession, call_id: UUID) -> None:
-        await session.execute(
-            text(
-                "UPDATE scheduled_callbacks SET last_call_id = :call, updated_at = now() "
-                "WHERE id = :id"
-            ),
-            {"call": call_id, "id": callback_id},
-        )
+        linked = (
+            await session.execute(
+                text(
+                    "UPDATE scheduled_callbacks SET last_call_id = :call, updated_at = now() "
+                    "WHERE id = :id AND status = 'dialing' AND phone_e164 = :phone "
+                    "RETURNING id"
+                ),
+                {"call": call_id, "id": callback_id, "phone": phone_e164},
+            )
+        ).first()
+        if linked is None:
+            raise CallbackNoLongerClaimedError(callback_id)
         if campaign_id is not None:
             await session.execute(
                 text("UPDATE calls SET campaign_id = :cid WHERE id = :call"),
@@ -955,6 +993,7 @@ __all__ = [
     "TERMINAL_STATUSES",
     "UNATTEMPTED_REASON",
     "CallbackBookedBy",
+    "CallbackNoLongerClaimedError",
     "DueCallback",
     "book",
     "booked_by",
@@ -971,6 +1010,7 @@ __all__ = [
     "expire_stale",
     "get_callback",
     "hold_for_paused_campaigns",
+    "hold_if_campaign_paused",
     "link_callback_to_call",
     "list_callbacks",
     "release_resumed",

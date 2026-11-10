@@ -51,6 +51,7 @@ from uuid import UUID
 
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
+from sqlalchemy import text
 
 from apps.api.agents.service import reconcile_inbound_answering
 from apps.api.campaigns.controls import resume_campaigns_after_credit
@@ -97,6 +98,16 @@ async def apply_inbound_credit_state(ctx: dict[str, Any], payload: dict[str, Any
         if not await credits_exhausted(session, tenant_id=tenant_id):
             await resume_campaigns_after_credit(session, tenant_id=tenant_id)
     async with tenant_session(tenant_id) as session:
+        # One pass per tenant at a time, and the verdict read only once the lock is held.
+        # Two passes queued by a crossing down and a crossing back up would otherwise each
+        # read the agents' stamps before the other committed: the restore finds nothing
+        # silenced, the silence then commits, and a client who has paid stays silenced with
+        # nothing left to bring the phone back. Its own key rather than `credit:<tenant>`,
+        # because this transaction waits on vendor calls and every charge would wait too.
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": f"inbound-cutover:{tenant_id}"},
+        )
         exhausted = await credits_exhausted(session, tenant_id=tenant_id)
         outcome = await reconcile_inbound_answering(
             session, engine, tenant_id=tenant_id, exhausted=exhausted

@@ -135,12 +135,26 @@ async def _settle_hold(tenant_id: UUID, hold: OpenHold, now: datetime, tally: Co
                     await mark_detached(session, hold_id=hold.hold_id)
                     tally["detached"] += 1
         return
-    async with tenant_session(tenant_id) as session:
-        if await claim_release(session, hold_id=hold.hold_id):
-            await release_engine_number(
-                session, tenant_id=tenant_id, number_id=hold.number_id, by_admin=False
-            )
-            tally["released"] += 1
+    try:
+        async with tenant_session(tenant_id) as session:
+            if await claim_release(session, hold_id=hold.hold_id):
+                # Asked again AFTER the claim has locked the hold row: the pass decided
+                # "stopped" before walking its holds, and a top-up or reopening committed
+                # since must keep the number (the release is permanent). One committing
+                # after this read queues a resume pass, which waits on this row and finds
+                # the number gone.
+                if await stopped_reason(session, tenant_id=tenant_id, now=now) is None:
+                    raise _NoLongerStopped
+                await release_engine_number(
+                    session, tenant_id=tenant_id, number_id=hold.number_id, by_admin=False
+                )
+                tally["released"] += 1
+    except _NoLongerStopped:
+        tally["kept"] += 1
+
+
+class _NoLongerStopped(Exception):
+    """Rolls back a release claim whose tenant is no longer stopped."""
 
 
 async def settle_tenant(tenant_id: UUID) -> tuple[Counter[str], int]:
