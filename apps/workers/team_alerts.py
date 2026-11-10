@@ -24,6 +24,7 @@ from uuid import UUID
 from arq import Retry
 from calevate_shared.backoff import ladder_delay_s
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.plans import IST
 from apps.api.compliance.audit import write_audit
@@ -34,6 +35,8 @@ from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.transport import EmailPurpose, get_transport
 from apps.api.crm.service import redacted_summary
 from apps.api.db.session import tenant_session
+from apps.api.forwarding.service import published_numbers
+from apps.api.forwarding.testing import classify_caller
 from apps.api.team_alerts import whatsapp as team_whatsapp
 from apps.workers.email_render import Email, from_text
 
@@ -45,6 +48,9 @@ RETRY_BACKOFF_S: Final[tuple[float, ...]] = (15.0, 45.0)
 CODE_RETRY_BACKOFF_S: Final[tuple[float, ...]] = (10.0, 30.0)
 
 ALERT_SUBJECT: Final = "A caller needs your team"
+#: The phone line of a forwarded call that showed the business's own number (D-746) and gave
+#: no call-back number: the number the network showed would ring the business itself.
+HIDDEN_CALLER_PHONE: Final = "not shown, the call came through your own number"
 CODE_SUBJECT: Final = "Your code for caller alerts"
 
 _DESTINATION_COLUMNS: Final = (
@@ -86,7 +92,8 @@ _ALERT_SQL: Final = (
     "a.name, o.name, o.slug, "
     "COALESCE(l.name, (SELECT lp.name FROM leads lp WHERE lp.agent_id = ta.agent_id "
     "  AND lp.phone_e164 = CASE WHEN c.direction = 'outbound' THEN c.to_e164 ELSE c.from_e164 END "
-    "  AND lp.deleted_at IS NULL ORDER BY lp.updated_at DESC LIMIT 1)) "
+    "  AND lp.deleted_at IS NULL ORDER BY lp.updated_at DESC LIMIT 1)), "
+    "c.caller_id_hidden, l.phone_e164 "
     "FROM team_alerts ta "
     "JOIN team_alert_contacts tc ON tc.id = ta.contact_id "
     "JOIN calls c ON c.id = ta.call_id "
@@ -202,6 +209,8 @@ async def deliver_team_alert(ctx: dict[str, Any], payload: dict[str, Any]) -> st
             business,
             slug,
             caller_name,
+            caller_hidden,
+            lead_phone,
         ) = row
         if status == "sent":
             return "duplicate"
@@ -212,7 +221,14 @@ async def deliver_team_alert(ctx: dict[str, Any], payload: dict[str, Any]) -> st
             await _finish(session, alert_id, "cancelled", attempt)
             return "cancelled"
         destination = _destination(destination_row)
-        phone = str((to_e164 if direction == "outbound" else from_e164) or "")
+        phone = await _caller_phone(
+            session,
+            direction=str(direction),
+            from_e164=from_e164,
+            to_e164=to_e164,
+            hidden=bool(caller_hidden),
+            lead_phone=lead_phone,
+        )
         link = f"{CONSOLE_BASE}/c/{slug}/calls/{call_id}"
         if destination.channel == "whatsapp":
             why = "; ".join(
@@ -290,6 +306,30 @@ async def deliver_team_alert(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         **ids,
     )
     return f"exhausted after {attempt}"
+
+
+async def _caller_phone(
+    session: AsyncSession,
+    *,
+    direction: str,
+    from_e164: str | None,
+    to_e164: str | None,
+    hidden: bool,
+    lead_phone: str | None,
+) -> str:
+    """The number the team rings: the other party, except on a forwarded call that showed the
+    business's own number (D-746), where it is the lead's number (filed under the call-back
+    number the caller gave) or none. The pipeline marks `caller_id_hidden` only after the
+    call, so an in-call alert classifies the shown number here, as the in-call actions do
+    (`worker/engine_actions._tool_call`)."""
+    if direction == "outbound":
+        return str(to_e164 or "")
+    if not hidden and from_e164:
+        published = await published_numbers(session)
+        hidden = classify_caller(from_e164, published=published) == "business_number_shown"
+    if hidden:
+        return str(lead_phone or HIDDEN_CALLER_PHONE)
+    return str(from_e164 or "")
 
 
 async def _finish(session: Any, alert_id: UUID, status: str, attempt: int) -> None:

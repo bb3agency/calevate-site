@@ -6,9 +6,9 @@ That row counts as the call's extraction, so nothing re-drove it: the call kept 
 no summary from the model and no business outcome for good (the founder's 20 Oct test call).
 
 This sweep finds those calls and reads each one again through the pipeline's own stages and
-no others: the extraction with its key moments, the summary, the outcome, the business
-outcome, the lead and its hot alert. No recording copy, no transcript write, no call
-metering, no `call.completed`. The model pass is metered under
+no others: the extraction with its key moments, the summary, the call back the caller asked
+for, the outcome, the business outcome, the lead and its hot alert. No recording copy, no
+transcript write, no call metering, no `call.completed`. The model pass is metered under
 `ASSIST_FEATURE_CALL_EXTRACTION`, which is ours and never counted against the client's
 allowance (`billing.models.ABSORBED_ASSIST_FEATURES`), exactly as the first pass was.
 
@@ -52,6 +52,7 @@ from apps.workers.pipeline import (
     _record_outcome,
     _record_reading,
     _upsert_lead,
+    book_asked_callback,
     call_event_data,
     callable_tenants,
     extractor_transcript,
@@ -302,6 +303,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
     )
     before = await _outcomes_now(tenant_id, call_id)
     business_outcomes = await _agent_business_outcomes(tenant_id, agent_id)
+    opt_out = detect_opt_out(snapshot.transcript) if snapshot.transcript else None
     extraction = await _extract_stage(
         tenant_id,
         call_id,
@@ -309,7 +311,7 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
         spec=spec,
         agent_id=agent_id,
         transcript_text=extractor_transcript(snapshot.transcript),
-        opt_out_signal=detect_opt_out(snapshot.transcript) if snapshot.transcript else None,
+        opt_out_signal=opt_out,
         business_outcomes=business_outcomes,
         reasoning_off=after_truncation,
         reuse=reuse,
@@ -321,6 +323,16 @@ async def reread_extraction(tenant_id: UUID, call_id: UUID, *, reuse: bool = Tru
         return "still_failed"
 
     reading = await _record_reading(tenant_id, call_id, snapshot, extraction)
+    # Before the outcome, as in the pipeline, so a booked call back reads as booked.
+    await book_asked_callback(
+        tenant_id,
+        agent_id,
+        call_id,
+        snapshot,
+        extraction,
+        direction=direction,
+        opted_out=opt_out is not None,
+    )
     call_outcome = await _record_outcome(tenant_id, call_id, snapshot)
     business_outcome = await _record_business_outcome(tenant_id, call_id, business_outcomes)
     lead_id = await _upsert_lead(

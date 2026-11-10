@@ -28,6 +28,7 @@ from apps.api.callbacks import service as callbacks
 from apps.api.compliance.trial_access import restricting_trial
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.workers.after_call_callbacks import number_to_ring
 
 log = get_logger(__name__)
 
@@ -158,9 +159,18 @@ async def _book_callback_for(
     is the same walk the in-call booking tool refuses outside, so a handover that fails at
     21:30 books for 09:00 rather than ringing somebody at half past nine at night. The
     number is the OTHER party, chosen by direction exactly as the callback job chooses it —
-    getting that backwards would ring our own header.
+    getting that backwards would ring our own header. A forwarded call that showed the
+    business's own number (D-746, marked by the pipeline's STEP 1e, which runs first) books
+    none: the shown number would ring the business, and the number the caller gave is not
+    read until extraction, where STEP 3d' books on it when they asked to be called. The
+    owner sees the call as "Needs you" either way.
     """
-    phone = snapshot.from_e164 if snapshot.direction == "inbound" else snapshot.to_e164
+    phone = await number_to_ring(
+        session,
+        call_id,
+        snapshot.from_e164 if snapshot.direction == "inbound" else snapshot.to_e164,
+        {},
+    )
     if not phone:
         return False
     # A free-trial account places no call backs (founder decision 1), so none is promised.

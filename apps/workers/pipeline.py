@@ -1552,6 +1552,25 @@ async def _run_post_call_stages(
                 outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
             )
 
+    # STEP 1e — a forwarded number (D-746): is this inbound call our forwarding test
+    # arriving (its minutes are then ours and it files no lead), or a forwarded call that
+    # showed the client's own number instead of the caller's? Before the hand-over's call
+    # back (1d), the lead and the meter, which all read the answer off the call row.
+    if snapshot.direction == "inbound":
+        with span("pipeline.forwarded_line", call_id=str(call_id)) as stage:
+            async with tenant_session(tenant_id) as session:
+                claim = await claim_inbound_call(
+                    session,
+                    call_id=call_id,
+                    from_e164=_party_e164(snapshot.from_e164),
+                    started_at=snapshot.started_at,
+                )
+            set_span_attributes(
+                stage,
+                forwarding_test=claim.test_id is not None,
+                caller_hidden=claim.caller_hidden,
+            )
+
     # STEP 1d — the HUMAN LEG, if this call had one (D-533). Before the transcript because
     # it is a single indexed lookup that usually finds nothing, and because when it DOES
     # find something the two things it does are time-sensitive in a way transcript work is
@@ -1568,25 +1587,6 @@ async def _run_post_call_stages(
                 outcome=await settle_handoff(
                     session, tenant_id=tenant_id, call_id=call_id, snapshot=snapshot
                 ),
-            )
-
-    # STEP 1e — a forwarded number (D-746): is this inbound call our forwarding test
-    # arriving (its minutes are then ours and it files no lead), or a forwarded call that
-    # showed the client's own number instead of the caller's? Before the lead and the meter,
-    # which both read the answer off the call row.
-    if snapshot.direction == "inbound":
-        with span("pipeline.forwarded_line", call_id=str(call_id)) as stage:
-            async with tenant_session(tenant_id) as session:
-                claim = await claim_inbound_call(
-                    session,
-                    call_id=call_id,
-                    from_e164=_party_e164(snapshot.from_e164),
-                    started_at=snapshot.started_at,
-                )
-            set_span_attributes(
-                stage,
-                forwarding_test=claim.test_id is not None,
-                caller_hidden=claim.caller_hidden,
             )
 
     # STEP 1f — the per-turn timings (D-902), by their own job: the engine writes them some
@@ -1697,34 +1697,16 @@ async def _run_post_call_stages(
         )
 
     # STEP 3d' — the call back the caller asked for and the call did not book. Before the
-    # outcome, so a booked one reads "Call back booked" rather than "Needs you". Only on a
-    # model's reading (`next_step_by` is set only by one): the offline runner's keyword match
-    # over the whole call, agent lines included, is too weak to ring somebody on.
-    if (
-        extraction is not None
-        and model_answered(extraction)
-        and extraction.next_step_by is not None
-        and extraction.callback_requested
-        and snapshot.status == "completed"
-    ):
-        with span("pipeline.after_call_callback", call_id=str(call_id)) as stage:
-            async with tenant_session(tenant_id) as session:
-                booked = await book_requested_callback(
-                    session,
-                    tenant_id=tenant_id,
-                    agent_id=agent_id,
-                    call_id=call_id,
-                    engine_call_id=snapshot.engine_call_id,
-                    phone_e164=_party_e164(
-                        snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
-                    ),
-                    call_at=snapshot.started_at or datetime.now(UTC),
-                    extraction=extraction,
-                    opted_out=opt_out_signal is not None,
-                )
-            set_span_attributes(
-                stage, booked=booked is not None, time_from=booked.time_from if booked else "none"
-            )
+    # outcome, so a booked one reads "Call back booked" rather than "Needs you".
+    await book_asked_callback(
+        tenant_id,
+        agent_id,
+        call_id,
+        snapshot,
+        extraction,
+        direction=direction,
+        opted_out=opt_out_signal is not None,
+    )
 
     # STEP 3e — the outcome, DERIVED from facts (founder decision 6, `crm/outcomes`). After
     # the hand-over settle (1d) and extraction (3), before the lead (4) whose status rules
@@ -2095,6 +2077,50 @@ async def _extract_stage(
                 )
 
     return extraction
+
+
+async def book_asked_callback(
+    tenant_id: UUID,
+    agent_id: UUID,
+    call_id: UUID,
+    snapshot: ExecutionSnapshot,
+    extraction: ExtractionOutput | None,
+    *,
+    direction: str,
+    opted_out: bool,
+) -> None:
+    """STEP 3d', shared with the failed-reading re-read (`workers/extraction_reread`): when
+    the first reading failed at the provider, the caller's "call me later" is known only from
+    the second. `book_requested_callback` books once per call, so a re-run books nothing
+    more. Only on a model's reading (`next_step_by` is set only by one): the offline runner's
+    keyword match over the whole call, agent lines included, is too weak to ring somebody on.
+    """
+    if not (
+        extraction is not None
+        and model_answered(extraction)
+        and extraction.next_step_by is not None
+        and extraction.callback_requested
+        and snapshot.status == "completed"
+    ):
+        return
+    with span("pipeline.after_call_callback", call_id=str(call_id)) as stage:
+        async with tenant_session(tenant_id) as session:
+            booked = await book_requested_callback(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                call_id=call_id,
+                engine_call_id=snapshot.engine_call_id,
+                phone_e164=_party_e164(
+                    snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
+                ),
+                call_at=snapshot.started_at or datetime.now(UTC),
+                extraction=extraction,
+                opted_out=opted_out,
+            )
+        set_span_attributes(
+            stage, booked=booked is not None, time_from=booked.time_from if booked else "none"
+        )
 
 
 def reconcile_goal(
@@ -6341,6 +6367,7 @@ __all__ = [
     "PIPELINE_STALL_AFTER",
     "POSTCALL_JOB",
     "ReconcileVerdict",
+    "book_asked_callback",
     "callable_tenants",
     "ingest_engine_event",
     "load_moments_brief",
