@@ -56,7 +56,9 @@ write the number itself into a ticket, a commit or a log; the console shows it t
    page). As that client's owner: accept the no-cold-calls promise on Verify your
    business, make an agent and press **Get it ready**, then the dashboard's **Your free trial**
    panel → pick the agent, type your own mobile → **Make a test call**. An operator can run
-   the same path without the client's login:
+   the same path without the client's login: the client's Credits page in the admin console
+   → **Trial period** → pick the agent, type your own mobile → **Make a test call** →
+   **Ring the phone**. The button sends:
 
    ```
    POST /v1/admin/tenants/{tenant_id}/trial/test-call
