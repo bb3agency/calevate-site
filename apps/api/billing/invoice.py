@@ -35,6 +35,7 @@ from apps.api.compliance.kyc import read_kyc
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 
+from .ai_quota import ai_help_statement_lines
 from .charges import one_time_charge_lines
 from .gst import (
     GST_STATUS_SENTENCE,
@@ -467,6 +468,8 @@ async def build_invoice(
         line_items.extend(
             await prepaid_call_statement_lines(session, tenant_id=tenant_id, month=period)
         )
+    # THE EXTRA AI HELP BLOCK the wallet paid for this month (prepaid only, one per month).
+    line_items.extend(await ai_help_statement_lines(session, tenant_id=tenant_id, month=period))
 
     overage_minutes: Decimal = usage["overage_minutes"]
     overage_cost: Decimal = usage["overage_cost_inr"]
