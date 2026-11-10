@@ -155,7 +155,7 @@ App Dashboard > **Basics > Verifications > Access verification**
   (`embedded-signup/overview.md`). WhatsApp Manager > Partner overview shows Meta's own count.
 
 When it is approved, set **New WhatsApp clients per 7 days** to `200` in our console
-(step 7). Admin > WhatsApp shows our count against it, and an alarm
+(step 7). Clients' WhatsApp (`/admin/ops/whatsapp`) shows our count against it, and an alarm
 (`whatsapp_onboarding_limit_near`) fires at 80%.
 
 ## 6. Webhooks
@@ -215,7 +215,7 @@ All six take effect on the next request; no deploy.
 4. In WhatsApp Manager > Overview, **Add payment method**: "Once your customer adds a payment
    method, they are fully onboarded" (`embedded-signup/onboarding-customers-as-a-tech-
    provider.md`, step 5).
-5. Admin > WhatsApp should show the account **Connected**, 12 templates submitted, and
+5. Clients' WhatsApp (`/admin/ops/whatsapp`) should show the account **Connected**, 12 templates submitted, and
    "Last heard from Meta" within a few minutes. Templates are reviewed in "up to 24 hours"
    (`templates/template-review.md`).
 6. When a template is approved, set up **Send a WhatsApp message** on the test agent with it

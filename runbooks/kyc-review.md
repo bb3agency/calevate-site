@@ -17,7 +17,7 @@ The refusal names the rule. In order of the dial gate:
 
 ## Reviewing documents
 
-1. Admin console → **KYC reviews** lists records waiting, oldest first, with the path and
+1. Admin console → **Identity reviews** (`/admin/kyc-reviews`) lists records waiting, oldest first, with the path and
    the owner-ID type (PAN on a document review; Aadhaar or PAN through DigiLocker).
 2. Open the client → **KYC**. The review card shows the declared details, the masked owner
    ID, the DigiLocker name match where there is one, and the pledge state.

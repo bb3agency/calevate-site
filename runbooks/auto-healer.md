@@ -47,7 +47,7 @@ Most of an agent's recent real calls failed or ended inside ten seconds. The pla
    `healer_line_relapsed`; it will not give it back on its own after that.
 
 To give a line back by hand: press "Mark as handled" on the problem on `/admin/ops/healer` (step-up). The
-client can also press "Turn the line back on now" on their Line protection screen.
+client can also press "Turn line back on" on their Line protection screen.
 
 The agent's script is never touched by the healer. If the cause is the script, the client
 has a proposal to restore the previous version (`heal_proposals`); read it with them.

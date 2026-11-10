@@ -3,7 +3,7 @@
  *
  * The operator's half of `ownNumbers.ts`: the same purchase gates and the same charge to the
  * client, plus the levers only an operator has — retry provisioning, offboard a closed
- * account, send or re-read the business details, and "Release our record" for a number the
+ * account, send or re-read the business details, and "Take it back" for a number the
  * platform no longer holds or a platform-held test number being taken back.
  *
  * In its own module rather than `numbers.ts` for that file's reason: these spend money at a
