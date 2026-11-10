@@ -262,3 +262,39 @@ async def test_a_top_up_after_the_pass_decided_does_not_lose_the_number(
     )
     [hold] = await _hold_rows(tenant_id)
     assert hold.ended_at is None, "the hold must be left for the resume pass the top-up queued"
+
+
+async def test_an_account_closed_while_its_workspace_is_made_still_offboards_it(
+    account: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The closure sets the workspace `offboarding` while the provisioning job waits on the
+    vendor's create. The job must not then mark it active (the resolver would answer a
+    closed client's workspace and offboarding would report nothing owed); it records the
+    new workspace so offboarding can delete it."""
+    from apps.api.engine.thinnest_customers import ThinnestCustomers
+    from apps.api.tenancy import closure
+    from apps.api.tenancy import engine_workspace as resolver
+    from apps.workers import engine_workspaces as jobs
+    from tests.engine_workspace_test import _owed_tenant, _state
+
+    tenant_id = await _owed_tenant()
+    real_create = ThinnestCustomers.create
+
+    async def close_during_create(self: ThinnestCustomers, **kwargs: str) -> object:
+        made = await real_create(self, **kwargs)
+        async with tenant_session(tenant_id) as session:
+            await closure.close_account(session, tenant_id=tenant_id, reason="test", closed_by=None)
+        return made
+
+    monkeypatch.setattr(ThinnestCustomers, "create", close_during_create)
+    await jobs.provision_engine_workspace({}, {"tenant_id": str(tenant_id)})
+
+    state = await _state(tenant_id)
+    assert state.status == "offboarding", f"a closed client's workspace is {state.status}"
+    assert await resolver.workspace_for_tenant(tenant_id) is None
+    assert state.workspace_id is not None
+
+    result = await jobs.offboard_engine_workspace({}, {"tenant_id": str(tenant_id)})
+    assert result.startswith("released=0"), result
+    assert account.customers[state.workspace_id]["archivedAt"] is not None  # type: ignore[attr-defined]
+    assert (await _state(tenant_id)).status == "deleted"
