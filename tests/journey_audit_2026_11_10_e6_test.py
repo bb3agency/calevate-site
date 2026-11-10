@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from apps.api.callbacks import service as callbacks
@@ -214,3 +215,50 @@ async def test_a_top_up_landing_while_the_phone_is_being_silenced_still_brings_i
     assert await _silenced_at(tenant_id, agent_id) is None, (
         "the client paid, and their phone is still turning callers away"
     )
+
+
+async def test_a_top_up_after_the_pass_decided_does_not_lose_the_number(
+    account: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hold pass decides "stopped" once, then walks the holds. A top-up that commits
+    after that decision and before a due hold's release must keep the number: the release
+    is permanent and the client has just paid."""
+    from apps.api.billing.service import record_entry
+    from apps.api.campaigns import number_holds as holds
+    from apps.workers import number_holds as jobs
+    from tests.number_holds_test import _hold_rows, _no_trial, _overdrawn, _rented
+    from tests.number_holds_test import _tenant as hold_tenant
+
+    monkeypatch.setattr(holds, "trial_billing_active", _no_trial)
+    tenant_id, agent_id = await hold_tenant()
+    _number_id, number, _workspace = await _rented(account, tenant_id, agent_id)  # type: ignore[arg-type]
+    await _overdrawn(tenant_id, days=8)
+    await jobs.settle_tenant(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE phone_number_holds SET held_at = now() - interval '2 days', "
+                "release_at = now() - interval '1 minute'"
+            )
+        )
+
+    real_claim = jobs.claim_release
+
+    async def top_up_then_claim(session, *, hold_id):  # type: ignore[no-untyped-def]
+        async with tenant_session(tenant_id) as other:
+            await record_entry(
+                other, tenant_id=tenant_id, delta=Decimal("500.00"), reason="grant", ref="e6-top-up"
+            )
+        return await real_claim(session, hold_id=hold_id)
+
+    monkeypatch.setattr(jobs, "claim_release", top_up_then_claim)
+    tally, failed = await jobs.settle_tenant(tenant_id)
+
+    assert failed == 0
+    assert tally["released"] == 0, "a paid client's number was released"
+    assert not any(
+        s.method == "DELETE" and s.path.endswith(f"/{number}")
+        for s in account.sent  # type: ignore[attr-defined]
+    )
+    [hold] = await _hold_rows(tenant_id)
+    assert hold.ended_at is None, "the hold must be left for the resume pass the top-up queued"
