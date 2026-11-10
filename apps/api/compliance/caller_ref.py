@@ -114,7 +114,7 @@ REF_HEX_CHARS: Final = 32
 #: imported: `ingest.service` imports `compliance.service`, so a compliance module reaching
 #: back into it is the cycle `compliance/dnc.py`'s header already routes around, and this
 #: is one regex rather than a normalisation policy.
-_E164: Final = re.compile(r"^\+[1-9]\d{7,14}$")
+_E164: Final = re.compile(r"^\+[1-9][0-9]{7,14}$")
 
 #: `retention.ANONYMIZED_PHONE`, and the prefix `_LEAD_SQL` / `_CAMPAIGN_CONTACT_ERASE_SQL`
 #: actually write (`ANONYMIZED_PHONE[:9]` plus a slice of the row id). Matched on the

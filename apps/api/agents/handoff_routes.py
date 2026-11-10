@@ -88,8 +88,8 @@ class HandoffDayWindow(Strict):
     disagreeing about when a shop opens.
     """
 
-    opens: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    closes: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    opens: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+    closes: str = Field(pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 class HandoffMemberIn(Strict):

@@ -272,7 +272,7 @@ class OwnerIn(BaseModel):
 
     email: EmailStr
     name: str | None = Field(default=None, max_length=200)
-    phone_e164: str | None = Field(default=None, pattern=r"^\+[1-9]\d{7,18}$")
+    phone_e164: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{7,18}$")
 
 
 class CreateOrgIn(BaseModel):
@@ -312,7 +312,7 @@ class InviteIn(BaseModel):
     #: The invitee's name and mobile, as the operator heard them (D-695). Kept on the
     #: invitation and used to fill the new account's user when the link is accepted.
     name: str | None = Field(default=None, max_length=200)
-    phone_e164: str | None = Field(default=None, pattern=r"^\+[1-9]\d{7,18}$")
+    phone_e164: str | None = Field(default=None, pattern=r"^\+[1-9][0-9]{7,18}$")
 
 
 class InviteOut(BaseModel):
@@ -2030,7 +2030,7 @@ async def tenant_margin(
 class ProvisionNumberIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9][0-9]{7,18}$")
     # The series decides what the number may lawfully dial (DATA-MODEL §6).
     series: Literal["140", "160", "standard"]
     agent_id: UUID | None = None

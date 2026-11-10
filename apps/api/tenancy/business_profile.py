@@ -73,7 +73,7 @@ class ServiceItem(_Strict):
     reception" is a real answer."""
 
     name: str = Field(min_length=1, max_length=120)
-    price_inr: str | None = Field(default=None, max_length=20, pattern=r"^\d+(\.\d{1,2})?$")
+    price_inr: str | None = Field(default=None, max_length=20, pattern=r"^[0-9]+(\.[0-9]{1,2})?$")
     notes: str | None = Field(default=None, max_length=200)
 
 
@@ -98,7 +98,7 @@ class BusinessContactIn(_Strict):
     id: UUID | None = None
     label: str = Field(min_length=1, max_length=120)
     phone_e164: Annotated[
-        str, Field(pattern=r"^\+[1-9]\d{7,18}$"), AfterValidator(india_handoff_number)
+        str, Field(pattern=r"^\+[1-9][0-9]{7,18}$"), AfterValidator(india_handoff_number)
     ]
     note: str | None = Field(default=None, max_length=200)
 

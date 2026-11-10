@@ -11,7 +11,7 @@ from apps.api.copilot.routine_models import MAX_ROUTINE_INSTRUCTION, MAX_ROUTINE
 from apps.api.copilot.routines import Weekday
 
 #: "HH:MM", 24-hour, IST.
-_CLOCK = r"^([01]\d|2[0-3]):[0-5]\d$"
+_CLOCK = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 
 
 class CopilotRoutineSchedule(BaseModel):

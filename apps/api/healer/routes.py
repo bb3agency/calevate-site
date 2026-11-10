@@ -315,7 +315,7 @@ def _india_mobile(value: str) -> str:
 class FallbackPhoneIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    phone_e164: Annotated[str, Field(pattern=r"^\+91[6-9]\d{9}$"), AfterValidator(_india_mobile)]
+    phone_e164: Annotated[str, Field(pattern=r"^\+91[6-9][0-9]{9}$"), AfterValidator(_india_mobile)]
 
 
 class FallbackPhoneOut(_Out):

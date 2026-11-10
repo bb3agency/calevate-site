@@ -42,7 +42,7 @@ from apps.api.copilot.tools import ReadTool, ToolContext, _clean
 from apps.api.core.errors import ProblemError
 
 _WHERE: Final = "on the Assistant screen, under Routines"
-_CLOCK: Final = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_CLOCK: Final = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 _DAY_NAMES: Final = dict(
     zip(routines.WEEKDAYS, ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"), strict=True)
 )

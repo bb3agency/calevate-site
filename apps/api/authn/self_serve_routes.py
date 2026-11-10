@@ -59,7 +59,7 @@ class SignupCompleteIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
-    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    code: str = Field(min_length=6, max_length=6, pattern=r"^[0-9]{6}$")
     password: str = Field(min_length=1, max_length=256)
     name: str | None = Field(default=None, max_length=120)
 
