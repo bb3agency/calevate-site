@@ -258,6 +258,7 @@ function CallYou({
           onEnded={onEnded}
           creditHref={href(`/c/${session.orgSlug}/billing?tab=credits`)}
           chatHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=training`)}
+          voiceHref={href(`/c/${session.orgSlug}/agents/${agent.id}?section=voice`)}
         />
       </StepScreen>
     );
@@ -494,6 +495,7 @@ function CallInProgress({
   onEnded,
   creditHref,
   chatHref,
+  voiceHref,
 }: {
   agent: Agent;
   calls: readonly CallSummary[] | undefined;
@@ -515,6 +517,7 @@ function CallInProgress({
   onEnded: (call: CallSummary) => void;
   creditHref: string;
   chatHref: string;
+  voiceHref: string;
 }) {
   const { session } = useClientRealm();
   const queries = useQueryClient();
@@ -528,17 +531,26 @@ function CallInProgress({
             : row.id !== skip && Date.parse(row.created_at ?? row.started_at ?? "") >= since - 60_000,
         )
       : undefined;
-  const rule = placed?.blocked_rule ?? null;
+  // Some trial limits are checked only as the call is placed (the trial's Studio minutes, the
+  // day's cap under the shared line's lock), so they arrive as a refusal rather than a
+  // `blocked` answer. They are still limits: shown with the limit's own way forward, never as
+  // an error whose "Try again" asks the same refusal again.
+  const failedProblem = failure instanceof ApiProblem ? failure : null;
+  const limitFailure = failedProblem !== null && isLimitRule(failedProblem.code);
+  const rule = placed?.blocked_rule ?? (limitFailure ? failedProblem.code : null);
   const limit = refused !== null || isLimitRule(rule);
   const phase = callPhaseOf({
     preparing,
     placing,
     placedStatus: placed?.status ?? null,
     callStatus: call?.status ?? null,
-    refused: refused !== null,
-    failed: failure !== null,
+    refused: refused !== null || limitFailure,
+    failed: failure !== null && !limitFailure,
     limit,
   });
+  const failedWords = failedProblem
+    ? [failedProblem.message, failedProblem.remediation].filter(Boolean).join(" ")
+    : null;
   const live = phase === "dialling" || phase === "ringing" || phase === "talking";
   const [answeredAt, setAnsweredAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -629,16 +641,27 @@ function CallInProgress({
       );
     case "limit": {
       const minutes = /minutes_used|trial_ended/.test(rule ?? "");
+      const studio = rule === "trial_studio_minutes_used";
       return (
         <CallStage
           phase={phase}
           name={agent.name}
           icon={limitIcon(rule)}
-          detail={refused ?? placed?.blocked_reason ?? "Your trial's test calls are used up for now."}
+          detail={
+            refused ??
+            placed?.blocked_reason ??
+            (limitFailure ? failedWords : null) ??
+            "Your trial's test calls are used up for now."
+          }
           actions={
             <>
+              {studio ? (
+                <Link href={voiceHref} className={PRIMARY_BUTTON}>
+                  Choose a Clear voice
+                </Link>
+              ) : null}
               {minutes ? (
-                <Link href={creditHref} className={PRIMARY_BUTTON}>
+                <Link href={creditHref} className={studio ? SECONDARY_BUTTON : PRIMARY_BUTTON}>
                   Add credit
                 </Link>
               ) : null}
@@ -656,7 +679,7 @@ function CallInProgress({
         <CallStage
           phase={phase}
           name={agent.name}
-          detail={failure instanceof ApiProblem ? failure.message : "Check your connection, then try again."}
+          detail={failedWords ?? "Check your connection, then try again."}
           actions={
             <>
               <button type="button" className={PRIMARY_BUTTON} onClick={onRetryFailure}>

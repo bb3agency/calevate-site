@@ -90,6 +90,9 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const [stage, setStage] = useState<Stage | null>(null);
   const [pip, setPip] = useState(false);
   const [lastCall, setLastCall] = useState<CallSummary | null>(null);
+  // The brief typed or spoken but not yet saved: kept here because the brief step unmounts on
+  // Back and on "Talk it through with Pip", and each spoken piece used a recording.
+  const [briefDraft, setBriefDraft] = useState<string | null>(null);
 
   const loaded = run.data !== undefined && agents.data !== undefined && (agent === null || calls.data !== undefined);
   const pieces = piecesOf({ run: run.data, agent, calls: calls.data });
@@ -157,6 +160,8 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         body = (
           <BriefStep
             run={data}
+            draft={briefDraft}
+            onDraft={setBriefDraft}
             onBack={() => setStage("job")}
             onDone={() => setStage("questions")}
             onPip={() => setPip(true)}

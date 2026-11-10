@@ -568,6 +568,35 @@ async def test_the_answers_land_in_the_business_profile_merged() -> None:
     assert profile.booking_rules == "We confirm site visits on WhatsApp within an hour."
 
 
+async def test_the_address_answer_sent_again_keeps_one_main_branch() -> None:
+    """The screen sends the answers again whenever "Build my agent" is pressed again (after a
+    refused build) or the questions are answered again after Back. Each send used to append
+    another "Main branch", so the agent had the same address on file twice; a corrected
+    address now replaces the first."""
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    where = questions.fixed_question("location", "real_estate", question_id="q1")
+    assert where is not None
+    await _asked(tenant_id, [where])
+    async with _client() as http:
+        for address in (
+            "Plot 4, Kondapur, Hyderabad",
+            "Plot 4, Kondapur, Hyderabad",
+            "Plot 9, Kondapur, Hyderabad",
+        ):
+            sent = await http.post(
+                "/v1/first-run/answers",
+                headers=headers,
+                json={"answers": [{"id": "q1", "text": address}]},
+            )
+            assert sent.status_code == 200, sent.text
+    async with tenant_session(tenant_id) as session:
+        profile = await load_profile(session, tenant_id=tenant_id)
+    assert [(b.label, b.address) for b in profile.branches] == [
+        (first_run.MAIN_BRANCH_LABEL, "Plot 9, Kondapur, Hyderabad")
+    ]
+
+
 # ------------------------------------------------------------------ the spoken brief
 
 
