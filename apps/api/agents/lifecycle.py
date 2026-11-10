@@ -919,11 +919,12 @@ async def deactivate_agent(
         from_statuses=_sources_for("deactivate"),
         visible_where=_VISIBLE,
     )
+    # The in-call actions stay on the engine agent (D-981): a paused agent with an engine
+    # agent is "ready" (D-838/D-876), and the live apply and the drift sweep put back
+    # whatever a ready agent lacks, so retiring them here only made switch-off and the
+    # sweeps disagree, and switching back on wait for them. No caller reaches a paused
+    # agent: its numbers are released here and `check_dispatch` refuses to dial it.
     released = await _release_inbound_numbers(session, agent_id=agent_id) if moved else 0
-    if moved:
-        await retire_in_call_actions(
-            agent_id=agent_id, ref=await _engine_agent_ref(session, agent_id)
-        )
     return LifecycleResult(
         agent_id=agent_id, status="paused", changed=moved, numbers_released=released
     )

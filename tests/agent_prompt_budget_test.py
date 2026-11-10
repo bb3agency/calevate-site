@@ -40,8 +40,10 @@ from calevate_shared.engine import CALL_INSTRUCTIONS, AgentConfig, compose_engin
 OWNER_RESERVE = MAX_PINNED_CHARS + 7_000
 
 #: Characters the long script below must still leave free: room for its pinned facts to grow
-#: to their ceiling and 6,000 more of the owner's text.
-LONG_MARGIN = MAX_PINNED_CHARS + 6_000
+#: to their ceiling and 5,979 more of the owner's text (6,000 until D-979, 10 Nov 2026: the
+#: founder's "said so on this call or THIS CALL says so" is 21 characters longer on a placed
+#: call).
+LONG_MARGIN = MAX_PINNED_CHARS + 5_979
 
 COLLECT = [
     CollectField(label="Name", required=True),
@@ -148,9 +150,10 @@ def test_a_long_realistic_script_fits_with_margin() -> None:
 
 
 #: Characters a guided call (the long script plus step-by-step lists of the size a phone
-#: walk-through takes) must still leave: pinned facts at their ceiling and 2,400 more (2,500
-#: until F-5, 5 Nov 2026, whose written-form rule is 75 characters of new HOW TO SPEAK text).
-GUIDED_MARGIN = MAX_PINNED_CHARS + 2_400
+#: walk-through takes) must still leave: pinned facts at their ceiling and 2,379 more (2,500
+#: until F-5, 5 Nov 2026, whose written-form rule is 75 characters of new HOW TO SPEAK text;
+#: 2,400 until D-979, 10 Nov 2026, whose placed-call wording is 21 characters longer).
+GUIDED_MARGIN = MAX_PINNED_CHARS + 2_379
 
 
 def _guided(job: str) -> CallScript:

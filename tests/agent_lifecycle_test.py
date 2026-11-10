@@ -548,6 +548,36 @@ async def _fetch(tenant_id: uuid.UUID, sql: str, agent_id: uuid.UUID) -> Any:
         return (await session.execute(text(sql), {"aid": agent_id})).scalar()
 
 
+async def test_a_switched_off_agent_keeps_its_actions_and_no_caller_reaches_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-981: switching off no longer retires the in-call actions, so what keeps callers off
+    a switched-off agent is the number release and the dial gate, and both still hold."""
+    engine = _fresh_engine()
+    tenant_id, agent_id, token = await _tenant()
+    await _write_script(tenant_id, agent_id)
+    await _number(tenant_id, agent_id, ref="num_off_1")
+    assert (await _move(token, agent_id, "activate"))[0] == 200
+    assert engine.inbound_agent_for("num_off_1") is not None
+
+    retired: list[uuid.UUID] = []
+
+    async def _retire(*, agent_id: uuid.UUID, ref: str | None) -> int:
+        retired.append(agent_id)
+        return 0
+
+    monkeypatch.setattr(lifecycle, "retire_in_call_actions", _retire)
+    code, body = await _move(token, agent_id, "deactivate")
+    assert (code, body["status"], body["numbers_released"]) == (200, "paused", 1), body
+    assert retired == [], "switching off retired the in-call actions"
+    assert engine.inbound_agent_for("num_off_1") is None, "a switched-off agent still answers"
+    async with tenant_session(tenant_id) as session:
+        decision = await check_dispatch(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919000000001"
+        )
+    assert (decision.allowed, decision.rule) == (False, "agent_not_live")
+
+
 # --- 3. archived is never dialled and never assignable -------------------------------
 
 

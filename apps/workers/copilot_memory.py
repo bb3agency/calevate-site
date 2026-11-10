@@ -8,24 +8,27 @@ surface already metered per answer. So it happens here, after the fact, in bulk,
 clock — and `copilot/memory.py` writes episodic rows and returns without ever calling a
 model.
 
-WHAT "AFTER A CONVERSATION ENDS" MEANS WITHOUT A CONVERSATION ID. There is no end-of-chat
-signal on the wire: `POST /v1/copilot/ask` is one question, `history` is replayed by the
-browser and `copilot/schemas.py` carries no thread id. Inventing one would mean a schema
-change on a surface three other lanes are editing, for a fact this job can derive: a
-conversation is the undistilled episodes of ONE person on ONE screen, and it has ENDED
-when the newest of them is older than `IDLE_WINDOW`. That is inference from data we
-already hold rather than a new field for a browser to get wrong, and it degrades in the
-right direction — a person who comes back mid-window gets their episodes distilled one
-tick later, which nobody can perceive.
+ONCE A DAY, ONE CALL PER PERSON (D-982, founder, 10 Nov 2026). The run at
+`DISTILL_HOUR`:`DISTILL_MINUTE` IST reads each person's undistilled episodes, across every
+screen, in one model call. It was hourly per (person, screen), which bought several calls
+a day for one busy owner; facts about a business do not go stale in a day, so one read of
+the day's conversations is enough. A person whose newest episode is younger than
+`IDLE_WINDOW_MINUTES` is mid-conversation and is read at the next run.
+
+THE COST IS OURS (D-982). The spend is recorded under `ASSIST_FEATURE_COPILOT_MEMORY`,
+which is in `billing.models.ABSORBED_ASSIST_FEATURES`: no client asks for it, so it never
+counts against a client's monthly AI allowance. It is still metered (hard rule 7).
 
 THE SPEND CONTROLS, because this job costs real money on a timer and nothing above it
 says no:
 
 * `MIN_EPISODES` — a single exchange is not a conversation and does not buy a model call.
-* `MAX_EPISODES_PER_GROUP` — the prompt is bounded, so one chatty afternoon cannot become
-  one enormous request.
-* `MAX_GROUPS_PER_TICK` — the fleet-wide ceiling on calls per hour, so a bad day for one
-  tenant is not an unbounded bill.
+* `MAX_EPISODES_PER_PERSON` — the prompt is bounded: the most recent episodes are read,
+  and the older ones of that day are let go with them (stamped), so one chatty day can
+  neither become one enormous request nor a backlog that is paid for again tomorrow.
+* `MAX_PEOPLE_PER_RUN` and `MAX_PEOPLE_PER_TENANT` — the fleet-wide and per-account
+  ceilings on calls per run; a backlog beyond them drains over the following days.
+* `WalkBudget` — the run stops starting calls inside the worker's job timeout.
 * `DISTILL_MAX_TOKENS` — `EXTRACTION_MAX_TOKENS`' shape on the output side.
 * `MAX_FACTS_PER_GROUP` — the model is asked for at most this many and the answer is
   truncated to it, because "cap the output tokens" does not by itself cap the ROWS.
@@ -35,10 +38,10 @@ model call that spent our credential and wrote no `usage_events` row is money of
 books, whether or not a client asked for it.
 
 IDEMPOTENCY IS `copilot_memories.distilled_at`, STAMPED IN THE SAME TRANSACTION as the
-semantic rows it produced. A re-run — an arq retry, an overlapping tick, a redeploy — finds
+semantic rows it produced. A re-run — an arq retry, an overlapping run, a redeploy — finds
 those rows no longer in `ix_copilot_memories_pending_distillation` and does nothing. A
 crash between the INSERT and the stamp rolls both back together, so the state "distilled
-but not marked" (which would duplicate every fact on the next tick) is unrepresentable.
+but not marked" (which would duplicate every fact on the next run) is unrepresentable.
 The second-order duplicate — the same fact learned twice from two different conversations
 — is refused by the `NOT EXISTS` in `_INSERT_SEMANTIC_SQL`, so the semantic set converges
 instead of growing.
@@ -73,6 +76,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import chat
 from apps.workers.background_leg import BackgroundLeg, background_leg
 from apps.workers.extraction import azure_credentials
+from apps.workers.fleet_walk import WalkBudget
 from apps.workers.set_aside import (
     REFUSED_INPUT_SET_ASIDE,
     RefusalStreak,
@@ -86,21 +90,15 @@ log = get_logger(__name__)
 _SET_ASIDE_SWEEP: Final = "copilot_distil"
 
 
-def _group_key(user_id: UUID, route: str | None) -> str:
-    """How `_GROUPS_SQL` spells one (person, screen) conversation it should leave out."""
-    return str(user_id) if route is None else f"{user_id}:{route}"
-
-
-#: The minute this cron fires. :25, which is clear of every other fleet-wide fan-out in
-#: `settings.CRON_JOBS` — the poller (:00/:10/...), `report_stalled_pipeline` (:05/:35) and
-#: `reconcile_outstanding_calls` (:15/:45) — so three O(tenants) sweeps never share a
-#: minute. Hourly rather than more often: the work is not urgent and the ceiling below is
-#: per tick, so the cadence IS the spend rate.
+#: When the daily run fires, in IST (`settings.CRON_TIMEZONE`): 03:25, when nobody is in the
+#: console and no other fleet-wide walk fires (the daily ones start at 04:00; :25 is no
+#: hourly walk's minute). Once a day, so the cadence IS the spend rate: at most
+#: `MAX_PEOPLE_PER_RUN` calls a day.
+DISTILL_HOUR: Final = 3
 DISTILL_MINUTE: Final = 25
 
-#: How long a person's episodes on one screen must sit untouched before they are treated as
-#: a finished conversation. 30 minutes: longer than any pause inside one working session,
-#: short enough that the facts are available the same afternoon.
+#: How long a person's newest episode must sit untouched before their conversations are
+#: treated as finished. 30 minutes: longer than any pause inside one working session.
 IDLE_WINDOW_MINUTES: Final = 30
 
 #: Below this, a "conversation" is one question, and one question rarely contains a durable
@@ -108,19 +106,18 @@ IDLE_WINDOW_MINUTES: Final = 30
 #: costs nothing to evaluate.
 MIN_EPISODES: Final = 2
 
-#: The prompt bound. Ten exchanges is `copilot/schemas.MAX_HISTORY`'s five, doubled — the
-#: browser already treats more than that as a new conversation.
-MAX_EPISODES_PER_GROUP: Final = 10
+#: The prompt bound for one person's day: `copilot/schemas.MAX_HISTORY`'s five exchanges,
+#: four times, the most recent ones.
+MAX_EPISODES_PER_PERSON: Final = 20
 
-#: THE FLEET-WIDE CEILING ON PAID CALLS PER TICK. Hourly cron, times this, is the most
-#: model calls this feature can make in an hour, across every tenant. Deliberately small:
-#: distillation is a nice-to-have and a backlog drains over hours, whereas an unbounded
-#: fan-out over a table with a row per copilot turn is an incident.
-MAX_GROUPS_PER_TICK: Final = 20
+#: THE FLEET-WIDE CEILING ON PAID CALLS PER RUN, and so per day. A backlog beyond it (a
+#: first run after deploy, a day the provider was down) drains over the next few days;
+#: an unbounded fan-out over a table with a row per Pip turn is an incident.
+MAX_PEOPLE_PER_RUN: Final = 60
 
-#: Per tenant, so one busy account cannot consume the whole tick and starve the rest — the
+#: Per tenant, so one busy account cannot consume the whole run and starve the rest — the
 #: `TENANT_ROW_BUDGET` argument in `retention.py`, on calls instead of rows.
-MAX_GROUPS_PER_TENANT: Final = 3
+MAX_PEOPLE_PER_TENANT: Final = 10
 
 #: The output valve (`EXTRACTION_MAX_TOKENS`' shape). Sized to `MAX_FACTS_PER_GROUP` short
 #: sentences of JSON with headroom, so it can only fire on a runaway. A hit surfaces as
@@ -169,40 +166,37 @@ _SYSTEM_PROMPT: Final = (
 #: `copilot/memory._RECALL_SQL` interpolates `SEARCH_CONFIG` the same way, and
 #: `scripts/check_raw_sql.py` requires exactly this — a constant, never caller text.
 #:
-#: ONE ROW PER (person, screen) WHOSE CONVERSATION HAS GONE QUIET. `HAVING max(...)` is the
-#: idle test, `count(*)` is `MIN_EPISODES`, and the partial index
-#: `ix_copilot_memories_pending_distillation` is exactly this predicate's shape.
+#: ONE ROW PER PERSON WHOSE CONVERSATIONS HAVE GONE QUIET, across every screen. `HAVING
+#: max(...)` is the idle test, `count(*)` is `MIN_EPISODES`, and the partial index
+#: `ix_copilot_memories_pending_distillation` leads with (tenant_id, user_id).
 #:
-#: `:set_aside` leaves out conversations the provider refused (`_group_key`), which would
-#: otherwise head every tick.
-_GROUPS_SQL = f"""
-SELECT user_id, screen_route, count(*) AS episodes
+#: `:set_aside` leaves out people whose conversations the provider refused, who would
+#: otherwise head every run.
+_PEOPLE_SQL = f"""
+SELECT user_id, count(*) AS episodes
 FROM copilot_memories
 WHERE kind = '{KIND_EPISODIC}' AND distilled_at IS NULL
-  AND NOT ((user_id::text || coalesce(':' || screen_route, ''))
-           = ANY(CAST(:set_aside AS text[])))
-GROUP BY user_id, screen_route
+  AND NOT (user_id::text = ANY(CAST(:set_aside AS text[])))
+GROUP BY user_id
 HAVING count(*) >= :min_episodes
    AND max(created_at) < now() - make_interval(mins => :idle_minutes)
 ORDER BY max(created_at)
 LIMIT :limit
 """
 
-#: OLDEST FIRST, so the bound is a WINDOW rather than a sample: the rows outside it stay
-#: undistilled and are the head of the next tick's group, instead of being silently
-#: dropped from a conversation that was then marked done.
+#: NEWEST FIRST: the most recent episodes are the ones read; the caller puts them back in
+#: order for the prompt and stamps the older ones with them (`_MARK_SQL`).
 _EPISODES_SQL = f"""
-SELECT id, content FROM copilot_memories
-WHERE kind = '{KIND_EPISODIC}' AND distilled_at IS NULL
-  AND user_id = :uid AND screen_route IS NOT DISTINCT FROM :route
-ORDER BY created_at
+SELECT id, content, created_at FROM copilot_memories
+WHERE kind = '{KIND_EPISODIC}' AND distilled_at IS NULL AND user_id = :uid
+ORDER BY created_at DESC, id DESC
 LIMIT :limit
 """
 
 #: `NOT EXISTS` rather than a unique index, and the difference is what it is protecting
 #: against. A UNIQUE (tenant_id, user_id, content) would make the second learning of a fact
 #: an ERROR that aborts a transaction which has already inserted others; this makes it a
-#: no-op. The set converges either way, and only one of the two leaves the tick running.
+#: no-op. The set converges either way, and only one of the two leaves the run going.
 _INSERT_SEMANTIC_SQL = f"""
 INSERT INTO copilot_memories
   (id, tenant_id, user_id, kind, content, screen_route, meta, created_at, updated_at)
@@ -212,9 +206,13 @@ WHERE NOT EXISTS (
   WHERE kind = '{KIND_SEMANTIC}' AND user_id = :uid AND content = :content)
 """
 
-_MARK_SQL = """
+#: Every undistilled episode of the person up to the newest one read: the ones read, and the
+#: older ones of a day past `MAX_EPISODES_PER_PERSON`, which are let go rather than paid for
+#: in a second call. One written after the read is newer and waits for the next run.
+_MARK_SQL = f"""
 UPDATE copilot_memories SET distilled_at = now(), updated_at = now()
-WHERE id = ANY(:ids) AND distilled_at IS NULL
+WHERE kind = '{KIND_EPISODIC}' AND distilled_at IS NULL AND user_id = :uid
+  AND (created_at < :upto OR id = ANY(:ids))
 """
 
 
@@ -274,15 +272,14 @@ _GEMINI_FORMAT: Final[dict[str, Any]] = {
 }
 
 
-async def _distil_group(
+async def _distil_person(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     user_id: UUID,
-    route: str | None,
     distil: BackgroundLeg,
 ) -> int:
-    """One conversation → semantic rows. Returns how many landed.
+    """One person's quiet conversations → semantic rows. Returns how many landed.
 
     The model call happens OUTSIDE no transaction of its own — it is inside the caller's,
     which is a departure from `copilot/routes.py`'s rule about not holding a pooled
@@ -291,15 +288,16 @@ async def _distil_group(
     contending with live requests. What it buys is that the semantic INSERTs and the
     `distilled_at` stamp cannot be separated by a crash.
     """
-    episodes = (
+    newest_first = (
         await session.execute(
-            text(_EPISODES_SQL),
-            {"uid": user_id, "route": route, "limit": MAX_EPISODES_PER_GROUP},
+            text(_EPISODES_SQL), {"uid": user_id, "limit": MAX_EPISODES_PER_PERSON}
         )
     ).all()
-    if len(episodes) < MIN_EPISODES:
+    if len(newest_first) < MIN_EPISODES:
         return 0
+    episodes = list(reversed(newest_first))
     ids = [UUID(str(row[0])) for row in episodes]
+    upto = newest_first[0][2]
     record = "\n---\n".join(str(row[1]) for row in episodes)
 
     leg = distil.leg
@@ -338,7 +336,7 @@ async def _distil_group(
 
     # THE STAMP, in the same statement sequence as the inserts above and never after a
     # commit: this is the whole of the job's idempotency.
-    await session.execute(text(_MARK_SQL), {"ids": ids})
+    await session.execute(text(_MARK_SQL), {"uid": user_id, "upto": upto, "ids": ids})
 
     # HARD RULE 7. A model call that spent our credential is recorded, whether or not it
     # produced a fact — `usage` is None only when the provider declined to count, which is
@@ -363,7 +361,8 @@ async def _distil_group(
 
 
 async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
-    """Hourly. Turn quiet copilot conversations into semantic memories, within a budget.
+    """Daily. Turn each person's quiet Pip conversations into semantic memories, one model
+    call per person, within a budget.
 
     THE TENANT LIST COMES FROM `retention_worklist`, not from a second bridge and not from
     an RLS exemption on a table holding client prose. `copilot_memories` is FORCE-RLS'd, so
@@ -374,8 +373,8 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
     `copilot_memories` that registers the tenant under `reason = 'copilot_memory'`.
 
     ISOLATED PER TENANT. One account's provider error, malformed row or lock timeout must
-    not end the tick for everyone behind it in the list — `apply_retention` learned that
-    the same way. What DOES reach the retry ladder is a tick-wide failure (the worklist
+    not end the run for everyone behind it in the list — `apply_retention` learned that
+    the same way. What DOES reach the retry ladder is a run-wide failure (the worklist
     read, the pool, a missing credential), because retrying that is the only thing that
     could help.
     """
@@ -384,7 +383,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
         # Tolerant boot (BACKEND-PATTERNS §2): a deployment with no language credential
         # runs every other queue. Not an alert — it is a configuration state an operator
         # already sees at `/healthz/ready` (and, for a Gemini key that cannot serve, in
-        # `assistant_gemini_unavailable`), and alerting hourly on it is how an alert
+        # `assistant_gemini_unavailable`), and alerting daily on it is how an alert
         # becomes noise.
         log.info("copilot_distil_no_provider")
         return "no_provider"
@@ -412,7 +411,7 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
         alert(
             "WORKER_TERMINAL",
             "copilot_distil_worklist_failed",
-            detail="the distillation tick could not read the retention worklist",
+            detail="the distillation run could not read the retention worklist",
             error=type(failure).__name__,
         )
         raise
@@ -425,74 +424,67 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
         log.warning("copilot_distil_brake_tripped")
         return "brake_tripped"
 
-    budget = MAX_GROUPS_PER_TICK
-    distilled_groups = 0
+    budget = MAX_PEOPLE_PER_RUN
+    clock = WalkBudget()
+    distilled_people = 0
     facts_written = 0
     failed = 0
     excluded = await set_aside_ids(_SET_ASIDE_SWEEP)
     for tenant_id in tenants:
-        if budget <= 0:
+        if budget <= 0 or clock.spent():
             break
         try:
             async with tenant_session(tenant_id) as session:
-                groups = (
+                people = (
                     await session.execute(
-                        text(_GROUPS_SQL),
+                        text(_PEOPLE_SQL),
                         {
                             "min_episodes": MIN_EPISODES,
                             "idle_minutes": IDLE_WINDOW_MINUTES,
-                            "limit": min(MAX_GROUPS_PER_TENANT, budget),
+                            "limit": min(MAX_PEOPLE_PER_TENANT, budget),
                             "set_aside": excluded,
                         },
                     )
                 ).all()
             refusals = RefusalStreak()
-            for group in groups:
-                if budget <= 0:
+            for person in people:
+                if budget <= 0 or clock.spent():
                     break
                 budget -= 1
-                distilled_groups += 1
-                route = None if group[1] is None else str(group[1])
-                # ONE TRANSACTION PER GROUP, not per tenant. Each group's model call is paid
-                # for the moment it returns, and its facts, stamp and `usage_events` rows
-                # must commit with it: sharing the tenant's transaction let a provider error
-                # on a LATER group roll all three back, so the spend went unrecorded (hard
-                # rule 7) and the next tick paid for the same conversation again.
+                distilled_people += 1
+                user_id = UUID(str(person[0]))
+                # ONE TRANSACTION PER PERSON, not per tenant. Each model call is paid for the
+                # moment it returns, and its facts, stamp and `usage_events` rows must commit
+                # with it: sharing the tenant's transaction let a provider error on a LATER
+                # person roll all three back, so the spend went unrecorded (hard rule 7) and
+                # the next run paid for the same conversations again.
                 try:
                     async with tenant_session(tenant_id) as session:
-                        facts_written += await _distil_group(
-                            session,
-                            tenant_id=tenant_id,
-                            user_id=UUID(str(group[0])),
-                            route=route,
-                            distil=distil,
+                        facts_written += await _distil_person(
+                            session, tenant_id=tenant_id, user_id=user_id, distil=distil
                         )
                 except httpx.HTTPStatusError as failure:
                     if not chat.refused_this_input(failure):
                         raise
-                    # A refusal of THIS conversation: asked again only after a while, so it
-                    # cannot head every tick and keep the ones behind it from being read.
+                    # A refusal of THESE conversations: asked again only after a while, so
+                    # they cannot head every run and keep the people behind from being read.
                     log.warning("copilot_distil_input_refused", extra={"tenant_id": str(tenant_id)})
-                    await set_aside(
-                        _SET_ASIDE_SWEEP,
-                        [_group_key(UUID(str(group[0])), route)],
-                        for_=REFUSED_INPUT_SET_ASIDE,
-                    )
+                    await set_aside(_SET_ASIDE_SWEEP, [str(user_id)], for_=REFUSED_INPUT_SET_ASIDE)
                     if refusals.refused():
                         break
                     continue
                 refusals.answered()
         except (httpx.HTTPError, TimeoutError) as failure:
             # The provider, for THIS tenant's call. The episodes keep their NULL
-            # `distilled_at`, so the next tick picks the same conversation up — which is
-            # the correct behaviour for a transient failure and costs one hour.
+            # `distilled_at`, so the next run picks the same conversations up — the
+            # correct behaviour for a transient failure, and it costs one day.
             log.warning(
                 "copilot_distil_provider_failed",
                 extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
             )
         except Exception:
-            # Isolated so one tenant cannot end the tick for the rest, and counted so a
-            # failure that repeats every tick (a row that always crashes) still alarms.
+            # Isolated so one tenant cannot end the run for the rest, and counted so a
+            # failure that repeats every run (a row that always crashes) still alarms.
             log.exception("copilot_distil_tenant_failed", extra={"tenant_id": str(tenant_id)})
             failed += 1
 
@@ -502,8 +494,8 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
             "copilot_distil_sweep_incomplete",
             detail=(
                 f"{failed} of {len(tenants)} tenant(s) failed the Pip memory distillation "
-                "sweep; their conversations stay undistilled and the sweep runs again in "
-                "an hour"
+                "sweep; their conversations stay undistilled and the sweep runs again "
+                "tomorrow"
             ),
         )
 
@@ -511,23 +503,25 @@ async def distil_copilot_memories(ctx: dict[str, Any]) -> str:
         "copilot_distil_tick",
         extra={
             "tenants": len(tenants),
-            "groups": distilled_groups,
+            "people": distilled_people,
             "facts": facts_written,
             "budget_left": budget,
+            "out_of_time": clock.exhausted,
         },
     )
-    return f"groups={distilled_groups} facts={facts_written}"
+    return f"people={distilled_people} facts={facts_written}"
 
 
 __all__ = [
+    "DISTILL_HOUR",
     "DISTILL_MAX_TOKENS",
     "DISTILL_MINUTE",
     "IDLE_WINDOW_MINUTES",
-    "MAX_EPISODES_PER_GROUP",
+    "MAX_EPISODES_PER_PERSON",
     "MAX_FACTS_PER_GROUP",
     "MAX_FACT_CHARS",
-    "MAX_GROUPS_PER_TENANT",
-    "MAX_GROUPS_PER_TICK",
+    "MAX_PEOPLE_PER_RUN",
+    "MAX_PEOPLE_PER_TENANT",
     "MIN_EPISODES",
     "distil_copilot_memories",
 ]

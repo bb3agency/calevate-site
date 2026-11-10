@@ -115,7 +115,7 @@ Aadhaar number cannot be stored in a business-registry field. Good control; note
 1 SEPT 2026 — `copilot_memories` (migration `d4a9c17e6b02`).** The in-app assistant now
 persists (a) one row per answered question — what a client USER asked and what the model
 answered — and (b) `semantic` rows: durable facts about the client's business that
-`apps/workers/copilot_memory.py` distils out of a run of those episodes on an hourly cron,
+`apps/workers/copilot_memory.py` distils out of a run of those episodes on a daily cron (D-982),
 by reading them back to a language model. `apps/api/copilot/__init__.py` said in capitals
 that *"NOTHING IN THIS PACKAGE PERSISTS ANYTHING"* and `CopilotPanel.tsx` told the user
 *"it never saves anything"*; both were corrected in code, and this is the legal half of the

@@ -3684,12 +3684,16 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
 #: call's own conversation (ThinnestAI email of 28 Oct 2026, VENDOR-STATED,
 #: `docs/vendor/thinnest-replies-2026-10-12.md` §39 item 7), so what a caller said on an
 #: earlier call reads to it as said. This line keeps an agent told nothing about a stranger
-#: from greeting them as someone it spoke to before (D-965); it does not stop it treating
-#: an earlier call's outcome as true now.
+#: from greeting them as someone it spoke to before (D-965). Its second sentence (D-979,
+#: founder, 10 Nov 2026) keeps an earlier call's outcome from being treated as true now: on
+#: the Varsha call of 10 Nov the agent told the caller "we have installed the app" from a
+#: 5 Nov call, and on a placed call the vendor's recap competed with why we ring.
 ENGINE_MEMORY_RULE: Final = (
     "--- EARLIER CALLS ---\n"
     "Speak of an earlier conversation only when what you were given about this caller shows "
-    "one; never invent one."
+    "one; never invent one. It tells you what was talked about then, not what is true now: "
+    "ask before saying they did, have or use anything. On a call you place, why you call "
+    "comes first."
 )
 
 
@@ -4735,12 +4739,14 @@ OPENING_CONTINUES_RULE: Final = (
 #: What they have or use is a claim about the person too (founder's Rytu Khata call of 9 Nov
 #: 2026): a step's sounds-like line said "you already use the app, right? what for?" and the
 #: agent said it to a caller who had only registered. The model copies a step's line, so the
-#: rule names that line as an example, and "they or THIS CALL" lets what the caller says on
-#: the call count.
+#: rule names that line as an example. "said so on this call" rather than "they said so"
+#: (D-979, founder, 10 Nov 2026): the same number's earlier calls are in the model's history
+#: (ThinnestAI email of 28 Oct 2026, VENDOR-STATED, `docs/vendor/thinnest-replies-2026-10-12.md`
+#: §39 item 7), so "they said so" was met by a call days ago.
 CALL_REASON_RULE: Final = (
-    " Never say they enquired, showed interest, have or use something unless they or THIS "
-    'CALL said so; a step\'s "sounds like" is only an example. Asked what we hold? Say '
-    "THIS CALL's name, details."
+    " Never say they enquired, showed interest, have or use something unless they said so on "
+    'this call or THIS CALL says so; a step\'s "sounds like" is only an example. Asked what '
+    "we hold? Say THIS CALL's name, details."
 )
 
 #: A placed call asks permission before its questions, and greets the person by name (D-969).

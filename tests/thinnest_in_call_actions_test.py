@@ -1007,8 +1007,11 @@ async def test_the_drift_sweep_alarms_on_repaired_and_unreachable_actions(
         assert raised == ([code] if code else [])
 
 
-async def test_pausing_an_agent_retires_its_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_switching_an_agent_off_keeps_its_actions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """D-981: a switched-off agent with an engine agent is ready (D-838/D-876), and the live
+    apply and the drift sweep keep a ready agent's actions, so switch-off keeps them too."""
     from apps.api.agents import lifecycle
+    from apps.api.agents.models import is_published
 
     tenant_id, agent_id = await _seed_tenant(f"ag_{uuid.uuid4()}")
     retired: list[tuple[uuid.UUID, str | None]] = []
@@ -1020,12 +1023,14 @@ async def test_pausing_an_agent_retires_its_actions(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(lifecycle, "retire_in_call_actions", _retire)
     async with tenant_session(tenant_id) as session:
         result = await lifecycle.deactivate_agent(session, tenant_id=tenant_id, agent_id=agent_id)
-        ref = (
+        status, ref = (
             await session.execute(
-                text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
+                text("SELECT status, engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
             )
-        ).scalar_one()
-    assert result.changed and retired == [(agent_id, ref)]
+        ).one()
+    assert result.changed and status == "paused"
+    assert retired == []
+    assert is_published(status, ref), "switched off with an engine agent reads as ready"
 
 
 # --- live transfer (D-690) -------------------------------------------------------------

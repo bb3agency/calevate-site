@@ -1554,21 +1554,48 @@ async def claimed_refund_total_inr(
 async def unspent_credit_of_payment(
     session: AsyncSession, *, tenant_id: UUID, payment_id: str, entry_id: UUID
 ) -> Decimal:
-    """What of this payment's purchased credit the client has not spent and is not
-    already being refunded: its lot's remaining credit, less refunds claimed and not yet
-    processed (a processed refund has already taken its credit off the lot)."""
+    """What of this payment's purchased credit the client has not spent, has not lapsed and
+    is not already being refunded: its lot's remaining credit, less refunds claimed and not
+    yet processed (a processed refund has already taken its credit off the lot).
+
+    Lapsed credit is not refundable (D-980). The daily sweep zeroes a lapsed lot, but a lot
+    past its `expires_at` that the sweep has not reached yet still holds its credit, so the
+    date is read here too rather than trusting the sweep to have run. A lot with no
+    `expires_at` (bought before the expiry terms, D-900, or a grant) never lapses."""
     lot = await purchase_lot_of_entry(session, tenant_id=tenant_id, ledger_entry_id=entry_id)
     if lot is None:
         return Decimal("0.00")
     remaining = (
         await session.execute(
-            text("SELECT credits_remaining FROM credit_lots WHERE id = :lid"), {"lid": lot.lot_id}
+            text(
+                "SELECT CASE WHEN expires_at IS NOT NULL AND expires_at <= now() THEN 0 "
+                "ELSE credits_remaining END FROM credit_lots WHERE id = :lid"
+            ),
+            {"lid": lot.lot_id},
         )
     ).scalar()
     claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
     refunded = await refunded_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
     pending = max(claimed - refunded, Decimal("0"))
     return to_paise(max(Decimal(str(remaining or 0)) - pending, Decimal("0")))
+
+
+async def refundable_of_payment(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    payment_id: str,
+    payment_total_inr: Decimal,
+    topup_entry_id: UUID,
+) -> Decimal:
+    """The most a new refund of this payment may be: the lesser of what the payment has not
+    already had refunded and its unspent, unlapsed credit. The figure `claim_refund`'s two
+    ceilings enforce, and the one the admin refund screen shows."""
+    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    unspent = await unspent_credit_of_payment(
+        session, tenant_id=tenant_id, payment_id=payment_id, entry_id=topup_entry_id
+    )
+    return to_paise(max(min(payment_total_inr - claimed, unspent), Decimal("0")))
 
 
 async def claim_refund(
@@ -1654,17 +1681,24 @@ async def claim_refund(
                 "outstanding on it."
             ),
         )
-    # Used credit is not refundable (D-699). Checked here, under the lock and against the
-    # committed claims, for the payment ceiling's reason: read before the claim, two refunds
-    # that each fit the unspent credit both pass and together return credit already spent.
+    # Used credit (D-699) and lapsed credit (D-980) are not refundable. Checked here, under
+    # the lock and against the committed claims, for the payment ceiling's reason: read
+    # before the claim, two refunds that each fit the unspent credit both pass and together
+    # return credit already spent.
     unspent = await unspent_credit_of_payment(
         session, tenant_id=tenant_id, payment_id=payment_id, entry_id=topup_entry_id
     )
     if amount_inr > unspent:
+        most = to_paise(max(min(remaining, unspent), Decimal("0")))
         raise ProblemError.business_rule(
             "refund_exceeds_unspent",
-            f"Only ₹{unspent} of this payment's credit is unspent and refundable.",
-            remediation="Refund at most the unspent credit; used credit is not refundable.",
+            f"Only ₹{most} of this payment can be refunded. Credit that was used or has "
+            "lapsed is not refundable.",
+            remediation=(
+                f"Refund at most ₹{most}."
+                if most > 0
+                else "Nothing on this payment can be refunded."
+            ),
         )
     await session.execute(
         text(
@@ -2264,6 +2298,7 @@ __all__ = [
     "razorpay_api_secret",
     "razorpay_orders",
     "refund_idempotency_key",
+    "refundable_of_payment",
     "refunded_total_inr",
     "release_refund_claim",
     "topup_receipt",

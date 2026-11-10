@@ -349,6 +349,8 @@ async def test_restating_twice_converges_on_the_total_rather_than_compounding() 
             "credited_inr": "55000.00",
             "entries": 3,
             "first_at": panel.json()["payments"][0]["first_at"],
+            # What the refund route measures: the top-up row, not the restatement on it.
+            "refundable_inr": "5000.00",
         }
     ]
 
@@ -1011,6 +1013,7 @@ async def test_a_payment_total_is_complete_even_when_its_anchor_is_off_the_page(
             "credited_inr": "50000.00",
             "entries": 2,
             "first_at": body["payments"][0]["first_at"],
+            "refundable_inr": "5000.00",
         }
     ], "the anchor is off the page and still counted"
 

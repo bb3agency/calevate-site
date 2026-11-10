@@ -129,15 +129,25 @@ export function refundAmount(draft: RefundDraft): string | undefined {
  * Why this refund cannot be issued yet, or `null`.
  *
  * A PREVIEW of the route's own refusals, asked where the operator is typing:
- * `invalid_refund_amount`, the `reason` bounds, and `refund_exceeds_payment` — the last
- * measured against what this reference has CREDITED, which is the same figure the
- * server's claim table bounds the total by. The server refuses all three again, and the
+ * `invalid_refund_amount`, the `reason` bounds, `refund_exceeds_payment` — measured against
+ * what this reference has CREDITED, which is the same figure the server's claim table
+ * bounds the total by — and `refund_exceeds_unspent`, measured against the payment's
+ * `refundable_inr` (unspent, unlapsed credit). The server refuses each again, and the
  * ceiling in particular is enforced there by a committed claim rather than by a read,
  * because two operators refunding at the same instant is the case this preview cannot
  * see.
  */
 export function refundBlockReason(draft: RefundDraft): string | null {
   const typed = draft.amountInr.trim();
+  const most = draft.payment.refundable_inr;
+  // Used and lapsed credit is not refundable (D-699, D-980); the route refuses past this
+  // figure, so the screen says so before the operator gets that far.
+  if (toPaise(most) === 0) {
+    return "Nothing on this payment can be refunded. Its credit was used, has lapsed or is already being refunded.";
+  }
+  if (typed === "" && toPaise(most) < toPaise(draft.payment.credited_inr)) {
+    return `Only ${formatRupeeRateExact(most)} of this payment can be refunded. Type that amount or less.`;
+  }
   if (typed !== "") {
     switch (rupeeFault(typed)) {
       case "shape":
@@ -157,6 +167,9 @@ export function refundBlockReason(draft: RefundDraft): string | null {
         "refund cannot exceed the payment it is against — check the figure, and check " +
         "you are on the right payment."
       );
+    }
+    if (exceedsPayment(typed, most)) {
+      return `At most ${formatRupeeRateExact(most)} of this payment can be refunded. Credit that was used or has lapsed is not refundable.`;
     }
   }
   const reason = draft.reason.trim();

@@ -198,7 +198,11 @@ export function RefundPanel({
           id="refund-amount"
           hint={
             payment
-              ? `Leave empty to refund the whole ${formatINRExact(payment.credited_inr)}. Digits only for a partial refund — no commas, no ₹ sign.`
+              ? `At most ${formatINRExact(payment.refundable_inr)} can be refunded: credit that was used or has lapsed is not refundable. ${
+                  payment.refundable_inr === payment.credited_inr
+                    ? `Leave empty to refund the whole ${formatINRExact(payment.credited_inr)}. `
+                    : ""
+                }Digits only — no commas, no ₹ sign.`
               : "Leave empty to refund the whole payment; digits only for part of it."
           }
           error={null}

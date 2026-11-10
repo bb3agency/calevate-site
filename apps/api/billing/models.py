@@ -215,6 +215,9 @@ ASSIST_FEATURE_CALLER_HELP_ABSORBED = "caller_help_suggestion_absorbed"
 #: script from the owner's brief. Part of setting the account up, bounded per account
 #: (`first_run/models.MAX_QUESTION_RUNS`, `MAX_BUILD_RUNS`), so absorbed like the lead fields.
 ASSIST_FEATURE_FIRST_RUN = "first_run_setup"
+#: Pip's daily memory distillation (`workers/copilot_memory`): background spend no client
+#: action triggers, so ours (D-982, founder, 10 Nov 2026), absorbed like the first run.
+ASSIST_FEATURE_COPILOT_MEMORY = "copilot_memory_distillation"
 #: Features whose cost is OURS: excluded from the allowance like `FREE_ASSIST_FEATURES`, and
 #: unlike them not counted by the fair-use cap, which limits what a person asks for.
 ABSORBED_ASSIST_FEATURES = (
@@ -229,6 +232,7 @@ ABSORBED_ASSIST_FEATURES = (
     ASSIST_FEATURE_FIELD_SUGGESTIONS_ABSORBED,
     ASSIST_FEATURE_CALLER_HELP_ABSORBED,
     ASSIST_FEATURE_FIRST_RUN,
+    ASSIST_FEATURE_COPILOT_MEMORY,
 )
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has

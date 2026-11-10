@@ -41724,13 +41724,19 @@
           "payment_ref": {
             "title": "Payment Ref",
             "type": "string"
+          },
+          "refundable_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Refundable Inr",
+            "type": "string"
           }
         },
         "required": [
           "payment_ref",
           "credited_inr",
           "entries",
-          "first_at"
+          "first_at",
+          "refundable_inr"
         ],
         "title": "PaymentOut",
         "type": "object"
