@@ -472,6 +472,36 @@ def overage_ref(month: str) -> str:
     return f"{OVERAGE_REF_PREFIX}:{month}"
 
 
+#: The statement line for the block, in the words the wallet screen already uses for it.
+EXTRA_AI_HELP_LABEL: Final = "Extra AI help"
+
+
+async def ai_help_statement_lines(
+    session: AsyncSession, *, tenant_id: UUID, month: str
+) -> list[dict[str, Any]]:
+    """The statement line for the extra block bought for `month`, or none.
+
+    The block is a supply the wallet paid for, so the month's statement carries it beside
+    the calls and the rental it was debited with; without it the statement total fell short
+    of the month's wallet spend by exactly the block. Keyed on `overage_ref(month)`, the
+    month the block bought allowance for, which is the one row a tenant-month can hold.
+    """
+    purchased = await read_entry_by_ref(
+        session, tenant_id=tenant_id, reason="usage", ref=overage_ref(month)
+    )
+    if purchased is None or purchased.amount_inr >= 0:
+        return []
+    amount = to_paise(-purchased.amount_inr)
+    return [
+        {
+            "description": EXTRA_AI_HELP_LABEL,
+            "qty": Decimal("1"),
+            "unit_inr": amount,
+            "amount_inr": amount,
+        }
+    ]
+
+
 # --- what a tenant's month looks like -------------------------------------------
 
 
@@ -1603,6 +1633,7 @@ __all__ = [
     "AI_QUOTA_INR",
     "ASSIST_META_KIND",
     "ASSIST_REF_PREFIX",
+    "EXTRA_AI_HELP_LABEL",
     "EXTRA_REFUSAL",
     "INDEX_PREDICATE",
     "LAST_SALEABLE_MINUTES",
@@ -1620,6 +1651,7 @@ __all__ = [
     "AssistMetered",
     "ExtraPurchase",
     "PlatformAiSpend",
+    "ai_help_statement_lines",
     "ai_overage_block_inr",
     "alert_usage_incomplete",
     "assist_nominal_inr",
