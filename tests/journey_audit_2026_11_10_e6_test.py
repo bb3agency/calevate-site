@@ -264,6 +264,49 @@ async def test_a_top_up_after_the_pass_decided_does_not_lose_the_number(
     assert hold.ended_at is None, "the hold must be left for the resume pass the top-up queued"
 
 
+async def test_a_grant_notice_whose_client_email_keeps_failing_is_not_posted_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run that ends in `Retry` on its last try is a failed arq run, so the outbox never
+    marks the message consumed and re-publishes it two hours later as try 1: the dashboard
+    notice went up again (it checks for its own copy only on a retry) and every super admin
+    was emailed again, up to five times. The last try ends the job instead, and alarms."""
+    from apps.api.core.queue import WORKER_MAX_TRIES
+    from apps.workers import comp_notices
+    from arq import Retry
+    from sqlalchemy import text as sql
+    from tests.credit_grant_test import _tenant as grant_tenant
+
+    class _ClientRefuses:
+        def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
+            return to != "owner@example.com"
+
+    fired: list[str] = []
+    monkeypatch.setattr(comp_notices, "get_transport", lambda _purpose=None: _ClientRefuses())
+    monkeypatch.setattr(comp_notices, "alert", lambda _stage, code, **_kw: fired.append(code))
+    tenant_id = await grant_tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            sql("UPDATE organizations SET billing_email = 'owner@example.com' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+    payload = {
+        "tenant_id": str(tenant_id),
+        "kind": "grant",
+        "amount_inr": "250.00",
+        "actor_id": None,
+        "reason": "e6",
+    }
+    for attempt in range(1, WORKER_MAX_TRIES):
+        with pytest.raises(Retry):
+            await comp_notices.notify_comp({"job_try": attempt}, payload)
+
+    outcome = await comp_notices.notify_comp({"job_try": WORKER_MAX_TRIES}, payload)
+
+    assert outcome == "undelivered:client", "the last try must end the run, not fail it"
+    assert fired == ["comp_notice_undelivered"]
+
+
 async def test_an_account_closed_while_its_workspace_is_made_still_offboards_it(
     account: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:
