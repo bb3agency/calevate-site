@@ -970,8 +970,10 @@ async def test_outside_calling_hours_the_contact_waits_instead_of_burning_an_att
 
     assert row is not None
     assert row[0] == "pending", "back in the queue, not failed"
-    assert row[1] == 0, "the attempt was refunded — the hour blocked it, not the customer"
-    assert row[2] is not None, "and it is scheduled for later"
+    assert row[1] == 0, "no attempt spent — the hour blocked it, not the customer"
+    # Not claimed at all outside the hours (journey audit E3-02), so it is due the moment
+    # the window opens rather than thirty minutes after a refusal.
+    assert row[2] is None, "untouched until the hours open"
     assert calls == 0
 
 

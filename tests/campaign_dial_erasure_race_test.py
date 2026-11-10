@@ -35,6 +35,9 @@ from tests.campaign_dispatch_audit_test import (  # noqa: F401 - autouse fixture
     _tick_one_campaign,
 )
 
+#: A first try: nothing to put back on a refusal.
+_NO_PRIOR = campaign_dispatch.PriorTry(None, None)
+
 
 async def _erase(tenant_id: uuid.UUID, phone: str) -> str:
     async with tenant_session(tenant_id) as session:
@@ -148,9 +151,13 @@ async def test_no_settle_writer_resurrects_an_erased_contact(settle: str) -> Non
             )
             assert spent is False, "nothing was exhausted: the erasure had settled it"
         elif settle == "refused_transient":
-            await campaign_dispatch._refuse_contact(session, contact_id, rule="calling_hours")
+            await campaign_dispatch._refuse_contact(
+                session, contact_id, rule="calling_hours", prior=_NO_PRIOR
+            )
         else:
-            await campaign_dispatch._refuse_contact(session, contact_id, rule="dnc")
+            await campaign_dispatch._refuse_contact(
+                session, contact_id, rule="dnc", prior=_NO_PRIOR
+            )
 
     assert await _state(tenant_id, contact_id) == before
     async with tenant_session(tenant_id) as session:

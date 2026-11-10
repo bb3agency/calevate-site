@@ -107,7 +107,7 @@ from apps.api.campaigns.controls import account_pause_reason, auto_pause
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import (
     campaign_dialable_now,
-    campaign_window_open,
+    campaign_hours_open,
     dispatch_blockers,
     tenant_line_ceiling,
 )
@@ -529,6 +529,7 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     total_active = sum(work.active_outbound for work in tenants)
 
     running: list[tuple[UUID, UUID, int, dict[str, Any]]] = []  # (tenant, campaign, slots, retry)
+    settling: list[_Settling] = []
     started = 0
     for work in tenants:
         if not (work.has_running_campaign or work.has_due_schedule):
@@ -536,12 +537,20 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
             # `total_active`; there is nothing a session could add.
             continue
         try:
-            started_here, planned = await _plan_tenant(work, pool)
+            started_here, planned, closed = await _plan_tenant(work, pool)
         except Exception as exc:
             _tenant_failed(failures, work.tenant_id, "plan", exc)
             continue
         started += started_here
         running.extend(planned)
+        settling.extend(closed)
+
+    # Outside their hours, whatever the pool holds: settling dials nobody.
+    for tenant_id, campaign_id, retry_policy in settling:
+        try:
+            await _settle_out_of_hours(tenant_id, campaign_id, retry_policy)
+        except Exception as exc:
+            _tenant_failed(failures, tenant_id, "settle", exc)
 
     # Rule 1+2: what is left of the shared pool after the lines already in use. The
     # engine's account refuses a dial over its ceiling (`429`), so this budget is what keeps
@@ -671,11 +680,40 @@ async def _dispatch_fleet(pool: int, failures: list[_TenantFailure]) -> str:
     )
 
 
+class _Settling(NamedTuple):
+    """A running campaign outside its calling hours: visited to settle, never to dial."""
+
+    tenant_id: UUID
+    campaign_id: UUID
+    retry_policy: dict[str, Any]
+
+
+async def _settle_out_of_hours(
+    tenant_id: UUID, campaign_id: UUID, retry_policy: dict[str, Any]
+) -> None:
+    """The half of `_dispatch_for_campaign` that is not dialling: unanswered and stranded
+    dials back on the ladder, and the campaign completed once nobody is left. Calls placed
+    at 20:59 end after 21:00, and a campaign narrowed to 10:00-12:00 has its last one end
+    after 12:00; without this it stayed "running", and `campaign.completed` waited, until
+    its window next opened, usually the next morning."""
+    async with tenant_session(tenant_id) as session:
+        await _reap_stuck_dialing(
+            session,
+            campaign_id,
+            tenant_id=tenant_id,
+            max_attempts=int(retry_policy.get("max_attempts", 3)),
+            retry_policy=retry_policy,
+        )
+        await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
+
+
 async def _plan_tenant(
     work: TenantWork, pool: int
-) -> tuple[int, list[tuple[UUID, UUID, int, dict[str, Any]]]]:
-    """One tenant's schedules fired and campaigns budgeted: `(started, planned slices)`."""
+) -> tuple[int, list[tuple[UUID, UUID, int, dict[str, Any]]], list[_Settling]]:
+    """One tenant's schedules fired and campaigns budgeted: `(started, planned slices,
+    campaigns outside their hours)`."""
     planned: list[tuple[UUID, UUID, int, dict[str, Any]]] = []
+    settling: list[_Settling] = []
     # Scheduled starts FIRST, so a campaign whose start time arrived this tick dials
     # in this tick rather than the next one — the budget read below then sees it as
     # `running` like any other. The 30 seconds saved are not the point; the point is
@@ -684,7 +722,7 @@ async def _plan_tenant(
     # which is what stops a schedule firing into a halted platform.
     started_here = await _fire_due_schedules(work.tenant_id) if work.has_due_schedule else 0
     if not (work.has_running_campaign or started_here):
-        return started_here, planned
+        return started_here, planned, settling
     async with tenant_session(work.tenant_id) as session:
         row = (await session.execute(_TENANT_BUDGET_SQL, {"tid": work.tenant_id})).first()
         # Clamped to the pool: rule 3 can only ever narrow rules 1+2, never widen
@@ -698,7 +736,7 @@ async def _plan_tenant(
         # a race the client WINS, and it costs one session, not a dial.
         campaigns: list[dict[str, Any]] = list(row[1] or []) if row is not None else []
         if not campaigns:
-            return started_here, planned
+            return started_here, planned, settling
 
         # Rule 3 is a TENANT budget, spent ONCE across that tenant's campaigns.
         # Computing it per campaign let a tenant with two running campaigns claim
@@ -708,22 +746,25 @@ async def _plan_tenant(
         # rather than whatever order the planner returned.
         tenant_budget = max(0, ceiling - work.active_outbound)
 
+        now_ist = compliance_service.ist_now()
         for campaign in campaigns:
             campaign_id = campaign["id"]
             slider = campaign["concurrency"]
             retry_policy = campaign["retry_policy"]
             calling_hours = campaign["calling_hours"]
+            # The calling window, the platform's and the campaign's own narrowing, asked
+            # BEFORE claiming: a closed window blocks every contact identically, so
+            # claiming them only to refund each one stamps a try on people nobody rang,
+            # all night, every tick. The per-dial gate still enforces the platform window
+            # on everything claimed. A campaign outside its hours is still VISITED
+            # (`_settle_out_of_hours`): its last calls end after the window closes, and
+            # without the visit it would say "running" with nobody left until morning.
+            if not campaign_hours_open(calling_hours, now_ist):
+                settling.append(
+                    _Settling(work.tenant_id, UUID(str(campaign_id)), retry_policy or {})
+                )
+                continue
             if tenant_budget <= 0:
-                break
-            # Per-campaign calling window (narrowing-only; the create path
-            # refuses anything outside 09:00-21:00 IST, so this can only ever
-            # SHRINK when a campaign dials). Checked BEFORE claiming: a closed
-            # window blocks every contact identically, so skipping the campaign
-            # outright is cheaper and cleaner than claim-then-refund — no
-            # attempts burned, no compensating UPDATE. The per-dial gate still
-            # runs for everything claimed below, which keeps the platform
-            # window enforced there regardless — defense in depth.
-            if not campaign_window_open(calling_hours, compliance_service.ist_now()):
                 continue
             # Rule 4 under rule 3: the slider, bounded by what the tenant has left.
             #
@@ -742,7 +783,7 @@ async def _plan_tenant(
             slots = min(int(slider), tenant_budget)
             tenant_budget -= slots
             planned.append((work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {}))
-    return started_here, planned
+    return started_here, planned, settling
 
 
 async def _fire_due_schedules(tenant_id: UUID) -> int:
@@ -922,11 +963,15 @@ async def _dispatch_for_campaign(
         # dials the contacts the tick had already lined up is a pause the client does
         # not believe in, and those safeties exist precisely for the moment when
         # stopping fast matters.
+        #
+        # `picked` also carries the contact's previous try (its time and call), so a
+        # refusal that rang nobody can put both back (`_refuse_contact`).
         claimed = (
             await session.execute(
                 text(
                     "WITH picked AS MATERIALIZED ("
-                    "  SELECT id FROM campaign_contacts WHERE campaign_id = :cid "
+                    "  SELECT id, last_attempt_at AS prior_at, last_call_id AS prior_call "
+                    "  FROM campaign_contacts WHERE campaign_id = :cid "
                     "  AND status = 'pending' "
                     "  AND (next_attempt_at IS NULL OR next_attempt_at <= now()) "
                     "  AND EXISTS (SELECT 1 FROM campaigns c WHERE c.id = :cid "
@@ -936,7 +981,8 @@ async def _dispatch_for_campaign(
                     "UPDATE campaign_contacts c SET status = 'dialing', "
                     "attempts = c.attempts + 1, last_attempt_at = now(), updated_at = now() "
                     "FROM picked WHERE c.id = picked.id "
-                    "RETURNING c.id, c.phone_e164, c.name, c.custom, c.attempts"
+                    "RETURNING c.id, c.phone_e164, c.name, c.custom, c.attempts, "
+                    "picked.prior_at, picked.prior_call"
                 ),
                 {"cid": campaign_id, "n": slots},
             )
@@ -960,10 +1006,11 @@ async def _dispatch_for_campaign(
     # Set once the account's lines refuse a dial: every contact claimed behind it would be
     # refused the same way, so they wait for a line instead of each spending a request.
     lines_full = False
-    for contact_id, phone, name, custom, attempts in claimed:
+    for contact_id, phone, name, custom, attempts, prior_at, prior_call in claimed:
+        prior = PriorTry(prior_at, prior_call)
         async with tenant_session(tenant_id) as session:
             if lines_full:
-                await _refuse_contact(session, contact_id, rule=LINES_BUSY_CODE)
+                await _refuse_contact(session, contact_id, rule=LINES_BUSY_CODE, prior=prior)
                 blocked += 1
                 continue
             # THE CAMPAIGN's own two live facts, re-read per contact for exactly the
@@ -976,7 +1023,7 @@ async def _dispatch_for_campaign(
                 session, campaign_id=campaign_id, now_ist=compliance_service.ist_now()
             )
             if stopped is not None:
-                await _refuse_contact(session, contact_id, rule=stopped)
+                await _refuse_contact(session, contact_id, rule=stopped, prior=prior)
                 blocked += 1
                 continue
 
@@ -1009,7 +1056,7 @@ async def _dispatch_for_campaign(
             # a contact stopped by the switch goes back on the ladder either way, because
             # `big_red_switch` is not in `PERSON_LEVEL_REFUSALS`.
             if (await get_platform_status(force_refresh=True)).outbound_halted:
-                await _refuse_contact(session, contact_id, rule=BIG_RED_SWITCH_RULE)
+                await _refuse_contact(session, contact_id, rule=BIG_RED_SWITCH_RULE, prior=prior)
                 blocked += 1
                 continue
 
@@ -1025,7 +1072,9 @@ async def _dispatch_for_campaign(
                 halt_read_by_caller=True,
             )
             if not decision.allowed:
-                await _refuse_contact(session, contact_id, rule=decision.rule or "unknown")
+                await _refuse_contact(
+                    session, contact_id, rule=decision.rule or "unknown", prior=prior
+                )
                 blocked += 1
                 continue
 
@@ -1083,7 +1132,7 @@ async def _dispatch_for_campaign(
                     # pacing or lines, its balance or credentials, a missing configuration.
                     # The attempt is refunded; spending a rung on it would exhaust a
                     # reachable lead on refusals that were about us.
-                    await _refuse_contact(session, contact_id, rule=_refusal_rule(exc))
+                    await _refuse_contact(session, contact_id, rule=_refusal_rule(exc), prior=prior)
                     lines_full = lines_full or _refusal_rule(exc) == LINES_BUSY_CODE
                     blocked += 1
                     log.warning(
@@ -1382,6 +1431,17 @@ _SETTLE_LINE_WAIT = (
     "status = 'pending', next_attempt_at = now() + interval '1 minute', attempts = attempts - 1"
 )
 _LINE_LIMIT_RULES: Final = frozenset({LINES_BUSY_CODE, CALL_LINES_BUSY_RULE})
+#: A refusal about the person before anything rang: terminal like `_SETTLE_PERSON_REFUSED`,
+#: with the claim's attempt handed back, because nobody was called. The recall path keeps
+#: the attempt: its dial had already left for the voice platform.
+_SETTLE_PERSON_REFUSED_UNDIALLED = "status = 'dnc_blocked', attempts = attempts - 1"
+
+
+class PriorTry(NamedTuple):
+    """The contact's previous try as it stood before this claim stamped over it."""
+
+    attempt_at: datetime | None
+    call_id: UUID | None
 
 
 async def settle_recalled_contact(
@@ -1416,7 +1476,7 @@ async def settle_recalled_contact(
     return None if row is None else str(row[0])
 
 
-async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
+async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str, prior: PriorTry) -> None:
     """Settle one claimed contact the gate would not let us dial.
 
     TERMINAL or BACK ON THE LADDER, and the difference is `PERSON_LEVEL_REFUSALS` —
@@ -1438,23 +1498,30 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
     whole diagnostic value of the metric on this path: `blocked=7` says a campaign is
     stalled, `compliance_blocks{rule="dnc"}` versus `{rule="spend_cap"}` says which desk
     it belongs on. One writer, both refusal shapes, so they can never diverge again.
+
+    Nothing rang, so the claim is undone whole: the attempt, and the try's time and call
+    (`prior`) that the claim and `dispatch_call`'s link wrote. Left in place, a person
+    never called reads "Last 22:30" on the campaign screen and in their own data-access
+    export (`compliance/export.py`), and counts among the "people called" the pickup rate
+    is measured over, because the link points at a call the voice platform refused.
     """
     record_compliance_block(rule=rule)
     # The voice platform's own opt-out or do-not-call list (`platform_dnc.
     # ENGINE_PERSON_REFUSALS`) is a fact about the person too; it is the vendor's refusal and
     # not the gate's, so it is not a member of the gate's set.
     if rule in PERSON_LEVEL_REFUSALS or rule in ENGINE_PERSON_REFUSALS:
-        settle = _SETTLE_PERSON_REFUSED
+        settle = _SETTLE_PERSON_REFUSED_UNDIALLED
     elif rule in _LINE_LIMIT_RULES:
         settle = _SETTLE_LINE_WAIT
     else:
         settle = _SETTLE_REFUNDED
     await session.execute(
         text(
-            f"UPDATE campaign_contacts SET {settle}, updated_at = now() "
+            f"UPDATE campaign_contacts SET {settle}, last_attempt_at = :prior_at, "
+            "last_call_id = :prior_call, updated_at = now() "
             f"WHERE id = :id AND {_STILL_CLAIMED}"
         ),
-        {"id": contact_id},
+        {"id": contact_id, "prior_at": prior.attempt_at, "prior_call": prior.call_id},
     )
 
 

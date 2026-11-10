@@ -721,6 +721,14 @@ def campaign_window_open(calling_hours: dict[str, Any] | None, now_ist: datetime
     return start <= now_ist.time() < end
 
 
+def campaign_hours_open(calling_hours: dict[str, Any] | None, now_ist: datetime) -> bool:
+    """May this campaign dial at `now_ist` by the clock: the platform's 09:00-21:00 IST
+    window AND its own narrowing. The dispatcher plans with it and the campaign screen's
+    "waiting for calling hours" reads it, so the two cannot disagree; the per-dial gate
+    still enforces the platform half on every call."""
+    return within_calling_hours(now_ist) and campaign_window_open(calling_hours, now_ist)
+
+
 # The two rules `campaign_dialable_now` can return. Named constants because a runbook,
 # a metric label and a test all cite them, and because they join the vocabulary
 # `dispatch_blockers` and `check_dispatch` already share.
@@ -2022,9 +2030,7 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
             session, tenant_id=tenant_id, campaign_id=campaign_id, agent_status=str(about[13])
         )
         now_ist = compliance_clock.ist_now()
-        waiting_for_hours = not (
-            within_calling_hours(now_ist) and campaign_window_open(campaign[7], now_ist)
-        )
+        waiting_for_hours = not campaign_hours_open(campaign[7], now_ist)
     pause_reason = about[10]
     return {
         "id": about[0],
@@ -2116,6 +2122,7 @@ __all__ = [
     "archived_count",
     "assert_agent_still_assignable",
     "campaign_dialable_now",
+    "campaign_hours_open",
     "campaign_progress",
     "campaign_status_counts",
     "campaign_window_open",
