@@ -26,6 +26,7 @@ import {
   MAX_FILE_BYTES,
   SAMPLE_CSV,
   checkContacts,
+  decodeTextFile,
   newEntry,
   parseCsv,
   rowsToEntries,
@@ -125,7 +126,7 @@ export function ContactEditor({
     }
     let text: string;
     try {
-      text = await file.text();
+      text = decodeTextFile(new Uint8Array(await file.arrayBuffer()));
     } catch {
       // A file moved or locked after it was picked cannot be read.
       setNotice(`${file.name} could not be opened. Pick it again.`);
