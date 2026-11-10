@@ -172,3 +172,45 @@ async def test_a_lead_rung_inline_is_not_rung_again_when_its_bookkeeping_fails(
             await session.execute(text("SELECT count(*) FROM leads WHERE phone_e164 = :p"), {"p": "+919876508877"})
         ).scalar_one()
     assert leads == 1, "the enquiry was lost with the failed write"
+
+
+async def test_a_top_up_landing_while_the_phone_is_being_silenced_still_brings_it_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Job A (queued by the charge that emptied the wallet) is overriding the script when
+    a top-up commits and queues job B. B must not decide from A's uncommitted state, or it
+    finds nothing to restore, A then commits the silence, and the paid client's phone stays
+    off until somebody republishes."""
+    import asyncio
+
+    from apps.api.engine.fake import FakeEngine
+    from apps.workers.inbound_cutover import apply_inbound_credit_state
+    from tests.inbound_credit_cutover_test import _publish, _silenced_at, _spend, _tenant, _topup
+
+    tenant_id, agent_id = await _tenant()
+    await _topup(tenant_id, "500")
+    await _publish(tenant_id, agent_id)
+    await _spend(tenant_id, "-500")
+
+    real_override = FakeEngine.override_call_script
+    second: list[asyncio.Task[str]] = []
+
+    async def override_while_topping_up(self: FakeEngine, *args: object, **kwargs: object) -> None:
+        await real_override(self, *args, **kwargs)  # type: ignore[arg-type]
+        if not second:
+            await _topup(tenant_id, "500")
+            second.append(
+                asyncio.create_task(
+                    apply_inbound_credit_state({"job_try": 1}, {"tenant_id": str(tenant_id)})
+                )
+            )
+            # Give job B every chance to finish before A commits.
+            await asyncio.wait({second[0]}, timeout=1.0)
+
+    monkeypatch.setattr(FakeEngine, "override_call_script", override_while_topping_up)
+    await apply_inbound_credit_state({"job_try": 1}, {"tenant_id": str(tenant_id)})
+    await second[0]
+
+    assert await _silenced_at(tenant_id, agent_id) is None, (
+        "the client paid, and their phone is still turning callers away"
+    )
