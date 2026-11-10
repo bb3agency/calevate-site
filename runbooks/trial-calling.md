@@ -37,10 +37,10 @@ write the number itself into a ticket, a commit or a log; the console shows it t
    **Record this number**; recording it against a client is refused
    (`engine_number_is_platform_line`) once it is the trial number, and before that it would
    make it that client's.
-2. **Select it.** Ops console → Calling limits → **Shared trial number** panel. It lists, live
-   from the voice platform (`GET /phone-numbers` in the developer workspace), only the numbers
-   held there and recorded against no client. Type a reason and press **Use for trial
-   calls**. The write is re-checked against the same list
+2. **Select it.** Platform configuration → Calling limits and pacing → Free trials → the
+   **Shared trial number** setting. Its picker lists, live from the voice platform
+   (`GET /phone-numbers` in the developer workspace), only the numbers held there and recorded
+   against no client. Pick one, type a reason and press **Save change**. The write is re-checked against the same list
    (`ops/trial_number.assert_trial_number_selectable`), so a typed number the platform does
    not hold is refused (`trial_number_not_platform_held`). The cap
    (`trial_daily_call_cap`) and the per-call limit (`trial_call_max_seconds`) sit beside it.

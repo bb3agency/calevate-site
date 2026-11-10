@@ -137,19 +137,20 @@ Test details (`payments/payments/test-card-details.md`, `test-upi-details.md`): 
 UPI `success@razorpay` / `failure@razorpay`; recurring card `4718 6091 0820 4366` (test card
 tokens last 3 days only).
 
-1. **Top-up ₹100.** Client billing page → Add credit. Expect: "Paying" → "Verifying" →
-   "Credited"; one `topup` row on the client's credits page with the payment id as ref; the
+1. **Top-up ₹100.** Client billing page → choose the amount → **Continue** → **Pay ₹100
+   now**. Expect: "Payment window is open" → "Payment approved" → "Credit added"; one `topup` row on the client's credits page with the payment id as ref; the
    attempt captured; no alarm. In the dashboard the payment is Captured, amount `10000`.
 2. **Double click.** Two clicks within 15 minutes give ONE order.
-3. **Failure.** `failure@razorpay` → "The payment did not go through", nothing credited, the
-   attempt failed.
+3. **Failure.** `failure@razorpay` → the attempt shows "Did not go through" under Unfinished
+   payments, nothing credited, the attempt failed.
 4. **Refund.** `/admin/tenants/<id>/credits` → Refund, part of the payment. Needs the step-up
    (`X-Confirm-Action: refund_payment:<tenant>:<payment>` and a fresh second factor; the
    console sends both). Expect one negative `refund` row and `refund.processed` deduped onto
    it. Asking for more than the unspent credit of that payment is refused.
-5. **Auto-recharge.** Client billing → Auto-recharge → Set up with UPI (or the recurring
-   card). The ₹1 approval payment is credited; the mandate shows "Waiting for your bank",
-   then "Approved" on `token.confirmed`. Turn it on with a threshold above the balance; within
+5. **Auto-recharge.** Client billing → Auto top-up → choose **UPI Autopay** (or **Card**) →
+   **Approve a payment method**. The ₹1 approval payment is credited; the mandate shows
+   "Waiting for your bank or UPI app to confirm the approval", then "Approved for automatic
+   top-ups" on `token.confirmed`. Turn it on with a threshold above the balance; within
    five minutes a charge starts and the client is emailed. In test mode Razorpay's debit
    follows its own pre-debit timing (25 h UPI, 36 h 5 min cards); the charge row stays
    "pending" until then. Withdraw the approval: `token.cancelled`, auto-recharge off.

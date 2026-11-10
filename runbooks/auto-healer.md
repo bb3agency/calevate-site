@@ -47,7 +47,7 @@ Most of an agent's recent real calls failed or ended inside ten seconds. The pla
    `healer_line_relapsed`; it will not give it back on its own after that.
 
 To give a line back by hand: press "Mark as handled" on the problem on `/admin/ops/healer` (step-up). The
-client can also press "Turn the line back on now" on their Line protection screen.
+client can also press "Turn line back on" on their Line protection screen.
 
 The agent's script is never touched by the healer. If the cause is the script, the client
 has a proposal to restore the previous version (`heal_proposals`); read it with them.
@@ -63,7 +63,7 @@ minutes it retries the holds the platform refused and checks for fifteen quiet m
 then it gives every line back and marks the status post resolved.
 
 What you do: confirm with the voice platform's own status, and keep the status page title
-honest (Incidents → the outage → status post). Do not resolve it by hand while the
+honest: on `/admin/ops/healer`, the outage problem's **Change what the public reads** (or **Take it off the status page**). Do not resolve it by hand while the
 platform is still failing: the holds would be lifted onto a dead platform.
 
 ## 4. An incident needs a person (`healer_needs_person`)

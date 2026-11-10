@@ -45,11 +45,16 @@ The alert splits the count. Read it before doing anything:
 ## 3. Do the work
 
 ```
-uv run python -m scripts.processor_erasure list
+uv run python -m scripts.processor_erasure --tenant <tenant id> list
 ```
 
-Prints every open task: the task id, which processor, how many days it has been open, and
-**the vendor identifiers to quote**. Those ids are the point — a request that says "please
+Run it once for each tenant the page names (`tenant_1`, `tenant_2`, … under Reference ids,
+the first 20). The tasks are tenant-scoped, so `--tenant` is required and goes before the
+command. On the production host, run it the way the other scripts in the alarm index are run:
+`sudo -u calevate bash -lc 'cd /var/www/calevate && docker compose -p calevate -f compose.prod.yml exec -T workers python -m scripts.processor_erasure --tenant <tenant id> list'`.
+
+Prints every open task of that tenant: the task id, which processor, how many days it has
+been open, and **the vendor identifiers to quote**. Those ids are the point — a request that says "please
 delete this person's calls" is unactionable at a support desk, and one that lists execution
 ids is actionable.
 
@@ -69,7 +74,7 @@ knowledge-base handles), or, for `speech`/`llm`, the account and the date range.
 **Record that you sent it:**
 
 ```
-uv run python -m scripts.processor_erasure sent <task-id> --reference "<their ticket id>"
+uv run python -m scripts.processor_erasure --tenant <tenant id> sent <task-id> --reference "<their ticket id>"
 ```
 
 `--reference` is optional. A vendor who answers an email with an email gives no ticket id,
@@ -78,8 +83,8 @@ and inventing one is worse than the gap.
 **Record what they said:**
 
 ```
-uv run python -m scripts.processor_erasure answered <task-id> --outcome confirmed --note "..."
-uv run python -m scripts.processor_erasure answered <task-id> --outcome refused  --note "..."
+uv run python -m scripts.processor_erasure --tenant <tenant id> answered <task-id> --outcome confirmed --note "..."
+uv run python -m scripts.processor_erasure --tenant <tenant id> answered <task-id> --outcome refused  --note "..."
 ```
 
 ---

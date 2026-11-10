@@ -1,7 +1,7 @@
 "use client";
 
 import { RowLink } from "@/components/console/checklist";
-import { Section } from "@/components/console/section";
+import { Section, TEXT_ACTION } from "@/components/console/section";
 import { useEffect, useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
@@ -328,6 +328,7 @@ function IncidentRow({
           {kind.next_step}
         </p>
       )}
+      {incident.resolved_at === null && <StatusNotice incident={incident} />}
       {incident.resolved_at === null && (
         <div className="flex flex-wrap items-center gap-2 pt-1">
           <AskAssistant label={`Ask ${ASSISTANT_NAME} to fix this`} prompt={fixPrompt(incident)} />
@@ -375,6 +376,110 @@ function IncidentRow({
  *  tools look the problem up by. */
 export function fixPrompt(incident: HealerIncident): string {
   return `Look into the healer problem “${incident.kind.title}” (ref ${incident.ref}) and fix what you can.`;
+}
+
+/**
+ * An open problem's notice on the public status page: post it, change what it says, or take
+ * it off while the problem is still open. Closing the problem ("Mark as handled") is what
+ * ends a notice for good; this is for a notice that is wrong now, such as the outage
+ * playbook's automatic one once the scope is known (runbooks/auto-healer.md §3).
+ */
+function StatusNotice({ incident }: { incident: HealerIncident }) {
+  const post = usePostStatus();
+  const feedback = useActionFeedback(post, {
+    errorDisplay: "inline",
+    successToast: "Status page updated",
+  });
+  const [editing, setEditing] = useState<"post" | "remove" | null>(null);
+  const [title, setTitle] = useState("");
+  const [component, setComponent] = useState<StatusComponentKey>(incident.component ?? "calls");
+  useEffect(() => {
+    if (feedback.status === "success") setEditing(null);
+  }, [feedback.status]);
+  const open = (next: "post" | "remove") => {
+    resetIfSettled(post);
+    setTitle(incident.public_title ?? "");
+    setComponent(incident.component ?? "calls");
+    setEditing(next);
+  };
+  const close = () => {
+    resetIfSettled(post);
+    setEditing(null);
+  };
+  const trimmed = title.trim();
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-meta">
+      {incident.public ? (
+        <>
+          <p className="text-ink">
+            On the status page: <span className="font-medium">“{incident.public_title}”</span>
+          </p>
+          <button type="button" className={TEXT_ACTION} onClick={() => open("post")}>
+            Change what the public reads
+          </button>
+          <button type="button" className={TEXT_ACTION} onClick={() => open("remove")}>
+            Take it off the status page
+          </button>
+        </>
+      ) : (
+        <button type="button" className={TEXT_ACTION} onClick={() => open("post")}>
+          Show on the status page
+        </button>
+      )}
+      {editing === "post" && (
+        <ConfirmDialog
+          title={incident.public ? "Change the status page notice" : "Show this on the status page"}
+          confirmLabel={incident.public ? "Change it" : "Post it"}
+          pendingLabel="Posting…"
+          status={feedback.status}
+          confirmDisabled={trimmed.length < 3}
+          error={post.error}
+          onCancel={close}
+          onConfirm={() =>
+            feedback.run({ incidentId: incident.id, title: trimmed, component })
+          }
+        >
+          <p>The public reads this at calevate.tech/status. Name no client and no supplier.</p>
+          <label className="mt-3 block">
+            <span className={FIELD_LABEL}>What the public reads</span>
+            <input
+              className={FIELD}
+              value={title}
+              maxLength={120}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <label className="mt-3 block">
+            <span className={FIELD_LABEL}>Which part</span>
+            <select
+              className={FIELD}
+              value={component}
+              onChange={(event) => setComponent(event.target.value as StatusComponentKey)}
+            >
+              {COMPONENTS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </ConfirmDialog>
+      )}
+      {editing === "remove" && (
+        <ConfirmDialog
+          title="Take this off the status page?"
+          confirmLabel="Take it off"
+          pendingLabel="Taking it off…"
+          status={feedback.status}
+          error={post.error}
+          onCancel={close}
+          onConfirm={() => feedback.run({ incidentId: incident.id, title: null, component })}
+        >
+          The public stops seeing this notice. The problem itself stays open here.
+        </ConfirmDialog>
+      )}
+    </div>
+  );
 }
 
 function StatusPost() {

@@ -17,9 +17,9 @@ The refusal names the rule. In order of the dial gate:
 
 ## Reviewing documents
 
-1. Admin console → **KYC reviews** lists records waiting, oldest first, with the path and
+1. Admin console → **Identity reviews** (`/admin/kyc-reviews`) lists records waiting, oldest first, with the path and
    the owner-ID type (PAN on a document review; Aadhaar or PAN through DigiLocker).
-2. Open the client → **KYC**. The review card shows the declared details, the masked owner
+2. Open the client → **Identity & approval**. The review card shows the declared details, the masked owner
    ID, the DigiLocker name match where there is one, and the pledge state.
 3. **Open** each file (decrypted for you; the view is audited). Check:
    - the business certificate matches the legal name, and is the GST certificate when the
@@ -61,7 +61,7 @@ An owner-ID file nobody decides on is deleted after 30 days by the nightly purge
 
 ## Requiring DigiLocker ("deeper verification")
 
-On the client's **KYC** page, **Require DigiLocker** with a reason. Outbound pauses at once
+On the client's **Identity & approval** page, **Require DigiLocker** with a reason. Outbound pauses at once
 for that client until a DigiLocker run completes after that moment; inbound continues.
 **Stop requiring DigiLocker** lifts it. Both are audited.
 

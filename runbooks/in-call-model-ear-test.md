@@ -23,8 +23,8 @@ founder from the ops console and a phone; nothing here is automatic.
 | D | GPT-OSS 120B | new, with the example call deleted (Save, Apply) — tells you what the examples add |
 
 Run A first, before applying anything. For B, C and D:
-1. Model: ops console -> Settings -> Voice engine -> ThinnestAI -> "In-call language model
-   for Clear agents". For C and D type `GPT-OSS 120B` and save; the console stores the id
+1. Model: Platform configuration -> Voice engine -> ThinnestAI -> "In-call language model
+   for agents with none chosen". For C and D type `GPT-OSS 120B` and save; the console stores the id
    ThinnestAI lists for it and refuses it if it is not call-capable on our plan. For B
    leave it empty (Prana [Voice]).
 2. Republish the agent (switch it off and on, or Apply a script change) so the model and
@@ -107,7 +107,7 @@ it needs the ThinnestAI key, which the api image adopts from the ops console.
    that leg is attested, a Gemini model on Azure); the "Judged by" column says which ran, so
    a row judged by its own family is read with that in mind. `/tmp/model-compare.json` on
    the host holds every transcript.
-5. **Decide**, then set the console's "In-call language model for Clear agents" to the
+5. **Decide**, then set the console's "In-call language model for agents with none chosen" to the
    winner; saving it republishes every live agent (D-720). GPT-5 Mini can only be chosen
    beside a voice whose band is at least Premium. Delete the test copy.
 

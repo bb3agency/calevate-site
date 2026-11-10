@@ -3,9 +3,9 @@
 The executable companion to `runbooks/processor-erasure.md`. `processor_erasure_overdue`
 pages; this is what you run.
 
-    uv run python -m scripts.processor_erasure list
-    uv run python -m scripts.processor_erasure sent <task-id> --reference "TICKET-123"
-    uv run python -m scripts.processor_erasure answered <task-id> --outcome confirmed
+    uv run python -m scripts.processor_erasure --tenant <tenant> list
+    uv run python -m scripts.processor_erasure --tenant <tenant> sent <task> --reference "T-1"
+    uv run python -m scripts.processor_erasure --tenant <tenant> answered <task> --outcome confirmed
 
 **NOTHING HERE SENDS ANYTHING**, for the reason `scripts/breach_notice.py` records about
 its own surface: a tool that can write to a vendor on behalf of a compliance obligation is

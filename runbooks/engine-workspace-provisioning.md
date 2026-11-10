@@ -102,7 +102,7 @@ The error code on the page says which:
 - `engine_workspace_is_developer` — the vendor answered with OUR developer workspace's id
   for the client. Nothing was recorded. Check the customer list in the ThinnestAI console
   for a customer with `externalId` `calevate-<tenant uuid>`; set
-  **ThinnestAI developer workspace id** (`thinnest_developer_workspace_id`) if it is empty
+  **ThinnestAI developer workspace** (`thinnest_developer_workspace_id`) if it is empty
   (gate T-16), then **Retry provisioning**.
 - an error type name (a timeout, a connection error) — the vendor was unreachable; the job
   retried and gave up. Check ThinnestAI's status and our egress, then **Retry provisioning**.
@@ -118,18 +118,18 @@ record (D-692): legal name, GST yes/no, and its one business certificate, with
 the workspace is active AND the KYC record is verified, whichever happens second.
 
 - **`engine_business_details_submit_failed`** — the send failed after the retries. Open the
-  client's KYC page: the certificate must be PDF, JPG or PNG, at most 5 MB, filename at most
+  client's Identity & approval page: the certificate must be PDF, JPG or PNG, at most 5 MB, filename at most
   99 characters (`send-business-details.md:7`). Then **Send business details**. A 409 from
   the vendor is not a failure: an application is already being checked or approved, and we
   read it back.
 - **`engine_business_details_lapsed`** (`tenant_id` on the alarm) — the application is
   `rejected` or `suspended`. The review note is on the admin page and on the client's
   Numbers page. The client corrects its certificate under **Verify your business** (or an
-  admin uploads the corrected one on the KYC page) and presses **Send the details again**; a resend
+  admin uploads the corrected one on the Identity & approval page) and presses **Send the details again**; a resend
   after a rejection corrects the same application (`send-business-details.md:7`). An
   `expired` one is resent automatically by the daily `sweep_engine_workspaces`.
-- **Stuck at `submitted`** — approval "usually takes a few minutes" (`:7`). Press **Check
-  now**. Approval through the API for a customer workspace is untested live (gate T-20); if
+- **Stuck at `submitted`** — approval "usually takes a few minutes" (`:7`). Press **Refresh
+  status** on the voice workspace panel. Approval through the API for a customer workspace is untested live (gate T-20); if
   it does not land, record what the vendor shows and raise it with ThinnestAI. Do not submit
   the client's details in our developer workspace instead.
 
@@ -146,7 +146,7 @@ attested), never ThinnestAI's `monthlyPrice`, which is our cost.
   client presses Buy again: the same request is resolved by reading the number back from the
   workspace and never rents a second number (gate T-19).
 - A number rented in our developer workspace before D-693 is "held in the platform account":
-  testing only (gate T-21). To take it back from a client, use **Release our record**, which
+  testing only (gate T-21). To take it back from a client, use **Take it back** on the number's row, which
   detaches it and keeps it ours.
 
 ## Agent retire failure — `engine_agent_retire_failed`

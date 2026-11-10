@@ -361,3 +361,89 @@ describe("auto-healer screen in plain words", () => {
     );
   });
 });
+
+/**
+ * Journey audit E5-03: `PUT /v1/ops/healer/incidents/{id}/status` and its hook existed, but no
+ * control called it, so an open problem's public notice (the outage playbook's automatic
+ * one, or one posted by hand) could not be corrected or taken down until the problem closed.
+ */
+describe("an open problem's status page notice", () => {
+  const OUTAGE = "019f1000-0000-7000-8000-0000000000p1";
+  const outage = incident({
+    id: OUTAGE,
+    ref: "000000p1",
+    finding: null,
+    playbook: "engine_outage",
+    trigger_code: "engine_platform_outage",
+    state: "mitigated",
+    component: "calls",
+    public: true,
+    public_title: "Calls are not connecting for some customers",
+    kind: {
+      code: "engine_platform_outage",
+      title: "Calls are failing for many clients",
+      meaning: "The voice platform is failing.",
+      next_step: "Confirm with the platform's status page.",
+    },
+    group: "Voice platform outage",
+    automatic: true,
+    progress: "Lines held; waiting for the platform",
+  });
+  const withOutage = (extra: Record<string, unknown> = {}) =>
+    routes({
+      "/v1/ops/healer/incidents?days=7&limit=50": { items: [outage, ...INCIDENTS] },
+      ...extra,
+    });
+
+  it("shows what the public reads and takes it off with the step-up words", async () => {
+    const { calls } = await renderAdminRoute(
+      <OpsHealerPage />,
+      withOutage({
+        [`PUT /v1/ops/healer/incidents/${OUTAGE}/status`]: { ...outage, public: false, public_title: null },
+      }),
+    );
+    await settle();
+    const live = row("Calls are failing for many clients");
+    expect(live.textContent).toContain("Calls are not connecting for some customers");
+    fireEvent.click(within(live).getByRole("button", { name: "Take it off the status page" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Take it off" }));
+    await settle();
+    const put = calls.find((c) => c.method === "PUT" && c.path.endsWith(`/${OUTAGE}/status`));
+    expect(put?.headers["X-Confirm-Action"]).toBe(`post_status:${OUTAGE}`);
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({ title: null, component: "calls" });
+  });
+
+  it("changes the words the public reads", async () => {
+    const { calls } = await renderAdminRoute(
+      <OpsHealerPage />,
+      withOutage({ [`PUT /v1/ops/healer/incidents/${OUTAGE}/status`]: outage }),
+    );
+    await settle();
+    fireEvent.click(
+      within(row("Calls are failing for many clients")).getByRole("button", {
+        name: "Change what the public reads",
+      }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("What the public reads"), {
+      target: { value: "Calls in one region are not connecting" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Change it" }));
+    await settle();
+    const put = calls.find((c) => c.method === "PUT");
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      title: "Calls in one region are not connecting",
+      component: "calls",
+    });
+  });
+
+  it("offers an open problem that is not public a way onto the page, and a closed one none", async () => {
+    await renderAdminRoute(<OpsHealerPage />, withOutage());
+    await settle();
+    const money = row("Call charges don't match our records");
+    expect(within(money).getByRole("button", { name: "Show on the status page" })).toBeTruthy();
+    const closed = row("Background jobs failed after every retry");
+    expect(within(closed).queryByRole("button", { name: "Show on the status page" })).toBeNull();
+  });
+});
