@@ -738,9 +738,7 @@ async def ask_copilot(
             await _record()
         finally:
             if syncs and owner is not None:
-                await live_sync.answer_settled(
-                    "client", owner, turn_ids.answer, account=tenant_id
-                )
+                await live_sync.answer_settled("client", owner, turn_ids.answer, account=tenant_id)
 
     # The scores' clock starts here, once the question is admitted (D-937).
     capture = quality.AnswerCapture()

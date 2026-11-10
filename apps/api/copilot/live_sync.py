@@ -88,9 +88,7 @@ async def conversation_changed(realm: ConversationRealm, owner_id: UUID) -> None
     await publish_conversation_note(realm, owner_id)
 
 
-async def is_answering(
-    realm: ConversationRealm, owner_id: UUID, *, account: UUID | None
-) -> bool:
+async def is_answering(realm: ConversationRealm, owner_id: UUID, *, account: UUID | None) -> bool:
     """Whether a run of this person's is still answering, on any device."""
     try:
         live = await get_redis().zcount(
