@@ -58,7 +58,7 @@ MODEL_CALLS: Final[Mapping[str, ModelCall]] = MappingProxyType(
             "chunk is searchable without one meanwhile",
         ),
         "copilot_memory": ModelCall(
-            "flex", "hourly sweep distilling Pip's past conversations into facts it recalls"
+            "flex", "daily sweep distilling Pip's past conversations into facts it recalls"
         ),
         "business_copy_scheduled": ModelCall(
             "flex",

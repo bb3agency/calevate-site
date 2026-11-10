@@ -180,7 +180,7 @@ category rows say the same facts without the names. Evidence classes follow hard
 ### Microsoft — Azure OpenAI (language models)
 
 - The in-app assistant (including the fallback for a client whose own model cannot serve
-  the assistant, and the hourly memory distillation job). The hosted voice platform runs
+  the assistant, and the daily memory distillation job). The hosted voice platform runs
   the in-call model with its own providers, so Microsoft receives no call turns.
 - Receives (D-788, 15 Oct 2026): nothing from a client account until its owner ticks the
   assistant's consent box; after that, UNMASKED: what a user types, files they attach (D-781),

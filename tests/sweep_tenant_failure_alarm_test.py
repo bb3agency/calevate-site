@@ -130,7 +130,7 @@ async def test_pip_memory_sweep_alarms_a_crashed_tenant(monkeypatch: pytest.Monk
     monkeypatch.setattr(copilot_memory, "set_aside_ids", _nothing_set_aside)
     monkeypatch.setattr(copilot_memory, "tenant_session", _crashing_tenant_session)
 
-    assert await copilot_memory.distil_copilot_memories({}) == "groups=0 facts=0"
+    assert await copilot_memory.distil_copilot_memories({}) == "people=0 facts=0"
     assert raised == [("WORKER_TERMINAL", "copilot_distil_sweep_incomplete")]
 
 

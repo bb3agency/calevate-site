@@ -417,23 +417,16 @@ ERASURE_PROBE_DEADLINE = FLEET_WALK_DEADLINE
 
 #: The minute the overdue-erasure walk fires on.
 #:
-#: **IT WAS :25, WHICH IS `copilot_memory.DISTILL_MINUTE`** — so the two heaviest hourly
-#: fan-outs in the tree started in the same minute, every hour, on the same worker fleet
-#: and the same connection pool. That is not a style point: this walk opens one
-#: `tenant_session` per ORGANIZATION and is already bounded by a wall clock
-#: (`ERASURE_PROBE_DEADLINE`) it must finish inside, so a neighbour holding pooled
-#: connections for the same minute spends this walk's budget on waiting and shortens the
-#: fleet it reaches — an alarm on a statutory right going quiet because an unrelated
-#: feature was scheduled on the same number. The distillation cron's own comment argued
-#: at length that :25 was "clear of the poller, `report_stalled_pipeline` and
-#: `reconcile_outstanding_calls`, so no two O(tenants) fan-outs share a minute", which was
-#: true when it was written and false the moment this job was registered on the same
-#: minute without anyone re-reading it.
+#: Off every other fleet-wide minute: this walk opens one `tenant_session` per ORGANIZATION
+#: and is bounded by a wall clock (`ERASURE_PROBE_DEADLINE`) it must finish inside, so a
+#: neighbour holding pooled connections for the same minute spends this walk's budget on
+#: waiting and shortens the fleet it reaches — an alarm on a statutory right going quiet
+#: because an unrelated feature was scheduled on the same number.
 #:
 #: :55 is the free slot: :00 to :50 in tens is the execution poller, :05/:35 the stall alarm,
 #: :07/:37 the engine drift sweep, :15/:45 the outstanding-call sweep, :23 the KB drift
-#: sweep, :25 the distillation and :50 the violations sweep. Only `pull_fx_rate` also
-#: fires at :55, and that is one HTTP GET for one number.
+#: sweep and :50 the violations sweep (the Pip distillation is daily, at 03:25). Only
+#: `pull_fx_rate` also fires at :55, and that is one HTTP GET for one number.
 #:
 #: `tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute` is
 #: what keeps this true — a comment could not, as this minute's history shows.

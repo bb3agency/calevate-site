@@ -330,7 +330,7 @@ async def test_a_live_conversation_is_left_alone(stub_provider: Any) -> None:
 async def test_a_tripped_platform_brake_buys_no_model_call(
     stub_provider: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """FAILS IF: the hourly distillation keeps spending on our key after the platform AI
+    """FAILS IF: the daily distillation keeps spending on our key after the platform AI
     brake has paused dashboard AI for every account."""
     tenant_id, user_id = await _tenant_with_user()
     marker = await _quiet_conversation(tenant_id, user_id)
@@ -385,7 +385,7 @@ async def test_a_tenant_with_no_language_credential_is_a_no_op(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Tolerant boot: a deployment with no credential runs every other queue and says so
-    at `/healthz/ready`, rather than crash-looping or alerting hourly."""
+    at `/healthz/ready`, rather than crash-looping or alerting daily."""
     monkeypatch.setattr(copilot_memory, "azure_credentials", lambda: None)
     assert await copilot_memory.distil_copilot_memories({}) == "no_provider"
 
@@ -437,39 +437,168 @@ async def test_gemini_distils_first_and_azure_is_not_required(
     assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 1
 
 
-async def test_the_tick_is_bounded_across_tenants(stub_provider: Any) -> None:
-    """`MAX_GROUPS_PER_TENANT` is what stops one busy account owning the whole budget."""
+async def _another_user() -> uuid.UUID:
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
+            ),
+            {"id": user_id, "email": f"{user_id}@example.com"},
+        )
+    return user_id
+
+
+async def _settle(tenant_id: uuid.UUID) -> None:
+    """Stamp whatever a case left undistilled: the run sweeps every tenant on the worklist,
+    and a person left behind would spend the next case's budget."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE copilot_memories SET distilled_at = now() "
+                "WHERE kind = 'episodic' AND distilled_at IS NULL"
+            )
+        )
+
+
+async def test_a_run_is_bounded_per_account(
+    stub_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`MAX_PEOPLE_PER_TENANT` is what stops one busy account owning the whole budget."""
+    monkeypatch.setattr(copilot_memory, "MAX_PEOPLE_PER_TENANT", 2)
     tenant_id, user_id = await _tenant_with_user()
     marker = f"mk{uuid.uuid4().hex[:10]}"
-    for index in range(copilot_memory.MAX_GROUPS_PER_TENANT + 3):
+    for person in [user_id, *[await _another_user() for _ in range(3)]]:
+        await _quiet_conversation(
+            tenant_id, person, turns=copilot_memory.MIN_EPISODES, marker=marker
+        )
+    provider = stub_provider(["A fact."])
+
+    await copilot_memory.distil_copilot_memories({})
+    assert provider.calls_for(marker) == 2
+    await _settle(tenant_id)
+
+
+async def test_one_call_reads_a_persons_conversations_on_every_screen(stub_provider: Any) -> None:
+    """D-982: one model call per person a day, not one per (person, screen)."""
+    tenant_id, user_id = await _tenant_with_user()
+    marker = f"mk{uuid.uuid4().hex[:10]}"
+    for route in ("/first", "/second"):
         for turn in range(copilot_memory.MIN_EPISODES):
             await _write(
                 tenant_id,
                 user_id,
-                f"Asked: screen {index} turn {turn} {marker}",
-                route=f"/screen-{index}",
-                age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 5,
+                f"Asked: {route} turn {turn} {marker}",
+                route=route,
+                age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 5 + turn,
             )
     provider = stub_provider(["A fact."])
 
     await copilot_memory.distil_copilot_memories({})
-    assert provider.calls_for(marker) == copilot_memory.MAX_GROUPS_PER_TENANT
+
+    assert provider.calls_for(marker) == 1
+    prompt = next(p for p in provider.calls if marker in p)
+    assert "/first turn" in prompt and "/second turn" in prompt
+    async with tenant_session(tenant_id) as session:
+        left = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM copilot_memories "
+                    "WHERE kind = 'episodic' AND distilled_at IS NULL"
+                )
+            )
+        ).scalar_one()
+    assert int(left) == 0
+
+
+async def test_a_long_day_reads_the_most_recent_episodes_and_lets_the_older_go(
+    stub_provider: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The prompt is bounded, and the older episodes of that day are stamped with it rather
+    than buying a second call tomorrow."""
+    monkeypatch.setattr(copilot_memory, "MAX_EPISODES_PER_PERSON", 3)
+    tenant_id, user_id = await _tenant_with_user()
+    marker = f"mk{uuid.uuid4().hex[:10]}"
+    for turn in range(5):
+        await _write(
+            tenant_id,
+            user_id,
+            f"Asked: number {turn} {marker}",
+            age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 50 - turn,
+        )
+    provider = stub_provider(["A fact."])
+
+    await copilot_memory.distil_copilot_memories({})
+    await copilot_memory.distil_copilot_memories({})
+
+    assert provider.calls_for(marker) == 1
+    prompt = next(p for p in provider.calls if marker in p)
+    assert [f"number {n} " in prompt for n in range(5)] == [False, False, True, True, True]
+    assert prompt.index("number 2 ") < prompt.index("number 4 "), "read in the order said"
+    async with tenant_session(tenant_id) as session:
+        left = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM copilot_memories "
+                    "WHERE kind = 'episodic' AND distilled_at IS NULL"
+                )
+            )
+        ).scalar_one()
+    assert int(left) == 0
+
+
+async def test_the_spend_is_ours_and_never_draws_on_the_allowance(stub_provider: Any) -> None:
+    """D-982: metered (hard rule 7), and absorbed like every other background spend."""
+    from apps.api.billing.ai_quota import read_ai_usage_between
+    from apps.api.billing.models import ABSORBED_ASSIST_FEATURES
+    from apps.api.crm.assist import ASSIST_FEATURE_COPILOT_MEMORY
+
+    assert ASSIST_FEATURE_COPILOT_MEMORY in ABSORBED_ASSIST_FEATURES
+    tenant_id, user_id = await _tenant_with_user()
+    await _quiet_conversation(tenant_id, user_id)
+    stub_provider(["The clinic opens at nine."])
+
+    await copilot_memory.distil_copilot_memories({})
+
+    window = {"start": datetime.now(UTC) - timedelta(days=1), "end": datetime.now(UTC)}
+    async with tenant_session(tenant_id) as session:
+        metered = await read_ai_usage_between(
+            session, tenant_id=tenant_id, include_free=True, **window
+        )
+        allowance = await read_ai_usage_between(
+            session, tenant_id=tenant_id, include_free=False, **window
+        )
+    assert metered.requests == 1
+    assert allowance.requests == 0 and allowance.used_inr == 0
+
+
+def test_the_run_is_registered_once_a_day_at_a_quiet_ist_hour() -> None:
+    from apps.workers.settings import CRON_JOBS, CRON_TIMEZONE
+
+    job = next(j for j in CRON_JOBS if j.name.endswith("distil_copilot_memories"))
+    assert (job.hour, job.minute) == (
+        {copilot_memory.DISTILL_HOUR},
+        {copilot_memory.DISTILL_MINUTE},
+    )
+    assert (copilot_memory.DISTILL_HOUR, copilot_memory.DISTILL_MINUTE) == (3, 25)
+    assert str(CRON_TIMEZONE) == "Asia/Kolkata"
 
 
 async def test_a_later_group_failing_does_not_unrecord_a_group_already_paid_for(
     stub_provider: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Hard rule 7, and the idempotency stamp, per GROUP rather than per tenant.
+    """Hard rule 7, and the idempotency stamp, per PERSON rather than per tenant.
 
-    A tenant's groups used to share ONE transaction, so a provider error on the second
-    group rolled back the first group's facts, its `distilled_at` stamp AND its
-    `usage_events` rows — after its model call had been paid for. The next tick paid for
-    the same conversation again, and a conversation the provider keeps refusing made that
-    an hourly, unmetered spend.
+    A tenant's conversations used to share ONE transaction, so a provider error on the
+    second rolled back the first one's facts, its `distilled_at` stamp AND its
+    `usage_events` rows — after its model call had been paid for. The next run paid for
+    the same conversation again.
     """
     import httpx
 
     tenant_id, user_id = await _tenant_with_user()
+    other = await _another_user()
     paid = f"mk{uuid.uuid4().hex[:10]}"
     refused = f"mk{uuid.uuid4().hex[:10]}"
     for turn in range(copilot_memory.MIN_EPISODES):
@@ -482,7 +611,7 @@ async def test_a_later_group_failing_does_not_unrecord_a_group_already_paid_for(
         )
         await _write(
             tenant_id,
-            user_id,
+            other,
             f"Asked: turn {turn} {refused}",
             route="/second",
             age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 5,
@@ -504,8 +633,8 @@ async def test_a_later_group_failing_does_not_unrecord_a_group_already_paid_for(
         stamped = (
             await session.execute(
                 text(
-                    "SELECT screen_route, count(*) FILTER (WHERE distilled_at IS NOT NULL) "
-                    "FROM copilot_memories WHERE kind = 'episodic' GROUP BY screen_route"
+                    "SELECT user_id, count(*) FILTER (WHERE distilled_at IS NOT NULL) "
+                    "FROM copilot_memories WHERE kind = 'episodic' GROUP BY user_id"
                 )
             )
         ).all()
@@ -518,20 +647,12 @@ async def test_a_later_group_failing_does_not_unrecord_a_group_already_paid_for(
             )
         ).scalar_one()
     assert {str(r[0]): int(r[1]) for r in stamped} == {
-        "/first": copilot_memory.MIN_EPISODES,
-        "/second": 0,
-    }, "the paid group is done; the refused one is left for the next tick"
+        str(user_id): copilot_memory.MIN_EPISODES,
+        str(other): 0,
+    }, "the paid person is done; the failed one is left for the next run"
     assert await _count(tenant_id, kind=memory.KIND_SEMANTIC) == 1
     assert int(metered) > 0, "the model call that was paid for is on the ledger"
-    # Settle the refused group: the tick sweeps every tenant on the worklist, and a group
-    # left undistilled would spend the next test's tick budget.
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE copilot_memories SET distilled_at = now() "
-                "WHERE kind = 'episodic' AND distilled_at IS NULL"
-            )
-        )
+    await _settle(tenant_id)
 
 
 async def test_the_job_meters_what_it_spent(stub_provider: Any) -> None:
@@ -563,11 +684,12 @@ async def test_the_job_meters_what_it_spent(stub_provider: Any) -> None:
 async def test_a_conversation_the_provider_refuses_is_set_aside_not_retried_first(
     stub_provider: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Groups are read oldest first. A provider 400 is a verdict on that conversation, so
-    it is set aside rather than heading every tick and ending the tenant's loop there."""
+    """People are read oldest first. A provider 400 is a verdict on those conversations, so
+    they are set aside rather than heading every run and ending the tenant's loop there."""
     import httpx
 
     tenant_id, user_id = await _tenant_with_user()
+    other = await _another_user()
     refused = f"mk{uuid.uuid4().hex[:10]}"
     later = f"mk{uuid.uuid4().hex[:10]}"
     for turn in range(copilot_memory.MIN_EPISODES):
@@ -580,7 +702,7 @@ async def test_a_conversation_the_provider_refuses_is_set_aside_not_retried_firs
         )
         await _write(
             tenant_id,
-            user_id,
+            other,
             f"Asked: turn {turn} {later}",
             route="/second",
             age_minutes=copilot_memory.IDLE_WINDOW_MINUTES + 5,
@@ -597,16 +719,10 @@ async def test_a_conversation_the_provider_refuses_is_set_aside_not_retried_firs
         return await succeed(leg, messages, **kwargs)
 
     monkeypatch.setattr(copilot_memory.chat, "complete", complete)
-    monkeypatch.setattr(copilot_memory, "MAX_GROUPS_PER_TENANT", 1)
+    monkeypatch.setattr(copilot_memory, "MAX_PEOPLE_PER_TENANT", 1)
 
     await copilot_memory.distil_copilot_memories({})
     await copilot_memory.distil_copilot_memories({})
 
-    assert provider.calls_for(later) == 1, "the conversation behind the refused one is read"
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE copilot_memories SET distilled_at = now() "
-                "WHERE kind = 'episodic' AND distilled_at IS NULL"
-            )
-        )
+    assert provider.calls_for(later) == 1, "the person behind the refused one is read"
+    await _settle(tenant_id)

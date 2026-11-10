@@ -151,7 +151,7 @@ from apps.workers.client_actions import run_after_call_actions, run_client_actio
 from apps.workers.client_health import refresh_client_health
 from apps.workers.comp_notices import notify_comp
 from apps.workers.copilot_jobs import run_copilot_job
-from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
+from apps.workers.copilot_memory import DISTILL_HOUR, DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.copilot_plans import resume_copilot_plans, run_copilot_plan
 from apps.workers.copilot_quality import ALARM_MINUTE as COPILOT_QUALITY_MINUTE
 from apps.workers.copilot_quality import alarm_copilot_quality
@@ -913,14 +913,14 @@ CRON_JOBS = [
         minute={5, 35},
         max_tries=WORKER_MAX_TRIES,
     ),
-    # THE COPILOT'S SEMANTIC DISTILLATION (migration d4a9c17e6b02). Hourly at :25, which is
-    # clear of the poller (:00/:10/...), `report_stalled_pipeline` (:05/:35) and
-    # `reconcile_outstanding_calls` (:15/:45), so no two O(tenants) fan-outs share a minute.
+    # THE COPILOT'S SEMANTIC DISTILLATION (migration d4a9c17e6b02). Daily at 03:25 IST
+    # (D-982): one model call per person a day, at an hour no other fleet-wide walk fires
+    # (the daily ones start at 04:00, and :25 is no hourly walk's minute).
     #
     # A CRON AND NOT AN ENQUEUE, deliberately: an enqueue per copilot turn would be a paid
     # model call per turn, which is the cost this whole job exists to keep OFF the live
-    # path. `copilot_memory.MAX_GROUPS_PER_TICK` times 24 is therefore the most calls this
-    # feature can make in a day, and the cadence IS the spend rate.
+    # path. `copilot_memory.MAX_PEOPLE_PER_RUN` is therefore the most calls this feature
+    # can make in a day, and the cadence IS the spend rate.
     #
     # `max_tries` EXPLICIT for its neighbours' reason — `cron()` defaults it to 1 and
     # `WorkerSettings.max_tries` does not reach a function carrying its own. Retrying is
@@ -930,12 +930,13 @@ CRON_JOBS = [
     _cron(
         traced_job(distil_copilot_memories),
         walk=fleet_wide("one tenant_session per tenant with a worklist row, plus a model call"),
+        hour={DISTILL_HOUR},
         minute={DISTILL_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE COPILOT CONVERSATION ENDING WITH ITS OWNER'S LAST SESSION (D-540, migration
     # c7e0b2a94f13). Hourly at :17, clear of the poller (:00/:10/...), the stall report
-    # (:05/:35), reconciliation (:15/:45) and the distiller (:25).
+    # (:05/:35) and reconciliation (:15/:45).
     #
     # A CRON AND NOT AN ENQUEUE for a different reason from its neighbour above: there is
     # nothing to enqueue FROM. A session ends because a timestamp passed — no request runs,
@@ -1079,10 +1080,9 @@ CRON_JOBS = [
     # (enqueued once, in the request's own transaction), so the walk going quiet on a
     # transient database error stops the recovery as well as the alarm.
     #
-    # THE MINUTE COMES FROM THE MODULE (`ERASURE_PROBE_MINUTE`) and is no longer :25,
-    # which is `DISTILL_MINUTE`: the two heaviest hourly fan-outs were starting together
-    # every hour, and this one has a wall-clock budget that a neighbour competing for the
-    # pool spends on waiting. `dispatcher.ERASURE_PROBE_MINUTE` carries the argument and
+    # THE MINUTE COMES FROM THE MODULE (`ERASURE_PROBE_MINUTE`): this walk has a wall-clock
+    # budget that a neighbour competing for the pool spends on waiting.
+    # `dispatcher.ERASURE_PROBE_MINUTE` carries the argument and
     # `tests/job_registration_test.py` is the guard that keeps it true.
     _cron(
         traced_job(report_overdue_erasures),
@@ -1421,10 +1421,9 @@ CRON_JOBS = [
         minute={40},
         max_tries=WORKER_MAX_TRIES,
     ),
-    # TRIALS THAT HAVE RUN OUT, AND THE ERASURES THEY MAKE DUE (D-536). 07:33 — :25 is
-    # `copilot_memory.DISTILL_MINUTE`, an hourly walk of every tenant with a worklist row,
-    # and this one walks every organization under a `WalkBudget` it must finish inside.
-    # Ahead of
+    # TRIALS THAT HAVE RUN OUT, AND THE ERASURES THEY MAKE DUE (D-536). 07:33, off every
+    # other fleet-wide minute, because this one walks every organization under a
+    # `WalkBudget` it must finish inside. Ahead of
     # the retention sweep at 08:40 rather than after it, so an erasure this tick files can
     # be picked up by tonight's retention pass instead of tomorrow's — the two are days
     # apart in effect, but the ordering is free and the shorter path is the one a data
@@ -1487,11 +1486,7 @@ CRON_JOBS = [
         max_tries=WORKER_MAX_TRIES,
     ),
     # D-538. HOURLY. THE MINUTE COMES FROM THE MODULE (`account_closure.SWEEP_MINUTE`),
-    # the convention its neighbours follow, and it is no longer :25: this comment used to
-    # say :25 was chosen "so it does not land on the same minute as the fleet's other
-    # sweeps", when :25 is `copilot_memory.DISTILL_MINUTE` and `report_overdue_erasures`
-    # had been moved OFF :25 a few entries above for exactly that collision. The vacated
-    # slot was refilled the same week.
+    # the convention its neighbours follow.
     #
     # The grace window is a PROMISE WITH A DATE ON IT and it has to hold in both
     # directions: an account must not be erased before the date the client was given, and
