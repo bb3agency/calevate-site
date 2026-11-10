@@ -115,6 +115,9 @@ async def _stream_events(client: AsyncClient, path: str, body: dict[str, Any]) -
 
 _HEADERS: dict[str, str] = {}
 
+#: The account the unit tests of `answering` run in; a client conversation has one.
+ACCOUNT = uuid.uuid4()
+
 
 async def _stored(realm: transcript.Realm, owner: UUID, tenant_id: UUID | None) -> list[Any]:
     opener = tenant_session(tenant_id) if tenant_id is not None else untenanted_session()
@@ -144,7 +147,9 @@ async def test_the_question_is_stored_and_announced_before_the_answer_exists(
     async def _run(payload: Any, **kwargs: Any) -> AsyncIterator[service.CopilotEvent]:
         # What another device would read while Pip is still answering.
         seen_mid_run["turns"] = await _stored(transcript.CLIENT, user_id, tenant_id)
-        seen_mid_run["answering"] = await live_sync.is_answering("client", user_id)
+        seen_mid_run["answering"] = await live_sync.is_answering(
+            "client", user_id, account=tenant_id
+        )
         seen_mid_run["notes"] = list(notes)
         yield service.CopilotEvent(text="Eleven.")
 
@@ -192,7 +197,7 @@ async def test_a_run_that_fails_still_settles_and_keeps_the_question(
     assert events == ["error"]
     turns = await _stored(transcript.CLIENT, user_id, tenant_id)
     assert [(role, content) for _id, role, content in turns] == [("user", BODY["question"])]
-    assert await live_sync.is_answering("client", user_id) is False
+    assert await live_sync.is_answering("client", user_id, account=tenant_id) is False
     assert len(notes) == 2
 
 
@@ -315,25 +320,25 @@ async def test_start_again_tells_the_persons_other_windows(
 async def test_answering_holds_while_any_run_of_the_person_is_in_flight() -> None:
     person = uuid.uuid4()
     first, second = uuid.uuid4(), uuid.uuid4()
-    assert await live_sync.is_answering("client", person) is False
+    assert await live_sync.is_answering("client", person, account=ACCOUNT) is False
 
-    await live_sync.answer_started("client", person, first)
-    await live_sync.answer_started("client", person, second)
-    await live_sync.answer_settled("client", person, first)
-    assert await live_sync.is_answering("client", person) is True
+    await live_sync.answer_started("client", person, first, account=ACCOUNT)
+    await live_sync.answer_started("client", person, second, account=ACCOUNT)
+    await live_sync.answer_settled("client", person, first, account=ACCOUNT)
+    assert await live_sync.is_answering("client", person, account=ACCOUNT) is True
     # The other realm's id space is a different person.
-    assert await live_sync.is_answering("admin", person) is False
+    assert await live_sync.is_answering("admin", person, account=None) is False
 
-    await live_sync.answer_settled("client", person, second)
-    assert await live_sync.is_answering("client", person) is False
+    await live_sync.answer_settled("client", person, second, account=ACCOUNT)
+    assert await live_sync.is_answering("client", person, account=ACCOUNT) is False
 
 
 async def test_a_run_whose_finally_never_ran_stops_counting() -> None:
     person = uuid.uuid4()
-    key = live_sync.answering_key("client", person)
+    key = live_sync.answering_key("client", person, account=ACCOUNT)
     stale = time.time() - live_sync.ANSWERING_TTL_S - 1
     await get_redis().zadd(key, {str(uuid.uuid4()): stale})
-    assert await live_sync.is_answering("client", person) is False
+    assert await live_sync.is_answering("client", person, account=ACCOUNT) is False
     assert live_sync.ANSWERING_TTL_S > service.TOTAL_BUDGET_S
 
 
@@ -358,10 +363,10 @@ async def test_redis_failing_never_fails_the_conversation(monkeypatch: pytest.Mo
         publish, "record_live_publish_failure", lambda *, reason: failures.append(reason)
     )
     person, run = uuid.uuid4(), uuid.uuid4()
-    await live_sync.answer_started("client", person, run)
-    await live_sync.answer_settled("client", person, run)
+    await live_sync.answer_started("client", person, run, account=ACCOUNT)
+    await live_sync.answer_settled("client", person, run, account=ACCOUNT)
     await live_sync.conversation_changed("client", person)
-    assert await live_sync.is_answering("client", person) is False
+    assert await live_sync.is_answering("client", person, account=ACCOUNT) is False
     assert failures == ["ConnectionError"] * 3
 
 

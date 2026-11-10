@@ -43,14 +43,25 @@ ConversationRealm = Literal["client", "admin"]
 ANSWERING_TTL_S: Final = int(TOTAL_BUDGET_S) + 30
 
 
-def answering_key(realm: ConversationRealm, owner_id: UUID) -> str:
+def answering_key(realm: ConversationRealm, owner_id: UUID, *, account: UUID | None) -> str:
+    """A client's conversation is one per person PER ACCOUNT (`copilot_conversation_turns`
+    is tenant-scoped), so the account is in the key: a person who belongs to two accounts
+    asking Pip in one must not see "Pip is thinking" in the other, where no answer will
+    ever land. An operator's conversation is one per operator (`viewing_tenant_id` is
+    context, not a scope), so the admin realm passes None."""
+    if realm == "client":
+        if account is None:
+            raise ValueError("a client conversation is scoped to an account")
+        return f"calevate:copilot:answering:client:{account}:{owner_id}"
     return f"calevate:copilot:answering:{realm}:{owner_id}"
 
 
-async def answer_started(realm: ConversationRealm, owner_id: UUID, run: UUID) -> None:
+async def answer_started(
+    realm: ConversationRealm, owner_id: UUID, run: UUID, *, account: UUID | None
+) -> None:
     """The question is stored and Pip has started answering it. Called after the question's
     transaction committed, so a device that refetches on this note finds the question."""
-    key = answering_key(realm, owner_id)
+    key = answering_key(realm, owner_id, account=account)
     try:
         async with get_redis().pipeline(transaction=True) as pipe:
             pipe.zadd(key, {str(run): time.time()})
@@ -61,10 +72,12 @@ async def answer_started(realm: ConversationRealm, owner_id: UUID, run: UUID) ->
     await publish_conversation_note(realm, owner_id)
 
 
-async def answer_settled(realm: ConversationRealm, owner_id: UUID, run: UUID) -> None:
+async def answer_settled(
+    realm: ConversationRealm, owner_id: UUID, run: UUID, *, account: UUID | None
+) -> None:
     """The run is over, whichever way it ended, and its answer (if any) is stored."""
     try:
-        await get_redis().zrem(answering_key(realm, owner_id), str(run))
+        await get_redis().zrem(answering_key(realm, owner_id, account=account), str(run))
     except Exception as exc:
         log.warning("copilot_answering_clear_failed", extra={"error": type(exc).__name__})
     await publish_conversation_note(realm, owner_id)
@@ -75,11 +88,13 @@ async def conversation_changed(realm: ConversationRealm, owner_id: UUID) -> None
     await publish_conversation_note(realm, owner_id)
 
 
-async def is_answering(realm: ConversationRealm, owner_id: UUID) -> bool:
+async def is_answering(realm: ConversationRealm, owner_id: UUID, *, account: UUID | None) -> bool:
     """Whether a run of this person's is still answering, on any device."""
     try:
         live = await get_redis().zcount(
-            answering_key(realm, owner_id), time.time() - ANSWERING_TTL_S, "+inf"
+            answering_key(realm, owner_id, account=account),
+            time.time() - ANSWERING_TTL_S,
+            "+inf",
         )
     except Exception as exc:
         log.warning("copilot_answering_read_failed", extra={"error": type(exc).__name__})
