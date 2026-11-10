@@ -493,6 +493,24 @@ describe("meet your agent", () => {
     expect(screen.getByText("Written from your business details. Change anything.")).toBeTruthy();
   });
 
+  it("keeps what was typed in the brief through Back and returning (journey audit E1)", async () => {
+    const atBrief = run({ jobs: ["answer_calls"], language_primary: "te-IN" });
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": atBrief,
+        "PUT /v1/first-run/job": atBrief,
+      }),
+    );
+    const typed = "We repair two-wheelers in Guntur and pick them up from home.";
+    const box = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: typed } });
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
+    const again = (await screen.findByRole("textbox", { name: "About your business" })) as HTMLTextAreaElement;
+    expect(again.value).toBe(typed);
+  });
+
   it("lists the brief's files by state: being read, read but not on calls, and unreadable with a way to try another", async () => {
     const reading = "0192f3a4-0000-7000-8000-00000000d001";
     const pdf = "0192f3a4-0000-7000-8000-00000000d002";

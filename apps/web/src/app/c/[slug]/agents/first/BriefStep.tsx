@@ -21,6 +21,7 @@ import { businessLanguage } from "@/lib/businessCapabilities";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { briefWaitingFor, languageLabel } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 import { BriefDocuments } from "./BriefDocuments";
@@ -49,12 +50,19 @@ export const HEARD_FAILURES: Record<string, string> = {
  */
 export function BriefStep({
   run,
+  draft,
+  onDraft,
   onBack,
   onDone,
   onPip,
   pipOff,
 }: {
   run: FirstRun;
+  /** What was in the box when the step was last left unsaved (Back, or Pip), or null. The
+   *  screen holds it, because this step unmounts on every move away; the spoken pieces in it
+   *  used up recordings that cannot be taken again. */
+  draft: string | null;
+  onDraft: (draft: string | null) => void;
   onBack: () => void;
   onDone: () => void;
   onPip: () => void;
@@ -69,7 +77,11 @@ export function BriefStep({
   const saveFeedback = useActionFeedback(save, { errorDisplay: "inline" });
   const boxId = useId();
   const box = useRef<HTMLTextAreaElement>(null);
-  const [brief, setBrief] = useState<string | null>(run.brief);
+  const [brief, setBrief] = useState<string | null>(draft ?? run.brief);
+  const unsaved = brief !== null && brief.trim() !== (run.brief ?? "").trim();
+  useEffect(() => onDraft(unsaved ? brief : null), [brief, unsaved, onDraft]);
+  // A reload or a closed tab would lose it too.
+  useUnsavedGuard(unsaved);
   const [sending, setSending] = useState(false);
   const [hearing, setHearing] = useState(false);
   const waitingFor = briefWaitingFor({ documents: run.documents, sending, hearing });
