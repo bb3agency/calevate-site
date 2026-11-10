@@ -202,8 +202,8 @@ Three things recompute it, and one of them is not "wait":
 
 1. **ops**, immediately, on the audited path.
 
-   **Console: the client's own screen — `/admin/tenants/{tenant_id}` → "Spend cap"**
-   (admin realm, `superadmin`: this is the one control on that page whose route lives
+   **Console: the client's Spend page — `/admin/tenants/{tenant_id}/spend` → "Spend cap"**
+   (admin realm, `ops:manage`: this is the one control on that page whose route lives
    under `/v1/ops`). It is on the CLIENT's screen rather than on Operations because the
    route names a tenant and binds its confirmation to that tenant's id — the panel puts
    the button beside this client's three ceilings and this month's counters, so "will the
@@ -509,7 +509,7 @@ if the engine is down.
   hand.** Each has an audited write path and a cache to invalidate; the SQL skips both.
   For `spend_state` specifically the flag is derived — the correct lever is the cap, and
   the recompute rides with it: move the ceiling, then press **Recompute this client's
-  spend cap** on `/admin/tenants/{tenant_id}` (step 2). There is a route and a screen for
+  spend cap** on `/admin/tenants/{tenant_id}/spend` (step 2). There is a route and a screen for
   this now, so there is no longer any reason to reach for the UPDATE.
 - **Never clear a hold with SQL.** `kyc_records` is not a flag to flip: the value of the
   row is that a named person recorded what they checked, and the audited routes write

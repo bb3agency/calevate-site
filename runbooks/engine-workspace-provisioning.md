@@ -118,14 +118,14 @@ record (D-692): legal name, GST yes/no, and its one business certificate, with
 the workspace is active AND the KYC record is verified, whichever happens second.
 
 - **`engine_business_details_submit_failed`** — the send failed after the retries. Open the
-  client's KYC page: the certificate must be PDF, JPG or PNG, at most 5 MB, filename at most
+  client's Identity & approval page: the certificate must be PDF, JPG or PNG, at most 5 MB, filename at most
   99 characters (`send-business-details.md:7`). Then **Send business details**. A 409 from
   the vendor is not a failure: an application is already being checked or approved, and we
   read it back.
 - **`engine_business_details_lapsed`** (`tenant_id` on the alarm) — the application is
   `rejected` or `suspended`. The review note is on the admin page and on the client's
   Numbers page. The client corrects its certificate under **Verify your business** (or an
-  admin uploads the corrected one on the KYC page) and presses **Send the details again**; a resend
+  admin uploads the corrected one on the Identity & approval page) and presses **Send the details again**; a resend
   after a rejection corrects the same application (`send-business-details.md:7`). An
   `expired` one is resent automatically by the daily `sweep_engine_workspaces`.
 - **Stuck at `submitted`** — approval "usually takes a few minutes" (`:7`). Press **Refresh
