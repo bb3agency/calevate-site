@@ -77,6 +77,11 @@ describe("normaliseIndianMobile", () => {
     expect(normaliseIndianMobile("919876543210")).toBe("+919876543210");
     expect(normaliseIndianMobile("+1 415 555 0100")).toBe("+14155550100");
   });
+
+  it("reads a Telugu keyboard's digits as the same number (journey audit E10)", () => {
+    const telugu = [..."9876543210"].map((d) => String.fromCodePoint(0x0c66 + Number(d))).join("");
+    expect(normaliseIndianMobile(telugu)).toBe("+919876543210");
+  });
 });
 
 describe("the client's line protection screen", () => {
