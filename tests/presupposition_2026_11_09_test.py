@@ -178,7 +178,9 @@ def _placed() -> AgentConfig:
 
 
 def test_a_placed_call_never_takes_what_the_person_has_or_uses_from_a_steps_line() -> None:
-    assert "have or use something unless they or THIS CALL said so" in CALL_REASON_RULE
+    assert "have or use something unless they said so on this call or THIS CALL says so" in (
+        CALL_REASON_RULE
+    )
     assert '"sounds like" is only an example' in CALL_REASON_RULE
     assert CALL_REASON_RULE in compose_engine_prompt(_placed())
     inbound = _placed().model_copy(update={"direction": "inbound"})
