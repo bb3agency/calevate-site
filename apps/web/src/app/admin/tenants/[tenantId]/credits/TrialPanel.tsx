@@ -29,6 +29,7 @@ import { CostBreakdownList } from "../CostBreakdownList";
 
 import { EndTrialForm } from "./EndTrialForm";
 import { StartTrialForm } from "./StartTrialForm";
+import { TrialTestCall } from "./TrialTestCall";
 
 /**
  * TRIAL PERIODS, on the screen an operator is already on when the question comes up.
@@ -126,6 +127,19 @@ export function TrialPanel({
         <p className="mt-3 text-body text-ink-muted">{clientName} has never been given a trial.</p>
       ) : (
         <TrialFacts state={state} />
+      )}
+
+      {/* `admin:tenants`, the route's own permission: hidden, not disabled, from anyone
+          else, and only while the trial runs. */}
+      {active && write.allowed && (
+        <div className="mt-6 border-t border-line pt-4">
+          <h3 className="text-body font-semibold text-ink">Make a test call</h3>
+          <p className="mt-1 mb-3 text-meta text-ink-muted">
+            Ring your own phone from one of {clientName}&apos;s agents, the way the client&apos;s
+            own test call does.
+          </p>
+          <TrialTestCall tenantId={tenantId} clientName={clientName} />
+        </div>
       )}
 
       <Drawer
