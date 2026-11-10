@@ -63,7 +63,7 @@ minutes it retries the holds the platform refused and checks for fifteen quiet m
 then it gives every line back and marks the status post resolved.
 
 What you do: confirm with the voice platform's own status, and keep the status page title
-honest (Incidents → the outage → status post). Do not resolve it by hand while the
+honest: on `/admin/ops/healer`, the outage problem's **Change what the public reads** (or **Take it off the status page**). Do not resolve it by hand while the
 platform is still failing: the holds would be lifted onto a dead platform.
 
 ## 4. An incident needs a person (`healer_needs_person`)
