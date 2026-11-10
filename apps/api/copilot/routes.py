@@ -731,14 +731,16 @@ async def ask_copilot(
             question=attachments.transcript_question(payload.question, uploads),
             turn_id=turn_ids.question,
         )
-        await live_sync.answer_started("client", owner, turn_ids.answer)
+        await live_sync.answer_started("client", owner, turn_ids.answer, account=tenant_id)
 
     async def _finish() -> None:
         try:
             await _record()
         finally:
             if syncs and owner is not None:
-                await live_sync.answer_settled("client", owner, turn_ids.answer)
+                await live_sync.answer_settled(
+                    "client", owner, turn_ids.answer, account=tenant_id
+                )
 
     # The scores' clock starts here, once the question is admitted (D-937).
     capture = quality.AnswerCapture()
@@ -1115,7 +1117,9 @@ async def load_copilot_conversation(
         page,
         uploads_available=attachments.uploads_available(),
         consent=consent_state,
-        answering=await live_sync.is_answering("client", principal.user_id),
+        answering=await live_sync.is_answering(
+            "client", principal.user_id, account=principal.tenant_id
+        ),
         votes=votes,
     )
 

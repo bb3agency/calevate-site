@@ -585,14 +585,14 @@ async def ask_admin_copilot(
             question=attachments.transcript_question(payload.question, uploads),
             turn_id=turn_ids.question,
         )
-        await live_sync.answer_started("admin", operator, turn_ids.answer)
+        await live_sync.answer_started("admin", operator, turn_ids.answer, account=None)
 
     async def _finish() -> None:
         try:
             await _record()
         finally:
             if syncs and operator is not None:
-                await live_sync.answer_settled("admin", operator, turn_ids.answer)
+                await live_sync.answer_settled("admin", operator, turn_ids.answer, account=None)
 
     # The scores' clock starts here, once the question is admitted (D-937).
     capture = quality.AnswerCapture()
@@ -786,7 +786,7 @@ async def load_admin_copilot_conversation(
         page,
         uploads_available=attachments.uploads_available(),
         consent=consent,
-        answering=await live_sync.is_answering("admin", operator),
+        answering=await live_sync.is_answering("admin", operator, account=None),
         votes=votes,
     )
 
