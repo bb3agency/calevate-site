@@ -109,6 +109,7 @@ function payment(over: Partial<Payment> = {}): Payment {
   return {
     payment_ref: REF,
     credited_inr: "2500.00",
+    refundable_inr: "2500.00",
     entries: 1,
     first_at: "2026-09-12T05:30:00Z",
     ...over,
@@ -373,6 +374,70 @@ describe("refunding a payment", () => {
     fireEvent.click(button(REFUND_SUBMIT));
     expect(calls.some((c) => c.method === "POST" && c.path === REFUND_PATH)).toBe(false);
     expect(document.body.textContent).toContain("more than the ₹2500.00 this payment credited");
+  });
+
+  // D-980: used and lapsed credit is not refundable, and the screen shows the most that is.
+  function partlyRefundable() {
+    return render({
+      [CREDITS_READ]: credits({ payments: [payment({ refundable_inr: "600.00" })] }),
+      [`POST ${REFUND_PATH}`]: refundResult(),
+    });
+  }
+
+  it("shows the most that can be refunded and refuses more, before the round trip", async () => {
+    const { calls } = await partlyRefundable();
+
+    await openAct("Refund a payment");
+    fireEvent.change(await screen.findByLabelText("Payment to refund"), {
+      target: { value: REF },
+    });
+    expect(document.body.textContent).toContain("At most ₹600.00 can be refunded");
+    fireEvent.change(screen.getByLabelText(/How much to refund/), {
+      target: { value: "601" },
+    });
+    fireEvent.change(screen.getByLabelText("Why", { selector: "#refund-reason" }), {
+      target: { value: "client asked for the rest back" },
+    });
+    fireEvent.change(screen.getByLabelText(/Type the payment reference again/), {
+      target: { value: REF },
+    });
+
+    await waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "At most ₹600.00 of this payment can be refunded",
+      ),
+    );
+    expect(button(REFUND_SUBMIT).disabled).toBe(true);
+    fireEvent.click(button(REFUND_SUBMIT));
+    expect(calls.some((c) => c.method === "POST" && c.path === REFUND_PATH)).toBe(false);
+  });
+
+  it("will not refund the whole payment when only part of it is refundable", async () => {
+    await partlyRefundable();
+
+    await openAct("Refund a payment");
+    fireEvent.change(await screen.findByLabelText("Payment to refund"), {
+      target: { value: REF },
+    });
+    fireEvent.change(screen.getByLabelText("Why", { selector: "#refund-reason" }), {
+      target: { value: "client asked for the rest back" },
+    });
+    await waitFor(() =>
+      expect(document.body.textContent).toContain(
+        "Only ₹600.00 of this payment can be refunded",
+      ),
+    );
+    expect(button(REFUND_SUBMIT).disabled).toBe(true);
+  });
+
+  it("issues a refund up to the refundable amount", async () => {
+    const { calls } = await partlyRefundable();
+
+    await fillRefund({ amount: "600.00" });
+    fireEvent.click(button(REFUND_SUBMIT));
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST" && c.path === REFUND_PATH)).toBe(true),
+    );
   });
 
   it("says which payments it cannot move, rather than letting the provider say it", async () => {

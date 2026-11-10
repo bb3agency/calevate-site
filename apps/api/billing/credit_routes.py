@@ -229,6 +229,7 @@ from apps.api.billing.comp_notices import owe_comp_notices
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from apps.api.billing.first_payment import on_payment_credited
 from apps.api.billing.lots import split_meta
+from apps.api.billing.payments import refundable_of_payment
 from apps.api.billing.rates import PREMIUM_VOICE_TIER, VALUE_VOICE_TIER, voice_tier_label
 from apps.api.billing.service import (
     ADJUSTMENT_META_KIND,
@@ -772,6 +773,10 @@ class PaymentOut(Strict):
     #: 1 = recorded once and never corrected. More = it has been restated.
     entries: int
     first_at: datetime
+    #: The most a refund of this payment may be now: its unspent credit that has not lapsed
+    #: (D-699, D-980), and never more than the payment less what is already being refunded.
+    #: The figure the refund route's ceiling enforces (`payments.refundable_of_payment`).
+    refundable_inr: Decimal
 
 
 class LedgerEntryOut(Strict):
@@ -1070,6 +1075,22 @@ async def _read_lot(session: AsyncSession, *, lot_id: UUID | None) -> CreditLotO
         return None
     row = (await session.execute(text(f"{_LOT_FIELDS} WHERE id = :id"), {"id": lot_id})).first()
     return None if row is None else _lot_out(row)
+
+
+async def _refundable_of(session: AsyncSession, *, tenant_id: UUID, payment_ref: str) -> Decimal:
+    """What the refund route would let go back on this payment now, read the way
+    `payment_routes.issue_tenant_refund` reads it: against the top-up row of that reference.
+    A payment with no top-up row cannot be refunded there at all."""
+    topup = await find_topup(session, tenant_id=tenant_id, ref=payment_ref)
+    if topup is None:
+        return _ZERO
+    return await refundable_of_payment(
+        session,
+        tenant_id=tenant_id,
+        payment_id=payment_ref,
+        payment_total_inr=topup.amount_inr,
+        topup_entry_id=topup.entry_id,
+    )
 
 
 async def _open_lots(session: AsyncSession, *, tenant_id: UUID, limit: int) -> list[CreditLotOut]:
@@ -2309,6 +2330,10 @@ async def read_credits(
             tenant_id=tenant_id,
             payment_refs=sorted({str(row[6]) for row in rows if row[6] is not None}),
         )
+        refundable = {
+            ref: await _refundable_of(scoped, tenant_id=tenant_id, payment_ref=ref)
+            for ref in payments
+        }
         # THE OPEN LOT QUEUE, on the same read and the same page size — a wallet is no
         # longer one balance with one price behind it, and an operator crediting it is
         # opening a priced object rather than adding to a pot.
@@ -2369,6 +2394,7 @@ async def read_credits(
                 credited_inr=_paise(payment.credited_inr),
                 entries=payment.rows,
                 first_at=payment.first_at,
+                refundable_inr=refundable[payment.payment_ref],
             )
             for payment in sorted(payments.values(), key=lambda p: p.first_at, reverse=True)
         ],

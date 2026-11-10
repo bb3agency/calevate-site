@@ -307,6 +307,7 @@ const WALLET_LEDGER = {
     {
       payment_ref: "pay_a1b2c3",
       credited_inr: "2500.00",
+      refundable_inr: "2500.00",
       entries: 1,
       first_at: "2026-08-01T09:00:00Z",
     },
@@ -5343,6 +5344,7 @@ const ADMIN_SCREENS: Screen[] = [
           {
             payment_ref: "UTR-902311",
             credited_inr: "2500.00",
+            refundable_inr: "2500.00",
             entries: 1,
             first_at: "2026-08-12T05:30:00Z",
           },

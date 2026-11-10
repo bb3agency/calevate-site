@@ -132,6 +132,7 @@ function payment(over: Partial<Payment> = {}): Payment {
   return {
     payment_ref: REF,
     credited_inr: "2500.00",
+    refundable_inr: "2500.00",
     entries: 1,
     first_at: "2026-08-12T05:30:00Z",
     ...over,

@@ -29309,6 +29309,8 @@ export interface components {
             first_at: string;
             /** Payment Ref */
             payment_ref: string;
+            /** Refundable Inr */
+            refundable_inr: string;
         };
         /** PaymentStatusOut */
         PaymentStatusOut: {
