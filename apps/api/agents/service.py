@@ -1424,9 +1424,11 @@ async def _apply_inbound_bindings(
 
 
 async def retire_in_call_actions(*, agent_id: UUID, ref: str | None) -> int:
-    """Remove the vendor agent's in-call actions when the agent stops being published.
+    """Remove the vendor agent's in-call actions when the agent is archived or its engine
+    agent is retired. Switching off keeps them (D-981): a switched-off agent is still ready
+    and the sweeps keep its actions.
 
-    A failure alarms and does not undo the pause or archive, `route_inbound_numbers`'
+    A failure alarms and does not undo the archive, `route_inbound_numbers`'
     contract: the actions would still reach our endpoint, which keeps answering for the
     route, so what is left is a vendor object to tidy rather than a caller misled.
     """
