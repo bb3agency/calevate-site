@@ -579,6 +579,25 @@ def _merged_services(
     return out
 
 
+def _with_main_branch(existing: list[Branch], address: str) -> list[Branch]:
+    """The profile's branches with the "Where are you?" answer as the main branch.
+
+    The same answer reaches this save again whenever the screen re-sends it: "Build my agent"
+    pressed again after a refused build, or the questions answered again after going back. So
+    an existing main branch takes the new address rather than a second one being appended,
+    and an address already on file is left alone; either way the agent never reads the same
+    place out twice."""
+    if any(branch.address.casefold() == address.casefold() for branch in existing):
+        return list(existing)
+    main = next((i for i, b in enumerate(existing) if b.label == MAIN_BRANCH_LABEL), None)
+    if main is not None:
+        return [
+            b.model_copy(update={"address": address}) if i == main else b
+            for i, b in enumerate(existing)
+        ]
+    return [*existing, Branch(label=MAIN_BRANCH_LABEL, address=address)]
+
+
 async def save_answers(
     session: AsyncSession, *, tenant_id: UUID, answers: Answers, user_id: UUID | None
 ) -> set[str]:
@@ -594,10 +613,7 @@ async def save_answers(
     if added:
         patch["services"] = _merged_services(profile.services, added)
     if answers.location:
-        patch["branches"] = [
-            *profile.branches,
-            Branch(label=MAIN_BRANCH_LABEL, address=answers.location.strip()),
-        ]
+        patch["branches"] = _with_main_branch(profile.branches, answers.location.strip())
     if answers.hours is not None:
         closed = set(answers.hours.closed)
         patch["hours"] = [
