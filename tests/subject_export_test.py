@@ -228,6 +228,7 @@ async def test_the_export_carries_the_lead_the_calls_and_the_transcript() -> Non
         "remembered_facts": 0,
         "callbacks": 0,
         "handoffs": 0,
+        "follow_ups": 0,
     }
 
 
@@ -287,6 +288,7 @@ async def test_a_number_we_hold_nothing_about_gets_an_empty_but_valid_document()
         "remembered_facts": 0,
         "callbacks": 0,
         "handoffs": 0,
+        "follow_ups": 0,
     }
 
 

@@ -21,7 +21,7 @@ from uuid import UUID
 
 from calevate_shared.calling_window import CALLING_HOURS_RULE, IST
 from calevate_shared.cut_off import likely_cut_off_rows
-from calevate_shared.events import CallInsights, CallStatus, CallTimeline
+from calevate_shared.events import CallStatus, CallTimeline
 from calevate_shared.extraction import (
     DEFAULT_EXTRACTION_LANGUAGE,
     MOMENT_KINDS,
@@ -68,7 +68,6 @@ from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
     CallGoalOut,
-    CallInsightsOut,
     CallMistakeOut,
     CallMomentOut,
     CallQualityOut,
@@ -84,6 +83,7 @@ from apps.api.crm.schemas import (
     SummaryState,
     TranscriptTurnOut,
     TurnTimingOut,
+    insights_out,
 )
 from apps.api.crm.turn_times import TimedLine, agent_line_starts
 from apps.api.db.base import uuid7
@@ -541,23 +541,6 @@ def _stored_timeline(value: object) -> CallTimeline | None:
         return None
 
 
-def _insights_out(value: object) -> CallInsightsOut | None:
-    """A stored `calls.insights` (a dumped `CallInsights`, texts already redacted) for the
-    call view; None when there is none or it no longer reads as one."""
-    if not isinstance(value, dict):
-        return None
-    try:
-        held = CallInsights.model_validate(value)
-    except ValidationError:
-        return None
-    return CallInsightsOut.model_validate(
-        held.model_dump(
-            exclude={"next_step": {"followed_up_at"}},
-            mode="json",
-        )
-    )
-
-
 def _timeline_out(value: object) -> list[TurnTimingOut] | None:
     """A stored `calls.engine_timeline` for the operator's view."""
     timeline = _stored_timeline(value)
@@ -713,7 +696,7 @@ async def get_call(
         summary_language=row[24],
         summary_source=row[25],
         next_step=owner_step(row[26]) if row[26] else None,
-        insights=_insights_out(row[42]),
+        insights=insights_out(row[42]),
         callback_requested=row[27],
         translation_state=row[28],
         lead_name=_caller_name(row[29], agent_name=row[2], business_name=row[43]),

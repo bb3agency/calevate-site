@@ -375,6 +375,15 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         contentHash:
           "sha256:80e0b1dc6471213cc1075dc9dd147273693c06b729a5e3896167211e581eb422",
       },
+      // Section 12.3 adds what the subject access export now also carries: the details
+      // each call captured, the objections raised on it, and the person's automated
+      // follow-ups. NOT MATERIAL: the person is told more of what is already held.
+      {
+        revision: "28",
+        material: false,
+        contentHash:
+          "sha256:e69c7892e38c7a74e63c04fc3d5a67ac5ee3b4cb02a7eb84345503b7b7e419e3",
+      },
     ],
     effectiveDate: "2026-09-02",
   },
