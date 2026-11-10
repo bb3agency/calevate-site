@@ -153,7 +153,7 @@ def callback_number(data: dict[str, Any]) -> str | None:
     return normalize_india(raw) if isinstance(raw, str) and raw.strip() else None
 
 
-async def _number_to_ring(
+async def number_to_ring(
     session: AsyncSession, call_id: UUID, network_number: str | None, data: dict[str, Any]
 ) -> str | None:
     """Whom the call back rings: the number the network showed, except on our own forwarding
@@ -209,7 +209,7 @@ async def book_requested_callback(
         # read as "call me back" (L5-17). An unwanted outbound call costs more than a
         # missed one the owner still sees as "Needs you".
         return None
-    phone_e164 = await _number_to_ring(session, call_id, phone_e164, extraction.data)
+    phone_e164 = await number_to_ring(session, call_id, phone_e164, extraction.data)
     if phone_e164 is None:
         return None
     if await restricting_trial(session, tenant_id=tenant_id) is not None:
@@ -260,6 +260,7 @@ __all__ = [
     "Booked",
     "book_requested_callback",
     "callback_number",
+    "number_to_ring",
     "caller_slot",
     "default_slot",
 ]
