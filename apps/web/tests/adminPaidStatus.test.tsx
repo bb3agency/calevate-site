@@ -132,6 +132,8 @@ function render(routes: Partial<Routes> = {}) {
     [CREDITS_READ]: credits(),
     [trialPath(TENANT)]: null,
     [PAID]: status(),
+    // The running trial's test-call form lists the client's agents.
+    "/v1/agents": [],
     ...routes,
   });
 }

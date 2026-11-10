@@ -147,6 +147,8 @@ function render(routes: Partial<Routes> = {}) {
         reason: null,
         trial: "none",
       },
+      // The running trial's test-call form lists the client's agents.
+      "/v1/agents": [],
       ...routes,
     },
   );

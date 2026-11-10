@@ -43,6 +43,7 @@
  * Types come from `schema.d.ts` (`pnpm gen:api`), never hand-mirrored.
  */
 
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { needsReauthentication } from "@/lib/authn/problems";
@@ -238,5 +239,54 @@ export function useEndTrial(session: Session, tenantId: string) {
     },
     // `converted` makes the account paid (`trial_routes.close_trial`).
     onSuccess: () => invalidatePaymentCredited(client, tenantId),
+  });
+}
+
+/** An operator's test call for a client on a trial: the agent and the number it rings. */
+export type TrialTestCallIn = Schemas["TrialSmokeCallIn"];
+
+/**
+ * `queued` (the phone is ringing) or `blocked`, with the dial gate's own sentence in
+ * `blocked_reason`. A blocked call is a 200, not a problem: the gate answered.
+ */
+export type TrialTestCall = Schemas["TrialSmokeCallOut"];
+
+export function trialTestCallPath(tenantId: string): string {
+  return `${trialPath(tenantId)}/test-call`;
+}
+
+/**
+ * Ring a real phone from one of this client's agents, through the client's own test-call
+ * path (`trial_routes.smoke_trial_call`: `admin:tenants`, no step-up).
+ *
+ * ONE `Idempotency-Key` PER ATTEMPT, held until the server answers, the rule
+ * `trialCalls.usePlaceTrialCall` follows: a second press after a lost response replays the
+ * first answer instead of ringing the person twice. Another agent or number is another
+ * attempt with its own key.
+ *
+ * A placed call moves the trial's minutes and the client's spend, so both reads are
+ * refreshed, with the wallet that shows minutes left.
+ */
+export function useTrialTestCall(session: Session, tenantId: string) {
+  const client = useQueryClient();
+  const held = useRef(new Map<string, string>());
+  const attemptOf = (body: TrialTestCallIn) => JSON.stringify([body.agent_id, body.number]);
+  return useMutation({
+    mutationFn: (body: TrialTestCallIn) => {
+      const attempt = attemptOf(body);
+      const key = held.current.get(attempt) ?? crypto.randomUUID();
+      held.current.set(attempt, key);
+      return apiRequest<TrialTestCall>(session, trialTestCallPath(tenantId), {
+        method: "POST",
+        body,
+        idempotencyKey: key,
+      });
+    },
+    onSuccess: (_result, body) => {
+      held.current.delete(attemptOf(body));
+      void client.invalidateQueries({ queryKey: trialKey(tenantId) });
+      void client.invalidateQueries({ queryKey: ["admin", "spend", tenantId] });
+      invalidateWallet(client, tenantId);
+    },
   });
 }
