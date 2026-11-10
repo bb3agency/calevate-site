@@ -189,9 +189,9 @@ registrar names a number, or we decide this platform will never call it again. I
 ops action: no client can create or remove a global entry, and a client who tries is
 refused by name (`dnc_global_entry`).
 
-**Console: Operations → Global do-not-call (`/admin/ops/dnc`).** Paste the numbers, pick
+**Console: Operations → Do-not-call list (`/admin/ops/dnc`).** Paste the numbers, pick
 the source, write the reason, type SUPPRESS. The screen shows the whole list masked, and
-lifting one takes its own typed confirmation naming that row. Use it rather than the
+lifting one takes its own typed confirmation (RELEASE) on that row. Use it rather than the
 requests below: it sends the confirmation headers for you, states the blast radius before
 the click, and is the same audited path.
 
