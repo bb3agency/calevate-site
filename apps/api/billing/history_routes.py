@@ -118,7 +118,7 @@ async def list_statements(
     session: Session,
     principal: BillingReader,
     limit: Annotated[int, Query(ge=1, le=history.MAX_STATEMENTS)] = history.DEFAULT_STATEMENTS,
-    before: Annotated[str | None, Query(pattern=r"^\d{4}-\d{2}$")] = None,
+    before: Annotated[str | None, Query(pattern=r"^[0-9]{4}-[0-9]{2}$")] = None,
 ) -> StatementListOut:
     assert principal.tenant_id is not None
     page = await history.statement_page(

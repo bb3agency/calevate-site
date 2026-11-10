@@ -11,6 +11,8 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
+import { normalizePhone } from "@/lib/phoneNumber";
+
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
@@ -35,12 +37,10 @@ export const healerKeys = {
 /** Indian mobile, the only shape the server accepts for a fallback phone. */
 export const INDIA_MOBILE = /^\+91[6-9]\d{9}$/;
 
-/** "98765 43210" or "+91 98765-43210" → "+919876543210"; anything else unchanged. */
+/** "98765 43210" or "+91 98765-43210" → "+919876543210" (`lib/phoneNumber`, so a Telugu
+ *  keyboard's digits count); what cannot be read comes back stripped, for the check above. */
 export function normaliseIndianMobile(raw: string): string {
-  const digits = raw.replace(/[^\d+]/g, "");
-  if (/^[6-9]\d{9}$/.test(digits)) return `+91${digits}`;
-  if (/^91[6-9]\d{9}$/.test(digits)) return `+${digits}`;
-  return digits;
+  return normalizePhone(raw) ?? raw.replace(/[^\d+]/g, "");
 }
 
 export function useLineIncidents(session: Session): UseQueryResult<LineIncidents> {

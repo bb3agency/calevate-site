@@ -265,8 +265,8 @@ async def own_numbers_available(
     session: Session,
     principal: NumberViewer,
     city: Annotated[str | None, Query(max_length=60)] = None,
-    pattern: Annotated[str | None, Query(pattern=r"^\d{1,10}$")] = None,
-    cursor: Annotated[str | None, Query(pattern=r"^\d{1,9}$")] = None,
+    pattern: Annotated[str | None, Query(pattern=r"^[0-9]{1,10}$")] = None,
+    cursor: Annotated[str | None, Query(pattern=r"^[0-9]{1,9}$")] = None,
 ) -> AvailableOwnNumbersOut:
     assert principal.tenant_id is not None
     if not engine_has_workspaces():
@@ -291,7 +291,7 @@ class PurchaseOwnNumberIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     #: The number as the search listed it.
-    number: str = Field(min_length=8, max_length=20, pattern=r"^\+?\d{8,15}$")
+    number: str = Field(min_length=8, max_length=20, pattern=r"^\+?[0-9]{8,15}$")
     agent_id: UUID | None = None
     direction: NumberDirection = "both"
     #: One per click of Buy, kept across retries of that click: a repeat buys one number.

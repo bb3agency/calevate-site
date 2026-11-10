@@ -68,6 +68,16 @@ function profile(over: Partial<BusinessProfile> = {}): BusinessProfile {
 }
 
 describe("the wire mapping", () => {
+  it("sends a contact's mobile as E.164 however it was typed (journey audit E10)", () => {
+    const telugu = [..."9876543210"].map((d) => String.fromCodePoint(0x0c66 + Number(d))).join("");
+    const draft = draftFromProfile(profile());
+    for (const typed of ["98765 43210", telugu]) {
+      const contacts = [{ ...draft.escalation_contacts[0], phone_e164: typed }];
+      const patch = toPatch({ ...draft, escalation_contacts: contacts }, "contacts");
+      expect(patch.contacts?.[0]?.phone_e164).toBe("+919876543210");
+    }
+  });
+
   it("brings untouched steps up to a newer profile and keeps the edited ones", () => {
     // The wizard left open while a contact is added elsewhere: saving the untouched Contacts
     // step from the first copy deleted that contact.

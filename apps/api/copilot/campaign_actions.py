@@ -64,7 +64,7 @@ from apps.api.ingest.service import normalize_phone
 #: copying a spreadsheet into its own output, which is slow, costly and easy to get wrong.
 MAX_CONTACTS_PER_ACTION: Final = 100
 
-_HHMM: Final = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+_HHMM: Final = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 _DAY_WORDS: Final = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 _BILLED_PER_MINUTE: Final = (
     "Calls are billed per minute at your plan's rate — see Credits & billing for the amount."

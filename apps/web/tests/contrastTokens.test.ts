@@ -98,6 +98,8 @@ describe("the light palette", () => {
   const surfaces = {
     surface: token(":root {", "surface"),
     app: token(":root {", "app"),
+    // The tint under list rows, status lines and wells, where most faint text sits.
+    "surface-muted": token(":root {", "surface-muted"),
     "legal paper": LEGAL_PAPER,
   };
   const inks = {

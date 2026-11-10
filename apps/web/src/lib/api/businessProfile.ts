@@ -23,6 +23,7 @@ import {
 
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import { STEPS_MODE } from "@/lib/businessProfileMode";
+import { normalizePhone } from "@/lib/phoneNumber";
 
 import { adminSession } from "./admin";
 import { agentKeys } from "./agents";
@@ -282,7 +283,9 @@ export function toPatch(draft: ProfileDraft, step: StepId): ProfilePatch {
         contacts: pruned.escalation_contacts.map((row) => ({
           id: row.id,
           label: row.name.trim(),
-          phone_e164: row.phone_e164.trim(),
+          // The server takes E.164 only; "98765 43210" or a Telugu keyboard's digits are
+          // the same number, so they are folded here rather than refused there.
+          phone_e164: normalizePhone(row.phone_e164) ?? row.phone_e164.trim(),
           note: trimmed(row.hours),
         })),
       };

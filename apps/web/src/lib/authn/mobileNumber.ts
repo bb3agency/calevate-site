@@ -22,26 +22,8 @@ export const MOBILE_NUMBER_USE = "For WhatsApp alerts and automatic top-ups.";
 
 export { MOBILE_NUMBER_INVALID } from "./problems";
 
-const E164 = /^\+[1-9]\d{7,14}$/;
-
-/** E.164 from what was typed, or null when it cannot be read as a phone number. */
-export function normaliseMobileNumber(raw: string): string | null {
-  const text = raw.trim();
-  const plusCount = (text.match(/\+/g) ?? []).length;
-  if (plusCount > 1 || (plusCount === 1 && !text.startsWith("+"))) return null;
-  const digits = text.replace(/\D/g, "");
-  let candidate: string | null = null;
-  if (text.startsWith("+")) {
-    candidate = digits.length >= 10 && digits.length <= 15 ? `+${digits}` : null;
-  } else if (/^[6-9]\d{9}$/.test(digits)) {
-    candidate = `+91${digits}`;
-  } else if (/^0[6-9]\d{9}$/.test(digits)) {
-    candidate = `+91${digits.slice(1)}`;
-  } else if (digits.length === 12 && digits.startsWith("91")) {
-    candidate = `+${digits}`;
-  }
-  return candidate !== null && E164.test(candidate) ? candidate : null;
-}
+/** E.164 from what was typed, or null: the server's rules, from `lib/phoneNumber`. */
+export { normalizePhone as normaliseMobileNumber } from "@/lib/phoneNumber";
 
 /** Set (E.164) or remove (null) the caller's own number. Answers what changed. */
 export async function setOwnMobileNumber(phone: string | null): Promise<MobileNumberChange> {

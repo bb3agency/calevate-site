@@ -121,7 +121,7 @@ class BuyNumberIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9][0-9]{7,18}$")
     country: Literal["IN", "US"] = "IN"
     provider: str | None = Field(default=None, max_length=32)
     monthly_price_usd: Decimal = Field(gt=0, le=1000)
@@ -713,7 +713,7 @@ class RecordEngineNumberIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    e164: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9][0-9]{7,18}$")
     direction: NumberDirection = "both"
     #: The agent that answers it (or, for an outbound-only agent, calls out on it).
     agent_id: UUID | None = None

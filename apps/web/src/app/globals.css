@@ -55,11 +55,14 @@
    * The fix moves BOTH, because raising faint alone to a passing value lands it exactly
    * on muted and collapses two tokens into one — a hierarchy the design would then no
    * longer have, which the next person restores by picking a lighter grey and putting
-   * this defect straight back. So muted takes slate-600 (7.58:1) and faint takes muted's
-   * old slate-500 (4.76:1 / 4.56:1). Same family, same relationship, both legible.
+   * this defect straight back. So muted takes slate-600 (7.58:1) and faint a step past
+   * slate-500. Slate-500 itself (#64748b) cleared white but not the tinted grounds faint
+   * text sits on most: 4.40:1 on `--surface-muted` and 4.29:1 on a row wash, which is
+   * every call time and duration on the calls list. #5d6b80 is 5.00:1 on
+   * `--surface-muted` and stays 1.40:1 apart from muted.
    */
   --text-muted: #475569;
-  --text-faint: #64748b;
+  --text-faint: #5d6b80;
 
   /*
    * STATUS TONES. A warning (something will stop, or needs a look) and a danger

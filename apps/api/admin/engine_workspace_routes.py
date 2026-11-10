@@ -504,8 +504,8 @@ async def admin_available(
     request: Request,
     principal: WorkspaceOperator,
     city: Annotated[str | None, Query(max_length=60)] = None,
-    pattern: Annotated[str | None, Query(pattern=r"^\d{1,10}$")] = None,
-    cursor: Annotated[str | None, Query(pattern=r"^\d{1,9}$")] = None,
+    pattern: Annotated[str | None, Query(pattern=r"^[0-9]{1,10}$")] = None,
+    cursor: Annotated[str | None, Query(pattern=r"^[0-9]{1,9}$")] = None,
 ) -> AdminAvailableNumbersOut:
     if not engine_has_workspaces():
         raise _off()
@@ -541,7 +541,7 @@ async def admin_available(
 class AdminPurchaseIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    number: str = Field(min_length=8, max_length=20, pattern=r"^\+?\d{8,15}$")
+    number: str = Field(min_length=8, max_length=20, pattern=r"^\+?[0-9]{8,15}$")
     agent_id: UUID | None = None
     direction: NumberDirection = "both"
     request_key: str = Field(min_length=8, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
