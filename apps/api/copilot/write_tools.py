@@ -1032,6 +1032,26 @@ def immediate_tool_names() -> frozenset[str]:
 # --- proposing ---------------------------------------------------------------------------
 
 
+async def _assert_agent_args_writable(
+    session: AsyncSession, tool: WriteTool, args: Mapping[str, Any]
+) -> None:
+    """`archived_refusal` (409) if the `agent_id` this call names is a deleted agent.
+
+    Asked again when a confirmed card or a staged approval runs, because an approval waits
+    up to `action_log.APPROVAL_TTL` and the agent can be deleted in that time."""
+    if tool.acts_on_archived:
+        return
+    raw = args.get("agent_id")
+    if not isinstance(raw, str):
+        return
+    try:
+        agent_id = UUID(raw)
+    except ValueError:
+        # A malformed id is the planner's own refusal to make, with a better message.
+        return
+    await assert_agent_writable(session, agent_id)
+
+
 async def _refuse_a_deleted_agent(
     session: AsyncSession, tool: WriteTool, args: Mapping[str, Any]
 ) -> None:
@@ -1047,23 +1067,15 @@ async def _refuse_a_deleted_agent(
     IT RUNS AT PLAN TIME (and at claim time for Tier 1), which is what stops the assistant
     OFFERING the edit. A refusal at execute is a correct answer to the wrong question.
 
-    Keyed on the tool's declared `object_type` plus an `agent_id` argument, so `agent_create`
-    — which has no subject yet — is untouched and a future agent tool is covered the day it
-    is registered. A `WriteRefusedError` rather than a `ProblemError`: this is something the
-    model must relay in words, not retry around.
+    Keyed on an `agent_id` argument whatever the tool's `object_type`, as the route guard
+    keys on an `{agent_id}` path parameter whatever the route writes: `agent_test_add`
+    records an `agent_test_case`, and its button's `POST /v1/agents/{agent_id}/test-cases`
+    is refused for a deleted agent. `agent_create` has no subject yet and is untouched. A
+    `WriteRefusedError` rather than a `ProblemError`: this is something the model must relay
+    in words, not retry around.
     """
-    if tool.object_type != "agent" or tool.acts_on_archived:
-        return
-    raw = args.get("agent_id")
-    if not isinstance(raw, str):
-        return
     try:
-        agent_id = UUID(raw)
-    except ValueError:
-        # A malformed id is the planner's own refusal to make, with a better message.
-        return
-    try:
-        await assert_agent_writable(session, agent_id)
+        await _assert_agent_args_writable(session, tool, args)
     except ProblemError as exc:
         raise WriteRefusedError(
             "that agent has been deleted, so nothing about it can be changed — tell the "
@@ -1820,6 +1832,7 @@ async def confirm(
             detail="You do not have permission to make this change.",
             remediation="Ask an owner or manager on this account to confirm it instead.",
         )
+    await _assert_agent_args_writable(session, proposal.tool, proposal.args)
     await _require_action_code(proposal.tool, proposal.args, code_check)
     # THE BURN SITS IMMEDIATELY BEFORE THE EXECUTION and nothing may be inserted between
     # them: everything that can refuse has refused by here, so a burnt proposal is one
@@ -2075,6 +2088,7 @@ async def approve(
         )
     assert row.pending_args is not None
     try:
+        await _refuse_a_deleted_agent(session, tool, row.pending_args)
         plan = await tool.plan(session, staged_approver(actor, row.pending_args), row.pending_args)
     except WriteRefusedError as refused:
         await action_log.decide_approval(
