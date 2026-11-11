@@ -10,7 +10,9 @@
  * Each suggestion can be reworded before it is kept (D-831): "Review" opens the row's fields
  * on a tinted ground, an edit ticks the row, and "Reset to suggestion" puts Pip's words back.
  * "Cancel" puts the row back as it was when "Review" was pressed; "Update" settles it, and the
- * row then shows only the final wording, without the Now/Suggested pair it was judged from.
+ * row then shows only the final wording, without the Now/Suggested pair it was judged from,
+ * and its button reads "Edit": editing it again opens that final wording alone, never the
+ * comparison.
  * The edited values go through the same `applyChanges` and the builder's own `validate`, so
  * a kept change can
  * never be one the builder would refuse; a problem is shown on the row that caused it and
@@ -276,7 +278,7 @@ export function ProposalReview({
             const rowIssues = issuesByRow.get(change.id) ?? [];
             const shownIssues = tried || touched.has(change.id) || checked.has(change.id) ? rowIssues : [];
             const isOpen = open.has(change.id);
-            const isSettled = settled.has(change.id) && !isOpen;
+            const isSettled = settled.has(change.id);
             return (
               <Row
                 key={change.id}
@@ -436,12 +438,12 @@ function Row({
               <button
                 type="button"
                 className={SECONDARY_BUTTON_SM}
-                aria-label={`Cancel reviewing ${headline(change)}`}
+                aria-label={`Cancel ${settled ? "editing" : "reviewing"} ${headline(change)}`}
                 onClick={onCancel}
               >
                 Cancel
               </button>
-              {edited && (
+              {edited && !settled && (
                 <button type="button" className={`${TEXT_ACTION} ml-2 text-meta`} onClick={onReset}>
                   Reset to suggestion
                 </button>
@@ -453,10 +455,11 @@ function Row({
                 type="button"
                 className={`${TEXT_ACTION} text-meta`}
                 aria-expanded={false}
-                aria-label={`Review ${headline(change)}`}
+                aria-label={`${settled ? "Edit" : "Review"} ${headline(change)}`}
                 onClick={onEdit}
               >
-                Review
+                {/* Reviewed once, a row is final: further changes are edits, not a review. */}
+                {settled ? "Edit" : "Review"}
               </button>
               {edited && !settled && (
                 <button type="button" className={`${TEXT_ACTION} text-meta`} onClick={onReset}>
@@ -470,11 +473,14 @@ function Row({
   );
 }
 
-/** The suggestion's fields under the brand rule, where its text was. */
-function Editing({ id, children }: { id: string; children: ReactNode }) {
+/**
+ * The suggestion's fields under the brand rule, where its text was. A row already updated is
+ * edited as the final wording alone, so it carries no "Suggested" label.
+ */
+function Editing({ id, final = false, children }: { id: string; final?: boolean; children: ReactNode }) {
   return (
     <div id={`${id}-edit`} className="border-l-2 border-brand pl-3">
-      <p className="mb-1 text-meta font-medium text-ink-muted">Suggested</p>
+      {!final && <p className="mb-1 text-meta font-medium text-ink-muted">Suggested</p>}
       {children}
     </div>
   );
@@ -499,12 +505,12 @@ function PartBody({
 }) {
   const id = domId(change);
   const suggested = partText(edited, change.part);
-  if (settled) return <Settled text={suggested} issues={issues} />;
+  if (settled && !open) return <Settled text={suggested} issues={issues} />;
   return (
     <div className="mt-1.5 space-y-1.5">
-      {change.before && <Quote tone="before" text={change.before} against={suggested || undefined} />}
+      {change.before && !settled && <Quote tone="before" text={change.before} against={suggested || undefined} />}
       {open ? (
-        <Editing id={id}>
+        <Editing id={id} final={settled}>
           <PartEditor part={change.part} script={edited} idBase={id} issues={issues} language={language} onChange={onChange} />
           <RowErrors issues={unshownIssues(issues, partShows)} />
         </Editing>
@@ -563,12 +569,12 @@ function SectionBody({
       ? [renamed && `Name: ${change.before.name}`, sectionReadable(change.before)].filter(Boolean).join("\n")
       : "";
   const suggested = [renamed && `Name: ${after.name}`, sectionReadable(after)].filter(Boolean).join("\n");
-  if (settled) return <Settled text={suggested} issues={issues} />;
+  if (settled && !open) return <Settled text={suggested} issues={issues} />;
   return (
     <div className="mt-1.5 space-y-1.5">
-      {before && <Quote tone="before" text={before} against={suggested || undefined} />}
+      {before && !settled && <Quote tone="before" text={before} against={suggested || undefined} />}
       {open ? (
-        <Editing id={id}>
+        <Editing id={id} final={settled}>
           <SectionFields
             section={after}
             idBase={id}

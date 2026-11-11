@@ -201,8 +201,18 @@ describe("a row being edited, then updated or cancelled", () => {
     expect(row.textContent).not.toContain("Edited by you");
     expect(row.textContent).not.toContain("Reset to suggestion");
     expect(row.querySelectorAll("mark")).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Review The goal" })).toBeTruthy();
     expect(goal.checked).toBe(true);
+
+    // Edited again, it opens the final wording alone: no Now, no Suggested, no marks.
+    fireEvent.click(screen.getByRole("button", { name: "Edit The goal" }));
+    expect(row.textContent).not.toContain("Now");
+    expect(row.textContent).not.toContain("Suggested");
+    expect(row.querySelectorAll("mark")).toHaveLength(0);
+    expect((screen.getByLabelText("The goal", { selector: "textarea" }) as HTMLTextAreaElement).value).toBe(
+      "Take the order and confirm it.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel editing The goal" }));
+    expect(row.textContent).toContain("Reviewed by you");
 
     fireEvent.click(screen.getByRole("button", { name: "Add all 2 to my draft" }));
     expect((onApply.mock.calls[0][0] as CallScript).goal).toBe("Take the order and confirm it.");
