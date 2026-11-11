@@ -100,14 +100,14 @@ describe("a suggestion reworded before it is kept (D-831)", () => {
     fireEvent.click(goal);
     expect(goal.checked).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit The goal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review The goal" }));
     fireEvent.change(screen.getByLabelText("The goal", { selector: "textarea" }), {
       target: { value: "Take the order and the delivery area, then confirm it." },
     });
     expect(goal.checked).toBe(true);
     expect(screen.getByText("Edited by you")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit Price objection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Price objection" }));
     fireEvent.change(screen.getByLabelText("Example line"), { target: { value: "Rate ekkuva ani anipistunda andi?" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Add all 2 to my draft" }));
@@ -119,7 +119,7 @@ describe("a suggestion reworded before it is kept (D-831)", () => {
   it("holds the draft and shows the builder's own message on the row until it is fixed", () => {
     const onApply = vi.fn();
     render(<ProposalReview current={CURRENT} proposal={PROPOSAL} onApply={onApply} onDiscard={() => undefined} />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit Price objection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Price objection" }));
     const name = screen.getByLabelText("Step name");
     fireEvent.change(name, { target: { value: " " } });
     expect(screen.getByText("Give this step a name.")).toBeTruthy();
@@ -144,7 +144,7 @@ describe("a suggestion reworded before it is kept (D-831)", () => {
         onDiscard={() => undefined}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Edit Your business in one line" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Your business in one line" }));
     const line = screen.getByRole("textbox", { name: "Your business in one line" });
     // The input's maxLength stops typing; a paste through the model is what reaches this.
     fireEvent.change(line, { target: { value: "x".repeat(201) } });
@@ -156,13 +156,85 @@ describe("a suggestion reworded before it is kept (D-831)", () => {
   it("puts the suggestion's own words back on reset", () => {
     const onApply = vi.fn();
     render(<ProposalReview current={CURRENT} proposal={PROPOSAL} onApply={onApply} onDiscard={() => undefined} />);
-    fireEvent.click(screen.getByRole("button", { name: "Edit Price objection" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review Price objection" }));
     fireEvent.change(screen.getByLabelText("What it does here"), { target: { value: "Just say sorry." } });
     fireEvent.click(screen.getByRole("button", { name: "Reset to suggestion" }));
     expect((screen.getByLabelText("What it does here") as HTMLTextAreaElement).value).toBe(STEP.instruction);
     expect(screen.queryByText("Edited by you")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add all 2 to my draft" }));
     expect((onApply.mock.calls[0][0] as CallScript).stages[0].instruction).toBe(STEP.instruction);
+  });
+});
+
+describe("a row being edited, then updated or cancelled", () => {
+  it("tints the row being edited and gives it Update and Cancel", () => {
+    render(<ProposalReview current={CURRENT} proposal={PROPOSAL} onApply={() => undefined} onDiscard={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review The goal" }));
+    const row = screen.getByRole("checkbox", { name: "The goal" }).closest("li");
+    expect(row?.getAttribute("data-editing")).toBe("true");
+    expect(row?.className).toContain("bg-brand-soft");
+    expect(screen.getByRole("button", { name: "Update The goal" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel reviewing The goal" })).toBeTruthy();
+    // Only the row being edited is tinted.
+    expect(screen.getByRole("checkbox", { name: "Price objection" }).closest("li")?.getAttribute("data-editing")).toBeNull();
+  });
+
+  it("shows only the final wording once updated, and keeps it", () => {
+    const onApply = vi.fn();
+    render(<ProposalReview current={CURRENT} proposal={PROPOSAL} onApply={onApply} onDiscard={() => undefined} />);
+    const goal = screen.getByRole("checkbox", { name: "The goal" }) as HTMLInputElement;
+    fireEvent.click(goal);
+    fireEvent.click(screen.getByRole("button", { name: "Review The goal" }));
+    fireEvent.change(screen.getByLabelText("The goal", { selector: "textarea" }), {
+      target: { value: "Take the order and confirm it." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Update The goal" }));
+
+    const row = goal.closest("li") as HTMLElement;
+    expect(row.getAttribute("data-editing")).toBeNull();
+    expect(row.textContent).not.toContain("Now");
+    expect(row.textContent).not.toContain("Suggested");
+    expect(row.textContent).toContain("Take the order and confirm it.");
+    expect(row.textContent).toContain("Reviewed by you");
+    // One final version: no change tag, no way back to a second version from the row.
+    expect(row.textContent).not.toContain("Changed");
+    expect(row.textContent).not.toContain("Edited by you");
+    expect(row.textContent).not.toContain("Reset to suggestion");
+    expect(row.querySelectorAll("mark")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Review The goal" })).toBeTruthy();
+    expect(goal.checked).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Add all 2 to my draft" }));
+    expect((onApply.mock.calls[0][0] as CallScript).goal).toBe("Take the order and confirm it.");
+  });
+
+  it("keeps a row open when its update has a problem", () => {
+    render(<ProposalReview current={CURRENT} proposal={PROPOSAL} onApply={() => undefined} onDiscard={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Review Price objection" }));
+    fireEvent.change(screen.getByLabelText("Step name"), { target: { value: " " } });
+    fireEvent.click(screen.getByRole("button", { name: "Update Price objection" }));
+    expect(screen.getByText("Give this step a name.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Update Price objection" })).toBeTruthy();
+  });
+
+  it("puts the row back as it was on cancel", () => {
+    const onApply = vi.fn();
+    render(<ProposalReview current={CURRENT} proposal={PROPOSAL} onApply={onApply} onDiscard={() => undefined} />);
+    const goal = screen.getByRole("checkbox", { name: "The goal" }) as HTMLInputElement;
+    fireEvent.click(goal);
+    fireEvent.click(screen.getByRole("button", { name: "Review The goal" }));
+    fireEvent.change(screen.getByLabelText("The goal", { selector: "textarea" }), { target: { value: "Something else." } });
+    expect(goal.checked).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel reviewing The goal" }));
+
+    expect(goal.checked).toBe(false);
+    expect(screen.queryByText("Edited by you")).toBeNull();
+    const row = goal.closest("li") as HTMLElement;
+    expect(row.textContent).toContain("Now");
+    expect(row.textContent).toContain(PROPOSAL.goal);
+    fireEvent.click(goal);
+    fireEvent.click(screen.getByRole("button", { name: "Add all 2 to my draft" }));
+    expect((onApply.mock.calls[0][0] as CallScript).goal).toBe(PROPOSAL.goal);
   });
 });
 

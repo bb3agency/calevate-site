@@ -7,9 +7,12 @@
  * unticks what they do not want and only the rest is applied to their draft (`applyChanges`).
  * Nothing goes live from here: the draft still waits for "Put it live".
  *
- * Each suggestion can be reworded before it is kept (D-831): "Edit" opens the row's fields,
- * an edit ticks the row, and "Reset to suggestion" puts Pip's words back. The edited values
- * go through the same `applyChanges` and the builder's own `validate`, so a kept change can
+ * Each suggestion can be reworded before it is kept (D-831): "Review" opens the row's fields
+ * on a tinted ground, an edit ticks the row, and "Reset to suggestion" puts Pip's words back.
+ * "Cancel" puts the row back as it was when "Review" was pressed; "Update" settles it, and the
+ * row then shows only the final wording, without the Now/Suggested pair it was judged from.
+ * The edited values go through the same `applyChanges` and the builder's own `validate`, so
+ * a kept change can
  * never be one the builder would refuse; a problem is shown on the row that caused it and
  * holds "Add" until it is fixed.
  *
@@ -114,6 +117,12 @@ export function ProposalReview({
   const [touched, setTouched] = useState<Set<string>>(() => new Set());
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [tried, setTried] = useState(false);
+  // Rows the owner settled with "Update": only the final wording shows.
+  const [settled, setSettled] = useState<Set<string>>(() => new Set());
+  // Rows whose "Update" was refused, so their problems show although nothing was typed.
+  const [checked, setChecked] = useState<Set<string>>(() => new Set());
+  // Each open row as it stood when "Review" was pressed, for "Cancel".
+  const opened = useRef(new Map<string, { edited: CallScript; touched: boolean; kept: boolean; settled: boolean }>());
   // The owner's rewording lives only here until "Add", so leaving the tab or the page asks.
   useUnsavedGuard(touched.size > 0);
   const list = useRef<HTMLUListElement>(null);
@@ -160,21 +169,72 @@ export function ProposalReview({
       stages: sectionsOf(edited).map((s) => (s.id === id ? { ...s, ...patch, id } : s)),
     });
 
-  const reset = (change: Change) => {
+  /** Put one row's words back from `from`, leaving every other row's edits alone. */
+  const restore = (change: Change, from: CallScript) => {
     if (change.kind === "part") {
-      setEdited((e) => ({ ...e, [change.part]: proposal[change.part] }));
+      setEdited((e) => ({ ...e, [change.part]: from[change.part] }));
     } else {
       const id = suggestedId(change);
-      const original = sectionsOf(proposal).find((s) => s.id === id);
+      const original = sectionsOf(from).find((s) => s.id === id);
       setEdited((e) => ({ ...e, stages: sectionsOf(e).map((s) => (s.id === id && original ? original : s)) }));
     }
+  };
+
+  const reset = (change: Change) => {
+    restore(change, proposal);
     setIn(setTouched, change.id, false);
+    setIn(setSettled, change.id, false);
+  };
+
+  const openRow = (id: string) => {
+    if (!opened.current.has(id)) {
+      opened.current.set(id, { edited, touched: touched.has(id), kept: kept.has(id), settled: settled.has(id) });
+    }
+    setIn(setOpen, id, true);
+  };
+
+  const closeRow = (id: string) => {
+    opened.current.delete(id);
+    setIn(setOpen, id, false);
+    setIn(setChecked, id, false);
+  };
+
+  const cancel = (change: Change) => {
+    const was = opened.current.get(change.id);
+    if (was) {
+      restore(change, was.edited);
+      setIn(setTouched, change.id, was.touched);
+      setIn(setKept, change.id, was.kept);
+      setIn(setSettled, change.id, was.settled);
+    }
+    closeRow(change.id);
+  };
+
+  /** The builder's problems with this row, judged as if it were kept (Update keeps it). */
+  const problemsIfKept = (change: Change): Issue[] => {
+    const traced = applyTraced(current, proposal, new Set([...kept, change.id]), edited);
+    return validate(traced.script, limits).filter((issue) =>
+      issue.section !== null
+        ? traced.from.get(issue.section) === suggestedId(change)
+        : change.kind === "part" && PART_OF_FIELD.find((p) => p.test.test(issue.field))?.part === change.part,
+    );
+  };
+
+  /** Settle a row: it is kept, and only its final wording shows. A row with a problem stays open. */
+  const update = (change: Change) => {
+    setIn(setKept, change.id, true);
+    if (problemsIfKept(change).length > 0) {
+      setIn(setChecked, change.id, true);
+      return;
+    }
+    setIn(setSettled, change.id, true);
+    closeRow(change.id);
   };
 
   const add = () => {
     if (blocked.length > 0) {
       setTried(true);
-      setOpen((o) => new Set([...o, ...blocked.map((c) => c.id)]));
+      blocked.forEach((c) => openRow(c.id));
       // After the rows open, the first field to fix takes the focus. Centred, because the
       // page header is sticky and a field scrolled to the top would sit under it.
       requestAnimationFrame(() => {
@@ -194,7 +254,7 @@ export function ProposalReview({
           {changes.length === 1 ? "1 suggested change" : `${changes.length} suggested changes`}
         </h3>
         <p className="mt-1 text-meta text-ink-muted">
-          Untick or edit any. Kept ones go to your draft, not live.
+          Untick or review any. Kept ones go to your draft, not live.
         </p>
         {changes.length > 1 && (
           <ul aria-label="Changes by kind" className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
@@ -214,17 +274,22 @@ export function ProposalReview({
           {changes.map((change) => {
             const on = kept.has(change.id);
             const rowIssues = issuesByRow.get(change.id) ?? [];
-            const shownIssues = tried || touched.has(change.id) ? rowIssues : [];
+            const shownIssues = tried || touched.has(change.id) || checked.has(change.id) ? rowIssues : [];
+            const isOpen = open.has(change.id);
+            const isSettled = settled.has(change.id) && !isOpen;
             return (
               <Row
                 key={change.id}
                 change={change}
                 kept={on}
                 edited={touched.has(change.id)}
-                open={open.has(change.id)}
+                open={isOpen}
+                settled={isSettled}
                 since={since.get(change.id)}
                 onKeep={(next) => setIn(setKept, change.id, next)}
-                onOpen={(next) => setIn(setOpen, change.id, next)}
+                onEdit={() => openRow(change.id)}
+                onUpdate={() => update(change)}
+                onCancel={() => cancel(change)}
                 onReset={() => reset(change)}
               >
                 {change.kind === "order" ? (
@@ -233,7 +298,8 @@ export function ProposalReview({
                   <PartBody
                     change={change}
                     edited={edited}
-                    open={open.has(change.id)}
+                    open={isOpen}
+                    settled={isSettled}
                     issues={shownIssues}
                     language={language}
                     onChange={(next) => editRow(change, next)}
@@ -242,7 +308,8 @@ export function ProposalReview({
                   <SectionBody
                     change={change}
                     edited={edited}
-                    open={open.has(change.id)}
+                    open={isOpen}
+                    settled={isSettled}
                     issues={shownIssues}
                     limits={limits}
                     language={language}
@@ -295,9 +362,12 @@ function Row({
   kept,
   edited,
   open,
+  settled,
   since,
   onKeep,
-  onOpen,
+  onEdit,
+  onUpdate,
+  onCancel,
   onReset,
   children,
 }: {
@@ -305,9 +375,12 @@ function Row({
   kept: boolean;
   edited: boolean;
   open: boolean;
+  settled: boolean;
   since?: Since;
   onKeep: (on: boolean) => void;
-  onOpen: (on: boolean) => void;
+  onEdit: () => void;
+  onUpdate: () => void;
+  onCancel: () => void;
   onReset: () => void;
   children: ReactNode;
 }) {
@@ -315,8 +388,18 @@ function Row({
   const gone = since === "deleted";
   const editable = !gone && change.kind !== "section-removed" && change.kind !== "order";
   return (
-    // An unticked change fades, so what will be applied is visible at a glance.
-    <li className={`flex items-start gap-3 py-3 transition-opacity duration-150 ${kept ? "" : "opacity-55"}`}>
+    // An unticked change fades, so what will be applied is visible at a glance; the row being
+    // edited sits on a tinted ground so the eye stays on it.
+    <li
+      data-editing={open || undefined}
+      className={`flex items-start gap-3 py-3 transition-[opacity,background-color] duration-150 ${
+        open
+          ? "-mx-3 rounded-lg bg-brand-soft px-3 ring-1 ring-brand/40 dark:bg-brand-strong/20"
+          : kept
+            ? ""
+            : "opacity-55"
+      }`}
+    >
       <input
         id={`${id}-keep`}
         type="checkbox"
@@ -330,32 +413,58 @@ function Row({
           <label htmlFor={`${id}-keep`} className="cursor-pointer text-body font-medium text-ink">
             {headline(change)}
           </label>
-          <StatusPill tone={kindTone(change)}>{kindLabel(change)}</StatusPill>
-          {edited && <span className="text-meta font-medium text-brand-strong">Edited by you</span>}
+          {/* Once updated there is one final version, so nothing says what it changed from. */}
+          {settled ? (
+            <span className="text-meta font-medium text-brand-strong">Reviewed by you</span>
+          ) : (
+            <>
+              <StatusPill tone={kindTone(change)}>{kindLabel(change)}</StatusPill>
+              {edited && <span className="text-meta font-medium text-brand-strong">Edited by you</span>}
+            </>
+          )}
         </div>
-        {since && (
+        {since && !settled && (
           <p className={`mt-1 text-meta ${gone ? "text-ink-muted" : "text-warn"}`}>{SINCE_NOTE[since](change)}</p>
         )}
         {children}
-        {editable && (
-          <div className="mt-1.5 flex flex-wrap gap-x-4">
-            <button
-              type="button"
-              className={`${TEXT_ACTION} text-meta`}
-              aria-expanded={open}
-              aria-controls={open ? `${id}-edit` : undefined}
-              aria-label={`${open ? "Done editing" : "Edit"} ${headline(change)}`}
-              onClick={() => onOpen(!open)}
-            >
-              {open ? "Done" : "Edit"}
-            </button>
-            {edited && (
-              <button type="button" className={`${TEXT_ACTION} text-meta`} onClick={onReset}>
-                Reset to suggestion
+        {editable &&
+          (open ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" className={PRIMARY_BUTTON_SM} aria-label={`Update ${headline(change)}`} onClick={onUpdate}>
+                Update
               </button>
-            )}
-          </div>
-        )}
+              <button
+                type="button"
+                className={SECONDARY_BUTTON_SM}
+                aria-label={`Cancel reviewing ${headline(change)}`}
+                onClick={onCancel}
+              >
+                Cancel
+              </button>
+              {edited && (
+                <button type="button" className={`${TEXT_ACTION} ml-2 text-meta`} onClick={onReset}>
+                  Reset to suggestion
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="mt-1.5 flex flex-wrap gap-x-4">
+              <button
+                type="button"
+                className={`${TEXT_ACTION} text-meta`}
+                aria-expanded={false}
+                aria-label={`Review ${headline(change)}`}
+                onClick={onEdit}
+              >
+                Review
+              </button>
+              {edited && !settled && (
+                <button type="button" className={`${TEXT_ACTION} text-meta`} onClick={onReset}>
+                  Reset to suggestion
+                </button>
+              )}
+            </div>
+          ))}
       </div>
     </li>
   );
@@ -375,6 +484,7 @@ function PartBody({
   change,
   edited,
   open,
+  settled,
   issues,
   language,
   onChange,
@@ -382,12 +492,14 @@ function PartBody({
   change: Extract<Change, { kind: "part" }>;
   edited: CallScript;
   open: boolean;
+  settled: boolean;
   issues: Issue[];
   language: string;
   onChange: (next: CallScript) => void;
 }) {
   const id = domId(change);
   const suggested = partText(edited, change.part);
+  if (settled) return <Settled text={suggested} issues={issues} />;
   return (
     <div className="mt-1.5 space-y-1.5">
       {change.before && <Quote tone="before" text={change.before} against={suggested || undefined} />}
@@ -421,6 +533,7 @@ function SectionBody({
   change,
   edited,
   open,
+  settled,
   issues,
   limits,
   language,
@@ -429,6 +542,7 @@ function SectionBody({
   change: Exclude<Change, { kind: "part" } | { kind: "order" }>;
   edited: CallScript;
   open: boolean;
+  settled: boolean;
   issues: Issue[];
   limits: Limits;
   language: string;
@@ -449,6 +563,7 @@ function SectionBody({
       ? [renamed && `Name: ${change.before.name}`, sectionReadable(change.before)].filter(Boolean).join("\n")
       : "";
   const suggested = [renamed && `Name: ${after.name}`, sectionReadable(after)].filter(Boolean).join("\n");
+  if (settled) return <Settled text={suggested} issues={issues} />;
   return (
     <div className="mt-1.5 space-y-1.5">
       {before && <Quote tone="before" text={before} against={suggested || undefined} />}
@@ -470,6 +585,21 @@ function SectionBody({
           <RowErrors issues={issues} />
         </>
       )}
+    </div>
+  );
+}
+
+/** A row the owner settled with "Update": the wording that goes to the draft, nothing to compare. */
+function Settled({ text, issues }: { text: string; issues: Issue[] }) {
+  return (
+    <div className="mt-1.5">
+      <div className="border-l-2 border-brand-strong pl-3 text-meta text-ink">
+        <span className="sr-only">Final wording: </span>
+        <ExpandableText lines={4} moreLabel="Show all" textClassName="whitespace-pre-wrap">
+          {text || "(left empty)"}
+        </ExpandableText>
+      </div>
+      <RowErrors issues={issues} />
     </div>
   );
 }
