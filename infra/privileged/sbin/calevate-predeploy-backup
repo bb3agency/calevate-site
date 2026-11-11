@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Take a verified logical backup of the production database before a deploy — as root,
+# with NO arguments.
+#
+# Installs to /usr/local/sbin/calevate-predeploy-backup, owned root:root, mode 0755.
+# Granted to the deploy account by /etc/sudoers.d/calevate-deploy with an EMPTY argument
+# list, the same shape as calevate-nginx-apply (infra/privileged/README.md).
+#
+# Every deploy is preceded by this, and a deploy does not start unless it exits 0
+# (`scripts/deploy/auto-deploy.sh`). Continuous WAL archiving already gives point-in-time
+# recovery; this dump is the second, independent copy taken at the exact moment before a
+# release can migrate the schema, restorable with one `pg_restore` and no object store.
+#
+# It takes no arguments so the deploy account can NAME this action but never steer it: the
+# database, the destination and the retention are fixed here.
+#
+# Output: /var/backups/calevate/pre-deploy-<UTC timestamp>.dump (custom format), directory
+# mode 0700 owned by postgres, because the dump holds every client's customer data.
+# Verified by reading its table of contents back with `pg_restore --list`; an unreadable
+# dump fails the run.
+#
+# Retention: the newest KEEP pre-deploy dumps are kept and older PRE-DEPLOY dumps only are
+# removed, so a run of deploys cannot fill the disk. Hand-made dumps in the same directory
+# (any other name) are never touched.
+
+set -Eeuo pipefail
+
+if [[ $# -ne 0 ]]; then
+  echo "calevate-predeploy-backup takes no arguments" >&2
+  exit 64
+fi
+
+DB=calevate
+DIR=/var/backups/calevate
+KEEP=10
+# The dump is refused when less than this much disk would remain, so a backup never
+# becomes the thing that fills the host the database is running on.
+MIN_FREE_KB=$((2 * 1024 * 1024))
+
+install -d -m 0700 -o postgres -g postgres "$DIR"
+
+db_kb=$(runuser -u postgres -- psql -At -d "$DB" -c "SELECT pg_database_size(current_database()) / 1024")
+free_kb=$(df --output=avail -k "$DIR" | tail -1 | tr -d ' ')
+if (( free_kb - db_kb < MIN_FREE_KB )); then
+  echo "refusing to back up: ${free_kb} KB free, database is ${db_kb} KB, and at least ${MIN_FREE_KB} KB must remain" >&2
+  exit 1
+fi
+
+out="$DIR/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ).dump"
+tmp="$out.partial"
+trap 'rm -f -- "$tmp"' EXIT
+
+runuser -u postgres -- pg_dump --format=custom --dbname="$DB" --file="$tmp"
+runuser -u postgres -- pg_restore --list "$tmp" > /dev/null
+mv -- "$tmp" "$out"
+trap - EXIT
+
+# Newest first; everything after the KEEP-th pre-deploy dump goes.
+mapfile -t old < <(ls -1t "$DIR"/pre-deploy-*.dump 2>/dev/null | tail -n +$((KEEP + 1)))
+if (( ${#old[@]} > 0 )); then
+  rm -f -- "${old[@]}"
+fi
+
+echo "BACKUP OK: $out ($(du -h -- "$out" | cut -f1))"

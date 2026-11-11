@@ -657,6 +657,41 @@ long-lived token to this repository, so a wipe is not a substitute for the remov
 about it. Re-registering is steps 1–3 again in the same directory (`--replace` makes it
 idempotent), about five minutes.
 
+### 3c. Automatic deploys by pull — what production uses (founder, 11 Nov 2026)
+
+Pushing to `production` deploys it. The host pulls: `calevate-autodeploy.timer` runs
+`scripts/deploy/auto-deploy.sh` as `calevate` every 2 minutes; it fetches `production`
+over the host's read-only deploy key and, when the tip is not the live commit
+(`.deploy-state/deployed-sha`), takes a verified database backup
+(`/usr/local/sbin/calevate-predeploy-backup`, granted with no arguments) and runs
+`scripts/vps-deploy.sh --expected-sha <tip>`. **No backup, no deploy.**
+
+Chosen over the §3a runner because the runner holds a token to this repository on the
+production host and runs whatever a workflow file says; the pull needs only the deploy key
+the host already has, and GitHub holds nothing that reaches the box. The build still runs on
+the box, exactly as a hand deploy does, so a big release is still best pushed outside
+calling hours.
+
+A failed commit is not retried (`.deploy-state/autodeploy-failed-sha`); the next push is.
+Pause with `touch /var/www/calevate/.deploy-state/autodeploy.paused`. A rollback
+(`vps-deploy.sh --checkout <sha>`) leaves the checkout detached, and the timer then does
+nothing until `git -C /var/www/calevate checkout production`.
+
+**Install, once, as the sudo-capable login:**
+
+```sh
+sudo -iu calevate git -C /var/www/calevate pull --ff-only        # brings these files
+cd /var/www/calevate
+sudo install -o root -g root -m 0755 infra/privileged/sbin/calevate-predeploy-backup /usr/local/sbin/
+sudo install -o root -g root -m 0440 infra/privileged/sudoers.d/calevate-deploy /etc/sudoers.d/calevate-deploy
+sudo visudo -c -f /etc/sudoers.d/calevate-deploy                  # must print "parsed OK"
+sudo -u calevate sudo -n /usr/local/sbin/calevate-predeploy-backup   # must print BACKUP OK
+sudo install -o root -g root -m 0644 infra/autodeploy/systemd/calevate-autodeploy.service infra/autodeploy/systemd/calevate-autodeploy.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now calevate-autodeploy.timer
+```
+
+Watch it: `journalctl -u calevate-autodeploy.service -f`.
+
 ### 3b. Rolling back without an SSH session
 
 A deploy path with no reachable rollback is a deploy path whose only incident control is
@@ -1012,6 +1047,9 @@ production has been deployed by hand with `scripts/vps-deploy.sh` since 22 Sep 2
    with the detached-checkout message until `git checkout main` is run on the box. Nothing
    about this has been executed and the script's own tests cannot execute it.
 
+> **Since 11 Nov 2026 a push to `production` deploys itself once §3c is installed** (backup
+> first, then this same script). The hand deploy below stays the fallback.
+>
 > **Current state (28 Oct 2026).** Production runs on the Hostinger VPS, repository at
 > `/var/www/calevate`, deploy account `calevate`, deployed by hand from the `production`
 > branch (kept equal to `main`; its latest commit is `8dcdccae`, 28 Oct 2026). Automatic

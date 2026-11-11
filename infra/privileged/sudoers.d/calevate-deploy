@@ -56,6 +56,10 @@ Defaults:calevate    env_reset, secure_path="/usr/local/sbin:/usr/local/bin:/usr
 # already swapped and the edge config not (DEPLOYMENT §4 step 3).
 calevate ALL=(root) NOPASSWD: /usr/local/sbin/calevate-nginx-apply ""
 
+# Take the verified database backup every deploy waits for. NOPASSWD for the same reason:
+# the automatic deploy runs unattended, and it must FAIL, not hang, when this cannot run.
+calevate ALL=(root) NOPASSWD: /usr/local/sbin/calevate-predeploy-backup ""
+
 # ====================================================================================
 # WHAT IS DELIBERATELY NOT GRANTED
 #

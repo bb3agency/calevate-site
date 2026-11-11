@@ -1,0 +1,32 @@
+[Unit]
+Description=Calevate automatic deploy of the production branch (backup first)
+Documentation=file:///var/www/calevate/docs/DEPLOYMENT.md
+After=docker.service network-online.target postgresql.service
+Wants=network-online.target
+# A run that fails or is killed reaches the same alert path as the backup units.
+OnFailure=calevate-backup-alert@%n.service
+
+[Service]
+Type=oneshot
+User=calevate
+Group=calevate
+SupplementaryGroups=docker
+WorkingDirectory=/var/www/calevate
+Environment=HOME=/home/calevate
+Environment=VPS_CLIENT_PATH=/var/www/calevate
+# The four nginx values vps-deploy.sh needs when nginx is in the plan. Hostnames and paths,
+# never secrets (DEPLOYMENT §9.4a); NGINX_AUTO_RELOAD stays unset, so an nginx change stops
+# the deploy with the `sudo install` lines for a human, as a hand deploy does.
+Environment=ROOT_DOMAIN=calevate.tech
+Environment=TLS_LIVE_DIR=/etc/letsencrypt/live/calevate.tech
+Environment=ORIGIN_CERT_PATH=/etc/ssl/calevate/origin.pem
+Environment=ORIGIN_KEY_PATH=/etc/ssl/calevate/origin.key
+# A login shell, so node, pnpm, pm2 and uv are on PATH exactly as they are for
+# `sudo -iu calevate`, the shell every hand deploy has run in.
+ExecStart=/bin/bash -lc 'exec /var/www/calevate/scripts/deploy/auto-deploy.sh'
+# A full web build on the starter host takes well over ten minutes; a wedged run is still
+# ended and reported.
+TimeoutStartSec=90m
+# NoNewPrivileges is deliberately NOT set: the backup is taken through sudo, which it
+# would disable.
+PrivateTmp=yes
