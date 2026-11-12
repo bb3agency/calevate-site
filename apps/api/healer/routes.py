@@ -62,6 +62,7 @@ from apps.api.healer.playbooks import (
     PLAYBOOK_BY_KEY,
     PLAYBOOKS,
     STATUS_POST,
+    effective_limits,
     paused_keys,
     unknown_paused_keys,
 )
@@ -110,7 +111,9 @@ class ClientIncidentOut(_Out):
     id: UUID
     agent_id: UUID | None
     agent_name: str | None
-    kind: Literal["agent_unwell", "line_protected", "platform_outage"]
+    kind: Literal[
+        "agent_unwell", "line_protected", "platform_outage", "script_fixed", "script_fix_waiting"
+    ]
     protection: Literal["none", "paused", "forwarded"]
     state: Literal["open", "resolved"]
     opened_at: datetime
@@ -203,7 +206,7 @@ async def _client_out(
         what_we_did=notice.what_we_did,
         your_part=notice.your_part,
         call_backs=await _call_backs(session, agent_id=row[1], since=row[6], until=row[7])
-        if row[3] != "agent_unwell"
+        if row[3] in ("line_protected", "platform_outage")
         else [],
     )
 
@@ -634,8 +637,8 @@ async def healer_overview(session: GlobalSession, principal: Operator) -> Healer
                 action=p.action,
                 verify=p.verify,
                 undo=p.undo,
-                max_attempts=p.max_attempts,
-                cooldown_s=p.cooldown_s,
+                max_attempts=effective_limits(p)[0],
+                cooldown_s=effective_limits(p)[1],
                 blast_radius=p.blast_radius,
                 job=p.job,
                 automatic=p.automatic,

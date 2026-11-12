@@ -158,7 +158,8 @@ async def test_a_real_call_is_checked_and_the_owner_sees_what_went_wrong(
         ("asked_again", 1),
         ("same_opening", 1),
     }
-    assert {m["state"] for m in body["items"]} <= {"fixing", "fixed", "back"}
+    # Each kind is being fixed in the agent's own script (D-985), which the owner reads first.
+    assert {m["state"] for m in body["items"]} == {"script_fixing"}
     assert body["items"][0]["last_call_id"] == str(call_id)
     assert missing.status_code == 404
 
@@ -249,12 +250,17 @@ async def test_a_fixed_mistake_that_comes_back_is_raised(
         found={"said_again": 3},
     )
     assert back == []
-    assert raised == []
+    # Only the healer's fix opening (D-985) is raised for a call placed before the fix.
+    assert [code for code, _kw in raised if code != "call_mistake_seen"] == []
 
     await _real_call(tenant_id, agent_id, monkeypatch)
     assert {kw["reason"] for code, kw in raised if code == "call_mistake_back"} == {"said_again"}
     # A kind with no fix on record is raised as new, once for the account.
-    assert {code for code, _kw in raised} <= {"call_mistake_back", "call_mistake_new"}
+    assert {code for code, _kw in raised} <= {
+        "call_mistake_back",
+        "call_mistake_new",
+        "call_mistake_seen",
+    }
     assert "said_again" not in {kw["reason"] for code, kw in raised if code == "call_mistake_new"}
 
     headers = await _org_headers(tenant_id)
@@ -264,7 +270,9 @@ async def test_a_fixed_mistake_that_comes_back_is_raised(
         ]
         board = (await http.get(BOARD, headers=admin)).json()
     said = next(m for m in items if m["kind"] == "said_again")
-    assert (said["state"], said["calls"], said["calls_since_fix"]) == ("back", 2, 1)
+    # The agent's own script fix (D-985) is what the owner reads; the platform board below
+    # still says the platform rule did not hold.
+    assert (said["state"], said["calls"]) == ("script_fixing", 2)
     # Still happening comes first.
     assert items[0]["kind"] == "said_again"
     row = next(m for m in board["items"] if m["kind"] == "said_again")
@@ -356,7 +364,10 @@ async def test_a_kind_never_fixed_is_raised_once_per_account(
             call_started_at=datetime.now(UTC),
             found={"wrong_language": 2},
         )
-    assert [(code, kw["reason"]) for code, kw in raised] == [("call_mistake_new", "wrong_language")]
+    # The healer's fix opening (D-985) is its own alarm; `new` is still raised once.
+    assert [(code, kw["reason"]) for code, kw in raised if code != "call_mistake_seen"] == [
+        ("call_mistake_new", "wrong_language")
+    ]
 
 
 async def test_the_board_names_the_rule_and_the_latest_call() -> None:

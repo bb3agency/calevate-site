@@ -18,6 +18,7 @@ import {
   callsLine,
   clientStateLine,
   useAgentMistakes,
+  useUndoMistakeFix,
   type AgentMistake,
   type MistakeState,
 } from "@/lib/api/callMistakes";
@@ -27,14 +28,21 @@ const STATE_TONES: Record<MistakeState, NoticeTone> = {
   back: "warn",
   fixing: "neutral",
   fixed: "ok",
+  script_fixing: "neutral",
+  script_live: "ok",
+  script_fixed: "ok",
+  script_rolled_back: "warn",
+  script_undone: "neutral",
+  with_team: "neutral",
 };
 
 /**
  * MISTAKES ON REAL CALLS (D-949): what this agent got wrong on live calls, most urgent
- * first (the server's order: came back, being fixed, fixed). Each kind is a rule of ours,
- * so the copy says we are fixing it and never asks the owner to; the one action is hearing
- * the last call it happened on. What a good receptionist does instead sits behind a tap,
- * so the closed list is a label, a count and a state.
+ * first (the server's order: came back, being fixed, fixed). We fix each one, in the
+ * agent's own script where a line of it is the cause (D-985), so the copy never asks the
+ * owner to; the actions are hearing the last call it happened on and, once our fix of the
+ * script is live, undoing it. What a good receptionist does instead sits behind a tap, so
+ * the closed list is a label, a count and a state.
  */
 export function CallMistakes({
   agentId,
@@ -81,6 +89,7 @@ export function CallMistakes({
           {items.map((mistake) => (
             <MistakeRow
               key={mistake.kind}
+              agentId={agentId}
               mistake={mistake}
               windowDays={window_days}
               enterClass={enter(mistake.kind)}
@@ -94,11 +103,13 @@ export function CallMistakes({
 }
 
 function MistakeRow({
+  agentId,
   mistake,
   windowDays,
   enterClass,
   rowHeading: RowHeading,
 }: {
+  agentId: string;
   mistake: AgentMistake;
   windowDays: number;
   enterClass: string;
@@ -107,6 +118,7 @@ function MistakeRow({
   const { session, href } = useClientRealm();
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const undo = useUndoMistakeFix(session, agentId);
 
   return (
     <li className={`py-3 ${enterClass}`}>
@@ -118,17 +130,36 @@ function MistakeRow({
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-muted">
             <span className="tabular-nums">{callsLine(mistake.calls, windowDays)}</span>
             <StatusPill tone={STATE_TONES[mistake.state]} wrap>
-              {clientStateLine(mistake.state, formatISTDate(mistake.fixed_at))}
+              {clientStateLine(mistake.state, formatISTDate(mistake.fixed_at), mistake.clean_calls)}
             </StatusPill>
           </p>
         </div>
-        <Link
-          href={href(`/c/${session.orgSlug}/calls/${mistake.last_call_id}`)}
-          className={SECONDARY_BUTTON_SM}
-        >
-          Hear the last one
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          {mistake.can_undo ? (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              aria-label={`Undo our fix: ${mistake.label}`}
+              aria-busy={undo.isPending}
+              disabled={undo.isPending}
+              onClick={() => undo.mutate(mistake.kind)}
+            >
+              Undo
+            </button>
+          ) : null}
+          <Link
+            href={href(`/c/${session.orgSlug}/calls/${mistake.last_call_id}`)}
+            className={SECONDARY_BUTTON_SM}
+          >
+            Hear the last one
+          </Link>
+        </div>
       </div>
+      {undo.error ? (
+        <div className="mt-2">
+          <ProblemNotice error={undo.error} />
+        </div>
+      ) : null}
       <button
         type="button"
         className={`${TEXT_ACTION_SM} -mx-2 mt-1`}

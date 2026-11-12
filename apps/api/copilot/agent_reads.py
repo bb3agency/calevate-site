@@ -85,6 +85,13 @@ _MISTAKE_STATES: Final[dict[str, str]] = {
     "back": "seen again after our fix; our team has been told",
     "fixing": "not fixed yet; our team has been told",
     "fixed": "fixed, not seen since",
+    "script_fixing": "being fixed in this agent's script",
+    "script_live": "fixed in this agent's script; the next calls are being watched",
+    "script_fixed": "fixed in this agent's script, not seen since",
+    "script_rolled_back": "the script fix did not hold, so the old script is back; our team "
+    "has been told",
+    "script_undone": "the owner undid our script fix",
+    "with_team": "our team is fixing this",
 }
 #: Versions listed in the `script` part; History on the Script tab pages the rest.
 _VERSIONS_SHOWN: Final = 10

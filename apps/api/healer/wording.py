@@ -20,6 +20,7 @@ from typing import Final
 from apps.api.healer.playbooks import (
     AGENT_HEALTH_DEGRADED,
     AGENT_LINE_BROKEN,
+    CALL_MISTAKE_SEEN,
     ENGINE_PLATFORM_OUTAGE,
     MONEY_REVIEW,
     STATUS_POST,
@@ -112,6 +113,14 @@ INCIDENT_KINDS: Final[Mapping[str, IncidentKind]] = {
         "charge implies, and prepares the attestation of the posted rate you read in "
         "ThinnestAI's console. Past calls are not re-priced.",
     ),
+    CALL_MISTAKE_SEEN: IncidentKind(
+        title="A mistake on real calls, fixed in the agent's script",
+        meaning="A real call showed a mistake that the agent's own script can cause. The "
+        "healer fixes those lines, puts the fix live, watches the next calls and puts the old "
+        "script back if they go worse.",
+        next_step="Nothing unless it is handed to you. Then the mistake needs a platform rule "
+        "change, or the script needs fixing by hand with the owner.",
+    ),
     STATUS_POST: IncidentKind(
         title="A notice posted on the status page",
         meaning="Someone on the team posted this problem on the public status page by hand.",
@@ -160,6 +169,8 @@ def progress(
     `escalated` says it was handed to a person before it closed."""
     outcome = last_outcome or ""
     if state == "resolved":
+        if outcome == "undone":
+            return "The owner undid the script fix"
         if outcome == "restored_by_person":
             return "Marked as handled by a person"
         if outcome == "verified" and playbook == MONEY_REVIEW:
@@ -171,6 +182,8 @@ def progress(
                 return "Fixed automatically"
             return f"Fixed automatically after {_tries(attempts)}"
         return "Closed"
+    if outcome == "waiting":
+        return "Waiting for a chance to fix the script (an unpublished change or no AI allowance)"
     if outcome == "paused":
         return "Waiting: this repair is switched off in configuration"
     if playbook == STATUS_POST:
@@ -178,6 +191,8 @@ def progress(
     if state == "escalated":
         if not automatic:
             return "Not fixable automatically, handed to you"
+        if outcome == "rolled_back":
+            return "Script fix did not hold; the old script is back and it is handed to you"
         if outcome == "held_for_person":
             return "Line broke again after it was given back; held until you turn it back on"
         if attempts == 0:
@@ -188,6 +203,10 @@ def progress(
             return "Just found; being handed to you"
         return "Just found; the automatic fix runs on the next minute's check"
     # mitigated: the healer has acted and is waiting to see whether it worked.
+    if outcome == "fix_requested":
+        return "Writing the fix for the agent's script"
+    if outcome == "fix_live":
+        return "Script fix live; watching the next calls"
     if outcome == "held":
         return "Every line held; waiting for 15 quiet minutes"
     if outcome.startswith("held:"):

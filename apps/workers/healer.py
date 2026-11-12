@@ -45,6 +45,8 @@ from apps.api.healer.incidents import Incident
 from apps.api.healer.playbooks import (
     AGENT_HEALTH_DEGRADED,
     AGENT_LINE_BROKEN,
+    CALL_MISTAKE_FIX,
+    CALL_MISTAKE_SEEN,
     ENGINE_PLATFORM_OUTAGE,
     MONEY_REVIEW,
     PLAYBOOK_BY_JOB,
@@ -56,6 +58,7 @@ from apps.api.reliability.engine_actions import check_agent_actions
 from apps.api.reliability.engine_webhooks import ensure_agent_webhook
 from apps.api.reliability.service import read_dead_letter_queue, replay_dead_letters
 from apps.api.tenancy.engine_workspace import queue_workspace_provisioning, read_workspace_state
+from apps.workers import mistake_fix
 
 log = get_logger(__name__)
 
@@ -91,7 +94,9 @@ MONEY_RECHECK_S: Final = 60 * 60
 
 #: The alarm codes the scorer raises itself; their incidents are opened by the scorer
 #: with the agent they are about, never from the alarm episode, which names only one.
-SELF_OPENED: Final = frozenset({AGENT_HEALTH_DEGRADED, AGENT_LINE_BROKEN, ENGINE_PLATFORM_OUTAGE})
+SELF_OPENED: Final = frozenset(
+    {AGENT_HEALTH_DEGRADED, AGENT_LINE_BROKEN, ENGINE_PLATFORM_OUTAGE, CALL_MISTAKE_SEEN}
+)
 
 
 def _now() -> datetime:
@@ -1161,6 +1166,7 @@ _STEPS: Final[dict[str, Callable[[Incident], Awaitable[None]]]] = {
     "workspace_retry": _generic(_act_workspace, _verify_workspace),
     "outbox_replay": _generic(_act_replay, _verify_dlq_empty),
     "agent_repair": _agent_repair,
+    CALL_MISTAKE_FIX: mistake_fix.call_mistake_fix,
     "line_protection": _line_protection,
     "engine_outage": _engine_outage,
     MONEY_REVIEW: _money_review,

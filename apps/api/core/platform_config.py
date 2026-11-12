@@ -373,6 +373,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "healer_enabled": AppliesRule(LIVE),
     "healer_paused_playbooks": AppliesRule(LIVE),
     "healer_founder_whatsapp": AppliesRule(LIVE),
+    # D-985: `workers/mistake_fix` reads all six through `get_settings()` on every step.
+    "call_mistake_fix_clean_calls": AppliesRule(LIVE),
+    "call_mistake_fix_max_attempts": AppliesRule(LIVE),
+    "call_mistake_fix_wait_minutes": AppliesRule(LIVE),
+    "call_mistake_fix_max_waits": AppliesRule(LIVE),
+    "call_mistake_fix_compare_calls": AppliesRule(LIVE),
+    "call_mistake_fix_worse_per_100_calls": AppliesRule(LIVE),
     # D-91's Cloud API credentials. `LIVE` was CHECKED, not inherited from the family
     # above, because the classification's whole job is to refuse an assumption: every
     # read goes through `get_settings()` at the point of use — `whatsapp_delivery_status`

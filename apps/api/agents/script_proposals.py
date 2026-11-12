@@ -219,6 +219,8 @@ class ScriptProposal:
     left_out: list[LeftOut] = field(default_factory=list)
     #: Failed: the refusal code (`assist_answer_unusable`, `provider_unavailable`, ...).
     reason: str | None = None
+    #: A fix the healer asked for (D-985): the call mistake its findings are read for.
+    mistake_kind: str | None = None
 
 
 def _left_out(raw: Any) -> list[LeftOut]:
@@ -260,6 +262,7 @@ def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
         paths=[str(p) for p in raw.get("paths") or []],
         left_out=_left_out(raw.get("left_out")),
         reason=raw.get("reason"),
+        mistake_kind=raw.get("mistake_kind"),
     )
 
 
@@ -304,9 +307,10 @@ async def request_proposal(
     mode: ProposalMode,
     change: str | None,
     answers: dict[str, str],
-    requested_by: UUID,
+    requested_by: UUID | None,
     paths: Sequence[str] = (),
     replace_ready: bool = True,
+    mistake_kind: str | None = None,
 ) -> ScriptProposal:
     """Record the request and queue the job that writes it, in the caller's transaction.
 
@@ -314,7 +318,9 @@ async def request_proposal(
     review. One waiting for review is replaced only with `replace_ready`: a screen whose
     owner has not seen it passes False and gets `script_suggestion_waiting`, so a suggestion
     (and their rewording of it) is never thrown away unseen. `paths`: a fix, which may
-    change only those lines (`kept_to_paths`)."""
+    change only those lines (`kept_to_paths`). `requested_by` None: the healer asked
+    (D-985), and `mistake_kind` is the call mistake whose script check (`mistake_lints`)
+    names the findings at `paths`, in place of `script_lint.script_problems`."""
     return await _request(
         session,
         tenant_id=tenant_id,
@@ -325,6 +331,7 @@ async def request_proposal(
         requested_by=requested_by,
         paths=paths,
         replace_ready=replace_ready,
+        mistake_kind=mistake_kind,
     )
 
 
@@ -486,6 +493,7 @@ async def _request(
     requested_by: UUID | None,
     paths: Sequence[str] = (),
     replace_ready: bool = True,
+    mistake_kind: str | None = None,
 ) -> ScriptProposal:
     await session.execute(
         text("SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"),
@@ -507,7 +515,7 @@ async def _request(
     base = await working_script(session, agent_id)
     proposal_id = uuid7()
     now = datetime.now(UTC)
-    record = {
+    record: dict[str, Any] = {
         "id": str(proposal_id),
         "mode": mode,
         "status": "drafting",
@@ -524,6 +532,8 @@ async def _request(
         "requested_at": now.isoformat(),
         "paths": list(paths),
     }
+    if mistake_kind is not None:
+        record["mistake_kind"] = mistake_kind
     await session.execute(
         text("UPDATE agents SET script_proposal = CAST(:p AS jsonb) WHERE id = :aid"),
         {"aid": agent_id, "p": json.dumps(record)},

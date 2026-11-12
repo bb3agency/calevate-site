@@ -23,23 +23,27 @@ import {
   type NoticeTone,
 } from "@/components/ui";
 import {
+  FIX_ENDED_WORDS,
   FIX_NOTE_MAX,
+  FIX_STATE_WORDS,
+  useFleetFixes,
   useMarkMistakeFixed,
   usePlatformMistakes,
-  type MistakeState,
+  type FleetFix,
+  type PlatformMistakeState,
   type PlatformMistake,
 } from "@/lib/api/callMistakes";
 import { viewAsHref } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-const STATE_LABELS: Record<MistakeState, string> = {
+const STATE_LABELS: Record<PlatformMistakeState, string> = {
   back: "Back after the fix",
   fixing: "Not fixed yet",
   fixed: "Fixed",
 };
 
-const STATE_TONES: Record<MistakeState, NoticeTone> = {
+const STATE_TONES: Record<PlatformMistakeState, NoticeTone> = {
   back: "stop",
   fixing: "warn",
   fixed: "ok",
@@ -214,6 +218,7 @@ export function CallMistakesScreen() {
           />
         </Section>
       )}
+      {access.refused ? null : <ScriptFixes />}
       {fixing ? <MarkFixedDialog mistake={fixing} onClose={() => setFixing(null)} /> : null}
     </div>
   );
@@ -278,5 +283,106 @@ function MarkFixedDialog({ mistake, onClose }: { mistake: PlatformMistake; onClo
         {mark.error ? <WriteFailure error={mark.error} actionLabel="Mark fixed" /> : null}
       </form>
     </ModalDialog>
+  );
+}
+
+const FIX_TONES: Record<FleetFix["state"], NoticeTone> = {
+  fixing: "neutral",
+  live: "ok",
+  fixed: "ok",
+  rolled_back: "warn",
+  needs_person: "stop",
+};
+
+/**
+ * Every agent's script fixes (D-985): the healer's `call_mistake_fix` playbook fixes a
+ * mistake in the agent's own script, puts it live and watches the next calls. In progress
+ * first, then newest. The incident and its steps are on Ops > Healer.
+ */
+function ScriptFixes() {
+  const fixes = useFleetFixes();
+  const columns: DataColumn<FleetFix>[] = [
+    {
+      id: "agent",
+      header: "Agent",
+      card: "block",
+      cell: (row) => (
+        <span className="[overflow-wrap:anywhere]">
+          <span className="font-medium text-ink">{row.agent_name || "An agent"}</span>
+          <span className="block text-meta text-ink-muted">{row.client_slug}</span>
+        </span>
+      ),
+    },
+    {
+      id: "kind",
+      header: "Mistake",
+      card: "block",
+      cell: (row) => <span className="[overflow-wrap:anywhere]">{row.label}</span>,
+    },
+    {
+      id: "state",
+      header: "State",
+      cell: (row) => (
+        <span>
+          <StatusPill tone={FIX_TONES[row.state]}>{FIX_STATE_WORDS[row.state]}</StatusPill>
+          {row.ended_because ? (
+            <span className="block text-meta text-ink-muted">
+              {FIX_ENDED_WORDS[row.ended_because] ?? row.ended_because}
+            </span>
+          ) : null}
+        </span>
+      ),
+    },
+    {
+      id: "attempts",
+      header: "Fixes",
+      align: "right",
+      cell: (row) => formatCount(row.attempts),
+    },
+    {
+      id: "versions",
+      header: "Script versions",
+      cell: (row) =>
+        row.version_before != null && row.version_after != null
+          ? `v${row.version_before} → v${row.version_after}`
+          : "—",
+    },
+    {
+      id: "live_at",
+      header: "Live since (IST)",
+      cell: (row) => (row.live_at ? formatIST(row.live_at) : "—"),
+    },
+    {
+      id: "opened",
+      header: "Opened (IST)",
+      cell: (row) => formatIST(row.created_at),
+      sort: { value: (row) => row.created_at, kind: "time", first: "desc" },
+    },
+  ];
+  return (
+    <Section
+      title="Script fixes"
+      info={
+        <p>
+          Mistakes the healer fixed in an agent&apos;s own script: put live, watched on the next
+          calls, put back when they went worse. A fix handed to us needs a platform rule or a
+          hand edit with the owner.
+        </p>
+      }
+    >
+      {fixes.error ? (
+        <ProblemNotice error={fixes.error} onRetry={() => void fixes.refetch()} />
+      ) : !fixes.data ? (
+        <Skeleton rows={3} label="Loading the script fixes" />
+      ) : (
+        <DataTable
+          rows={fixes.data.items}
+          columns={columns}
+          getRowId={(row) => row.id}
+          label="Script fixes by agent"
+          empty="No script fixes yet."
+        />
+      )}
+    </Section>
   );
 }

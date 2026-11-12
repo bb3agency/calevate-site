@@ -187,6 +187,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
         (
             Subsection("switches", "Kill switches"),
             Subsection("paging", "Paging"),
+            Subsection("script-fixes", "Fixing mistakes in scripts"),
         ),
     ),
     Section(
@@ -1200,6 +1201,44 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "WhatsApp number for alarm pages",
         "Receives alarm pages on WhatsApp; write it with +91. Empty sends pages by email only.",
     ),
+    "call_mistake_fix_clean_calls": _m(
+        "healer",
+        "script-fixes",
+        "Calls before a script fix counts as held",
+        "Checked calls after a fix goes live, none showing the mistake, before it is settled.",
+    ),
+    "call_mistake_fix_max_attempts": _m(
+        "healer",
+        "script-fixes",
+        "Fixes per mistake before a person is asked",
+        "Times the healer may fix one mistake in one agent's script.",
+        details="When the mistake comes back after the last one, the old script is put back.",
+    ),
+    "call_mistake_fix_wait_minutes": _m(
+        "healer",
+        "script-fixes",
+        "Minutes between looks while a fix waits",
+        "A fix waits while the owner has an unpublished change, an open suggestion or no "
+        "AI allowance left.",
+    ),
+    "call_mistake_fix_max_waits": _m(
+        "healer",
+        "script-fixes",
+        "Looks a fix may wait before a person is asked",
+        "After this many looks the fix is handed to our team.",
+    ),
+    "call_mistake_fix_compare_calls": _m(
+        "healer",
+        "script-fixes",
+        "Calls compared on each side of a fix",
+        "Checked calls before and after a fix whose other mistakes are compared.",
+    ),
+    "call_mistake_fix_worse_per_100_calls": _m(
+        "healer",
+        "script-fixes",
+        "Extra mistakes that put a fix back",
+        "More other mistakes per 100 calls after a fix than before it puts the old script back.",
+    ),
     # ---- security --------------------------------------------------------------------
     "first_party_auth_enabled": _m(
         "security",
@@ -1461,6 +1500,12 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "razorpay_reconciliation_days": ControlHint(unit="days"),
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
     "trial_studio_minutes": ControlHint(unit="minutes"),
+    "call_mistake_fix_clean_calls": ControlHint(unit="calls"),
+    "call_mistake_fix_max_attempts": ControlHint(unit="fixes"),
+    "call_mistake_fix_wait_minutes": ControlHint(unit="minutes"),
+    "call_mistake_fix_max_waits": ControlHint(unit="looks"),
+    "call_mistake_fix_compare_calls": ControlHint(unit="calls"),
+    "call_mistake_fix_worse_per_100_calls": ControlHint(unit="mistakes per 100 calls"),
     "paid_test_copy_idle_days": ControlHint(unit="days"),
     "forwarding_test_daily_cap": ControlHint(unit="tests a day"),
     "whatsapp_message_inr": ControlHint(unit="rupees"),

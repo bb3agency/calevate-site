@@ -49,7 +49,13 @@ ACTION_STEPS: Final = (
 )
 ACTION_OUTCOMES: Final = ("ok", "failed", "skipped", "refused")
 ACTOR_TYPES: Final = ("healer", "admin", "user")
-CLIENT_INCIDENT_KINDS: Final = ("agent_unwell", "line_protected", "platform_outage")
+CLIENT_INCIDENT_KINDS: Final = (
+    "agent_unwell",
+    "line_protected",
+    "platform_outage",
+    "script_fixed",
+    "script_fix_waiting",
+)
 PROTECTIONS: Final = ("none", "paused", "forwarded")
 PROPOSAL_KINDS: Final = ("rollback_prompt", "review_knowledge", "review_languages")
 PROPOSAL_STATUSES: Final = ("pending", "applied", "dismissed", "expired")

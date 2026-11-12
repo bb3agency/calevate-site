@@ -1426,6 +1426,22 @@ class Settings(BaseSettings):
     healer_founder_whatsapp: str | None = Field(
         default=None, max_length=16, pattern=r"^\+[1-9][0-9]{7,14}$"
     )
+    # Fixing a mistake on real calls in the agent's own script (D-985, playbook
+    # `call_mistake_fix`). Each is read per healer tick.
+    # Checked calls after a fix went live, none showing the mistake, before it counts as held.
+    call_mistake_fix_clean_calls: int = Field(default=5, ge=1, le=200)
+    # Fixes one mistake may get in one agent's script before a person is asked.
+    call_mistake_fix_max_attempts: int = Field(default=2, ge=1, le=10)
+    # Minutes between looks while a fix waits (the owner's own unpublished change, a Pip
+    # suggestion, the AI allowance, the fix being written).
+    call_mistake_fix_wait_minutes: int = Field(default=30, ge=1, le=1440)
+    # Looks a fix may wait through before a person is asked.
+    call_mistake_fix_max_waits: int = Field(default=48, ge=1, le=1000)
+    # Checked calls on each side of a fix compared for other mistakes.
+    call_mistake_fix_compare_calls: int = Field(default=10, ge=1, le=500)
+    # The fix is put back when the calls after it show more than this many extra other
+    # mistakes per 100 calls than the calls before it.
+    call_mistake_fix_worse_per_100_calls: int = Field(default=50, ge=0, le=10000)
 
     # ---- Meta Cloud API credentials (D-91) ----------------------------------------
     #

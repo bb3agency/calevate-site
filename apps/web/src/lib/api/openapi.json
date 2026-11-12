@@ -3570,6 +3570,18 @@
             "title": "Calls Since Fix",
             "type": "integer"
           },
+          "can_undo": {
+            "title": "Can Undo",
+            "type": "boolean"
+          },
+          "clean_calls": {
+            "title": "Clean Calls",
+            "type": "integer"
+          },
+          "clean_calls_needed": {
+            "title": "Clean Calls Needed",
+            "type": "integer"
+          },
           "fixed_at": {
             "anyOf": [
               {
@@ -3608,7 +3620,13 @@
             "enum": [
               "fixing",
               "fixed",
-              "back"
+              "back",
+              "script_fixing",
+              "script_live",
+              "script_fixed",
+              "script_rolled_back",
+              "script_undone",
+              "with_team"
             ],
             "title": "State",
             "type": "string"
@@ -3623,7 +3641,10 @@
           "last_seen_at",
           "last_call_id",
           "fixed_at",
-          "state"
+          "state",
+          "clean_calls",
+          "clean_calls_needed",
+          "can_undo"
         ],
         "title": "AgentMistakeOut",
         "type": "object"
@@ -15413,7 +15434,9 @@
             "enum": [
               "agent_unwell",
               "line_protected",
-              "platform_outage"
+              "platform_outage",
+              "script_fixed",
+              "script_fix_waiting"
             ],
             "title": "Kind",
             "type": "string"
@@ -27223,6 +27246,154 @@
         "title": "FlagStateOut",
         "type": "object"
       },
+      "FleetFixOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "client_slug": {
+            "title": "Client Slug",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ended_because": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended Because"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "live_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Live At"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "state": {
+            "enum": [
+              "fixing",
+              "live",
+              "fixed",
+              "rolled_back",
+              "needs_person"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "version_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version After"
+          },
+          "version_before": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version Before"
+          }
+        },
+        "required": [
+          "id",
+          "client_slug",
+          "agent_id",
+          "agent_name",
+          "kind",
+          "label",
+          "state",
+          "ended_because",
+          "attempts",
+          "version_before",
+          "version_after",
+          "live_at",
+          "settled_at",
+          "created_at"
+        ],
+        "title": "FleetFixOut",
+        "type": "object"
+      },
+      "FleetFixesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FleetFixOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "window_days"
+        ],
+        "title": "FleetFixesOut",
+        "type": "object"
+      },
       "FleetReplySpeedOut": {
         "additionalProperties": false,
         "properties": {
@@ -38501,6 +38672,25 @@
           "fixed_at"
         ],
         "title": "MistakeFixOut",
+        "type": "object"
+      },
+      "MistakeUndoOut": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "version"
+        ],
+        "title": "MistakeUndoOut",
         "type": "object"
       },
       "MobileNumberIn": {
@@ -78598,6 +78788,56 @@
         "x-calevate-permission": "agents:read"
       }
     },
+    "/v1/agents/{agent_id}/call-mistakes/{kind}/undo": {
+      "post": {
+        "description": "The owner's Undo (D-985): the script from before the fix becomes a new live version\n(`prompts.rollback_prompt`, copy-forward) and the healer does not make that fix again.\nRefused once the script changed after the fix, which putting back would throw away.\nAudited with version numbers only, in this request's transaction.",
+        "operationId": "undo_mistake_fix_v1_agents__agent_id__call_mistakes__kind__undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MistakeUndoOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put back the script from before our fix of this mistake",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/agents/{agent_id}/call-outcomes": {
       "put": {
         "description": "Calls already read keep the outcome and name they were given; the next call is read against this list. A saved list is never replaced by the AI draft.",
@@ -98192,6 +98432,51 @@
           }
         },
         "summary": "Mistakes agents made on real calls, across every client (D-949)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/call-mistakes/fixes": {
+      "get": {
+        "description": "A read, so no step-up: ids, kinds, versions and times only.",
+        "operationId": "list_fleet_fixes_v1_ops_call_mistakes_fixes_get",
+        "parameters": [
+          {
+            "description": "How many to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "How many to return.",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetFixesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every agent's script fixes of mistakes on real calls (D-985)",
         "tags": [
           "ops"
         ],
