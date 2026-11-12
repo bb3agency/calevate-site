@@ -8,7 +8,7 @@
       "register_name": "Neutral spoken Telugu",
       "spelled_address": "బీ, సీ, డీ, డాట్ కామ్",
       "spoken_amounts": "\"వన్ ట్వంటీ రూపీస్\", \"టూ క్రోర్స్\"",
-      "register": "Everyday spoken Telugu (vyavaharika, never grandhika), neutral for Telangana and Andhra, every word in Telugu letters, English words too (ఆర్డర్, కాల్). అండి and గారు by situation, not in every sentence.",
+      "register": "Everyday spoken Telugu: vyavaharika, never grandhika; neutral for Telangana and Andhra; every word in Telugu letters, English words too: ఆర్డర్, కాల్. అండి and గారు by situation, not in every sentence.",
       "examples": {
         "_default": [
           [
@@ -182,7 +182,7 @@
         ],
         [
           "మరియు",
-          "(join with ఇంకా, or leave it out)"
+          "(join with ఇంకా or leave it out)"
         ],
         [
           "కొనుగోలు",
@@ -694,11 +694,11 @@
         },
         {
           "id": "digits",
-          "text": "Phone numbers, OTPs and codes one digit at a time, the English way in Telugu letters: \"నైన్ ఎయిట్ ఫోర్ నైన్\". A mobile has ten digits: given four, ask for the other six (\"ఇంకా సిక్స్ డిజిట్స్ చెప్తారా?\"), never read the four back."
+          "text": "Phone numbers, OTPs and codes one digit at a time, the English way in Telugu letters: \"నైన్ ఎయిట్ ఫోర్ నైన్\". A mobile has ten digits: given four, ask for the other six, as in \"ఇంకా సిక్స్ డిజిట్స్ చెప్తారా?\", never read the four back."
         },
         {
           "id": "small-counts",
-          "text": "Small everyday counts stay Telugu (రెండు నిమిషాలు, ఒక్క సెకండ్); a price or a quantity is said the English way, in Telugu letters."
+          "text": "Small everyday counts stay Telugu: రెండు నిమిషాలు, ఒక్క సెకండ్; a price or a quantity is said the English way, in Telugu letters."
         }
       ],
       "punctuation": [
@@ -833,7 +833,7 @@
       "written_form": "",
       "register_name": "Everyday spoken Hindi (Hindustani)",
       "spelled_address": "बी, सी, डी, डॉट कॉम",
-      "register": "Everyday spoken Hindi, never shuddh or bookish, every word in Devanagari, English words too (ऑर्डर, डिलीवरी, कॉल). Polite with जी and आप; prefer 'we' forms (बताते हैं) so no gender is assumed.",
+      "register": "Everyday spoken Hindi, never shuddh or bookish, every word in Devanagari, English words too: ऑर्डर, डिलीवरी, कॉल. Polite with जी and आप; prefer we forms, like बताते हैं, so no gender is assumed.",
       "examples": {
         "_default": [
           [
@@ -1534,7 +1534,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Tamil",
-      "register": "Everyday spoken Tamil in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Tamil in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1561,7 +1561,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Kannada (Bengaluru)",
-      "register": "Everyday spoken Kannada in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Kannada in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1588,7 +1588,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Malayalam",
-      "register": "Everyday spoken Malayalam in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Malayalam in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1615,7 +1615,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Marathi",
-      "register": "Everyday spoken Marathi in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Marathi in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1642,7 +1642,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Bengali",
-      "register": "Everyday spoken Bengali in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Bengali in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1665,7 +1665,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Gujarati",
-      "register": "Everyday spoken Gujarati in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Gujarati in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1688,7 +1688,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Punjabi",
-      "register": "Everyday spoken Punjabi in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Punjabi in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [
@@ -1711,7 +1711,7 @@
       "reviewed_by": null,
       "written_form": "",
       "register_name": "Everyday spoken Odia",
-      "register": "Everyday spoken Odia in its own script, as people talk on the phone, with the English words people use (order, price, delivery). Polite, never formal or written.",
+      "register": "Everyday spoken Odia in its own script, as people talk on the phone, with the English words people use: order, price, delivery. Polite, never formal or written.",
       "examples": {
         "_default": [
           [

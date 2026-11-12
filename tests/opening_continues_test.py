@@ -118,8 +118,10 @@ def test_what_the_section_costs() -> None:
     # gets THIS CALL's name and details (+104). 6 Nov 2026: "never greet again in any turn",
     # paid for by dropping "never restart" (+3). 9 Nov 2026: what the person has or uses is a
     # claim too, and a step's "sounds like" is only an example (+72); a step that says to
-    # greet, say who you are or ask if now suits is told that is done (+86).
-    assert len(start) - len(spoken) < 1_080
+    # greet, say who you are or ask if now suits is told that is done (+86). D-979 (founder,
+    # 10 Nov 2026): a claim about the person needs it said "on this call", not on an earlier
+    # one the engine remembers (+18).
+    assert len(start) - len(spoken) < 1_100
 
 
 # --- the turn check -----------------------------------------------------------------------

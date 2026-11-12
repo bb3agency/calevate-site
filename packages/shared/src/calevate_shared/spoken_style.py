@@ -571,15 +571,15 @@ def _pack_avoid(pack: LanguagePack, choice: PackChoice, compact: bool) -> str | 
         return (leads.avoid if leads else _EN_AVOID) + ", ".join(words) + "."
     style = style_for(pack.tag)
     spoken = dict(style.word_swaps) if style is not None else {}
-    leave_out = leads.leave_out if leads else "(leave it out)"
+    leave_out = (leads.leave_out if leads else "leave it out").strip("()")
 
     def pair(word: str) -> str:
         said = spoken.get(word, "")
         if said and not said.startswith("("):
-            return f"{word} ({said})"
+            return f"{word}: {said}"
         # An instruction such as "(join with ఇంకా, or leave it out)" is English; the
         # native form says only its own "leave it out".
-        return f"{word} {said if said and leads is None else leave_out}"
+        return f"{word}: {said.strip('()') if said and leads is None else leave_out}"
 
     return (leads.pairs if leads else _EN_PAIRS) + ", ".join(map(pair, words)) + "."
 
@@ -736,8 +736,9 @@ def example_sentence(exchanges: Sequence[Sequence[ExampleTurn]]) -> str:
 
 
 def _swap(formal: str, spoken: str) -> str:
-    # "(leave it out)" is an instruction, not a word to say, so it is not quoted.
-    said = spoken if spoken.startswith("(") else f'"{spoken}"'
+    # "(leave it out)" in the data marks an instruction, not a word to say: it is neither quoted
+    # nor bracketed, because the model copies a bracket into what it says (D-986).
+    said = spoken.strip("()") if spoken.startswith("(") else f'"{spoken}"'
     return f'not "{formal}" but {said}'
 
 

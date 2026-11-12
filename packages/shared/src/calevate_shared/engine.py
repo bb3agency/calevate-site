@@ -2937,11 +2937,17 @@ _REGISTER_BULLET: Final = (
 #:   usually produces the right pause"). Its `<speed>` tag is not offered: the model may write
 #:   no brackets, and a Clear voice is not Cartesia. The speed itself is the agent's own
 #:   setting (D-884).
-#: - "Open with a few words and a comma" (D-901): the voice starts on the first comma, dash
-#:   or semicolon once three words exist, else waits for the whole first sentence (ThinnestAI
-#:   email 27 Oct 2026, VENDOR-STATED). A comma, because dashes are forbidden below. It
-#:   replaced "the first shortest" and "more only if asked" at five characters fewer; "then
-#:   wait" still ends the turn. The time saved per turn is not measured.
+#: - "Open with a few words and a full stop" (D-986, founder 12 Nov 2026; was "and a comma",
+#:   D-901): the voice starts on the first comma, dash or semicolon once three words exist,
+#:   else waits for the whole first sentence (ThinnestAI email 27 Oct 2026, VENDOR-STATED), and
+#:   Cartesia says pieces generated apart change prosody at each seam and a piece without
+#:   closing punctuation "may end with odd or distorted sounds" (docs.cartesia.ai
+#:   capability-guides/stream-inputs-using-continuations, read 12 Nov 2026). A comma made every
+#:   reply open with a three-word fragment said on its own; a full stop makes the first piece a
+#:   whole sentence, at the cost of a slightly later first word.
+#: - D-986 also took the brackets out of the language guides (`spoken_style.json` registers and
+#:   the rendered word swaps): the model copied them, adding English in brackets after a word in
+#:   the call's letters, and ThinnestAI reads a round bracket aloud.
 #: D-910, from the founder's Sri Estates practice run of 28 Oct 2026:
 #: - Given "నంబర్ 9876" the agent read the four digits back and asked "is this number
 #:   right?". The ten-digit rule then sat mid-sentence after "Read back what you heard and
@@ -3037,7 +3043,7 @@ _DEFAULT_AMOUNTS: Final = amounts_rule(DEFAULT_PRIMARY_LANGUAGE) or _NEUTRAL_AMO
 
 VOICE_STYLE_GUIDANCE: Final = (
     "--- HOW TO SPEAK ---\n"
-    "- Open with a few words and a comma; one or two short sentences, then wait.\n"
+    "- Open with a few words and a full stop; one or two short sentences, then wait.\n"
     '- Asked something? Lead with the answer to it, never your last point again or "do you '
     'want to know". Told something? '
     "React only if it fits what they said, never the same way twice in a call, often not.\n"

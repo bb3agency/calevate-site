@@ -116,9 +116,9 @@ def test_the_style_layer_answers_the_founders_calls_of_27_oct_2026() -> None:
     assert "React only if it fits what they said" in react
     assert "never the same way twice" in react and "often not." in react
     # The voice starts on the first comma after three words (D-901), so a reply opens with a
-    # few words and a comma.
-    assert bullet("- Open with a few words and a comma").startswith(
-        "- Open with a few words and a comma; one or two short sentences, then wait"
+    # few words and a full stop: the first piece is a whole sentence (D-986).
+    assert bullet("- Open with a few words and a full stop").startswith(
+        "- Open with a few words and a full stop; one or two short sentences, then wait"
     )
     # The words it overused are not named: a named word can come back more often.
     for stock in ("సంతోషం", "మంచిది", "సరే"):
