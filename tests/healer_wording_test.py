@@ -100,11 +100,20 @@ _OUTCOMES = (
     ("held_for_person", "escalated"),
     ("verified", "resolved"),
     ("restored_by_person", "resolved"),
+    # The script fix of a mistake on real calls (D-985, `apps/workers/mistake_fix.py`).
+    ("waiting", "open"),
+    ("fix_requested", "mitigated"),
+    ("fix_live", "mitigated"),
+    ("rolled_back", "escalated"),
+    ("undone", "resolved"),
 )
 
 
 def test_the_worker_writes_no_outcome_this_test_does_not_know() -> None:
-    source = (ROOT / "apps" / "workers" / "healer.py").read_text(encoding="utf-8")
+    source = "".join(
+        (ROOT / "apps" / "workers" / name).read_text(encoding="utf-8")
+        for name in ("healer.py", "mistake_fix.py")
+    )
     written = set(re.findall(r'outcome="([a-z_]+)"', source)) | set(
         re.findall(r"last_outcome = '([a-z_]+)'", source)
     )

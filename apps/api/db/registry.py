@@ -455,6 +455,10 @@ TENANT_TABLES = [
     # checks found. Tenant data derived from a client's own transcript, FORCE-RLS'd. NOT
     # append-only: a re-driven call replaces its own rows; the call's erasure CASCADEs.
     "call_mistakes",
+    # The healer's automatic fixes of those mistakes in one agent's script (D-985): ids,
+    # kinds, version numbers and times. FORCE-RLS'd; NOT append-only, a fix moves through
+    # its states on one row and its steps are in `heal_actions`.
+    "agent_mistake_fixes",
     # What the in-app copilot remembers, per tenant AND per user (migration d4a9c17e6b02).
     # Tenant data of a shape nothing else here holds: prose a client's own STAFF typed about
     # their own console, plus the facts a background worker distilled out of it. Redacted on

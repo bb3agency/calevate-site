@@ -2065,3 +2065,84 @@ class PlatformMistakeFix(PKMixin, Base):
     fixed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+#: `agent_mistake_fixes.state` (D-985): the healer is writing or waiting to write the fix;
+#: the fix is live and being watched; it held; it was put back; a person must look.
+MISTAKE_FIX_STATES: Final = ("fixing", "live", "fixed", "rolled_back", "needs_person")
+#: Why a fix stopped, where it stopped short of `fixed`.
+MISTAKE_FIX_ENDINGS: Final = (
+    "came_back",
+    "worse",
+    "owner",
+    "no_script_cause",
+    "waited_too_long",
+    "attempts_spent",
+    "script_changed",
+    "agent_gone",
+)
+MistakeFixState = Literal["fixing", "live", "fixed", "rolled_back", "needs_person"]
+
+
+def _among(column: str, values: tuple[str, ...]) -> str:
+    return f"{column} IN ({', '.join(repr(v) for v in values)})"
+
+
+class AgentMistakeFix(PKMixin, TimestampMixin, Base):
+    """One automatic fix of one mistake kind in one agent's script (D-985), from the first
+    attempt to its end. Ids, kinds, version numbers and times only. At most one per agent and
+    kind is in progress; the healer incident doing it is `incident_id`."""
+
+    __tablename__ = "agent_mistake_fixes"
+    __table_args__ = (
+        CheckConstraint(_among("state", MISTAKE_FIX_STATES), name="state_enum"),
+        CheckConstraint(
+            f"ended_because IS NULL OR {_among('ended_because', MISTAKE_FIX_ENDINGS)}",
+            name="ended_because_enum",
+        ),
+        CheckConstraint(
+            "(state IN ('fixed', 'rolled_back', 'needs_person')) = (settled_at IS NOT NULL)",
+            name="settled_iff",
+        ),
+        CheckConstraint("attempts >= 0 AND waits >= 0", name="counts_nonnegative"),
+        Index(
+            "uq_agent_mistake_fixes_active",
+            "agent_id",
+            "kind",
+            unique=True,
+            postgresql_where=text("state IN ('fixing', 'live')"),
+        ),
+        Index(
+            "ix_agent_mistake_fixes_agent_kind",
+            "tenant_id",
+            "agent_id",
+            "kind",
+            text("created_at DESC"),
+        ),
+        Index("ix_agent_mistake_fixes_incident", "incident_id"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="fixing")
+    ended_because: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    waits: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    incident_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("heal_incidents.id", ondelete="SET NULL")
+    )
+    proposal_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    #: The live version before the first fix, which a rollback puts back.
+    version_before: Mapped[int | None] = mapped_column(Integer)
+    #: The live version the current attempt was written from: its put-live CAS.
+    version_base: Mapped[int | None] = mapped_column(Integer)
+    version_after: Mapped[int | None] = mapped_column(Integer)
+    live_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: The client user who pressed Undo; None for the healer or an operator in view-as.
+    undone_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))

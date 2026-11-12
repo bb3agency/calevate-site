@@ -34,6 +34,7 @@ from sqlalchemy import text
 from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.capability_manifest import lint_context_for
+from apps.api.agents.mistake_lints import mistake_findings
 from apps.api.agents.script_lint import LintContext, script_problems, unasked_details
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
@@ -43,6 +44,7 @@ from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
 from apps.api.kb.service import knowledge_agents
+from apps.workers import mistake_fix
 from apps.workers.extraction import ASSIST_LADDER_LEGS, ASSIST_TIMEOUT_S, TenantModelLeg
 from apps.workers.first_run import documents_block
 from apps.workers.opening_line import (
@@ -450,12 +452,20 @@ class _Fix:
     #: Those findings' places by step id (`script_proposals.finding_key`), so they are still
     #: recognised after a pass moved or removed a step.
     keys: frozenset[str]
+    #: A healer fix (D-985): the call mistake whose own script check names the findings.
+    mistake_kind: str | None = None
+
+    def problems(self, script: CallScript) -> list[str]:
+        """What the check this fix answers finds on `script`."""
+        if self.mistake_kind is not None:
+            return mistake_findings(script, self.lint, self.mistake_kind)
+        return script_problems(script, self.lint)
 
     def targeted(self, script: CallScript) -> list[str]:
         """The findings on `script` at a place the fix was asked to clear."""
         return [
             problem
-            for problem in script_problems(script, self.lint)
+            for problem in self.problems(script)
             if script_proposals.finding_key(problem, script) in self.keys
         ]
 
@@ -472,8 +482,13 @@ async def _fix_of(
     lint = replace(context, promo=False)
     base = proposal.base_script
     named = set(proposal.paths)
-    findings = [p for p in script_problems(base, lint) if p.partition(": ")[0] in named]
-    return _Fix(lint, findings, frozenset(script_proposals.finding_key(p, base) for p in findings))
+    check = _Fix(lint, [], frozenset(), proposal.mistake_kind)
+    findings = [p for p in check.problems(base) if p.partition(": ")[0] in named]
+    return replace(
+        check,
+        findings=findings,
+        keys=frozenset(script_proposals.finding_key(p, base) for p in findings),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -620,6 +635,8 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             reason=refused.code,
             trace=trace,
         )
+        if proposal.mistake_kind is not None:
+            await mistake_fix.proposal_written(tenant_id, agent_id, proposal_id)
         return "refused"
     except Exception:
         # The Script page waits on this proposal until it is ready or failed, so a crash is
@@ -628,6 +645,8 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         await _fail(
             tenant_id, agent_id, proposal_id, script_proposals.FAILED_NOTE, reason="crashed"
         )
+        if proposal.mistake_kind is not None:
+            await mistake_fix.proposal_written(tenant_id, agent_id, proposal_id)
         return "failed"
 
     drafted = draft.script
@@ -727,6 +746,9 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
             "applied": applied,
         },
     )
+    if stored and proposal.mistake_kind is not None:
+        # The healer's fix (D-985) is checked and put live on its next step, not its next look.
+        await mistake_fix.proposal_written(tenant_id, agent_id, proposal_id)
     if applied:
         return "applied"
     return "ready" if stored else "not_pending"

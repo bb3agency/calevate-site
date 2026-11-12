@@ -101,6 +101,9 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "knowledge_gap_occurrences": "knowledge_gaps",
     # D-949: written by the post-call pipeline, read on the call and the agent's Training tab.
     "call_mistakes": "calls",
+    # D-985: written by the healer as a script fix moves, read beside `call_mistakes` on the
+    # agent's Training tab and the operator's board, so it moves the same screens.
+    "agent_mistake_fixes": "calls",
     "kb_sources": "knowledge",
     "kb_documents": "knowledge",
     "kb_uploads": "knowledge",

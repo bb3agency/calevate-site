@@ -43,7 +43,9 @@ from apps.api.db.base import uuid7
 from apps.api.engine import get_engine
 from apps.api.healer.health import SHORT_CALL_S
 
-ClientIncidentKind = Literal["agent_unwell", "line_protected", "platform_outage"]
+ClientIncidentKind = Literal[
+    "agent_unwell", "line_protected", "platform_outage", "script_fixed", "script_fix_waiting"
+]
 
 
 async def fallback_phone(session: AsyncSession) -> str | None:

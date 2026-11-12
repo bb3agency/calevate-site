@@ -1,18 +1,20 @@
 """Mistakes on real calls (D-949): the practice-test checks, run on every finished call.
 
 A human telecaller gets better because a supervisor listens to their calls, names what went
-wrong, and checks the next calls for it. This module is that loop for an agent, with one
-deliberate limit: the agent never rewrites its own instructions. A model that edits its own
-prompt from its own reading of its calls repeats its own wrong lessons ("Memory Reward
-Inflation in Self-Improving LLM Agents", arXiv 2608.00017; "Governing Evolving Memory in
-LLM Agents", arXiv 2603.11768), and what these checks find is not the owner's to fix
-either: every kind below is decided by the platform prompt (`turn_checks.SOUND_KINDS`,
-`JOB_KINDS`). So:
+wrong, and checks the next calls for it. This module is that loop for an agent. The model
+never rewrites its own instructions from its own reading of its calls, which repeats its
+own wrong lessons ("Memory Reward Inflation in Self-Improving LLM Agents", arXiv 2608.00017;
+"Governing Evolving Memory in LLM Agents", arXiv 2603.11768). What these checks find is
+fixed in two places: the platform prompt decides every kind (`turn_checks.SOUND_KINDS`,
+`JOB_KINDS`), and where a line of the agent's own script causes it, the healer fixes that
+line (D-985, `agents/mistake_fixes`). So:
 
 1. `mistakes_in` runs `turn_checks` over a real call's turns: the same code that judges a
    practice conversation, so a practice test and a real call can never disagree.
-2. `record_call_mistakes` stores one row per (call, kind), a kind and a turn index only.
-3. The owner sees each kind with its count and whether we have fixed it (`agent_mistakes`).
+2. `record_call_mistakes` stores one row per (call, kind), a kind and a turn index only,
+   and in the same transaction starts the healer's fix of each kind in the agent's script.
+3. The owner sees each kind with its count and where its fix stands (`agent_mistakes`): the
+   agent's own script fix first, else the platform's.
 4. An operator marks a kind fixed once the platform rule is changed (`mark_fixed`); a call
    that STARTED after that and shows it again is the mistake coming back, which raises
    `call_mistake_back` so the fix is known not to have held.
@@ -37,7 +39,7 @@ from calevate_shared.cut_off import likely_cut_off_rows
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import turn_checks
+from apps.api.agents import mistake_fixes, turn_checks
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -272,9 +274,11 @@ async def record_call_mistakes(
     call_started_at: datetime,
     found: dict[str, int],
 ) -> list[str]:
-    """Replace this call's mistake rows with `found`. Returns the kinds that came BACK: seen
-    on a call that started after the latest fix of that kind, each raised as
-    `call_mistake_back`. Idempotent per call, so a re-driven call never double-counts."""
+    """Replace this call's mistake rows with `found`, and start the healer's script fix of
+    each kind the agent has none under way for (`mistake_fixes.open_fixes`, the same
+    transaction). Returns the kinds that came BACK: seen on a call that started after the
+    latest platform fix of that kind, each raised as `call_mistake_back`. Idempotent per
+    call, so a re-driven call never double-counts or opens a second fix."""
     async with tenant_session(tenant_id) as session:
         await session.execute(text("DELETE FROM call_mistakes WHERE call_id = :c"), {"c": call_id})
         for kind, turn_idx in found.items():
@@ -312,6 +316,23 @@ async def record_call_mistakes(
                 )
             ).all()
         }
+        opened = await mistake_fixes.open_fixes(
+            session, tenant_id=tenant_id, agent_id=agent_id, kinds=found
+        )
+    for kind in opened:
+        alert(
+            "CORE_LOGIC",
+            "call_mistake_seen",
+            detail=(
+                f"A mistake on a real call ({kind}); the healer is checking the agent's "
+                "script for the lines that cause it."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+            call_id=str(call_id),
+            reason=kind,
+            episode=f"{agent_id}:{kind}",
+        )
     for kind in sorted(set(found) - set(fixes) - seen_before):
         alert(
             "WORKER_STALL",
@@ -419,6 +440,69 @@ def _state(fixed_at: datetime | None, last_seen: datetime | None) -> State:
     return "fixed"
 
 
+#: Where one agent's mistake stands. The platform's three (`State`) where its own script has
+#: no fix of it, else the script fix's (D-985): being written, live and watched, held, put
+#: back by us because it came back or calls went worse, undone by the owner, or with our team
+#: (no line of the script causes it, or the fix could not be made).
+AgentState = Literal[
+    "fixing",
+    "fixed",
+    "back",
+    "script_fixing",
+    "script_live",
+    "script_fixed",
+    "script_rolled_back",
+    "script_undone",
+    "with_team",
+]
+
+_SCRIPT_STATES: Final[dict[str, AgentState]] = {
+    "fixing": "script_fixing",
+    "live": "script_live",
+    "fixed": "script_fixed",
+    "needs_person": "with_team",
+}
+
+#: Most urgent first: still happening, then being fixed, then settled.
+_AGENT_ORDER: Final[dict[AgentState, int]] = {
+    "back": 0,
+    "script_rolled_back": 1,
+    "with_team": 2,
+    "fixing": 3,
+    "script_fixing": 4,
+    "script_live": 5,
+    "script_undone": 6,
+    "script_fixed": 7,
+    "fixed": 8,
+}
+
+
+def _agent_state(
+    fix: mistake_fixes.MistakeFix | None, fixed_at: datetime | None, last_seen: datetime | None
+) -> AgentState:
+    if fix is None:
+        return _state(fixed_at, last_seen)
+    if fix.state == "rolled_back":
+        return "script_undone" if fix.ended_because == "owner" else "script_rolled_back"
+    return _SCRIPT_STATES[fix.state]
+
+
+async def _clean_calls(session: AsyncSession, agent_id: UUID, kind: str, since: datetime) -> int:
+    """Checked calls of this agent that started after `since` and did not show `kind`."""
+    value = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM calls c WHERE c.agent_id = :a AND c.started_at > :since "
+                "AND EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id) "
+                "AND NOT EXISTS (SELECT 1 FROM call_mistakes m WHERE m.call_id = c.id "
+                "AND m.kind = :k)"
+            ),
+            {"a": agent_id, "since": since, "k": kind},
+        )
+    ).scalar_one()
+    return int(value)
+
+
 @dataclass(frozen=True, slots=True)
 class AgentMistake:
     kind: str
@@ -431,13 +515,21 @@ class AgentMistake:
     last_seen_at: datetime
     last_call_id: UUID
     fixed_at: datetime | None
-    state: State
+    state: AgentState
+    #: The script fix's own times and counts, where the agent has one (D-985).
+    fix_live_at: datetime | None = None
+    #: Checked calls since the script fix went live that did not show it.
+    clean_calls: int = 0
+    #: The owner may undo the script fix: it is live or held, and the script is still it.
+    can_undo: bool = False
 
 
 async def agent_mistakes(
     session: AsyncSession, agent_id: UUID, *, now: datetime | None = None
 ) -> list[AgentMistake]:
-    """This agent's mistakes on real calls in the window, the ones still happening first."""
+    """This agent's mistakes on real calls in the window, the ones still happening first.
+    The agent's own script fix decides each kind's state where there is one (D-985), so the
+    owner reads what is true of their agent (D-970), else the platform's fix does."""
     since = (now or datetime.now(UTC)) - timedelta(days=WINDOW_DAYS)
     rows = (
         await session.execute(
@@ -454,9 +546,13 @@ async def agent_mistakes(
         if kind in LESSONS:
             seen.setdefault(str(kind), []).append((call_id, started))
     fixes = await _latest_fixes(session, seen)
+    own = await mistake_fixes.latest_fixes(session, agent_id, seen)
+    current = await mistake_fixes.live_version(session, agent_id) if own else (None, None)
     out = []
     for kind, calls in seen.items():
-        fixed_at = fixes.get(kind)
+        fix = own.get(kind)
+        script_fixed_at = fix.live_at if fix is not None else None
+        fixed_at = script_fixed_at if fix is not None else fixes.get(kind)
         last_call, last_seen = calls[0]
         out.append(
             AgentMistake(
@@ -468,11 +564,23 @@ async def agent_mistakes(
                 last_seen_at=last_seen,
                 last_call_id=last_call,
                 fixed_at=fixed_at,
-                state=_state(fixed_at, last_seen),
+                state=_agent_state(fix, fixes.get(kind), last_seen),
+                fix_live_at=script_fixed_at,
+                clean_calls=(
+                    await _clean_calls(session, agent_id, kind, script_fixed_at)
+                    if script_fixed_at is not None
+                    else 0
+                ),
+                can_undo=(
+                    fix is not None
+                    and fix.state in ("live", "fixed")
+                    and fix.version_before is not None
+                    and fix.version_after is not None
+                    and current == (fix.version_after, fix.version_after)
+                ),
             )
         )
-    order = {"back": 0, "fixing": 1, "fixed": 2}
-    return sorted(out, key=lambda m: (order[m.state], -m.calls, m.kind))
+    return sorted(out, key=lambda m: (_AGENT_ORDER[m.state], -m.calls, m.kind))
 
 
 @dataclass(frozen=True, slots=True)

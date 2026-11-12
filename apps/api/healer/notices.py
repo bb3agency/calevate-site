@@ -65,6 +65,8 @@ def line_notice(
 ) -> Notice:
     """The notice for one `heal_client_incidents` row, open or resolved."""
     name = f"“{agent_name}”" if agent_name else "Your agent"
+    if kind in ("script_fixed", "script_fix_waiting"):
+        return script_fix_notice(kind=kind, name=name, state=state, outcome=worst_signal)
     paused = (
         f" {campaigns_paused} campaign{'s' if campaigns_paused != 1 else ''} using it "
         f"{'are' if campaigns_paused != 1 else 'is'} paused."
@@ -149,8 +151,72 @@ def line_notice(
     )
 
 
+def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None = None) -> Notice:
+    """A mistake on real calls fixed in the agent's own script (D-985), or waiting on the AI
+    allowance to be fixed. `outcome` is the fix's incident's last step: put back by us, or
+    undone by the owner. The mistake, the fix and the Undo are on the Training tab."""
+    if kind == "script_fix_waiting":
+        if state == "resolved":
+            return Notice(
+                headline=f"A fix for {name} is no longer waiting",
+                what_happened="Your AI allowance had run out, so a fix had to wait.",
+                what_we_did="The agent's Training tab shows where the fix stands.",
+                your_part="Nothing.",
+                must_act=False,
+            )
+        return Notice(
+            headline=f"A fix for {name} is waiting",
+            what_happened=f"{name} made a mistake on real calls that a change to its script "
+            "would fix.",
+            what_we_did="We have not changed it yet: your AI help for this month is used up.",
+            your_part="Add more AI help on the AI help page, and we make the fix at once.",
+            must_act=True,
+        )
+    if outcome == "undone":
+        return Notice(
+            headline=f"You put back {name}'s old script",
+            what_happened="You undid a fix we made after a mistake on real calls.",
+            what_we_did="Your script from before the fix is live again. We will not make "
+            "that fix again on our own.",
+            your_part="Nothing.",
+            must_act=False,
+        )
+    if outcome == "rolled_back":
+        return Notice(
+            headline=f"We put back {name}'s old script",
+            what_happened="A fix we made did not stop the mistake, or calls went worse after it.",
+            what_we_did="Your script from before the fix is live again, and our team is "
+            "looking at it.",
+            your_part="Nothing.",
+            must_act=False,
+        )
+    if state == "resolved":
+        return Notice(
+            headline=f"{name}'s script fix is settled",
+            what_happened=f"We changed part of {name}'s script after a mistake on real calls.",
+            what_we_did="We watched its next calls and closed this.",
+            your_part="Nothing. The Training tab shows how it went.",
+            must_act=False,
+        )
+    return Notice(
+        headline=f"We fixed a mistake in {name}'s script",
+        what_happened=f"On real calls, {name} made a mistake that came from its script.",
+        what_we_did="We changed only that part of the script and put it live. We are "
+        "watching the next calls, and put the old script back if they go worse.",
+        your_part="Nothing. To keep your old script, press Undo on the agent's Training tab.",
+        must_act=False,
+    )
+
+
 def incident_link(slug: str) -> str:
     return f"{CONSOLE_BASE}/c/{slug}/settings/line-protection"
 
 
-__all__ = ["SIGNAL_WORDS", "STATUS_PAGE_URL", "Notice", "incident_link", "line_notice"]
+__all__ = [
+    "SIGNAL_WORDS",
+    "STATUS_PAGE_URL",
+    "Notice",
+    "incident_link",
+    "line_notice",
+    "script_fix_notice",
+]

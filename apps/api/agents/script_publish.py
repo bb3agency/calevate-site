@@ -18,6 +18,7 @@ from datetime import datetime
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing, script_builder
@@ -61,10 +62,30 @@ async def put_draft_live(
     expected_version: int | None = None,
     draft_saved_at: datetime | None = None,
     on_saved: OnSaved | None = None,
+    refuse_if_draft: bool = False,
 ) -> PutLive:
     """Save the draft as a version and apply it. `draft_saved_at`, when given, is the draft
-    the person reviewed: a later autosave is refused rather than put live under their click."""
+    the person reviewed: a later autosave is refused rather than put live under their click.
+
+    `refuse_if_draft`, with `script`: refused while the owner has an autosaved draft, which
+    saving clears. The healer's fix (D-985) passes it so it never throws away an owner's
+    unpublished edit; the agent row is locked first, so an autosave cannot land between the
+    check and the clear."""
     async with tenant_session(tenant_id) as session:
+        if refuse_if_draft:
+            has_draft = (
+                await session.execute(
+                    text(
+                        "SELECT script_draft IS NOT NULL FROM agents "
+                        "WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+                    ),
+                    {"aid": agent_id},
+                )
+            ).scalar_one_or_none()
+            if has_draft is None:
+                raise ProblemError.not_found("Agent")
+            if has_draft:
+                raise draft_moved()
         if script is None:
             draft = await script_builder.read_draft(session, agent_id)
             if draft is None:

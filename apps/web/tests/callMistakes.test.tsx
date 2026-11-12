@@ -6,10 +6,13 @@ import CallMistakesPage from "@/app/admin/ops/call-mistakes/page";
 import { CallMistakes } from "@/components/improvement/CallMistakes";
 import type { Me } from "@/lib/api/client";
 import {
+  FLEET_FIXES_PATH,
   PLATFORM_MISTAKES_PATH,
   agentMistakesPath,
   mistakeFixedPath,
+  mistakeUndoPath,
   type AgentMistake,
+  type FleetFix,
   type PlatformMistake,
 } from "@/lib/api/callMistakes";
 
@@ -41,14 +44,18 @@ function mistake(over: Partial<AgentMistake> = {}): AgentMistake {
     last_call_id: "call-9",
     fixed_at: null,
     state: "fixing",
+    clean_calls: 0,
+    clean_calls_needed: 5,
+    can_undo: false,
     ...over,
   };
 }
 
-async function renderCard(items: AgentMistake[]) {
+async function renderCard(items: AgentMistake[], extra: Routes = {}) {
   return await renderClientPage(<CallMistakes agentId="agent-1" />, {
     "/v1/me": OWNER,
     [agentMistakesPath("agent-1")]: { items, window_days: 30 },
+    ...extra,
   });
 }
 
@@ -84,6 +91,55 @@ describe("the Training tab's mistakes on real calls", () => {
     );
     // Nothing on the card asks the owner to fix it or to contact anyone.
     expect(list.textContent).not.toMatch(/contact|you can fix|fix it yourself/i);
+  });
+
+  it("words each script fix as what is true of the agent (D-985)", async () => {
+    await renderCard([
+      mistake({ kind: "a", label: "A", state: "script_rolled_back" }),
+      mistake({ kind: "b", label: "B", state: "with_team" }),
+      mistake({ kind: "c", label: "C", state: "script_fixing" }),
+      mistake({ kind: "d", label: "D", state: "script_live", fixed_at: "2026-11-12T10:00:00Z", can_undo: true }),
+      mistake({ kind: "e", label: "E", state: "script_undone" }),
+      mistake({ kind: "f", label: "F", state: "script_fixed", clean_calls: 6, fixed_at: "2026-11-12T10:00:00Z" }),
+    ]);
+    const rows = within(await screen.findByRole("list", { name: "Mistakes on real calls" })).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Came back · we put your script back"),
+      expect.stringContaining("Our team is fixing this"),
+      expect.stringContaining("Fixing it in your script"),
+      expect.stringContaining("Fixed in your script on 12 Nov 2026 · watching the next calls"),
+      expect.stringContaining("You put your old script back"),
+      expect.stringContaining("Fixed in your script · not seen in 6 calls"),
+    ]);
+    // Undo is offered only where the server says the fix can be undone.
+    expect(within(rows[3]!).getByRole("button", { name: "Undo our fix: D" })).toBeTruthy();
+    for (const row of [rows[0]!, rows[1]!, rows[2]!, rows[4]!, rows[5]!]) {
+      expect(within(row).queryByRole("button", { name: /Undo/ })).toBeNull();
+    }
+  });
+
+  it("undoes our fix and reads the list again", async () => {
+    const { calls } = await renderCard(
+      [mistake({ state: "script_live", fixed_at: "2026-11-12T10:00:00Z", can_undo: true })],
+      { [`POST ${mistakeUndoPath("agent-1", "said_again")}`]: { kind: "said_again", version: 7 } },
+    );
+    const reads = () => calls.filter((c) => c.path === agentMistakesPath("agent-1")).length;
+    const before = reads();
+    fireEvent.click(await screen.findByRole("button", { name: "Undo our fix: Said the same line again" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    expect(calls.find((c) => c.method === "POST")?.path).toBe(mistakeUndoPath("agent-1", "said_again"));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+
+  it("shows why an undo was refused", async () => {
+    await renderCard([mistake({ state: "script_fixed", can_undo: true })], {
+      [`POST ${mistakeUndoPath("agent-1", "said_again")}`]: problem(409, {
+        code: "mistake_fix_script_changed",
+        title: "Your script changed after this fix, so it cannot be undone on its own.",
+      }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Undo our fix: Said the same line again" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("cannot be undone on its own");
   });
 
   it("keeps what it should do behind a tap", async () => {
@@ -151,11 +207,61 @@ function adminRoutes(over: Routes = {}): Routes {
         }),
       ],
     },
+    [FLEET_FIXES_PATH]: { window_days: 30, items: [] },
+    ...over,
+  };
+}
+
+function fleetFix(over: Partial<FleetFix> = {}): FleetFix {
+  return {
+    id: "fix-1",
+    client_slug: "rytu",
+    agent_id: "agent-1",
+    agent_name: "Varsha",
+    kind: "opened_again",
+    label: "Greeted the caller again in the middle of the call",
+    state: "live",
+    ended_because: null,
+    attempts: 1,
+    version_before: 4,
+    version_after: 5,
+    live_at: "2026-11-12T10:00:00Z",
+    settled_at: null,
+    created_at: "2026-11-12T09:50:00Z",
     ...over,
   };
 }
 
 describe("Ops > Call mistakes", () => {
+  it("lists every agent's script fixes with where each stands (D-985)", async () => {
+    renderAdminPage(
+      <CallMistakesPage />,
+      adminRoutes({
+        [FLEET_FIXES_PATH]: {
+          window_days: 30,
+          items: [
+            fleetFix(),
+            fleetFix({
+              id: "fix-2",
+              agent_name: "Asha",
+              state: "rolled_back",
+              ended_because: "worse",
+              attempts: 2,
+            }),
+          ],
+        },
+      }),
+    );
+    const table = await screen.findByRole("table", { name: "Script fixes by agent" });
+    const rows = within(table).getAllByRole("row");
+    const live = rows.find((r) => (r.textContent ?? "").includes("Varsha"));
+    expect(live?.textContent).toContain("Live, watching calls");
+    expect(live?.textContent).toContain("v4 → v5");
+    const back = rows.find((r) => (r.textContent ?? "").includes("Asha"));
+    expect(back?.textContent).toContain("Put back");
+    expect(back?.textContent).toContain("other mistakes rose");
+  });
+
   it("lists each kind with its counts, state and fix note", async () => {
     renderAdminPage(<CallMistakesPage />, adminRoutes());
     const table = await screen.findByRole("table", { name: "Call mistakes by kind" });

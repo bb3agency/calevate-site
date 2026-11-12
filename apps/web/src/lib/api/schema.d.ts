@@ -4119,6 +4119,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/call-mistakes/{kind}/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put back the script from before our fix of this mistake
+         * @description The owner's Undo (D-985): the script from before the fix becomes a new live version
+         *     (`prompts.rollback_prompt`, copy-forward) and the healer does not make that fix again.
+         *     Refused once the script changed after the fix, which putting back would throw away.
+         *     Audited with version numbers only, in this request's transaction.
+         */
+        post: operations["undo_mistake_fix_v1_agents__agent_id__call_mistakes__kind__undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/call-outcomes": {
         parameters: {
             query?: never;
@@ -11954,6 +11977,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/call-mistakes/fixes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every agent's script fixes of mistakes on real calls (D-985)
+         * @description A read, so no step-up: ids, kinds, versions and times only.
+         */
+        get: operations["list_fleet_fixes_v1_ops_call_mistakes_fixes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/call-mistakes/{kind}/fixed": {
         parameters: {
             query?: never;
@@ -15393,6 +15436,12 @@ export interface components {
             calls: number;
             /** Calls Since Fix */
             calls_since_fix: number;
+            /** Can Undo */
+            can_undo: boolean;
+            /** Clean Calls */
+            clean_calls: number;
+            /** Clean Calls Needed */
+            clean_calls_needed: number;
             /** Fixed At */
             fixed_at: string | null;
             /** Instead */
@@ -15415,7 +15464,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "fixing" | "fixed" | "back";
+            state: "fixing" | "fixed" | "back" | "script_fixing" | "script_live" | "script_fixed" | "script_rolled_back" | "script_undone" | "with_team";
         };
         /** AgentMistakesOut */
         AgentMistakesOut: {
@@ -19524,7 +19573,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "agent_unwell" | "line_protected" | "platform_outage";
+            kind: "agent_unwell" | "line_protected" | "platform_outage" | "script_fixed" | "script_fix_waiting";
             /** Missed Calls */
             missed_calls: number;
             /** Must Act */
@@ -24012,6 +24061,56 @@ export interface components {
              */
             source: "platform_default" | "tenant_override";
         };
+        /** FleetFixOut */
+        FleetFixOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Attempts */
+            attempts: number;
+            /** Client Slug */
+            client_slug: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Ended Because */
+            ended_because: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
+            /** Live At */
+            live_at: string | null;
+            /** Settled At */
+            settled_at: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "fixing" | "live" | "fixed" | "rolled_back" | "needs_person";
+            /** Version After */
+            version_after: number | null;
+            /** Version Before */
+            version_before: number | null;
+        };
+        /** FleetFixesOut */
+        FleetFixesOut: {
+            /** Items */
+            items: components["schemas"]["FleetFixOut"][];
+            /** Window Days */
+            window_days: number;
+        };
         /** FleetReplySpeedOut */
         FleetReplySpeedOut: {
             /** Clients */
@@ -28143,6 +28242,13 @@ export interface components {
             fixed_at: string;
             /** Kind */
             kind: string;
+        };
+        /** MistakeUndoOut */
+        MistakeUndoOut: {
+            /** Kind */
+            kind: string;
+            /** Version */
+            version: number;
         };
         /** MobileNumberIn */
         MobileNumberIn: {
@@ -45925,6 +46031,38 @@ export interface operations {
             };
         };
     };
+    undo_mistake_fix_v1_agents__agent_id__call_mistakes__kind__undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MistakeUndoOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     put_call_outcomes_v1_agents__agent_id__call_outcomes_put: {
         parameters: {
             query?: never;
@@ -60104,6 +60242,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformMistakesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_fleet_fixes_v1_ops_call_mistakes_fixes_get: {
+        parameters: {
+            query?: {
+                /** @description How many to return. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetFixesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -7,11 +7,14 @@ could reach. The seven repair sweeps that each ran on their own clock are rows t
 (`Settings.healer_paused_playbooks`) and one global (`Settings.healer_enabled`), and one
 ledger (`heal_actions`) of everything any of them did.
 
-What is NOT here, and cannot be added: anything that changes how an agent behaves — its
-prompt, voice, model, knowledge or disclosure lines. Those are proposals
-(`healer/proposals.py`) a person approves. The model is the narrow, pre-approved,
-verified, reversible actions AI-SRE tools automate (Datadog Bits AI, Rootly), not a
-general fixer; no voice-AI vendor sells true self-healing.
+Behaviour has ONE automatic playbook, `call_mistake_fix` (D-985, amending D-701 clause 6):
+a mistake on real calls that a line of the agent's own script causes is fixed in those
+lines, checked by the same script check, put live, watched and put back automatically if it
+does not hold, with the owner told and able to undo it. Everything else that changes how
+an agent behaves — its voice, model, knowledge, its disclosure lines and notices, any other
+script change — stays a proposal (`healer/proposals.py`) a person approves. The model is the
+narrow, pre-approved, verified, reversible actions AI-SRE tools automate (Datadog Bits AI,
+Rootly), not a general fixer; no voice-AI vendor sells true self-healing.
 """
 
 from __future__ import annotations
@@ -35,6 +38,11 @@ AGENT_LINE_BROKEN: Final = "agent_line_broken"
 ENGINE_PLATFORM_OUTAGE: Final = "engine_platform_outage"
 #: An operator posted a problem on the public status page by hand (`routes.post_status`).
 STATUS_POST: Final = "status_post"
+#: A real call showed a mistake kind (`agents/call_mistakes`); opened by the pipeline per
+#: agent and kind (`agents/mistake_fixes.open_fixes`), never from the alarm episode.
+CALL_MISTAKE_SEEN: Final = "call_mistake_seen"
+#: The playbook that fixes such a mistake in the agent's own script (D-985).
+CALL_MISTAKE_FIX: Final = "call_mistake_fix"
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +186,23 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
         blast_radius="agent",
     ),
     Playbook(
+        key=CALL_MISTAKE_FIX,
+        title="Fix a mistake on real calls in the agent's script",
+        triggers=(CALL_MISTAKE_SEEN,),
+        action="Find the lines of the agent's live script that cause the mistake, have them "
+        "rewritten (billed to the client's AI allowance) and put the fix live; wait while "
+        "the owner has an unpublished change or the allowance is used up.",
+        verify="The script check finds nothing more and no new warning before it goes live; "
+        "then the next real calls do not show the mistake and other mistakes do not rise.",
+        undo="Put back the script from before the fix, automatically when the mistake comes "
+        "back after the last attempt or calls go worse, or by the owner's Undo.",
+        # The step reads the console's `call_mistake_fix_*` settings instead
+        # (`effective_limits`); these two are the registry's shape only.
+        max_attempts=2,
+        cooldown_s=30 * 60,
+        blast_radius="agent",
+    ),
+    Playbook(
         key="line_protection",
         title="Line protection",
         triggers=(AGENT_LINE_BROKEN,),
@@ -247,6 +272,15 @@ def unknown_paused_keys() -> tuple[str, ...]:
     return tuple(sorted(paused_keys() - PLAYBOOK_BY_KEY.keys()))
 
 
+def effective_limits(playbook: Playbook) -> tuple[int, int]:
+    """(attempts, seconds between looks) as the playbook's step reads them: the console's
+    settings for a playbook that has them, else the registry's numbers."""
+    if playbook.key == CALL_MISTAKE_FIX:
+        settings = get_settings()
+        return settings.call_mistake_fix_max_attempts, settings.call_mistake_fix_wait_minutes * 60
+    return playbook.max_attempts, playbook.cooldown_s
+
+
 def may_run(key: str) -> bool:
     """Whether the kill switches let this playbook act right now (read per call)."""
     playbook = PLAYBOOK_BY_KEY.get(key)
@@ -258,6 +292,8 @@ def may_run(key: str) -> bool:
 __all__ = [
     "AGENT_HEALTH_DEGRADED",
     "AGENT_LINE_BROKEN",
+    "CALL_MISTAKE_FIX",
+    "CALL_MISTAKE_SEEN",
     "ENGINE_PLATFORM_OUTAGE",
     "MONEY_REVIEW",
     "PLAYBOOKS",
@@ -267,6 +303,7 @@ __all__ = [
     "STATUS_POST",
     "BlastRadius",
     "Playbook",
+    "effective_limits",
     "may_run",
     "paused_keys",
     "unknown_paused_keys",

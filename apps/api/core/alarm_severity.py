@@ -186,6 +186,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # A mistake no fix was ever recorded for showed on an account for the first time
     # (D-970). The client is told our team has been told; this is how that stays true.
     "call_mistake_new": "attention",
+    # D-985: the healer could not fix a mistake in one agent's script, or put the script back
+    # because its fix did not hold. One agent's quality, not an outage: work, never a page.
+    "call_mistake_fix_needs_person": "attention",
+    "call_mistake_fix_rolled_back": "attention",
+    # D-985: a real call showed a mistake and the healer opened its fix of that agent's
+    # script. Expected and handled without anyone; the incident is the record.
+    "call_mistake_seen": "record",
     # A client's knowledge upload has failed to publish for hours and is still being retried.
     "kb_ingest_stuck": "attention",
     "engine_capability_absent": "attention",

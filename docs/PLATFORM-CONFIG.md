@@ -288,6 +288,15 @@ also enforces the truthful-answer rule; `healer_paused_playbooks` (comma-separat
 keys, `apps/api/healer/playbooks.py`) pauses individual playbooks, and the healer page flags
 a key no playbook has; `healer_founder_whatsapp` (optional, E.164) is where alarm pages go on
 WhatsApp, and is messaged only when it was set here, which is the founder's opt-in record.
+D-985 (12 Nov 2026) adds six more under Auto-healer, Fixing mistakes in scripts, all live,
+read by the `call_mistake_fix` playbook (`apps/workers/mistake_fix.py`):
+`call_mistake_fix_clean_calls` (default 5) checked calls after a fix with no recurrence before
+it is settled; `call_mistake_fix_max_attempts` (2) fixes per agent and mistake;
+`call_mistake_fix_wait_minutes` (30) between looks while a fix waits;
+`call_mistake_fix_max_waits` (48) looks before a person is asked;
+`call_mistake_fix_compare_calls` (10) calls compared on each side of a fix; and
+`call_mistake_fix_worse_per_100_calls` (50) extra other mistakes per 100 calls that put the
+old script back.
 Under Notifications, WhatsApp: `whatsapp_template_healer_page`,
 `whatsapp_template_line_notice` and `whatsapp_template_line_restored` name the three utility
 templates (OPERATIONS §2 gate H-1). No new secret: the healer sends through the WhatsApp

@@ -49,8 +49,39 @@ Most of an agent's recent real calls failed or ended inside ten seconds. The pla
 To give a line back by hand: press "Mark as handled" on the problem on `/admin/ops/healer` (step-up). The
 client can also press "Turn line back on" on their Line protection screen.
 
-The agent's script is never touched by the healer. If the cause is the script, the client
+Line protection never touches the agent's script. If the cause is the script, the client
 has a proposal to restore the previous version (`heal_proposals`); read it with them.
+
+### 2a. A mistake on real calls fixed in the agent's script (`call_mistake_fix`, D-985)
+
+The one playbook that changes an agent's behaviour on its own. A real call showed a
+mistake kind (Training tab, "Mistakes on real calls"); the pipeline opened a fix for that
+agent and kind (`call_mistake_seen`, `record`). The playbook:
+
+1. waits, looking again every `call_mistake_fix_wait_minutes`, while the owner has an
+   unpublished change, a Pip suggestion is open, the script is hand-written, or the
+   client's AI allowance is used up (the owner is told, with the AI help page); after
+   `call_mistake_fix_max_waits` looks it hands the fix to you;
+2. runs the kind's script check on the live script. No line causes it, or only the opening
+   or its notices do (never edited by the healer): handed to you as a platform rule
+   (`call_mistake_fix_needs_person`, `attention`);
+3. asks Pip for a fix of exactly those lines, billed to the client's AI allowance, checks
+   it (the kind's check finds nothing, the whole script check gains nothing, openings and
+   notices unchanged), and puts it live with a version check; the owner gets a dashboard
+   notice and an Undo on the Training tab;
+4. watches the next checked calls. The kind back: another fix from the new live script,
+   up to `call_mistake_fix_max_attempts`, then the script from before the first fix is put
+   back (`call_mistake_fix_rolled_back`). Other mistakes up by more than
+   `call_mistake_fix_worse_per_100_calls` per 100 calls over `call_mistake_fix_compare_calls`
+   calls: put back at once. `call_mistake_fix_clean_calls` clean calls (and at least the
+   compared ones): settled.
+
+What you do when it is handed to you: for a platform rule, change it and mark the kind fixed
+on `/admin/ops/call-mistakes`; otherwise fix the script with the owner (view-as, Script tab).
+Then "Mark as handled". The healer does not fix that kind on that agent again while the
+incident is open, nor ever after the owner pressed Undo. Every fix is on
+`/admin/ops/call-mistakes` under "Script fixes". Pause it with the kill switch
+`healer_paused_playbooks=call_mistake_fix`.
 
 ## 3. Every line at once (`engine_platform_outage`)
 
