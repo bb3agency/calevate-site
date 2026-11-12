@@ -332,7 +332,7 @@ def sentences(reply: str) -> list[str]:
     return out
 
 
-def _is_question(sentence: str) -> bool:
+def is_question(sentence: str) -> bool:
     return sentence.rstrip().endswith(("?", "\uff1f"))
 
 
@@ -380,7 +380,7 @@ def _answered_own_choice(parts: list[str]) -> str | None:
     """A statement that opens with one option of the reply's own earlier either-or
     question: the agent answered for the caller."""
     for i, question in enumerate(parts):
-        if not _is_question(question):
+        if not is_question(question):
             continue
         options = [_words(option) for option in _OR.split(question.rstrip("?\uff1f "))]
         if len(options) < 2:
@@ -389,7 +389,7 @@ def _answered_own_choice(parts: list[str]) -> str | None:
         # last two words are what a caller would repeat.
         options[0] = options[0][-2:]
         for later in parts[i + 1 :]:
-            if _is_question(later):
+            if is_question(later):
                 continue
             said = _words(later)
             if len(said) <= 8 and any(o and said[: len(o)] == o for o in options):
@@ -401,7 +401,7 @@ def _caller_order(parts: list[str]) -> str | None:
     """A statement shaped like the caller asking for an amount of something ("two tickets
     please", "ఒక కిలో ఇవ్వండి"): the agent said the caller's part."""
     for sentence in parts:
-        if _is_question(sentence) or not _ORDER_ENDING.search(sentence):
+        if is_question(sentence) or not _ORDER_ENDING.search(sentence):
             continue
         counted = _COUNTED.search(sentence) and not _TO_THE_CALLER.search(sentence)
         if counted or _QUANTITY.search(sentence):
@@ -442,7 +442,7 @@ def _offers_reading(caller_said: str, parts: list[str]) -> bool:
     reading of it ("ఒక కేజీ కావాలా అండి, ఇంకా ఎక్కువా?"), not its earlier question again."""
     said = _words(caller_said)
     number = _number_word(said[-1]) if said else None
-    if number is None or len(parts) != 1 or not _is_question(parts[0]):
+    if number is None or len(parts) != 1 or not is_question(parts[0]):
         return False
     words = _words(parts[0])
     return len(words) <= OFFER_MAX_WORDS and number in words
@@ -468,7 +468,7 @@ def _finished_cut_line(caller_said: str, reply: str) -> str | None:
     if number is None:
         return None
     for sentence in sentences(reply):
-        if _is_question(sentence):
+        if is_question(sentence):
             continue
         words = _words(sentence)
         for i, word in enumerate(words[:-1]):
@@ -488,9 +488,9 @@ def _repeated_sentence(parts: list[str]) -> str | None:
         return farewells[1]
     for i, later in enumerate(parts):
         words = set(_words(later))
-        if _is_question(later) or len(words) < 2:
+        if is_question(later) or len(words) < 2:
             continue
-        if any(words <= set(_words(earlier)) for earlier in parts[:i] if not _is_question(earlier)):
+        if any(words <= set(_words(earlier)) for earlier in parts[:i] if not is_question(earlier)):
             return later
     return None
 
@@ -591,7 +591,7 @@ def _joined_questions(question: str) -> int:
 
 def _question_problems(parts: list[str]) -> list[TurnProblem]:
     found: list[TurnProblem] = []
-    questions = [s for s in parts if _is_question(s)]
+    questions = [s for s in parts if is_question(s)]
     asked = [
         q
         for i, q in enumerate(questions)
@@ -614,7 +614,7 @@ def _question_problems(parts: list[str]) -> list[TurnProblem]:
                 "for the answer.",
             )
         )
-    unmarked = next((s for s in parts if not _is_question(s) and _reads_as_question(s)), None)
+    unmarked = next((s for s in parts if not is_question(s) and _reads_as_question(s)), None)
     if unmarked:
         found.append(
             TurnProblem(
@@ -676,6 +676,20 @@ def speaks_english(caller_said: str, language: str) -> bool:
     )
 
 
+def answers_in_english(line: str, language: str) -> str | None:
+    """The name of `language` when `line` is in English instead: none of the language's own
+    letters and at least `MIN_COUNTED_WORDS` English-letter words. None for a line that keeps
+    some of its letters (code-mixed speech) and for a language without letters of its own."""
+    script = _SCRIPT_OF.get(language.split("-")[0].lower())
+    if (
+        script is not None
+        and not script[1].search(line)
+        and len(_LATIN_WORD.findall(line)) >= MIN_COUNTED_WORDS
+    ):
+        return script[0]
+    return None
+
+
 def _language_problems(
     reply: str, caller_said: str, language: str, *, caller_chose_english: bool = False
 ) -> list[TurnProblem]:
@@ -688,11 +702,7 @@ def _language_problems(
     """
     found: list[TurnProblem] = []
     script = _SCRIPT_OF.get(language.split("-")[0].lower())
-    in_english = (
-        script is not None
-        and not script[1].search(reply)
-        and len(_LATIN_WORD.findall(reply)) >= MIN_COUNTED_WORDS
-    )
+    in_english = answers_in_english(reply, language) is not None
     if script is not None and in_english and len(script[1].findall(caller_said)) >= 3:
         found.append(
             TurnProblem(
@@ -785,7 +795,7 @@ def turn_problems(
                 "to pause.",
             )
         )
-    meta = next((s for s in parts if _is_question(s) and _ASKS_TO_TELL.search(s)), None)
+    meta = next((s for s in parts if is_question(s) and _ASKS_TO_TELL.search(s)), None)
     if meta:
         found.append(
             TurnProblem(
@@ -1034,11 +1044,18 @@ _CALLER_DONE_WITH_TOPIC: Final = _LivePattern(
 def offers_more(reply: str) -> bool:
     """Whether a reply asks if the caller wants anything else."""
     return any(
-        _OFFERS_MORE.search(s) for s in sentences(reply) if _is_question(s) or _reads_as_question(s)
+        _OFFERS_MORE.search(s) for s in sentences(reply) if is_question(s) or _reads_as_question(s)
     )
 
 
 _GOODBYE: Final = _LivePattern(lambda: _say("turn_checks._GOODBYE"), re.IGNORECASE)
+
+
+def says_goodbye(text: str) -> bool:
+    """Whether a line says goodbye."""
+    return bool(_GOODBYE.search(text))
+
+
 #: A caller line that closes the conversation, after which a goodbye is right.
 _CALLER_CLOSES: Final = _LivePattern(lambda: _say("turn_checks._CALLER_CLOSES"), re.IGNORECASE)
 #: WHETHER A LINE ASKS SOMETHING (L5-05, 5 Nov 2026). Matching a question word anywhere made
@@ -1191,7 +1208,7 @@ def _reopened(reply: str, opening_questions: Sequence[str]) -> str | None:
     if not opening_questions or _WRAPS_UP.search(reply):
         return None
     suits = any(_ASKS_IF_NOW_SUITS.search(q) for q in opening_questions)
-    for question in (s for s in sentences(reply) if _is_question(s)):
+    for question in (s for s in sentences(reply) if is_question(s)):
         if any(_same_question(question, q) for q in opening_questions) or (
             suits and _ASKS_IF_NOW_SUITS.search(question)
         ):
@@ -1251,7 +1268,7 @@ def _number_values(text: str) -> set[int]:
 def _offered_numbers(question: str) -> set[int]:
     """The numbers a question offers to choose from ("two BHK or three BHK?"), or an empty
     set: two or more values, joined as a choice, and not a choice of times."""
-    if not _is_question(question) or _TIME_WORDS.search(question):
+    if not is_question(question) or _TIME_WORDS.search(question):
         return set()
     values = _number_values(question)
     if len(values) < 2:
@@ -1274,7 +1291,7 @@ SAID_AGAIN_MIN_WORDS: Final = 4
 
 def _said_again(reply: str, earlier: Sequence[str]) -> str | None:
     """The sentence of `reply` that an earlier reply already said (word for word, or as
-    `_same_reply` reads it), or None.
+    `same_reply` reads it), or None.
 
     Two kinds of sentence are left out because saying them again is not a loop: a number
     read out, which a caller writing it down hears more than once (the Rytu Khata call of 4
@@ -1287,7 +1304,7 @@ def _said_again(reply: str, earlier: Sequence[str]) -> str | None:
             if len(_words(s)) >= SAID_AGAIN_MIN_WORDS
             and _digit_count(s) < NUMBER_READ_DIGITS
             and not offers_more(s)
-            and any(_same_reply(s, b) for b in earlier)
+            and any(same_reply(s, b) for b in earlier)
         ),
         None,
     )
@@ -1307,11 +1324,11 @@ def _carried_on(exchanges: Sequence[Exchange], position: int) -> bool:
     return any(e.said.strip() and not _closes_call(e.said) for e in exchanges[position + 1 :])
 
 
-def _asked_again(reply: str, previous_reply: str) -> str | None:
+def asked_again(reply: str, previous_reply: str) -> str | None:
     """The question of `reply` that repeats one of `previous_reply` word for word, or None."""
-    before = [s for s in sentences(previous_reply) if _is_question(s)]
+    before = [s for s in sentences(previous_reply) if is_question(s)]
     return next(
-        (q for q in sentences(reply) if _is_question(q) and any(_same_reply(q, b) for b in before)),
+        (q for q in sentences(reply) if is_question(q) and any(same_reply(q, b) for b in before)),
         None,
     )
 
@@ -1358,7 +1375,7 @@ def _fact_words(sentence: str) -> set[str]:
     }
 
 
-def _false_recall(reply: str, said_before: str) -> str | None:
+def false_recall(reply: str, said_before: str) -> str | None:
     """The sentence of `reply` that claims it already said a figure no earlier reply said, or
     None. Only figures count (a number or a price), so "as I said, we deliver" about a line
     in the greeting, which a test conversation does not show, is left alone."""
@@ -1384,7 +1401,7 @@ def _digit_count(text: str) -> int:
     return count if count >= 3 else 0
 
 
-def _same_reply(a: str, b: str) -> bool:
+def same_reply(a: str, b: str) -> bool:
     left, right = _words(a), _words(b)
     if not left or not right:
         return False
@@ -1443,7 +1460,7 @@ def _invented_source(reply: str, known: str) -> str | None:
     the caller said, the agent's facts and script) names it, or None. A question ("did you
     see us on Google?") asks rather than tells, so it is left alone."""
     for sentence in sentences(reply):
-        if _is_question(sentence) or not _YOU.search(sentence):
+        if is_question(sentence) or not _YOU.search(sentence):
             continue
         for channel in _CHANNELS():
             if channel.search(sentence) and not channel.search(known):
@@ -1490,7 +1507,7 @@ def said_presumed_line(reply: str, lines: Sequence[str]) -> str | None:
     return None
 
 
-def _false_history(reply: str, *, caller_asked: bool) -> str | None:
+def false_history(reply: str, *, caller_asked: bool) -> str | None:
     """The sentence of `reply` that tells the caller about an enquiry, call or conversation
     before this one, or None. `caller_asked`: the caller has asked something on this call,
     so "earlier you asked" may mean this call and is left alone."""
@@ -1514,14 +1531,19 @@ _GIVES_NAME: Final = _LivePattern(lambda: _say("turn_checks._GIVES_NAME"), re.IG
 _ASKS_NAME: Final = _LivePattern(lambda: _say("turn_checks._ASKS_NAME"), re.IGNORECASE)
 
 
+def asks_name(text: str) -> bool:
+    """Whether a line asks for the person's name."""
+    return bool(_ASKS_NAME.search(text))
+
+
 def _stacked_after_who(caller_said: str, reply: str) -> str | None:
     """The question a reply to "who is this?" asked after answering it (D-945), or None."""
     if not _ASKS_WHO.search(caller_said):
         return None
     parts = sentences(reply)
-    if all(_is_question(s) for s in parts):
+    if all(is_question(s) for s in parts):
         return None
-    return next((s for s in parts if _is_question(s)), None)
+    return next((s for s in parts if is_question(s)), None)
 
 
 _WEEKDAYS: Final[_Live[tuple[tuple[str, ...], ...]]] = _Live(
@@ -1658,7 +1680,7 @@ def conversation_problems(
     `presumed` are the lines of script steps reached by callers they do not fit
     (`script_lint.presumed_lines`); a reply saying one is the script's failure.
     """
-    opening_questions = [s for s in sentences(opening) if _is_question(s)]
+    opening_questions = [s for s in sentences(opening) if is_question(s)]
     offered: set[int] = set()
     found: dict[str, TurnProblem] = {}
     acted = False
@@ -1712,11 +1734,7 @@ def conversation_problems(
             None
             if not offered or _number_values(said)
             else next(
-                (
-                    s
-                    for s in sentences(reply)
-                    if not _is_question(s) and _number_values(s) & offered
-                ),
+                (s for s in sentences(reply) if not is_question(s) and _number_values(s) & offered),
                 None,
             )
         )
@@ -1730,7 +1748,7 @@ def conversation_problems(
                 ),
             )
         offered = {value for s in sentences(reply) for value in _offered_numbers(s)}
-        recalled = _false_recall(reply, said_before)
+        recalled = false_recall(reply, said_before)
         if recalled:
             found.setdefault(
                 "false_recall",
@@ -1758,7 +1776,7 @@ def conversation_problems(
             )
         caller_asked = caller_asked or asks_question(said)
         history_backed = history_backed or bool(_CALLER_HISTORY.search(said))
-        history = None if history_backed else _false_history(reply, caller_asked=caller_asked)
+        history = None if history_backed else false_history(reply, caller_asked=caller_asked)
         if history:
             found.setdefault(
                 "false_history",
@@ -1882,7 +1900,7 @@ def conversation_problems(
         again = (
             None
             if _ASKS_REPEAT.search(said) or asks_question(said)
-            else _asked_again(reply, previous_reply)
+            else asked_again(reply, previous_reply)
         )
         if again:
             found.setdefault(
@@ -1907,7 +1925,7 @@ def conversation_problems(
                 ),
             )
         earlier_sentences += sentences(reply)
-        if previous_reply and _ASKS_REPEAT.search(said) and _same_reply(reply, previous_reply):
+        if previous_reply and _ASKS_REPEAT.search(said) and same_reply(reply, previous_reply):
             found.setdefault(
                 "repeated_turn",
                 TurnProblem(
@@ -1948,6 +1966,9 @@ __all__ = [
     "SOUND_KINDS",
     "Exchange",
     "TurnProblem",
+    "answers_in_english",
+    "asked_again",
+    "asks_name",
     "asks_question",
     "asks_to_repeat",
     "caller_asks",
@@ -1956,10 +1977,15 @@ __all__ = [
     "claims_done",
     "claims_said_before",
     "conversation_problems",
+    "false_history",
+    "false_recall",
     "formal_swaps",
     "greeted_midway",
+    "is_question",
     "offers_more",
     "opened_again",
+    "same_reply",
+    "says_goodbye",
     "sentences",
     "turn_problems",
     "word_checks_note",

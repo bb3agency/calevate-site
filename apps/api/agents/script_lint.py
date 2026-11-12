@@ -288,7 +288,7 @@ def placed_call_opening(where: str, context: LintContext) -> bool:
 
 
 #: The lines said word for word as the first words of a call.
-_OPENING_FIELDS: Final = frozenset({"opening_line", "outbound_opening_line"})
+OPENING_FIELDS: Final = frozenset({"opening_line", "outbound_opening_line"})
 
 
 def answered_opening(where: str, context: LintContext) -> bool:
@@ -538,7 +538,7 @@ def spoken_line_problems(where: str, text: str, context: LintContext) -> list[st
         opening = placed_opening_problem(where, text)
         if opening:
             problems.append(opening)
-    if where in _OPENING_FIELDS:
+    if where in OPENING_FIELDS:
         nameless = name_segment_problem(where, text, placed=not answered_opening(where, context))
         if nameless:
             problems.append(nameless)
@@ -649,7 +649,7 @@ def placeholder_problems(script: CallScript) -> list[str]:
     ]
 
 
-def _successors(script: CallScript, index: int) -> set[str]:
+def next_steps(script: CallScript, index: int) -> set[str]:
     """The steps the call can go to from step `index`: its ways out, else the next step."""
     stage = script.stages[index]
     out = {branch.target for branch in stage.branches}
@@ -660,13 +660,13 @@ def _successors(script: CallScript, index: int) -> set[str]:
     return out
 
 
-def _reachable(script: CallScript, start: int) -> set[int]:
+def reachable_steps(script: CallScript, start: int) -> set[int]:
     """Every step the call can reach after step `start`."""
     at = {stage.id: i for i, stage in enumerate(script.stages)}
     seen: set[int] = set()
     todo = [start]
     while todo:
-        for target in _successors(script, todo.pop()):
+        for target in next_steps(script, todo.pop()):
             i = at.get(target)
             if i is not None and i not in seen:
                 seen.add(i)
@@ -784,9 +784,9 @@ def _order_findings(script: CallScript) -> list[tuple[int, str]]:
     for i, stage in enumerate(script.stages):
         if _sets_up(stage) or not _presumes_use(stage):
             continue
-        reach = _reachable(script, i)
+        reach = reachable_steps(script, i)
         before = next((s for s in setup if s in reach), None)
-        after = next((s for s in setup if i in _reachable(script, s)), None)
+        after = next((s for s in setup if i in reachable_steps(script, s)), None)
         if _asks_experience(stage) and (before is not None or after is not None):
             when = (
                 f"before step {before + 1} helps them set it up"
@@ -834,14 +834,22 @@ def order_problems(script: CallScript) -> list[str]:
     return [problem for _i, problem in _order_findings(script)]
 
 
+def step_line(script: CallScript, index: int) -> tuple[str, str]:
+    """(path, text) of what the agent says at step `index`: its instruction in "say" mode,
+    which is said as written, else its "sounds like" line, which the model copies."""
+    stage = script.stages[index]
+    if stage.mode == "say":
+        return f"stages.{index}.instruction", stage.instruction
+    return f"stages.{index}.sounds_like", stage.sounds_like
+
+
 def presumed_lines(script: CallScript) -> tuple[str, ...]:
     """What the agent says at each step `order_problems` names: a line a caller who cannot
     answer it hears, which the practice checks look for in the replies
     (`turn_checks.conversation_problems`)."""
     lines: list[str] = []
     for i, _problem in _order_findings(script):
-        stage = script.stages[i]
-        line = stage.instruction if stage.mode == "say" else stage.sounds_like
+        _path, line = step_line(script, i)
         if line.strip():
             lines.append(line.strip())
     return tuple(dict.fromkeys(lines))
@@ -881,13 +889,7 @@ def repeated_line_problems(script: CallScript) -> list[str]:
         for path, text in (
             ("opening_line", script.opening_line),
             ("outbound_opening_line", script.outbound_opening_line),
-            *(
-                (
-                    f"stages.{i}.{'instruction' if s.mode == 'say' else 'sounds_like'}",
-                    s.instruction if s.mode == "say" else s.sounds_like,
-                )
-                for i, s in enumerate(script.stages)
-            ),
+            *(step_line(script, i) for i in range(len(script.stages))),
         )
         if len(_words(text)) >= _MIN_REPEAT_WORDS
     ]
@@ -897,7 +899,7 @@ def repeated_line_problems(script: CallScript) -> list[str]:
         for earlier_path, earlier in lines[:later]:
             # A "both" agent's two openings are never said on one call, and share its names
             # and any woven notice words by design.
-            if path in _OPENING_FIELDS and earlier_path in _OPENING_FIELDS:
+            if path in OPENING_FIELDS and earlier_path in OPENING_FIELDS:
                 continue
             other = _words(earlier)
             if len(words & other) / len(words | other) >= _REPEAT_OVERLAP:
@@ -958,9 +960,8 @@ def same_opener_problems(script: CallScript) -> list[str]:
     with the same "OK"). Read by words, so it works in any language."""
     seen: dict[str, int] = {}
     problems: list[str] = []
-    for i, stage in enumerate(script.stages):
-        path = f"stages.{i}.{'instruction' if stage.mode == 'say' else 'sounds_like'}"
-        line = stage.instruction if stage.mode == "say" else stage.sounds_like
+    for i in range(len(script.stages)):
+        path, line = step_line(script, i)
         said = _line_opener(line)
         if said is None:
             continue
@@ -991,6 +992,7 @@ def flow_problems(script: CallScript) -> list[str]:
 __all__ = [
     "NAME_FIELD",
     "NAME_PLACEMENT_RULE",
+    "OPENING_FIELDS",
     "PLACED_OPENING_BRIEF",
     "CapabilityManifest",
     "LintContext",
@@ -1000,6 +1002,8 @@ __all__ = [
     "instruction_fields",
     "instruction_problems",
     "name_segment_problem",
+    "next_steps",
+    "opening_redone_problems",
     "order_problems",
     "other_persona",
     "placed_call_opening",
@@ -1009,11 +1013,14 @@ __all__ = [
     "plain",
     "presumed_lines",
     "question_count",
+    "reachable_steps",
     "repeated_line_problems",
+    "same_opener_problems",
     "script_problems",
     "spoken_fields",
     "spoken_line_problems",
     "stacked_actions",
+    "step_line",
     "unasked_details",
     "unbacked_promise",
     "unknown_figure",

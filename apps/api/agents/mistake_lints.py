@@ -1,0 +1,322 @@
+"""The script cause of each mistake on a real call, for the auto-healer (D-985).
+
+`call_mistakes.LESSONS` names what went wrong on real calls; this module finds, for one of
+those kinds, the lines of the agent's own script that make the in-call model do it, so the
+healer can rewrite exactly those lines. Each finding is a `script_lint` finding
+("<path>: <problem>"), so `script_proposals.request_proposal(mode="change", paths=...)`,
+`fix_change`, `finding_key` and `kept_to_paths` take it as they take any other.
+
+Each check runs the in-call detector for its kind (`turn_checks`) on the script's lines,
+so a script check and a real call can never disagree about what the mistake is, and every
+word it listens for comes from `call_words.json` through that detector. Nothing here is a
+word list or a new threshold.
+
+NOT IN `script_problems`. These checks run only when the kind was seen on real calls, and
+they do not block "Put it live" or show on the readiness card: a line that MAY cause a
+mistake is not an authoring defect until calls show the mistake. Because the healer then
+rewrites live lines, each check is conservative: it reads only the shape the detector
+reads, and only in lines the in-call model says or copies.
+
+THE OPENING LINES ARE LEFT ALONE except by `false_history`. The opening is never judged as
+a reply on a real call (`call_mistakes._replies`), it carries the notices woven into it
+(D-971), and its length and wording have their own checks; a claim of earlier contact is
+the exception because it is a claim made to the person, wherever it is said.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Final
+
+from calevate_shared.call_script import CallScript, substitute_variables
+
+from apps.api.agents import turn_checks
+from apps.api.agents.script_lint import (
+    OPENING_FIELDS,
+    LintContext,
+    caller_paths,
+    next_steps,
+    opening_redone_problems,
+    reachable_steps,
+    repeated_line_problems,
+    same_opener_problems,
+    spoken_fields,
+    step_line,
+)
+
+_Check = Callable[[CallScript, LintContext], list[str]]
+
+
+def _agent_lines(script: CallScript, *, openings: bool = False) -> list[tuple[str, str]]:
+    """(path, text) of each non-empty line the agent says or copies, the caller's example
+    lines left out, and the openings only when `openings`."""
+    callers = caller_paths(script)
+    return [
+        (path, text)
+        for path, text in spoken_fields(script)
+        if text.strip() and path not in callers and (openings or path not in OPENING_FIELDS)
+    ]
+
+
+def _step_lines(script: CallScript) -> dict[int, tuple[str, str]]:
+    """Each step's spoken line (`step_line`) by step index, empty ones left out."""
+    lines = {i: step_line(script, i) for i in range(len(script.stages))}
+    return {i: line for i, line in lines.items() if line[1].strip()}
+
+
+def _heard(text: str) -> str:
+    """A line as a call with no merge values hears it: a field left unfilled is dropped
+    (`substitute_variables`), so its key is never read as an English word."""
+    return substitute_variables(text, {})
+
+
+def _step_index(script: CallScript) -> dict[str, int]:
+    return {stage.id: i for i, stage in enumerate(script.stages)}
+
+
+def _following(script: CallScript, index: int) -> set[int]:
+    """The steps the call goes to straight from step `index`."""
+    at = _step_index(script)
+    return {at[target] for target in next_steps(script, index) if target in at} - {index}
+
+
+def _within(script: CallScript, start: int, hops: int) -> set[int]:
+    """The steps the call reaches from step `start` in at most `hops` moves."""
+    seen: set[int] = set()
+    edge = {start}
+    for _ in range(hops):
+        edge = {j for i in edge for j in _following(script, i)} - seen - {start}
+        seen |= edge
+    return seen
+
+
+def _turn_kind_lines(
+    script: CallScript, context: LintContext, kinds: frozenset[str], problem: str
+) -> list[str]:
+    """Each agent line that the reply check (`turn_checks.turn_problems`) faults with one of
+    `kinds` when said as a turn: the model copies a step's line, so a line that is the
+    mistake as written makes the replies the mistake."""
+    return [
+        f"{path}: {problem}"
+        for path, text in _agent_lines(script)
+        if any(
+            found.kind in kinds
+            for found in turn_checks.turn_problems(_heard(text), language=context.language)
+        )
+    ]
+
+
+def _too_long(script: CallScript, context: LintContext) -> list[str]:
+    return _turn_kind_lines(
+        script,
+        context,
+        frozenset({"too_long", "several_questions", "repeated_question"}),
+        f"says more than {turn_checks.MAX_SENTENCES} short sentences or asks more than one "
+        "question in one turn; keep it to one point or one question, then let them speak.",
+    )
+
+
+def _caller_line(script: CallScript, context: LintContext) -> list[str]:
+    # A speaker label ("Caller: ...") is the caller's part written into the agent's line,
+    # the same failure `caller_line` names in a reply.
+    return _turn_kind_lines(
+        script,
+        context,
+        frozenset({"caller_line", "speaker_labels"}),
+        "is written with the caller's part in it, or answers for them; write only what the "
+        "agent says and leave the answer to the caller.",
+    )
+
+
+def _third_person(script: CallScript, context: LintContext) -> list[str]:
+    return _turn_kind_lines(
+        script,
+        context,
+        frozenset({"third_person"}),
+        "talks about the person instead of to them; speak to them directly.",
+    )
+
+
+def _wrong_language(script: CallScript, context: LintContext) -> list[str]:
+    # A line wholly in English in a call language with letters of its own is the reply the
+    # model copies when it answers in English. A code-mixed line keeps the language's own
+    # letters and is not this mistake (`turn_checks.answers_in_english`); its English words
+    # are `script_problems`' finding.
+    found: list[str] = []
+    for path, text in _agent_lines(script):
+        name = turn_checks.answers_in_english(_heard(text), context.language)
+        if name is not None:
+            found.append(f"{path}: is in English, not {name}; write it in {name}, as the call is.")
+    return found
+
+
+def _false_history(script: CallScript, _context: LintContext) -> list[str]:
+    # `caller_asked=True`: "earlier you asked" may mean earlier on this call, which a script
+    # line cannot rule out, so only an outright claim of earlier contact counts.
+    return [
+        f"{path}: tells the person they enquired or spoke with the business before, which is "
+        "untrue for anyone with no earlier enquiry or call; say why you are calling without "
+        "claiming one."
+        for path, text in _agent_lines(script, openings=True)
+        if turn_checks.false_history(_heard(text), caller_asked=True)
+    ]
+
+
+def _goodbye_while_asking(script: CallScript, _context: LintContext) -> list[str]:
+    """A step's line that says goodbye where the call is not over: the call goes on to
+    another step after it, or the line asks something and closes before the answer."""
+    found: list[str] = []
+    for i, (path, text) in _step_lines(script).items():
+        parts = turn_checks.sentences(_heard(text))
+        bye = next((n for n, part in enumerate(parts) if turn_checks.says_goodbye(part)), None)
+        if bye is None:
+            continue
+        if _following(script, i):
+            found.append(
+                f"{path}: says goodbye, and the call goes on to another step after it; keep "
+                "goodbye for the close."
+            )
+        elif any(turn_checks.is_question(part) for part in parts[:bye]):
+            found.append(
+                f"{path}: asks something and says goodbye in the same line; ask, wait for the "
+                "answer, and say goodbye only after it."
+            )
+    return found
+
+
+_RECALL_PROBLEM: Final = (
+    "says it already told them a figure that no line before it says; say the detail itself "
+    "instead of claiming it was said."
+)
+
+
+def _false_recall(script: CallScript, _context: LintContext) -> list[str]:
+    """A line claiming it already told the person a figure that nothing said before it says
+    (`turn_checks.false_recall`). A step is read against the openings and the steps that
+    lead to it; a line with no place in the call (a sample phrase, the example call) against
+    everything else the script says, which can only make it pass more often."""
+    openings = " ".join(text for path, text in spoken_fields(script) if path in OPENING_FIELDS)
+    steps = _step_lines(script)
+    found: list[str] = []
+    for j, (path, text) in steps.items():
+        before = [t for i, (_p, t) in steps.items() if i != j and j in reachable_steps(script, i)]
+        if turn_checks.false_recall(_heard(text), _heard(" ".join([openings, *before]))):
+            found.append(f"{path}: {_RECALL_PROBLEM}")
+    step_paths = {p for p, _t in steps.values()}
+    everything = _agent_lines(script, openings=True)
+    for path, text in everything:
+        if path in step_paths or path in OPENING_FIELDS:
+            continue
+        said = " ".join(t for p, t in everything if p != path)
+        if turn_checks.false_recall(_heard(text), _heard(said)):
+            found.append(f"{path}: {_RECALL_PROBLEM}")
+    return found
+
+
+def _asked_again(script: CallScript, _context: LintContext) -> list[str]:
+    """A step whose line asks, word for word, the question of the step the call comes from
+    (`turn_checks.asked_again`, the check that compares one reply with the one before)."""
+    steps = _step_lines(script)
+    found: list[str] = []
+    for j, (path, text) in steps.items():
+        came_from = next(
+            (
+                i
+                for i, (_p, before) in steps.items()
+                if j in _following(script, i)
+                and turn_checks.asked_again(_heard(text), _heard(before))
+            ),
+            None,
+        )
+        if came_from is not None:
+            found.append(
+                f"{path}: asks again what step {came_from + 1} just asked; ask it once, and "
+                "have this step move on to the next thing."
+            )
+    return found
+
+
+def _reasked_name(script: CallScript, _context: LintContext) -> list[str]:
+    """A step whose line asks the person's name when a step the call passes first asks it
+    too (`turn_checks.asks_name`)."""
+    steps = _step_lines(script)
+    asking = {i for i, (_p, text) in steps.items() if turn_checks.asks_name(_heard(text))}
+    found: list[str] = []
+    for j in sorted(asking):
+        earlier = next(
+            (i for i in sorted(asking) if i != j and j in reachable_steps(script, i)), None
+        )
+        if earlier is not None:
+            found.append(
+                f"{steps[j][0]}: asks for the name, which step {earlier + 1} already asks for; "
+                "use the name they gave."
+            )
+    return found
+
+
+def _offered_more_too_soon(script: CallScript, _context: LintContext) -> list[str]:
+    """A step's line that asks whether they need anything else (`turn_checks.offers_more`)
+    while the topic is not done: in a step that walks them through its step-by-step list,
+    or with another such offer within the replies the in-call check counts
+    (`turn_checks.OFFERS_MORE_WINDOW`), each step being at least one reply."""
+    steps = _step_lines(script)
+    offering = {i for i, (_p, text) in steps.items() if turn_checks.offers_more(_heard(text))}
+    found: list[str] = []
+    for i in sorted(offering):
+        path = steps[i][0]
+        if script.stages[i].procedure:
+            found.append(
+                f"{path}: asks whether they need anything else in a step that walks them "
+                "through steps; give the next step instead, and ask it only once the task "
+                "is done."
+            )
+            continue
+        soon = sorted(offering & _within(script, i, turn_checks.OFFERS_MORE_WINDOW - 1))
+        if soon:
+            found.append(
+                f"{path}: asks whether they need anything else, and step {soon[0] + 1} soon "
+                "after asks it again; ask it only once the topic is done."
+            )
+    return found
+
+
+def _delegate(lint: Callable[[CallScript], list[str]]) -> _Check:
+    def check(script: CallScript, _context: LintContext) -> list[str]:
+        return lint(script)
+
+    return check
+
+
+#: Each mistake kind's script check. The three that `script_lint.flow_problems` already
+#: finds go to that lint, so the readiness card and the healer read one check.
+_CHECKS: Final[dict[str, _Check]] = {
+    "opened_again": _delegate(opening_redone_problems),
+    "same_opening": _delegate(same_opener_problems),
+    "said_again": _delegate(repeated_line_problems),
+    "too_long": _too_long,
+    "asked_again": _asked_again,
+    "reasked_name": _reasked_name,
+    "caller_line": _caller_line,
+    "goodbye_while_asking": _goodbye_while_asking,
+    "false_recall": _false_recall,
+    "wrong_language": _wrong_language,
+    "third_person": _third_person,
+    "offered_more_too_soon": _offered_more_too_soon,
+    "false_history": _false_history,
+}
+
+#: The mistake kinds a script check can trace to the agent's own script.
+SCRIPT_FIXABLE_KINDS: Final[frozenset[str]] = frozenset(_CHECKS)
+
+
+def mistake_findings(script: CallScript, context: LintContext, kind: str) -> list[str]:
+    """The findings in `script` that can cause mistake `kind` on a call, as `script_lint`
+    findings ("<path>: <problem>"); [] for a kind with no check, or nothing found. A raw
+    (hand-written) script has no lines to point at."""
+    check = _CHECKS.get(kind)
+    if check is None or script.raw_override:
+        return []
+    return check(script, context)
+
+
+__all__ = ["SCRIPT_FIXABLE_KINDS", "mistake_findings"]
