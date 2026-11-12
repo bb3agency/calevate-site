@@ -245,11 +245,12 @@ STUDIO_VOICE_MODELS: tuple[str, ...] = (
     "sonic-3",
     "sonic-2",
 )
-#: The model a Studio agent speaks on unless an operator picks another (D-977). The dated
-#: release rather than `sonic-3.6`, which "follows Cartesia's latest stable snapshot" while
-#: "the dated one never changes" (snapshots/2026-10-29/pages/api-reference/agents/
-#: set-agent-byok-voice.md:9), so a vendor update cannot change how calls sound overnight.
-STUDIO_VOICE_PINNED_MODEL = "sonic-3.6-2026-08-27"
+#: The model a Studio agent speaks on unless an operator picks another (D-977, D-983).
+#: `sonic-3.6`, which "follows Cartesia's latest stable snapshot" (snapshots/2026-10-29/pages/
+#: api-reference/agents/set-agent-byok-voice.md:9), rather than the dated
+#: `sonic-3.6-2026-08-27` (founder, 12 Nov 2026): agents take Cartesia's 3.6 improvements as
+#: they ship, and a model is still stated so the key's own (`sonic-3`) is never spoken.
+STUDIO_VOICE_DEFAULT_MODEL = "sonic-3.6"
 #: The one model that takes no speed, volume or emotion.
 STUDIO_VOICE_OLD_MODEL = "sonic-2"
 STUDIO_VOICE_DICTIONARY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{2,79}$"

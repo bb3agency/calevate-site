@@ -43,8 +43,8 @@ Cartesia playground offers emotion for Telugu on Sonic 3.6 (founder, 21 Oct 2026
 written docs page still says English-only (:415). Emotion is offered on every Studio agent in
 every language (D-843), and nothing here refuses it by language.
 
-An agent whose voice becomes a Studio one with no emotion set starts on
-`DEFAULT_STUDIO_EMOTION`, and with no voice model set on `DEFAULT_STUDIO_MODEL`
+An agent whose voice becomes a Studio one starts with no emotion (D-983: Sonic 3.6 reads the
+feeling from the words), and with no voice model set on `DEFAULT_STUDIO_MODEL`
 (`lifecycle.update_agent`, the one writer of an agent's voice). A null model still means the
 key's own on the wire and in the read-back; an operator may choose it.
 """
@@ -74,7 +74,7 @@ from apps.api.agents.models import (
     STUDIO_VOICE_EMOTIONS,
     STUDIO_VOICE_MODELS,
     STUDIO_VOICE_OLD_MODEL,
-    STUDIO_VOICE_PINNED_MODEL,
+    STUDIO_VOICE_DEFAULT_MODEL,
     STUDIO_VOICE_SPEED_MAX,
     STUDIO_VOICE_SPEED_MIN,
     STUDIO_VOICE_VOLUME_MAX,
@@ -113,12 +113,9 @@ FIELDS: Final[tuple[str, ...]] = ("speed", "volume", "emotion", "model", "dictio
 CLIENT_FIELDS: Final[tuple[str, ...]] = ("speed", "volume", "emotion")
 #: The one field that applies on a Clear voice too (D-884).
 ANY_VOICE_FIELDS: Final[tuple[str, ...]] = ("speed",)
-#: The emotion an agent starts on when its voice becomes a Studio one with none set
-#: (founder decision 21 Oct 2026, D-843). Never written over an emotion a person set.
-DEFAULT_STUDIO_EMOTION: Final = "calm"
 #: The voice model an agent starts on when its voice becomes a Studio one with none set
-#: (founder decision 9 Nov 2026, D-977). Never written over a model an operator set.
-DEFAULT_STUDIO_MODEL: Final = STUDIO_VOICE_PINNED_MODEL
+#: (D-977; `sonic-3.6` since D-983, 12 Nov 2026). Never written over a model an operator set.
+DEFAULT_STUDIO_MODEL: Final = STUDIO_VOICE_DEFAULT_MODEL
 #: Samples a client account may hear per IST day (D-843). Each is spoken on our voice key and
 #: charged to us per character, so the cap bounds what we absorb.
 CLIENT_PREVIEWS_PER_DAY: Final = 20
@@ -508,7 +505,6 @@ __all__ = [
     "CLEAR_SPEED_STEP",
     "CLIENT_FIELDS",
     "CLIENT_PREVIEWS_PER_DAY",
-    "DEFAULT_STUDIO_EMOTION",
     "DEFAULT_STUDIO_MODEL",
     "DICTIONARY_ID_PATTERN",
     "EMOTIONS",

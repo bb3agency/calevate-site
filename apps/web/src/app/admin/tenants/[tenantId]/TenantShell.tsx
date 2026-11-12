@@ -66,7 +66,7 @@ export function TenantShell({ tenantId, children }: { tenantId: string; children
   return (
     <div className="space-y-8 pb-12">
       <TenantHeader tenant={tenant} />
-      <div className="gap-10 xl:grid xl:grid-cols-[200px_minmax(0,1fr)]">
+      <div className="space-y-6">
         <TenantSectionNav tenantId={tenantId} />
         <div className="min-w-0">{children}</div>
       </div>
@@ -161,28 +161,30 @@ function TenantHeader({ tenant }: { tenant: TenantSummary }) {
 }
 
 /**
- * The section menu: a sticky grouped column from `xl`, wrapped rows from `sm`, one
- * scrolling row on a phone. ONE list in every shape, so each page has exactly one link in
- * the document. Single-page groups show only their item; the group heading would repeat it.
+ * The section menu (founder, 12 Nov 2026: the twenty pages wrapped into four unlabeled rows).
+ * Two levels, the way a settings area with many pages is usually navigated: one row of the
+ * nine groups, underlined like the console's tabs, and under it the pages of the open group
+ * when it has more than one. A group's tab opens the page already open in it, else its
+ * first. Every page is two clicks away at most, and the command palette still lists all.
  *
- * The column waits for `xl` because at 1024px it took 240px of the ~705px beside the open
- * sidebar, and every table under it scrolled sideways on a desktop. Between `sm` and `xl`
- * the row wraps rather than scrolls: a mouse has no sideways swipe, and the scrollbar is
- * hidden, so sections past the edge were out of reach.
+ * The rows sit above the page at every width, so the page keeps its full width: a side
+ * column took 240px beside the open sidebar and tables under it scrolled sideways.
  *
- * `aria-current="true"` rather than `"page"`: the sidebar's Clients entry already carries
- * `"page"` for every client route, and a document with two "current page" claims answers
- * "where am I" twice.
+ * `aria-current="true"` marks the open page only, rather than `"page"`: the sidebar's
+ * Clients entry already carries `"page"` for every client route, and a document with two
+ * "current page" claims answers "where am I" twice.
  */
 export function TenantSectionNav({ tenantId }: { tenantId: string }) {
   const pathname = usePathname() ?? "";
   const current = currentTenantSection(tenantId, pathname);
+  const openGroup = TENANT_SECTION_GROUPS.find((group) =>
+    group.items.some((item) => item === current),
+  );
   const activeRef = useRef<HTMLAnchorElement>(null);
 
-  // On a phone the active item can sit off the end of the row; scroll the ROW to it. Not
+  // On a phone the open group can sit off the end of the row; scroll the ROW to it. Not
   // `scrollIntoView`: with `block: "nearest"` it also scrolls the page whenever the item is
-  // below the fold, so on a short desktop window Activity or Closure opened half-way down.
-  // No smooth scroll: it runs on every navigation.
+  // below the fold. No smooth scroll: it runs on every navigation.
   useEffect(() => {
     const link = activeRef.current;
     let row = link?.parentElement ?? null;
@@ -197,55 +199,55 @@ export function TenantSectionNav({ tenantId }: { tenantId: string }) {
   }, [current]);
 
   return (
-    <nav aria-label="Client sections" className="mb-6 xl:sticky xl:top-2 xl:mb-0 xl:self-start">
+    <nav aria-label="Client sections" className="space-y-3">
       <ScrollRegion
         label="Client sections"
-        className="-mx-1 px-1 pb-1 sm:overflow-visible xl:mx-0 xl:p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-sm:scroll-shadow-x"
+        className="border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-sm:scroll-shadow-x"
       >
-        <ul className="flex w-max items-center gap-1 sm:w-auto sm:flex-wrap xl:flex-col xl:flex-nowrap xl:items-stretch xl:gap-0.5">
-          {TENANT_SECTION_GROUPS.map((group, index) => (
-            <li
-              key={group.label}
-              className={`flex max-w-full items-center gap-1 xl:block ${
-                index > 0 ? "border-l border-line pl-1 xl:border-l-0 xl:pl-0" : ""
-              } ${group.items.length > 1 ? "xl:py-2" : ""}`}
-            >
-              {group.items.length > 1 && (
-                <p
-                  id={`tenant-group-${index}`}
-                  className="mb-1 hidden px-3 text-meta font-medium text-ink-faint xl:block"
+        <ul className="flex w-max gap-6">
+          {TENANT_SECTION_GROUPS.map((group) => {
+            const open = group === openGroup;
+            const target = open && current ? current : group.items[0];
+            const single = group.items.length === 1;
+            return (
+              <li key={group.label}>
+                <Link
+                  ref={open ? activeRef : undefined}
+                  href={tenantSectionHref(tenantId, target)}
+                  aria-current={open && single ? "true" : undefined}
+                  className={`-mb-px flex h-10 items-center whitespace-nowrap border-b-2 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-brand touch:h-11 ${
+                    open
+                      ? "border-brand-strong font-medium text-ink"
+                      : "border-transparent text-ink-muted hover:text-ink"
+                  }`}
                 >
                   {group.label}
-                </p>
-              )}
-              <ul
-                aria-labelledby={group.items.length > 1 ? `tenant-group-${index}` : undefined}
-                className="flex items-center gap-1 sm:flex-wrap xl:flex-col xl:flex-nowrap xl:items-stretch xl:gap-0.5"
-              >
-                {group.items.map((section) => {
-                  const on = section === current;
-                  return (
-                    <li key={section.path}>
-                      <Link
-                        ref={on ? activeRef : undefined}
-                        href={tenantSectionHref(tenantId, section)}
-                        aria-current={on ? "true" : undefined}
-                        className={`press flex h-9 items-center whitespace-nowrap rounded-full px-3.5 text-meta font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 xl:rounded-md xl:px-3 xl:text-body ${
-                          on
-                            ? "bg-ink/[0.06] text-ink"
-                            : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink xl:font-normal"
-                        }`}
-                      >
-                        {section.label}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </li>
-          ))}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       </ScrollRegion>
+      {openGroup && openGroup.items.length > 1 && (
+        <ul aria-label={openGroup.label} className="flex flex-wrap gap-1">
+          {openGroup.items.map((section) => {
+            const on = section === current;
+            return (
+              <li key={section.path}>
+                <Link
+                  href={tenantSectionHref(tenantId, section)}
+                  aria-current={on ? "true" : undefined}
+                  className={`press flex h-8 items-center whitespace-nowrap rounded-full px-3 text-meta font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11 ${
+                    on ? "bg-ink/[0.06] text-ink" : "text-ink-muted hover:bg-ink/[0.05] hover:text-ink"
+                  }`}
+                >
+                  {section.label}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </nav>
   );
 }

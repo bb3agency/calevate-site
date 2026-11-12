@@ -5,7 +5,7 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantLayout from "@/app/admin/tenants/[tenantId]/layout";
 import ClosurePage from "@/app/admin/tenants/[tenantId]/closure/page";
 import {
-  TENANT_SECTIONS,
+  TENANT_SECTION_GROUPS,
   currentTenantSection,
 } from "@/app/admin/tenants/[tenantId]/tenantSections";
 import type { TenantSummary } from "@/lib/api/admin";
@@ -129,12 +129,19 @@ describe("the tenant read belongs to the layout", () => {
 });
 
 describe("the section menu", () => {
-  it("links every section and marks the open one", async () => {
+  it("links every group, then the open group's pages, and marks the open one", async () => {
     await render();
     const nav = await screen.findByRole("navigation", { name: "Client sections" });
     const links = [...nav.querySelectorAll("a")];
+    const groupLinks = TENANT_SECTION_GROUPS.map((group) =>
+      group.label === "Compliance" ? "/kyc" : group.items[0].path,
+    );
+    const compliance = TENANT_SECTION_GROUPS.find((group) => group.label === "Compliance");
     expect(links.map((a) => a.getAttribute("href"))).toEqual(
-      TENANT_SECTIONS.map((s) => `${BASE}${s.path}`),
+      [...groupLinks, ...(compliance?.items ?? []).map((s) => s.path)].map((p) => `${BASE}${p}`),
+    );
+    expect(links.map((a) => a.textContent).slice(0, TENANT_SECTION_GROUPS.length)).toEqual(
+      TENANT_SECTION_GROUPS.map((group) => group.label),
     );
     const current = nav.querySelectorAll('[aria-current="true"]');
     expect(current).toHaveLength(1);

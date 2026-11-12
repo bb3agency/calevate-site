@@ -618,20 +618,6 @@ async def _choose_voice(
     return None if emotion is None else str(emotion)
 
 
-async def test_a_new_agent_given_a_studio_voice_starts_calm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id, _headers = await _tenant()
-    assert await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}") == "calm"
-
-
-async def test_an_agent_switched_to_studio_with_no_emotion_starts_calm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id, _headers = await _tenant()
-    assert await _choose_voice(monkeypatch, tenant_id, agent_id, "engine:anjali") is None
-    assert await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}") == "calm"
-
 
 async def test_an_emotion_a_person_set_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id, agent_id, _headers = await _tenant()
@@ -649,34 +635,3 @@ async def test_moving_between_studio_voices_keeps_a_chosen_none(
     tenant_id, agent_id, _headers = await _studio_client_agent()
     assert await _choose_voice(monkeypatch, tenant_id, agent_id, "byok:cv-2") is None
 
-
-async def test_the_older_voice_model_gets_no_default_emotion(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id, _headers = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET studio_voice_model = 'sonic-2' WHERE id = :aid"),
-            {"aid": agent_id},
-        )
-    assert await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}") is None
-
-
-async def test_the_default_emotion_reaches_the_engine_on_publish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id, _headers = await _tenant()
-    await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}")
-    async with tenant_session(tenant_id) as session:
-        row = await _load_agent(session, tenant_id, agent_id)
-    tuning = voice_tuning.config_tuning(row["voice_tuning"], byok_voice_id=VOICE)
-    pinned = voice_tuning.DEFAULT_STUDIO_MODEL
-    assert tuning == ByokVoiceTuning(emotion=voice_tuning.DEFAULT_STUDIO_EMOTION, model=pinned)
-    handler, seen = _recorder(
-        {
-            ("PATCH", "/agents/ag_1"): httpx.Response(200, json={"id": "ag_1"}),
-            ("PUT", "/agents/ag_1/byok-voice"): _saved(emotion="calm", agentModel=pinned),
-        }
-    )
-    await _engine(handler).update_agent(f"ag_1@{WS}", _studio(engine_byok_voice_tuning=tuning))
-    assert _puts(seen) == [{"voice": VOICE, "emotion": "calm", "model": pinned}]

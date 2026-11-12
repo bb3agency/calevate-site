@@ -1,12 +1,11 @@
-"""Every Studio agent speaks the dated Cartesia release unless an operator picks another model
-(D-977): `sonic-3.6` "follows Cartesia's latest stable snapshot, the dated one never changes"
-(thinnest-findings/mirror/snapshots/2026-10-29/pages/api-reference/agents/
-set-agent-byok-voice.md:9).
+"""Every Studio agent speaks `sonic-3.6` unless an operator picks another model (D-977; the moving
+`sonic-3.6` rather than the dated `sonic-3.6-2026-08-27` since D-983, founder 12 Nov 2026), so no
+agent speaks the key's own `sonic-3`.
 
-New Studio agents get the model where they get the default emotion (`lifecycle.update_agent`);
-migration e5a9c3d7b2f8 moves the Studio agents that existed with none, and its downgrade
-clears exactly those. The migration runs against the migrated database in one transaction
-that is rolled back, as `tests/nudge_floor_migration_test.py` exercises its revision."""
+New Studio agents get the model in `lifecycle.update_agent`; migration e5a9c3d7b2f8 pinned the
+agents that existed with none to the dated release, and b7d2e9f4a1c6 moves every agent on it to
+`sonic-3.6`. Each migration runs against the migrated database in one transaction that is rolled
+back, as `tests/nudge_floor_migration_test.py` exercises its revision."""
 
 from __future__ import annotations
 
@@ -23,7 +22,7 @@ from apps.api.agents import voice_tuning
 from apps.api.agents.models import (
     STUDIO_VOICE_MODELS,
     STUDIO_VOICE_OLD_MODEL,
-    STUDIO_VOICE_PINNED_MODEL,
+    STUDIO_VOICE_DEFAULT_MODEL,
 )
 from apps.api.agents.service import _load_agent
 from apps.api.core.settings import get_settings
@@ -35,6 +34,8 @@ from tests.studio_voice_tuning_test import VOICE, _choose_voice, _puts, _saved, 
 from tests.thinnest_engine_test import WS, _engine, _recorder
 
 PINNED = "sonic-3.6-2026-08-27"
+DEFAULT = "sonic-3.6"
+LATEST_STEM = "b7d2e9f4a1c6_studio_voice_model_follows_latest"
 STEM = "e5a9c3d7b2f8_studio_voice_model_pinned"
 
 
@@ -56,35 +57,35 @@ async def _set_model(tenant_id: uuid.UUID, agent_id: uuid.UUID, model: str) -> N
         )
 
 
-def test_the_pinned_model_is_an_offered_dated_release() -> None:
-    assert STUDIO_VOICE_PINNED_MODEL == PINNED
-    assert STUDIO_VOICE_PINNED_MODEL in STUDIO_VOICE_MODELS
-    assert STUDIO_VOICE_PINNED_MODEL != STUDIO_VOICE_OLD_MODEL
-    assert voice_tuning.DEFAULT_STUDIO_MODEL == STUDIO_VOICE_PINNED_MODEL
+def test_the_default_model_is_the_moving_sonic_3_6() -> None:
+    assert STUDIO_VOICE_DEFAULT_MODEL == DEFAULT
+    assert STUDIO_VOICE_DEFAULT_MODEL in STUDIO_VOICE_MODELS
+    assert STUDIO_VOICE_DEFAULT_MODEL != STUDIO_VOICE_OLD_MODEL
+    assert voice_tuning.DEFAULT_STUDIO_MODEL == STUDIO_VOICE_DEFAULT_MODEL
 
 
-async def test_a_new_agent_given_a_studio_voice_gets_the_pinned_model(
+async def test_a_new_agent_given_a_studio_voice_gets_the_default_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, agent_id, _ = await _tenant()
     await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}")
-    assert await _model(tenant_id, agent_id) == PINNED
+    assert await _model(tenant_id, agent_id) == DEFAULT
 
 
-async def test_an_agent_switched_to_studio_with_no_model_gets_the_pinned_model(
+async def test_an_agent_switched_to_studio_with_no_model_gets_the_default_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tenant_id, agent_id, _ = await _tenant()
     await _choose_voice(monkeypatch, tenant_id, agent_id, "engine:anjali")
     assert await _model(tenant_id, agent_id) is None, "a Clear voice takes no voice model"
     await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}")
-    assert await _model(tenant_id, agent_id) == PINNED
+    assert await _model(tenant_id, agent_id) == DEFAULT
 
 
 async def test_an_operators_model_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id, agent_id, _ = await _tenant()
     await _set_model(tenant_id, agent_id, "sonic-3.5")
-    assert await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}") == "calm"
+    assert await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}") is None
     assert await _model(tenant_id, agent_id) == "sonic-3.5"
 
 
@@ -106,21 +107,21 @@ async def test_a_null_model_is_still_an_operators_choice(monkeypatch: pytest.Mon
     assert await _model(tenant_id, agent_id) is None
 
 
-async def test_the_publish_sends_the_pinned_model(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_publish_sends_the_default_model(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id, agent_id, _ = await _tenant()
     await _choose_voice(monkeypatch, tenant_id, agent_id, f"byok:{VOICE}")
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
     tuning = voice_tuning.config_tuning(row["voice_tuning"], byok_voice_id=VOICE)
-    assert tuning == ByokVoiceTuning(emotion="calm", model=PINNED)
+    assert tuning == ByokVoiceTuning(model=DEFAULT)
     handler, seen = _recorder(
         {
             ("PATCH", "/agents/ag_1"): httpx.Response(200, json={"id": "ag_1"}),
-            ("PUT", "/agents/ag_1/byok-voice"): _saved(emotion="calm", agentModel=PINNED),
+            ("PUT", "/agents/ag_1/byok-voice"): _saved(agentModel=DEFAULT),
         }
     )
     await _engine(handler).update_agent(f"ag_1@{WS}", _studio(engine_byok_voice_tuning=tuning))
-    assert _puts(seen) == [{"voice": VOICE, "emotion": "calm", "model": PINNED}]
+    assert _puts(seen) == [{"voice": VOICE, "model": DEFAULT}]
 
 
 async def test_the_record_is_invisible_to_another_tenant() -> None:
@@ -155,9 +156,9 @@ async def test_the_record_is_invisible_to_another_tenant() -> None:
 # --- migration e5a9c3d7b2f8 ---------------------------------------------------------------
 
 
-def _revision() -> ModuleType:
-    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / f"{STEM}.py"
-    spec = importlib.util.spec_from_file_location(f"_revision_{STEM}", path)
+def _revision(stem: str = STEM) -> ModuleType:
+    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(f"_revision_{stem}", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -191,15 +192,17 @@ def _set(connection: Connection, tenant: uuid.UUID, agent: uuid.UUID, model: str
     )
 
 
-def _runs(connection: Connection, agent: uuid.UUID) -> list[str | None]:
-    """The `min_revision` of each pin live-apply queued for `agent`."""
+def _runs(
+    connection: Connection, agent: uuid.UUID, reason: str = "voice_model_pinned"
+) -> list[str | None]:
+    """The `min_revision` of each live apply queued for `agent` with `reason`."""
     rows = connection.execute(
         text(
             "SELECT o.min_revision FROM live_apply_runs r JOIN outbox_messages o "
             "ON o.payload ->> 'run_id' = r.id::text WHERE r.agent_id = :a AND r.scope = 'agent' "
-            "AND r.reasons ? 'voice_model_pinned' ORDER BY r.created_at"
+            "AND r.reasons ? :reason ORDER BY r.created_at"
         ),
-        {"a": agent},
+        {"a": agent, "reason": reason},
     ).all()
     return [r[0] for r in rows]
 
@@ -252,6 +255,58 @@ async def test_the_migration_pins_studio_agents_and_its_downgrade_reverts_only_t
                     assert _runs(connection, live_a) == [revision.revision, None]
 
                     revision.upgrade()
+            finally:
+                transaction.rollback()
+    finally:
+        sync.dispose()
+
+
+# --- migration b7d2e9f4a1c6 ---------------------------------------------------------------
+
+
+async def test_agents_on_the_dated_model_move_to_sonic_3_6_and_the_downgrade_moves_them_back() -> (
+    None
+):
+    live_t, live_a, _ = await _tenant()  # a live Studio agent the pin moved
+    later_t, later_a, _ = await _tenant()  # a draft given the dated model by a voice change since
+    chosen_t, chosen_a, _ = await _tenant()  # a Studio agent an operator put on sonic-3.5
+    await _make_live(live_t, live_a)
+
+    latest = _revision(LATEST_STEM)
+    url = (get_settings().alembic_database_url or get_settings().database_url).replace(
+        "+asyncpg", "+psycopg"
+    )
+    sync = create_engine(url)
+    try:
+        with sync.connect() as connection:
+            transaction = connection.begin()
+            try:
+                with Operations.context(MigrationContext.configure(connection)):
+                    latest.downgrade()
+                    for tenant, agent in ((live_t, live_a), (later_t, later_a), (chosen_t, chosen_a)):
+                        _voice(connection, tenant, agent, f"byok:{VOICE}")
+                    _set(connection, live_t, live_a, PINNED)
+                    _set(connection, later_t, later_a, PINNED)
+                    _set(connection, chosen_t, chosen_a, "sonic-3.5")
+
+                    latest.upgrade()
+
+                    assert _held(connection, live_t, live_a) == DEFAULT
+                    assert _held(connection, later_t, later_a) == DEFAULT
+                    assert _held(connection, chosen_t, chosen_a) == "sonic-3.5"
+                    reason = "voice_model_follows_latest"
+                    assert _runs(connection, live_a, reason) == [latest.revision]
+                    assert _runs(connection, later_a, reason) == [], "the engine holds no draft"
+                    assert _runs(connection, chosen_a, reason) == []
+
+                    latest.downgrade()
+
+                    assert _held(connection, live_t, live_a) == PINNED
+                    assert _held(connection, later_t, later_a) == PINNED
+                    assert _held(connection, chosen_t, chosen_a) == "sonic-3.5"
+                    assert _runs(connection, live_a, reason) == [latest.revision, None]
+
+                    latest.upgrade()
             finally:
                 transaction.rollback()
     finally:

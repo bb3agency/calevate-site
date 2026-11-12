@@ -89,9 +89,7 @@ from apps.api.agents.service import (
 from apps.api.agents.starters import JobChoice, apply_starter, direction_for, starter_jobs
 from apps.api.agents.voice_pick import voice_gender
 from apps.api.agents.voice_tuning import (
-    DEFAULT_STUDIO_EMOTION,
     DEFAULT_STUDIO_MODEL,
-    OLD_VOICE_MODEL,
     fit_speed,
     is_studio_voice,
 )
@@ -632,15 +630,11 @@ async def update_agent(
             "THEN CAST(:engine_voice_id AS text) ELSE engine_voice_id END, "
             "engine_model_id = CASE WHEN :set_engine_model_id "
             "THEN CAST(:engine_model_id AS text) ELSE engine_model_id END, "
-            # D-843: a voice that becomes a Studio one starts calm, unless a person set an
-            # emotion or the older voice model is chosen (it takes none, and a CHECK refuses
-            # it). Written before the republish below, so the engine receives it.
-            "studio_voice_emotion = CASE WHEN CAST(:studio_default_emotion AS text) IS NOT NULL "
-            "AND studio_voice_emotion IS NULL "
-            "AND studio_voice_model IS DISTINCT FROM CAST(:old_voice_model AS text) "
-            "THEN CAST(:studio_default_emotion AS text) ELSE studio_voice_emotion END, "
-            # D-977: and on the dated voice model, unless an operator set one, so a vendor
-            # update to the moving `sonic-3.6` cannot change how its calls sound.
+            # No default emotion (D-983): Sonic 3.6 adapts emotion and pacing to the words
+            # "without SSML tags or explicit instructions" (docs.cartesia.ai tts-models/latest,
+            # read 12 Nov 2026); D-843's `calm` held a whole call in one tone.
+            # D-977, D-983: a voice that becomes a Studio one goes on `sonic-3.6`, unless an
+            # operator set a model, so it never speaks the key's own `sonic-3`.
             "studio_voice_model = CASE WHEN CAST(:studio_default_model AS text) IS NOT NULL "
             "AND studio_voice_model IS NULL "
             "THEN CAST(:studio_default_model AS text) ELSE studio_voice_model END, "
@@ -666,9 +660,7 @@ async def update_agent(
             "set_engine_voice_id": set_engine_voice_id,
             "engine_model_id": engine_model_id,
             "set_engine_model_id": set_engine_model_id,
-            "studio_default_emotion": DEFAULT_STUDIO_EMOTION if becomes_studio else None,
             "studio_default_model": DEFAULT_STUDIO_MODEL if becomes_studio else None,
-            "old_voice_model": OLD_VOICE_MODEL,
             "fitted_speed": fit_speed(
                 Decimal(str(row[6])) if row[6] is not None else None,
                 studio=is_studio_voice(engine_voice_id),

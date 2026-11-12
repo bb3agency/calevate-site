@@ -367,7 +367,9 @@ script_line_changes(id, tenant_id, agent_id FK agents CASCADE, target IN (draft,
   -- FORCEd tenant_isolation.
 studio_voice_model_pins(id, tenant_id, agent_id FK agents CASCADE UNIQUE, model, created_at)
   -- e5a9c3d7b2f8, D-977. Every Studio agent with no voice model that the migration put on
-  -- `sonic-3.6-2026-08-27`, so its downgrade clears exactly those. FORCEd tenant_isolation;
+  -- `sonic-3.6-2026-08-27`, so its downgrade clears exactly those; b7d2e9f4a1c6 (D-983) adds the
+  -- agents given it since and moves all of them to `sonic-3.6`, its downgrade moving back the
+  -- recorded ones. FORCEd tenant_isolation;
   -- zero-rows proof `tests/studio_model_pin_test.py`.
 team_alert_contacts(id, tenant_id, channel IN (email, whatsapp) DEFAULT email,
   address 3..254, whatsapp_credential_id NULL, whatsapp_template/_language/_number_id/
