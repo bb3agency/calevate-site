@@ -20,9 +20,9 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from apps.api.agents import voice_tuning
 from apps.api.agents.models import (
+    STUDIO_VOICE_DEFAULT_MODEL,
     STUDIO_VOICE_MODELS,
     STUDIO_VOICE_OLD_MODEL,
-    STUDIO_VOICE_DEFAULT_MODEL,
 )
 from apps.api.agents.service import _load_agent
 from apps.api.core.settings import get_settings
@@ -283,7 +283,11 @@ async def test_agents_on_the_dated_model_move_to_sonic_3_6_and_the_downgrade_mov
             try:
                 with Operations.context(MigrationContext.configure(connection)):
                     latest.downgrade()
-                    for tenant, agent in ((live_t, live_a), (later_t, later_a), (chosen_t, chosen_a)):
+                    for tenant, agent in (
+                        (live_t, live_a),
+                        (later_t, later_a),
+                        (chosen_t, chosen_a),
+                    ):
                         _voice(connection, tenant, agent, f"byok:{VOICE}")
                     _set(connection, live_t, live_a, PINNED)
                     _set(connection, later_t, later_a, PINNED)

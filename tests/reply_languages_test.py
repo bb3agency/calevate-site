@@ -3,8 +3,9 @@
 Up to four languages per agent, its main language first; a new agent starts from the business
 profile's languages, else Telugu then English. The list is the agent's own
 (`agents.language_primary` then `agents.languages_extra`) and is shown on the roster. It
-shapes the prompt; ThinnestAI is sent `language: "auto"` for every agent, so every agent
-follows the caller (founder, 19 Oct 2026, D-830).
+shapes the prompt, and ThinnestAI is sent it as `languages`, main language first (D-983,
+founder 12 Nov 2026, replacing D-830's `language: "auto"`): the agent follows the caller among
+its own languages, and the recogniser listens only for them.
 """
 
 from __future__ import annotations
@@ -172,24 +173,32 @@ async def test_a_refusal_names_its_reason_for_the_client() -> None:
 # --- what the voice platform is sent ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("extra", [[], ["en-IN"], ["hi-IN", "en-IN"]])
-def test_every_agent_follows_the_caller(extra: list[str]) -> None:
+@pytest.mark.parametrize(
+    ("extra", "names"),
+    [
+        ([], ["Telugu"]),
+        (["en-IN"], ["Telugu", "English"]),
+        (["hi-IN", "en-IN"], ["Telugu", "Hindi", "English"]),
+    ],
+)
+def test_every_agent_names_its_own_languages_main_first(extra: list[str], names: list[str]) -> None:
     body = ThinnestEngine(api_key="ta_live_test")._agent_body(_cfg(languages_extra=extra))
-    assert body["language"] == "auto" and "languages" not in body
+    assert body["languages"] == names and "language" not in body
     assert body["voice"]["language"] is None
 
 
-def test_a_list_held_by_the_platform_is_not_drift() -> None:
+def test_the_list_read_back_by_name_or_tag_is_in_step_and_auto_is_drift() -> None:
     wanted = ThinnestEngine(api_key="ta_live_test")._agent_body(_cfg())
     held: dict[str, Any] = json.loads(json.dumps(wanted))
-    held["languages"] = []
+    held["languages"] = ["te-IN"]
+    held["language"] = "Telugu"
     held["voice"]["reaskAfterSeconds"] = 5.0
     assert _settings_drift(wanted, held) == []
-    held["language"] = "Telugu"
+    held["languages"] = []
     assert _settings_drift(wanted, held) == ["language"]
 
 
-async def test_a_repair_puts_a_fixed_language_back_on_auto() -> None:
+async def test_a_repair_puts_the_agents_languages_back() -> None:
     sent: list[dict[str, Any]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -198,4 +207,4 @@ async def test_a_repair_puts_a_fixed_language_back_on_auto() -> None:
         return httpx.Response(200, json={})
 
     await _engine(handler).repair_settings(AGENT, _cfg(), ["language"])
-    assert sent == [{"language": "auto"}]
+    assert sent == [{"languages": ["Telugu"]}]

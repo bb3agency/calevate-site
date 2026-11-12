@@ -400,12 +400,16 @@ VOCABULARY: Final[tuple[str, ...]] = ()
 #: Named in the platform revision so a change of the rule republishes every live agent
 #: (`hosted_platform.PLATFORM_AGENT_VALUES`).
 VOCABULARY_SOURCE: Final = "none"
+#: How `languages` is built (`engine_languages`, D-984), named in the platform revision for the
+#: same reason: agents published under `language: "auto"` take their own list at the next start.
+LANGUAGES_SOURCE: Final = "own_list"
 #: Every fixed agent value beyond `PLATFORM_VOICE_VALUES` that only a deploy changes.
 PLATFORM_AGENT_FIELDS: Final[dict[str, Any]] = {
     "temperature": AGENT_TEMPERATURE,
     "recall": CUSTOMER_RECALL,
     "verifyByCode": VERIFY_BY_CODE,
     "vocabulary": VOCABULARY_SOURCE,
+    "languages": LANGUAGES_SOURCE,
     **EAR_VOICE_VALUES,
 }
 CALL_VARIABLES_MAX: Final = 20
@@ -434,15 +438,8 @@ PAUSED_LINE_MESSAGE: Final = "Sorry, we cannot take your call right now. Please 
 #: (snapshots/2026-10-07/pages/api-reference/usage/list-call-log.md:533-540).
 _MICRO_PER_UNIT: Final = Decimal(1_000_000)
 
-#: Every agent's `language`, one language or several: `auto` ("Match the customer") replies in
-#: whatever language the caller speaks (founder, 19 Oct 2026: follow the caller). The
-#: trade-off is the vendor's own: auto works the language out afresh for every sentence, so a
-#: short or mixed reply can be heard as another language, where one fixed language would also
-#: tell the recogniser what to listen for (snapshots/2026-10-18/pages/agent/
-#: behaviour.md:89-103). The opening line is still composed in the main language, so a call
-#: starts in it. `languages`, the list that would restrict replies to the agent's own, is not
-#: sent: under auto it would be `[]`, which `language: auto` already says.
-_AUTO_LANGUAGE: Final = "auto"
+#: The most languages an agent may name (`languages`, behaviour.md:76 of the 2026-11-12 mirror).
+ENGINE_LANGUAGES_MAX: Final = 4
 #: The console's 37 English language names (snapshots/2026-10-08/pages/api-reference/agents/
 #: create-agent.md:603-614) by our BCP-47 primary subtag, for reading a language back by name
 #: or tag.
@@ -1588,7 +1585,7 @@ _OPENING_WAIT_KEY: Final = "voice.openingWaitSeconds"
 _SETTING_KEYS: Final[dict[str, tuple[str, ...]]] = {
     "voice": ("voice.voice",),
     "model": ("model",),
-    "language": ("language",),
+    "language": ("languages",),
     "call_language": ("voice.language",),
     "record_calls": ("voice.recordCalls",),
     "max_call_seconds": ("voice.maxCallSeconds",),
@@ -1648,6 +1645,13 @@ def _same_language(wanted: Any, held: Any) -> bool:
         return False
     name = _DOCUMENTED_LANGUAGES.get(_subtag(held), held)
     return str(wanted).lower() in {held.lower(), name.lower()}
+
+
+def _same_language_list(wanted: Any, held: Any) -> bool:
+    """The same languages in the same order, each by its name or its tag."""
+    if not isinstance(wanted, list) or not isinstance(held, list) or len(wanted) != len(held):
+        return False
+    return all(_same_language(want, have) for want, have in zip(wanted, held, strict=True))
 
 
 def _field(body: dict[str, Any], key: str) -> tuple[bool, Any]:
@@ -1751,6 +1755,8 @@ def _settings_drift(wanted: dict[str, Any], held: dict[str, Any]) -> list[str]:
                 continue
             if key in _LANGUAGE_KEYS:
                 same = present and _same_language(want, have)
+            elif key == "languages":
+                same = present and _same_language_list(want, have)
             elif key == "escalation":
                 same = isinstance(have, dict) and all(
                     have.get(flag) is value for flag, value in want.items()
@@ -2133,6 +2139,26 @@ def _subtag(tag: str) -> str:
     return tag.split("-")[0].lower()
 
 
+def engine_languages(cfg: AgentConfig) -> list[str]:
+    """The agent's own languages as ThinnestAI's `languages`: its main language first, then
+    its extra ones, by the console's English names (D-983, founder 12 Nov 2026).
+
+    Not `language: "auto"` (D-830): auto re-detects the language for every sentence, so a short
+    reply is heard as another language (behaviour.md:93-97, mirror 2026-11-12), and on the
+    Varsha call of 12 Nov 2026 a Telugu "yes" came back as Marathi and the agent took it as a
+    no. With the list the agent still answers in whichever of them the caller speaks, and the
+    first when they use any other, and the recogniser listens only among them, re-hearing a
+    reply it places outside them in the call's language (behaviour.md:99-104). A language the
+    console does not name is left out rather than refused; with none named the list is `[]`,
+    which the platform reads as auto."""
+    names: list[str] = []
+    for tag in (cfg.language_primary, *cfg.languages_extra):
+        name = _DOCUMENTED_LANGUAGES.get(_subtag(tag))
+        if name is not None and name not in names:
+            names.append(name)
+    return names[:ENGINE_LANGUAGES_MAX]
+
+
 class ThinnestEngine:
     """Implements `VoiceEngine` against ThinnestAI's REST API. One httpx client per process."""
 
@@ -2512,9 +2538,7 @@ class ThinnestEngine:
                 code="engine_business_line_too_long",
                 what="business line",
             ),
-            # Every agent follows the caller (`_AUTO_LANGUAGE`); `language` alone also clears
-            # any `languages` list an earlier publish sent (update-agent.md:754-768).
-            "language": _AUTO_LANGUAGE,
+            "languages": engine_languages(cfg),
             "voice": voice,
             # Stated, not left to the defaults: the vendor's own call-back would ring the
             # caller from their side, outside our dial gate and our DNC list, and its lead

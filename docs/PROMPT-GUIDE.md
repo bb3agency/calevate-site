@@ -462,11 +462,12 @@ invitation to trim guardrails.
   settled by a source read here (arXiv:2512.02841 does not compare them), so the eval
   decides. A pack ships by setting its `review` to `founder_approved` and `ship` to the
   winning form in `spoken_style.json`; nothing else changes.
-- **The agent's language is always `auto` (founder, 19 Oct 2026).** Every agent is published
-  with ThinnestAI `language: auto` (`engine/thinnest._AUTO_LANGUAGE`) and follows the caller;
-  the opening is composed in the main language, so a call starts in it. ThinnestAI advises
-  pinning Telugu as the listening language; that is not built, because it breaks this rule, and
-  is with the founder (D-924).
+- **The agent names its own languages (D-984, founder 12 Nov 2026; was `auto`, D-830).** Every
+  agent is published with ThinnestAI `languages`, main language first (`engine/thinnest.
+  engine_languages`), and follows the caller among them;
+  the opening is composed in the main language, so a call starts in it. The recogniser then
+  listens only for the agent's languages, which is what ThinnestAI advised (D-924): under
+  `auto` a Telugu "yes" was heard as Marathi on the Varsha call of 12 Nov 2026.
 - **Names: how they are said (D-924), and why the recogniser is not told them (D-948).** A
   client gives a name's spoken form in the script builder under "Names and how to say them";
   it compiles as the pronunciation line ("Say these names exactly like this"). Those names are

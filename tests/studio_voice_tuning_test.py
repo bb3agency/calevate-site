@@ -618,7 +618,6 @@ async def _choose_voice(
     return None if emotion is None else str(emotion)
 
 
-
 async def test_an_emotion_a_person_set_is_kept(monkeypatch: pytest.MonkeyPatch) -> None:
     tenant_id, agent_id, _headers = await _tenant()
     async with tenant_session(tenant_id) as session:
@@ -634,4 +633,3 @@ async def test_moving_between_studio_voices_keeps_a_chosen_none(
 ) -> None:
     tenant_id, agent_id, _headers = await _studio_client_agent()
     assert await _choose_voice(monkeypatch, tenant_id, agent_id, "byok:cv-2") is None
-

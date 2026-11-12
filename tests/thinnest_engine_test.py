@@ -158,9 +158,10 @@ async def test_create_sends_the_composed_prompt_and_the_call_settings() -> None:
     body = _body(_agent_write(seen))
     assert "Ee call record avutundi." in body["instructions"]
     assert body["greeting"] == "Idi AI assistant. Ee call record avutundi."
-    # Every agent follows the caller, one language included (D-830): `auto` on the agent and
-    # null on calls; `secondLanguage` is retired and not sent.
-    assert body["language"] == "auto" and "secondLanguage" not in body
+    # The agent's own languages, main first (D-983), with calls following them;
+    # `secondLanguage` is retired and not sent.
+    assert body["languages"] == ["Telugu"] and "language" not in body
+    assert "secondLanguage" not in body
     assert body["voice"] == {
         "answersCalls": True,
         "unavailableMessage": None,
@@ -231,8 +232,9 @@ async def test_a_documented_language_is_named() -> None:
         _cfg(language_primary="hi-IN", languages_extra=["en-IN", "te-IN"])
     )
     body = _body(_agent_write(seen))
-    # More than one language: "Match the customer", with calls following it.
-    assert (body["language"], body["voice"]["language"]) == ("auto", None)
+    # Several languages: all of them, main first, with calls following the list.
+    assert body["languages"] == ["Hindi", "English", "Telugu"]
+    assert body["voice"]["language"] is None
 
 
 async def test_a_retried_create_adopts_the_agent_it_already_made() -> None:
