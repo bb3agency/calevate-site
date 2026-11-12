@@ -1,0 +1,13 @@
+[Unit]
+Description=Check the production branch for a new commit every 2 minutes
+Documentation=file:///var/www/calevate/docs/DEPLOYMENT.md
+
+[Timer]
+# A check is one `git fetch`; a deploy happens only when the tip moved. systemd never
+# starts the service again while a run is still going, so a long build is not overlapped.
+OnBootSec=3min
+OnUnitActiveSec=2min
+AccuracySec=15s
+
+[Install]
+WantedBy=timers.target

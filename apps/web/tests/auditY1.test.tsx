@@ -88,7 +88,7 @@ describe("a suggestion reworded in the review (Y1-06)", () => {
       </UnsavedRegistry.Provider>,
     );
     expect(report).not.toHaveBeenCalledWith(expect.anything(), true);
-    fireEvent.click(screen.getByRole("button", { name: "Edit The goal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review The goal" }));
     fireEvent.change(screen.getByLabelText("The goal", { selector: "textarea" }), {
       target: { value: "Take orders, bookings and returns." },
     });
