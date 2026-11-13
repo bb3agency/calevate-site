@@ -168,6 +168,15 @@ export const FIX_ENDED_WORDS: Record<string, string> = {
   agent_gone: "the agent is gone",
 };
 
+/** Where a mistake no call showed came from: the check of the live script (D-989). */
+export const FOUND_IN_SCRIPT = "Found in your script before any call";
+
+/** How the operator's board says what opened a script fix (`FleetFixOut.found_by`). */
+export const FIX_FOUND_BY_WORDS: Record<FleetFix["found_by"], string> = {
+  call: "Seen on a call",
+  script_check: "Found in the script before any call",
+};
+
 /** What the call page says beside a mistake on that call, whatever has happened since. */
 export const CALL_MISTAKE_TOLD = "Our team has been told";
 

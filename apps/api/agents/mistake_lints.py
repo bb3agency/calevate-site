@@ -11,11 +11,14 @@ so a script check and a real call can never disagree about what the mistake is, 
 word it listens for comes from `call_words.json` through that detector. Nothing here is a
 word list or a new threshold.
 
-NOT IN `script_problems`. These checks run only when the kind was seen on real calls, and
-they do not block "Put it live" or show on the readiness card: a line that MAY cause a
-mistake is not an authoring defect until calls show the mistake. Because the healer then
-rewrites live lines, each check is conservative: it reads only the shape the detector
-reads, and only in lines the in-call model says or copies.
+BEFORE ANY CALL, NOT IN `script_problems` (D-989). Every kind's check (`script_mistakes`)
+runs when Pip writes or changes a script, whose repair round is asked to fix what it finds;
+on the readiness card and in Put it live as a separate group of warnings that never blocks
+"Put it live" ("Fix them first" fixes them too); and over live scripts by the healer's sweep,
+which opens the same fix a real call opens. They stay out of `script_problems` because that
+list is the writer's refusal check, and a line that MAY cause a mistake must never cost the
+owner a whole draft. Because the healer rewrites live lines, each check is conservative: it
+reads only the shape the detector reads, and only in lines the in-call model says or copies.
 
 THE OPENING LINES ARE LEFT ALONE except by `false_history`. The opening is never judged as
 a reply on a real call (`call_mistakes._replies`), it carries the notices woven into it
@@ -25,16 +28,18 @@ the exception because it is a claim made to the person, wherever it is said.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final
 
 from calevate_shared.call_script import CallScript, substitute_variables
 
 from apps.api.agents import turn_checks
+from apps.api.agents.mistake_fixes import fix_paths
 from apps.api.agents.script_lint import (
     OPENING_FIELDS,
     LintContext,
     caller_paths,
+    flow_problems,
     next_steps,
     opening_redone_problems,
     reachable_steps,
@@ -319,4 +324,30 @@ def mistake_findings(script: CallScript, context: LintContext, kind: str) -> lis
     return check(script, context)
 
 
-__all__ = ["SCRIPT_FIXABLE_KINDS", "mistake_findings"]
+def fixable_findings(script: CallScript, context: LintContext, kind: str) -> list[str]:
+    """`mistake_findings` on the lines a fix may change (`mistake_fixes.fix_paths`): never the
+    openings or their notice records, whatever the check names."""
+    return [f for f in mistake_findings(script, context, kind) if fix_paths([f])]
+
+
+def script_mistakes(
+    script: CallScript, context: LintContext, *, beside: Sequence[str] = ()
+) -> list[str]:
+    """Every kind's fixable findings in `script`, each once, in a stable order: what the
+    writer repairs, the readiness card shows and "Fix them first" fixes. A finding
+    `script_lint.flow_problems` also makes is left to `script_problems`, which shows it.
+
+    `beside`, for a screen that lists the script check's findings too: a line one of them
+    already names is left to it, so one line is not counted twice. The writer passes
+    nothing, since a repair must hear every rule a line breaks."""
+    flow = set(flow_problems(script))
+    named = {problem.partition(": ")[0] for problem in beside}
+    found: dict[str, None] = {}
+    for kind in sorted(SCRIPT_FIXABLE_KINDS):
+        for finding in fixable_findings(script, context, kind):
+            if finding not in flow and finding.partition(": ")[0] not in named:
+                found.setdefault(finding)
+    return list(found)
+
+
+__all__ = ["SCRIPT_FIXABLE_KINDS", "fixable_findings", "mistake_findings", "script_mistakes"]

@@ -3594,6 +3594,10 @@
             ],
             "title": "Fixed At"
           },
+          "found_in_script": {
+            "title": "Found In Script",
+            "type": "boolean"
+          },
           "instead": {
             "title": "Instead",
             "type": "string"
@@ -3607,14 +3611,28 @@
             "type": "string"
           },
           "last_call_id": {
-            "format": "uuid",
-            "title": "Last Call Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Id"
           },
           "last_seen_at": {
-            "format": "date-time",
-            "title": "Last Seen At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
           },
           "state": {
             "enum": [
@@ -3644,7 +3662,8 @@
           "state",
           "clean_calls",
           "clean_calls_needed",
-          "can_undo"
+          "can_undo",
+          "found_in_script"
         ],
         "title": "AgentMistakeOut",
         "type": "object"
@@ -15436,7 +15455,9 @@
               "line_protected",
               "platform_outage",
               "script_fixed",
-              "script_fix_waiting"
+              "script_fix_waiting",
+              "script_check_fixed",
+              "script_check_waiting"
             ],
             "title": "Kind",
             "type": "string"
@@ -27282,6 +27303,14 @@
             ],
             "title": "Ended Because"
           },
+          "found_by": {
+            "enum": [
+              "call",
+              "script_check"
+            ],
+            "title": "Found By",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -27367,7 +27396,8 @@
           "version_after",
           "live_at",
           "settled_at",
-          "created_at"
+          "created_at",
+          "found_by"
         ],
         "title": "FleetFixOut",
         "type": "object"
@@ -36312,13 +36342,18 @@
           "rule": {
             "title": "Rule",
             "type": "string"
+          },
+          "unfixed": {
+            "title": "Unfixed",
+            "type": "boolean"
           }
         },
         "required": [
           "part",
           "label",
           "rule",
-          "added"
+          "added",
+          "unfixed"
         ],
         "title": "LeftOutPartOut",
         "type": "object"
@@ -46977,7 +47012,8 @@
           "kind": {
             "enum": [
               "calendar",
-              "script"
+              "script",
+              "script_mistake"
             ],
             "title": "Kind",
             "type": "string"
@@ -50800,6 +50836,13 @@
         "additionalProperties": false,
         "description": "What the script lint finds in a (possibly unsaved) script (D-945): warnings shown\nbefore it goes live, never a refusal. Promotional wording is left to the D-943 promo\ncheck, which the same dialog shows (`/v1/compliance/promo-check/agents/{id}`).",
         "properties": {
+          "mistakes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mistakes",
+            "type": "array"
+          },
           "warnings": {
             "items": {
               "type": "string"
@@ -50809,7 +50852,8 @@
           }
         },
         "required": [
-          "warnings"
+          "warnings",
+          "mistakes"
         ],
         "title": "ScriptCheckOut",
         "type": "object"
@@ -80093,7 +80137,7 @@
     },
     "/v1/agents/{agent_id}/script/fix-lines": {
       "post": {
-        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.",
+        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it (its `warnings` and `mistakes`) and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.",
         "operationId": "fix_script_lines_v1_agents__agent_id__script_fix_lines_post",
         "parameters": [
           {

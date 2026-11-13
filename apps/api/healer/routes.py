@@ -112,7 +112,13 @@ class ClientIncidentOut(_Out):
     agent_id: UUID | None
     agent_name: str | None
     kind: Literal[
-        "agent_unwell", "line_protected", "platform_outage", "script_fixed", "script_fix_waiting"
+        "agent_unwell",
+        "line_protected",
+        "platform_outage",
+        "script_fixed",
+        "script_fix_waiting",
+        "script_check_fixed",
+        "script_check_waiting",
     ]
     protection: Literal["none", "paused", "forwarded"]
     state: Literal["open", "resolved"]

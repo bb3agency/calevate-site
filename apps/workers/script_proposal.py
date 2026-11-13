@@ -7,7 +7,9 @@ touches the draft and never puts anything live. An opening line the model wrote 
 the opening rule is repaired by the opening writer before it is stored (`opening_line`, D-957).
 A fix ("Fix them first") is checked again with the script check that named its lines and the
 findings still there are repaired (`_fixed_further`); any left after that are stored for the
-owner to read.
+owner to read. Every script Pip writes or changes is then checked with the call-mistake
+checks and the lines they find repaired the same way (`_mistakes_checked`, D-989), so a
+mistake the checks know is fixed before any call can hear it.
 
 A job rather than a call inside Pip's answer: the draft is two model legs at most, which does
 not belong inside the action's database transaction (D-748's reason for the improve job) nor
@@ -34,12 +36,13 @@ from sqlalchemy import text
 from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.capability_manifest import lint_context_for
-from apps.api.agents.mistake_lints import mistake_findings
+from apps.api.agents.mistake_lints import mistake_findings, script_mistakes
 from apps.api.agents.script_lint import LintContext, script_problems, unasked_details
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
+from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
@@ -454,12 +457,20 @@ class _Fix:
     keys: frozenset[str]
     #: A healer fix (D-985): the call mistake whose own script check names the findings.
     mistake_kind: str | None = None
+    #: Only the call-mistake checks: the check of Pip's own writing (D-989), whose other
+    #: rules the writer's refusals already hold it to.
+    mistakes_only: bool = False
 
     def problems(self, script: CallScript) -> list[str]:
-        """What the check this fix answers finds on `script`."""
+        """What the check this fix answers finds on `script`: for "Fix them first", the
+        script check and the call-mistake checks the Put it live card shows beside it."""
         if self.mistake_kind is not None:
             return mistake_findings(script, self.lint, self.mistake_kind)
-        return script_problems(script, self.lint)
+        mistakes = script_mistakes(script, self.lint)
+        if self.mistakes_only:
+            return mistakes
+        found = script_problems(script, self.lint)
+        return [*found, *(m for m in mistakes if m not in found)]
 
     def targeted(self, script: CallScript) -> list[str]:
         """The findings on `script` at a place the fix was asked to clear."""
@@ -530,15 +541,21 @@ async def _repair_draft(
 
 
 async def _fixed_further(
-    tenant_id: UUID, agent_id: UUID, fix: _Fix, script: CallScript, started: float
+    tenant_id: UUID,
+    agent_id: UUID,
+    fix: _Fix,
+    script: CallScript,
+    started: float,
+    *,
+    passes: int = FIX_REPAIR_PASSES,
 ) -> _Repaired:
     """`script` (the first pass, kept to its paths) checked again with the route's check,
-    and up to `FIX_REPAIR_PASSES` repairs naming only the findings still there. Stops when
-    none is left, a pass changes nothing, a pass is refused or the job runs short of time;
-    what is still there is returned for the owner to read (`script_proposals.fix_left`)."""
+    and up to `passes` repairs naming only the findings still there. Stops when none is
+    left, a pass changes nothing, a pass is refused or the job runs short of time; what is
+    still there is returned for the owner to read (`script_proposals.fix_left`)."""
     spends: list[ScriptDraft | ProblemError] = []
     left = fix.targeted(script)
-    for _ in range(FIX_REPAIR_PASSES):
+    for _ in range(passes):
         if not left:
             break
         timeout_s = _repair_timeout(started)
@@ -579,6 +596,65 @@ async def _fixed_further(
         script, left = repaired, repaired_left
     log.info("script_fix_checked", extra={"passes": len(spends), "left": len(left)})
     return _Repaired(script, spends, left)
+
+
+#: The proposals that write no line a call-mistake check reads: the opening writers', whose
+#: lines and notices only their own writer changes (D-971).
+_OPENING_ONLY_MODES: Final = frozenset(
+    {script_proposals.OPENING_MODE, script_proposals.WRITTEN_MODE}
+)
+#: The proposals that change the owner's script rather than write one: what the script
+#: already had is the owner's, not Pip's to fix uninvited.
+_EDIT_MODES: Final = frozenset({"change", script_proposals.KNOWLEDGE_MODE})
+
+
+def _finding_at(problem: str, script: CallScript) -> tuple[str, str]:
+    """A finding by where it is (`finding_key`) and what it says, so the same warning on the
+    same line is recognised across two versions of a script."""
+    return script_proposals.finding_key(problem, script), problem.partition(": ")[2]
+
+
+async def _mistakes_checked(
+    tenant_id: UUID,
+    agent_id: UUID,
+    proposal: script_proposals.ScriptProposal,
+    script: CallScript,
+    started: float,
+) -> _Repaired:
+    """Pip's script checked with every call-mistake check before it is offered (D-989), and
+    the lines they find rewritten by the same targeted repair "Fix them first" uses, at most
+    `script_mistake_repair_passes` rounds. Only what Pip wrote is judged: in an edit a
+    finding the owner's script already had is theirs, and a fix may change only the lines
+    it was asked for. Never the openings or their notices (`mistake_lints.fixable_findings`).
+    What is still found after the rounds is returned for the owner to read."""
+    async with tenant_session(tenant_id) as session:
+        context = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent_id)
+    check = _Fix(replace(context, promo=False), [], frozenset(), mistakes_only=True)
+    base = proposal.base_script
+    had = (
+        {_finding_at(p, base) for p in check.problems(base)}
+        if proposal.paths or proposal.mode in _EDIT_MODES
+        else set()
+    )
+    written = [p for p in check.problems(script) if _finding_at(p, script) not in had]
+    if proposal.paths:
+        allowed = set(proposal.paths)
+        written = [p for p in written if p.partition(": ")[0] in allowed]
+    if not written:
+        return _Repaired(script, [], [])
+    check = replace(
+        check,
+        findings=written,
+        keys=frozenset(script_proposals.finding_key(p, script) for p in written),
+    )
+    return await _fixed_further(
+        tenant_id,
+        agent_id,
+        check,
+        script,
+        started,
+        passes=get_settings().script_mistake_repair_passes,
+    )
 
 
 async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -670,6 +746,15 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         left_out += script_proposals.fix_left(repaired.left, drafted)
     elif proposal.mode == script_proposals.KNOWLEDGE_MODE:
         drafted = script_proposals.emptied_kept(drafted, proposal.base_script)
+    if proposal.mode not in _OPENING_ONLY_MODES and not drafted.raw_override:
+        try:
+            checked = await _mistakes_checked(tenant_id, agent_id, proposal, drafted, started)
+        except Exception:
+            # As the fix repair above: what is already written is paid for and is stored.
+            log.exception("script_mistake_check_crashed", extra={"agent_id": str(agent_id)})
+            checked = _Repaired(drafted, [], [])
+        drafted, repairs = checked.script, [*repairs, *checked.spends]
+        left_out += script_proposals.fix_left(checked.left, drafted)
     try:
         script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, drafted)
     except Exception:

@@ -188,7 +188,13 @@ def unwritten_note(parts: Sequence[LeftOut]) -> str:
 
 def _left_out_record(parts: Sequence[LeftOut]) -> list[dict[str, Any]]:
     return [
-        {"part": p.part, "name": p.name, "rule": owner_rule(p.rule), "added": p.added}
+        {
+            "part": p.part,
+            "name": p.name,
+            "rule": owner_rule(p.rule),
+            "added": p.added,
+            "unfixed": p.unfixed,
+        }
         for p in parts
     ]
 
@@ -213,9 +219,10 @@ class ScriptProposal:
     #: The only lines a fix may change ("Fix them first"): the paths the script check named
     #: (`script_lint.script_problems`). Empty for every other proposal.
     paths: list[str] = field(default_factory=list)
-    #: Ready: the parts kept as the owner had them, and for a fix each warning it still
-    #: leaves (`fix_left`). Failed: the parts that could not be written. Each `rule` is
-    #: already in the owner's words (`owner_rule`).
+    #: Ready: the parts kept as the owner had them, and each warning a fix or the
+    #: call-mistake check of Pip's writing still leaves (`fix_left`, D-989). Failed: the
+    #: parts that could not be written. Each `rule` is already in the owner's words
+    #: (`owner_rule`).
     left_out: list[LeftOut] = field(default_factory=list)
     #: Failed: the refusal code (`assist_answer_unusable`, `provider_unavailable`, ...).
     reason: str | None = None
@@ -230,6 +237,7 @@ def _left_out(raw: Any) -> list[LeftOut]:
             name=str(item.get("name", "")),
             rule=str(item.get("rule", "")),
             added=bool(item.get("added", False)),
+            unfixed=bool(item.get("unfixed", False)),
         )
         for item in raw or []
         if isinstance(item, dict)
@@ -1067,7 +1075,7 @@ def fix_left(problems: Sequence[str], script: CallScript) -> list[LeftOut]:
             index = int(parts[1])
             if index < len(script.stages):
                 part, name = f"stages.{script.stages[index].id}", script.stages[index].name
-        left.append(LeftOut(part, name, f"Still to fix: {rest}"))
+        left.append(LeftOut(part, name, f"Still to fix: {rest}", unfixed=True))
     return left
 
 

@@ -65,7 +65,7 @@ def line_notice(
 ) -> Notice:
     """The notice for one `heal_client_incidents` row, open or resolved."""
     name = f"“{agent_name}”" if agent_name else "Your agent"
-    if kind in ("script_fixed", "script_fix_waiting"):
+    if kind in ("script_fixed", "script_fix_waiting", *SCRIPT_CHECK_KINDS):
         return script_fix_notice(kind=kind, name=name, state=state, outcome=worst_signal)
     paused = (
         f" {campaigns_paused} campaign{'s' if campaigns_paused != 1 else ''} using it "
@@ -151,11 +151,29 @@ def line_notice(
     )
 
 
+#: The owner's notices for a fix the sweep of live scripts opened before any call (D-989),
+#: the twins of `script_fixed` and `script_fix_waiting`.
+SCRIPT_CHECK_KINDS: Final = frozenset({"script_check_fixed", "script_check_waiting"})
+
+
 def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None = None) -> Notice:
-    """A mistake on real calls fixed in the agent's own script (D-985), or waiting on the AI
-    allowance to be fixed. `outcome` is the fix's incident's last step: put back by us, or
-    undone by the owner. The mistake, the fix and the Undo are on the Training tab."""
-    if kind == "script_fix_waiting":
+    """A mistake fixed in the agent's own script (D-985), or waiting on the AI allowance to
+    be fixed: seen on real calls, or, for the `script_check_*` kinds, found in the live
+    script before any call showed it (D-989). `outcome` is the fix's incident's last step:
+    put back by us, or undone by the owner. The fix and the Undo are on the Training tab."""
+    early = kind in SCRIPT_CHECK_KINDS
+    found = (
+        f"A line in {name}'s script could cause a mistake on calls. We found it before any "
+        "call did."
+        if early
+        else f"On real calls, {name} made a mistake that came from its script."
+    )
+    after = (
+        "after we found a line that could cause a mistake"
+        if early
+        else ("after a mistake on real calls")
+    )
+    if kind in ("script_fix_waiting", "script_check_waiting"):
         if state == "resolved":
             return Notice(
                 headline=f"A fix for {name} is no longer waiting",
@@ -166,8 +184,7 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
             )
         return Notice(
             headline=f"A fix for {name} is waiting",
-            what_happened=f"{name} made a mistake on real calls that a change to its script "
-            "would fix.",
+            what_happened=found,
             what_we_did="We have not changed it yet: your AI help for this month is used up.",
             your_part="Add more AI help on the AI help page, and we make the fix at once.",
             must_act=True,
@@ -175,7 +192,7 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
     if outcome == "undone":
         return Notice(
             headline=f"You put back {name}'s old script",
-            what_happened="You undid a fix we made after a mistake on real calls.",
+            what_happened=f"You undid a fix we made {after}.",
             what_we_did="Your script from before the fix is live again. We will not make "
             "that fix again on our own.",
             your_part="Nothing.",
@@ -193,14 +210,14 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
     if state == "resolved":
         return Notice(
             headline=f"{name}'s script fix is settled",
-            what_happened=f"We changed part of {name}'s script after a mistake on real calls.",
+            what_happened=f"We changed part of {name}'s script {after}.",
             what_we_did="We watched its next calls and closed this.",
             your_part="Nothing. The Training tab shows how it went.",
             must_act=False,
         )
     return Notice(
         headline=f"We fixed a mistake in {name}'s script",
-        what_happened=f"On real calls, {name} made a mistake that came from its script.",
+        what_happened=found,
         what_we_did="We changed only that part of the script and put it live. We are "
         "watching the next calls, and put the old script back if they go worse.",
         your_part="Nothing. To keep your old script, press Undo on the agent's Training tab.",
@@ -213,6 +230,7 @@ def incident_link(slug: str) -> str:
 
 
 __all__ = [
+    "SCRIPT_CHECK_KINDS",
     "SIGNAL_WORDS",
     "STATUS_PAGE_URL",
     "Notice",

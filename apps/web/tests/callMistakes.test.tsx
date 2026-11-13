@@ -47,6 +47,7 @@ function mistake(over: Partial<AgentMistake> = {}): AgentMistake {
     clean_calls: 0,
     clean_calls_needed: 5,
     can_undo: false,
+    found_in_script: false,
     ...over,
   };
 }
@@ -116,6 +117,25 @@ describe("the Training tab's mistakes on real calls", () => {
     for (const row of [rows[0]!, rows[1]!, rows[2]!, rows[4]!, rows[5]!]) {
       expect(within(row).queryByRole("button", { name: /Undo/ })).toBeNull();
     }
+  });
+
+  it("says where a fix came from when no call showed the mistake (D-989)", async () => {
+    await renderCard([
+      mistake({
+        state: "script_live",
+        calls: 0,
+        last_seen_at: null,
+        last_call_id: null,
+        found_in_script: true,
+        fixed_at: "2026-11-13T10:00:00Z",
+        can_undo: true,
+      }),
+    ]);
+    const row = within(await screen.findByRole("list", { name: "Mistakes on real calls" })).getByRole("listitem");
+    expect(row.textContent).toContain("Found in your script before any call");
+    expect(row.textContent).not.toContain("0 calls");
+    expect(within(row).queryByRole("link", { name: "Hear the last one" })).toBeNull();
+    expect(within(row).getByRole("button", { name: "Undo our fix: Said the same line again" })).toBeTruthy();
   });
 
   it("undoes our fix and reads the list again", async () => {
@@ -228,6 +248,7 @@ function fleetFix(over: Partial<FleetFix> = {}): FleetFix {
     live_at: "2026-11-12T10:00:00Z",
     settled_at: null,
     created_at: "2026-11-12T09:50:00Z",
+    found_by: "call",
     ...over,
   };
 }
@@ -247,6 +268,7 @@ describe("Ops > Call mistakes", () => {
               state: "rolled_back",
               ended_because: "worse",
               attempts: 2,
+              found_by: "script_check",
             }),
           ],
         },
@@ -260,6 +282,9 @@ describe("Ops > Call mistakes", () => {
     const back = rows.find((r) => (r.textContent ?? "").includes("Asha"));
     expect(back?.textContent).toContain("Put back");
     expect(back?.textContent).toContain("other mistakes rose");
+    // What opened each fix (D-989).
+    expect(live?.textContent).toContain("Seen on a call");
+    expect(back?.textContent).toContain("Found in the script before any call");
   });
 
   it("lists each kind with its counts, state and fix note", async () => {

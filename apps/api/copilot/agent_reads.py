@@ -375,8 +375,12 @@ async def _mistakes_part(session: AsyncSession, agent_id: UUID) -> list[str]:
         ]
     lines = [f"Mistakes on real calls, last {call_mistakes.WINDOW_DAYS} days:"]
     lines.extend(
-        f"- {m.label}: on {m.calls} call(s), last {ist_date(m.last_seen_at)}; "
-        f"{_MISTAKE_STATES[m.state]}. What it should do: {m.instead}"
+        (
+            f"- {m.label}: on {m.calls} call(s), last {ist_date(m.last_seen_at)}; "
+            if m.last_seen_at is not None
+            else f"- {m.label}: found in the live script before any call; "
+        )
+        + f"{_MISTAKE_STATES[m.state]}. What it should do: {m.instead}"
         for m in mistakes
     )
     return lines

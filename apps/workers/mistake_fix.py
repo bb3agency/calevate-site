@@ -29,6 +29,9 @@ WATCH    Checked calls of the agent that started after it went live: the kind ag
          Nothing is put back once the script changed after the fix: that would throw away
          somebody else's change, so a person is asked instead.
 
+A fix is opened by a real call showing the kind, or by the sweep of live scripts
+(`check_live_scripts`, D-989) finding its cause before any call; the steps are the same.
+
 Nothing here touches the AI or recording notices: their parts are never a fix's paths
 (`mistake_fixes.PROTECTED_PARTS`), and a candidate that changed one is refused.
 """
@@ -36,11 +39,12 @@ Nothing here touches the AI or recording notices: their parts are never a fix's 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Final
+from datetime import UTC, datetime
+from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript, upgrade_to_v2
+from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +52,12 @@ from apps.api.agents import mistake_fixes, publishing, script_builder, script_pr
 from apps.api.agents.call_mistakes import LESSONS, WINDOW_DAYS
 from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.mistake_fixes import MistakeFix
-from apps.api.agents.mistake_lints import SCRIPT_FIXABLE_KINDS, mistake_findings
+from apps.api.agents.mistake_lints import (
+    SCRIPT_FIXABLE_KINDS,
+    fixable_findings,
+    mistake_findings,
+)
+from apps.api.agents.models import MistakeFixFoundBy
 from apps.api.agents.prompts import rollback_prompt
 from apps.api.agents.script_lint import LintContext, script_problems
 from apps.api.agents.script_publish import put_draft_live
@@ -58,9 +67,10 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.healer import incidents, ledger
 from apps.api.healer.incidents import Incident
+from apps.api.healer.playbooks import may_run
 
 log = get_logger(__name__)
 
@@ -253,12 +263,33 @@ def _blocker(agent: _Agent, script: CallScript) -> str | None:
     return None
 
 
-def _change(kind: str) -> str:
-    lesson = LESSONS[kind]
+def _change(fix: MistakeFix) -> str:
+    lesson = LESSONS[fix.kind]
+    if fix.found_by == "script_check":
+        return (
+            f"The script check found lines that make the agent do this on calls: "
+            f"{lesson.label}. {lesson.instead} Change only the lines named, so it never does."
+        )
     return (
         f"On real calls the agent made this mistake: {lesson.label}. {lesson.instead} "
         "Change only the lines named, so the agent stops making it."
     )
+
+
+def _summary(fix: MistakeFix) -> str:
+    """The version's note in the script's history."""
+    label = LESSONS[fix.kind].label
+    if fix.found_by == "script_check":
+        return f"Fixed a line that could cause a mistake on calls: {label}"
+    return f"Fixed a mistake on real calls: {label}"
+
+
+def _notice_kind(fix: MistakeFix, *, waiting: bool) -> str:
+    """The owner's notice (`healer/notices.script_fix_notice`): its `script_check_*` twin
+    for a fix the sweep found before any call (D-989)."""
+    if fix.found_by == "script_check":
+        return "script_check_waiting" if waiting else "script_check_fixed"
+    return "script_fix_waiting" if waiting else "script_fixed"
 
 
 async def _act(incident: Incident, fix: MistakeFix) -> None:
@@ -299,6 +330,11 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
                 why="the mistake came back, and the script changed since, so it was not put back",
             )
         return
+    if not paths and fix.found_by == "script_check":
+        # Found by the sweep, and the live script changed before the fix was written: no
+        # call showed the mistake and nothing causes it now, so there is nothing to fix.
+        await _settle_moot(incident, fix)
+        return
     if not paths:
         await _needs_person(
             incident,
@@ -313,7 +349,7 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
         return
     if quota.at_ceiling or quota.platform_paused:
         async with tenant_session(tenant_id) as session:
-            await _client_notice(session, incident, "script_fix_waiting", must_act=True)
+            await _client_notice(session, incident, _notice_kind(fix, waiting=True), must_act=True)
         await _wait(incident, fix, why="the client's AI allowance is used up")
         return
     try:
@@ -323,7 +359,7 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
                 tenant_id=tenant_id,
                 agent_id=agent_id,
                 mode="change",
-                change=_change(fix.kind),
+                change=_change(fix),
                 answers={},
                 requested_by=None,
                 paths=paths,
@@ -366,6 +402,20 @@ async def _act(incident: Incident, fix: MistakeFix) -> None:
 
 class _FixMovedError(Exception):
     """The fix row moved under the step."""
+
+
+async def _settle_moot(incident: Incident, fix: MistakeFix) -> None:
+    async with tenant_session(fix.tenant_id) as session:
+        await _set_fix(session, fix, "state = 'fixed', settled_at = now(), proposal_id = NULL")
+        await _close_client_notice(session, incident)
+    await _record(
+        incident,
+        fix,
+        step="act",
+        outcome="skipped",
+        detail="the live script no longer holds the cause the check found",
+    )
+    await _advance(incident, state="resolved", next_in_s=None, outcome="verified")
 
 
 # --- verify and put live -----------------------------------------------------------------------
@@ -477,7 +527,7 @@ async def _put_live(incident: Incident, fix: MistakeFix, script: CallScript) -> 
         if not moved:
             raise _FixMovedError
         await _discard(session, fix.agent_id, proposal_id)
-        await _client_notice(session, incident, "script_fixed", must_act=False)
+        await _client_notice(session, incident, _notice_kind(fix, waiting=False), must_act=False)
         await ledger.record(
             session,
             playbook=PLAYBOOK,
@@ -495,7 +545,7 @@ async def _put_live(incident: Incident, fix: MistakeFix, script: CallScript) -> 
         await put_draft_live(
             tenant_id=fix.tenant_id,
             agent_id=fix.agent_id,
-            summary=f"Fixed a mistake on real calls: {LESSONS[fix.kind].label}",
+            summary=_summary(fix),
             created_by=None,
             script=script,
             check_version=True,
@@ -752,6 +802,139 @@ async def proposal_written(tenant_id: UUID, agent_id: UUID, proposal_id: UUID) -
             await incidents.retry_now(session, incident_id)
 
 
+# --- the sweep of live scripts (D-989) ---------------------------------------------------------
+#
+# The checks above wait for a real call to show a kind. The founder's decision of 13 Nov 2026
+# ("why cant we solve this problem from the start?") runs them on every live script too, so
+# a caller never hears a mistake the script check could have found: each kind the check
+# finds opens the same fix a call opens (`found_by = 'script_check'`), which then runs the
+# steps above unchanged, caps, waits, verify, Undo, watch and rollback included.
+
+
+def sweep_due(now: datetime, every_minutes: int) -> bool:
+    """Whether the sweep runs on this minute: every `every_minutes` counted from midnight IST
+    (D-709), so a changed console setting takes effect on the next minute with no state."""
+    at = now.astimezone(IST)
+    return (at.hour * 60 + at.minute) % every_minutes == 0
+
+
+@dataclass(frozen=True, slots=True)
+class _Checked:
+    opened: tuple[str, ...]
+    #: Every kind found has a fix opened or under way: the version is marked checked.
+    complete: bool
+
+
+async def _check_agent(due: mistake_fixes.DueCheck, *, room: int) -> _Checked:
+    """One agent checked, at most `room` fixes opened, call-found ones first:
+
+    1. each kind real calls showed in the owner's window that has never had a fix: calls
+       before D-985 went live opened none, and a kind not seen since would sit at "Not fixed
+       yet" for ever. Opened as a call fix (`found_by='call'`), as the pipeline would have;
+    2. each kind whose cause the script check finds in the live script (`script_check`).
+
+    The partial unique index keeps one kind to one fix whichever opens it. The version is
+    marked checked only once every kind was offered a fix, so an agent cut short by the cap
+    is checked again on the next sweep."""
+    async with tenant_session(due.tenant_id) as session:
+        if await mistake_fixes.checked_version(session, due.agent_id) == due.live_version:
+            # Another sweep checked this version since the list was read.
+            return _Checked(opened=(), complete=True)
+        loaded = await script_builder.load_agent_script(session, due.agent_id, applied=True)
+        if loaded.version is None:
+            loaded = await script_builder.load_agent_script(session, due.agent_id)
+        lint = await lint_context_for(session, tenant_id=due.tenant_id, agent_id=due.agent_id)
+        seen = await mistake_fixes.never_fixed_kinds(
+            session, agent_id=due.agent_id, kinds=LESSONS, days=WINDOW_DAYS
+        )
+    if loaded.version != due.live_version:
+        # Put live between the list and this read: the next sweep checks the new version.
+        return _Checked(opened=(), complete=False)
+    script = upgrade_to_v2(loaded.script)
+    found = [k for k in sorted(SCRIPT_FIXABLE_KINDS) if fixable_findings(script, lint, k)]
+    work: list[tuple[str, MistakeFixFoundBy]] = [
+        *((k, "call") for k in seen),
+        *((k, "script_check") for k in found if k not in seen),
+    ]
+    opened: list[tuple[str, MistakeFixFoundBy]] = []
+    complete = True
+    async with tenant_session(due.tenant_id) as session:
+        for kind, found_by in work:
+            if len(opened) >= room:
+                complete = False
+                break
+            made = await mistake_fixes.open_fixes(
+                session,
+                tenant_id=due.tenant_id,
+                agent_id=due.agent_id,
+                kinds=[kind],
+                found_by=found_by,
+            )
+            opened += [(k, found_by) for k in made]
+        if complete:
+            await mistake_fixes.mark_checked(
+                session, agent_id=due.agent_id, version=due.live_version
+            )
+    for kind, found_by in opened:
+        ids = {"tenant_id": str(due.tenant_id), "agent_id": str(due.agent_id), "reason": kind}
+        if found_by == "call":
+            alert(
+                "CORE_LOGIC",
+                "call_mistake_seen",
+                detail=(
+                    f"A mistake on real calls ({kind}) that never had a fix; the healer is "
+                    "checking the agent's script for the lines that cause it."
+                ),
+                episode=f"{due.agent_id}:{kind}",
+                **ids,
+            )
+        else:
+            alert(
+                "CORE_LOGIC",
+                "script_check_found",
+                detail=(
+                    f"The script check found the cause of a mistake ({kind}) in a live script "
+                    "before any call; the healer is fixing those lines."
+                ),
+                episode=f"{due.agent_id}:{kind}",
+                **ids,
+            )
+    return _Checked(opened=tuple(k for k, _by in opened), complete=complete)
+
+
+async def check_live_scripts(ctx: dict[str, Any]) -> str:
+    """The sweep: up to `script_check_sweep_agents` live or paused agents whose live script
+    changed since it was last checked, every `script_check_sweep_minutes`, opening at most
+    `script_check_sweep_max_fixes` fixes. Stopped by the healer's switches like the fix
+    itself (`playbooks.may_run`). Deterministic and free: no model is called here, the fixes
+    it opens are written and metered by the playbook's own steps."""
+    del ctx
+    settings = get_settings()
+    if not sweep_due(datetime.now(UTC), settings.script_check_sweep_minutes):
+        return "not_due"
+    if not may_run(PLAYBOOK):
+        return "paused"
+    async with admin_session() as session:
+        due = await mistake_fixes.checks_due(session, limit=settings.script_check_sweep_agents)
+    room = settings.script_check_sweep_max_fixes
+    opened = checked = 0
+    for agent in due:
+        try:
+            done = await _check_agent(agent, room=room - opened)
+        except Exception:
+            # One agent's script must not stop the others; it stays unchecked, so the next
+            # sweep tries it again.
+            log.exception("script_check_agent_failed", extra={"agent_id": str(agent.agent_id)})
+            continue
+        opened += len(done.opened)
+        checked += done.complete
+    log.info(
+        "script_check_swept",
+        extra={"agents": len(due), "checked": checked, "opened": opened},
+    )
+    return f"checked:{checked} opened:{opened}"
+
+
 __all__ = [
     "NEEDS_PERSON",
     "PLAYBOOK",
@@ -759,6 +942,8 @@ __all__ = [
     "CallsSince",
     "call_mistake_fix",
     "calls_since",
+    "check_live_scripts",
     "proposal_written",
+    "sweep_due",
     "verify_candidate",
 ]

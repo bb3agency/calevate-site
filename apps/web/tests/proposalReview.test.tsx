@@ -308,7 +308,7 @@ describe("Fix them first, seen before it is used (A-02, A-15)", () => {
   });
 
   it("names each warning the fix still leaves (founder, 10 Nov 2026)", () => {
-    const left = [{ part: "script", label: "The script", rule: 'Still to fix: no step asks for "Their crop".', added: false }];
+    const left = [{ part: "script", label: "The script", rule: 'Still to fix: no step asks for "Their crop".', added: false, unfixed: true }];
     expect(fixOutcome({ ...proposal(CURRENT), left_out: left })).toEqual({
       kind: "nothing",
       message: "Pip could not fix these: The script. Edit them, or put it live anyway.",

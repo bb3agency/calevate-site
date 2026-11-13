@@ -1442,6 +1442,16 @@ class Settings(BaseSettings):
     # The fix is put back when the calls after it show more than this many extra other
     # mistakes per 100 calls than the calls before it.
     call_mistake_fix_worse_per_100_calls: int = Field(default=50, ge=0, le=10000)
+    # The same checks before any call hears the mistake (D-989).
+    # Repair rounds Pip may spend on a script it wrote, after its first draft, on the lines
+    # the call-mistake checks still find. 0 checks and reports without repairing.
+    script_mistake_repair_passes: int = Field(default=2, ge=0, le=5)
+    # Minutes between sweeps of live scripts, counted from midnight IST.
+    script_check_sweep_minutes: int = Field(default=60, ge=5, le=1440)
+    # Agents one sweep checks; the rest wait for the next.
+    script_check_sweep_agents: int = Field(default=50, ge=1, le=1000)
+    # Fixes one sweep may open across every client; an agent left over is checked again next.
+    script_check_sweep_max_fixes: int = Field(default=20, ge=0, le=1000)
 
     # ---- Meta Cloud API credentials (D-91) ----------------------------------------
     #

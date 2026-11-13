@@ -61,6 +61,7 @@ from apps.api.agents import script_builder
 from apps.api.agents.business_fit import business_fit
 from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 from apps.api.agents.capability_manifest import books_visits, lint_context_for
+from apps.api.agents.mistake_lints import script_mistakes
 from apps.api.agents.reconciliation import DRIFT_STATES_OUT_OF_SYNC
 from apps.api.agents.roster import agent_by_id
 from apps.api.agents.schemas import AgentOut
@@ -108,7 +109,7 @@ class ReadinessFixOut(BaseModel):
     points: int
 
 
-AdviceKind = Literal["calendar", "script"]
+AdviceKind = Literal["calendar", "script", "script_mistake"]
 
 
 class ReadinessAdviceOut(BaseModel):
@@ -354,6 +355,7 @@ async def advice_for(session: AsyncSession, agent: AgentOut) -> tuple[ReadinessA
                 detail="Your agent then offers times you are really free.",
             )
         )
+    found = script_problems(script, context)
     out += [
         ReadinessAdviceOut(
             kind="script",
@@ -361,7 +363,19 @@ async def advice_for(session: AsyncSession, agent: AgentOut) -> tuple[ReadinessA
             href=f"{base}?section=script",
             detail=plain(problem),
         )
-        for problem in script_problems(script, context)[:MAX_SCRIPT_ADVICE]
+        for problem in found[:MAX_SCRIPT_ADVICE]
+    ]
+    # Lines that can cause a known mistake on calls (D-989): their own group, never part of
+    # the score, so the card shows them without holding anything back.
+    mistakes = script_mistakes(script, context, beside=found)
+    out += [
+        ReadinessAdviceOut(
+            kind="script_mistake",
+            action="Fix a line before callers hear it",
+            href=f"{base}?section=script",
+            detail=plain(problem),
+        )
+        for problem in mistakes[:MAX_SCRIPT_ADVICE]
     ]
     return tuple(out)
 

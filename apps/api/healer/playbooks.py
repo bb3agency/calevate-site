@@ -41,6 +41,9 @@ STATUS_POST: Final = "status_post"
 #: A real call showed a mistake kind (`agents/call_mistakes`); opened by the pipeline per
 #: agent and kind (`agents/mistake_fixes.open_fixes`), never from the alarm episode.
 CALL_MISTAKE_SEEN: Final = "call_mistake_seen"
+#: The sweep of live scripts found the cause of a mistake kind before any call showed it
+#: (D-989); opened by `agents/mistake_fixes.open_fixes` like `CALL_MISTAKE_SEEN`.
+SCRIPT_CHECK_FOUND: Final = "script_check_found"
 #: The playbook that fixes such a mistake in the agent's own script (D-985).
 CALL_MISTAKE_FIX: Final = "call_mistake_fix"
 
@@ -188,7 +191,7 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     Playbook(
         key=CALL_MISTAKE_FIX,
         title="Fix a mistake on real calls in the agent's script",
-        triggers=(CALL_MISTAKE_SEEN,),
+        triggers=(CALL_MISTAKE_SEEN, SCRIPT_CHECK_FOUND),
         action="Find the lines of the agent's live script that cause the mistake, have them "
         "rewritten (billed to the client's AI allowance) and put the fix live; wait while "
         "the owner has an unpublished change or the allowance is used up.",
@@ -300,6 +303,7 @@ __all__ = [
     "PLAYBOOK_BY_JOB",
     "PLAYBOOK_BY_KEY",
     "PLAYBOOK_BY_TRIGGER",
+    "SCRIPT_CHECK_FOUND",
     "STATUS_POST",
     "BlastRadius",
     "Playbook",

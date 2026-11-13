@@ -144,7 +144,7 @@ describe("a suggestion that leaves parts out says which and why", () => {
     "/v1/agents/agent-1/pending": settledPending(),
     "/v1/agents/agent-1/script/proposal": { proposal },
   });
-  const part = { part: "stages.budget", label: "Step “Ask the budget”", rule: "Asks two questions; ask one and wait.", added: false };
+  const part = { part: "stages.budget", label: "Step “Ask the budget”", rule: "Asks two questions; ask one and wait.", added: false, unfixed: false };
 
   it("names each part kept as the owner had it, beside the rest of the suggestion", async () => {
     await renderClientPage(
@@ -155,6 +155,24 @@ describe("a suggestion that leaves parts out says which and why", () => {
     expect(screen.getByText("1 part kept as you had it")).toBeTruthy();
     expect(screen.getByText("Step “Ask the budget”")).toBeTruthy();
     expect(screen.getByText(/Asks two questions; ask one and wait\./)).toBeTruthy();
+  });
+
+  it("names what Pip could not fix apart from the parts kept as the owner had them (D-989)", async () => {
+    const unfixed = {
+      part: "stages.pitch",
+      label: "Step “Pitch”",
+      rule: "Still to fix: asks more than one question in one turn.",
+      added: false,
+      unfixed: true,
+    };
+    await renderClientPage(
+      <ScriptBuilder agentId="agent-1" knowledgeHref="/c/acme/knowledge" trainingHref="/c/acme/agents/agent-1" />,
+      routes({ ...PROPOSAL, left_out: [part, unfixed] }),
+    );
+    await screen.findByRole("heading", { name: "1 suggested change" });
+    expect(screen.getByText("1 part kept as you had it")).toBeTruthy();
+    expect(screen.getByText("Pip could not fix everything")).toBeTruthy();
+    expect(screen.getByText(/Still to fix: asks more than one question/)).toBeTruthy();
   });
 
   it("offers each part it could not write as its own ask", async () => {

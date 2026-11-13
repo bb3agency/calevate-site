@@ -15,6 +15,7 @@ import {
   type NoticeTone,
 } from "@/components/ui";
 import {
+  FOUND_IN_SCRIPT,
   callsLine,
   clientStateLine,
   useAgentMistakes,
@@ -128,7 +129,9 @@ function MistakeRow({
             {mistake.label}
           </RowHeading>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-ink-muted">
-            <span className="tabular-nums">{callsLine(mistake.calls, windowDays)}</span>
+            <span className="tabular-nums">
+              {mistake.found_in_script ? FOUND_IN_SCRIPT : callsLine(mistake.calls, windowDays)}
+            </span>
             <StatusPill tone={STATE_TONES[mistake.state]} wrap>
               {clientStateLine(mistake.state, formatISTDate(mistake.fixed_at), mistake.clean_calls)}
             </StatusPill>
@@ -147,12 +150,14 @@ function MistakeRow({
               Undo
             </button>
           ) : null}
-          <Link
-            href={href(`/c/${session.orgSlug}/calls/${mistake.last_call_id}`)}
-            className={SECONDARY_BUTTON_SM}
-          >
-            Hear the last one
-          </Link>
+          {mistake.last_call_id ? (
+            <Link
+              href={href(`/c/${session.orgSlug}/calls/${mistake.last_call_id}`)}
+              className={SECONDARY_BUTTON_SM}
+            >
+              Hear the last one
+            </Link>
+          ) : null}
         </div>
       </div>
       {undo.error ? (

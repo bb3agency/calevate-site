@@ -193,6 +193,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # D-985: a real call showed a mistake and the healer opened its fix of that agent's
     # script. Expected and handled without anyone; the incident is the record.
     "call_mistake_seen": "record",
+    # D-989: the sweep of live scripts found the cause of a mistake kind before any call
+    # and opened the same fix. Handled without anyone; the incident is the record.
+    "script_check_found": "record",
     # A client's knowledge upload has failed to publish for hours and is still being retried.
     "kb_ingest_stuck": "attention",
     "engine_capability_absent": "attention",

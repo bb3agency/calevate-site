@@ -4673,7 +4673,7 @@ export interface paths {
         put?: never;
         /**
          * Fix the lines the script check found, before putting it live
-         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.
+         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it (its `warnings` and `mistakes`) and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.
          */
         post: operations["fix_script_lines_v1_agents__agent_id__script_fix_lines_post"];
         delete?: never;
@@ -15444,22 +15444,18 @@ export interface components {
             clean_calls_needed: number;
             /** Fixed At */
             fixed_at: string | null;
+            /** Found In Script */
+            found_in_script: boolean;
             /** Instead */
             instead: string;
             /** Kind */
             kind: string;
             /** Label */
             label: string;
-            /**
-             * Last Call Id
-             * Format: uuid
-             */
-            last_call_id: string;
-            /**
-             * Last Seen At
-             * Format: date-time
-             */
-            last_seen_at: string;
+            /** Last Call Id */
+            last_call_id: string | null;
+            /** Last Seen At */
+            last_seen_at: string | null;
             /**
              * State
              * @enum {string}
@@ -19573,7 +19569,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "agent_unwell" | "line_protected" | "platform_outage" | "script_fixed" | "script_fix_waiting";
+            kind: "agent_unwell" | "line_protected" | "platform_outage" | "script_fixed" | "script_fix_waiting" | "script_check_fixed" | "script_check_waiting";
             /** Missed Calls */
             missed_calls: number;
             /** Must Act */
@@ -24082,6 +24078,11 @@ export interface components {
             /** Ended Because */
             ended_because: string | null;
             /**
+             * Found By
+             * @enum {string}
+             */
+            found_by: "call" | "script_check";
+            /**
              * Id
              * Format: uuid
              */
@@ -27327,6 +27328,8 @@ export interface components {
             part: string;
             /** Rule */
             rule: string;
+            /** Unfixed */
+            unfixed: boolean;
         };
         /**
          * LegalDocumentOut
@@ -31089,7 +31092,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "calendar" | "script";
+            kind: "calendar" | "script" | "script_mistake";
         };
         /** ReadinessComponentOut */
         ReadinessComponentOut: {
@@ -32576,6 +32579,8 @@ export interface components {
          *     check, which the same dialog shows (`/v1/compliance/promo-check/agents/{id}`).
          */
         ScriptCheckOut: {
+            /** Mistakes */
+            mistakes: string[];
             /** Warnings */
             warnings: string[];
         };
