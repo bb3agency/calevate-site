@@ -41,19 +41,39 @@ import { languageName } from "./sectionParts";
  * without a word.
  */
 function LeftOutNotice({ parts }: { parts: ScriptProposal["left_out"] }) {
-  const one = parts.length === 1;
+  // A warning Pip's repairs could not clear is in the suggestion itself, not a part kept as
+  // the owner had it, so it is named apart (D-989).
+  const unfixed = parts.filter((part) => part.unfixed);
+  const kept = parts.filter((part) => !part.unfixed);
+  const one = kept.length === 1;
   return (
-    <NoticeBox tone="neutral" title={`${parts.length} ${one ? "part" : "parts"} kept as you had ${one ? "it" : "them"}`}>
-      <ul className="mt-2 space-y-1 text-meta">
-        {parts.map((part) => (
-          <li key={part.part} className="break-words [overflow-wrap:anywhere]">
-            <span className="font-semibold">{part.label}</span>
-            {part.added ? " (not added)" : ""}: {part.rule}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-meta">Edit {one ? "it" : "them"} yourself, or ask {ASSISTANT_NAME} for one at a time.</p>
-    </NoticeBox>
+    <>
+      {kept.length > 0 && (
+        <NoticeBox tone="neutral" title={`${kept.length} ${one ? "part" : "parts"} kept as you had ${one ? "it" : "them"}`}>
+          <PartList parts={kept} />
+          <p className="mt-2 text-meta">Edit {one ? "it" : "them"} yourself, or ask {ASSISTANT_NAME} for one at a time.</p>
+        </NoticeBox>
+      )}
+      {unfixed.length > 0 && (
+        <NoticeBox tone="neutral" title={`${ASSISTANT_NAME} could not fix everything`}>
+          <PartList parts={unfixed} />
+          <p className="mt-2 text-meta">Edit {unfixed.length === 1 ? "it" : "them"} after you keep this, or keep your lines.</p>
+        </NoticeBox>
+      )}
+    </>
+  );
+}
+
+function PartList({ parts }: { parts: ScriptProposal["left_out"] }) {
+  return (
+    <ul className="mt-2 space-y-1 text-meta">
+      {parts.map((part, i) => (
+        <li key={`${part.part}-${i}`} className="break-words [overflow-wrap:anywhere]">
+          <span className="font-semibold">{part.label}</span>
+          {part.added ? " (not added)" : ""}: {part.rule}
+        </li>
+      ))}
+    </ul>
   );
 }
 

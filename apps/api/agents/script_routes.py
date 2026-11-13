@@ -65,8 +65,9 @@ from apps.api.agents import (
 )
 from apps.api.agents.capability_manifest import lint_context_for
 from apps.api.agents.engine_limits import too_long_sentence
+from apps.api.agents.mistake_lints import script_mistakes
 from apps.api.agents.script_edits import MAX_EDITS, ScriptEdit, apply_edits
-from apps.api.agents.script_lint import plain, script_problems
+from apps.api.agents.script_lint import LintContext, plain, script_problems
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns.contact_details import list_columns
 from apps.api.compliance.audit import write_audit
@@ -421,6 +422,18 @@ class ScriptCheckOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     warnings: list[str]
+    #: Lines that can cause a known mistake on calls (D-989, `mistake_lints.script_mistakes`),
+    #: shown as their own group of lines to fix. Never a refusal; "Fix them first" fixes
+    #: them with the warnings.
+    mistakes: list[str]
+
+
+def _check_findings(script: CallScript, context: LintContext) -> tuple[list[str], list[str]]:
+    """The script check's findings and the call-mistake checks' on the lines it does not name,
+    on the lint context the readiness card uses without the promo check (D-943 shows that)."""
+    lint = replace(context, promo=False)
+    found = script_problems(script, lint)
+    return found, script_mistakes(script, lint, beside=found)
 
 
 @router.post(
@@ -435,8 +448,11 @@ async def check_script(
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
     await script_builder.assert_agent_visible(session, agent_id)
     context = await lint_context_for(session, tenant_id=principal.tenant_id, agent_id=agent_id)
-    found = script_problems(upgrade_to_v2(payload.script), replace(context, promo=False))
-    return ScriptCheckOut(warnings=[plain(problem) for problem in found])
+    found, mistakes = _check_findings(upgrade_to_v2(payload.script), context)
+    return ScriptCheckOut(
+        warnings=[plain(problem) for problem in found],
+        mistakes=[plain(problem) for problem in mistakes],
+    )
 
 
 @router.put(
@@ -1352,6 +1368,9 @@ class LeftOutPartOut(BaseModel):
     rule: str
     #: A step Pip wanted to add, which is therefore not added.
     added: bool
+    #: A warning Pip's repairs could not clear in the suggestion ("Pip could not fix
+    #: everything"), rather than a part kept as the owner had it.
+    unfixed: bool
 
 
 class ScriptProposalOut(BaseModel):
@@ -1427,6 +1446,7 @@ def _proposal_out(found: script_proposals.ScriptProposal) -> ScriptProposalOut:
                 label=script_proposals.part_label(part),
                 rule=part.rule,
                 added=part.added,
+                unfixed=part.unfixed,
             )
             for part in found.left_out
         ],
@@ -1601,7 +1621,8 @@ class FixLinesOut(ScriptProposalOut):
     summary="Fix the lines the script check found, before putting it live",
     description=(
         '"Fix them first" on Put it live. Saves `script` as the working copy, runs the same '
-        "check as `POST .../check` on it and asks for a suggestion that changes only the "
+        "check as `POST .../check` on it (its `warnings` and `mistakes`) and asks for a "
+        "suggestion that changes only the "
         "lines the check named; poll `GET .../proposal` until it is `ready`, then show it "
         "to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` "
         "when the check finds nothing, `fix_lines_hand_written` for a script written as one "
@@ -1626,7 +1647,8 @@ async def fix_script_lines(
     await require_ai_assist(session, tenant_id=principal.tenant_id)
     script = upgrade_to_v2(payload.script)
     context = await lint_context_for(session, tenant_id=principal.tenant_id, agent_id=agent_id)
-    problems = script_problems(script, replace(context, promo=False))
+    found, mistakes = _check_findings(script, context)
+    problems = [*found, *mistakes]
     if not problems:
         raise ProblemError.conflict(
             "script_has_nothing_to_fix",

@@ -279,6 +279,7 @@ from apps.workers.maintenance import (
     maintenance_tick,
     notify_maintenance,
 )
+from apps.workers.mistake_fix import check_live_scripts
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.number_holds import SWEEP_MINUTE as NUMBER_HOLD_SWEEP_MINUTE
 from apps.workers.number_holds import (
@@ -1544,6 +1545,19 @@ CRON_JOBS = [
             "owed a notice, each capped per tick"
         ),
         second={25},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE CALL-MISTAKE CHECKS ON LIVE SCRIPTS (D-989). Fired every minute and run only on the
+    # minutes the console's `script_check_sweep_minutes` names (`mistake_fix.sweep_due`), so
+    # the cadence is a setting rather than this schedule; the batch and the fixes per run
+    # are settings too, and the healer's switches stop it like the fix it opens.
+    _cron(
+        traced_job(check_live_scripts),
+        walk=bounded(
+            "one directory scan of agents whose live script changed, capped per run, then one "
+            "tenant_session per listed agent"
+        ),
+        second={35},
         max_tries=WORKER_MAX_TRIES,
     ),
     _cron(

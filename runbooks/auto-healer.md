@@ -83,6 +83,16 @@ incident is open, nor ever after the owner pressed Undo. Every fix is on
 `/admin/ops/call-mistakes` under "Script fixes". Pause it with the kill switch
 `healer_paused_playbooks=call_mistake_fix`.
 
+**Before any call (D-989).** The same fix is also opened by a sweep of live scripts
+(`script_check_found`, `record`): every `script_check_sweep_minutes` (counted from midnight
+IST) it checks up to `script_check_sweep_agents` live or paused agents whose live script
+changed since their last check, and opens at most `script_check_sweep_max_fixes` fixes. The
+board shows these as "Found in the script before any call"; the owner's notice says so. The
+steps above are unchanged. The sweep never reopens a kind whose fix was put back, undone or
+handed to you; a real call still can. The same kill switch stops it. The sweep also opens
+the ordinary call fix (`call_mistake_seen`) for a kind real calls showed in the owner's window
+(`call_mistakes.WINDOW_DAYS`) that never had a fix, which is every kind seen before D-985 went live.
+
 ## 3. Every line at once (`engine_platform_outage`)
 
 Several clients' lines broke together, or the voice platform failed twice its spike

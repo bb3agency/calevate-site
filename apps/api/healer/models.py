@@ -55,6 +55,9 @@ CLIENT_INCIDENT_KINDS: Final = (
     "platform_outage",
     "script_fixed",
     "script_fix_waiting",
+    # A fix the sweep of live scripts opened before any call showed the mistake (D-989).
+    "script_check_fixed",
+    "script_check_waiting",
 )
 PROTECTIONS: Final = ("none", "paused", "forwarded")
 PROPOSAL_KINDS: Final = ("rollback_prompt", "review_knowledge", "review_languages")

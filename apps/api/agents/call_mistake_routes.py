@@ -23,6 +23,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import call_mistakes, mistake_fixes
+from apps.api.agents.models import MistakeFixFoundBy
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -59,8 +60,9 @@ class AgentMistakeOut(Strict):
     instead: str
     calls: int
     calls_since_fix: int
-    last_seen_at: datetime
-    last_call_id: UUID
+    #: The last call that showed it; null when none did (`found_in_script`).
+    last_seen_at: datetime | None
+    last_call_id: UUID | None
     #: When the fix the state is about was made: the agent's script fix going live where it
     #: has one (D-985), else the platform rule's.
     fixed_at: datetime | None
@@ -77,6 +79,9 @@ class AgentMistakeOut(Strict):
     clean_calls_needed: int
     #: The owner may undo the script fix: it is live or held and the script is still it.
     can_undo: bool
+    #: No call showed it: the script check found its cause in the live script and it was
+    #: fixed before any call (D-989).
+    found_in_script: bool
 
 
 class AgentMistakesOut(Strict):
@@ -147,6 +152,7 @@ async def list_agent_mistakes(agent_id: UUID, session: Session, _: AgentReader) 
                 clean_calls=m.clean_calls,
                 clean_calls_needed=get_settings().call_mistake_fix_clean_calls,
                 can_undo=m.can_undo,
+                found_in_script=m.found_in_script,
             )
             for m in found
         ],
@@ -229,6 +235,9 @@ class FleetFixOut(Strict):
     live_at: datetime | None
     settled_at: datetime | None
     created_at: datetime
+    #: `call` (a real call showed it) or `script_check` (found in the live script before
+    #: any call, D-989).
+    found_by: MistakeFixFoundBy
 
 
 class FleetFixesOut(Strict):
@@ -272,6 +281,7 @@ async def list_fleet_fixes(
                 live_at=f.live_at,
                 settled_at=f.settled_at,
                 created_at=f.created_at,
+                found_by=f.found_by,
             )
             for f in found
         ],

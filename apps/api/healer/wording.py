@@ -23,6 +23,7 @@ from apps.api.healer.playbooks import (
     CALL_MISTAKE_SEEN,
     ENGINE_PLATFORM_OUTAGE,
     MONEY_REVIEW,
+    SCRIPT_CHECK_FOUND,
     STATUS_POST,
 )
 
@@ -120,6 +121,14 @@ INCIDENT_KINDS: Final[Mapping[str, IncidentKind]] = {
         "script back if they go worse.",
         next_step="Nothing unless it is handed to you. Then the mistake needs a platform rule "
         "change, or the script needs fixing by hand with the owner.",
+    ),
+    SCRIPT_CHECK_FOUND: IncidentKind(
+        title="A live script line that could cause a mistake",
+        meaning="The script check found lines of an agent's live script that cause a known "
+        "mistake on calls, before any call showed it. The healer fixes those lines the same "
+        "way as one seen on a call, and watches the next calls.",
+        next_step="Nothing unless it is handed to you. Then the script needs fixing by hand "
+        "with the owner.",
     ),
     STATUS_POST: IncidentKind(
         title="A notice posted on the status page",

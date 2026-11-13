@@ -24,6 +24,7 @@ import {
 } from "@/components/ui";
 import {
   FIX_ENDED_WORDS,
+  FIX_FOUND_BY_WORDS,
   FIX_NOTE_MAX,
   FIX_STATE_WORDS,
   useFleetFixes,
@@ -295,7 +296,7 @@ const FIX_TONES: Record<FleetFix["state"], NoticeTone> = {
 };
 
 /**
- * Every agent's script fixes (D-985): the healer's `call_mistake_fix` playbook fixes a
+ * Every agent's script fixes (D-985, D-989): the healer's `call_mistake_fix` playbook fixes a
  * mistake in the agent's own script, puts it live and watches the next calls. In progress
  * first, then newest. The incident and its steps are on Ops > Healer.
  */
@@ -317,7 +318,12 @@ function ScriptFixes() {
       id: "kind",
       header: "Mistake",
       card: "block",
-      cell: (row) => <span className="[overflow-wrap:anywhere]">{row.label}</span>,
+      cell: (row) => (
+        <span className="[overflow-wrap:anywhere]">
+          {row.label}
+          <span className="block text-meta text-ink-muted">{FIX_FOUND_BY_WORDS[row.found_by]}</span>
+        </span>
+      ),
     },
     {
       id: "state",

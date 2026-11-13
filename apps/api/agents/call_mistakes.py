@@ -512,8 +512,9 @@ class AgentMistake:
     calls: int
     #: Of those, calls that started after the latest fix.
     calls_since_fix: int
-    last_seen_at: datetime
-    last_call_id: UUID
+    #: None when no call showed it (`found_in_script`).
+    last_seen_at: datetime | None
+    last_call_id: UUID | None
     fixed_at: datetime | None
     state: AgentState
     #: The script fix's own times and counts, where the agent has one (D-985).
@@ -522,6 +523,9 @@ class AgentMistake:
     clean_calls: int = 0
     #: The owner may undo the script fix: it is live or held, and the script is still it.
     can_undo: bool = False
+    #: No call in the window showed it: the script check found its cause in the live script
+    #: and the healer fixed it before any call (D-989).
+    found_in_script: bool = False
 
 
 async def agent_mistakes(
@@ -546,14 +550,29 @@ async def agent_mistakes(
         if kind in LESSONS:
             seen.setdefault(str(kind), []).append((call_id, started))
     fixes = await _latest_fixes(session, seen)
-    own = await mistake_fixes.latest_fixes(session, agent_id, seen)
+    own = await mistake_fixes.latest_fixes(session, agent_id, LESSONS)
+    # A kind no call showed is listed only when the sweep found its cause in the live script
+    # and fixed it before any call (D-989), so the owner can read and undo that fix too.
+    early = {
+        kind
+        for kind, fix in own.items()
+        if kind not in seen
+        and fix.found_by == "script_check"
+        and (
+            fix.state in ("fixing", "live")
+            # Settled with nothing put live: the cause was gone before the fix was written.
+            or (fix.created_at >= since and not (fix.state == "fixed" and fix.live_at is None))
+        )
+    }
+    own = {kind: fix for kind, fix in own.items() if kind in seen or kind in early}
     current = await mistake_fixes.live_version(session, agent_id) if own else (None, None)
+    listed: dict[str, list[tuple[UUID, datetime]]] = {**seen, **{k: [] for k in sorted(early)}}
     out = []
-    for kind, calls in seen.items():
+    for kind, calls in listed.items():
         fix = own.get(kind)
         script_fixed_at = fix.live_at if fix is not None else None
         fixed_at = script_fixed_at if fix is not None else fixes.get(kind)
-        last_call, last_seen = calls[0]
+        last_call, last_seen = calls[0] if calls else (None, None)
         out.append(
             AgentMistake(
                 kind=kind,
@@ -578,6 +597,7 @@ async def agent_mistakes(
                     and fix.version_after is not None
                     and current == (fix.version_after, fix.version_after)
                 ),
+                found_in_script=kind in early,
             )
         )
     return sorted(out, key=lambda m: (_AGENT_ORDER[m.state], -m.calls, m.kind))

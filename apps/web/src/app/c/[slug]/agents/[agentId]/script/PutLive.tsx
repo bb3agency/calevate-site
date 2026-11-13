@@ -86,7 +86,8 @@ export function usePutLive(session: Session, agentId: string) {
  * What the script lint found in the draft (D-945), before it goes live: a count, "Fix them
  * first" and the lines behind "Why?". A warning, never a block. Offers and urgency are not
  * among them: `promo` (the D-943 check) is the dialog's one promotional warning, and
- * `/script/check` leaves that wording to it.
+ * `/script/check` leaves that wording to it. Lines that can cause a known mistake on calls
+ * (`mistakes`, D-989) are counted with them and listed as their own group behind "Why?".
  *
  * "Fix them first" fixes them here (founder, 3 Nov 2026): the draft on screen is sent to
  * `/script/fix-lines`, and a suggestion that may change only those lines is written in the
@@ -210,8 +211,12 @@ function ScriptWarnings({
     );
   }
   const { warnings } = check.data;
-  if (warnings.length === 0) return undoRow || null;
-  const lines = warnings.length === 1 ? "1 line" : `${warnings.length} lines`;
+  // Lines that can cause a known mistake on calls (D-989): their own group, fixed by the same
+  // button, never a block on "Put it live".
+  const mistakes = check.data.mistakes ?? [];
+  const total = warnings.length + mistakes.length;
+  if (total === 0) return undoRow || null;
+  const lines = total === 1 ? "1 line" : `${total} lines`;
   const handWritten = draft.raw_override !== null && draft.raw_override !== undefined;
 
   if (busy) {
@@ -235,6 +240,7 @@ function ScriptWarnings({
     {undoRow}
     <div role="status" className="mt-3 rounded-md bg-warn-soft px-3 py-2">
       <p className="text-body text-ink">{lines} to fix first</p>
+      {mistakes.length > 0 && <p className="text-meta text-ink-muted">{mistakesLine(mistakes.length, total)}</p>}
       {handWritten && <p className="text-meta text-ink-muted">Edit them in your text before it goes live.</p>}
       <div className="mt-2 flex flex-wrap items-center gap-3">
         {!handWritten && (
@@ -251,19 +257,17 @@ function ScriptWarnings({
               );
             }}
           >
-            {warnings.length === 1 ? "Fix it first" : "Fix them first"}
+            {total === 1 ? "Fix it first" : "Fix them first"}
           </ActionButton>
         )}
         <Why inline className="text-meta text-ink-muted">
-          <span className="mt-1 block space-y-2">
-            {warningRows(warnings).map((row) => (
-              <span key={row.where + row.problem} className="block">
-                {row.where && <span className="font-medium text-ink">{row.where}: </span>}
-                <span className="text-ink">{row.problem}</span>
-                {row.advice && <span className="block">{row.advice}</span>}
-              </span>
-            ))}
-          </span>
+          <WarningList warnings={warnings} />
+          {mistakes.length > 0 && (
+            <>
+              <span className="mt-2 block font-medium text-ink">Could cause mistakes on calls</span>
+              <WarningList warnings={mistakes} />
+            </>
+          )}
         </Why>
       </div>
       {failed && <p className="mt-2 text-meta text-danger">{failed}</p>}
@@ -279,6 +283,27 @@ function ScriptWarnings({
       )}
     </div>
     </>
+  );
+}
+
+/** How many of the lines to fix can cause a mistake on calls, in a few words. */
+export function mistakesLine(mistakes: number, total: number): string {
+  if (mistakes === total) return total === 1 ? "It could cause a mistake on calls." : "They could cause mistakes on calls.";
+  return mistakes === 1 ? "1 of them could cause a mistake on calls." : `${mistakes} of them could cause mistakes on calls.`;
+}
+
+function WarningList({ warnings }: { warnings: readonly string[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <span className="mt-1 block space-y-2">
+      {warningRows(warnings).map((row) => (
+        <span key={row.where + row.problem} className="block">
+          {row.where && <span className="font-medium text-ink">{row.where}: </span>}
+          <span className="text-ink">{row.problem}</span>
+          {row.advice && <span className="block">{row.advice}</span>}
+        </span>
+      ))}
+    </span>
   );
 }
 

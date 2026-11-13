@@ -463,12 +463,15 @@ class LeftOut:
     """A part of an edit that was not changed because what the model wrote for it broke a
     rule: `part` is `stages.<id>` for a step, else the field name (`stages` alone is the
     step list as a whole); `name` is the step's name; `added` marks a step the model added
-    that is therefore not added; `rule` is the rule it broke, in our words."""
+    that is therefore not added; `rule` is the rule it broke, in our words. `unfixed` marks
+    a warning Pip's repairs could not clear in the suggestion itself (`fix_left`), rather
+    than a part kept as the owner had it."""
 
     part: str
     name: str
     rule: str
     added: bool = False
+    unfixed: bool = False
 
 
 def left_out_parts(

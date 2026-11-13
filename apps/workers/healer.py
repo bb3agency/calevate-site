@@ -52,6 +52,7 @@ from apps.api.healer.playbooks import (
     PLAYBOOK_BY_JOB,
     PLAYBOOK_BY_KEY,
     PLAYBOOK_BY_TRIGGER,
+    SCRIPT_CHECK_FOUND,
     may_run,
 )
 from apps.api.reliability.engine_actions import check_agent_actions
@@ -95,7 +96,13 @@ MONEY_RECHECK_S: Final = 60 * 60
 #: The alarm codes the scorer raises itself; their incidents are opened by the scorer
 #: with the agent they are about, never from the alarm episode, which names only one.
 SELF_OPENED: Final = frozenset(
-    {AGENT_HEALTH_DEGRADED, AGENT_LINE_BROKEN, ENGINE_PLATFORM_OUTAGE, CALL_MISTAKE_SEEN}
+    {
+        AGENT_HEALTH_DEGRADED,
+        AGENT_LINE_BROKEN,
+        ENGINE_PLATFORM_OUTAGE,
+        CALL_MISTAKE_SEEN,
+        SCRIPT_CHECK_FOUND,
+    }
 )
 
 

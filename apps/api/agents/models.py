@@ -616,6 +616,9 @@ class Agent(PKMixin, TimestampMixin, Base):
     live_prompt_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("prompt_versions.id", use_alter=True, ondelete="SET NULL")
     )
+    # The live script version the call-mistake sweep last checked (D-989): an agent is
+    # checked again only once its live script changed.
+    script_checked_version: Mapped[int | None] = mapped_column(Integer)
     extraction_schema_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("extraction_schemas.id", use_alter=True, ondelete="SET NULL")
     )
@@ -2082,6 +2085,10 @@ MISTAKE_FIX_ENDINGS: Final = (
     "agent_gone",
 )
 MistakeFixState = Literal["fixing", "live", "fixed", "rolled_back", "needs_person"]
+#: What opened a fix: a real call showing the kind (D-985), or the sweep of live scripts
+#: finding its cause before any call (D-989).
+MistakeFixFoundBy = Literal["call", "script_check"]
+MISTAKE_FIX_FOUND_BY: Final[tuple[MistakeFixFoundBy, ...]] = get_args(MistakeFixFoundBy)
 
 
 def _among(column: str, values: tuple[str, ...]) -> str:
@@ -2105,6 +2112,7 @@ class AgentMistakeFix(PKMixin, TimestampMixin, Base):
             name="settled_iff",
         ),
         CheckConstraint("attempts >= 0 AND waits >= 0", name="counts_nonnegative"),
+        CheckConstraint(_among("found_by", MISTAKE_FIX_FOUND_BY), name="found_by_enum"),
         Index(
             "uq_agent_mistake_fixes_active",
             "agent_id",
@@ -2129,6 +2137,7 @@ class AgentMistakeFix(PKMixin, TimestampMixin, Base):
         ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     kind: Mapped[str] = mapped_column(Text, nullable=False)
+    found_by: Mapped[str] = mapped_column(Text, nullable=False, server_default="call")
     state: Mapped[str] = mapped_column(Text, nullable=False, server_default="fixing")
     ended_because: Mapped[str | None] = mapped_column(Text)
     attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")

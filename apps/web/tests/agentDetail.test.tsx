@@ -1724,6 +1724,45 @@ describe("putting a waiting script live from the header", () => {
     expect(within(dialog).getByRole("button", { name: "Put it live" }).hasAttribute("disabled")).toBe(true);
   });
 
+  it("shows lines that could cause mistakes on calls as their own group, never blocking (D-989)", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": STAGED,
+        "/v1/agents/agent-1/script": WAITING_SCRIPT,
+        "POST /v1/agents/agent-1/script/check": {
+          warnings: [],
+          mistakes: ["Step 1: asks more than one question in one turn; keep it to one question."],
+        },
+        "POST /v1/agents/agent-1/script/fix-lines": {
+          id: "fix-2",
+          mode: "change",
+          status: "drafting",
+          note: null,
+          base_script: WAITING_SCRIPT.script,
+          script: null,
+        },
+        "/v1/agents/agent-1/script/proposal": { proposal: null },
+      }),
+    );
+    const open = await screen.findByRole("button", { name: "Put it live" });
+    await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(open);
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
+    await within(dialog).findByText("1 line to fix first");
+    expect(within(dialog).getByText("It could cause a mistake on calls.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /why/i }));
+    expect(within(dialog).getByText("Could cause mistakes on calls")).toBeTruthy();
+    expect(within(dialog).getByRole("button", { name: "Put it live" }).hasAttribute("disabled")).toBe(false);
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Fix it first" }));
+    });
+    expect(await within(dialog).findByText("Fixing 1 line…")).toBeTruthy();
+    expect(calls.some((c) => c.method === "POST" && c.url.includes("/script/fix-lines"))).toBe(true);
+  });
+
   it("offers Try again when the line check fails", async () => {
     await renderClientPage(
       page,

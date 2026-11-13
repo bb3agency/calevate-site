@@ -1239,6 +1239,33 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Extra mistakes that put a fix back",
         "More other mistakes per 100 calls after a fix than before it puts the old script back.",
     ),
+    "script_mistake_repair_passes": _m(
+        "healer",
+        "script-fixes",
+        "Repairs Pip spends on lines that cause mistakes",
+        "Rounds Pip may spend rewriting lines the mistake checks find in a script it wrote.",
+        details="Each round uses the client's AI allowance. 0 checks the lines and shows the owner "
+        "what is left, with no extra round.",
+    ),
+    "script_check_sweep_minutes": _m(
+        "healer",
+        "script-fixes",
+        "Minutes between checks of live scripts",
+        "How often live scripts are checked for lines that cause mistakes, before any call.",
+        details="Counted from midnight IST. A script is checked again only after it changes.",
+    ),
+    "script_check_sweep_agents": _m(
+        "healer",
+        "script-fixes",
+        "Agents checked per sweep",
+        "Live agents one sweep checks; the rest are checked on the next sweep.",
+    ),
+    "script_check_sweep_max_fixes": _m(
+        "healer",
+        "script-fixes",
+        "Fixes one sweep may start",
+        "Fixes a sweep may start across every client. 0 starts none.",
+    ),
     # ---- security --------------------------------------------------------------------
     "first_party_auth_enabled": _m(
         "security",
@@ -1506,6 +1533,10 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "call_mistake_fix_max_waits": ControlHint(unit="looks"),
     "call_mistake_fix_compare_calls": ControlHint(unit="calls"),
     "call_mistake_fix_worse_per_100_calls": ControlHint(unit="mistakes per 100 calls"),
+    "script_mistake_repair_passes": ControlHint(unit="rounds"),
+    "script_check_sweep_minutes": ControlHint(unit="minutes"),
+    "script_check_sweep_agents": ControlHint(unit="agents"),
+    "script_check_sweep_max_fixes": ControlHint(unit="fixes"),
     "paid_test_copy_idle_days": ControlHint(unit="days"),
     "forwarding_test_daily_cap": ControlHint(unit="tests a day"),
     "whatsapp_message_inr": ControlHint(unit="rupees"),
