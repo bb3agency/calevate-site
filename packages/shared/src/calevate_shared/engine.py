@@ -3698,10 +3698,13 @@ def _when_you_cannot_help_section(cfg: AgentConfig) -> str:
 #: founder, 10 Nov 2026) keeps an earlier call's outcome from being treated as true now: on
 #: the Varsha call of 10 Nov the agent told the caller "we have installed the app" from a
 #: 5 Nov call, and on a placed call the vendor's recap competed with why we ring.
+#: "Only when they do, or it is why you call" (founder, 14 Nov 2026): on the Varsha call of
+#: 13 Nov (22:27) the agent opened its second turn with "we have spoken before" from test
+#: calls the caller did not connect to it, and the caller asked who it was and why it called.
 ENGINE_MEMORY_RULE: Final = (
     "--- EARLIER CALLS ---\n"
-    "Speak of an earlier conversation only when what you were given about this caller shows "
-    "one; never invent one. It tells you what was talked about then, not what is true now: "
+    "Bring up an earlier conversation only when they do, or it is why you call; never open "
+    "with it or invent one. It tells you what was talked about then, not what is true now: "
     "ask before saying they did, have or use anything. On a call you place, why you call "
     "comes first."
 )

@@ -41,7 +41,7 @@ def test_what_they_said_counts_only_when_said_on_this_call() -> None:
 
 def test_an_earlier_call_is_what_was_talked_about_not_what_is_true_now() -> None:
     assert ENGINE_MEMORY_RULE.endswith(
-        "never invent one. It tells you what was talked about then, not what is true now: "
+        "or invent one. It tells you what was talked about then, not what is true now: "
         "ask before saying they did, have or use anything. On a call you place, why you call "
         "comes first."
     )
@@ -63,3 +63,9 @@ def test_either_sentence_moves_the_platform_revision(
     now = platform_prompt_revision()
     monkeypatch.setattr(engine, name, getattr(engine, name) + " x")
     assert platform_prompt_revision() != now
+
+
+def test_an_earlier_call_is_raised_only_when_the_caller_does_or_it_is_why_we_call() -> None:
+    """FAILS IF: the agent may open a call with an earlier conversation the caller did not
+    bring up (founder's Varsha call of 13 Nov 2026, 22:27: "we have spoken before")."""
+    assert "only when they do, or it is why you call; never open with it" in ENGINE_MEMORY_RULE
