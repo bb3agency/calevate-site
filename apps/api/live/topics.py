@@ -133,6 +133,9 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     "agent_config_attestations": "agents",
     "agent_handoff_members": "agents",
     "agent_health_windows": "agents",
+    # D-987: written by the healer as it moves an agent's voice, read on the agent page.
+    "agent_voice_history": "agents",
+    "agent_voice_switches": "agents",
     # The agent page's "Knows by heart", re-chosen by a worker the owner did not trigger.
     "agent_hot_facts": "agents",
     # Tell my team (D-904): an agent's rule shows on its Settings; the addresses are the account's.

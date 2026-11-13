@@ -14395,7 +14395,7 @@ export interface components {
              * Outcome
              * @enum {string}
              */
-            outcome: "ok" | "failed" | "skipped" | "refused";
+            outcome: "ok" | "failed" | "skipped" | "refused" | "shadow";
             /** Playbook */
             playbook: string;
             /** Step */
@@ -25021,12 +25021,31 @@ export interface components {
             /** Unavailable Reason */
             unavailable_reason: string | null;
         };
+        /**
+         * HealerMetricsOut
+         * @description What the healer itself did over `days` (D-987): its own track record.
+         */
+        HealerMetricsOut: {
+            /** Actions */
+            actions: number;
+            /** Days */
+            days: number;
+            /** Failed */
+            failed: number;
+            /** Recurrences */
+            recurrences: number;
+            /** Shadow */
+            shadow: number;
+            /** Undone */
+            undone: number;
+        };
         /** HealerOverviewOut */
         HealerOverviewOut: {
             /** Enabled */
             enabled: boolean;
             /** Escalated Incidents */
             escalated_incidents: number;
+            metrics: components["schemas"]["HealerMetricsOut"];
             /** Open Incidents */
             open_incidents: number;
             paging: components["schemas"]["PagingOut"];
@@ -25034,6 +25053,8 @@ export interface components {
             paused: string[];
             /** Playbooks */
             playbooks: components["schemas"]["PlaybookOut"][];
+            /** Shadow */
+            shadow: string[];
             /** Unknown Paused */
             unknown_paused: string[];
         };
@@ -25499,6 +25520,8 @@ export interface components {
             opened_at: string;
             /** Playbook */
             playbook: string;
+            /** Postmortem */
+            postmortem?: string | null;
             /** Progress */
             progress: string;
             /** Public */

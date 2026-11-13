@@ -49,7 +49,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Final, Literal, get_args
+from typing import Final, Literal, cast, get_args
 from uuid import UUID
 
 from calevate_shared.engine import CostBreakdown
@@ -447,6 +447,23 @@ class MinuteCost:
         return self.inr_per_min is not None and self.topup_fee is not None
 
 
+#: The engine voice bands, as a call's billing names its plan (`CallBilling.voice_plan`).
+_BAND_KEYS: Final[frozenset[str]] = frozenset({"standard", "premium", "studio"})
+
+
+def rate_key_ran(keys: str | None, voice_plan: str | None) -> EngineRateKey | None:
+    """The rate key a call RAN on, from the platform's own billing of it (`CallBilling`):
+    our voice key (`voice`, `llm_voice`) is the own-key minute; the platform's voices on a
+    band (`off`, or `llm` on our model) are that band. None where it says neither."""
+    if keys == "voice":
+        return BYOK_VOICE_RATE_KEY
+    if keys == "llm_voice":
+        return BYOK_LLM_VOICE_RATE_KEY
+    if keys in ("off", "llm") and voice_plan in _BAND_KEYS:
+        return cast(EngineRateKey, voice_plan)
+    return None
+
+
 async def _on_brought_number(session: AsyncSession, *, tenant_id: UUID, call_id: UUID) -> bool:
     """Did this call ring one of the client's numbers that we record as brought, not rented
     from the platform (`phone_numbers.engine_owned` false)? A number we hold no row for is
@@ -488,6 +505,8 @@ async def engine_minute_cost(
     carrier_only: bool = False,
     forwarded: bool = False,
     engine_agent_ref: str | None = None,
+    ran_keys: str | None = None,
+    ran_voice_plan: str | None = None,
 ) -> MinuteCost:
     """This call's supplier cost at the rate attested for its vendor agent's rate key, or
     for the carrier's fee when it ended before the agent spoke (`carrier_only`).
@@ -497,6 +516,11 @@ async def engine_minute_cost(
     beside a newer one, and its late result must be metered at ITS route's rate key, not the
     replacement's, which a voice-rung change can make different. Without the ref (or for a
     ref no route carries) the agent's active route is used.
+
+    `ran_keys` / `ran_voice_plan` are the platform's billing of the call (`CallBilling`). When
+    they name another rate than the route's AND the route was re-stamped after the call began
+    (the agent's voice moved mid-flight, as a healer switch does, D-987), the call is metered
+    at what it ran on: each call billed on the voice that spoke it.
 
     A `forwarded` call (a number forward put it through to a phone) is billed every
     connected second at the plan it was admitted at: the attached agent's, or Premium when
@@ -520,7 +544,8 @@ async def engine_minute_cost(
     stamped = (
         await session.execute(
             text(
-                "SELECT r.engine_rate_key, r.engine_own_model FROM calls c "
+                "SELECT r.engine_rate_key, r.engine_own_model, "
+                "r.updated_at > coalesce(c.started_at, c.created_at) FROM calls c "
                 "JOIN engine_agent_routes r "
                 "ON r.agent_id = c.agent_id AND r.tenant_id = c.tenant_id AND r.engine = :e "
                 "WHERE c.id = :cid AND c.tenant_id = :tid "
@@ -532,6 +557,19 @@ async def engine_minute_cost(
     ).first()
     route_key = str(stamped[0]) if stamped is not None and stamped[0] else BASE_RATE_KEY
     own_model = str(stamped[1]) if stamped is not None and stamped[1] else None
+    ran = rate_key_ran(ran_keys, ran_voice_plan)
+    if (
+        ran is not None
+        and ran != route_key
+        and not (carrier_only or forwarded)
+        and stamped is not None
+        and bool(stamped[2])
+    ):
+        # The route moved to another voice after this call began (a voice switch, D-987):
+        # the call is billed on the voice the platform says spoke it, client rung included.
+        # A route unchanged since the call began keeps its key, so a key of ours gone at the
+        # start still reads as a mismatch in the charge comparison.
+        route_key = ran
     # The client's rung stays the agent's on every call.
     if carrier_only:
         rate_key = CARRIER_RATE_KEY
@@ -616,6 +654,7 @@ __all__ = [
     "engine_minute_is_billable",
     "forward_without_agent_rate_key",
     "minute_cost_rows",
+    "rate_key_ran",
     "record_engine_rate_key",
     "required_wallet_fee",
     "wallet_fee",

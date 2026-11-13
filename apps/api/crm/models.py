@@ -439,6 +439,9 @@ class Call(PKMixin, TimestampMixin, Base):
     # could never be reached by the same person's standing instruction. Same construction
     # as `deletion_requests.subject_ref`, for the same reason.
     erased_subject_ref: Mapped[str | None] = mapped_column(Text)
+    #: The platform said the call ended before the agent spoke (D-987, migration
+    #: d7f3a9c1e5b2): the caller hung up in the silence. NULL for a call before it was read.
+    ended_before_agent: Mapped[bool | None] = mapped_column(Boolean)
     # The instant the big red switch asked the vendor to drop this dial before it rang
     # (D-432, migration d5c81f30ab47). NULL means never asked, which is the right reading
     # for every row written before the recall existed.

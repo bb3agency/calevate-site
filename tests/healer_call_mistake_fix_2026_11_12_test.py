@@ -667,8 +667,10 @@ async def test_a_tenant_reads_only_its_own_fixes() -> None:
 
 
 STEM = "c4e8a2f6d1b9_agent_mistake_fixes"
-#: The revision built on this one (D-989), stepped down first and up last.
-LATER = "a9e4c7d2f5b1_script_checks_before_calls"
+#: The revisions built on this one, newest first (D-987, then D-989): each is stepped down
+#: before this one and up after it, since their rows would violate the narrower CHECK this
+#: one restores.
+LATER = ("d7f3a9c1e5b2_voice_fallback", "a9e4c7d2f5b1_script_checks_before_calls")
 
 
 def _revision(stem: str = STEM) -> ModuleType:
@@ -681,7 +683,7 @@ def _revision(stem: str = STEM) -> ModuleType:
 
 
 def test_the_migration_goes_down_and_up() -> None:
-    revision, later = _revision(), _revision(LATER)
+    revision, later = _revision(), [_revision(stem) for stem in LATER]
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(
         "+asyncpg", "+psycopg"
     )
@@ -696,13 +698,15 @@ def test_the_migration_goes_down_and_up() -> None:
             transaction = connection.begin()
             try:
                 with Operations.context(MigrationContext.configure(connection)):
-                    later.downgrade()
+                    for newer in later:
+                        newer.downgrade()
                     assert connection.execute(found_by).scalar() == 0
                     revision.downgrade()
                     assert connection.execute(exists).scalar() is False
                     revision.upgrade()
                     assert connection.execute(exists).scalar() is True
-                    later.upgrade()
+                    for newer in reversed(later):
+                        newer.upgrade()
                     assert connection.execute(found_by).scalar() == 1
             finally:
                 transaction.rollback()

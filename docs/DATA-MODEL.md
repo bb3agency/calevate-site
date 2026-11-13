@@ -1914,6 +1914,12 @@ audit_log  -- (defined in §9) exempt because the admin realm reads cross-tenant
 | `agent_health_windows` | tenant, FORCE RLS | One agent's real calls in one fifteen-minute window: the seven signal counts, `score` NUMERIC(5,2), the agent's `baseline`, `deviating`. Kept fourteen days. |
 | `agent_mistake_fixes` (D-985, migration `c4e8a2f6d1b9`) | tenant, FORCE RLS | One automatic fix of one real-call mistake kind in one agent's script: `kind`, `state` fixing/live/fixed/rolled_back/needs_person, `ended_because`, `attempts`, `waits`, `incident_id`, the open `proposal_id`, `version_before`/`version_base`/`version_after`, `live_at`, `settled_at`, `undone_by` (a client user). One in progress per agent and kind (`uq_agent_mistake_fixes_active`). Ids, kinds, versions and times only. `found_by` call/script_check (D-989, migration `a9e4c7d2f5b1`): a real call showed the kind, or the sweep of live scripts found its cause first. The operator board reads it through `agent_mistake_fix_scan(since)`; the sweep lists due agents through `agent_script_check_due(n)` and records the live version it checked in `agents.script_checked_version`. |
 | `heal_proposals` | tenant, FORCE RLS | A behaviour change waiting for a person: `kind` rollback_prompt/review_knowledge/review_languages, `status`, `detail` (ids and numbers only); one pending per agent and kind. |
+| `agent_voice_history` (D-987, migration `d7f3a9c1e5b2`) | tenant, FORCE RLS | Per agent and voice (`engine_voice_id`, our catalogue id): `first_good_at`, `last_good_at` (a call went through with no failure the caller heard) and `last_failed_at`. One row per (agent, voice). The healer's "last working voice". Ids and times only. |
+| `agent_voice_switches` (D-987, migration `d7f3a9c1e5b2`) | tenant, FORCE RLS | One move of an agent to a backup voice by the healer: `from_voice`/`to_voice`, `from_rung`/`to_rung` clear/studio, `reason` voice_failed/silent_call, `state` switched/restored/held/stood_down/undone/shadow, `probes_passed`, `switched_at`, `restored_at`, `settled_at`, `incident_id`. One `switched` per agent (`uq_agent_voice_switches_active`). |
+
+D-987 also adds `heal_incidents.summary` (draft post-incident summary, 4000 chars) and
+`heal_actions.outcome` `shadow` (a dry-run step), `heal_client_incidents.kind`
+`voice_switched`, and `calls.ended_before_agent` (the platform's `hangup` `before_agent`).
 
 Two columns elsewhere: `agents.inbound_silence_reason` accepts `healer` (the CHECK
 `ck_agents_inbound_silence_reason`), and `campaigns.paused_by_heal_id` (FK, SET NULL) marks

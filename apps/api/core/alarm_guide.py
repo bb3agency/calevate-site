@@ -295,6 +295,46 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "A broken agent is answering again",
         "One client's callers reach an agent with a broken set-up until the hold is re-applied.",
     ),
+    "voice_probe_failed": _s(
+        "A Studio voice failed its check on our key",
+        "Callers on Studio agents may hear silence; affected agents move to a Clear voice.",
+    ),
+    "caller_heard_failure_repeat": _s(
+        "Callers keep hearing failures on one agent",
+        "One client's callers heard silence or a cut-off more than once in the hour.",
+    ),
+    "voice_domain_failing": _s(
+        "Callers hear failures on many agents at once",
+        "Every client on that voice, or on our Studio voice key, may be affected.",
+    ),
+    "voice_switch_failed": _s(
+        "An agent could not be moved off a failing voice",
+        "One client's callers still reach an agent they cannot hear.",
+    ),
+    "voice_switch_no_fallback": _s(
+        "No backup voice for an agent callers cannot hear",
+        "One client's agent stays on its failing voice until someone chooses another.",
+    ),
+    "voice_switch_breaker": _s(
+        "Too many agents' voices failed at once",
+        "Several clients may be affected; the healer stopped switching voices.",
+    ),
+    "voice_switch_relapsed": _s(
+        "An agent's voice failed again after it came back",
+        "One client's agent stays on its backup voice until someone decides.",
+    ),
+    "engine_call_own_key_failed": _s(
+        "One of our own keys failed on a live call",
+        "Every call on that key fails the same way until the key is fixed.",
+    ),
+    "call_objective_fast_burn": _s(
+        "Many calls are failing for callers",
+        "Calls with silence or cut-offs are far above the objective right now.",
+    ),
+    "healer_action_breaker": _s(
+        "The auto-healer stopped every automatic repair",
+        "Too many repairs ran at once; nothing repairs itself until a person looks.",
+    ),
     "studio_voice_key_push_failed": _s(
         "A new Studio voice key did not reach a workspace",
         "Studio calls there still use the previous key, and stop speaking if that key was revoked.",

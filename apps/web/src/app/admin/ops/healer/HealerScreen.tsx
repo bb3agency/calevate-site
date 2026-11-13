@@ -82,6 +82,7 @@ const OUTCOME_WORDS: Record<HealerAction["outcome"], string> = {
   failed: "failed",
   skipped: "skipped",
   refused: "refused",
+  shadow: "dry run, not done",
 };
 
 /**
@@ -180,7 +181,25 @@ function Overview({ data }: { data: HealerOverview }) {
           </p>
         </NoticeBox>
       )}
+      {data.shadow.length > 0 && (
+        <NoticeBox tone="warn" title="Some repairs only record">
+          <p className="mt-1">
+            {data.shadow.join(", ")} write what they would do and change nothing.
+          </p>
+        </NoticeBox>
+      )}
       <div className="grid grid-cols-2 gap-4 border-y border-line py-4 sm:grid-cols-3">
+        <Metric
+          label={`Repairs, last ${data.metrics.days} days`}
+          value={data.metrics.actions}
+          hint={`${data.metrics.failed} failed, ${data.metrics.undone} undone, ${data.metrics.shadow} dry run.`}
+        />
+        <Metric
+          label="Problems that came back"
+          value={data.metrics.recurrences}
+          tone={data.metrics.recurrences > 0 ? "warn" : "default"}
+          hint="Opened again soon after one like it closed."
+        />
         <Metric
           label="Open problems"
           value={data.open_incidents}
@@ -313,6 +332,12 @@ function IncidentRow({
         {incident.resolved_at && <> · Closed {formatIST(incident.resolved_at)}</>}
         {incident.public && <> · On the status page</>}
       </p>
+      {incident.postmortem && (
+        <details className="text-meta text-ink">
+          <summary className="cursor-pointer text-ink-muted">What happened</summary>
+          <p className="mt-1 whitespace-pre-line">{incident.postmortem}</p>
+        </details>
+      )}
       {incident.finding && incident.resolved_at === null && (
         <p
           data-notice="neutral"

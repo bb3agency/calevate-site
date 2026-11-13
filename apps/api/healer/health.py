@@ -12,14 +12,17 @@ knowledge-gap occurrences work on every engine. A slow call is one whose p90 rep
 (`calls.engine_quality`) passed `SLOW_REPLY_MS`, or on which the platform reported a
 `slow_reply` problem (`call_engine_signals`); silence, an apology or a cut-off the caller
 heard counts as a failed call. Caller-language mismatches come from the recorded turns, and
-in-call action failures from `action_invocations`.
+in-call action failures from `action_invocations`. A silent call (no turn, or no voice
+report, on an answered call) is a failure the caller heard and dead air (a long silence, or
+the caller leaving before the agent spoke) is a slow call, each from the call's own quality
+figures (D-987).
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Final
 from uuid import UUID
@@ -28,6 +31,7 @@ from calevate_shared.events import CALLER_HEARD_FAILURE
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 
 WINDOW: Final = timedelta(minutes=15)
@@ -129,19 +133,66 @@ def window_start(at: datetime) -> datetime:
     return at.replace(minute=at.minute - at.minute % 15, second=0, microsecond=0)
 
 
+#: (D-987) An answered call that never became a conversation, from the call's own quality
+#: block (`calevate_shared.events.CallQuality`): at least `:silent_s` long with no turn at
+#: all, or with no quality block at all (the platform's voice connection never reported).
+#: A quality block can land after the call's first row (`call.analysed` follows
+#: `call.completed`), so a missing one counts only on a row untouched since `:settled_before`.
+#: Counted as a failure the caller heard, beside the platform's own `call.problem`, which
+#: is capped per agent and may never arrive (webhooks.md "Problems on a live call").
+def silent_call_sql(alias: str) -> str:
+    """The silent-call test for the `calls` row named `alias`."""
+    return (
+        f"({alias}.status = 'completed' AND coalesce({alias}.duration_s, 0) >= :silent_s"
+        f" AND NOT coalesce({alias}.forwarded_to_phone, false)"
+        f" AND (({alias}.engine_quality IS NULL AND {alias}.updated_at < :settled_before)"
+        f" OR ({alias}.engine_quality ->> 'turns')::int = 0))"
+    )
+
+
+SILENT_CALL_SQL: Final = silent_call_sql("c")
+#: (D-987) Dead air on a call the caller stayed on: one silence of `:dead_s` or more, or
+#: `:dead_n` long silences, or the call ending before the agent spoke at all
+#: (`calls.ended_before_agent`, the platform's `hangup` `before_agent`).
+DEAD_AIR_SQL: Final = (
+    "((c.engine_quality ->> 'longest_silence_s')::float8 >= :dead_s"
+    " OR (c.engine_quality ->> 'long_silences')::int >= :dead_n"
+    " OR coalesce(c.ended_before_agent, false))"
+)
+#: A failure the caller heard on one call: the platform reported one, or the call was silent.
+HEARD_SQL: Final = (
+    "(EXISTS (SELECT 1 FROM call_engine_signals s WHERE s.engine_call_id = c.engine_call_id"
+    " AND s.kind = ANY(CAST(:heard AS text[]))) OR " + SILENT_CALL_SQL + ")"
+)
+
+
+def call_check_params(now: datetime) -> dict[str, Any]:
+    """The bound values `SILENT_CALL_SQL`, `DEAD_AIR_SQL` and `HEARD_SQL` read, from the
+    console's settings."""
+    settings = get_settings()
+    return {
+        "silent_s": settings.healer_silent_call_seconds,
+        "settled_before": now - WINDOW,
+        "dead_s": settings.healer_dead_air_seconds,
+        "dead_n": settings.healer_dead_air_count,
+        "heard": sorted(CALLER_HEARD_FAILURE),
+    }
+
+
 _COUNTS = text(
     "WITH c AS ("
     " SELECT c.id, c.agent_id, c.engine_call_id, c.status, c.duration_s, c.outcome_tag,"
-    " c.engine_quality"
+    " c.engine_quality, c.forwarded_to_phone, c.updated_at, c.ended_before_agent"
     " FROM calls c WHERE c.created_at >= :start AND c.created_at < :end"
-    " AND NOT c.trial_call AND c.status IN ('completed', 'failed'))"
+    " AND NOT c.trial_call AND c.status IN ('completed', 'failed')"
+    " AND (CAST(:aid AS uuid) IS NULL OR c.agent_id = :aid))"
     " SELECT a.id, count(c.id),"
-    " count(c.id) FILTER (WHERE c.status = 'completed' AND coalesce(c.duration_s, 0) < :short),"
-    " count(c.id) FILTER (WHERE c.status = 'failed' OR EXISTS (SELECT 1 FROM call_engine_signals s"
-    "   WHERE s.engine_call_id = c.engine_call_id AND s.kind = ANY(CAST(:heard AS text[])))),"
+    " count(c.id) FILTER (WHERE c.status = 'completed' AND coalesce(c.duration_s, 0) < :short"
+    "   AND NOT " + SILENT_CALL_SQL + "),"
+    " count(c.id) FILTER (WHERE c.status = 'failed' OR " + HEARD_SQL + "),"
     " count(c.id) FILTER (WHERE (c.engine_quality ->> 'reply_ms_p90')::float8 > :slow"
     "   OR EXISTS (SELECT 1 FROM call_engine_signals s WHERE s.engine_call_id = c.engine_call_id"
-    "   AND s.kind = 'slow_reply')),"
+    "   AND s.kind = 'slow_reply') OR " + DEAD_AIR_SQL + "),"
     " count(c.id) FILTER (WHERE c.outcome_tag = 'transferred'),"
     " count(c.id) FILTER (WHERE"
     "   EXISTS (SELECT 1 FROM knowledge_gap_occurrences g WHERE g.call_id = c.id)),"
@@ -183,15 +234,23 @@ _UPSERT = text(
 
 async def count_window(session: AsyncSession, *, start: datetime) -> list[WindowCounts]:
     """Every agent of the session's tenant with at least one real call in the window."""
-    params = {"start": start, "end": start + WINDOW}
+    return await count_between(session, start=start, end=start + WINDOW)
+
+
+async def count_between(
+    session: AsyncSession, *, start: datetime, end: datetime, agent_id: UUID | None = None
+) -> list[WindowCounts]:
+    """The same counts over any span, optionally for one agent (the post-publish watch)."""
+    params = {"start": start, "end": end}
     rows = (
         await session.execute(
             _COUNTS,
             {
                 **params,
+                **call_check_params(datetime.now(UTC)),
                 "short": SHORT_CALL_S,
                 "slow": SLOW_REPLY_MS,
-                "heard": sorted(CALLER_HEARD_FAILURE),
+                "aid": agent_id,
             },
         )
     ).all()
@@ -348,13 +407,18 @@ __all__ = [
     "ACTION_OK_STATUSES",
     "BROKEN_MIN_CALLS",
     "BROKEN_SHARE",
+    "DEAD_AIR_SQL",
+    "HEARD_SQL",
     "MIN_WINDOW_CALLS",
+    "SILENT_CALL_SQL",
     "SUSTAINED_WINDOWS",
     "WINDOW",
     "Verdict",
     "WindowCounts",
     "baseline_for",
+    "call_check_params",
     "calls_since",
+    "count_between",
     "count_window",
     "deviates",
     "judge",
@@ -362,6 +426,7 @@ __all__ = [
     "prune",
     "record_window",
     "score",
+    "silent_call_sql",
     "verdict_for",
     "window_start",
 ]

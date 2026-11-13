@@ -86,6 +86,7 @@ const INCIDENTS: HealerIncident[] = [
     group: "Failed background jobs",
     automatic: true,
     progress: "Fixed automatically after 3 tries",
+    postmortem: "Background jobs failed after every retry.\nTimeline:\n- 10 Oct 19:30 IST act ok",
   }),
   incident({
     id: "019f1000-0000-7000-8000-0000000000w1",
@@ -112,6 +113,7 @@ const OVERVIEW: HealerOverview = {
   enabled: true,
   paused: ["outbox_replay", "not_a_playbook"],
   unknown_paused: ["not_a_playbook"],
+  shadow: [],
   playbooks: [
     {
       key: "outbox_replay",
@@ -156,6 +158,7 @@ const OVERVIEW: HealerOverview = {
   },
   open_incidents: 2,
   escalated_incidents: 1,
+  metrics: { days: 7, actions: 4, failed: 1, undone: 0, shadow: 0, recurrences: 1 },
 };
 
 const ACTIONS: HealerAction[] = [
@@ -247,6 +250,17 @@ describe("auto-healer screen in plain words", () => {
     const off = screen.getByText("Repairs switched off").parentElement!;
     expect(off.textContent).toContain("1");
     expect(off.textContent).not.toContain("2");
+  });
+
+  it("shows the healer's own track record and a closed problem's summary", async () => {
+    await renderAdminRoute(<OpsHealerPage />, routes());
+    await settle();
+    const record = screen.getByText("Repairs, last 7 days").parentElement!;
+    expect(record.textContent).toContain("1 failed, 0 undone, 0 dry run.");
+    expect(screen.getByText("Problems that came back")).toBeTruthy();
+    const closed = row("Background jobs failed after every retry");
+    expect(within(closed).getByText("What happened")).toBeTruthy();
+    expect(closed.textContent).toContain("Timeline:");
   });
 
   it("offers a re-check only where the healer acts itself", async () => {

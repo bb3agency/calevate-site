@@ -51,6 +51,7 @@ ClientIncidentKind = Literal[
     "script_fix_waiting",
     "script_check_fixed",
     "script_check_waiting",
+    "voice_switched",
 ]
 
 

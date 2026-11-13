@@ -7,11 +7,14 @@ could reach. The seven repair sweeps that each ran on their own clock are rows t
 (`Settings.healer_paused_playbooks`) and one global (`Settings.healer_enabled`), and one
 ledger (`heal_actions`) of everything any of them did.
 
-Behaviour has ONE automatic playbook, `call_mistake_fix` (D-985, amending D-701 clause 6):
+Behaviour has TWO automatic playbooks. `voice_fallback` (D-987, amending D-701's "voice
+changes are only proposed") moves an agent off a voice callers cannot hear to its last
+working voice and back, with the owner told and free to choose another. `call_mistake_fix`
+(D-985, amending D-701 clause 6):
 a mistake on real calls that a line of the agent's own script causes is fixed in those
 lines, checked by the same script check, put live, watched and put back automatically if it
 does not hold, with the owner told and able to undo it. Everything else that changes how
-an agent behaves — its voice, model, knowledge, its disclosure lines and notices, any other
+an agent behaves — its model, knowledge, its disclosure lines and notices, any other
 script change — stays a proposal (`healer/proposals.py`) a person approves. The model is the
 narrow, pre-approved, verified, reversible actions AI-SRE tools automate (Datadog Bits AI,
 Rootly), not a general fixer; no voice-AI vendor sells true self-healing.
@@ -20,6 +23,7 @@ Rootly), not a general fixer; no voice-AI vendor sells true self-healing.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import Final, Literal
 
 from apps.api.core.settings import get_settings
@@ -46,6 +50,16 @@ CALL_MISTAKE_SEEN: Final = "call_mistake_seen"
 SCRIPT_CHECK_FOUND: Final = "script_check_found"
 #: The playbook that fixes such a mistake in the agent's own script (D-985).
 CALL_MISTAKE_FIX: Final = "call_mistake_fix"
+#: The playbook that moves an agent off a voice callers cannot hear (D-987), and the two
+#: codes the pipeline and the call-problem intake open it with, never from an alarm episode.
+VOICE_FALLBACK: Final = "voice_fallback"
+AGENT_VOICE_FAILED: Final = "agent_voice_failed"
+AGENT_SILENT_CALL: Final = "agent_silent_call"
+#: The same caller ringing again after short or silent calls (D-987): a line check.
+AGENT_REPEAT_HANGUPS: Final = "agent_repeat_hangups"
+#: Failures callers heard on several agents of one voice or voice provider (D-987).
+VOICE_DOMAIN_OUTAGE: Final = "voice_domain_outage"
+VOICE_DOMAIN_FAILING: Final = "voice_domain_failing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +83,9 @@ class Playbook:
     automatic: bool = True
     #: False when the playbook also enforces a hard rule, so no switch may stop it.
     pausable: bool = True
+    #: The day the playbook first shipped: it only records what it would do for
+    #: `healer_new_playbook_shadow_days` after it (D-987). None for the ones before that.
+    introduced: date | None = None
 
 
 PLAYBOOKS: Final[tuple[Playbook, ...]] = (
@@ -206,9 +223,41 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
         blast_radius="agent",
     ),
     Playbook(
+        key=VOICE_FALLBACK,
+        title="Move an agent off a voice callers cannot hear",
+        triggers=(AGENT_VOICE_FAILED, AGENT_SILENT_CALL),
+        action="Move the agent to its last working voice (Clear or Studio), or else a voice "
+        "added for clients of the same gender and language, with a verified publish; tell "
+        "the owner. Never the script, the opening or the notices.",
+        verify="Studio: passing probes of the failed voice on our key, and the voice "
+        "provider not reporting a fault. Clear: the platform reporting calls working, time on "
+        "the backup, and clean calls on other agents of that voice. Then the voice goes back "
+        "and is watched.",
+        undo="Put the agent back on its own voice with a verified publish; a relapse in the "
+        "watch puts the backup voice back and pages. The owner choosing a voice stands it down.",
+        # The step reads the console's `healer_voice_*` settings instead (`effective_limits`).
+        max_attempts=1,
+        cooldown_s=10 * 60,
+        blast_radius="agent",
+        introduced=date(2026, 11, 13),
+    ),
+    Playbook(
+        key=VOICE_DOMAIN_OUTAGE,
+        title="Failures callers hear on one voice or voice provider",
+        triggers=(VOICE_DOMAIN_FAILING,),
+        action="Open one incident and page for agents failing together on one voice or our "
+        "voice key, instead of one page per agent.",
+        verify="The scorer closes it once no agent of that voice failed inside the window.",
+        undo="Not applicable.",
+        max_attempts=0,
+        cooldown_s=15 * 60,
+        blast_radius="platform",
+        automatic=False,
+    ),
+    Playbook(
         key="line_protection",
         title="Line protection",
-        triggers=(AGENT_LINE_BROKEN,),
+        triggers=(AGENT_LINE_BROKEN, AGENT_REPEAT_HANGUPS),
         action="Repair once; if calls still fail, hand callers to the client's own phone "
         "where the platform can, otherwise answer with a polite can't-take-your-call line; "
         "pause the agent's campaigns; tell the client.",
@@ -281,7 +330,31 @@ def effective_limits(playbook: Playbook) -> tuple[int, int]:
     if playbook.key == CALL_MISTAKE_FIX:
         settings = get_settings()
         return settings.call_mistake_fix_max_attempts, settings.call_mistake_fix_wait_minutes * 60
+    if playbook.key == VOICE_FALLBACK:
+        settings = get_settings()
+        return settings.healer_voice_candidates, settings.healer_voice_probe_minutes * 60
     return playbook.max_attempts, playbook.cooldown_s
+
+
+def shadow_keys(raw: str | None = None) -> frozenset[str]:
+    """The playbook keys the console put in dry run (`healer_shadow_playbooks`)."""
+    value = get_settings().healer_shadow_playbooks if raw is None else raw
+    return frozenset(part.strip() for part in value.split(",") if part.strip())
+
+
+def in_shadow(key: str, *, today: date | None = None) -> bool:
+    """Whether this playbook only records what it would do (D-987): named in the console's
+    dry-run list, or shipped fewer than `healer_new_playbook_shadow_days` days ago. A
+    playbook that also enforces a hard rule is never in dry run, as no kill switch stops it."""
+    playbook = PLAYBOOK_BY_KEY.get(key)
+    if playbook is None or not playbook.pausable or not playbook.automatic:
+        return False
+    if key in shadow_keys():
+        return True
+    days = get_settings().healer_new_playbook_shadow_days
+    if playbook.introduced is None or days <= 0:
+        return False
+    return ((today or datetime.now(UTC).date()) - playbook.introduced).days < days
 
 
 def may_run(key: str) -> bool:
@@ -295,6 +368,9 @@ def may_run(key: str) -> bool:
 __all__ = [
     "AGENT_HEALTH_DEGRADED",
     "AGENT_LINE_BROKEN",
+    "AGENT_REPEAT_HANGUPS",
+    "AGENT_SILENT_CALL",
+    "AGENT_VOICE_FAILED",
     "CALL_MISTAKE_FIX",
     "CALL_MISTAKE_SEEN",
     "ENGINE_PLATFORM_OUTAGE",
@@ -305,10 +381,15 @@ __all__ = [
     "PLAYBOOK_BY_TRIGGER",
     "SCRIPT_CHECK_FOUND",
     "STATUS_POST",
+    "VOICE_DOMAIN_FAILING",
+    "VOICE_DOMAIN_OUTAGE",
+    "VOICE_FALLBACK",
     "BlastRadius",
     "Playbook",
     "effective_limits",
+    "in_shadow",
     "may_run",
     "paused_keys",
+    "shadow_keys",
     "unknown_paused_keys",
 ]

@@ -93,6 +93,61 @@ handed to you; a real call still can. The same kill switch stops it. The sweep a
 the ordinary call fix (`call_mistake_seen`) for a kind real calls showed in the owner's window
 (`call_mistakes.WINDOW_DAYS`) that never had a fix, which is every kind seen before D-985 went live.
 
+### 2b. Callers cannot hear an agent (`voice_fallback`, D-987)
+
+Opened on the FIRST failure a caller heard on an agent: ThinnestAI's `voice_failed` on a
+live call (`agent_voice_failed`), or a silent answered call the scorer finds in the call's
+own figures (`agent_silent_call`: no turn at all, or no voice report). The playbook:
+
+1. Studio agent (our Cartesia key): speaks one short probe line on our key (the first words
+   of the agent's own greeting, at most `healer_voice_probe_max_chars`) and reads
+   status.cartesia.ai; a failed probe pages `voice_probe_failed`. Clear agent: there is no
+   preview of a catalogue voice on ThinnestAI's API, so the call is the evidence.
+2. Moves the agent to its last working voice outside the failed voice's domain (a Studio
+   agent goes to Clear; a Clear agent to Studio or another Clear voice), else to a voice
+   you added and enabled for clients of the same gender and language. Always the same
+   gender, so the agent's AI sentence stays word for word. Through the agent's normal voice
+   change: a verified publish that flips its `byok` with the rung. A publish refused or not
+   read back applied is undone and the next voice tried. Owner told (dashboard and email).
+3. Limits: one switch per agent per `healer_voice_switch_window_minutes`; more than
+   `healer_voice_breaker_agents` agents in `healer_voice_breaker_minutes` stops switching
+   and pages `voice_switch_breaker`. Nothing to move to pages `voice_switch_no_fallback`.
+4. Every `healer_voice_probe_minutes` it checks the failed voice. Studio:
+   `healer_voice_restore_probes` passing probes in a row, Cartesia not reporting a fault.
+   Clear: ThinnestAI reporting calls working, `healer_voice_clear_recovery_minutes` on the
+   backup, no failure on any agent of that voice since, and
+   `healer_voice_clear_recovery_calls` clean calls on other agents of it (or, with no other
+   agent on it, `healer_voice_clear_blind_restore_minutes`). Then the own voice goes back
+   and is watched for `healer_voice_watch_minutes`; a failure in the watch puts the backup
+   back, holds it and pages `voice_switch_relapsed`.
+5. The owner choosing a voice at any time stands the healer down for that agent.
+
+Each call is billed on the voice that spoke it: a call that began before a switch is metered
+on what the platform says it ran on (`billing/engine_minutes.rate_key_ran`).
+
+What you do when it pages: read the incident's ledger rows (both voice ids, the probe and the
+status reading). Choose the agent's voice by hand in view-as if needed, then "Mark as
+handled". Pause it with `healer_paused_playbooks=voice_fallback`; put it in dry run with
+`healer_shadow_playbooks=voice_fallback`.
+
+### 2c. The healer's own guardrails (D-987)
+
+- **Dry run.** A playbook named in `healer_shadow_playbooks`, or shipped fewer than
+  `healer_new_playbook_shadow_days` days ago, writes what it would do (ledger outcome
+  `shadow`) and changes nothing.
+- **Action breaker.** More than `healer_action_breaker_count` automatic actions across all
+  playbooks in `healer_action_breaker_minutes` stops every pausable repair and pages
+  `healer_action_breaker`.
+- **Track record.** `/admin/ops/healer` shows the last week's actions, failures, undone
+  actions, dry-run steps and problems that came back; each resolved incident gets a draft
+  summary from its ledger within `healer_summary_hours` (no model).
+- **Pages for failures callers hear.** A second one on one agent inside
+  `healer_page_repeat_minutes` (`caller_heard_failure_repeat`), failures on several agents
+  of one voice or our voice key (`voice_domain_failing`, one incident for all), any
+  `engine_call_own_key_failed`, a fast burn of the call objective
+  (`call_objective_fast_burn`). A single `voice_failed` with a healthy probe stays
+  `attention` plus the owner's line.
+
 ## 3. Every line at once (`engine_platform_outage`)
 
 Several clients' lines broke together, or the voice platform failed twice its spike

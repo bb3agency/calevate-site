@@ -63,6 +63,7 @@ from apps.api.healer.playbooks import (
     PLAYBOOKS,
     STATUS_POST,
     effective_limits,
+    in_shadow,
     paused_keys,
     unknown_paused_keys,
 )
@@ -595,14 +596,71 @@ class PagingOut(_Out):
     email_set: bool
 
 
+class HealerMetricsOut(_Out):
+    """What the healer itself did over `days` (D-987): its own track record."""
+
+    days: int
+    #: Automatic repairs that went through (act, protect and restore steps).
+    actions: int
+    #: Repairs that failed, and the ones later undone (a rollback, a voice switch put back).
+    failed: int
+    undone: int
+    #: Steps a playbook in dry run recorded without acting.
+    shadow: int
+    #: Problems that came back: opened again within `days` of the same one closing.
+    recurrences: int
+
+
 class HealerOverviewOut(_Out):
     enabled: bool
     paused: list[str]
     unknown_paused: list[str]
+    #: Playbooks in dry run right now: named in the console, or shipped too recently.
+    shadow: list[str]
     playbooks: list[PlaybookOut]
     paging: PagingOut
     open_incidents: int
     escalated_incidents: int
+    metrics: HealerMetricsOut
+
+
+#: The span the healer's own track record is read over.
+METRICS_DAYS: Final = 7
+
+
+async def _metrics(session: AsyncSession) -> HealerMetricsOut:
+    row = (
+        await session.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE outcome = 'ok' AND step IN ('act', 'protect', "
+                "'restore')), count(*) FILTER (WHERE outcome = 'failed' AND step IN ('act', "
+                "'protect', 'restore')), count(*) FILTER (WHERE outcome = 'ok' AND step = "
+                "'undo'), count(*) FILTER (WHERE outcome = 'shadow') FROM heal_actions WHERE "
+                "actor_type = 'healer' AND at > now() - make_interval(days => :d)"
+            ),
+            {"d": METRICS_DAYS},
+        )
+    ).one()
+    recurrences = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM heal_incidents i WHERE i.opened_at > now() - "
+                "make_interval(days => :d) AND EXISTS (SELECT 1 FROM heal_incidents p WHERE "
+                "p.dedupe_key = i.dedupe_key AND p.id <> i.id AND p.resolved_at IS NOT NULL "
+                "AND p.resolved_at <= i.opened_at AND p.resolved_at > i.opened_at - "
+                "make_interval(days => :d))"
+            ),
+            {"d": METRICS_DAYS},
+        )
+    ).scalar_one()
+    return HealerMetricsOut(
+        days=METRICS_DAYS,
+        actions=int(row[0]),
+        failed=int(row[1]),
+        undone=int(row[2]),
+        shadow=int(row[3]),
+        recurrences=int(recurrences),
+    )
 
 
 @ops_router.get(
@@ -634,6 +692,7 @@ async def healer_overview(session: GlobalSession, principal: Operator) -> Healer
         enabled=settings.healer_enabled,
         paused=sorted(paused),
         unknown_paused=list(unknown_paused_keys()),
+        shadow=sorted(p.key for p in PLAYBOOKS if in_shadow(p.key)),
         playbooks=[
             PlaybookOut(
                 key=p.key,
@@ -663,6 +722,7 @@ async def healer_overview(session: GlobalSession, principal: Operator) -> Healer
         ),
         open_incidents=int(counts[0]),
         escalated_incidents=int(counts[1]),
+        metrics=await _metrics(session),
     )
 
 
@@ -698,6 +758,9 @@ class IncidentOut(_Out):
     #: differ and by what rate), written when it hands the problem over and on each
     #: re-check; null when it wrote none.
     finding: str | None = None
+    #: The healer's draft post-incident summary from its own ledger, written within
+    #: `healer_summary_hours` of the incident closing (D-987); null until then.
+    postmortem: str | None = None
 
 
 class IncidentsOut(_Out):
@@ -720,6 +783,7 @@ def _incident_out(i: incidents.Incident, finding: str | None = None) -> Incident
             escalated=i.escalated_at is not None,
         ),
         finding=finding,
+        postmortem=i.summary,
         id=i.id,
         ref=incidents.short_ref(i.id),
         playbook=i.playbook,
@@ -766,7 +830,7 @@ class ActionOut(_Out):
     incident_id: UUID | None
     playbook: str
     step: str
-    outcome: Literal["ok", "failed", "skipped", "refused"]
+    outcome: Literal["ok", "failed", "skipped", "refused", "shadow"]
     attempt: int
     tenant_id: UUID | None
     agent_id: UUID | None

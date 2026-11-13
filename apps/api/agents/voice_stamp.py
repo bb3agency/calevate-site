@@ -16,6 +16,7 @@ from typing import Any, Final
 from calevate_shared.call_script import KNOWN_FACTS_HEADER
 from calevate_shared.engine import AgentConfig, VoiceEngine
 
+from apps.api.agents.hosted_voices import hosted_voice_id
 from apps.api.engine.hosted_platform import PLATFORM_AGENT_VALUES
 
 #: The keys of the record, which `ops/reply_times.SETTING_KEYS` splits by.
@@ -25,6 +26,9 @@ EARLY_ANSWERS: Final = "early_answers"
 FILLER_DELAY_MS: Final = "filler_delay_ms"
 KNOWN_FACTS: Final = "known_facts"
 KNOWN_FACTS_CHARS: Final = "known_facts_chars"
+#: Our catalogue id of the voice the agent was published with (`agents/hosted_voices`), so
+#: the healer can tell which voice a call spoke on after the agent's voice moved (D-987).
+ENGINE_VOICE: Final = "engine_voice"
 
 
 def _known_facts_chars(prompt: str) -> int:
@@ -39,6 +43,14 @@ def _known_facts_chars(prompt: str) -> int:
     return total
 
 
+def _voice_of(config: AgentConfig) -> str | None:
+    if config.engine_byok_voice_id:
+        return hosted_voice_id("byok", config.engine_byok_voice_id)
+    if config.engine_voice_id:
+        return hosted_voice_id("engine", config.engine_voice_id)
+    return None
+
+
 def stamp_of(config: AgentConfig, engine: VoiceEngine) -> dict[str, Any]:
     """The record for one published config."""
     filler = PLATFORM_AGENT_VALUES.get(engine.name, {}).get("thinkingDelayMs")
@@ -50,11 +62,13 @@ def stamp_of(config: AgentConfig, engine: VoiceEngine) -> dict[str, Any]:
         FILLER_DELAY_MS: filler if isinstance(filler, int) else None,
         KNOWN_FACTS: chars > 0,
         KNOWN_FACTS_CHARS: chars,
+        ENGINE_VOICE: _voice_of(config),
     }
 
 
 __all__ = [
     "EARLY_ANSWERS",
+    "ENGINE_VOICE",
     "FILLER_DELAY_MS",
     "KNOWN_FACTS",
     "KNOWN_FACTS_CHARS",

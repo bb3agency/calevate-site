@@ -24,6 +24,7 @@ import functools
 import json
 from collections import Counter
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
@@ -41,10 +42,14 @@ from apps.api.db.session import admin_session, tenant_session, untenanted_sessio
 from apps.api.engine import get_engine
 from apps.api.engine.health import SPIKE_THRESHOLD, PlatformStatus, ReportsPlatformStatus
 from apps.api.healer import health, incidents, ledger, money, notices, proposals, protection
+from apps.api.healer import voice as voices
 from apps.api.healer.incidents import Incident
 from apps.api.healer.playbooks import (
     AGENT_HEALTH_DEGRADED,
     AGENT_LINE_BROKEN,
+    AGENT_REPEAT_HANGUPS,
+    AGENT_SILENT_CALL,
+    AGENT_VOICE_FAILED,
     CALL_MISTAKE_FIX,
     CALL_MISTAKE_SEEN,
     ENGINE_PLATFORM_OUTAGE,
@@ -53,13 +58,17 @@ from apps.api.healer.playbooks import (
     PLAYBOOK_BY_KEY,
     PLAYBOOK_BY_TRIGGER,
     SCRIPT_CHECK_FOUND,
+    VOICE_DOMAIN_FAILING,
+    VOICE_DOMAIN_OUTAGE,
+    VOICE_FALLBACK,
+    in_shadow,
     may_run,
 )
 from apps.api.reliability.engine_actions import check_agent_actions
 from apps.api.reliability.engine_webhooks import ensure_agent_webhook
 from apps.api.reliability.service import read_dead_letter_queue, replay_dead_letters
 from apps.api.tenancy.engine_workspace import queue_workspace_provisioning, read_workspace_state
-from apps.workers import mistake_fix
+from apps.workers import healer_watch, mistake_fix, voice_fallback
 
 log = get_logger(__name__)
 
@@ -102,6 +111,10 @@ SELF_OPENED: Final = frozenset(
         ENGINE_PLATFORM_OUTAGE,
         CALL_MISTAKE_SEEN,
         SCRIPT_CHECK_FOUND,
+        AGENT_VOICE_FAILED,
+        AGENT_SILENT_CALL,
+        AGENT_REPEAT_HANGUPS,
+        VOICE_DOMAIN_FAILING,
     }
 )
 
@@ -225,9 +238,10 @@ async def score_agent_health(ctx: dict[str, Any]) -> str:
             ).all()
         ]
     broken_tenants: set[UUID] = set()
+    fleet = _FleetFindings()
     for tenant_id in tenants:
         try:
-            verdicts = await _score_tenant(tenant_id, latest=latest, now=now, tally=tally)
+            scored = await _score_tenant(tenant_id, latest=latest, now=now, tally=tally)
         except Exception as exc:
             tally["tenant_failed"] += 1
             log.warning(
@@ -235,17 +249,46 @@ async def score_agent_health(ctx: dict[str, Any]) -> str:
                 extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
             continue
-        for verdict in verdicts:
+        for verdict in scored.verdicts:
             if verdict.broken:
                 broken_tenants.add(tenant_id)
             await _open_for_verdict(tenant_id, verdict, tally)
-    await _detect_outage(broken_tenants, tally)
+        await _act_on_calls(tenant_id, scored, tally)
+        fleet.take(tenant_id, scored)
+    await _detect_outage(broken_tenants, tally, fleet=fleet)
+    _judge_objective(fleet.objective, tally)
     return json.dumps(dict(tally), sort_keys=True)
+
+
+@dataclass
+class _TenantScore:
+    verdicts: list[health.Verdict]
+    silent: list[tuple[UUID, datetime]]
+    ring_backs: dict[UUID, int]
+    failing_in_domain_window: dict[UUID, str]
+    failing_in_page_window: dict[UUID, str]
+    objective: healer_watch.ObjectiveCounts
+    drops: list[healer_watch.PublishDrop]
+
+
+@dataclass
+class _FleetFindings:
+    """What the scorer read across every client, judged once after the walk."""
+
+    domain: dict[tuple[UUID, UUID], str] = field(default_factory=dict)
+    spread: dict[tuple[UUID, UUID], str] = field(default_factory=dict)
+    objective: healer_watch.ObjectiveCounts = field(default_factory=healer_watch.ObjectiveCounts)
+
+    def take(self, tenant_id: UUID, scored: _TenantScore) -> None:
+        self.domain.update({(tenant_id, a): d for a, d in scored.failing_in_domain_window.items()})
+        self.spread.update({(tenant_id, a): d for a, d in scored.failing_in_page_window.items()})
+        self.objective.add(scored.objective)
 
 
 async def _score_tenant(
     tenant_id: UUID, *, latest: datetime, now: datetime, tally: Counter[str]
-) -> list[health.Verdict]:
+) -> _TenantScore:
+    settings = get_settings()
     async with tenant_session(tenant_id) as session:
         agents: set[UUID] = set()
         for start in (latest - health.WINDOW, latest):
@@ -253,9 +296,106 @@ async def _score_tenant(
                 await health.record_window(session, tenant_id=tenant_id, start=start, counts=counts)
                 agents.add(counts.agent_id)
                 tally["windows"] += 1
+            tally["voice_history"] += await voices.record_window(
+                session, tenant_id=tenant_id, start=start, end=start + health.WINDOW
+            )
         tally["windows_pruned"] += await health.prune(session)
         tally["proposals_expired"] += await proposals.expire_stale(session)
-        return [await health.verdict_for(session, agent_id=a, now=now) for a in sorted(agents)]
+        verdicts = [await health.verdict_for(session, agent_id=a, now=now) for a in sorted(agents)]
+        silent = await healer_watch.silent_agents(
+            session, start=latest - health.WINDOW, end=latest + health.WINDOW, now=now
+        )
+        ring_backs = await healer_watch.repeat_callers(session)
+        in_domain = await healer_watch.failing_agents(
+            session, minutes=settings.healer_domain_window_minutes
+        )
+        in_page = await healer_watch.failing_agents(
+            session, minutes=settings.healer_page_repeat_minutes
+        )
+        objective = await healer_watch.objective_counts(session)
+        drops = await healer_watch.publish_watch(session, tenant_id=tenant_id, now=now)
+    return _TenantScore(
+        verdicts=verdicts,
+        silent=silent,
+        ring_backs=ring_backs,
+        failing_in_domain_window=in_domain,
+        failing_in_page_window=in_page,
+        objective=objective,
+        drops=drops,
+    )
+
+
+async def _act_on_calls(tenant_id: UUID, scored: _TenantScore, tally: Counter[str]) -> None:
+    """The per-call checks of D-987 that act on one agent: a silent call opens the voice
+    fallback, callers ringing back open a line check, a drop after a publish is told."""
+    settings = get_settings()
+    for agent_id, last_at in scored.silent:
+        async with untenanted_session() as session:
+            if await incidents.resolved_since(
+                session, voice_fallback.dedupe_key(agent_id), last_at
+            ):
+                continue
+        if await voice_fallback.on_caller_heard_failure(
+            tenant_id, agent_id, trigger=AGENT_SILENT_CALL, at=last_at
+        ):
+            tally["opened_voice_fallback"] += 1
+    for agent_id, ring_backs in scored.ring_backs.items():
+        if ring_backs < settings.healer_repeat_call_count:
+            continue
+        async with untenanted_session() as session:
+            if await incidents.open_for(session, incidents.dedupe_key("engine_outage", "platform")):
+                continue
+            _, opened = await incidents.open_incident(
+                session,
+                key=incidents.dedupe_key("line_protection", agent_id),
+                playbook="line_protection",
+                trigger_code=AGENT_REPEAT_HANGUPS,
+                scope="agent",
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+            )
+        if opened:
+            tally["opened_line_check"] += 1
+            alert(
+                "CORE_LOGIC",
+                "agent_repeat_hangups",
+                detail=f"{ring_backs} caller(s) rang this agent again within "
+                f"{settings.healer_repeat_call_minutes} minutes of a short or silent call; "
+                "the healer is checking its line",
+                tenant_id=str(tenant_id),
+                agent_id=str(agent_id),
+                episode=str(agent_id),
+            )
+    for drop in scored.drops:
+        alert(
+            "CORE_LOGIC",
+            "publish_watch_drop",
+            detail=f"the agent's first {drop.calls} calls after its script went live scored "
+            f"{drop.score} against its usual {drop.baseline}"
+            + (
+                "; going back to the previous script is proposed to the owner"
+                if drop.proposed
+                else "; no earlier script to propose"
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(drop.agent_id),
+            episode=str(drop.agent_id),
+        )
+        tally["publish_drops"] += 1
+
+
+def _judge_objective(counts: healer_watch.ObjectiveCounts, tally: Counter[str]) -> None:
+    """Fast burn pages; slow burn is a ticket on the board (Google SRE multi-window)."""
+    for burn in healer_watch.burning(counts):
+        detail = (
+            f"{burn.group} calls are spending the no-failure objective "
+            f"{burn.rate:.1f} times too fast over {burn.calls} calls"
+        )
+        if burn.fast:
+            alert("CORE_LOGIC", "call_objective_fast_burn", detail=detail, episode=burn.group)
+        else:
+            alert("CORE_LOGIC", "call_objective_slow_burn", detail=detail, episode=burn.group)
+        tally[f"objective_{'fast' if burn.fast else 'slow'}_{burn.group}"] += 1
 
 
 async def _open_for_verdict(tenant_id: UUID, verdict: health.Verdict, tally: Counter[str]) -> None:
@@ -345,7 +485,67 @@ def _status_words(status: PlatformStatus | None) -> str:
     return f"The platform itself reports a fault ({status.reported})."
 
 
-async def _detect_outage(broken_tenants: set[UUID], tally: Counter[str]) -> None:
+async def _detect_voice_domains(fleet: _FleetFindings, tally: Counter[str]) -> None:
+    """One incident and one page per failure domain (our voice key, or one catalogue voice)
+    with `healer_domain_agents` agents failing inside `healer_domain_window_minutes`; and
+    one for failures spread over `healer_page_spread_agents` agents of any voice inside
+    `healer_page_repeat_minutes` (domain `spread`). An open one whose domain went quiet
+    closes here: the scorer is what can see it."""
+    settings = get_settings()
+    failing = healer_watch.failing_domains(fleet.domain, at_least=settings.healer_domain_agents)
+    if len(fleet.spread) >= settings.healer_page_spread_agents and not failing:
+        failing = {"spread": len(fleet.spread)}
+    async with untenanted_session() as session:
+        open_rows = (
+            await session.execute(
+                text(
+                    "SELECT id, dedupe_key FROM heal_incidents WHERE playbook = :p "
+                    "AND resolved_at IS NULL"
+                ),
+                {"p": VOICE_DOMAIN_OUTAGE},
+            )
+        ).all()
+        for incident_id, key in open_rows:
+            if str(key).removeprefix(f"{VOICE_DOMAIN_OUTAGE}:") not in failing:
+                await session.execute(
+                    text(
+                        "UPDATE heal_incidents SET state = 'resolved', resolved_at = now(), "
+                        "last_outcome = 'verified', updated_at = now() WHERE id = :id "
+                        "AND resolved_at IS NULL"
+                    ),
+                    {"id": incident_id},
+                )
+                tally["voice_domains_cleared"] += 1
+        for domain, agents in sorted(failing.items()):
+            _, opened = await incidents.open_incident(
+                session,
+                key=incidents.dedupe_key(VOICE_DOMAIN_OUTAGE, domain),
+                playbook=VOICE_DOMAIN_OUTAGE,
+                trigger_code=VOICE_DOMAIN_FAILING,
+                scope="platform",
+            )
+            if not opened:
+                continue
+            tally["opened_voice_domain"] += 1
+            where = {
+                voices.OWN_VOICE_DOMAIN: "every Studio voice (our own voice key)",
+                "spread": "agents on different voices",
+            }.get(domain, f"the Clear voice {domain}")
+            alert(
+                "CORE_LOGIC",
+                "voice_domain_failing",
+                detail=f"callers heard failures on {agents} agents of {where}; one incident "
+                "for all of them. Each agent is moved to a backup voice under the switch "
+                "breaker.",
+                episode=domain,
+            )
+
+
+async def _detect_outage(
+    broken_tenants: set[UUID], tally: Counter[str], *, fleet: _FleetFindings | None = None
+) -> None:
+    if fleet is not None:
+        await _detect_voice_domains(fleet, tally)
     failures = await _engine_failures(OUTAGE_WINDOW_MIN)
     status = await platform_status()
     platform_says_down = status is not None and status.calls_operational is False
@@ -426,7 +626,13 @@ async def _clear_step_failures(step: str) -> None:
 
 async def run_healer(ctx: dict[str, Any]) -> str:
     tally: Counter[str] = Counter()
-    for step in (_open_from_alarms, _advance_due, _page_founder, _deliver_client_notices):
+    for step in (
+        _open_from_alarms,
+        _advance_due,
+        _page_founder,
+        _deliver_client_notices,
+        _summarize_resolved,
+    ):
         try:
             await step(tally)
         except Exception as exc:
@@ -456,6 +662,15 @@ async def run_healer(ctx: dict[str, Any]) -> str:
 async def _advance_due(tally: Counter[str]) -> None:
     async with untenanted_session() as session:
         due = await incidents.claim_due(session, limit=INCIDENT_BATCH)
+        acted = await healer_watch.actions_recent(session) if due else 0
+    tripped = acted > get_settings().healer_action_breaker_count
+    if tripped:
+        alert(
+            "CORE_LOGIC",
+            "healer_action_breaker",
+            detail=f"{acted} automatic actions in {get_settings().healer_action_breaker_minutes} "
+            "minutes across every playbook: every automatic repair is stopped until fewer run",
+        )
     for incident in due:
         playbook = PLAYBOOK_BY_KEY.get(incident.playbook)
         if playbook is None:
@@ -463,6 +678,25 @@ async def _advance_due(tally: Counter[str]) -> None:
         if playbook.automatic and not may_run(playbook.key):
             await _paused(incident)
             tally["paused"] += 1
+            continue
+        if tripped and playbook.automatic and playbook.pausable:
+            await _paused(incident, why="stopped by the action breaker")
+            tally["breaker"] += 1
+            continue
+        if playbook.key != VOICE_FALLBACK and in_shadow(playbook.key) and incident.state == "open":
+            # The voice fallback writes its own dry run, naming the voice it would move to.
+            await _record(
+                playbook=playbook.key,
+                step="act",
+                outcome="shadow",
+                incident_id=incident.id,
+                tenant_id=incident.tenant_id,
+                agent_id=incident.agent_id,
+                alarm_code=incident.trigger_code,
+                detail=f"dry run: would {playbook.action}"[:400],
+            )
+            await _advance(incident, state="resolved", next_in_s=None, outcome="shadow")
+            tally["shadow"] += 1
             continue
         step = _STEPS.get(playbook.key, _escalate_only)
         try:
@@ -502,7 +736,7 @@ async def _advance(
         )
 
 
-async def _paused(incident: Incident) -> None:
+async def _paused(incident: Incident, *, why: str = "paused by a kill switch") -> None:
     if incident.last_outcome != "paused":
         await _record(
             playbook=incident.playbook,
@@ -511,7 +745,7 @@ async def _paused(incident: Incident) -> None:
             incident_id=incident.id,
             tenant_id=incident.tenant_id,
             agent_id=incident.agent_id,
-            detail="paused by a kill switch",
+            detail=why,
         )
     await _advance(incident, state=incident.state, next_in_s=300, outcome="paused")  # type: ignore[arg-type]
 
@@ -1174,11 +1408,62 @@ _STEPS: Final[dict[str, Callable[[Incident], Awaitable[None]]]] = {
     "outbox_replay": _generic(_act_replay, _verify_dlq_empty),
     "agent_repair": _agent_repair,
     CALL_MISTAKE_FIX: mistake_fix.call_mistake_fix,
+    VOICE_FALLBACK: voice_fallback.voice_fallback,
+    VOICE_DOMAIN_OUTAGE: _wait_for_person,
     "line_protection": _line_protection,
     "engine_outage": _engine_outage,
     MONEY_REVIEW: _money_review,
     "status_post": _wait_for_person,
 }
+
+
+#: How many resolved incidents one tick writes summaries for.
+SUMMARY_BATCH: Final = 10
+
+
+async def _summarize_resolved(tally: Counter[str]) -> None:
+    """A draft post-incident summary for each incident resolved inside
+    `healer_summary_hours`, from its own ledger rows (D-987). Deterministic: no model."""
+    async with untenanted_session() as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT id, trigger_code, playbook, attempts, last_outcome, escalated_at, "
+                    "opened_at, resolved_at FROM heal_incidents WHERE resolved_at IS NOT NULL "
+                    "AND summary IS NULL AND resolved_at > now() - make_interval(hours => :h) "
+                    # Newest first: the one the founder is about to read; a backlog drains
+                    # at `SUMMARY_BATCH` a minute inside the window.
+                    "ORDER BY resolved_at DESC LIMIT :n"
+                ),
+                {"h": get_settings().healer_summary_hours, "n": SUMMARY_BATCH},
+            )
+        ).all()
+        if not rows:
+            return
+        steps = await ledger.recent_steps(
+            session, [r[0] for r in rows], per_incident=healer_watch.SUMMARY_STEPS
+        )
+        for iid, code, key, attempts, outcome, escalated_at, opened_at, resolved_at in rows:
+            playbook = PLAYBOOK_BY_KEY.get(str(key))
+            summary = healer_watch.summary_of(
+                trigger_code=str(code),
+                playbook=str(key),
+                automatic=playbook.automatic if playbook else False,
+                attempts=int(attempts),
+                last_outcome=outcome,
+                escalated=escalated_at is not None,
+                opened_at=opened_at,
+                resolved_at=resolved_at,
+                steps=steps.get(iid, []),
+            )
+            await session.execute(
+                text(
+                    "UPDATE heal_incidents SET summary = :s, "
+                    "updated_at = now() WHERE id = :id AND summary IS NULL"
+                ),
+                {"s": summary, "id": iid},
+            )
+            tally["summaries"] += 1
 
 
 # --- telling people ---------------------------------------------------------------------------
@@ -1403,9 +1688,15 @@ async def _notify_tenant(tenant_id: UUID, failures: Counter[str] | None = None) 
                     ) = row
                     restored = notified_at is not None
                     line_changed = prot != "none" or kind == "platform_outage"
+                    # D-987: a voice moved is told by email too, never on the line template.
+                    voice_moved = kind == "voice_switched"
                     # One message per platform outage, not one per agent of the same client.
                     repeat = kind == "platform_outage" and f"{kind}:{restored}" in outage_told
-                    loud = not repeat and (line_changed if restored else (must_act or line_changed))
+                    loud = not repeat and (
+                        line_changed or voice_moved
+                        if restored
+                        else (must_act or line_changed or voice_moved)
+                    )
                     if not loud:
                         # Nothing was taken off the line, nothing is asked of them, or they were
                         # just told: the dashboard notice is enough.
