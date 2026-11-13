@@ -626,42 +626,15 @@ def _question_problems(parts: list[str]) -> list[TurnProblem]:
     return found
 
 
-#: What a caller says on picking up or to keep the line alive, in English letters: no reason
-#: to leave the language the agent greeted in (D-849, `calevate_shared.engine._SWITCH_RULE`).
-_GREETING_WORDS: Final = frozenset(
-    {
-        "hello",
-        "helo",
-        "hallo",
-        "hi",
-        "hey",
-        "ok",
-        "okay",
-        "yes",
-        "yeah",
-        "yup",
-        "haan",
-        "haa",
-        "ha",
-        "han",
-        "ji",
-        "haanji",
-        "hmm",
-        "hm",
-        "sure",
-        "fine",
-        "sir",
-        "madam",
-        "andi",
-    }
-)
-#: The most words a greeting-only caller line has.
-_GREETING_MAX_WORDS: Final = 2
+#: English lines from the caller, one after another, that move a call to English: the in-call
+#: rule (`calevate_shared.engine._SWITCH_RULE`, D-988) says two full sentences running, so one
+#: "Ah, tell me." never does.
+ENGLISH_SWITCH_LINES: Final = 2
 
 
-def _only_a_greeting(caller_said: str) -> bool:
-    words = _words(caller_said)
-    return 0 < len(words) <= _GREETING_MAX_WORDS and all(w in _GREETING_WORDS for w in words)
+def english_run(run: int, caller_said: str, language: str) -> int:
+    """The caller's English lines running, this one included (`speaks_english`)."""
+    return run + 1 if speaks_english(caller_said, language) else 0
 
 
 def speaks_english(caller_said: str, language: str) -> bool:
@@ -710,17 +683,12 @@ def _language_problems(
                 f"The caller spoke {script[0]} and it answered in English.",
             )
         )
-    elif (
-        script is not None
-        and in_english
-        and not caller_chose_english
-        and _only_a_greeting(caller_said)
-    ):
+    elif script is not None and in_english and not caller_chose_english and caller_said.strip():
         found.append(
             TurnProblem(
                 "wrong_language",
-                f"The caller only said {_quoted(caller_said)} and it switched to English. A "
-                f"greeting or a word or two is no reason to leave {script[0]}.",
+                f"The caller said {_quoted(caller_said)} and it switched to English. Until they "
+                f"ask, or speak two full sentences running in it, the call stays {script[0]}.",
             )
         )
     if _THIRD_PERSON.search(reply):
@@ -744,8 +712,8 @@ def turn_problems(
     """Every problem in one agent reply, the platform's first. `caller_said` is the caller's
     line this reply answers; it decides whether a longer reply was asked for. `language`
     selects the spoken-style word list; without it the formal-word check is skipped.
-    `caller_chose_english`: an earlier caller line spoke English (`speaks_english`), so a
-    reply in English to a bare "okay" is not leaving the agent's language. `names` (the
+    `caller_chose_english`: the caller has moved the call to English (`english_run` reached
+    `ENGLISH_SWITCH_LINES`), so a reply in English is not leaving the agent's language. `names` (the
     business's and the agent's) are left as written when English letters are looked for;
     None skips that check, for a caller that does not know them."""
     if not reply.strip():

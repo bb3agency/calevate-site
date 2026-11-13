@@ -2881,9 +2881,13 @@ def platform_rules_preamble(cfg: AgentConfig) -> str:
 #: conversation under way, a real sentence or a request does, and a message too short to tell
 #: is left to the agent (`agent/behaviour.md:80-89`). `_SWITCH_RULE` is that judgement, said
 #: for calls too, so it agrees with their reply-language rule rather than fighting it.
+#: D-988 (founder, 13 Nov 2026: "Only when asked or 2 full replies"): one sentence was the
+#: trigger, and on the Varsha call of 13 Nov 2026 (11:30) "Ah, tell me." and "I'm done
+#: already." from a Telugu caller turned the agent English twice, the caller-memory recap
+#: included (ThinnestAI says it in the call's language, `channels/voice.md:392`).
 _SWITCH_RULE: Final = (
-    '"Hello", "OK" or a word or two is no switch: keep the language you greeted in until they '
-    "say a sentence in another or ask."
+    "Keep the language you greeted in until they ask, or say two full sentences running in "
+    "another; a few words never switch."
 )
 #: Each language's own script and its English words are in its SPOKEN REGISTER line.
 _REGISTER_BULLET: Final = (

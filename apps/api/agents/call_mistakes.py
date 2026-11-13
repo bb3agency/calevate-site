@@ -244,14 +244,16 @@ def mistakes_in(
     if cut_first is not None and turn_checks.opened_again(cut_first.exchange.reply):
         found["opened_again"] = cut_first.turn_idx
     chose_english = False
+    english = 0
     for n, item in enumerate(replies, 1):
+        english = turn_checks.english_run(english, item.exchange.said, language)
+        chose_english = chose_english or english >= turn_checks.ENGLISH_SWITCH_LINES
         own = turn_checks.turn_problems(
             item.exchange.reply,
             caller_said=item.exchange.said,
             language=language,
             caller_chose_english=chose_english,
         )
-        chose_english = chose_english or turn_checks.speaks_english(item.exchange.said, language)
         # The caller's next line goes with each prefix, unanswered, so a goodbye the caller
         # talked on after is named on the goodbye rather than on the reply after it.
         following = replies[n].exchange.said if n < len(replies) else trailing

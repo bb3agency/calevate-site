@@ -125,9 +125,11 @@ def test_hello_after_a_telugu_greeting_answered_in_english_is_caught() -> None:
     hello = CALL_2[0]
     problems = turn_problems(hello.reply, caller_said=hello.said, language=TE)
     switched = [p for p in problems if p.kind == "wrong_language"]
-    assert switched and "only said" in switched[0].reason and "Telugu" in switched[0].reason
-    # A real English sentence is the caller's switch to make, and Telugu stays right.
-    assert "wrong_language" not in _kinds_of_reply(
+    assert (
+        switched and "switched to English" in switched[0].reason and "Telugu" in switched[0].reason
+    )
+    # One English sentence is not yet the caller's switch (D-988): English back is still wrong.
+    assert "wrong_language" in _kinds_of_reply(
         _X(
             "Can you tell me the price of chilli powder please?",
             "Sure, it is for the team to confirm.",
@@ -140,8 +142,8 @@ def test_hello_after_a_telugu_greeting_answered_in_english_is_caught() -> None:
 def test_every_prompt_says_a_greeting_is_no_switch(pack: bool) -> None:
     cfg, choice = _cfg(pack=pack)
     speak = dict(engine_prompt_layers(cfg, pack=choice))["how_to_speak"]
-    assert '"Hello", "OK" or a word or two is no switch' in speak
-    assert "keep the language you greeted in" in speak
+    assert "a few words never switch" in speak and "two full sentences running" in speak
+    assert "Keep the language you greeted in" in speak
 
 
 # --- 2. fabrication ------------------------------------------------------------------------

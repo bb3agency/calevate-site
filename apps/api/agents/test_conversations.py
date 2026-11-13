@@ -90,15 +90,16 @@ from apps.api.agents.business_fit import UNKNOWN, BusinessFit, business_fit
 from apps.api.agents.script_lint import CapabilityManifest, presumed_lines
 from apps.api.agents.trial_results import OWNERS, Owner, owner_of, result_owner
 from apps.api.agents.turn_checks import (
+    ENGLISH_SWITCH_LINES,
     JOB_KINDS,
     SCRIPT_KINDS,
     SOUND_KINDS,
     TurnProblem,
     claims_done,
     conversation_problems,
+    english_run,
     formal_swaps,
     sentences,
-    speaks_english,
     turn_problems,
 )
 from apps.api.core.errors import ProblemError
@@ -624,10 +625,14 @@ def speech_problems(
     ask again (D-912), and `prior_contact` whether the caller had contact before."""
     seen: set[str] = set()
     out: list[TurnProblem] = []
-    # Once the caller has moved the conversation to English, an English reply to their next
-    # "okay" is not the agent leaving its language (the same rule `call_mistakes` applies).
+    # Once the caller has moved the conversation to English (two full sentences running, the
+    # in-call rule, D-988), an English reply is not the agent leaving its language (the same
+    # rule `call_mistakes` applies).
     chose_english = False
+    english = 0
     for turn in turns:
+        english = english_run(english, turn.said, language)
+        chose_english = chose_english or english >= ENGLISH_SWITCH_LINES
         for problem in turn_problems(
             turn.reply,
             caller_said=turn.said,
@@ -638,7 +643,6 @@ def speech_problems(
             if problem.kind not in seen:
                 seen.add(problem.kind)
                 out.append(problem)
-        chose_english = chose_english or speaks_english(turn.said, language)
     # What only the whole conversation shows: "done" with no action, the call's own number
     # asked for, part of a number taken as all of it, goodbye mid-question (D-749).
     out += [

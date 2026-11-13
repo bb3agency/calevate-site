@@ -342,17 +342,17 @@ def test_a_line_said_again_unasked_is_still_said_again() -> None:
     assert "said_again" in mistakes_in(looped, language="en-IN")
 
 
-def test_english_after_the_caller_moved_to_english_is_the_right_language() -> None:
-    """A Telugu agent whose caller switched to English answers their "Okay." in English;
-    the greeting rule (no reason to leave Telugu for a "hello") does not apply any more."""
+def test_english_is_right_only_once_the_caller_spoke_two_english_sentences() -> None:
+    """A Telugu agent whose caller spoke two full English sentences running answers in English
+    (D-988); before the second one, an English reply is still the wrong language."""
     call = _call(
         ("agent", "నమస్కారం అండి, మీకు ఎలా సహాయం చేయగలను?"),
         ("caller", "Can you tell me the price of chilli powder?"),
         ("agent", "Half a kilo is two hundred rupees. Would you like to order some?"),
-        ("caller", "Okay."),
+        ("caller", "Okay, please note half a kilo for me."),
         ("agent", "Shall I note half a kilo for you then?"),
     )
-    assert "wrong_language" not in mistakes_in(call, language="te-IN")
+    assert mistakes_in(call, language="te-IN").get("wrong_language") == 2
 
 
 def test_english_for_a_bare_hello_is_still_the_wrong_language() -> None:
@@ -373,8 +373,10 @@ def test_a_practice_run_reads_english_after_the_caller_moved_to_english_the_same
             said="Can you tell me the price of chilli powder?",
             reply="Half a kilo is two hundred rupees. Would you like to order some?",
         ),
-        Turn(said="Okay.", reply="Shall I note half a kilo for you then?"),
+        Turn(said="Okay, please note half a kilo for me.", reply="Shall I note it for you then?"),
+        Turn(said="Yes, please do that now.", reply="Done, half a kilo is noted for you."),
     ]
-    assert "wrong_language" not in {p.kind for p in speech_problems(moved, language="te-IN")}
+    found = [p for p in speech_problems(moved, language="te-IN") if p.kind == "wrong_language"]
+    assert len(found) == 1, "only the reply before the second English sentence is faulted"
     hello = [Turn(said="Hello.", reply="Hello, how can I help you today with your order?")]
     assert "wrong_language" in {p.kind for p in speech_problems(hello, language="te-IN")}
