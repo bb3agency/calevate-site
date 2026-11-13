@@ -580,6 +580,17 @@ class CopilotNavigateEvent(BaseModel):
     reversal: str
 
 
+#: The longest confirm token a legitimate client sends. The largest signed arguments are a
+#: script suggestion's words: a change request (`script_proposals.MAX_CHANGE_CHARS`) or a
+#: whole script's answers (`MAX_ANSWER_CHARS` each). A JWT payload is JSON with every
+#: non-ASCII character escaped as `\uXXXX` (six characters per Telugu or Hindi letter), then
+#: base64url, which grows it by a third, so the words alone can run to about 29,000
+#: characters. 4,096 refused a Telugu request (Varsha, 14 Nov 2026) and the approved change
+#: could never be confirmed. `tests/copilot_confirm_token_bound_2026_11_14_test.py` signs
+#: the worst case of each and fails if it no longer fits; this still refuses megabytes.
+MAX_CONFIRM_TOKEN_CHARS: Final = 65_536
+
+
 class CopilotConfirmIn(BaseModel):
     """`POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.
 
@@ -587,14 +598,13 @@ class CopilotConfirmIn(BaseModel):
     a caller to tamper with: no lead id, no status, no campaign. A body that also carried
     the target would be a body that could disagree with the description the person read.
 
-    The bound is generous against a JWT carrying a small `args` object — this is not a
-    length a legitimate client approaches, it is the wall in front of a caller feeding the
-    verifier megabytes.
+    The bound is the wall in front of a caller feeding the verifier megabytes, sized to the
+    largest token we sign (`MAX_CONFIRM_TOKEN_CHARS`).
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    token: Annotated[str, Field(min_length=1, max_length=4_096)]
+    token: Annotated[str, Field(min_length=1, max_length=MAX_CONFIRM_TOKEN_CHARS)]
 
 
 class CopilotConfirmOut(BaseModel):

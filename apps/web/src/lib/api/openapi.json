@@ -18272,10 +18272,10 @@
       },
       "CopilotConfirmIn": {
         "additionalProperties": false,
-        "description": "`POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.\n\nEvery parameter of the action is inside the signed token, so there is nothing here for\na caller to tamper with: no lead id, no status, no campaign. A body that also carried\nthe target would be a body that could disagree with the description the person read.\n\nThe bound is generous against a JWT carrying a small `args` object \u2014 this is not a\nlength a legitimate client approaches, it is the wall in front of a caller feeding the\nverifier megabytes.",
+        "description": "`POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.\n\nEvery parameter of the action is inside the signed token, so there is nothing here for\na caller to tamper with: no lead id, no status, no campaign. A body that also carried\nthe target would be a body that could disagree with the description the person read.\n\nThe bound is the wall in front of a caller feeding the verifier megabytes, sized to the\nlargest token we sign (`MAX_CONFIRM_TOKEN_CHARS`).",
         "properties": {
           "token": {
-            "maxLength": 4096,
+            "maxLength": 65536,
             "minLength": 1,
             "title": "Token",
             "type": "string"
