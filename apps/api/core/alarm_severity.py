@@ -450,8 +450,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_call_voice_failed": "attention",
     "engine_call_model_unanswered": "attention",
     # One of our own keys on the voice platform failed on a call: there is no backup on our
-    # own keys, so the remedy is the key or its provider account.
-    "engine_call_own_key_failed": "attention",
+    # own keys, so the remedy is the key or its provider account, and every call on that key
+    # fails the same way until it is fixed: a page (D-987).
+    "engine_call_own_key_failed": "page",
     # The platform's own status says its records are degraded while calls work: results
     # arrive late and the sweeps catch up. A platform that says calls are down opens the
     # outage incident, which pages through `engine_platform_outage`.
@@ -1078,6 +1079,32 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "healer_step_failing": "page",
     "healer_line_relapsed": "page",
     "healer_line_hold_failed": "page",
+    # D-987, failures callers hear. The healer moving an agent to a backup voice (and back)
+    # is handled and the owner told: work and a record. A probe that fails, a second failure
+    # on one agent, failures spread over agents or one voice, a switch that cannot be made
+    # or has nothing to move to, the switch breaker, a relapse and a fast burn of the call
+    # objective are callers not being heard right now, and wake somebody.
+    "agent_voice_failed": "record",
+    "agent_silent_call": "record",
+    "voice_switched": "attention",
+    "voice_restored": "record",
+    "voice_probe_failed": "page",
+    "caller_heard_failure_repeat": "page",
+    "voice_domain_failing": "page",
+    "voice_switch_failed": "page",
+    "voice_switch_no_fallback": "page",
+    "voice_switch_breaker": "page",
+    "voice_switch_relapsed": "page",
+    "call_objective_fast_burn": "page",
+    "call_objective_slow_burn": "attention",
+    # Callers ringing straight back after short or silent calls: the line check runs and the
+    # agent's calls are read; one agent, so work.
+    "agent_repeat_hangups": "attention",
+    # A script change followed by worse calls: a rollback proposal waits for the owner.
+    "publish_watch_drop": "attention",
+    # Every automatic action stopped because too many ran at once: nothing repairs itself
+    # until a person looks.
+    "healer_action_breaker": "page",
 }
 
 

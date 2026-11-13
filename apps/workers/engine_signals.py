@@ -44,10 +44,12 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.engine.thinnest_workspace import in_workspace
 from apps.api.forwarding.service import published_numbers
+from apps.api.healer.playbooks import AGENT_VOICE_FAILED
 from apps.api.ingest.service import normalize_phone
 from apps.api.reliability.engine_intake_keys import open_delivery
 from apps.api.reliability.service import mark_inbox_failed, mark_inbox_processed
 from apps.workers.redaction import redact
+from apps.workers.voice_fallback import on_caller_heard_failure
 
 log = get_logger(__name__)
 
@@ -492,6 +494,12 @@ async def _problem(payload: dict[str, Any]) -> str:
     )
     if first:
         _alarm_problem(problem, route)
+    if problem.kind == "voice_failed":
+        # D-987: the first failure callers heard opens the voice fallback; each step it
+        # takes is idempotent, so a redelivery (or a retry of this job) repeats nothing.
+        await on_caller_heard_failure(
+            route.tenant_id, route.agent_id, trigger=AGENT_VOICE_FAILED, at=problem.occurred_at
+        )
     log.info(
         "engine_problem_received",
         extra={

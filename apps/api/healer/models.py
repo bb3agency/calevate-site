@@ -47,7 +47,7 @@ ACTION_STEPS: Final = (
     "propose",
     "decide",
 )
-ACTION_OUTCOMES: Final = ("ok", "failed", "skipped", "refused")
+ACTION_OUTCOMES: Final = ("ok", "failed", "skipped", "refused", "shadow")
 ACTOR_TYPES: Final = ("healer", "admin", "user")
 CLIENT_INCIDENT_KINDS: Final = (
     "agent_unwell",
@@ -55,6 +55,7 @@ CLIENT_INCIDENT_KINDS: Final = (
     "platform_outage",
     "script_fixed",
     "script_fix_waiting",
+    "voice_switched",
 )
 PROTECTIONS: Final = ("none", "paused", "forwarded")
 PROPOSAL_KINDS: Final = ("rollback_prompt", "review_knowledge", "review_languages")
@@ -81,6 +82,7 @@ class HealIncident(PKMixin, TimestampMixin, Base):
         CheckConstraint("NOT public OR public_title IS NOT NULL", name="public_has_title"),
         CheckConstraint("(state = 'resolved') = (resolved_at IS NOT NULL)", name="resolved_iff"),
         CheckConstraint("attempts >= 0", name="attempts_nonnegative"),
+        CheckConstraint("summary IS NULL OR length(summary) <= 4000", name="summary_cap"),
         Index(
             "uq_heal_incidents_open_key",
             "dedupe_key",
@@ -112,6 +114,8 @@ class HealIncident(PKMixin, TimestampMixin, Base):
     mitigated_at: Mapped[datetime | None]
     escalated_at: Mapped[datetime | None]
     resolved_at: Mapped[datetime | None]
+    #: The healer's draft post-incident summary, from the ledger, for the founder (D-987).
+    summary: Mapped[str | None] = mapped_column(Text)
 
 
 class HealAction(PKMixin, Base):
@@ -246,6 +250,90 @@ class AgentHealthWindow(PKMixin, TimestampMixin, Base):
     deviating: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
 
 
+VOICE_RUNGS: Final = ("clear", "studio")
+VOICE_SWITCH_REASONS: Final = ("voice_failed", "silent_call")
+#: `switched` the agent is on its backup voice; `restored` it has its own back; `held` it
+#: stays on the backup until a person decides; `stood_down` the owner chose a voice; `undone`
+#: the switch's read-back failed and the voice before it was put back; `shadow` dry run.
+VOICE_SWITCH_STATES: Final = ("switched", "restored", "held", "stood_down", "undone", "shadow")
+MAX_SUMMARY: Final = 4000
+
+
+class AgentVoiceHistory(PKMixin, TimestampMixin, Base):
+    """When one agent's calls on one voice last went through, and when one last failed
+    (D-987): the healer's "last working voice". Ids and times only."""
+
+    __tablename__ = "agent_voice_history"
+    __table_args__ = (
+        CheckConstraint("engine_voice_id ~ '^[^[:space:]]{1,128}$'", name="voice_shape"),
+        UniqueConstraint("agent_id", "engine_voice_id"),
+        Index(
+            "ix_agent_voice_history_agent_good",
+            "tenant_id",
+            "agent_id",
+            text("last_good_at DESC"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    engine_voice_id: Mapped[str] = mapped_column(Text, nullable=False)
+    first_good_at: Mapped[datetime | None]
+    last_good_at: Mapped[datetime | None]
+    last_failed_at: Mapped[datetime | None]
+
+
+class AgentVoiceSwitch(PKMixin, TimestampMixin, Base):
+    """One move of an agent to a backup voice by the healer (D-987), before and after."""
+
+    __tablename__ = "agent_voice_switches"
+    __table_args__ = (
+        CheckConstraint(_in("from_rung", VOICE_RUNGS), name="from_rung_enum"),
+        CheckConstraint(_in("to_rung", VOICE_RUNGS), name="to_rung_enum"),
+        CheckConstraint(_in("reason", VOICE_SWITCH_REASONS), name="reason_enum"),
+        CheckConstraint(_in("state", VOICE_SWITCH_STATES), name="state_enum"),
+        CheckConstraint("from_voice <> to_voice", name="moves"),
+        CheckConstraint("probes_passed >= 0", name="probes_nonnegative"),
+        Index(
+            "uq_agent_voice_switches_active",
+            "agent_id",
+            unique=True,
+            postgresql_where=text("state = 'switched'"),
+        ),
+        Index(
+            "ix_agent_voice_switches_agent_recent",
+            "tenant_id",
+            "agent_id",
+            text("switched_at DESC"),
+        ),
+        Index("ix_agent_voice_switches_incident", "incident_id"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    incident_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("heal_incidents.id", ondelete="SET NULL")
+    )
+    from_voice: Mapped[str] = mapped_column(Text, nullable=False)
+    to_voice: Mapped[str] = mapped_column(Text, nullable=False)
+    from_rung: Mapped[str] = mapped_column(Text, nullable=False)
+    to_rung: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="switched")
+    probes_passed: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
+    switched_at: Mapped[datetime] = mapped_column(nullable=False)
+    restored_at: Mapped[datetime | None]
+    settled_at: Mapped[datetime | None]
+
+
 class HealProposal(PKMixin, TimestampMixin, Base):
     """A behaviour change the healer will not make on its own, waiting for a person."""
 
@@ -293,11 +381,17 @@ __all__ = [
     "INCIDENT_STATES",
     "MAX_ACTION_DETAIL",
     "MAX_PUBLIC_TITLE",
+    "MAX_SUMMARY",
     "PROPOSAL_KINDS",
     "PROPOSAL_STATUSES",
     "PROTECTIONS",
     "STATUS_COMPONENTS",
+    "VOICE_RUNGS",
+    "VOICE_SWITCH_REASONS",
+    "VOICE_SWITCH_STATES",
     "AgentHealthWindow",
+    "AgentVoiceHistory",
+    "AgentVoiceSwitch",
     "HealAction",
     "HealClientIncident",
     "HealFallbackPhone",

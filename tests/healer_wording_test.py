@@ -106,18 +106,24 @@ _OUTCOMES = (
     ("fix_live", "mitigated"),
     ("rolled_back", "escalated"),
     ("undone", "resolved"),
+    # The voice fallback (D-987, `apps/workers/voice_fallback.py`) and dry run.
+    ("voice_waiting", "open"),
+    ("voice_switched", "mitigated"),
+    ("voice_probation", "mitigated"),
+    ("stood_down", "resolved"),
+    ("shadow", "resolved"),
 )
 
 
 def test_the_worker_writes_no_outcome_this_test_does_not_know() -> None:
     source = "".join(
         (ROOT / "apps" / "workers" / name).read_text(encoding="utf-8")
-        for name in ("healer.py", "mistake_fix.py")
+        for name in ("healer.py", "mistake_fix.py", "voice_fallback.py")
     )
     written = set(re.findall(r'outcome="([a-z_]+)"', source)) | set(
         re.findall(r"last_outcome = '([a-z_]+)'", source)
     )
-    ledger_outcomes = {"ok", "failed", "skipped", "refused"}
+    ledger_outcomes = {"ok", "failed", "skipped", "refused", "shadow"}
     known = {o for o, _ in _OUTCOMES if o} | ledger_outcomes
     assert written <= known, f"progress() has no words for {sorted(written - known)}"
 

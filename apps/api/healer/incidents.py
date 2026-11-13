@@ -34,7 +34,7 @@ _OPEN = text(
 _COLUMNS = (
     "id, dedupe_key, playbook, trigger_code, scope, tenant_id, agent_id, state, attempts, "
     "next_attempt_at, component, public, public_title, last_outcome, opened_at, "
-    "mitigated_at, escalated_at, resolved_at"
+    "mitigated_at, escalated_at, resolved_at, summary"
 )
 
 
@@ -58,6 +58,8 @@ class Incident:
     mitigated_at: datetime | None
     escalated_at: datetime | None
     resolved_at: datetime | None
+    #: The draft post-incident summary (D-987), once the incident is resolved.
+    summary: str | None = None
 
 
 def _incident(row: Any) -> Incident:
@@ -80,6 +82,7 @@ def _incident(row: Any) -> Incident:
         mitigated_at=row[15],
         escalated_at=row[16],
         resolved_at=row[17],
+        summary=row[18] if len(row) > 18 else None,
     )
 
 

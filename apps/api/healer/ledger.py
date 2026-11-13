@@ -33,7 +33,7 @@ Step = Literal[
     "propose",
     "decide",
 ]
-Outcome = Literal["ok", "failed", "skipped", "refused"]
+Outcome = Literal["ok", "failed", "skipped", "refused", "shadow"]
 ActorType = Literal["healer", "admin", "user"]
 
 _INSERT = text(

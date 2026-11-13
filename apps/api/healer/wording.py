@@ -20,10 +20,14 @@ from typing import Final
 from apps.api.healer.playbooks import (
     AGENT_HEALTH_DEGRADED,
     AGENT_LINE_BROKEN,
+    AGENT_REPEAT_HANGUPS,
+    AGENT_SILENT_CALL,
+    AGENT_VOICE_FAILED,
     CALL_MISTAKE_SEEN,
     ENGINE_PLATFORM_OUTAGE,
     MONEY_REVIEW,
     STATUS_POST,
+    VOICE_DOMAIN_FAILING,
 )
 
 
@@ -121,6 +125,33 @@ INCIDENT_KINDS: Final[Mapping[str, IncidentKind]] = {
         next_step="Nothing unless it is handed to you. Then the mistake needs a platform rule "
         "change, or the script needs fixing by hand with the owner.",
     ),
+    AGENT_VOICE_FAILED: IncidentKind(
+        title="Callers could not hear an agent's voice",
+        meaning="ThinnestAI reported the voice failed on a live call. The healer moves the "
+        "agent to its last working voice (Clear or Studio), tells the owner, and moves it "
+        "back once the failed voice is proven working.",
+        next_step="Nothing unless it is handed to you. Then check the voice (Studio: our "
+        "Cartesia key and balance in ops Voices; Clear: ThinnestAI's status) and choose.",
+    ),
+    AGENT_SILENT_CALL: IncidentKind(
+        title="An answered call was silent",
+        meaning="A call was answered but had no conversation at all, or the voice never "
+        "reported. Treated like a voice failure: the agent is moved to a working voice.",
+        next_step="Nothing unless it is handed to you. Read the call on the admin call view.",
+    ),
+    AGENT_REPEAT_HANGUPS: IncidentKind(
+        title="Callers keep ringing an agent straight back",
+        meaning="The same callers rang again within minutes of a short or silent call. The "
+        "healer checks the agent's line like a failing one.",
+        next_step="Nothing unless it is handed to you. Then read the agent's recent calls.",
+    ),
+    VOICE_DOMAIN_FAILING: IncidentKind(
+        title="Callers hear failures on many agents of one voice",
+        meaning="Agents on our Studio voice key, on one Clear voice, or on several voices at "
+        "once had calls callers could not hear. One incident for all of them.",
+        next_step="Check Cartesia's status and our key (Studio) or ThinnestAI's status "
+        "(Clear). It closes itself once the calls are clean again.",
+    ),
     STATUS_POST: IncidentKind(
         title="A notice posted on the status page",
         meaning="Someone on the team posted this problem on the public status page by hand.",
@@ -173,6 +204,10 @@ def progress(
             return "The owner undid the script fix"
         if outcome == "restored_by_person":
             return "Marked as handled by a person"
+        if outcome == "shadow":
+            return "Dry run: recorded what it would do, changed nothing"
+        if outcome == "stood_down":
+            return "The owner chose the agent's voice; the healer stood down"
         if outcome == "verified" and playbook == MONEY_REVIEW:
             return "Closed automatically: new calls' charges match what we metered"
         if outcome == "verified" and escalated:
@@ -186,6 +221,8 @@ def progress(
         return "Waiting for a chance to fix the script (an unpublished change or no AI allowance)"
     if outcome == "paused":
         return "Waiting: this repair is switched off in configuration"
+    if outcome == "voice_waiting":
+        return "Waiting: line protection holds this agent's line"
     if playbook == STATUS_POST:
         return "Posted by hand; stays up until you mark it as handled"
     if state == "escalated":
@@ -207,6 +244,10 @@ def progress(
         return "Writing the fix for the agent's script"
     if outcome == "fix_live":
         return "Script fix live; watching the next calls"
+    if outcome == "voice_switched":
+        return "On a backup voice; checking the failed voice until it is proven working"
+    if outcome == "voice_probation":
+        return "Own voice given back; watching its next calls"
     if outcome == "held":
         return "Every line held; waiting for 15 quiet minutes"
     if outcome.startswith("held:"):

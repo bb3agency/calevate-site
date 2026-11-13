@@ -213,7 +213,8 @@
               "ok",
               "failed",
               "skipped",
-              "refused"
+              "refused",
+              "shadow"
             ],
             "title": "Outcome",
             "type": "string"
@@ -30206,6 +30207,46 @@
         "title": "HandoffOut",
         "type": "object"
       },
+      "HealerMetricsOut": {
+        "additionalProperties": false,
+        "description": "What the healer itself did over `days` (D-987): its own track record.",
+        "properties": {
+          "actions": {
+            "title": "Actions",
+            "type": "integer"
+          },
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "recurrences": {
+            "title": "Recurrences",
+            "type": "integer"
+          },
+          "shadow": {
+            "title": "Shadow",
+            "type": "integer"
+          },
+          "undone": {
+            "title": "Undone",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "days",
+          "actions",
+          "failed",
+          "undone",
+          "shadow",
+          "recurrences"
+        ],
+        "title": "HealerMetricsOut",
+        "type": "object"
+      },
       "HealerOverviewOut": {
         "additionalProperties": false,
         "properties": {
@@ -30216,6 +30257,9 @@
           "escalated_incidents": {
             "title": "Escalated Incidents",
             "type": "integer"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/HealerMetricsOut"
           },
           "open_incidents": {
             "title": "Open Incidents",
@@ -30238,6 +30282,13 @@
             "title": "Playbooks",
             "type": "array"
           },
+          "shadow": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Shadow",
+            "type": "array"
+          },
           "unknown_paused": {
             "items": {
               "type": "string"
@@ -30250,10 +30301,12 @@
           "enabled",
           "paused",
           "unknown_paused",
+          "shadow",
           "playbooks",
           "paging",
           "open_incidents",
-          "escalated_incidents"
+          "escalated_incidents",
+          "metrics"
         ],
         "title": "HealerOverviewOut",
         "type": "object"
@@ -31581,6 +31634,17 @@
           "playbook": {
             "title": "Playbook",
             "type": "string"
+          },
+          "postmortem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Postmortem"
           },
           "progress": {
             "title": "Progress",

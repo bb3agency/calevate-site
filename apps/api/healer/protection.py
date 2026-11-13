@@ -44,7 +44,12 @@ from apps.api.engine import get_engine
 from apps.api.healer.health import SHORT_CALL_S
 
 ClientIncidentKind = Literal[
-    "agent_unwell", "line_protected", "platform_outage", "script_fixed", "script_fix_waiting"
+    "agent_unwell",
+    "line_protected",
+    "platform_outage",
+    "script_fixed",
+    "script_fix_waiting",
+    "voice_switched",
 ]
 
 

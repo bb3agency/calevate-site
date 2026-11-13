@@ -667,11 +667,14 @@ async def test_a_tenant_reads_only_its_own_fixes() -> None:
 
 
 STEM = "c4e8a2f6d1b9_agent_mistake_fixes"
+#: The revision after it (D-987), stepped down first and up last: its rows (a `voice_switched`
+#: notice) would otherwise violate the narrower CHECK this one restores.
+LATER = "d7f3a9c1e5b2_voice_fallback"
 
 
-def _revision() -> ModuleType:
-    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / f"{STEM}.py"
-    spec = importlib.util.spec_from_file_location(f"_revision_{STEM}", path)
+def _revision(stem: str = STEM) -> ModuleType:
+    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / f"{stem}.py"
+    spec = importlib.util.spec_from_file_location(f"_revision_{stem}", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -679,7 +682,7 @@ def _revision() -> ModuleType:
 
 
 def test_the_migration_goes_down_and_up() -> None:
-    revision = _revision()
+    revision, later = _revision(), _revision(LATER)
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(
         "+asyncpg", "+psycopg"
     )
@@ -690,9 +693,11 @@ def test_the_migration_goes_down_and_up() -> None:
             transaction = connection.begin()
             try:
                 with Operations.context(MigrationContext.configure(connection)):
+                    later.downgrade()
                     revision.downgrade()
                     assert connection.execute(exists).scalar() is False
                     revision.upgrade()
+                    later.upgrade()
                     assert connection.execute(exists).scalar() is True
             finally:
                 transaction.rollback()

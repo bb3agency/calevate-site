@@ -1442,6 +1442,76 @@ class Settings(BaseSettings):
     # The fix is put back when the calls after it show more than this many extra other
     # mistakes per 100 calls than the calls before it.
     call_mistake_fix_worse_per_100_calls: int = Field(default=50, ge=0, le=10000)
+    # Moving an agent off a voice callers cannot hear (D-987, playbook `voice_fallback`).
+    # Every one is read per healer tick or per scored window.
+    # Longest probe line, in characters: a Studio probe is spoken on our key and billed per
+    # character, so it is the first words of the agent's own greeting, cut to this.
+    healer_voice_probe_max_chars: int = Field(default=40, ge=5, le=200)
+    # Minutes between probes of the failed voice while an agent is on its backup.
+    healer_voice_probe_minutes: int = Field(default=10, ge=1, le=1440)
+    # Passing probes in a row before a Studio agent goes back to its own voice.
+    healer_voice_restore_probes: int = Field(default=3, ge=1, le=50)
+    # A Clear agent stays on its backup at least this long before it may go back.
+    healer_voice_clear_recovery_minutes: int = Field(default=60, ge=5, le=10080)
+    # Clean calls other agents on the failed Clear voice must take before it counts as back.
+    healer_voice_clear_recovery_calls: int = Field(default=3, ge=1, le=100)
+    # With no other agent on that Clear voice to prove it, the wait before going back.
+    healer_voice_clear_blind_restore_minutes: int = Field(default=360, ge=5, le=10080)
+    # How long an agent given its voice back is watched for a relapse.
+    healer_voice_watch_minutes: int = Field(default=120, ge=5, le=10080)
+    # At most one voice switch per agent inside this many minutes.
+    healer_voice_switch_window_minutes: int = Field(default=360, ge=5, le=10080)
+    # More than this many agents switched within `healer_voice_breaker_minutes` is an
+    # outage: no further switches, and a page.
+    healer_voice_breaker_agents: int = Field(default=3, ge=1, le=1000)
+    healer_voice_breaker_minutes: int = Field(default=60, ge=1, le=1440)
+    # Backup voices tried in order before the switch is handed to a person.
+    healer_voice_candidates: int = Field(default=3, ge=1, le=20)
+    # Paging on failures callers hear (D-987): a second one on one agent, or one each on
+    # this many agents, inside this many minutes, pages.
+    healer_page_repeat_minutes: int = Field(default=60, ge=1, le=1440)
+    healer_page_spread_agents: int = Field(default=2, ge=2, le=1000)
+    # Silent and dead-air calls, from the call's own quality figures (D-987).
+    # An answered call at least this long with no turn at all is a silent call.
+    healer_silent_call_seconds: int = Field(default=10, ge=1, le=600)
+    # A silence at least this long, or this many long silences, is dead air.
+    healer_dead_air_seconds: int = Field(default=8, ge=1, le=600)
+    healer_dead_air_count: int = Field(default=3, ge=1, le=100)
+    # The same caller ringing again within this many minutes of a short or silent call...
+    healer_repeat_call_minutes: int = Field(default=10, ge=1, le=1440)
+    # ...this many times on one agent within this many minutes opens a line check.
+    healer_repeat_call_count: int = Field(default=2, ge=1, le=100)
+    healer_repeat_call_window_minutes: int = Field(default=60, ge=1, le=1440)
+    # Agents on one voice provider or one catalogue voice whose callers heard a failure
+    # within the window: this many make one incident and one page.
+    healer_domain_agents: int = Field(default=2, ge=2, le=1000)
+    healer_domain_window_minutes: int = Field(default=30, ge=1, le=1440)
+    # The objective "calls with no failure the caller heard", in thousandths (990 = 99.0%),
+    # and its burn-rate alarms over two windows each (Google SRE workbook, alerting on
+    # SLOs): fast burn pages, slow burn is a ticket. Rates in tenths (144 = 14.4x).
+    healer_slo_target_permille: int = Field(default=990, ge=500, le=999)
+    healer_slo_fast_burn_tenths: int = Field(default=144, ge=10, le=10000)
+    healer_slo_fast_long_minutes: int = Field(default=60, ge=5, le=10080)
+    healer_slo_fast_short_minutes: int = Field(default=5, ge=1, le=1440)
+    healer_slo_slow_burn_tenths: int = Field(default=60, ge=10, le=10000)
+    healer_slo_slow_long_minutes: int = Field(default=360, ge=5, le=10080)
+    healer_slo_slow_short_minutes: int = Field(default=30, ge=1, le=1440)
+    # Fewer calls than this in a long window are not judged.
+    healer_slo_min_calls: int = Field(default=10, ge=1, le=100000)
+    # The healer's own safety (D-987). Playbooks that only write what they would do.
+    healer_shadow_playbooks: str = Field(default="", max_length=1000, pattern=r"^[a-z0-9_, ]*$")
+    # Days a playbook first shipped stays in that mode; 0 lets it act from its first day.
+    healer_new_playbook_shadow_days: int = Field(default=0, ge=0, le=90)
+    # More acting steps than this across every playbook within the minutes below stops
+    # every automatic action and pages.
+    healer_action_breaker_count: int = Field(default=30, ge=1, le=10000)
+    healer_action_breaker_minutes: int = Field(default=10, ge=1, le=1440)
+    # Watching an agent's first calls after a script or voice publish (D-987).
+    healer_publish_watch_calls: int = Field(default=5, ge=1, le=200)
+    healer_publish_watch_hours: int = Field(default=24, ge=1, le=168)
+    healer_publish_watch_drop_points: int = Field(default=25, ge=1, le=100)
+    # A resolved incident gets its draft summary within this many hours.
+    healer_summary_hours: int = Field(default=24, ge=1, le=168)
 
     # ---- Meta Cloud API credentials (D-91) ----------------------------------------
     #

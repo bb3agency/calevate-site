@@ -67,6 +67,8 @@ def line_notice(
     name = f"“{agent_name}”" if agent_name else "Your agent"
     if kind in ("script_fixed", "script_fix_waiting"):
         return script_fix_notice(kind=kind, name=name, state=state, outcome=worst_signal)
+    if kind == "voice_switched":
+        return voice_notice(name=name, state=state, outcome=worst_signal)
     paused = (
         f" {campaigns_paused} campaign{'s' if campaigns_paused != 1 else ''} using it "
         f"{'are' if campaigns_paused != 1 else 'is'} paused."
@@ -208,6 +210,35 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
     )
 
 
+def voice_notice(*, name: str, state: str, outcome: str | None = None) -> Notice:
+    """The agent moved to a backup voice because callers could not hear it (D-987), or back.
+    `outcome` is the incident's last step: `stood_down` when the owner chose a voice."""
+    if state == "resolved" and outcome == "stood_down":
+        return Notice(
+            headline=f"{name} keeps the voice you chose",
+            what_happened="You chose a voice for it.",
+            what_we_did="We will not change it back.",
+            your_part="Nothing.",
+            must_act=False,
+        )
+    if state == "resolved":
+        return Notice(
+            headline=f"{name} has its own voice back",
+            what_happened="Its usual voice works again.",
+            what_we_did="We moved it back. We are watching its next calls.",
+            your_part="Nothing.",
+            must_act=False,
+        )
+    return Notice(
+        headline=f"{name} is on a backup voice",
+        what_happened="On a call, the caller could not hear it.",
+        what_we_did="We moved it to a voice that has been working. We move it back once its "
+        "own voice works again.",
+        your_part="Nothing. You can choose another voice on the agent's page.",
+        must_act=False,
+    )
+
+
 def incident_link(slug: str) -> str:
     return f"{CONSOLE_BASE}/c/{slug}/settings/line-protection"
 
@@ -219,4 +250,5 @@ __all__ = [
     "incident_link",
     "line_notice",
     "script_fix_notice",
+    "voice_notice",
 ]

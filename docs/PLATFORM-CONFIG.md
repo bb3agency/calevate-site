@@ -297,6 +297,28 @@ it is settled; `call_mistake_fix_max_attempts` (2) fixes per agent and mistake;
 `call_mistake_fix_compare_calls` (10) calls compared on each side of a fix; and
 `call_mistake_fix_worse_per_100_calls` (50) extra other mistakes per 100 calls that put the
 old script back.
+D-987 (13 Nov 2026) adds, all live, read per healer tick or scored window:
+under Moving an agent off a failing voice (`voice_fallback`, `apps/workers/voice_fallback.py`)
+`healer_voice_probe_max_chars` (40), `healer_voice_probe_minutes` (10),
+`healer_voice_restore_probes` (3), `healer_voice_clear_recovery_minutes` (60),
+`healer_voice_clear_recovery_calls` (3), `healer_voice_clear_blind_restore_minutes` (360),
+`healer_voice_watch_minutes` (120), `healer_voice_switch_window_minutes` (360),
+`healer_voice_breaker_agents` (3) in `healer_voice_breaker_minutes` (60),
+`healer_voice_candidates` (3); under Paging `healer_page_repeat_minutes` (60),
+`healer_page_spread_agents` (2); under Silent and dropped calls `healer_silent_call_seconds`
+(10), `healer_dead_air_seconds` (8), `healer_dead_air_count` (3),
+`healer_repeat_call_minutes` (10), `healer_repeat_call_count` (2),
+`healer_repeat_call_window_minutes` (60), `healer_domain_agents` (2),
+`healer_domain_window_minutes` (30); under Call success objective
+`healer_slo_target_permille` (990), `healer_slo_fast_burn_tenths` (144) over
+`healer_slo_fast_long_minutes` (60) / `healer_slo_fast_short_minutes` (5),
+`healer_slo_slow_burn_tenths` (60) over `healer_slo_slow_long_minutes` (360) /
+`healer_slo_slow_short_minutes` (30), `healer_slo_min_calls` (10); under Kill switches
+`healer_shadow_playbooks` (empty), `healer_new_playbook_shadow_days` (0),
+`healer_action_breaker_count` (30) in `healer_action_breaker_minutes` (10),
+`healer_summary_hours` (24); under Watching calls after a change
+`healer_publish_watch_calls` (5), `healer_publish_watch_hours` (24),
+`healer_publish_watch_drop_points` (25).
 Under Notifications, WhatsApp: `whatsapp_template_healer_page`,
 `whatsapp_template_line_notice` and `whatsapp_template_line_restored` name the three utility
 templates (OPERATIONS §2 gate H-1). No new secret: the healer sends through the WhatsApp

@@ -461,8 +461,9 @@ async def test_the_healer_counts_a_slow_reply_as_slow_and_silence_as_a_failure(
             await session.execute(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                    "status, duration_s, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-                    "'outbound', 'completed', 120, :at, :at)"
+                    # A quality block with turns: a call with none is a silent call (D-987).
+                    "status, duration_s, engine_quality, created_at, updated_at) VALUES (:id, "
+                    ":tid, :aid, :ecid, 'outbound', 'completed', 120, '{\"turns\": 3}', :at, :at)"
                 ),
                 {
                     "id": uuid.uuid4(),

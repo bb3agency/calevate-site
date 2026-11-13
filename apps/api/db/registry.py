@@ -523,6 +523,11 @@ TENANT_TABLES = [
     "heal_fallback_phones",
     "agent_health_windows",
     "heal_proposals",
+    # The healer's voice fallback (D-987): per agent and voice when its calls last went
+    # through and last failed, and each move to a backup voice. Ids, voice ids and times;
+    # FORCE-RLS'd; NOT append-only, a switch moves through its states on one row.
+    "agent_voice_history",
+    "agent_voice_switches",
     # A client's existing number forwarded to its Calevate number (D-746, migration
     # d6f2b8a41c73): the line and its findings, each verification-call run (CAS-updated;
     # `audit_log` is the immutable record), and the once-per-caller "save our number"

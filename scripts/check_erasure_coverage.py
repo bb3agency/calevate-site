@@ -433,6 +433,16 @@ ERASURE_EXEMPT: dict[str, str] = {
         "It holds ids and rubric outcomes, not transcript text — and the sampler already "
         "skips an erased tenant. The sampled call's own words go with `calls`."
     ),
+    "agent_voice_switches": (
+        "The healer moving one agent between two catalogue voices (D-987): voice ids, rungs, "
+        "a closed-set `reason` code (`voice_failed`/`silent_call`, CHECKed) and times. No "
+        "caller's words or number has a column here, and the rows CASCADE with the agent."
+    ),
+    "heal_incidents": (
+        "Platform machinery (RLS-exempt like `audit_log`). Its `summary` (D-987) is written "
+        "only from `heal_actions` details, which are ids, codes and counts our code authored "
+        "and pass `redact_mapping`; no caller's words or number is ever put in one."
+    ),
 }
 
 

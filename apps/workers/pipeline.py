@@ -806,12 +806,14 @@ async def _upsert_call_row(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
                     "from_e164, to_e164, status, started_at, ended_at, duration_s, "
                     "engine_quality, forwarded_to_phone, not_placed_reason, voice_settings, "
+                    "ended_before_agent, "
                     "created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, :dir, :from_e, "
                     f"COALESCE(CAST(:to_e AS text), {_INBOUND_NUMBER_SQL}), :status, :started, "
                     ":ended, :dur, CAST(:quality AS jsonb), :forwarded, :not_placed, "
                     # What the call ran on (D-896): the agent's published settings when the
                     # row is first written, kept by every later write.
-                    "(SELECT a.voice_settings FROM agents a WHERE a.id = :aid), now(), now()) "
+                    "(SELECT a.voice_settings FROM agents a WHERE a.id = :aid), :before_agent, "
+                    "now(), now()) "
                     "ON CONFLICT (engine_call_id) DO UPDATE SET "
                     # A snapshot whose engine stated no status keeps the row's: its
                     # `failed` is a default, not an outcome.
@@ -834,6 +836,8 @@ async def _upsert_call_row(
                     "  not_placed_reason = "
                     "    COALESCE(EXCLUDED.not_placed_reason, calls.not_placed_reason), "
                     "  voice_settings = COALESCE(calls.voice_settings, EXCLUDED.voice_settings), "
+                    "  ended_before_agent = "
+                    "    COALESCE(EXCLUDED.ended_before_agent, calls.ended_before_agent), "
                     "  updated_at = now() "
                     # THE CONSTANT, NOT A RETYPED COPY OF ITS FIVE MEMBERS. This clause
                     # is what stops a late `ringing` webhook un-completing a finished
@@ -866,6 +870,11 @@ async def _upsert_call_row(
                     "quality": quality_json,
                     "forwarded": snapshot.forwarded,
                     "not_placed": snapshot.not_placed_reason,
+                    # D-987: the platform's `hangup` `before_agent`, the caller leaving in
+                    # the silence before the agent spoke; None until a billing block is read.
+                    "before_agent": snapshot.billing.carrier_only
+                    if snapshot.billing is not None
+                    else None,
                     "terminal": sorted(TERMINAL_STATUSES),
                 },
             )
@@ -4207,6 +4216,8 @@ async def _engine_minute_cost(
             carrier_only=snapshot.billing is not None and snapshot.billing.carrier_only,
             forwarded=snapshot.forwarded,
             engine_agent_ref=snapshot.engine_agent_ref,
+            ran_keys=snapshot.billing.keys if snapshot.billing is not None else None,
+            ran_voice_plan=snapshot.billing.voice_plan if snapshot.billing is not None else None,
         )
     if not priced.priced:
         alert(
