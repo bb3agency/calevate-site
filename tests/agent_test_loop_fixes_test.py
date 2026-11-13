@@ -35,8 +35,7 @@ from apps.api.reliability.engine_actions import ACTION_NAMES, OPT_OUT
 from apps.api.worker.in_call_tools import OPTOUT_DONE_SAY
 from apps.workers import agent_test_ai, chat
 from apps.workers import agent_test_conversations as worker
-from apps.workers.extraction import PROVIDER_UNAVAILABLE_REASON
-from apps.workers.script_assist import ask_json
+from apps.workers.script_assist import ANSWER_UNUSABLE_CODE, ask_json
 from calevate_shared.call_script import CallScript, ConversationStage
 from psycopg import errors as pg_errors
 from sqlalchemy import text
@@ -191,7 +190,9 @@ async def test_a_parser_that_raises_is_no_answer_not_an_escape(
 
     with pytest.raises(ProblemError) as refused:
         await ask_json("d", "i", parse=_boom)
-    assert refused.value.code == f"assist_{PROVIDER_UNAVAILABLE_REASON}"
+    # Both legs answered and neither answer could be read: the answer was unusable, not
+    # missing (a parse that raises is sent back for repair first).
+    assert refused.value.code == ANSWER_UNUSABLE_CODE
 
 
 def test_a_cancelled_statement_is_a_503_try_again() -> None:

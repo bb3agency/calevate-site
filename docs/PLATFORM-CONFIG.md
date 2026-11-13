@@ -301,7 +301,10 @@ repair rounds Pip may spend on the lines the mistake checks still find in a scri
 (`apps/workers/script_proposal.py`, 0 checks and reports only); and for the sweep of live
 scripts (`apps/workers/mistake_fix.check_live_scripts`), `script_check_sweep_minutes` (60)
 between sweeps counted from midnight IST, `script_check_sweep_agents` (50) agents per sweep
-and `script_check_sweep_max_fixes` (20) fixes one sweep may start.
+and `script_check_sweep_max_fixes` (20) fixes one sweep may start. Under Assistant, `script_edit_repair_rounds`
+(2, 1 to 5, live) is how many times Pip may repair its own change to a script, when a part
+breaks a rule or the answer comes back in the wrong shape, before the parts still broken are
+put back as the owner had them (`apps/workers/script_assist.ask_json`).
 D-987 (13 Nov 2026) adds, all live, read per healer tick or scored window:
 under Moving an agent off a failing voice (`voice_fallback`, `apps/workers/voice_fallback.py`)
 `healer_voice_probe_max_chars` (40), `healer_voice_probe_minutes` (10),

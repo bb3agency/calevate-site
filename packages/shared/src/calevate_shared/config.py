@@ -1446,6 +1446,9 @@ class Settings(BaseSettings):
     # Repair rounds Pip may spend on a script it wrote, after its first draft, on the lines
     # the call-mistake checks still find. 0 checks and reports without repairing.
     script_mistake_repair_passes: int = Field(default=2, ge=0, le=5)
+    # Targeted repairs Pip may ask for when its edit of a script breaks a rule or comes back
+    # in the wrong shape, before the parts still broken are put back as the owner had them.
+    script_edit_repair_rounds: int = Field(default=2, ge=1, le=5)
     # Minutes between sweeps of live scripts, counted from midnight IST.
     script_check_sweep_minutes: int = Field(default=60, ge=5, le=1440)
     # Agents one sweep checks; the rest wait for the next.

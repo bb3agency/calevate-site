@@ -545,6 +545,9 @@ async def test_the_account_is_read_for_the_manifest_the_facts_and_the_advice(
         monkeypatch.setattr(readiness, "calendar_configured", lambda: False)
         without = await readiness.advice_for(session, agent)
     # The outbound agent's opening is also missing the person's name (`placed_opening_problem`).
+    # Lines that could cause mistakes on calls are their own advice (D-989), after these.
+    advice = [a for a in advice if a.kind != "script_mistake"]
+    without = [a for a in without if a.kind != "script_mistake"]
     assert [a.kind for a in advice] == ["calendar", "script", "script"]
     assert advice[0].href == f"/agents/{agent_id}?section=actions"
     assert advice[1].detail is not None and advice[1].detail.startswith("The opening line: ")
@@ -578,7 +581,8 @@ async def test_the_account_is_read_for_the_manifest_the_facts_and_the_advice(
     assert any("WhatsApp" in w for w in warnings)
     # The put-live dialog shows promotional wording through the D-943 promo check, once.
     assert not any("hurry" in w.lower() for w in warnings)
-    assert clean.json() == {"warnings": []}
+    # Lines that could cause mistakes on calls come back apart, as `mistakes` (D-989).
+    assert clean.json()["warnings"] == []
 
 
 def test_a_finding_names_its_place_in_the_owners_words() -> None:

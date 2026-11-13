@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import re
+import traceback
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -656,8 +657,18 @@ def ways_to_kept_steps(stages: list[Any]) -> list[Any]:
     """`stages` (as JSON) with every way out to a step not in the list removed, as the
     Script tab's own delete does (`scriptModel.removeSection`): a branch to it goes, and an
     `otherwise` to it falls back to the next step in the list. A way out to a step that is
-    gone would be refused at save. Items that are not steps are left for validation."""
-    ids = {s.get("id") for s in stages if isinstance(s, dict)} | SPECIAL_TARGETS
+    gone would be refused at save. Items that are not steps are left for validation.
+
+    The model's JSON is untrusted: an id, `otherwise` or `target` that is not a string (a
+    list of steps where one was asked for) is left for validation to name as a problem, so
+    the repair can fix it. A set lookup on it raised TypeError, which skipped the repair and
+    sent the edit to the standby (production, 13 Nov 2026)."""
+    ids = {s["id"] for s in stages if isinstance(s, dict) and isinstance(s.get("id"), str)}
+    ids |= SPECIAL_TARGETS
+
+    def gone(target: object) -> bool:
+        return target is None or (isinstance(target, str) and target not in ids)
+
     out: list[Any] = []
     for stage in stages:
         if not isinstance(stage, dict):
@@ -667,11 +678,15 @@ def ways_to_kept_steps(stages: list[Any]) -> list[Any]:
         out.append(
             {
                 **stage,
-                **({"otherwise": ""} if stage.get("otherwise") not in ids | {None, ""} else {}),
+                **(
+                    {"otherwise": ""} if stage.get("otherwise") and gone(stage["otherwise"]) else {}
+                ),
                 **(
                     {
                         "branches": [
-                            b for b in branches if not isinstance(b, dict) or b.get("target") in ids
+                            b
+                            for b in branches
+                            if not isinstance(b, dict) or not gone(b.get("target"))
                         ]
                     }
                     if isinstance(branches, list)
@@ -1370,10 +1385,15 @@ TARGETED_REPAIR_NOTE: Final = (
     "Leave out every part the problems do not name: it is kept from your previous answer."
 )
 
-#: How many targeted repairs one edit may ask for. Each asks only for the parts still broken,
-#: so the second is shorter than the first; a third has not been seen to fix what two did not,
-#: and every round is paid for.
-EDIT_REPAIR_ROUNDS: Final = 2
+#: The problem sent back when the answer's JSON did not have the script's shape and our own
+#: reading of it failed. It names no part, so its repair asks for the whole answer again
+#: (`REPAIR_NOTE`) rather than for named parts (`TARGETED_REPAIR_NOTE`).
+SHAPE_PROBLEM: Final = (
+    "the JSON did not have the shape you were asked for: a value had the wrong type, such "
+    "as a list where one id or one line belongs, or an object where text belongs. Every "
+    "step's `target` and `otherwise` is ONE step id as text; to send the caller past "
+    "several steps, point at the step after them"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1506,8 +1526,20 @@ def _parsed_with_problems[T](
         )
         return None, unusable.problems
     except (TypeError, ValueError, KeyError, AttributeError) as failure:
-        log.warning("script_assist_answer_unusable", extra={"error": type(failure).__name__})
-        return None, None
+        # A value of the wrong type that our own reading tripped on. It is sent back like a
+        # broken rule rather than treated as no answer: without a repair the edit went to
+        # the standby, whose lower ceiling cut a whole Telugu script off (13 Nov 2026).
+        log.warning(
+            "script_assist_answer_unusable",
+            extra={"error": type(failure).__name__, "where": _raised_at(failure)},
+        )
+        return None, SHAPE_PROBLEM
+
+
+def _raised_at(failure: BaseException) -> str:
+    """`function:line` where `failure` was raised: the code's location, never the answer."""
+    frames = traceback.extract_tb(failure.__traceback__)
+    return f"{frames[-1].name}:{frames[-1].lineno}" if frames else ""
 
 
 def _usage_sum(first: TokenUsage | None, second: TokenUsage | None) -> TokenUsage | None:
@@ -1555,6 +1587,7 @@ async def ask_json[T](
     targeted: TargetedRepair | None = None,
     salvage: Callable[[dict[str, Any]], T | None] | None = None,
     trace: AskTrace | None = None,
+    standby_after_answer: bool = True,
 ) -> JsonAnswer[T]:
     """THE dashboard AI ladder for a JSON answer: the paid leg `assist_capability` picks (the
     account's own Gemini model when it serves the dashboard, else Azure), the disclosed
@@ -1591,8 +1624,10 @@ async def ask_json[T](
     long answer is never asked for twice. Once the rounds are spent, or a round never came
     back (cut off, out of time, no JSON), `salvage` reads the best answer the leg gave
     leniently, keeping what passed (the business copy's partial save), before the ladder
-    moves on; the standby's answer is read the same way. Every round is part of one metered
-    request (`chat.sum_usage`). `trace` records what happened, for the caller to explain.
+    moves on; the standby's answer is read the same way. `standby_after_answer=False` stops
+    the ladder there instead, after a paid answer the repairs could not make usable. Every
+    round is part of one metered request (`chat.sum_usage`). `trace` records what happened,
+    for the caller to explain.
     """
     capability = assist_capability(
         tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, allow_azure=not gemini_only
@@ -1670,12 +1705,15 @@ async def ask_json[T](
             # structured answer that breaks one validation rule is usually right everywhere
             # else, and the fallback leg is slower and weaker at exactly this kind of answer.
             assert data is not None  # problems come from its parse
+            # A shape problem names no part, so a targeted repair would get nothing back to
+            # lay over the answer: the whole answer is asked for again and replaces it.
+            parts = targeted if problems != SHAPE_PROBLEM else None
             repaired = await paid_answer(
                 repair=Repair(
                     answer=json.dumps(data, ensure_ascii=False),
                     note=(
-                        targeted.note(problems, data)
-                        if targeted is not None
+                        parts.note(problems, data)
+                        if parts is not None
                         else REPAIR_NOTE.format(problems=problems)
                     ),
                 )
@@ -1689,7 +1727,7 @@ async def ask_json[T](
                 trace.truncated = True
             if repaired.data is None:
                 break
-            data = targeted.merge(data, repaired.data) if targeted is not None else repaired.data
+            data = parts.merge(data, repaired.data) if parts is not None else repaired.data
             value, problems = _parsed_with_problems(parse, data)
         if value is None and sent_back and salvage is not None and data is not None:
             value = _parsed(salvage, data)
@@ -1706,6 +1744,11 @@ async def ask_json[T](
             # Billed as a request, refused as an answer: metered at its own model.
             earlier.append(PaidTurn(spent, capability, model))
         answered_unusably = sent_back
+        if answered_unusably and not standby_after_answer:
+            # The paid leg answered and its repairs could not make it usable. The standby
+            # writes the whole answer again under a far lower ceiling, which a long script
+            # edit does not fit (13 Nov 2026: cut off at 4,096 tokens), so it is not asked.
+            raise refused_after_spend(_answer_unusable(), earlier)
         if gemini_only:
             refusal = (
                 _answer_unusable()
@@ -1734,7 +1777,9 @@ async def ask_json[T](
         timeout_s=time_left(standby_until),
         deadline=standby_until,
     )
-    if trace is not None and sarvam is not None and sarvam.truncated:
+    if trace is not None and sarvam is not None and sarvam.truncated and not answered_unusably:
+        # "Too big" is the owner's answer only when no leg could finish: after a paid answer
+        # that was unusable, the standby's cut-off is not why the change failed.
         trace.truncated = True
     # The standby is asked once, with no repair, so its answer is read the lenient way.
     value = _parsed(salvage or parse, sarvam.data) if sarvam is not None else None
@@ -1863,10 +1908,12 @@ async def draft_script(
         quota_exhausted=quota_exhausted,
         max_tokens=max_tokens,
         timeout_s=timeout_s,
-        repair_rounds=EDIT_REPAIR_ROUNDS if targeted is not None else 1,
+        repair_rounds=get_settings().script_edit_repair_rounds if targeted is not None else 1,
         targeted=targeted,
         salvage=salvage,
         trace=seen,
+        # An edit the account's model answered is repaired, never rewritten by the standby.
+        standby_after_answer=edit_of is None,
     )
     return ScriptDraft(
         script=answer.value,
@@ -1882,9 +1929,9 @@ __all__ = [
     "ANSWER_UNUSABLE_CODE",
     "CONVERT_INSTRUCTION",
     "EDIT_INSTRUCTION",
-    "EDIT_REPAIR_ROUNDS",
     "OWNER_QUESTIONS",
     "REPAIR_NOTE",
+    "SHAPE_PROBLEM",
     "TARGETED_REPAIR_NOTE",
     "AskTrace",
     "JsonAnswer",
