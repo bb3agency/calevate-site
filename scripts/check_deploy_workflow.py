@@ -116,23 +116,9 @@ SAFETY_PROPERTIES: tuple[tuple[str, str], ...] = (
         "— and in an incident there is nothing to switch off",
     ),
     (
-        "github.event.workflow_run.conclusion == 'success'",
-        "`workflow_run` fires on FAILED runs too. Without this re-check the workflow "
-        "deploys red builds, which is the commonest way this pattern is got wrong",
-    ),
-    (
-        "github.event.workflow_run.head_branch == 'main'",
-        "CI running on a pull request would otherwise deploy the PR's code",
-    ),
-    (
-        "github.event.workflow_run.event == 'push'",
-        "`head_branch` is the PR's SOURCE branch, so a pull request from a fork's own "
-        "`main` passes the branch check; only a push to this repository is a deploy",
-    ),
-    (
-        "github.event.workflow_run.head_repository.full_name == github.repository",
-        "a fork's run reports the fork as its head repository; the self-hosted production "
-        "runner must never be started by one",
+        "github.ref == 'refs/heads/production'",
+        "only `production` is a release. Without it in the job `if`, a dispatch from any "
+        "branch would start a deploy on the production host",
     ),
     (
         "cancel-in-progress: false",

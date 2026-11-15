@@ -1,16 +1,15 @@
 # Calevate CD — DEPLOYMENT §3.
 #
 # ============================ HOW THIS CANNOT FIRE BY ACCIDENT ======================
-# Four independent gates, any one of which stops it:
+# A push to `production` IS the release (D-991, founder 15 Nov 2026). It deploys at once
+# and does NOT wait for CI: CI runs on `main` and reports, but cannot hold a deploy back,
+# so a commit should be green on `main` before it is pushed here. Three gates remain:
 #
-#   1. Repo VARIABLE `VPS_DEPLOY_ENABLED` must equal the string `true`. Until somebody
-#      sets it, every job here is skipped. Merging this file changes nothing.
-#   2. The trigger is `workflow_run` on a SUCCESSFUL CI run, and the job additionally
-#      re-checks `conclusion == 'success'` — `workflow_run` fires on FAILED runs too,
-#      which is the single most common way a deploy workflow ships a red build.
-#   3. `head_branch` must be `main`. A `workflow_run` triggered by CI on a pull request
-#      would otherwise deploy the PR's code.
-#   4. `environment: production`, so a required-reviewer rule can be attached in repo
+#   1. Repo VARIABLE `VPS_DEPLOY_ENABLED` must equal the string `true`. Unset or `false`,
+#      every job here is skipped — the kill switch.
+#   2. `github.ref` must be `refs/heads/production`, for a push and a dispatch alike. A
+#      pull request never triggers this file, and a push to any other branch does not.
+#   3. `environment: production`, so a required-reviewer rule can be attached in repo
 #      settings without touching this file.
 #
 # NO CREDENTIALS ARE WIRED HERE, and none should be. The runner is INSTALLED ON THE VPS
@@ -35,9 +34,9 @@
 # (hard rule 8 is what makes the older release able to serve the newer schema), and swaps.
 # `.deploy-state/history` on the box is where the previous sha comes from.
 #
-# The checkout stays detached on purpose, so the next `workflow_run` deploy REFUSES rather
-# than pulling back onto the tip and silently undoing the rollback. Roll forward with
-# another dispatch, or `git -C $VPS_CLIENT_PATH checkout main` to resume automatic deploys.
+# The checkout stays detached on purpose, so the next push deploy REFUSES rather than
+# pulling back onto the tip and silently undoing the rollback. Roll forward with another
+# dispatch, or `git -C $VPS_CLIENT_PATH checkout production` to resume automatic deploys.
 # `tests/deploy_checkout_flag_test.py` drives both halves against a real git tree.
 #
 # ========================== WHY ONE JOB AND NOT THREE ===============================
@@ -56,13 +55,12 @@
 name: Deploy
 
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
+    branches: [production]
   workflow_dispatch:
     inputs:
       commit_sha:
-        description: "ROLLBACK: deploy this exact commit instead of the head of main (40 or 7+ hex chars). Empty = normal deploy."
+        description: "ROLLBACK: deploy this exact commit instead of the head of production (40 or 7+ hex chars). Empty = normal deploy."
         required: false
         type: string
         default: ""
@@ -90,11 +88,8 @@ jobs:
   deploy:
     if: >-
       vars.VPS_DEPLOY_ENABLED == 'true' &&
-      (github.event_name == 'workflow_dispatch' ||
-       (github.event.workflow_run.conclusion == 'success' &&
-        github.event.workflow_run.event == 'push' &&
-        github.event.workflow_run.head_repository.full_name == github.repository &&
-        github.event.workflow_run.head_branch == 'main'))
+      github.ref == 'refs/heads/production' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, calevate-vps]
     environment: production
     timeout-minutes: 45
@@ -153,10 +148,10 @@ jobs:
       - name: Deploy
         # TWO MODES, AND THEY ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION.
         #
-        # FORWARD (`--expected-sha`) is the anti-race gate: CI validated ONE commit, and
-        # between that run finishing and this job starting, main can have moved. The
-        # script fast-forwards the checkout and then aborts rather than shipping a commit
-        # nothing tested.
+        # FORWARD (`--expected-sha`) is the anti-race gate: this run is for ONE pushed
+        # commit, and `production` can move again before the job starts. The script
+        # fast-forwards the checkout and then aborts rather than shipping a commit this run
+        # was not started for; the next push's own run deploys that one.
         #
         # ROLLBACK (`--checkout`) is the whole reason `workflow_dispatch` takes a sha. It
         # is the only rollback anybody can reach without an SSH session, and it is what
@@ -172,23 +167,23 @@ jobs:
         # nobody runs by hand. `scripts/check_deploy_workflow.py` fails CI if this step
         # grows one.
         #
-        # `${{ github.event.workflow_run.head_sha }}` is empty on workflow_dispatch, where
-        # `github.sha` is the dispatched ref — hence the fallback.
+        # `github.sha` is the pushed commit on a push and the tip of `production` on a
+        # dispatch.
         env:
-          CI_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          DEPLOY_SHA: ${{ github.sha }}
           ROLLBACK_SHA: ${{ inputs.commit_sha }}
           COMPONENTS: ${{ inputs.components }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
           if [[ -n "${ROLLBACK_SHA:-}" ]]; then
-            echo "::warning::Rollback requested: deploying $ROLLBACK_SHA instead of the head of main."
+            echo "::warning::Rollback requested: deploying $ROLLBACK_SHA instead of the head of production."
             echo "::warning::The checkout is left DETACHED, so the next automatic deploy REFUSES"
             echo "::warning::rather than pulling back onto the tip. To resume automatic deploys:"
-            echo "::warning::  git -C \"$VPS_CLIENT_PATH\" checkout main"
+            echo "::warning::  git -C \"$VPS_CLIENT_PATH\" checkout production"
             args=(--checkout "$ROLLBACK_SHA")
           else
-            args=(--expected-sha "$CI_SHA")
+            args=(--expected-sha "$DEPLOY_SHA")
           fi
           if [[ "${DRY_RUN:-false}" == "true" ]]; then args+=(--dry-run); fi
           # Unquoted on purpose: this input is a space-separated component list and the
