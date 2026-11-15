@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Section, TEXT_ACTION_SM } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { useEnterClass } from "@/components/live/arrivals";
@@ -120,6 +121,8 @@ function MistakeRow({
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const undo = useUndoMistakeFix(session, agentId);
+  // The failure is shown beside the row (ProblemNotice below), so it is not toasted too.
+  const undoFeedback = useActionFeedback(undo, { errorDisplay: "inline" });
 
   return (
     <li className={`py-3 ${enterClass}`}>
@@ -139,16 +142,16 @@ function MistakeRow({
         </div>
         <div className="flex flex-wrap gap-2">
           {mistake.can_undo ? (
-            <button
-              type="button"
-              className={SECONDARY_BUTTON_SM}
+            <ActionButton
+              variant="secondary-sm"
               aria-label={`Undo our fix: ${mistake.label}`}
-              aria-busy={undo.isPending}
-              disabled={undo.isPending}
-              onClick={() => undo.mutate(mistake.kind)}
+              status={undoFeedback.status}
+              pendingLabel="Undoing…"
+              successLabel="Undone"
+              onClick={() => undoFeedback.run(mistake.kind)}
             >
               Undo
-            </button>
+            </ActionButton>
           ) : null}
           {mistake.last_call_id ? (
             <Link
