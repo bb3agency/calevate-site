@@ -109,12 +109,19 @@ export function AutoRechargePanel({
   const [checkoutProblem, setCheckoutProblem] = useState<unknown>(null);
 
   const data = settings.data;
+  /* Re-seeded when the SAVED amounts change, not whenever the settings object does: an
+     approval confirmed or withdrawn answers with the saved amounts, and re-seeding on that
+     answer would put back the old figure over the one the owner just approved and is about
+     to switch on. */
+  const savedThreshold = data?.threshold_inr;
+  const savedAmount = data?.amount_inr;
+  const savedCap = data?.monthly_cap_inr;
   useEffect(() => {
-    if (!data) return;
-    setThreshold(twoPlaces(data.threshold_inr));
-    setAmount(twoPlaces(data.amount_inr));
-    setCap(twoPlaces(data.monthly_cap_inr));
-  }, [data]);
+    if (savedThreshold === undefined || savedAmount === undefined || savedCap === undefined) return;
+    setThreshold(twoPlaces(savedThreshold));
+    setAmount(twoPlaces(savedAmount));
+    setCap(twoPlaces(savedCap));
+  }, [savedThreshold, savedAmount, savedCap]);
 
   if (settings.isLoading) return <Skeleton rows={1} label="Loading auto top-up" />;
   if (settings.error || !data) {

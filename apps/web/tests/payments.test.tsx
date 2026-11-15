@@ -1,5 +1,5 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import { PaymentsScreen } from "@/app/admin/payments/PaymentsScreen";
@@ -203,6 +203,63 @@ describe("auto-recharge card", () => {
     });
     fireEvent.click(await screen.findByRole("button", { name: /Approve a payment method/ }));
     expect(await screen.findByText(/Auto-recharge cannot be approved right now./)).toBeTruthy();
+  });
+});
+
+describe("auto top-up keeps what the owner typed", () => {
+  type Handler = (response: Record<string, string>) => void;
+
+  afterEach(() => {
+    delete window.Razorpay;
+  });
+
+  it("does not put back the saved amount when an approval is confirmed", async () => {
+    // The owner raises "Top up by", approves a method for that amount, then switches it
+    // on. The confirmation answers with the SAVED amount (nothing has been saved yet), and
+    // re-seeding the fields from that answer would switch on the old figure.
+    const opened: { handler: Handler }[] = [];
+    function FakeCheckout(options: { handler: Handler }) {
+      opened.push(options);
+      return { open: () => undefined, on: () => undefined };
+    }
+    window.Razorpay = FakeCheckout as unknown as typeof window.Razorpay;
+    const { calls } = await renderClientPage(<Panel />, {
+      "/v1/me": ME,
+      "/v1/billing/auto-recharge": SETTINGS,
+      "/v1/billing/auto-recharge/charges?limit=20": [],
+      ...NO_TERM,
+      "POST /v1/billing/auto-recharge/mandate": {
+        key_id: "rzp_test_ONLYFORTESTS",
+        order_id: "order_MANDATETEST1",
+        customer_id: "cust_TEST1",
+        amount_paise: 0,
+        notes: {},
+      },
+      "POST /v1/billing/auto-recharge/mandate/confirm": {
+        ...SETTINGS,
+        mandate_status: "confirmed",
+        mandate_method: "upi",
+        mandate_max_inr: "3000.00",
+      },
+      "PUT /v1/billing/auto-recharge": { ...SETTINGS, enabled: true, amount_inr: "3000.00" },
+    });
+    const topUpBy = (await screen.findByLabelText(/Top up by/)) as HTMLInputElement;
+    fireEvent.change(topUpBy, { target: { value: "3000" } });
+    fireEvent.blur(topUpBy);
+    fireEvent.click(screen.getByRole("button", { name: /Approve a payment method/ }));
+    await waitFor(() => expect(opened).toHaveLength(1));
+    await act(async () => {
+      opened[0]!.handler({
+        razorpay_order_id: "order_MANDATETEST1",
+        razorpay_payment_id: "pay_MANDATETEST1",
+        razorpay_signature: "s1gnature",
+      });
+    });
+    await screen.findByText(/UPI Autopay approved/);
+    fireEvent.click(screen.getByRole("switch", { name: /Top up automatically/ }));
+    await waitFor(() => expect(calls.some((call) => call.method === "PUT")).toBe(true));
+    const put = calls.find((call) => call.method === "PUT");
+    expect(JSON.parse(put?.body ?? "{}").amount_inr).toBe("3000.00");
   });
 });
 
