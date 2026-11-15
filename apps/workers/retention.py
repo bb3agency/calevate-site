@@ -3960,6 +3960,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         await session.execute(text("DELETE FROM kb_facts"))
         await session.execute(text("DELETE FROM kb_teachings"))
         await session.execute(text("DELETE FROM teach_questions"))
+        # What the owner gave each campaign to work from (D-992): their notes, links and
+        # the answers they wrote to questions its calls raised — the business's own words,
+        # like the facts above. A file material's object sits under the account's upload
+        # prefix, which the sweep below removes.
+        await session.execute(text("DELETE FROM campaign_materials"))
         # Leads held after hours for release (D-716): a hold left behind could still be
         # released into a call-back after the certificate said the account holds nothing.
         await session.execute(text("DELETE FROM lead_call_holds"))
