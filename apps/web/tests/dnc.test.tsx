@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
+import { ToastProvider } from "@/components/arc/toast";
 import type { Me } from "@/lib/api/client";
 import { DNC_LIST_LIMIT, type DncEntry } from "@/lib/api/dnc";
 import { OUTBOUND_CONSENT_POLICY_PATH } from "@/lib/api/outboundConsent";
@@ -308,6 +309,21 @@ describe("restoring a person's opt-out", () => {
       note: null,
       latest_evidence_id: RECORD_ID,
     });
+  });
+
+  it("says the number was restored once the dialog has closed", async () => {
+    const { calls } = await renderClientPage(<ToastProvider><DoNotCallPage /></ToastProvider>, {
+      ...POLICY,
+      "/v1/me": ME,
+      [LIST_PATH]: [optOut()],
+      [EVIDENCE_PATH]: evidence,
+      [RESTORE_KEY]: noContent(),
+    });
+    const dialog = await openRestore(calls);
+    fireEvent.click(within(dialog).getByLabelText(/They never asked to stop/));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restore this number" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("Number restored")).toBeTruthy();
   });
 
   it("shows the caller's own words when the agent that recorded it kept them", async () => {
