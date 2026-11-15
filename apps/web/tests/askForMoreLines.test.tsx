@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AskForMoreLines } from "@/components/callLines/AskForMoreLines";
+import { ToastProvider } from "@/components/arc/toast";
 import type { CallLineRequest, MyCallLines } from "@/lib/api/callLines";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -74,6 +75,23 @@ describe("asking for more calls at once", () => {
     });
     await screen.findByText(/Asked for 4 on .*We.ll let you know\./);
     expect(screen.queryByRole("button", { name: "Need more? Ask us." })).toBeNull();
+  });
+
+  it("says it was sent once the dialog has closed", async () => {
+    await renderClientPage(<ToastProvider><Tile /></ToastProvider>, {
+      "/v1/me": OWNER,
+      "/v1/call-lines": lines(),
+      "POST /v1/call-lines/requests": asked(),
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Need more? Ask us." }));
+    });
+    await screen.findByRole("dialog", { name: "Ask for more calls at once" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(await screen.findByText("Sent. We'll let you know.")).toBeTruthy();
   });
 
   it("shows an open request instead of a second button", async () => {
