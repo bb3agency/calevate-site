@@ -1396,3 +1396,167 @@ async def test_a_retried_closure_notice_sends_the_whatsapp_once(
     assert whatsapps == [], "a retried run sent the WhatsApp again"
     await account_closure.notify_account_closed({"job_try": WORKER_MAX_TRIES}, payload)
     assert whatsapps == [1]
+
+
+# --- races: one transition, one set of side effects ------------------------------------
+
+
+async def _locked_waiters() -> int:
+    """Backends in this database waiting on a lock right now."""
+    async with untenanted_session() as session:
+        return int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                    )
+                )
+            ).scalar_one()
+        )
+
+
+async def _race_behind_a_row_lock(
+    tenant_id: UUID, lock_sql: str, params: dict[str, Any], requests: list[Any]
+) -> list[Any]:
+    """Hold a row lock, let every request reach it, then release them together.
+
+    Holding the row is what makes the race deterministic: both requests are parked on the
+    same row before either may write, which is the interleaving two clicks can produce.
+    """
+    import asyncio
+
+    async with tenant_session(tenant_id) as blocker:
+        await blocker.execute(text(lock_sql), params)
+        tasks = [asyncio.create_task(request) for request in requests]
+        for _ in range(200):
+            if await _locked_waiters() >= len(requests):
+                break
+            await asyncio.sleep(0.05)
+    return list(await asyncio.gather(*tasks))
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_undos_reopen_once_and_tell_the_client_once() -> None:
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+
+    async def _undo() -> Any:
+        async with _client() as http:
+            return await http.delete(
+                BASE.format(tenant_id=tenant_id), headers={"Authorization": f"Bearer {token}"}
+            )
+
+    responses = await _race_behind_a_row_lock(
+        tenant_id,
+        "SELECT 1 FROM organizations WHERE id = :t FOR UPDATE",
+        {"t": tenant_id},
+        [_undo(), _undo()],
+    )
+
+    assert [r.status_code for r in responses] == [200, 200], [r.text for r in responses]
+    assert [job["event"] for job in await _outbox_jobs(tenant_id)] == ["closed", "restored"]
+    assert (await _audit_actions(tenant_id)).count("tenant.closure_reversed") == 1
+
+
+@pytest.mark.asyncio
+async def test_two_concurrent_resends_rotate_the_link_once() -> None:
+    token, tenant_id = await _admin(), await _tenant()
+    invitation_id = await _invite(token, tenant_id, f"owner-{uuid.uuid4().hex[:8]}@clinic.example")
+    await _age_last_send(invitation_id, tenant_id)
+
+    async def _resend() -> Any:
+        async with _client() as http:
+            return await http.post(
+                f"{INVITES.format(tenant_id=tenant_id)}/{invitation_id}/resend",
+                json={},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    responses = await _race_behind_a_row_lock(
+        tenant_id,
+        "SELECT 1 FROM invitations WHERE id = :i FOR UPDATE",
+        {"i": invitation_id},
+        [_resend(), _resend()],
+    )
+
+    assert sorted(r.status_code for r in responses) == [200, 422], [r.text for r in responses]
+    assert "invitation_resend_too_soon" in [_code(r) for r in responses if r.status_code == 422]
+    async with tenant_session(tenant_id) as session:
+        sends = (
+            await session.execute(
+                text("SELECT send_count FROM invitations WHERE id = :i"), {"i": invitation_id}
+            )
+        ).scalar_one()
+    assert sends == 2
+
+
+async def _readdress(token: str, tenant_id: UUID, invitation_id: UUID, email: str) -> Any:
+    async with _client() as http:
+        return await http.post(
+            f"{INVITES.format(tenant_id=tenant_id)}/{invitation_id}/resend",
+            json={"email": email, "attestation": "Confirmed by telephone with the owner"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": readdress_invitation_confirmation(tenant_id, invitation_id),
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_corrected_address_that_already_has_a_live_invitation_is_refused() -> None:
+    """Re-pointing is a mint as far as the address is concerned: two live keys for one
+    address is the state the mint refuses, and revoking the visible one leaves the other."""
+    token, tenant_id = await _admin(), await _tenant()
+    taken = f"taken-{uuid.uuid4().hex[:8]}@clinic.example"
+    await _invite(token, tenant_id, taken)
+    invitation_id = await _invite(token, tenant_id, "typo@clinc.example")
+    await _age_last_send(invitation_id, tenant_id)
+
+    response = await _readdress(token, tenant_id, invitation_id, taken)
+
+    assert response.status_code == 409, response.text
+    assert _code(response) == "invitation_already_pending"
+    async with tenant_session(tenant_id) as session:
+        live = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM invitations WHERE lower(email) = lower(:e) "
+                    "AND used_at IS NULL AND expires_at > now()"
+                ),
+                {"e": taken},
+            )
+        ).scalar_one()
+    assert live == 1
+
+
+@pytest.mark.asyncio
+async def test_a_corrected_address_of_someone_already_on_the_team_is_refused() -> None:
+    """Redeeming an invitation as an existing member burns it and grants nothing, so an
+    owner invitation re-pointed at a staff member would leave the account without one."""
+    token, tenant_id = await _admin(), await _tenant()
+    member = f"staff-{uuid.uuid4().hex[:8]}@clinic.example"
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :e, now(), now())"
+            ),
+            {"id": user_id, "e": member},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :t, :u, 'staff', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "u": user_id},
+        )
+    invitation_id = await _invite(token, tenant_id, "typo@clinc.example")
+    await _age_last_send(invitation_id, tenant_id)
+
+    response = await _readdress(token, tenant_id, invitation_id, member)
+
+    assert response.status_code == 422, response.text
+    assert _code(response) == "member_already_on_team"

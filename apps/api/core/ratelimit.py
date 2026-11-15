@@ -532,6 +532,9 @@ class Decision:
     #: boolean rather than as the raw count on purpose: the counter's value is this
     #: module's business, "was this bucket new" is the only part a caller may act on.
     first_in_window: bool = False
+    #: The Redis key this call counted against, or None when nothing was counted. Only
+    #: `forget` reads it.
+    bucket_key: str | None = None
 
 
 #: The answer when NOTHING WAS COUNTED — an unlimited profile, or a counter we could not
@@ -586,8 +589,25 @@ async def consume(
         return Decision(allowed=False, retry_after_s=retry_after, reason="unavailable")
 
     if count <= limit:
-        return Decision(allowed=True, retry_after_s=0, first_in_window=count == 1)
-    return Decision(allowed=False, retry_after_s=retry_after, reason="over_limit")
+        return Decision(allowed=True, retry_after_s=0, first_in_window=count == 1, bucket_key=key)
+    return Decision(allowed=False, retry_after_s=retry_after, reason="over_limit", bucket_key=key)
+
+
+async def forget(decision: Decision) -> None:
+    """Delete the bucket `decision` counted against, so its next request is first again.
+
+    For a per-token bucket whose mint the address refused: kept, its second request is not
+    `first_in_window`, so the address is never charged for it and every invented credential
+    buys `per_client - 1` requests past a spent address. DELETE rather than DECR, because
+    a DECR landing after the key expired would create a counter with no TTL. Fails open:
+    a bucket we could not delete is one more window of the old behaviour, never a refusal.
+    """
+    if decision.bucket_key is None:
+        return
+    try:
+        await get_redis().delete(decision.bucket_key)
+    except Exception:
+        log.warning("ratelimit_unforgettable")
 
 
 def too_many_requests(decision: Decision) -> ProblemError:
@@ -632,6 +652,7 @@ __all__ = [
     "bucket_subject",
     "consume",
     "fingerprint",
+    "forget",
     "profile_for",
     "resolve_rule",
     "too_many_requests",

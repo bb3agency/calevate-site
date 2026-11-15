@@ -439,6 +439,66 @@ async def _write_tenant_root(
             await on_created(session, tenant_id)
 
 
+async def _refuse_taken_address(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    email: str,
+    other_than: UUID | None = None,
+) -> None:
+    """Refuse an address already on this account's team or holding a live invitation.
+
+    Asked by every write that points an invitation at an address: the mint, and a resend
+    that corrects the address. `other_than` is the invitation being re-pointed, which is
+    itself live and must not count against its own new address.
+
+    Takes a per-account, per-address lock held to commit, before the two reads the write
+    depends on: no unique index covers "one live invitation per address" (expiry is a
+    clock, not a column an index can name), so two presses at once both found none and
+    both wrote one.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"invitation:{tenant_id}:{email.strip().lower()}"},
+    )
+
+    already = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id "
+                "WHERE lower(u.email) = lower(:e)"
+            ),
+            {"e": email},
+        )
+    ).first()
+    if already is not None:
+        raise ProblemError.business_rule(
+            "member_already_on_team",
+            "That person is already on this account.",
+            remediation="Change their role from the team list instead of inviting them again.",
+        )
+
+    pending = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM invitations WHERE lower(email) = lower(:e) "
+                "AND used_at IS NULL AND expires_at > now() "
+                "AND (CAST(:other AS uuid) IS NULL OR id <> CAST(:other AS uuid))"
+            ),
+            {"e": email, "other": other_than},
+        )
+    ).first()
+    if pending is not None:
+        # Refused rather than silently replaced: issuing a second live token for one
+        # address doubles the number of keys to that account in somebody's inbox, and
+        # quietly revoking the first would break a link that may already be in transit.
+        raise ProblemError.conflict(
+            "invitation_already_pending",
+            "There is already an unused invitation for that address.",
+            remediation="Revoke the pending invitation first if you want to send a new link.",
+        )
+
+
 async def create_invitation(
     session: AsyncSession,
     *,
@@ -482,48 +542,7 @@ async def create_invitation(
     was a 500 and an invitation into a closed account was a 201.
     """
     await assert_account_open(session, tenant_id=tenant_id)
-    # Per account and address, held to commit, before the two reads the INSERT depends on:
-    # no unique index covers "one live invitation per address" (expiry is a clock, not a
-    # column an index can name), so two presses at once both found none and both minted one.
-    await session.execute(
-        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
-        {"key": f"invitation:{tenant_id}:{email.strip().lower()}"},
-    )
-
-    already = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM memberships m JOIN users u ON u.id = m.user_id "
-                "WHERE lower(u.email) = lower(:e)"
-            ),
-            {"e": email},
-        )
-    ).first()
-    if already is not None:
-        raise ProblemError.business_rule(
-            "member_already_on_team",
-            "That person is already on this account.",
-            remediation="Change their role from the team list instead of inviting them again.",
-        )
-
-    pending = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM invitations WHERE lower(email) = lower(:e) "
-                "AND used_at IS NULL AND expires_at > now()"
-            ),
-            {"e": email},
-        )
-    ).first()
-    if pending is not None:
-        # Refused rather than silently replaced: issuing a second live token for one
-        # address doubles the number of keys to that account in somebody's inbox, and
-        # quietly revoking the first would break a link that may already be in transit.
-        raise ProblemError.conflict(
-            "invitation_already_pending",
-            "There is already an unused invitation for that address.",
-            remediation="Revoke the pending invitation first if you want to send a new link.",
-        )
+    await _refuse_taken_address(session, tenant_id=tenant_id, email=email)
 
     invitation_id = uuid7()
     raw = secrets.token_urlsafe(32)
@@ -834,10 +853,15 @@ async def resend_invitation(
       invitation and issuing a fresh one is available and is the honest motion at that
       point, because ten failed sends is evidence about the ADDRESS, not about the link.
 
-    The rate limit is read and written in ONE statement, on the row itself, under the
-    database's own clock. A check-then-write against `last_sent_at` read separately is the
-    hole two rapid clicks walk through, and comparing an API-process clock with a
-    database-written column is wrong by the skew between them (D-322).
+    The rate limit is read under the row's lock and computed by the database's own clock.
+    Unlocked, two clicks both read "sent long enough ago" and both rotated the key, which
+    mailed two links, killed the first at once and could carry `send_count` past
+    `RESEND_MAX_SENDS`. Comparing an API-process clock with a database-written column
+    would be wrong by the skew between them (D-322).
+
+    A corrected address is refused on the mint's own terms (`_refuse_taken_address`):
+    re-pointing at an address with a live invitation would leave two keys for it, and at a
+    member would burn the invitation on redemption without granting its role.
     """
     live = (
         await session.execute(
@@ -848,7 +872,8 @@ async def resend_invitation(
                 "SELECT tenant_id, send_count, "
                 "  EXTRACT(EPOCH FROM (last_sent_at + :gap - now()))::int "
                 "FROM invitations "
-                "WHERE id = :id AND used_at IS NULL AND expires_at > now()"
+                "WHERE id = :id AND used_at IS NULL AND expires_at > now() "
+                "FOR UPDATE"
             ),
             {"id": invitation_id, "gap": RESEND_MIN_INTERVAL},
         )
@@ -858,6 +883,10 @@ async def resend_invitation(
     tenant_id, send_count, wait_s = live
 
     await assert_account_open(session, tenant_id=UUID(str(tenant_id)))
+    if email is not None:
+        await _refuse_taken_address(
+            session, tenant_id=UUID(str(tenant_id)), email=email, other_than=invitation_id
+        )
 
     if int(send_count) >= RESEND_MAX_SENDS:
         raise ProblemError.business_rule(

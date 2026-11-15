@@ -164,6 +164,10 @@ MIN_PASSWORD_CHARS = 8
 #: one is a free CPU sink on an unauthenticated route. 128 is the ceiling ASVS names, and
 #: is far above any passphrase a person types.
 MAX_PASSWORD_CHARS = 128
+#: The raw length past which a password is refused without being normalised. A canonical
+#: decomposition is at most four code points per character, so nothing NFC could shrink
+#: to `MAX_PASSWORD_CHARS` is longer than this.
+_RAW_PASSWORD_CEILING = 4 * MAX_PASSWORD_CHARS
 
 #: Verified against on an unknown subject so that "no such account" and "wrong password"
 #: cost the same wall-clock time. Computed once, lazily, under the real parameters — a
@@ -285,8 +289,16 @@ def _refuse_unusable(password: str) -> None:
     Raised BEFORE any hashing, so a 10-megabyte body never reaches the HMAC. The message
     states the requirement rather than the failure ("must be at least N" reads the same
     whether you sent 3 characters or 300 and does not need to say which).
+
+    Measured after NFC, which is what `_peppered` hashes and what `policy` measures. A raw
+    count refused a decomposed passphrase the policy had already accepted, so self-serve
+    signup spent the code and created the account before the password was refused, leaving
+    an account with no password that could only answer `account_exists`. The raw bound
+    ahead of it keeps an oversized body away from the normaliser.
     """
-    if MIN_PASSWORD_CHARS <= len(password) <= MAX_PASSWORD_CHARS:
+    if len(password) <= _RAW_PASSWORD_CEILING and (
+        MIN_PASSWORD_CHARS <= len(unicodedata.normalize("NFC", password)) <= MAX_PASSWORD_CHARS
+    ):
         return
     raise ProblemError(
         kind="validation",

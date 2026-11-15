@@ -379,6 +379,9 @@ async def test_the_desk_fixes_the_deadline_from_when_the_person_asked() -> None:
     assert logged.due_at - logged.received_at == timedelta(days=90)
     assert logged.subject_ref == subject_ref(phone)
     assert (counts.open, counts.due_soon, counts.overdue) == (2, 1, 1)
+    # Each row says what the header counts it as: overdue is not also due soon.
+    now = datetime.now(UTC)
+    assert [r.due_soon(now) for r in (logged, overdue)] == [True, False]
     # Open first, soonest deadline first.
     assert [r.id for r in listed] == [overdue.id, logged.id]
     assert queue["counts"]["rights_request_due"] == 2

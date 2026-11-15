@@ -524,6 +524,29 @@ async def test_an_office_on_cookies_is_not_throttled_for_being_several_people(
     assert 429 not in codes, f"a shared address was throttled for holding two sessions: {codes}"
 
 
+async def test_a_cookie_whose_mint_was_refused_buys_nothing_on_its_next_request(
+    tight: None,
+) -> None:
+    """A spent address refuses the mint of a new cookie's bucket. Re-sending that same
+    cookie must meet the spent address again: a bucket left behind by the refused mint is
+    no longer "first in window", so it was admitted without the address being asked, and
+    every invented cookie bought `per_client - 1` requests past the ceiling."""
+    shared = _address()
+    async with _client(_trusted_peer()) as http:
+        edge = {"CF-Connecting-IP": shared}
+        for _ in range(4):
+            spent = await http.get("/v1/agents", headers=edge)
+        assert spent.status_code == 429, spent.text
+        codes = []
+        for _ in range(3):
+            cookie = {"Cookie": f"{cookie_name('client')}={uuid.uuid4().hex}"}
+            codes += [
+                (await http.get("/v1/agents", headers={**edge, **cookie})).status_code
+                for _ in range(3)
+            ]
+    assert set(codes) == {429}, f"a refused mint left a bucket that admitted: {codes}"
+
+
 async def test_rotating_the_cookie_buys_no_more_room_than_presenting_none(tight: None) -> None:
     """A fresh cookie per request must not be an escape from the address ceiling.
 

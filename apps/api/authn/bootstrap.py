@@ -207,7 +207,7 @@ async def bootstrap_first_admin(
                 text(
                     "SELECT id FROM admin_users WHERE lower(email) = :e AND deactivated_at IS NULL"
                 ),
-                {"e": address.casefold()},
+                {"e": address.lower()},
             )
         ).first()
         if existing is not None:

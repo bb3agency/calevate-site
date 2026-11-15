@@ -160,10 +160,11 @@ async def load_subject_in(session: AsyncSession, realm: str, subject_id: UUID) -
 async def resolve_by_email(realm: str, email: str) -> Subject | None:
     """The subject who signs in with this address, or `None`. Never says which.
 
-    The match is on `lower(email)` because addresses are compared casefolded everywhere in
-    this repo already (`accept_invitation` does), and because the admin realm's unique
-    index is on the lowered value — matching raw here would let a row be findable by the
-    index and not by this query.
+    The match is on `lower(email)` because the unique indexes are on the lowered value —
+    matching raw here would let a row be findable by the index and not by this query. The
+    needle is `str.lower()`, never `str.casefold()`: casefold maps `ß` to `ss`, which
+    `lower()` on either side does not, so a stored `maß@…` was unreachable and `mass@…` and
+    `maß@…` shared a throttle subject and a signup code (`throttle.pseudo_subject`).
 
     AMBIGUITY IS A REFUSAL, NOT A PICK. `users.email` has never had a unique constraint
     (the migration `b3d9f6a2c815` docstring says why it cannot safely acquire one in that
@@ -173,7 +174,7 @@ async def resolve_by_email(realm: str, email: str) -> Subject | None:
     which is the one thing that makes the data fixable.
     """
     refuse_unknown_realm(realm)
-    needle = email.strip().casefold()
+    needle = email.strip().lower()
     if not needle:
         # An empty identifier cannot match and must not become `lower(email) = ''`, which
         # would match any row whose address is blank.

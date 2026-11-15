@@ -75,7 +75,13 @@ class RightsRequest:
         return (self.due_at - now).days
 
     def due_soon(self, now: datetime) -> bool:
-        return self.status == "open" and self.due_at - now <= timedelta(days=RIGHTS_REMINDER_DAYS)
+        """Open and due within the reminder window, but not yet overdue — the same split
+        `counts` makes, so a row and the header never disagree."""
+        return (
+            self.status == "open"
+            and now < self.due_at
+            and self.due_at - now <= timedelta(days=RIGHTS_REMINDER_DAYS)
+        )
 
 
 _COLUMNS = (

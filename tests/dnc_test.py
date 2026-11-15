@@ -308,6 +308,34 @@ async def test_a_number_already_suppressed_globally_is_not_added_again() -> None
     assert rows == 1
 
 
+async def test_a_persons_own_request_survives_the_global_entry_being_lifted() -> None:
+    """A global row is removable by ops (`remove_global_entry`). The account's record that
+    the person asked IT to stop must not depend on that row staying, or lifting a regulator
+    block would make the number callable by an account it told to stop."""
+    from apps.api.compliance.service import person_level_refusal
+
+    tenant_id, _agent_id, _slug, _token = await _tenant()
+    phone = _number()
+    global_id = await _insert_global(phone)
+
+    async with tenant_session(tenant_id) as session:
+        result = await dnc.add_numbers(
+            session, tenant_id=tenant_id, raw_numbers=[phone], source="customer_request"
+        )
+    assert (result.added, result.already_suppressed) == (1, 0)
+
+    owner = create_async_engine(Settings().alembic_database_url or "")
+    try:
+        async with owner.begin() as conn:
+            await conn.execute(text("DELETE FROM dnc_list WHERE id = :id"), {"id": global_id})
+    finally:
+        await owner.dispose()
+
+    async with tenant_session(tenant_id) as session:
+        refusal = await person_level_refusal(session, tenant_id=tenant_id, phone_e164=phone)
+    assert refusal is not None and refusal.rule == "dnc", refusal
+
+
 async def test_the_add_answers_in_counts_and_the_list_answers_in_numbers() -> None:
     """Two different questions on one resource, and D-436 moved only one of them.
 

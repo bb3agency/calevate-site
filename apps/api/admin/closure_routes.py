@@ -360,7 +360,10 @@ async def restore(tenant_id: UUID, request: Request, principal: Closer) -> Closu
     the account is closed, which is the fact they asked about.
     """
     async with tenant_session(tenant_id) as scoped:
-        before = await closure.read_closure(scoped, tenant_id=tenant_id)
+        # Locked for the reason `close` locks: unlocked, two concurrent undos both read
+        # "closed", the loser's CAS matches nothing, and both send the notice, re-attach
+        # the numbers and write `tenant.closure_reversed`.
+        before = await closure.read_closure(scoped, tenant_id=tenant_id, for_update=True)
         record = await closure.restore_account(scoped, tenant_id=tenant_id)
         if before.is_closed:
             await enqueue_closure_notice(scoped, tenant_id=tenant_id, event=NOTICE_RESTORED)

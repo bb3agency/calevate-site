@@ -381,7 +381,7 @@ def pseudo_subject(realm: str, identifier: str) -> UUID:
     """
     from apps.api.authn.codes import code_fingerprint
 
-    digest = code_fingerprint(identifier.strip().casefold(), domain=f"pseudo-subject:{realm}")
+    digest = code_fingerprint(identifier.strip().lower(), domain=f"pseudo-subject:{realm}")
     return UUID(bytes=digest[:16])
 
 
