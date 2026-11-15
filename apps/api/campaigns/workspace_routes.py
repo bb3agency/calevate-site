@@ -4,6 +4,8 @@ and the questions its calls could not answer (D-992). `campaigns/workspace.py` h
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from datetime import datetime
@@ -11,6 +13,7 @@ from decimal import Decimal
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
+import openpyxl
 from calevate_shared.call_script import CallScript
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
@@ -764,3 +767,72 @@ async def agent_holder(agent_id: UUID, session: Session, _: Reader) -> AgentHold
     return AgentHolderOut(
         campaign_id=row.id if row else None, campaign_name=str(row.name) if row else None
     )
+
+
+# --- A contact list from an Excel sheet --------------------------------------------------------
+
+#: The contact file limit the screen already holds a CSV to (`ContactEditor.MAX_FILE_BYTES`).
+CONTACT_SHEET_MAX_BYTES: Final = 4 * 1024 * 1024
+CONTACT_SHEET_MAX_ROWS: Final = 20_000
+
+
+class ContactSheetOut(_Out):
+    #: The first sheet as CSV text, for the screen's own CSV checks (numbers, duplicates).
+    csv: str
+    rows: int
+
+
+def _cell(value: object) -> str:
+    """A cell as text. A phone number typed into Excel is often stored as a number
+    (9876543210.0); it is written back without the decimal so it reads as the number."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+@router.post(
+    "/contacts/from-excel",
+    response_model=ContactSheetOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Read the first sheet of an Excel file (.xlsx) as CSV text for a contact list",
+)
+async def contacts_from_excel(
+    file: Annotated[UploadFile, File()], principal: Dispatcher
+) -> ContactSheetOut:
+    """Nothing is stored: the screen checks the rows as it checks a CSV and adds them to the
+    draft the same way, so one set of rules (numbers, duplicates, consent) covers both."""
+    del principal
+    data = await read_bounded_upload(file, CONTACT_SHEET_MAX_BYTES)
+    try:
+        book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception as exc:
+        raise ProblemError(
+            kind="validation",
+            code="contact_sheet_unreadable",
+            title="That file could not be read",
+            detail="It is not an Excel workbook (.xlsx). Save it as .xlsx or CSV and try again.",
+        ) from exc
+    out = io.StringIO()
+    writer = csv.writer(out)
+    rows = 0
+    try:
+        sheet = book.worksheets[0] if book.worksheets else None
+        if sheet is not None:
+            for row in sheet.iter_rows(values_only=True):
+                cells = [_cell(v) for v in row]
+                if not any(cells):
+                    continue
+                if rows >= CONTACT_SHEET_MAX_ROWS:
+                    raise ProblemError(
+                        kind="validation",
+                        code="contact_sheet_too_long",
+                        title="That sheet is too long",
+                        detail=f"Keep a list to {CONTACT_SHEET_MAX_ROWS:,} rows; split the rest.",
+                    )
+                writer.writerow(cells)
+                rows += 1
+    finally:
+        book.close()
+    return ContactSheetOut(csv=out.getvalue(), rows=rows)

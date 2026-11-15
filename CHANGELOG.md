@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.3 — 15-Nov-2026
+
+- **People to call** takes an Excel sheet (.xlsx) as well as a CSV, pasted rows, or names and
+  numbers typed one at a time. The sheet is read on the server and checked like a CSV.
+- **Other call settings** replaces "Start later or repeat" and the "How it calls" summary: the
+  hours it may call (IST, 9 am to 9 pm), an optional later start, and **If nobody answers**: try
+  again at the same time the next day until they are reached, on up to 5 days.
+
 ## 0.4.2 — 15-Nov-2026
 
 - **Pip's campaign script is checked like every Pip script.** Before you see it, the call-mistake

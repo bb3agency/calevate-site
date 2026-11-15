@@ -47,7 +47,7 @@ export function DraftPeople({
 }) {
   return (
     <Section
-      title="Who will be called"
+      title="People to call"
       action={
         <button
           type="button"

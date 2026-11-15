@@ -7065,6 +7065,20 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "Body_contacts_from_excel_v1_campaigns_contacts_from_excel_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_contacts_from_excel_v1_campaigns_contacts_from_excel_post",
+        "type": "object"
+      },
       "Body_contest_v1_admin_payments_disputes__dispute_id__contest_post": {
         "properties": {
           "amount_inr": {
@@ -18439,6 +18453,25 @@
           "counts"
         ],
         "title": "ContactResultsOut",
+        "type": "object"
+      },
+      "ContactSheetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "csv": {
+            "title": "Csv",
+            "type": "string"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "csv",
+          "rows"
+        ],
+        "title": "ContactSheetOut",
         "type": "object"
       },
       "ConversationStage": {
@@ -87683,6 +87716,45 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/campaigns/contacts/from-excel": {
+      "post": {
+        "description": "Nothing is stored: the screen checks the rows as it checks a CSV and adds them to the\ndraft the same way, so one set of rules (numbers, duplicates, consent) covers both.",
+        "operationId": "contacts_from_excel_v1_campaigns_contacts_from_excel_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_contacts_from_excel_v1_campaigns_contacts_from_excel_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactSheetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Read the first sheet of an Excel file (.xlsx) as CSV text for a contact list",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
       }
     },
     "/v1/campaigns/numbers": {

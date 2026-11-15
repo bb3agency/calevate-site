@@ -38,6 +38,7 @@ import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
 import { CampaignTimeline } from "./CampaignTimeline";
 import { CampaignWorkspace } from "./CampaignWorkspace";
+import { OtherCallSettings } from "./OtherCallSettings";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
 import { ScheduleCards } from "./ScheduleCards";
@@ -377,32 +378,38 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                       onAddPeople={addPeople}
                     />
                   </div>
-                  {check.data && (
-                    <Section title={status === "scheduled" ? "Make it weekly" : "Start later or repeat"}>
-                      <ArmingForms
-                        status={status}
-                        check={check}
-                        schedule={scheduleFeedback}
-                        repeat={repeatFeedback}
-                        scheduleForm={scheduleForm}
-                        canWrite={write.allowed}
-                        refusal={refusal}
-                      />
-                    </Section>
-                  )}
-                  {/* The people take the width and the settings sit beside them on a wide screen. */}
-                  <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
-                    <DraftPeople
-                      slug={slug}
-                      campaignId={campaignId}
-                      maxAttempts={data.retry_policy.max_attempts}
-                      canWrite={write.allowed}
-                      refusal={refusal}
-                      adding={addingPeople}
-                      onAddingChange={setAddingPeople}
-                    />
-                    <CampaignSettings slug={slug} campaignId={campaignId} progress={data} layout="aside" />
-                  </div>
+                  {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a time. */}
+                  <DraftPeople
+                    slug={slug}
+                    campaignId={campaignId}
+                    maxAttempts={data.retry_policy.max_attempts}
+                    canWrite={write.allowed}
+                    refusal={refusal}
+                    adding={addingPeople}
+                    onAddingChange={setAddingPeople}
+                  />
+                  <OtherCallSettings
+                    campaignId={campaignId}
+                    editable={status === "draft"}
+                    callingHours={data.calling_hours}
+                    retryPolicy={data.retry_policy}
+                    canWrite={write.allowed}
+                    refusal={refusal}
+                    startLater={
+                      check.data && status === "draft" ? (
+                        <ArmingForms
+                          status={status}
+                          check={check}
+                          schedule={scheduleFeedback}
+                          repeat={repeatFeedback}
+                          scheduleForm={scheduleForm}
+                          canWrite={write.allowed}
+                          refusal={refusal}
+                          showRepeat={false}
+                        />
+                      ) : undefined
+                    }
+                  />
                 </section>
               </div>
             )

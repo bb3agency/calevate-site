@@ -35,6 +35,10 @@ dependencies = [
     # fpdf2's optional text-shaping extra, is deliberately NOT installed: shaping
     # corrupts the extracted text layer, measured in `kb/pdf_render.py`.
     "fpdf2>=2.8.8",
+    # A campaign's contact list from an Excel sheet (`campaigns/workspace_routes.py`), read on
+    # the server rather than with a browser spreadsheet library. Already in the lockfile as the
+    # workers' document reader (`apps/workers/pyproject.toml`), so this adds no package.
+    "openpyxl>=3.1",
     # Multipart form parsing, for the ONE multipart route this API has: a client
     # uploading a knowledge document (`kb/routes.py`). Starlette imports it lazily and
     # raises at request time without it, so it is a declared dependency rather than an

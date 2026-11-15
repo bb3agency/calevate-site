@@ -44,7 +44,10 @@ export function ArmingForms({
   scheduleForm,
   canWrite,
   refusal,
+  showRepeat = true,
 }: {
+  /** The weekly repeat; off where only a later start is offered (Other call settings). */
+  showRepeat?: boolean;
   status: string | null;
   check: ReturnType<typeof useLaunchCheck>;
   schedule: ActionFeedback<string>;
@@ -108,6 +111,7 @@ export function ArmingForms({
 
       {/* Both `draft` and `scheduled` can set a repeat: a client who picked Monday and then
           decided they want it weekly should not have to cancel first. */}
+      {showRepeat && (
       <Disclosure
         title="Repeat every week"
         subtitle="Same days, same time."
@@ -148,6 +152,7 @@ export function ArmingForms({
           </p>
         </form>
       </Disclosure>
+      )}
     </div>
   );
 }
