@@ -1,31 +1,26 @@
 "use client";
 
 /**
- * A FOLDABLE SECTION with its name outside the card (founder, 15 Nov 2026): a coloured pill
- * sits on the card's top edge, and pressing it folds the card to a thin bar. Each section has
- * its own colour so the eye finds it again; the pill keeps the name, so colour is never the
- * only signal.
+ * A FOLDABLE SECTION of a campaign's set-up (founder, 15 Nov 2026): its heading is the
+ * button that folds it, and `FoldGroup` adds Collapse all / Expand all for every section
+ * inside it.
  *
- * `FoldGroup` adds Collapse all / Expand all for every section inside it. A command is a
- * counter rather than a boolean so pressing the same one twice still reaches sections a
- * person has opened or closed by hand since.
+ * The look is the console's calm one (REDESIGN-2): a heading on white above a hairline, no
+ * tinted card and no colour per section. The founder chose "keep folding, drop colours" on
+ * 15 Nov 2026 after five coloured tabs read as a different product from the rest of the
+ * site; a status beside the heading keeps its meaning colour (amber for checks to answer).
+ *
+ * A command is a counter rather than a boolean so pressing the same one twice still reaches
+ * sections a person has opened or closed by hand since.
  */
 
 import { ChevronDown } from "lucide-react";
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
 
+import { TEXT_ACTION_SM } from "@/components/console/section";
+
 type Command = { open: boolean; seq: number };
 const FoldCommand = createContext<Command | null>(null);
-
-export type FoldTone = "voice" | "compliance" | "add" | "people" | "settings";
-
-const TONE: Record<FoldTone, { pill: string; card: string }> = {
-  voice: { pill: "bg-info text-surface", card: "border-info-line border-l-info bg-info-soft/40" },
-  compliance: { pill: "bg-warn text-surface", card: "border-warn-line border-l-warn bg-warn-soft/40" },
-  add: { pill: "bg-brand-strong text-surface", card: "border-success-line border-l-brand-strong bg-brand-soft/40" },
-  people: { pill: "bg-series-4 text-surface", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
-  settings: { pill: "bg-ink text-surface", card: "border-line border-l-ink bg-surface-muted/60" },
-};
 
 export function FoldGroup({
   header,
@@ -42,23 +37,15 @@ export function FoldGroup({
   return (
     <FoldCommand.Provider value={command}>
       <div className={className}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">{header}</div>
-          <div className="flex gap-2">
-          <button
-            type="button"
-            className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted"
-            onClick={() => press(false)}
-          >
-            Collapse all
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted"
-            onClick={() => press(true)}
-          >
-            Expand all
-          </button>
+          <div className="flex gap-1">
+            <button type="button" className={TEXT_ACTION_SM} onClick={() => press(false)}>
+              Collapse all
+            </button>
+            <button type="button" className={TEXT_ACTION_SM} onClick={() => press(true)}>
+              Expand all
+            </button>
           </div>
         </div>
         {children}
@@ -69,18 +56,16 @@ export function FoldGroup({
 
 export function FoldSection({
   title,
-  tone,
   aside,
   defaultOpen = true,
   id,
   children,
 }: {
   title: string;
-  tone: FoldTone;
   /** A short status beside the name, such as "2 checks to answer". */
   aside?: ReactNode;
   defaultOpen?: boolean;
-  /** The card's element id, for a link or a scroll to land on. */
+  /** The section's element id, for a link or a scroll to land on. */
   id?: string;
   children: ReactNode;
 }) {
@@ -90,30 +75,29 @@ export function FoldSection({
   useEffect(() => {
     if (command) setOpen(command.open);
   }, [command]);
-  const look = TONE[tone];
   return (
-    <section id={id} className="relative scroll-mt-24 pt-4">
-      <div className="absolute left-4 top-0 z-10 flex items-center gap-3">
-        <h2 className="text-body font-semibold">
+    <section id={id} className="scroll-mt-24 border-t border-line pt-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 className="text-heading text-ink">
           <button
             type="button"
             aria-expanded={open}
             aria-controls={bodyId}
             onClick={() => setOpen(!open)}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 shadow-card ${look.pill}`}
+            className="press -mx-2 inline-flex min-h-9 items-center gap-1.5 rounded-md px-2 text-left hover:bg-ink/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand touch:min-h-11"
           >
-            <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${open ? "" : "-rotate-90"}`} />
+            <ChevronDown
+              aria-hidden
+              className={`h-4 w-4 shrink-0 text-ink-muted transition-transform duration-(--duration-fast) motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
+            />
             {title}
           </button>
         </h2>
-        {aside ? <span className="rounded-full bg-surface px-2 py-0.5 text-meta">{aside}</span> : null}
+        {aside ? <span className="text-meta text-ink-muted">{aside}</span> : null}
       </div>
-      <div
-        id={bodyId}
-        className={`rounded-card border border-l-4 ${look.card} ${open ? "px-4 pb-5 pt-7 sm:px-6" : "h-5"}`}
-      >
-        {/* Hidden rather than unmounted, so a half-filled form survives a fold. */}
-        <div hidden={!open}>{children}</div>
+      {/* Hidden rather than unmounted, so a half-filled form survives a fold. */}
+      <div id={bodyId} hidden={!open} className="pt-4 pb-2">
+        {children}
       </div>
     </section>
   );

@@ -60,9 +60,9 @@ export function CampaignCalls({ slug, campaignId }: { slug: string; campaignId: 
         onValueChange={setQuery}
         placeholder="Search by person, what was said or outcome"
       />
-      <ul className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
+      <ul className="divide-y divide-line border-y border-line">
         {shown.map((call) => (
-          <li key={call.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3">
+          <li key={call.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3.5">
             <div className="min-w-0 flex-1">
               <p className="text-body font-medium text-ink">{call.lead_name || "Unknown caller"}</p>
               <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">

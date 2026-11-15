@@ -62,7 +62,7 @@ export function CampaignQuestions({
       {questions.data.length > 3 && (
         <SearchField label="Search questions" hideLabel value={query} onValueChange={setQuery} placeholder="Search questions" />
       )}
-      <ul className="space-y-3">
+      <ul className="max-w-4xl divide-y divide-line border-y border-line">
         {shown.map((q) => (
           <Question
             key={q.id}
@@ -115,7 +115,7 @@ function Question({
       },
     );
   return (
-    <li className="rounded-card border border-warn-line border-l-4 border-l-warn bg-surface p-4">
+    <li className="py-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <p className="text-body font-medium text-ink">{question.topic}</p>
         <span className="text-meta text-warn">{KIND[question.kind]}</span>

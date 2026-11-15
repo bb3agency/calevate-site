@@ -33,7 +33,7 @@ import { OUTCOME_ORDER, OUTCOME_WORDS } from "./CampaignResults";
 
 const PAGE_SIZE = 50;
 
-const CELL = "px-3 py-2.5 first:pl-4 last:pr-3 sm:first:pl-5";
+const CELL = "px-3 py-3 first:pl-0 last:pr-0";
 
 const OUTCOME_TONE: Record<ContactOutcome, NoticeTone> = {
   connected: "ok",
@@ -209,9 +209,9 @@ export function ContactResults({
         )
       ) : (
         <>
-          <div className="overflow-hidden rounded-card border border-line">
+          <div className="border-y border-line">
             <table aria-label="People on this campaign" className="w-full table-fixed border-collapse text-left">
-              <thead className="bg-surface-muted">
+              <thead className="border-b border-line">
                 <tr className="text-meta text-ink-muted">
                   <th scope="col" className={`${CELL} font-medium`}>
                     Person

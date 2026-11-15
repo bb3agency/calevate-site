@@ -10,7 +10,7 @@ import {
 } from "@/app/c/[slug]/campaigns/blockerCopy";
 import { campaignRun, runSentence } from "@/app/c/[slug]/campaigns/campaignProgress";
 import { CONSENT_SOURCES } from "@/app/c/[slug]/campaigns/choices";
-import { FILE_HINT } from "@/app/c/[slug]/campaigns/ContactEditor";
+import { COLUMNS_HINT, FILE_HINT } from "@/app/c/[slug]/campaigns/ContactEditor";
 import { windowRefusal } from "@/app/c/[slug]/campaigns/NewCampaignFlow";
 import { REPEAT_SKIPS, START_GIVES_UP, fireTimeLine } from "@/app/c/[slug]/campaigns/scheduleCopy";
 import type { CampaignProgress, CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
@@ -67,6 +67,7 @@ describe("the campaign copy tables", () => {
       START_GIVES_UP,
       REPEAT_SKIPS,
       FILE_HINT,
+      COLUMNS_HINT,
       windowRefusal("18:00", "10:00") ?? "",
       windowRefusal("08:00", "10:00") ?? "",
     ];
@@ -173,7 +174,7 @@ describe("the campaign screens' default view", () => {
   it("shows a blocked draft's checklist in short lines, every blocker at once", async () => {
     const { container } = await renderClientPage(campaignPage(), detail(progressFixture()));
     await screen.findByText("Mandatory Regulatory Compliance Checks");
-    await screen.findByText("Add the people to call.");
+    await screen.findByText(/add the people to call below first/);
     expect(tooLong(visibleLines(container))).toEqual([]);
   });
 

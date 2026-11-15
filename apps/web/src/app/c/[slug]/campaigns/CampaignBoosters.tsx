@@ -37,17 +37,15 @@ function Card({
   title,
   hint,
   info,
-  accent,
   children,
 }: {
   title: string;
   hint: string;
   info?: React.ReactNode;
-  accent: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className={`rounded-card border border-line border-l-4 ${accent} bg-surface p-4 shadow-card sm:p-5`}>
+    <section className="rounded-card border border-line p-4 sm:p-5">
       <h3 className="text-body font-semibold text-ink">{title}</h3>
       <p className="mt-0.5 flex items-center gap-1 text-meta text-ink-muted">
         <span className="block">{hint}</span>
@@ -95,7 +93,6 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
       title="Test call"
       hint="The chosen agent rings your phone."
       info="It puts this campaign's script on the agent first, so you hear exactly what people will hear."
-      accent="border-l-brand"
     >
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-48 flex-1 text-meta font-medium text-ink">
@@ -112,7 +109,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
         </label>
         <button
           type="button"
-          className={PRIMARY_BUTTON_SM}
+          className={SECONDARY_BUTTON_SM}
           disabled={!canWrite || number.replace(/\D/g, "").length < 10 || call.isPending}
           title={refusal}
           onClick={() => call.mutate({ number, numberIsMine: mine })}
@@ -162,7 +159,6 @@ function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { ins
     <Card
       title="Test a second opening line"
       hint="Half hear this opening, half the script's own."
-      accent="border-l-info"
     >
       <p className="mb-2 text-meta text-ink-muted">The AI and recording notices are still said.</p>
       <label className="sr-only" htmlFor={`${campaignId}-opening-b`}>
@@ -245,7 +241,6 @@ function BestTime({ insights }: { insights: CampaignInsights }) {
       title="Best time to call"
       hint="When people answer, by hour (IST)."
       info={`An hour needs ${insights.min_calls_per_hour} calls before it can be judged.`}
-      accent="border-l-brand-strong"
     >
       {insights.hours.length === 0 ? (
         <p className="text-meta text-ink-muted">No calls yet.</p>
@@ -302,7 +297,6 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal }: Common) {
       title="Call the unanswered again"
       hint="A new draft of only the people it never reached."
       info="Same script and settings. You start it when you are ready."
-      accent="border-l-ink-muted"
     >
       <button
         type="button"
@@ -342,7 +336,6 @@ function WhatsAppFollowUp({ slug }: { slug: string }) {
           </p>
         </>
       }
-      accent="border-l-brand-bright"
     >
       <Link href={href(`/c/${slug}/follow-ups`)} className={`${SECONDARY_BUTTON_SM} inline-flex`}>
         Set up a follow-up

@@ -28,7 +28,7 @@ export function PipGenerateBand({
   return (
     <section
       aria-labelledby="pip-generate"
-      className="flex flex-col gap-3 rounded-card border border-brand/40 bg-surface p-4 shadow-card sm:flex-row sm:items-center sm:justify-between sm:p-5"
+      className="flex flex-col gap-3 border-y border-line py-5 sm:flex-row sm:items-center sm:justify-between"
     >
       <div className="min-w-0">
         <h2 id="pip-generate" className="text-heading text-ink">

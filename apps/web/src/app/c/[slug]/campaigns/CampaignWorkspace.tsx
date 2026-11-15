@@ -20,6 +20,7 @@ import { useMemo, useState } from "react";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { SearchField } from "@/components/arc/search-field";
+import { TEXT_ACTION_DANGER } from "@/components/console/section";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import {
   useAddMaterial,
@@ -73,7 +74,7 @@ export function CampaignWorkspace({
     );
   }
   return (
-    <div className="space-y-6">
+    <div className="space-y-10">
       <MainTask campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
       <Materials campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
       <GenerateScript campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
@@ -138,7 +139,7 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
   return (
     <section
       aria-labelledby="campaign-main-task"
-      className="rounded-card border border-line border-l-4 border-l-brand bg-surface p-4 shadow-card sm:p-6"
+      className="scroll-mt-24"
     >
       <SectionHead id="campaign-main-task" step={1} title="Main task" hint={MAIN_TASK_HINT} info={MAIN_TASK_INFO} />
       {editing ? (
@@ -226,7 +227,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
   return (
     <section
       aria-labelledby="campaign-materials"
-      className="rounded-card border border-info-line bg-info-soft p-4 sm:p-6 dark:bg-info/10"
+      className="scroll-mt-24"
     >
       <SectionHead id="campaign-materials" step={2} title="Materials" hint={MATERIALS_HINT} info={MATERIALS_INFO} />
 
@@ -247,10 +248,10 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
           {space.materials.length > 3 && (
             <SearchField label="Search materials" hideLabel value={query} onValueChange={setQuery} placeholder="Search materials" />
           )}
-          <ul className="divide-y divide-info-line overflow-hidden rounded-card border border-info-line bg-surface">
+          <ul className="max-w-4xl divide-y divide-line border-y border-line">
             {shown.map((m) => (
-              <li key={m.id} className="flex items-start gap-3 px-4 py-3">
-                <span className="mt-0.5 shrink-0 rounded-sm bg-info-soft px-1.5 py-0.5 text-meta font-medium text-info">
+              <li key={m.id} className="flex items-start gap-3 py-3.5">
+                <span className="mt-0.5 w-12 shrink-0 text-meta text-ink-muted">
                   {KIND_LABEL[m.kind]}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -261,7 +262,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
                     )}
                   </p>
                   {m.url && (
-                    <a href={m.url} target="_blank" rel="noreferrer noopener" className="text-meta text-info underline [overflow-wrap:anywhere]">
+                    <a href={m.url} target="_blank" rel="noreferrer noopener" className="text-meta text-ink-muted underline decoration-line underline-offset-2 hover:text-ink [overflow-wrap:anywhere]">
                       {m.url}
                     </a>
                   )}
@@ -279,7 +280,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
                 </div>
                 <button
                   type="button"
-                  className="shrink-0 text-meta text-ink-muted underline hover:text-danger"
+                  className={TEXT_ACTION_DANGER}
                   disabled={!canWrite || archive.isPending}
                   title={refusal}
                   aria-label={`Remove ${m.title}`}
@@ -289,7 +290,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
                 </button>
               </li>
             ))}
-            {shown.length === 0 && <li className="px-4 py-3 text-meta text-ink-muted">Nothing matches “{query}”.</li>}
+            {shown.length === 0 && <li className="py-3.5 text-meta text-ink-muted">Nothing matches “{query}”.</li>}
           </ul>
         </div>
       )}
@@ -323,7 +324,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   return (
     <section
       aria-labelledby="campaign-script"
-      className="rounded-card border border-line border-l-4 border-l-brand-strong bg-surface p-4 shadow-card sm:p-6"
+      className="scroll-mt-24"
     >
       <SectionHead id="campaign-script" step={3} title="Script" hint={SCRIPT_HINT} info={SCRIPT_INFO} />
 
@@ -356,7 +357,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
       )}
 
       {proposal?.status === "ready" && proposal.script && (
-        <div className="rounded-card border border-line bg-surface p-4">
+        <div className="border-y border-line py-4">
           <ProposalReview
             key={proposal.id}
             current={script ?? EMPTY_SCRIPT}
@@ -373,7 +374,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
       )}
 
       {!proposal && editing && (
-        <div className="rounded-card border border-line bg-surface p-4">
+        <div className="border-y border-line py-4">
           {/* Every part shown as written, with Review / Update / Cancel on each. */}
           <ProposalReview
             current={EMPTY_SCRIPT}
@@ -386,7 +387,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
       )}
 
       {!proposal && !editing && (
-        <div className="rounded-card border border-line bg-surface p-4">
+        <div>
           {script ? (
             <>
               <ScriptSummary script={script} />

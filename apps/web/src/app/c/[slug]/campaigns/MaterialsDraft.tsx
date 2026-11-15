@@ -17,6 +17,7 @@
 import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
+import { TEXT_ACTION_DANGER } from "@/components/console/section";
 import { FileDrop } from "@/components/fileDrop";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { MaterialIn } from "@/lib/api/campaignWorkspace";
@@ -108,7 +109,7 @@ export function MaterialForm({
           <button
             key={kind}
             type="button"
-            className={mode === kind ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM}
+            className={mode === kind ? `${SECONDARY_BUTTON_SM} border-ink bg-ink/[0.04]` : SECONDARY_BUTTON_SM}
             disabled={!canWrite}
             title={refusal}
             aria-pressed={mode === kind}
@@ -120,7 +121,7 @@ export function MaterialForm({
       </div>
 
       {mode && (
-        <div className="mt-4 space-y-3 rounded-card border border-info-line bg-surface p-4">
+        <div className="mt-4 max-w-2xl space-y-3 border-l-2 border-line pl-4">
           <label className="block text-meta font-medium text-ink">
             Name <span className="font-normal text-ink-muted">(optional)</span>
             <input className={`${FIELD} mt-1 w-full`} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
@@ -194,7 +195,7 @@ export function MaterialsDraft({
   return (
     <section
       aria-labelledby="new-campaign-materials"
-      className="rounded-card border border-info-line bg-info-soft p-4 sm:p-6 dark:bg-info/10"
+      className="scroll-mt-24"
     >
       <SectionHead id="new-campaign-materials" step={2} title="Materials" hint={MATERIALS_HINT} info={MATERIALS_INFO} />
 
@@ -204,10 +205,10 @@ export function MaterialsDraft({
       />
 
       {items.length > 0 && (
-        <ul className="mt-4 divide-y divide-info-line overflow-hidden rounded-card border border-info-line bg-surface">
+        <ul className="mt-4 max-w-4xl divide-y divide-line border-y border-line">
           {items.map((m) => (
-            <li key={m.key} className="flex items-start gap-3 px-4 py-3">
-              <span className="mt-0.5 shrink-0 rounded-sm bg-info-soft px-1.5 py-0.5 text-meta font-medium text-info">
+            <li key={m.key} className="flex items-start gap-3 py-3.5">
+              <span className="mt-0.5 w-12 shrink-0 text-meta text-ink-muted">
                 {KIND_LABEL[m.kind]}
               </span>
               <div className="min-w-0 flex-1">
@@ -217,7 +218,7 @@ export function MaterialsDraft({
               </div>
               <button
                 type="button"
-                className="shrink-0 text-meta text-ink-muted underline hover:text-danger"
+                className={TEXT_ACTION_DANGER}
                 aria-label={`Remove ${m.title}`}
                 onClick={() => onChange(items.filter((x) => x.key !== m.key))}
               >

@@ -218,8 +218,8 @@ export function EditCampaignScreen({ slug, campaignId }: { slug: string; campaig
 /** One part of the draft in its own panel, matching the create flow's step panels. */
 function EditPanel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6">
-      <h3 className="text-title text-ink">{title}</h3>
+    <section className="space-y-6 border-t border-line pt-6">
+      <h3 className="text-heading text-ink">{title}</h3>
       {children}
     </section>
   );

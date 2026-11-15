@@ -42,10 +42,10 @@ export function DraftPeople({
 }) {
   return (
     <>
-      <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
+      <FoldSection title="Add people" id={peopleSectionId(campaignId)}>
         <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
       </FoldSection>
-      <FoldSection title="People to call" tone="people">
+      <FoldSection title="People to call">
         <ContactResults
           slug={slug}
           campaignId={campaignId}

@@ -341,7 +341,7 @@ describe("the launch panel with blockers outstanding", () => {
     expect(container.textContent).not.toContain("consent_source_refused");
     // This one the client CAN act on: the question is asked right there, marked mandatory.
     expect(container.textContent).toContain("Where did this list come from?");
-    expect(container.textContent).toContain("Mandatory: required by TRAI");
+    expect(container.textContent).toContain("Mandatory under TRAI's TCCCPR 2018 and the DPDP Act 2023");
   });
 });
 

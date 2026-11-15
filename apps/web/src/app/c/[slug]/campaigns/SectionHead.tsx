@@ -25,7 +25,7 @@ export function SectionHead({
   return (
     <div className="mb-3">
       <h2 id={id} className="text-heading text-ink">
-        <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-meta font-semibold text-surface">
+        <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full border border-line align-[1px] text-meta font-semibold tabular-nums text-ink-muted">
           {step}
         </span>
         {title}

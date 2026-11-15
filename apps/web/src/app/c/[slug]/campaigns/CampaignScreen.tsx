@@ -267,7 +267,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             <CampaignRun progress={data} campaignId={campaignId} />
           </div>
           {/* A launched campaign can still repeat; its card sits under the live panel. */}
-          <ScheduleCards {...scheduleCardProps} className="rounded-card border border-line p-4 sm:p-5" />
+          <ScheduleCards {...scheduleCardProps} className="border-y border-line py-5" />
           <Section
             title="Results"
             action={

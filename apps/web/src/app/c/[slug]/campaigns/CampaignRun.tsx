@@ -43,7 +43,7 @@ export function CampaignRun({ progress, campaignId }: { progress: CampaignProgre
   return (
     <section
       aria-labelledby="campaign-run"
-      className="space-y-5 rounded-card border border-line bg-surface p-4 shadow-card sm:p-5"
+      className="space-y-5"
     >
       <div>
         <h2 id="campaign-run" className="flex items-center gap-2 text-[13px] font-medium text-ink-muted">

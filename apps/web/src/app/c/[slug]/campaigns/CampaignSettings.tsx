@@ -79,7 +79,7 @@ export function CampaignSettings({
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="@container min-w-0 rounded-card border border-line px-4 py-1">
+    <div className="@container min-w-0 border-t border-line">
       <h3 className="pt-3 text-meta font-semibold text-ink-muted">{title}</h3>
       <dl className="divide-y divide-line">{children}</dl>
     </div>

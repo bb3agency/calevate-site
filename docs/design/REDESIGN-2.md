@@ -261,6 +261,13 @@ serif was taken (the brand decision wins).
   form, whose header comment attributed that shape to the founder; no decision row or
   brief says so, and the review step keeps what it was for (the whole campaign is seen
   before it is created).
+- **Campaigns back to the calm style (founder, 15 Nov 2026).** The campaign screens had
+  drifted into coloured cards (a left stripe and a shadow per step, a blue Materials box,
+  five coloured fold tabs). They are sections again: numbered headings on white, whitespace
+  between them, hairlines around lists, a left rule for an inline form. The founder chose
+  "keep folding, drop colours": `campaigns/FoldSection` is a heading button with a chevron;
+  colour stays only on status words. A bounded job keeps a plain hairline box (Test call,
+  Start later).
 - **A screen of several panels is one copilot surface (D-826).** Wrap the screen in
   `CopilotSurfaceScope` (`lib/copilot/registry.ts`) and let each panel keep declaring what it
   owns; the scope merges them. Without it the newest panel hid the rest from Pip.

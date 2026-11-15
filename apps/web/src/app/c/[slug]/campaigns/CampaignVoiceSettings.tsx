@@ -206,7 +206,6 @@ export function CampaignVoiceSettings({
   return (
     <FoldSection
       title="Voice & call settings"
-      tone="voice"
       defaultOpen={false}
       aside={
         <span className="text-ink-muted">

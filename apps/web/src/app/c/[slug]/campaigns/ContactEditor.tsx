@@ -36,9 +36,10 @@ import {
   type ContactEntry,
 } from "./contactList";
 
-/** What the file drop says about the list. Columns past name and phone are read to the agent. */
-export const FILE_HINT =
-  "Excel or CSV, with name and phone columns. Other columns tell the agent about each person. Up to 4 MB.";
+/** What the file drop says about the list, as two short lines: what it takes, then that columns past
+ * name and phone are read to the agent (founder, 15 Nov 2026). */
+export const FILE_HINT = "Excel or CSV, with name and phone columns. Up to 4 MB.";
+export const COLUMNS_HINT = "Other columns tell the agent about each person.";
 
 const PAGE = 50;
 /** A search term written like a phone number: digits in any script, spaces, +, - and brackets. */
@@ -199,7 +200,12 @@ export function ContactEditor({
         <div className="space-y-3">
           <FileDrop
             label="Your contacts file"
-            hint={FILE_HINT}
+            hint={
+              <>
+                <span className="block">{FILE_HINT}</span>
+                <span className="block">{COLUMNS_HINT}</span>
+              </>
+            }
             accept={CSV_ACCEPT}
             validate={(file) =>
               file.size > MAX_FILE_BYTES
@@ -257,7 +263,7 @@ export function ContactEditor({
       )}
 
       {panel === "paste" && (
-        <div className="settings-enter space-y-2 rounded-card border border-line p-3">
+        <div className="settings-enter max-w-2xl space-y-2 border-l-2 border-line pl-4">
           <label className="block">
             <span className={FIELD_LABEL}>Paste rows</span>
             <textarea
@@ -284,7 +290,7 @@ export function ContactEditor({
       )}
 
       {panel === "add" && (
-        <div className="settings-enter flex flex-wrap items-end gap-2 rounded-card border border-line p-3">
+        <div className="settings-enter flex max-w-2xl flex-wrap items-end gap-2 border-l-2 border-line pl-4">
           <label className="block min-w-0 flex-1 basis-40">
             <span className={FIELD_LABEL}>Phone</span>
             <input

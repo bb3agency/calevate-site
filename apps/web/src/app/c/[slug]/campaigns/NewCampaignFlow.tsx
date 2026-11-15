@@ -254,7 +254,7 @@ export function NewCampaignFlow({
             index === step ? (
               <section
                 aria-labelledby={headingId}
-                className="space-y-7 sm:rounded-card sm:border sm:border-line sm:bg-surface sm:p-7 sm:shadow-card"
+                className="space-y-7"
               >
                 {/* The first step is the main task box; it needs no question above it. */}
                 {index === 0 ? (
@@ -309,7 +309,7 @@ function ReviewCard({ input, onEdit }: { input: SummaryInput; onEdit: (step: num
   const groups = summarize(input);
   return (
     <div className="space-y-5">
-      <div className="rounded-card bg-brand-soft/60 px-4 py-4 sm:px-5">
+      <div className="border-b border-line pb-5">
         <p className="break-words text-heading text-ink">{input.form.name.trim()}</p>
         <p aria-live="polite" className="mt-1 text-body text-ink-muted">
           {headline(input)}
@@ -374,7 +374,7 @@ function LeadsChoice({ form }: { form: CampaignFormState }) {
  */
 function ConsentPanel({ form }: { form: CampaignFormState }) {
   return (
-    <div className="rounded-card bg-surface-muted p-4 sm:p-5">
+    <div className="border-l-2 border-line pl-4">
       <ConsentProvenanceFields
         idPrefix="new"
         source={form.consentSource}

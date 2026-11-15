@@ -3,6 +3,19 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.8 — 15-Nov-2026
+
+- **Campaign screens look like the rest of the console.** The list, New campaign, a draft and a
+  running campaign lose their coloured cards, side stripes and shadows: sections are headings
+  on white, separated by space and thin lines, like the agent page.
+- Step 4 keeps its folding, **Collapse all** and **Expand all**. Each section is now a plain
+  heading with an arrow instead of a coloured tab; only a status beside it keeps its colour
+  (amber for checks to answer).
+- One green button leads: the test call's **Call me** is outlined, so the launch button stands
+  out.
+- The compliance question says **Mandatory under TRAI's TCCCPR 2018 and the DPDP Act 2023**,
+  with the two laws' full names behind the ⓘ. The contacts file hint is two short lines.
+
 ## 0.4.7 — 15-Nov-2026
 
 - Step 4's sections fold. Each name sits on the edge of its card as a coloured tab: press it to

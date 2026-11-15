@@ -59,7 +59,7 @@ export function PipWriting({
     return () => window.clearInterval(tick);
   }, []);
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface p-4">
+    <div className="flex flex-wrap items-center gap-3 border-y border-line py-4">
       <span className="h-3 w-3 shrink-0 animate-pulse rounded-full bg-brand motion-reduce:animate-none" aria-hidden />
       <div className="min-w-0">
         <p role="status" className="text-body text-ink">

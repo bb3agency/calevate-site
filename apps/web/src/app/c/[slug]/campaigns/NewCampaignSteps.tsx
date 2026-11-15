@@ -97,7 +97,7 @@ export function SettledSettings({
   const [open, setOpen] = useState(defaultOpen);
   const panelId = useId();
   return (
-    <section aria-label={title} className="rounded-card bg-surface-muted px-4 py-3.5 sm:px-5">
+    <section aria-label={title} className="border-y border-line py-3.5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h4 className="text-body font-semibold text-ink">{title}</h4>
@@ -361,7 +361,7 @@ function ShortChoice<T extends string>({
 function MainTaskField({ form }: { form: CampaignFormState }) {
   const id = "new-campaign-main-task";
   return (
-    <section className="rounded-card border border-line border-l-4 border-l-brand bg-surface p-4 sm:p-5">
+    <section>
       <label htmlFor={id} className="block text-heading text-ink">
         Main task
       </label>

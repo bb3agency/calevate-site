@@ -241,7 +241,7 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
           <ul
             aria-label="Your campaigns"
             aria-busy={campaigns.isPlaceholderData || undefined}
-            className={`divide-y divide-line overflow-hidden rounded-card border border-line bg-surface transition-opacity duration-(--duration-fast) motion-reduce:transition-none ${
+            className={`divide-y divide-line border-y border-line transition-opacity duration-(--duration-fast) motion-reduce:transition-none ${
               campaigns.isPlaceholderData ? "opacity-60" : ""
             }`}
           >
@@ -289,7 +289,7 @@ function CampaignRow({
   return (
     <li
       data-status={campaign.status}
-      className="relative grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 transition-colors duration-(--duration-fast) hover:bg-ink/[0.02] motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center sm:px-5"
+      className="relative grid grid-cols-1 gap-x-6 gap-y-3 py-4 transition-colors duration-(--duration-fast) hover:bg-ink/[0.02] motion-reduce:transition-none sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center"
     >
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -390,13 +390,13 @@ function FirstRun({ canWrite, newHref }: { canWrite: boolean; newHref: string })
   return (
     <section
       aria-labelledby="campaigns-first-run"
-      className="rounded-card border border-line bg-surface px-5 py-8 sm:px-10 sm:py-10"
+      className="border-t border-line py-10"
     >
       <div className="mx-auto flex max-w-md flex-col items-center text-center">
         <div className="w-full max-w-60">
           <EmptySketch kind="campaigns" />
         </div>
-        <h2 id="campaigns-first-run" className="mt-6 text-lg font-semibold tracking-tight text-ink">
+        <h2 id="campaigns-first-run" className="mt-6 text-heading text-ink">
           No campaigns yet
         </h2>
         <p className="mt-1 text-body text-ink-muted">Start one in three steps.</p>
@@ -404,11 +404,11 @@ function FirstRun({ canWrite, newHref }: { canWrite: boolean; newHref: string })
           {FIRST_STEPS.map((step, index) => (
             <li
               key={step}
-              className="flex items-center gap-3 rounded-lg bg-ink/[0.03] px-3 py-2.5 sm:flex-col sm:items-start sm:gap-2"
+              className="flex items-center gap-3 py-1 sm:flex-col sm:items-start sm:gap-2"
             >
               <span
                 aria-hidden
-                className="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface text-xs font-semibold tabular-nums text-ink shadow-[inset_0_0_0_1px_var(--line)]"
+                className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line text-xs font-semibold tabular-nums text-ink-muted"
               >
                 {index + 1}
               </span>
@@ -440,9 +440,9 @@ function RowsSkeleton() {
   return (
     <div role="status" aria-live="polite">
       <span className="sr-only">Loading your campaigns…</span>
-      <div aria-hidden className="divide-y divide-line overflow-hidden rounded-card border border-line bg-surface">
+      <div aria-hidden className="divide-y divide-line border-y border-line">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="grid grid-cols-1 gap-x-6 gap-y-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center sm:px-5">
+          <div key={i} className="grid grid-cols-1 gap-x-6 gap-y-3 py-4 sm:grid-cols-[minmax(0,1fr)_11.5rem_auto] sm:items-center">
             <div className="space-y-2">
               <div className="h-3 w-24 animate-pulse rounded bg-ink/[0.06] motion-reduce:animate-none" />
               <div className="h-4 w-48 max-w-full animate-pulse rounded bg-ink/[0.08] motion-reduce:animate-none" />

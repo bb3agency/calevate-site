@@ -6,6 +6,7 @@ import { DatePicker } from "@/components/arc/calendar";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { todayIST } from "@/components/arc/ist-dates";
 import { ChoiceCards } from "@/components/console/choiceCards";
+import { InfoTip } from "@/components/console/infoTip";
 import { FieldMessage } from "@/components/formValidation";
 import { ProblemNotice, RestrictionNote } from "@/components/ui";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -31,8 +32,10 @@ export function listSourceId(campaignId: string): string {
  * the TCCCPR Second Amendment of 12 Feb 2025; DPDP s.6(10) as reported by dpdpa.com, not
  * read from the gazette).
  */
-export const MANDATORY_NOTE =
-  "Mandatory: required by TRAI's Telecom Commercial Communications Customer Preference Regulations, 2018 and the Digital Personal Data Protection Act, 2023";
+export const MANDATORY_NOTE = "Mandatory under TRAI's TCCCPR 2018 and the DPDP Act 2023";
+/** The two laws by their full names, behind the ⓘ beside the short note. */
+export const MANDATORY_LAWS =
+  "TRAI's Telecom Commercial Communications Customer Preference Regulations, 2018, and the Digital Personal Data Protection Act, 2023.";
 
 /**
  * WHERE THIS LIST CAME FROM — the consent-provenance question, and the two places that
@@ -74,8 +77,13 @@ export function ConsentProvenanceFields({
           legend={
             mandatory ? (
               <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span>Where did this list come from?</span>
-                <span className="text-meta font-medium text-warn">{MANDATORY_NOTE}</span>
+                <span className="block">Where did this list come from?</span>
+                <span className="flex items-center gap-1 text-meta font-medium text-warn">
+                  <span className="block">{MANDATORY_NOTE}</span>
+                  <InfoTip label="the laws" align="start">
+                    {MANDATORY_LAWS}
+                  </InfoTip>
+                </span>
               </span>
             ) : (
               "Where did this list come from?"

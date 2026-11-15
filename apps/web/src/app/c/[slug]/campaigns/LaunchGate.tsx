@@ -146,7 +146,6 @@ export function LaunchGate({
     // skips one (hard rule 5), whatever this shows.
     <FoldSection
       title="Mandatory Regulatory Compliance Checks"
-      tone="compliance"
       aside={
         check.data?.ready ? (
           <span className="font-medium text-brand-strong">All checks done</span>
@@ -241,7 +240,7 @@ function LaunchSummary({
     <dl
       role="group"
       aria-label="What launching does"
-      className="grid h-fit grid-cols-2 gap-x-4 gap-y-4 rounded-card bg-surface-muted p-4 sm:grid-cols-4 lg:grid-cols-1 lg:p-5"
+      className="grid h-fit grid-cols-2 gap-x-4 gap-y-4 border-t border-line pt-4 sm:grid-cols-4 lg:grid-cols-1 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"
     >
       <SummaryFact label="People">{formatCountOf(progress.total, "person", "people")}</SummaryFact>
       <SummaryFact label="Calls at once">

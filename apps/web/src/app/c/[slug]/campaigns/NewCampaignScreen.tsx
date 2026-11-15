@@ -129,7 +129,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   };
 
   const empty = (what: string) => (
-    <p className="rounded-card border border-dashed border-line p-6 text-body text-ink-muted">{what}</p>
+    <p className="border-y border-line py-6 text-body text-ink-muted">{what}</p>
   );
 
   return (
@@ -157,10 +157,10 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
           ) : tab === "improve" ? (
             empty("Ways to do better show here once it calls.")
           ) : (
-            <div className="max-w-4xl space-y-6">
+            <div className="max-w-4xl space-y-10">
               <section
                 aria-labelledby="new-campaign-main-task-head"
-                className="rounded-card border border-line border-l-4 border-l-brand bg-surface p-4 shadow-card sm:p-6"
+                className="scroll-mt-24"
               >
                 <SectionHead
                   id="new-campaign-main-task-head"
@@ -218,7 +218,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
 
               <section
                 aria-labelledby="new-campaign-script"
-                className="rounded-card border border-line border-l-4 border-l-brand-strong bg-surface p-4 shadow-card sm:p-6"
+                className="scroll-mt-24"
               >
                 <SectionHead id="new-campaign-script" step={3} title="Script" hint={SCRIPT_HINT} info={SCRIPT_INFO} />
                 {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
