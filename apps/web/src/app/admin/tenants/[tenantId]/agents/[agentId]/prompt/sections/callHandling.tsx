@@ -172,5 +172,5 @@ function voiceRowOf(payload: object | undefined): VoiceRow | null {
   if ("filler_lines" in payload) return "filler";
   if ("ambience" in payload || "ambience_volume_pct" in payload) return "sound";
   const silence = ["nudge_after_seconds", "nudge_count", "nudge_phrase", "end_after_silence_seconds"];
-  return silence.some((key) => key in payload) ? "silence" : null;
+  return silence.some((key) => Object.hasOwn(payload, key)) ? "silence" : null;
 }

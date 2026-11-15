@@ -292,6 +292,10 @@ export function stubApi(routes: Routes): ApiCall[] {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const path = url.startsWith(API_BASE) ? url.slice(API_BASE.length) : url;
+      // UpdateWatcher asks the web server (not the API) which build it runs. Not a screen's
+      // request, so it is answered here, kept out of `calls`, and a 404 means "no newer
+      // build", which keeps the page from reloading itself under test.
+      if (path.startsWith("/version.json")) return new Response(null, { status: 404 });
       calls.push({
         url,
         path,
