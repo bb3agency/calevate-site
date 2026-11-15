@@ -14,7 +14,7 @@ import {
   PauseRow,
   ReaskRow,
 } from "@/components/callHandlingRows";
-import { AgentVoiceRows } from "@/components/callHandlingVoiceRows";
+import { AgentVoiceRows, type VoiceRow } from "@/components/callHandlingVoiceRows";
 import { GiveCallersTimeRow } from "@/components/giveCallersTimeRow";
 import { SettingRows } from "@/components/console/settingRow";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
@@ -139,6 +139,11 @@ export function CallHandlingPanel({
           onSave={(payload, done) => save.mutate(payload, { onSuccess: done })}
           error={save.error}
           status={feedback.status}
+          waitingFor={(row) =>
+            save.isPending && voiceRowOf(save.variables) !== row
+              ? "Waiting for the other change to save."
+              : null
+          }
         />
         <ReaskRow
           idPrefix={`admin-${agentId}`}
@@ -159,4 +164,13 @@ export function CallHandlingPanel({
       </SettingRows>
     </div>
   );
+}
+
+/** Which voice row a call-handling write belongs to, or null for any other row's write. */
+function voiceRowOf(payload: object | undefined): VoiceRow | null {
+  if (!payload) return null;
+  if ("filler_lines" in payload) return "filler";
+  if ("ambience" in payload || "ambience_volume_pct" in payload) return "sound";
+  const silence = ["nudge_after_seconds", "nudge_count", "nudge_phrase", "end_after_silence_seconds"];
+  return silence.some((key) => key in payload) ? "silence" : null;
 }

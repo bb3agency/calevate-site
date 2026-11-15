@@ -141,6 +141,7 @@ export function CallHandlingDefaultsRows({
           inherited={platformVoice(data.bounds)}
           canChange={canChange}
           status={rowStatus("silence")}
+          waitingFor={waiting("silence")}
           error={error("silence")}
           own={{
             nudge_after_seconds: data.nudge_after_seconds,
@@ -163,6 +164,7 @@ export function CallHandlingDefaultsRows({
           inherited={platformVoice(data.bounds)}
           canChange={canChange}
           status={rowStatus("filler")}
+          waitingFor={waiting("filler")}
           error={error("filler")}
           own={data.filler_lines}
           effective={data.filler_lines_effective}
@@ -175,6 +177,7 @@ export function CallHandlingDefaultsRows({
           inherited={platformVoice(data.bounds)}
           canChange={canChange}
           status={rowStatus("sound")}
+          waitingFor={waiting("sound")}
           error={error("sound")}
           own={{ ambience: data.ambience, ambience_volume_pct: data.ambience_volume_pct }}
           effective={{
