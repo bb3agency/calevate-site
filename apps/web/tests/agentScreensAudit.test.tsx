@@ -2,10 +2,19 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ImprovementReview } from "@/app/c/[slug]/agents/[agentId]/script/ImprovementReview";
+import { TaughtRules } from "@/app/c/[slug]/agents/[agentId]/script/TaughtRules";
+import { ToastProvider } from "@/components/arc/toast";
 import { CallMistakes } from "@/components/improvement/CallMistakes";
 import { agentMistakesPath, mistakeUndoPath, type AgentMistake } from "@/lib/api/callMistakes";
 import type { Me } from "@/lib/api/client";
-import { EMPTY_SCRIPT, useScript, type Improvement, type ScriptOut, type TestRun } from "@/lib/api/script";
+import {
+  EMPTY_SCRIPT,
+  useScript,
+  type CallScript,
+  type Improvement,
+  type ScriptOut,
+  type TestRun,
+} from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
@@ -91,6 +100,42 @@ describe("the owner's Undo of our fix on Mistakes on real calls", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Undo our fix: Said the same line again" }));
     await waitFor(() => expect(calls.some((c: ApiCall) => c.method === "POST")).toBe(true));
     await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+});
+
+describe("rules taught in Knowledge, placed in the script", () => {
+  const RULES = "/v1/agents/a1/script/proposed-rules";
+  const RULE = {
+    id: "rule1",
+    agent_id: "a1",
+    text: "Never promise Sunday delivery",
+    status: "pending",
+    created_at: "2026-11-15T04:00:00Z",
+  };
+
+  it("puts nothing in the draft when marking the rule used is refused, so a retry adds it once", async () => {
+    const changes: CallScript[] = [];
+    await renderClientPage(
+      <ToastProvider>
+        <TaughtRules
+          agentId="a1"
+          script={{ ...EMPTY_SCRIPT, identity: "A friendly receptionist." }}
+          maxSections={12}
+          canWrite
+          onChange={(next) => changes.push(next)}
+        />
+      </ToastProvider>,
+      {
+        "/v1/me": OWNER,
+        [RULES]: [RULE],
+        [`POST ${RULES}/rule1`]: problem(503, { title: "Try again in a moment.", retryable: true }),
+      },
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add to its role" }));
+    expect(await screen.findByText("Try again in a moment.")).toBeTruthy();
+    expect(changes).toEqual([]);
+    // Still listed, so the owner presses it again: the role must not hold the rule twice.
+    expect(screen.getByRole("button", { name: "Add to its role" })).toBeTruthy();
   });
 });
 
