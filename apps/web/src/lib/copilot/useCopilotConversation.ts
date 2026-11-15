@@ -732,7 +732,9 @@ export function useCopilotConversation(
         {
           onText: (delta) => {
             answerWire += delta;
-            answer += pass.restore(delta);
+            // Restored over the WHOLE answer, not the delta: a frame is a model chunk, and
+            // a chunk boundary inside «PHONE_1» left both halves unmatched for good.
+            answer = pass.restore(answerWire);
             partial.current = { answer, wire: answerWire, id: turnIds.answer };
             setStreaming(answer);
           },
