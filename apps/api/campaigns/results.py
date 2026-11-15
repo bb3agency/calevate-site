@@ -39,7 +39,7 @@ from apps.api.compliance.optout import OPTOUT_PURPOSE
 from apps.api.core.errors import ProblemError
 from apps.api.crm.lead_definition import BECAME_LEADS_SQL, GOAL_BAND
 from apps.api.crm.outcomes import normalise as normalise_outcome
-from apps.api.db.like import contains_pattern, suffix_pattern
+from apps.api.db.like import contains_pattern, phone_suffix_pattern
 
 ContactOutcome = Literal[
     "connected",
@@ -154,7 +154,7 @@ async def contacts_page(
     if search:
         clauses.append("(r.name ILIKE :search OR r.phone_e164 LIKE :phone_suffix)")
         params["search"] = contains_pattern(search)
-        params["phone_suffix"] = suffix_pattern(search)
+        params["phone_suffix"] = phone_suffix_pattern(search)
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     total = int(
         (

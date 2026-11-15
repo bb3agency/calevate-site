@@ -16,7 +16,7 @@ from sqlalchemy import text
 from tests.admin_security_test import _make_admin
 from tests.api_security_test import _make_tenant
 
-from apps.api.copilot import admin_actions, admin_tools, service, tools
+from apps.api.copilot import action_log, admin_actions, admin_tools, service, tools
 from apps.api.copilot.actions import WriteRefusedError
 from apps.api.core.context import Principal
 from apps.api.db.session import tenant_session, untenanted_session
@@ -410,3 +410,37 @@ async def test_raising_call_lines_through_the_assistant_answers_the_request() ->
     async with tenant_session(tenant_id) as session:
         after = (await read_call_lines(session, tenant_id=tenant_id)).lines
     assert after == before + 1
+
+
+async def test_a_change_the_clients_session_committed_keeps_its_token_spent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The raise commits in the client's own session before the platform's action-log row
+    is written; a failure there must not hand the same card a second run."""
+    from apps.api.core.errors import ProblemError
+    from apps.api.tenancy.call_lines import read_call_lines
+
+    token = await _make_admin(role="operator")
+    tenant_id, _slug, _client_token = await _make_tenant()
+    await _asking_for_lines(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        before = (await read_call_lines(session, tenant_id=tenant_id)).lines
+    proposal = await admin_actions.plan_admin_action(
+        "admin_call_lines_raise",
+        json.dumps({"call_lines": before + 1}),
+        principal=_admin(token, "operator"),
+        viewing_tenant_id=tenant_id,
+    )
+
+    async def _fails(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("the platform session failed")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(action_log, "insert", _fails)
+        with pytest.raises(RuntimeError):
+            await _confirm(token, proposal, role="operator")
+    async with tenant_session(tenant_id) as session:
+        assert (await read_call_lines(session, tenant_id=tenant_id)).lines == before + 1
+    with pytest.raises(ProblemError) as again:
+        await _confirm(token, proposal, role="operator")
+    assert again.value.code == "copilot_proposal_already_used"

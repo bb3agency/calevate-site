@@ -9,6 +9,10 @@ the backslash, so no `ESCAPE` clause is needed in the statement.
 
 from __future__ import annotations
 
+import re
+
+from calevate_shared.extraction import ascii_digits
+
 
 def escape_like(needle: str) -> str:
     """`needle` with LIKE's operators made literal: backslash first, then `%` and `_`."""
@@ -25,4 +29,26 @@ def suffix_pattern(needle: str) -> str:
     return f"%{escape_like(needle)}"
 
 
-__all__ = ["contains_pattern", "escape_like", "suffix_pattern"]
+#: Digits in any script, with the separators people write a phone number with.
+_PHONE_SHAPED = re.compile(r"^[\d\s()+.\-]+$")
+
+#: An Indian national number: what is left once a country code or trunk `0` is dropped.
+_NATIONAL_DIGITS = 10
+
+
+def phone_suffix_pattern(needle: str) -> str:
+    """A suffix pattern on an E.164 column for a search term.
+
+    A term written like a phone matches on its digits, so `98765 43210`, `+91 98765 43210`,
+    `098765-43210` and the same number in Telugu digits all find `+919876543210`; past ten
+    digits only the national ten are kept, so a trunk `0` does not stop the match. Any
+    other term is a plain suffix, which matches no stored number and leaves the name half
+    of the search to answer it."""
+    if _PHONE_SHAPED.match(needle):
+        digits = ascii_digits(needle)
+        if digits:
+            return f"%{digits[-_NATIONAL_DIGITS:]}"
+    return suffix_pattern(needle)
+
+
+__all__ = ["contains_pattern", "escape_like", "phone_suffix_pattern", "suffix_pattern"]

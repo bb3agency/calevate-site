@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import Any, Final
 from uuid import UUID
 
+from calevate_shared.extraction import ascii_digits
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,12 +49,14 @@ LOOP_CODE: Final = "phone_forwards_to_calevate"
 #: The Calevate numbers a screen lists; a client rents one or two.
 MAX_CALEVATE_NUMBERS: Final = 20
 
-_INDIA = re.compile(r"^\+91\d{10}$")
+_INDIA = re.compile(r"^\+91[0-9]{10}$")
 
 
 def normalize_india(raw: str) -> str | None:
-    """`+91XXXXXXXXXX` from what a person types (spaces, dashes, a leading 0 or 91)."""
-    digits = "".join(ch for ch in raw if ch.isdigit())
+    """`+91XXXXXXXXXX` from what a person types (spaces, dashes, a leading 0 or 91), in
+    any script's digits. `isdigit()` kept Telugu digits as they were and `\\d` matches
+    them, so the number reached the table's `[0-9]` CHECK raw and failed as a 500."""
+    digits = ascii_digits(raw)
     if len(digits) == 10:
         candidate = f"+91{digits}"
     elif len(digits) == 11 and digits.startswith("0"):

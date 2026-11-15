@@ -111,3 +111,20 @@ async def test_a_standby_that_runs_out_says_so_without_blaming_the_question(
     texts = await _texts(_ask("Explain how campaigns work"))
     assert texts == [service.STANDBY_TRUNCATED_MESSAGE]
     assert "narrower" not in texts[0]
+
+
+def _in_script(zero: int, ascii_number: str) -> str:
+    """The number typed on an Indic keyboard whose digit zero is code point `zero`."""
+    return "".join(chr(zero + int(ch)) if ch.isdecimal() else ch for ch in ascii_number)
+
+
+@pytest.mark.parametrize("zero", [0x0C66, 0x0966])  # Telugu, Devanagari
+@pytest.mark.parametrize("written", ["+91 98765 43210", "9876543210", "098765 43210"])
+def test_the_standby_never_receives_a_number_typed_in_indic_digits(zero: int, written: str) -> None:
+    """The standby may train on what it is sent (D-788); a phone in Telugu or Devanagari
+    digits is the same phone as in ASCII and is masked the same way."""
+    content = f"Call {_in_script(zero, written)} today"
+    sent = service.masked_messages([{"role": "user", "content": content}])
+    ascii_sent = service.masked_messages([{"role": "user", "content": f"Call {written} today"}])
+    assert sent == ascii_sent
+    assert "phone" in sent[0]["content"]

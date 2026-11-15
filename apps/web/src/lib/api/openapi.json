@@ -19917,7 +19917,7 @@
         "description": "One earlier turn of this conversation, replayed by the browser.\n\n`role` admits `user` and `assistant` and NOT `tool` or `system`: a caller who could\ninject a `system` turn could rewrite the platform rules the static prompt states, and\na caller who could inject a `tool` turn could claim a fill already succeeded.",
         "properties": {
           "content": {
-            "maxLength": 8000,
+            "maxLength": 32000,
             "title": "Content",
             "type": "string"
           },

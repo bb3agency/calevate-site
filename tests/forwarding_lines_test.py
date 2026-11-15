@@ -398,3 +398,22 @@ async def test_two_saves_of_one_number_at_once_add_one_line_and_neither_is_a_500
     async with tenant_session(tenant_id) as session:
         count = (await session.execute(text("SELECT count(*) FROM forwarded_lines"))).scalar_one()
     assert count == 1
+
+
+def _telugu(ascii_number: str) -> str:
+    """The same number typed on a Telugu keyboard (digits U+0C66..U+0C6F)."""
+    return "".join(chr(0x0C66 + int(ch)) if ch.isdecimal() else ch for ch in ascii_number)
+
+
+def test_a_number_typed_in_telugu_digits_is_stored_in_ascii() -> None:
+    assert service.normalize_india(_telugu("98123 45670")) == "+919812345670"
+    assert service.normalize_india(_telugu("040 1234 5678")) == "+914012345678"
+    # `²` is a digit to `isdigit()` but no decimal digit, so it cannot pad a number out.
+    assert service.normalize_india("98123 4567²") is None
+
+
+async def test_a_line_saved_in_telugu_digits_is_the_same_line_as_in_ascii() -> None:
+    """The table's CHECK reads `[0-9]`, so a Telugu-digit number used to reach it raw."""
+    tenant_id, *_ = await _ready("fwd-te")
+    line = await add_line(tenant_id, number=_telugu("98123 45671"))
+    assert line.e164 == "+919812345671"

@@ -27,6 +27,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from calevate_shared.extraction import ascii_digits
+
 # --- Number-shaped patterns ---------------------------------------------------
 
 _AADHAAR_RE = re.compile(r"\b(\d{4})[ -]?(\d{4})[ -]?(\d{4})\b")
@@ -336,7 +338,10 @@ def _redact_free_text(text: str, kinds: list[str]) -> str:
                 if len(window[-1][2]) < _MIN_LAST_GROUP_DIGITS:
                     continue
                 national = national_phone_digits(
-                    "".join(g[2] for g in window),
+                    # `\d` also matches Telugu and Devanagari digits, and the numbering
+                    # plan below compares ASCII, so a number typed on an Indic keyboard
+                    # was found and then left unmasked.
+                    ascii_digits("".join(g[2] for g in window)),
                     # The `+` belongs to the front of the span, so it only marks a
                     # number that starts there.
                     explicit=plus and start_group == 0,
