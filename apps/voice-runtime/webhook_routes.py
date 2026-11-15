@@ -64,7 +64,12 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.engine_intake_keys import intake_ring, seal_delivery
-from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_enqueued
+from apps.api.reliability.service import (
+    body_hash,
+    claim_inbox_event,
+    inbox_fast_path_key,
+    mark_inbox_enqueued,
+)
 from calevate_shared.client_address import client_ip
 from engine_intake import engine_label, extract, keyable, verify_source
 from fastapi import APIRouter, Request, Response
@@ -725,7 +730,7 @@ async def _receive(
                     "raw_status": event.raw_status,
                 }
             ),
-            redis_key=f"calevate:wh:{engine}:{event.execution_id}:{event.raw_status}",
+            redis_key=inbox_fast_path_key(engine, f"{event.execution_id}:{event.raw_status}"),
             job=INGEST_JOB,
             job_id=job_id_for(INGEST_JOB, engine, event.execution_id, event.raw_status),
             job_payload={
@@ -870,7 +875,7 @@ async def _receive_signed(
                     "raw_status": keyed.event_name,
                 }
             ),
-            redis_key=f"calevate:wh:{engine}:{keyed.execution_id}:{keyed.event_name}",
+            redis_key=inbox_fast_path_key(engine, f"{keyed.execution_id}:{keyed.event_name}"),
             job=keyed.job,
             job_id=_signed_job_id(keyed, engine),
             job_payload={

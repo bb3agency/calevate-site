@@ -38,6 +38,7 @@ from apps.api.core.alerting import (
 )
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger, redact_exception, redact_text
+from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -1522,17 +1523,36 @@ async def mark_inbox_processed(session: AsyncSession, *, row_id: UUID) -> None:
         record_inbox_handling_ms(float(row[1]), provider=str(row[0]))
 
 
+def inbox_fast_path_key(provider: str, event_key: str) -> str:
+    """The Redis key voice-runtime's fast path holds for a settled inbox row
+    (`webhook_routes.settle`): a key that is present answers a re-delivery `duplicate`
+    without asking Postgres."""
+    return f"calevate:wh:{provider}:{event_key}"
+
+
 async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) -> None:
-    """Release the claim so a retry can take it. CAS on an OPEN claim — see `_INBOX_OPEN`."""
-    result = await session.execute(
-        text(
-            "UPDATE webhook_inbox_events SET status = 'failed', last_error = :error, "
-            f"updated_at = now() WHERE id = :id AND status IN {_INBOX_OPEN}"
-        ),
-        {"id": row_id, "error": _stored_error(error)},
-    )
-    if rowcount_of(result) == 0:
+    """Release the claim so a retry can take it. CAS on an OPEN claim — see `_INBOX_OPEN`.
+
+    The receiver's fast-path key is dropped too: it outlives the job's retry ladder, so
+    while it stands a re-send (the vendor console's, which the abandonment alarms ask an
+    operator for) is answered `duplicate` before the re-claimable row is ever read."""
+    row = (
+        await session.execute(
+            text(
+                "UPDATE webhook_inbox_events SET status = 'failed', last_error = :error, "
+                f"updated_at = now() WHERE id = :id AND status IN {_INBOX_OPEN} "
+                "RETURNING provider, event_key"
+            ),
+            {"id": row_id, "error": _stored_error(error)},
+        )
+    ).first()
+    if row is None:
         _late_report("inbox_late_failure", row_id)
+        return
+    try:
+        await get_redis().delete(inbox_fast_path_key(str(row[0]), str(row[1])))
+    except Exception as exc:  # the row is re-claimable either way; the key expires
+        log.warning("inbox_fast_path_not_cleared", extra={"error": type(exc).__name__})
 
 
 __all__ = [
@@ -1563,6 +1583,7 @@ __all__ = [
     # next person deciding whether they may call it.
     "enqueue_outbox_once",
     "fail_idempotency",
+    "inbox_fast_path_key",
     "mark_idempotency_in_doubt",
     "mark_inbox_enqueued",
     "mark_inbox_failed",
