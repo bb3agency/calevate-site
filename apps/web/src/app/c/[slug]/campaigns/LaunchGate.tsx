@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ChevronDown } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
@@ -26,6 +26,7 @@ import { usePeRegistration } from "@/lib/api/dltRegistration";
 
 import { AtOnceHint } from "./CampaignSettings";
 import { ConsentProvenanceAnswer } from "./ConsentProvenance";
+import { FoldSection } from "./FoldSection";
 import { LaunchConfirm } from "./LaunchConfirm";
 import { callingHoursText } from "./campaignProgress";
 import { CONSENT_SOURCES } from "./choices";
@@ -140,30 +141,21 @@ export function LaunchGate({
     items.filter((item) => item.state === "todo").length + (provenanceRule ? 1 : 0);
 
   return (
-    // MANDATORY REGULATORY COMPLIANCE CHECKS (founder, 15 Nov 2026): foldable, open by default,
-    // a full-width card like the Agent and test call card above it. Launch stays disabled here
+    // MANDATORY REGULATORY COMPLIANCE CHECKS (founder, 15 Nov 2026): foldable, open by default. Launch stays disabled here
     // until every check is answered, and the server's compliance gate refuses a launch that
     // skips one (hard rule 5), whatever this shows.
-    <details open className="group min-w-0 rounded-card border border-line border-l-4 border-l-warn bg-surface shadow-card">
-        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 sm:p-5 [&::-webkit-details-marker]:hidden">
-          <h2 id={`launch-${campaignId}`} className="text-heading text-ink">
-            Mandatory Regulatory Compliance Checks
-          </h2>
-          <span className="flex items-center gap-3 text-meta">
-            {check.data?.ready ? (
-              <span className="font-medium text-brand-strong">All checks done</span>
-            ) : todo > 0 ? (
-              <span className="font-medium text-warn">
-                {todo === 1 ? "1 check to answer" : `${todo} checks to answer`}
-              </span>
-            ) : null}
-            <ChevronDown aria-hidden className="h-4 w-4 text-ink-muted transition-transform group-open:rotate-180" />
-          </span>
-        </summary>
-        <section
-          aria-labelledby={`launch-${campaignId}`}
-          className="grid grid-cols-1 gap-6 border-t border-line p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-8"
-        >
+    <FoldSection
+      title="Mandatory Regulatory Compliance Checks"
+      tone="compliance"
+      aside={
+        check.data?.ready ? (
+          <span className="font-medium text-brand-strong">All checks done</span>
+        ) : todo > 0 ? (
+          <span className="font-medium text-warn">{todo === 1 ? "1 check to answer" : `${todo} checks to answer`}</span>
+        ) : undefined
+      }
+    >
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-8">
         <div className="min-w-0">
         <p className="text-meta text-ink-muted">Required by law before any call goes out.</p>
         <p className="text-meta text-ink-muted">It cannot start until each one is answered.</p>
@@ -226,8 +218,8 @@ export function LaunchGate({
         </div>
         </div>
         {progress.data && <LaunchSummary progress={progress.data} purpose={purpose.data?.purpose} />}
-        </section>
-    </details>
+        </div>
+    </FoldSection>
   );
 }
 

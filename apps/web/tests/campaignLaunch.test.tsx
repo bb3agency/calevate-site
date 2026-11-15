@@ -161,7 +161,7 @@ async function openLaunchPanel(
 
 /** The rows of the compliance card's checklist, not every list on the page. */
 function gateRows(): NodeListOf<HTMLLIElement> {
-  const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("details");
+  const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("section");
   return card!.querySelectorAll("li");
 }
 

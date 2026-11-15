@@ -20,6 +20,8 @@ import { FIELD, ProblemNotice } from "@/components/ui";
 import { useUpdateCampaign } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
+import { FoldSection } from "./FoldSection";
+
 import { PLATFORM_WINDOW, windowRefusal } from "./NewCampaignFlow";
 
 const DAY_MINUTES = 1440;
@@ -74,18 +76,12 @@ export function OtherCallSettings({
 
   const disabled = !canWrite || !editable;
   return (
-    <section
-      aria-labelledby={`${campaignId}-other-settings`}
-      className="rounded-card border border-line border-l-4 border-l-ink-muted bg-surface p-4 shadow-card sm:p-6"
-    >
-      <h2 id={`${campaignId}-other-settings`} className="text-heading text-ink">
-        Other call settings
-      </h2>
+    <FoldSection title="Other call settings" tone="settings">
       {!editable && (
-        <p className="mt-1 text-meta text-ink-muted">These can be changed while the campaign is a draft.</p>
+        <p className="mb-3 text-meta text-ink-muted">These can be changed while the campaign is a draft.</p>
       )}
 
-      <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <div>
           <h3 className="text-body font-semibold text-ink">When to call</h3>
           <p className="mt-0.5 text-meta text-ink-muted">Each day, in IST, from 9am to 9pm at most.</p>
@@ -164,6 +160,6 @@ export function OtherCallSettings({
       </div>
 
       {startLater && <div className="mt-6 border-t border-line pt-5">{startLater}</div>}
-    </section>
+    </FoldSection>
   );
 }

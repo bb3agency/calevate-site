@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { ListPlus } from "lucide-react";
 
-import { Section } from "@/components/console/section";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { StatusPill } from "@/components/console/statusPill";
 import { ProblemNotice, formatCount } from "@/components/ui";
@@ -12,6 +11,7 @@ import { useAddContacts, useAddLeadsToCampaign } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
 import { ContactEditor } from "./ContactEditor";
+import { FoldSection } from "./FoldSection";
 import { ContactResults } from "./ContactResults";
 import { LeadPicker, usePickedLeads } from "./LeadPicker";
 import { useCampaignForm } from "./campaignForm";
@@ -42,12 +42,10 @@ export function DraftPeople({
 }) {
   return (
     <>
-      <Section title="Add people">
-        <div id={peopleSectionId(campaignId)} className="scroll-mt-24">
-          <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
-        </div>
-      </Section>
-      <Section title="People to call">
+      <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
+        <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
+      </FoldSection>
+      <FoldSection title="People to call" tone="people">
         <ContactResults
           slug={slug}
           campaignId={campaignId}
@@ -57,7 +55,7 @@ export function DraftPeople({
           canWrite={canWrite}
           refusal={refusal}
         />
-      </Section>
+      </FoldSection>
     </>
   );
 }

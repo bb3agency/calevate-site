@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.7 — 15-Nov-2026
+
+- Step 4's sections fold. Each name sits on the edge of its card as a coloured tab: press it to
+  fold the card to a thin bar and press again to open it. **Collapse all** and **Expand all**
+  sit beside the step's heading. Voice & call settings (blue, folded at first, saying how many
+  settings this campaign changes), Mandatory Regulatory Compliance Checks (amber), Add people
+  (green), People to call (violet) and Other call settings (dark).
+
 ## 0.4.6 — 15-Nov-2026
 
 - The compliance card asks **Where did this list come from?** directly, marked as mandatory

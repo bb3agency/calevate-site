@@ -37,6 +37,7 @@ import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
 import { CampaignTimeline } from "./CampaignTimeline";
 import { CampaignWorkspace } from "./CampaignWorkspace";
+import { FoldGroup } from "./FoldSection";
 import { OtherCallSettings } from "./OtherCallSettings";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
@@ -336,13 +337,17 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
 
                 {/* 4. The voice and the start: who speaks the script, who is called, when. */}
-                <section aria-labelledby="campaign-start" className="space-y-6">
-                  <SectionHead
-                    id="campaign-start"
-                    step={4}
-                    title="Agent and test call"
-                    hint="Choose the agent, then hear it on your phone."
-                  />
+                <FoldGroup
+                  className="space-y-6"
+                  header={
+                    <SectionHead
+                      id="campaign-start"
+                      step={4}
+                      title="Agent and test call"
+                      hint="Choose the agent, then hear it on your phone."
+                    />
+                  }
+                >
                   <AgentAndTestCall
                     slug={slug}
                     campaignId={campaignId}
@@ -394,7 +399,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                       ) : undefined
                     }
                   />
-                </section>
+                </FoldGroup>
               </div>
             )
           }
