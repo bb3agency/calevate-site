@@ -218,6 +218,38 @@ async def test_one_open_incident_per_key_and_a_new_one_after_it_resolves() -> No
     assert opened_again and fresh != first
 
 
+async def test_a_pause_keeps_where_a_held_line_is_so_it_is_given_back_after() -> None:
+    from apps.workers import healer
+
+    tenant_id, agent_id, _slug = await _org("pausehold")
+    incident_id = await _incident(tenant_id=tenant_id, agent_id=agent_id)
+    async with untenanted_session() as session:
+        opened = await incidents.read_incident(session, incident_id)
+        assert opened is not None
+        assert await incidents.advance(
+            session, opened, state="mitigated", next_in_s=0, outcome="held:paused"
+        )
+    for _tick in range(2):
+        async with untenanted_session() as session:
+            held = await incidents.read_incident(session, incident_id)
+        assert held is not None
+        await healer._paused(held, why="stopped by the action breaker")
+    async with untenanted_session() as session:
+        after = await incidents.read_incident(session, incident_id)
+        skips = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM heal_actions WHERE incident_id = :i "
+                    "AND outcome = 'skipped'"
+                ),
+                {"i": incident_id},
+            )
+        ).scalar_one()
+    # Line protection resumes from `held:…`; anything else waits for a person for ever.
+    assert after is not None and after.last_outcome == "held:paused"
+    assert after.state == "mitigated" and skips == 1
+
+
 # --- the health score from real calls -------------------------------------------------------
 
 

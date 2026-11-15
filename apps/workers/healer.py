@@ -747,8 +747,27 @@ async def _advance(
         )
 
 
+async def _paused_already(incident_id: UUID, why: str) -> bool:
+    """Whether this incident's newest ledger row is already this pause."""
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT step, outcome, detail FROM heal_actions WHERE incident_id = :iid "
+                    "ORDER BY at DESC, id DESC LIMIT 1"
+                ),
+                {"iid": incident_id},
+            )
+        ).first()
+    return row is not None and tuple(row) == ("act", "skipped", why)
+
+
 async def _paused(incident: Incident, *, why: str = "paused by a kill switch") -> None:
-    if incident.last_outcome != "paused":
+    """Hold the incident where it is until the switch or breaker lets it run. Its last
+    outcome is left as the playbook wrote it, because the playbook resumes from it: line
+    protection branches on `held:…` and `probation`, the outage on `restoring`, and a pause
+    written over one left a held line with no step that gives it back."""
+    if not await _paused_already(incident.id, why):
         await _record(
             playbook=incident.playbook,
             step="act",
@@ -758,7 +777,7 @@ async def _paused(incident: Incident, *, why: str = "paused by a kill switch") -
             agent_id=incident.agent_id,
             detail=why,
         )
-    await _advance(incident, state=incident.state, next_in_s=300, outcome="paused")  # type: ignore[arg-type]
+    await _advance(incident, state=incident.state, next_in_s=300)  # type: ignore[arg-type]
 
 
 async def _escalate(incident: Incident, *, why: str, recheck_s: int = ESCALATED_RECHECK_S) -> None:
