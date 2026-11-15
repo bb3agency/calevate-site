@@ -42,7 +42,7 @@ export function concludeMessage(data: ConcludeExperimentOut): string {
     (data.applied
       ? data.engine_synced
         ? " The voice platform has it."
-        : " The agent is not live, so nothing was sent to the voice platform."
+        : " The agent is switched off, so no caller hears it yet."
       : " It is STAGED — press Apply to live calls, in Live, to put it on live calls.")
   );
 }

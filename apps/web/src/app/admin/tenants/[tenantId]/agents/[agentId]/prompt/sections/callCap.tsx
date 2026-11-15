@@ -157,7 +157,7 @@ export function CallCapPanel({
             {save.data.is_platform_default ? " (platform default)" : ""}.
             {save.data.engine_synced
               ? " The voice platform has it."
-              : " The agent is not live, so nothing was sent to the voice platform."}
+              : " The agent is switched off, so no caller hears it yet."}
           </p>
         )}
       </div>

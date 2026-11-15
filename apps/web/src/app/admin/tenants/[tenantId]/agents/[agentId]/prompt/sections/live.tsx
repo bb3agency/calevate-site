@@ -202,8 +202,9 @@ export function GoLivePanel({
  *
  * `applied: false` is a 200, not an error: a double-clicked button is the same intent
  * already satisfied. The result line says what actually happened either way, including
- * `engine_synced` — an agent that is not live keeps its pointer moved but reaches no
- * vendor, and pretending otherwise would be a lie about where the script is running.
+ * `engine_synced` — an agent that is not live keeps its pointer moved and no caller hears
+ * it yet. A ready agent (published, switched off) does reach the voice platform, so the
+ * line never says nothing was sent.
  */
 export function PublishingPanel({
   tenantId,
@@ -305,7 +306,7 @@ export function PublishingPanel({
               ? `Nothing to apply — v${apply.data.live_version} was already live.`
               : apply.data.engine_synced
                 ? `Applied — callers now hear v${apply.data.live_version}. The voice platform has it.`
-                : `Applied — v${apply.data.live_version} is now the version in use. The agent is not live, so nothing was sent to the voice platform and no caller hears it yet.`}
+                : `Applied — v${apply.data.live_version} is now the version in use. The agent is switched off, so no caller hears it yet.`}
           </p>
         )}
         {undo.data && (
