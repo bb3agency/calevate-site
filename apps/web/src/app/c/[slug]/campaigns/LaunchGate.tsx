@@ -26,6 +26,7 @@ import { usePeRegistration } from "@/lib/api/dltRegistration";
 import { AtOnceHint } from "./CampaignSettings";
 import { ConsentProvenanceAnswer } from "./ConsentProvenance";
 import { FoldSection } from "./FoldSection";
+import { complianceCardId } from "./StartCampaign";
 import { LaunchConfirm } from "./LaunchConfirm";
 import { callingHoursText } from "./campaignProgress";
 import { CONSENT_SOURCES } from "./choices";
@@ -149,6 +150,7 @@ export function LaunchGate({
     // until every check is answered, and the server's compliance gate refuses a launch that
     // skips one (hard rule 5), whatever this shows.
     <FoldSection
+      id={complianceCardId(campaignId)}
       title="Mandatory Regulatory Compliance Checks"
       tone="compliance"
       aside={

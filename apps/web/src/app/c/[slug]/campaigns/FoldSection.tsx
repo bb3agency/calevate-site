@@ -53,22 +53,26 @@ const TONE: Record<FoldTone, { pill: string; card: string }> = {
 
 export function FoldGroup({
   header,
+  actions,
   children,
   className = "",
 }: {
-  /** Shown left of the two buttons, such as the step's own heading. */
+  /** Shown left of the buttons, such as the step's own heading. */
   header?: ReactNode;
+  /** More buttons beside Collapse all / Expand all, such as Start campaign. */
+  actions?: ReactNode;
   children: ReactNode;
+  /** Spacing between the sections. */
   className?: string;
 }) {
   const [command, setCommand] = useState<Command | null>(null);
   const press = (open: boolean) => setCommand((c) => ({ open, seq: (c?.seq ?? 0) + 1 }));
   return (
     <FoldCommand.Provider value={command}>
-      <div className={className}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          {header ? <div className="min-w-0">{header}</div> : <span />}
-          <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {header ? <div className="min-w-0">{header}</div> : <span />}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {actions}
           <button
             type="button"
             className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted"
@@ -83,10 +87,10 @@ export function FoldGroup({
           >
             Expand all
           </button>
-          </div>
         </div>
-        {children}
       </div>
+      {/* The sections sit close under the buttons; their own spacing is between each other. */}
+      <div className={`mt-1 ${className}`}>{children}</div>
     </FoldCommand.Provider>
   );
 }

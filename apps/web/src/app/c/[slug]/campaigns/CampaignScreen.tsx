@@ -42,6 +42,7 @@ import { OtherCallSettings } from "./OtherCallSettings";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
 import { ScheduleCards } from "./ScheduleCards";
+import { StartCampaign } from "./StartCampaign";
 import { useScheduleForm } from "./campaignForm";
 import { CampaignStatusPill } from "./campaignStatus";
 
@@ -311,8 +312,21 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               </p>
             )
           ) : (
-            // Every section folds; Collapse all and Expand all sit above them all.
-            <FoldGroup className="space-y-8">
+            // Every section folds; Start campaign, Collapse all and Expand all sit above them all.
+            <FoldGroup
+              className="space-y-8"
+              actions={
+                <StartCampaign
+                    campaignId={campaignId}
+                    status={status}
+                    check={check}
+                    progress={progress}
+                    launch={launchFeedback}
+                    canWrite={write.allowed}
+                    refusal={refusal}
+                  />
+              }
+            >
               <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
               <AgentSection
                 campaignId={campaignId}
@@ -373,6 +387,17 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                   ) : undefined
                 }
               />
+              <div className="flex justify-end">
+                <StartCampaign
+                  campaignId={campaignId}
+                  status={status}
+                  check={check}
+                  progress={progress}
+                  launch={launchFeedback}
+                  canWrite={write.allowed}
+                  refusal={refusal}
+                />
+              </div>
             </FoldGroup>
           )
         }

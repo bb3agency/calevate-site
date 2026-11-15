@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.15 — 16-Nov-2026
+
+- **Start campaign** sits at the top of a draft's set-up, beside Collapse all and Expand all,
+  and again at the bottom after Other call settings. Once every check passes and someone is on
+  the list, one press starts it. Before then it takes you to the compliance checks and says
+  what is left.
+- Less space between that row of buttons and the Main task section.
+
 ## 0.4.14 — 16-Nov-2026
 
 - A draft shows **People to call** only once someone has been added.
