@@ -1231,6 +1231,28 @@ describe("the ledger and its receipts", () => {
 });
 
 describe("payments that did not finish", () => {
+  it("says an unfinished payment could not be confirmed, never that nothing was charged", async () => {
+    // Unfinished means no confirmation arrived in time, not that no money moved.
+    await renderBillingHub(
+      routes({
+        [ATTEMPTS]: [
+          {
+            id: "44444444-4444-4444-8444-444444444444",
+            receipt: "CAL-2608-0008",
+            amount_inr: "2500.00",
+            pack_id: null,
+            outcome: "unfinished",
+            started_at: "2026-08-30T10:00:00Z",
+          },
+        ],
+      }),
+    );
+
+    await screen.findByText("Never finished");
+    await screen.findByText("We couldn't confirm this payment.");
+    expect(screen.queryByText("Nothing was charged.")).toBeNull();
+  });
+
   it("shows a failed payment, says no money moved, and does not offer a second control", async () => {
     await renderBillingHub(
       routes({

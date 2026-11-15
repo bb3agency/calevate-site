@@ -127,7 +127,7 @@ const OUTCOMES: Record<string, { icon: ReactNode; title: string; line: string; b
   unfinished: {
     icon: <HelpCircle className="h-4 w-4" aria-hidden />,
     title: "Never finished",
-    line: "Nothing was charged.",
+    line: "We couldn't confirm this payment.",
     body:
       "No credit was added. If your bank shows the money taken, send us the reference " +
       "below.",
