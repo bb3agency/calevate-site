@@ -331,7 +331,7 @@ describe('"take me to billing page"', () => {
     const encoder = new TextEncoder();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+      vi.fn(async () => {
         return new Response(
           new ReadableStream<Uint8Array>({
             async start(controller) {
