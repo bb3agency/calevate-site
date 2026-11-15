@@ -22,8 +22,6 @@ import {
 } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
 
-import { FoldSection } from "./FoldSection";
-
 type Key =
   | "language_primary"
   | "speaking_speed"
@@ -204,20 +202,18 @@ export function CampaignVoiceSettings({
 
   const changed = KEYS.filter((k) => saved[k] !== "").length;
   return (
-    <FoldSection
-      title="Voice & call settings"
-      defaultOpen={false}
-      aside={
-        <span className="text-ink-muted">
+    <section aria-labelledby={`${campaignId}-voice-settings`} className="border-t border-line pt-4">
+      <h3 id={`${campaignId}-voice-settings`} className="text-body font-semibold text-ink">
+        Voice &amp; call settings
+        <span className="ml-2 font-normal text-meta text-ink-muted">
           {changed === 0
             ? "Same as the agent"
             : changed === 1
               ? "1 changed for this campaign"
               : `${changed} changed for this campaign`}
         </span>
-      }
-    >
-      <p className="flex items-center gap-1 text-meta text-ink-muted">
+      </h3>
+      <p className="mt-1 flex items-center gap-1 text-meta text-ink-muted">
         <span className="block">Leave a box empty to keep the agent&apos;s.</span>
         <InfoTip label="voice and call settings" align="start">
           <p>{data.agent_name}&apos;s own settings, and what this campaign uses instead.</p>
@@ -264,6 +260,6 @@ export function CampaignVoiceSettings({
           </button>
         )}
       </div>
-    </FoldSection>
+    </section>
   );
 }

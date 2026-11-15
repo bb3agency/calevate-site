@@ -146,6 +146,7 @@ export function LaunchGate({
     // skips one (hard rule 5), whatever this shows.
     <FoldSection
       title="Mandatory Regulatory Compliance Checks"
+      tone="compliance"
       aside={
         check.data?.ready ? (
           <span className="font-medium text-brand-strong">All checks done</span>

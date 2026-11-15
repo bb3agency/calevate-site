@@ -14,7 +14,10 @@ export function PipGenerateBand({
   reason,
   refusal,
   label = "Generate",
+  inline = false,
 }: {
+  /** Inside the Script section: a plain row, not a card of its own. */
+  inline?: boolean;
   /** The button's word: Generate, or Try again after a failed draft. */
   label?: string;
   onGenerate: () => void;
@@ -28,12 +31,22 @@ export function PipGenerateBand({
   return (
     <section
       aria-labelledby="pip-generate"
-      className="flex flex-col gap-3 border-y border-line py-5 sm:flex-row sm:items-center sm:justify-between"
+      className={
+        inline
+          ? "flex flex-col gap-3 rounded-card border border-line p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4"
+          : "flex flex-col gap-3 border-y border-line py-5 sm:flex-row sm:items-center sm:justify-between"
+      }
     >
       <div className="min-w-0">
-        <h2 id="pip-generate" className="text-heading text-ink">
-          Let Pip, our AI agent, generate the script
-        </h2>
+        {inline ? (
+          <h3 id="pip-generate" className="text-body font-semibold text-ink">
+            Let Pip, our AI agent, generate the script
+          </h3>
+        ) : (
+          <h2 id="pip-generate" className="text-heading text-ink">
+            Let Pip, our AI agent, generate the script
+          </h2>
+        )}
         <p className="mt-0.5 text-meta text-ink-muted">
           {reason ?? "Pip writes it from your main task and materials."}
         </p>

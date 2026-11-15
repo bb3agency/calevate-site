@@ -24,7 +24,7 @@ import type { MaterialIn } from "@/lib/api/campaignWorkspace";
 import { useAddLink } from "@/lib/api/kb";
 import { useClientRealm } from "@/lib/api/session";
 
-import { SectionHead } from "./SectionHead";
+import { FoldSection } from "./FoldSection";
 
 /** A material as the form finishes it: a file still carries the File to upload. */
 export type MaterialItem = MaterialIn & { file?: File };
@@ -193,11 +193,7 @@ export function MaterialsDraft({
   canWrite: boolean;
 }) {
   return (
-    <section
-      aria-labelledby="new-campaign-materials"
-      className="scroll-mt-24"
-    >
-      <SectionHead id="new-campaign-materials" step={2} title="Materials" hint={MATERIALS_HINT} info={MATERIALS_INFO} />
+    <FoldSection title="Materials" tone="materials" hint={MATERIALS_HINT} info={MATERIALS_INFO}>
 
       <MaterialForm
         canWrite={canWrite}
@@ -228,6 +224,6 @@ export function MaterialsDraft({
           ))}
         </ul>
       )}
-    </section>
+    </FoldSection>
   );
 }

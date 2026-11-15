@@ -3,6 +3,19 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.9 — 15-Nov-2026
+
+- **The coloured fold sections are back** (founder's choice over 0.4.8's plain headings): each
+  section's name is a coloured tab on its card, over its own tinted card.
+- **Every section folds now**, on the draft page and on New campaign: Main task, Materials,
+  Script, Agent and its settings, Test call, the compliance checks, Add people, People to call
+  and Other call settings. **Collapse all** and **Expand all** sit at the top of the page.
+- **Generate is part of the Script section**, so getting a script and reading it are one place.
+- **Agent and its settings** is one section: the agent you pick and the voice & call settings
+  this campaign changes. **Test call** is its own section.
+- **Edit script no longer asks you to add the script again.** It opens the saved script as final
+  wording with Edit on each part and a Save changes button; nothing is labelled "Added".
+
 ## 0.4.8 — 15-Nov-2026
 
 - **Campaign screens look like the rest of the console.** The list, New campaign, a draft and a

@@ -76,7 +76,7 @@ export function OtherCallSettings({
 
   const disabled = !canWrite || !editable;
   return (
-    <FoldSection title="Other call settings">
+    <FoldSection title="Other call settings" tone="settings">
       {!editable && (
         <p className="mb-3 text-meta text-ink-muted">These can be changed while the campaign is a draft.</p>
       )}

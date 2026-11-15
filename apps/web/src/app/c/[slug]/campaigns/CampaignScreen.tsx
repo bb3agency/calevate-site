@@ -27,7 +27,7 @@ import { useClientRealm } from "@/lib/api/session";
 
 import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
-import { AgentAndTestCall, ImproveTab } from "./CampaignBoosters";
+import { AgentSection, ImproveTab, TestCallSection } from "./CampaignBoosters";
 import { CampaignCalls } from "./CampaignCalls";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
 import { CampaignQuestions } from "./CampaignQuestions";
@@ -42,7 +42,6 @@ import { OtherCallSettings } from "./OtherCallSettings";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
 import { ScheduleCards } from "./ScheduleCards";
-import { SectionHead } from "./SectionHead";
 import { useScheduleForm } from "./campaignForm";
 import { CampaignStatusPill } from "./campaignStatus";
 
@@ -333,29 +332,17 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             ) : current === "questions" ? (
               <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
             ) : (
-              <div className="space-y-8">
+              // Every section folds; Collapse all and Expand all sit above them all (founder, 15 Nov 2026).
+              <FoldGroup className="space-y-8">
                 <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-
-                {/* 4. The voice and the start: who speaks the script, who is called, when. */}
-                <FoldGroup
-                  className="space-y-6"
-                  header={
-                    <SectionHead
-                      id="campaign-start"
-                      step={4}
-                      title="Agent and test call"
-                      hint="Choose the agent, then hear it on your phone."
-                    />
-                  }
-                >
-                  <AgentAndTestCall
-                    slug={slug}
+                  <AgentSection
                     campaignId={campaignId}
                     agentId={data.agent_id}
                     editable={status === "draft"}
                     canWrite={write.allowed}
                     refusal={refusal}
                   />
+                  <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
                   <ScheduleCards {...scheduleCardProps} />
                   <LaunchGate
                       slug={slug}
@@ -399,8 +386,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                       ) : undefined
                     }
                   />
-                </FoldGroup>
-              </div>
+              </FoldGroup>
             )
           }
         />

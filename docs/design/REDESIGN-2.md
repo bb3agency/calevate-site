@@ -268,6 +268,12 @@ serif was taken (the brand decision wins).
   "keep folding, drop colours": `campaigns/FoldSection` is a heading button with a chevron;
   colour stays only on status words. A bounded job keeps a plain hairline box (Test call,
   Start later).
+- **Campaign fold sections keep their colours (founder, 15 Nov 2026, later the same evening:
+  "revert to the latest changes I made, ie. foldable sections with different background
+  colors").** This reverses the bullet above for the set-up screens: each `FoldSection` is a
+  coloured tab on its card's top edge over a tinted card with a coloured left bar, one colour
+  per section (`FoldSection.TONE`), with Collapse all / Expand all at the top of the page. The
+  rest of that bullet (no shadows or stripes on other campaign cards) stands.
 - **A screen of several panels is one copilot surface (D-826).** Wrap the screen in
   `CopilotSurfaceScope` (`lib/copilot/registry.ts`) and let each panel keep declaring what it
   owns; the scope merges them. Without it the newest panel hid the rest from Pip.

@@ -42,7 +42,7 @@ import { MAIN_TASK_HINT, MAIN_TASK_INFO, MAIN_TASK_PLACEHOLDER, SCRIPT_HINT, SCR
 import { MaterialsDraft, type PendingMaterial } from "./MaterialsDraft";
 import { AgentChoice, NoAgentYet } from "./NewCampaignSteps";
 import { PipGenerateBand } from "./PipGenerateBand";
-import { SectionHead } from "./SectionHead";
+import { FoldGroup, FoldSection } from "./FoldSection";
 import { clampConcurrency, concurrencyCap, nameFromGoal } from "./campaignForm";
 
 const MAIN_TASK_MIN = 10;
@@ -157,18 +157,8 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
           ) : tab === "improve" ? (
             empty("Ways to do better show here once it calls.")
           ) : (
-            <div className="max-w-4xl space-y-10">
-              <section
-                aria-labelledby="new-campaign-main-task-head"
-                className="scroll-mt-24"
-              >
-                <SectionHead
-                  id="new-campaign-main-task-head"
-                  step={1}
-                  title="Main task"
-                  hint={MAIN_TASK_HINT}
-                  info={MAIN_TASK_INFO}
-                />
+            <FoldGroup className="max-w-4xl space-y-6">
+              <FoldSection title="Main task" tone="task" hint={MAIN_TASK_HINT} info={MAIN_TASK_INFO}>
                 <label htmlFor="new-campaign-main-task" className="sr-only">
                   Main task
                 </label>
@@ -193,34 +183,11 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                   </button>
                   <span className="text-meta text-ink-muted">Saves it as a draft.</span>
                 </div>
-              </section>
+              </FoldSection>
 
               <MaterialsDraft items={materials} onChange={setMaterials} canWrite={write.allowed} />
 
-              <PipGenerateBand
-                onGenerate={() => void submit(true)}
-                busy={busy}
-                disabled={!write.allowed || !ready}
-                reason={!ready ? "Write the main task first." : undefined}
-                refusal={write.reason ?? undefined}
-              />
-              {create.error != null && <ProblemNotice error={create.error} />}
-              {followUpError != null && (
-                <div className="space-y-2">
-                  <ProblemNotice error={followUpError} />
-                  {draftId && (
-                    <a className="text-meta text-brand-strong underline" href={detail(draftId)}>
-                      Open the draft
-                    </a>
-                  )}
-                </div>
-              )}
-
-              <section
-                aria-labelledby="new-campaign-script"
-                className="scroll-mt-24"
-              >
-                <SectionHead id="new-campaign-script" step={3} title="Script" hint={SCRIPT_HINT} info={SCRIPT_INFO} />
+              <FoldSection title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO}>
                 {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
                 {agents.data && agentOptions.length === 0 && <NoAgentYet />}
                 {agentOptions.length > 0 && (
@@ -231,9 +198,29 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                     selectedAgent={selectedAgent}
                   />
                 )}
-                <p className="mt-4 text-meta text-ink-muted">Press Generate above to write it.</p>
-              </section>
-            </div>
+                <div className="mt-4 space-y-3">
+                  <PipGenerateBand
+                    inline
+                    onGenerate={() => void submit(true)}
+                    busy={busy}
+                    disabled={!write.allowed || !ready}
+                    reason={!ready ? "Write the main task first." : undefined}
+                    refusal={write.reason ?? undefined}
+                  />
+                  {create.error != null && <ProblemNotice error={create.error} />}
+                  {followUpError != null && (
+                    <div className="space-y-2">
+                      <ProblemNotice error={followUpError} />
+                      {draftId && (
+                        <a className="text-meta text-brand-strong underline" href={detail(draftId)}>
+                          Open the draft
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </FoldSection>
+            </FoldGroup>
           )
         }
       />

@@ -85,8 +85,12 @@ export function ProposalReview({
   gate,
   limits = DEFAULT_LIMITS,
   language = "your callers' language",
+  editing = false,
   children,
 }: {
+  /** Editing a script already kept, not reviewing a suggestion: every part starts as final
+   * wording with an Edit button, nothing is ticked or labelled "Added", and the button saves. */
+  editing?: boolean;
   current: CallScript;
   /** What the proposal was made from, when that is not `current`. */
   base?: CallScript;
@@ -120,7 +124,7 @@ export function ProposalReview({
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [tried, setTried] = useState(false);
   // Rows the owner settled with "Update": only the final wording shows.
-  const [settled, setSettled] = useState<Set<string>>(() => new Set());
+  const [settled, setSettled] = useState<Set<string>>(() => (editing ? new Set(changes.map((c) => c.id)) : new Set()));
   // Rows whose "Update" was refused, so their problems show although nothing was typed.
   const [checked, setChecked] = useState<Set<string>>(() => new Set());
   // Each open row as it stood when "Review" was pressed, for "Cancel".
@@ -253,12 +257,12 @@ export function ProposalReview({
     <section aria-labelledby="proposal-heading" className="space-y-4">
       <div>
         <h3 id="proposal-heading" className="text-heading text-ink">
-          {changes.length === 1 ? "1 suggested change" : `${changes.length} suggested changes`}
+          {editing ? "Edit your script" : changes.length === 1 ? "1 suggested change" : `${changes.length} suggested changes`}
         </h3>
         <p className="mt-1 text-meta text-ink-muted">
-          Untick or review any. Kept ones go to your draft, not live.
+          {editing ? "Press Edit on any part to change it, then save." : "Untick or review any. Kept ones go to your draft, not live."}
         </p>
-        {changes.length > 1 && (
+        {!editing && changes.length > 1 && (
           <ul aria-label="Changes by kind" className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
             {tally(changes).map((line) => (
               <li key={line.tone}>
@@ -287,6 +291,7 @@ export function ProposalReview({
                 edited={touched.has(change.id)}
                 open={isOpen}
                 settled={isSettled}
+                final={editing}
                 since={since.get(change.id)}
                 onKeep={(next) => setIn(setKept, change.id, next)}
                 onEdit={() => openRow(change.id)}
@@ -329,11 +334,15 @@ export function ProposalReview({
           <button
             type="button"
             className={PRIMARY_BUTTON_SM}
-            disabled={keptCount === 0 || Boolean(gate) || pending !== null}
+            disabled={(editing ? touched.size === 0 : keptCount === 0) || Boolean(gate) || pending !== null}
             title={gate ?? undefined}
             onClick={add}
           >
-            {pending === "apply"
+            {editing
+              ? pending === "apply"
+                ? "Saving…"
+                : "Save changes"
+              : pending === "apply"
               ? "Adding…"
               : keptCount === offered && offered > 0
                 ? offered === 1
@@ -342,7 +351,7 @@ export function ProposalReview({
                 : `Add ${keptCount} of ${offered} to my draft`}
           </button>
           <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDiscard} disabled={pending !== null}>
-            {pending === "discard" ? "Discarding…" : "Discard"}
+            {editing ? "Close" : pending === "discard" ? "Discarding…" : "Discard"}
           </button>
         </div>
         {gate && <p className="text-meta text-ink-muted">{gate}</p>}
@@ -365,6 +374,7 @@ function Row({
   edited,
   open,
   settled,
+  final = false,
   since,
   onKeep,
   onEdit,
@@ -378,6 +388,8 @@ function Row({
   edited: boolean;
   open: boolean;
   settled: boolean;
+  /** Part of a script already kept: no keep box and no kind of change, only its name. */
+  final?: boolean;
   since?: Since;
   onKeep: (on: boolean) => void;
   onEdit: () => void;
@@ -402,21 +414,29 @@ function Row({
             : "opacity-55"
       }`}
     >
-      <input
-        id={`${id}-keep`}
-        type="checkbox"
-        className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand-strong)]"
-        checked={kept}
-        disabled={gone}
-        onChange={(e) => onKeep(e.target.checked)}
-      />
+      {!final && (
+        <input
+          id={`${id}-keep`}
+          type="checkbox"
+          className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-[var(--brand-strong)]"
+          checked={kept}
+          disabled={gone}
+          onChange={(e) => onKeep(e.target.checked)}
+        />
+      )}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2">
-          <label htmlFor={`${id}-keep`} className="cursor-pointer text-body font-medium text-ink">
-            {headline(change)}
-          </label>
+          {final ? (
+            <span className="text-body font-medium text-ink">{headline(change)}</span>
+          ) : (
+            <label htmlFor={`${id}-keep`} className="cursor-pointer text-body font-medium text-ink">
+              {headline(change)}
+            </label>
+          )}
           {/* Once updated there is one final version, so nothing says what it changed from. */}
-          {settled ? (
+          {final ? (
+            edited && <span className="text-meta font-medium text-brand-strong">Edited, not saved yet</span>
+          ) : settled ? (
             <span className="text-meta font-medium text-brand-strong">Reviewed by you</span>
           ) : (
             <>

@@ -43,7 +43,7 @@ import { KIND_LABEL, MATERIALS_HINT, MATERIALS_INFO, MaterialForm } from "./Mate
 import { matchesWords } from "./matchWords";
 import { PipGenerateBand } from "./PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "./PipScriptStatus";
-import { SectionHead } from "./SectionHead";
+import { FoldSection } from "./FoldSection";
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
@@ -77,7 +77,6 @@ export function CampaignWorkspace({
     <div className="space-y-10">
       <MainTask campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
       <Materials campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
-      <GenerateScript campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
       <ScriptSection campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
     </div>
   );
@@ -110,6 +109,7 @@ function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
         reason={reason}
         refusal={refusal}
         label={failed ? "Try again" : "Generate"}
+        inline
       />
       {ask.error != null && <ProblemNotice error={ask.error} />}
     </div>
@@ -137,11 +137,7 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
   const submit = () => save.mutate(text, { onSuccess: () => setEditing(false) });
 
   return (
-    <section
-      aria-labelledby="campaign-main-task"
-      className="scroll-mt-24"
-    >
-      <SectionHead id="campaign-main-task" step={1} title="Main task" hint={MAIN_TASK_HINT} info={MAIN_TASK_INFO} />
+    <FoldSection id="campaign-main-task" title="Main task" tone="task" hint={MAIN_TASK_HINT} info={MAIN_TASK_INFO}>
       {editing ? (
         <>
           <label htmlFor={`${campaignId}-main-task`} className="sr-only">
@@ -202,7 +198,7 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
           </button>
         </>
       )}
-    </section>
+    </FoldSection>
   );
 }
 
@@ -225,11 +221,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
   );
 
   return (
-    <section
-      aria-labelledby="campaign-materials"
-      className="scroll-mt-24"
-    >
-      <SectionHead id="campaign-materials" step={2} title="Materials" hint={MATERIALS_HINT} info={MATERIALS_INFO} />
+    <FoldSection id="campaign-materials" title="Materials" tone="materials" hint={MATERIALS_HINT} info={MATERIALS_INFO}>
 
       <MaterialForm
         canWrite={canWrite}
@@ -294,7 +286,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
           </ul>
         </div>
       )}
-    </section>
+    </FoldSection>
   );
 }
 
@@ -322,11 +314,11 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   };
 
   return (
-    <section
-      aria-labelledby="campaign-script"
-      className="scroll-mt-24"
-    >
-      <SectionHead id="campaign-script" step={3} title="Script" hint={SCRIPT_HINT} info={SCRIPT_INFO} />
+    <FoldSection id="campaign-script" title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO}>
+      {/* Generate sits in the Script section (founder, 15 Nov 2026): one place to get a script and read it. */}
+      <div className="mb-4">
+        <GenerateScript campaignId={campaignId} space={space} canWrite={canWrite} refusal={refusal} />
+      </div>
 
       {save.error != null && (
         <div className="mb-3">
@@ -374,9 +366,10 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
       )}
 
       {!proposal && editing && (
-        <div className="border-y border-line py-4">
-          {/* Every part shown as written, with Review / Update / Cancel on each. */}
+        <div className="rounded-card border border-line bg-surface p-4">
+          {/* Every part as saved, with Edit / Update / Cancel on each; nothing to add again. */}
           <ProposalReview
+            editing
             current={EMPTY_SCRIPT}
             proposal={script ?? EMPTY_SCRIPT}
             pending={save.isPending ? "apply" : null}
@@ -407,7 +400,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
           )}
         </div>
       )}
-    </section>
+    </FoldSection>
   );
 }
 

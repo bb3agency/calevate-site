@@ -29,6 +29,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { hourWords } from "@/lib/clock";
 
 import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
+import { FoldSection } from "./FoldSection";
 import { AgentChoice } from "./NewCampaignSteps";
 
 type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
@@ -89,11 +90,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
   const [mine, setMine] = useState(true);
   const result = call.data;
   return (
-    <Card
-      title="Test call"
-      hint="The chosen agent rings your phone."
-      info="It puts this campaign's script on the agent first, so you hear exactly what people will hear."
-    >
+    <div>
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-48 flex-1 text-meta font-medium text-ink">
           Your number
@@ -141,7 +138,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
           {result.blocked_reason ?? "The test call could not be placed right now."}
         </p>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -349,14 +346,13 @@ function WhatsAppFollowUp({ slug }: { slug: string }) {
  * the chosen one speaking this campaign's script. What the call says (its opening included)
  * belongs in the script, not here. The agent can be changed while the campaign is a draft.
  */
-export function AgentAndTestCall({
-  slug,
+export function AgentSection({
   campaignId,
   agentId,
   editable,
   canWrite,
   refusal,
-}: Common & { agentId: string; editable: boolean }) {
+}: Omit<Common, "slug"> & { agentId: string; editable: boolean }) {
   const { session } = useClientRealm();
   const agents = useAgents(session);
   const update = useUpdateCampaign(session, campaignId);
@@ -373,6 +369,12 @@ export function AgentAndTestCall({
   };
 
   return (
+    <FoldSection
+      title="Agent and its settings"
+      tone="agent"
+     
+      hint="Who makes these calls, and its settings here."
+    >
     <div className="space-y-4">
       {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
       {agents.error != null && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
@@ -388,7 +390,22 @@ export function AgentAndTestCall({
       {!editable && <p className="text-meta text-ink-muted">The agent can change only while it is a draft.</p>}
       {update.error != null && <ProblemNotice error={update.error} />}
       <CampaignVoiceSettings campaignId={campaignId} agentId={agentId} canWrite={canWrite} refusal={refusal} />
-      <HearItFirst slug={slug} campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
     </div>
+    </FoldSection>
+  );
+}
+
+/** The chosen agent rings the owner's phone with this campaign's script. */
+export function TestCallSection(props: Common) {
+  return (
+    <FoldSection
+      title="Test call"
+      tone="test"
+     
+      hint="The chosen agent rings your phone."
+      info="It puts this campaign's script on the agent first, so you hear exactly what people will hear."
+    >
+      <HearItFirst {...props} />
+    </FoldSection>
   );
 }
