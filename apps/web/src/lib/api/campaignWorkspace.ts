@@ -8,10 +8,11 @@
  * agent, which is the voice; everything else stays here.
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useRef } from "react";
 
 import { apiRequest, type Session } from "./client";
+import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 import type { CallScript } from "./script";
 
@@ -35,11 +36,11 @@ export const questionsKey = (org: string, campaignId: string) => ["campaign-ques
 
 const base = (campaignId: string) => `/v1/campaigns/${encodeURIComponent(campaignId)}`;
 
-export function useCampaignWorkspace(session: Session, campaignId: string) {
+export function useCampaignWorkspace(session: Session, campaignId: string): UseQueryResult<CampaignWorkspace> {
   return useQuery({
     queryKey: workspaceKey(session.orgSlug, campaignId),
     queryFn: () => apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/workspace`),
-    refetchInterval: (query) => (query.state.data?.proposal?.status === "drafting" ? PIP_POLL_MS : false),
+    refetchInterval: untilRefused((query) => (query.state.data?.proposal?.status === "drafting" ? PIP_POLL_MS : false)),
   });
 }
 

@@ -87,6 +87,10 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     // Mistakes on real calls (D-949) are counted when a call is checked after it ends.
     "call-mistakes",
     "admin/ops/call-mistakes",
+    // A campaign's answer rates by hour, how its openings compare, and what its calls could
+    // not answer are all counted from its calls (D-992).
+    "campaign-insights",
+    "campaign-questions",
   ],
   leads: [
     ...SUMMARY,
@@ -132,6 +136,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "admin/campaigns",
     "admin/campaign-check",
     "pin-card",
+    // Main task, script, Pip's draft and the second opening live on the campaign row (D-992).
+    "campaign-workspace",
+    "campaign-insights",
   ],
   callbacks: [
     ...SUMMARY,
@@ -146,7 +153,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "leads",
     "pin-card",
   ],
-  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "readiness", "teach-questions", "pin-card"],
+  knowledge_gaps: [...SUMMARY, "knowledge-gaps", "readiness", "teach-questions", "pin-card", "campaign-questions"],
   knowledge: [
     "kb-preview",
     "kb-staff-curation",
