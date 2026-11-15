@@ -16,6 +16,7 @@
 import { useMemo, useState } from "react";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
+import { ExpandableText } from "@/components/arc/expandable-text";
 import { SearchField } from "@/components/arc/search-field";
 import { FIELD, NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import {
@@ -198,7 +199,16 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
         </>
       ) : (
         <>
-          <p className="whitespace-pre-wrap text-body text-ink">{space.main_task}</p>
+          {/* Long tasks open folded to six lines, with Show more to read the rest. */}
+          <ExpandableText
+            lines={6}
+            moreLabel="Show more"
+            lessLabel="Show less"
+            className="text-body text-ink"
+            textClassName="whitespace-pre-wrap [overflow-wrap:anywhere]"
+          >
+            {space.main_task}
+          </ExpandableText>
           <button
             type="button"
             className={`${SECONDARY_BUTTON_SM} mt-3`}
@@ -382,7 +392,17 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
                       {m.url}
                     </a>
                   )}
-                  {m.note && <p className="mt-0.5 whitespace-pre-wrap text-meta text-ink-muted">{m.note}</p>}
+                  {m.note && (
+                    <ExpandableText
+                      lines={3}
+                      moreLabel="Show more"
+                      lessLabel="Show less"
+                      className="mt-0.5 text-meta text-ink-muted"
+                      textClassName="whitespace-pre-wrap [overflow-wrap:anywhere]"
+                    >
+                      {m.note}
+                    </ExpandableText>
+                  )}
                 </div>
                 <button
                   type="button"

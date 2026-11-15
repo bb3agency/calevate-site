@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.4 — 15-Nov-2026
+
+- A long main task wraps and opens folded to six lines with **Show more** / **Show less**;
+  long material notes fold to three.
+
 ## 0.3.3 — 15-Nov-2026
 
 - A page opened while a deploy swapped the server no longer shows "This screen stopped": a
