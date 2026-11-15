@@ -13,7 +13,7 @@
  *     with the same Review / Update / Edit the agent Script page uses, and edits it any time.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { SearchField } from "@/components/arc/search-field";
@@ -93,18 +93,32 @@ function SectionHead({ step, title, hint }: { step: number; title: string; hint:
 
 function MainTask({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
+  const [editing, setEditing] = useState(space.main_task.trim() === "");
   const [text, setText] = useState(space.main_task);
-  const saved = useRef(space.main_task);
-  useEffect(() => {
-    // A save elsewhere (another tab, Pip) moves the saved value; the box follows it only
-    // while the owner has not typed something of their own.
-    if (text === saved.current) setText(space.main_task);
-    saved.current = space.main_task;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [space.main_task]);
+  const [error, setError] = useState<unknown>(null);
   const save = useSaveMainTask(session, campaignId);
-  const feedback = useActionFeedback(save, { errorDisplay: "inline", successToast: "Main task saved" });
   const dirty = text.trim() !== space.main_task.trim();
+
+  const startEdit = () => {
+    setText(space.main_task);
+    setError(null);
+    setEditing(true);
+  };
+  const cancel = () => {
+    setText(space.main_task);
+    setError(null);
+    setEditing(space.main_task.trim() === "");
+  };
+  const submit = async () => {
+    setError(null);
+    try {
+      await save.mutateAsync(text);
+      setEditing(false);
+    } catch (e) {
+      setError(e);
+    }
+  };
+
   return (
     <section
       aria-labelledby="campaign-main-task"
@@ -117,33 +131,53 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
           hint="What should this campaign achieve? Write it in your own words, as much as you like."
         />
       </div>
-      <label htmlFor={`${campaignId}-main-task`} className="sr-only">
-        Main task
-      </label>
-      <textarea
-        id={`${campaignId}-main-task`}
-        className={`${FIELD} min-h-36 w-full resize-y`}
-        value={text}
-        maxLength={4000}
-        disabled={!canWrite}
-        title={refusal}
-        placeholder="For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone."
-        onChange={(e) => setText(e.target.value)}
-      />
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className={PRIMARY_BUTTON_SM}
-          disabled={!canWrite || !dirty || save.isPending}
-          title={refusal}
-          onClick={() => feedback.run(text)}
-        >
-          {save.isPending ? "Saving…" : "Save main task"}
-        </button>
-        {dirty && <span className="text-meta text-ink-muted">Not saved yet</span>}
-        <span className="ml-auto text-meta text-ink-faint">{text.length.toLocaleString("en-IN")} / 4,000</span>
-      </div>
-      <InlineError error={feedback.error} title="The main task did not save" />
+      {editing ? (
+        <>
+          <label htmlFor={`${campaignId}-main-task`} className="sr-only">
+            Main task
+          </label>
+          <textarea
+            id={`${campaignId}-main-task`}
+            className={`${FIELD} min-h-36 w-full resize-y`}
+            value={text}
+            maxLength={4000}
+            disabled={!canWrite}
+            title={refusal}
+            placeholder="For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone."
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={PRIMARY_BUTTON_SM}
+              disabled={!canWrite || !text.trim() || !dirty || save.isPending}
+              title={refusal}
+              onClick={() => void submit()}
+            >
+              {save.isPending ? "Saving…" : "Save"}
+            </button>
+            {space.main_task.trim() !== "" && (
+              <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={cancel}>
+                Cancel
+              </button>
+            )}
+          </div>
+          <InlineError error={error} title="The main task did not save" />
+        </>
+      ) : (
+        <>
+          <p className="whitespace-pre-wrap text-body text-ink">{space.main_task}</p>
+          <button
+            type="button"
+            className={`${SECONDARY_BUTTON_SM} mt-3`}
+            disabled={!canWrite}
+            title={refusal}
+            onClick={startEdit}
+          >
+            Edit
+          </button>
+        </>
+      )}
     </section>
   );
 }

@@ -28,7 +28,6 @@ import { ProblemNotice } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import type { CampaignNumber, DltTemplate } from "@/lib/api/campaigns";
-import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 
 import { briefProblem } from "./BriefFields";
 import { ConsentProvenanceFields } from "./ConsentProvenance";
@@ -102,7 +101,6 @@ export function NewCampaignFlow({
   concurrency,
   concurrencyCap,
   capUnknown,
-  assistant,
   creating,
   createError,
   canWrite,
@@ -125,8 +123,6 @@ export function NewCampaignFlow({
   concurrencyCap: number | undefined;
   /** The account's lines could not be read. */
   capUnknown: boolean;
-  /** The way to have the assistant fill the steps in, offered on the first step. */
-  assistant: ReactNode;
   /** The draft is being created, or what it carries is being sent. */
   creating: boolean;
   /** Why creating the draft was refused, shown on the review step. */
@@ -216,7 +212,6 @@ export function NewCampaignFlow({
 
   const content: ReactNode[] = [
     <div key="purpose" className="space-y-8">
-      <AssistantOffer>{assistant}</AssistantOffer>
       <BasicsStep
         showMainTask
         form={form}
@@ -262,7 +257,14 @@ export function NewCampaignFlow({
                 aria-labelledby={headingId}
                 className="space-y-7 sm:rounded-card sm:border sm:border-line sm:bg-surface sm:p-7 sm:shadow-card"
               >
-                <StepHeader index={index} headingId={headingId} />
+                {/* The first step is the main task box; it needs no question above it. */}
+                {index === 0 ? (
+                  <h3 id={headingId} className="sr-only">
+                    {STEPS[0]!.heading}
+                  </h3>
+                ) : (
+                  <StepHeader index={index} headingId={headingId} />
+                )}
                 {content[index]}
                 {problem ? (
                   <p role="alert" className="text-meta text-danger">
@@ -282,6 +284,7 @@ export function NewCampaignFlow({
         height="auto"
         framed={false}
         showCurrentLabel={false}
+        showRail={false}
         label="New campaign steps"
         nextLabel={nextLabel}
         finishLabel="Create campaign"
@@ -294,18 +297,6 @@ export function NewCampaignFlow({
           </button>
         }
       />
-    </div>
-  );
-}
-
-/** The assistant as the other way in, one quiet line above the first question. */
-function AssistantOffer({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-3 rounded-card border border-dashed border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <p className="min-w-0 text-meta text-ink-muted">
-        Rather say it in a sentence? {ASSISTANT_NAME} can fill this in.
-      </p>
-      <div className="shrink-0">{children}</div>
     </div>
   );
 }

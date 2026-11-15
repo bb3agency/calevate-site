@@ -137,6 +137,8 @@ export type WizardStepsProps = {
   extraActions?: ReactNode;
   /** The current step's name above the rail. Off when each step heads itself. */
   showCurrentLabel?: boolean;
+  /** The numbered step strip. Off, it is kept for screen readers only (progress is still read). */
+  showRail?: boolean;
   backLabel?: string;
   nextLabel?: string;
   finishLabel?: string;
@@ -161,6 +163,7 @@ export function WizardSteps({
   advanceDisabled = false,
   extraActions,
   showCurrentLabel = true,
+  showRail = true,
   backLabel = "Back",
   nextLabel = "Next",
   finishLabel = "Finish",
@@ -265,7 +268,7 @@ export function WizardSteps({
       <ol
         ref={listRef}
         aria-label={label}
-        className="mb-4 flex list-none items-center gap-1 p-0"
+        className={showRail ? "mb-4 flex list-none items-center gap-1 p-0" : "sr-only"}
       >
         {steps.map((s, i) => {
           const done = complete || i < at;

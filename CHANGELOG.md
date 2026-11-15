@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.1 — 15-Nov-2026
+
+- **New campaign is one page**, a complete new design: 1 Main task (Save), 2 Materials (files,
+  website and video links, notes), 3 Script (who speaks it, and Create and write the script with
+  Pip). The Calls & recordings, Questions to answer and Improve tabs are there from the start,
+  empty until the campaign calls. The four-step wizard, its why / goal / name fields and the
+  step strip are gone; the name is made from the main task.
+- The campaign page's main task shows as text with **Edit**; editing gives **Save** and **Cancel**.
+
 ## 0.3.0 — 15-Nov-2026
 
 - **Hear it first:** ring your own phone with the campaign's script before Start.
