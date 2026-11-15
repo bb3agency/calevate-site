@@ -427,6 +427,96 @@ async def test_the_refundable_amount_is_the_unspent_credit_of_that_payment() -> 
         ) == Decimal("700.00")
 
 
+async def test_a_refund_made_outside_the_console_still_counts_against_the_ceiling() -> None:
+    """₹1,000 claimed here and not yet processed, then ₹500 refunded from the provider's
+    dashboard and recorded by reconciliation: only ₹1,000 of a ₹2,500 payment is left. The
+    outside refund has no claim, so it must not cancel the pending one."""
+    tenant_id = await _tenant()
+    payment_id = _id("pay")
+    await _fund(tenant_id, payment_id, "2500.00")
+    async with tenant_session(tenant_id) as session:
+        entry = await payments.find_topup(session, tenant_id=tenant_id, ref=payment_id)
+        assert entry is not None
+        claim = await payments.claim_refund(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payment_id,
+            amount_inr=Decimal("1000.00"),
+            payment_total_inr=Decimal("2500.00"),
+            topup_entry_id=entry.entry_id,
+        )
+        await payments.bind_refund_claim(
+            session, tenant_id=tenant_id, refund_key=claim.refund_key, refund_id=_id("rfnd")
+        )
+    async with tenant_session(tenant_id) as session:
+        await payments.credit_refund(
+            session,
+            refund=payments.RefundEvent(
+                refund_id=_id("rfnd"),
+                payment_id=payment_id,
+                tenant_id=tenant_id,
+                amount_inr=Decimal("500.00"),
+                currency="INR",
+            ),
+        )
+    async with tenant_session(tenant_id) as session:
+        assert await payments.refundable_of_payment(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payment_id,
+            payment_total_inr=Decimal("2500.00"),
+            topup_entry_id=entry.entry_id,
+        ) == Decimal("1000.00")
+        with pytest.raises(ProblemError) as refused:
+            await payments.claim_refund(
+                session,
+                tenant_id=tenant_id,
+                payment_id=payment_id,
+                amount_inr=Decimal("1500.00"),
+                payment_total_inr=Decimal("2500.00"),
+                topup_entry_id=entry.entry_id,
+            )
+    assert refused.value.code in {"refund_exceeds_payment", "refund_exceeds_unspent"}
+
+
+async def test_a_claim_whose_refund_lands_by_webhook_is_settled_not_pending() -> None:
+    """The provider's answer never reached the console, so the claim is unbound; the
+    webhook records the refund. The claim is then settled, and the rest is refundable."""
+    tenant_id = await _tenant()
+    payment_id = _id("pay")
+    await _fund(tenant_id, payment_id, "2500.00")
+    async with tenant_session(tenant_id) as session:
+        entry = await payments.find_topup(session, tenant_id=tenant_id, ref=payment_id)
+        assert entry is not None
+        await payments.claim_refund(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payment_id,
+            amount_inr=Decimal("1000.00"),
+            payment_total_inr=Decimal("2500.00"),
+            topup_entry_id=entry.entry_id,
+        )
+    async with tenant_session(tenant_id) as session:
+        await payments.credit_refund(
+            session,
+            refund=payments.RefundEvent(
+                refund_id=_id("rfnd"),
+                payment_id=payment_id,
+                tenant_id=tenant_id,
+                amount_inr=Decimal("1000.00"),
+                currency="INR",
+            ),
+        )
+    async with tenant_session(tenant_id) as session:
+        assert await payments.refundable_of_payment(
+            session,
+            tenant_id=tenant_id,
+            payment_id=payment_id,
+            payment_total_inr=Decimal("2500.00"),
+            topup_entry_id=entry.entry_id,
+        ) == Decimal("1500.00")
+
+
 async def test_a_payment_that_only_repaid_an_overdraft_has_nothing_to_refund() -> None:
     """₹300 onto a wallet at -₹500 repays debt and opens no lot (plan §0 Q5): every rupee of
     it bought minutes already spoken, so none of it is refundable."""

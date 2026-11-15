@@ -1551,12 +1551,74 @@ async def claimed_refund_total_inr(
     return Decimal(str(total or 0))
 
 
+#: Live claims of this payment whose refund is not on the ledger yet. A claim is settled by
+#: the ledger row its bound `refund_ref` names (`credit_refund` binds an unbound one).
+_PENDING_CLAIMS_SQL: Final = (
+    "SELECT COALESCE(SUM(ri.amount_inr), 0) FROM refund_intents ri "
+    "WHERE ri.tenant_id = :tid AND ri.payment_ref = :pid AND ri.failed_at IS NULL "
+    "AND NOT EXISTS (SELECT 1 FROM credit_ledger cl WHERE cl.tenant_id = :tid "
+    "AND cl.reason = 'refund' AND cl.ref = ri.refund_ref)"
+)
+
+#: Processed refunds of this payment that no claim made: one issued from the provider's
+#: dashboard and recorded by reconciliation. They count against the payment like a claim.
+_UNCLAIMED_REFUNDS_SQL: Final = (
+    "SELECT COALESCE(SUM(abs(cl.delta)), 0) FROM credit_ledger cl "
+    "WHERE cl.tenant_id = :tid AND cl.reason = 'refund' AND cl.meta->>'payment_ref' = :pid "
+    "AND NOT EXISTS (SELECT 1 FROM refund_intents ri WHERE ri.tenant_id = :tid "
+    "AND ri.refund_ref = cl.ref)"
+)
+
+
+async def _scalar_inr(session: AsyncSession, sql: str, *, tenant_id: UUID, payment_id: str) -> Decimal:
+    total = (await session.execute(text(sql), {"tid": tenant_id, "pid": payment_id})).scalar()
+    return Decimal(str(total or 0))
+
+
+async def committed_refund_total_inr(
+    session: AsyncSession, *, tenant_id: UUID, payment_id: str
+) -> Decimal:
+    """Everything of this payment already going back: live claims, plus processed refunds
+    no claim made. `claimed_refund_total_inr` alone misses a dashboard refund, so the
+    payment ceiling would let the same rupees be refunded twice."""
+    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    unclaimed = await _scalar_inr(
+        session, _UNCLAIMED_REFUNDS_SQL, tenant_id=tenant_id, payment_id=payment_id
+    )
+    return claimed + unclaimed
+
+
+async def _bind_claim_to_landed_refund(session: AsyncSession, *, refund: RefundEvent) -> None:
+    """Bind the live, unbound claim this refund settles, when the console never heard the
+    provider's answer and the refund reached us by webhook or reconciliation. Without it the
+    claim reads as pending for ever and holds back credit that is refundable."""
+    await session.execute(
+        text(
+            "UPDATE refund_intents SET refund_ref = :rid WHERE id = ("
+            "SELECT id FROM refund_intents WHERE tenant_id = :tid AND payment_ref = :pid "
+            "AND amount_inr = :amount AND refund_ref IS NULL AND failed_at IS NULL "
+            "ORDER BY created_at, id LIMIT 1) "
+            "AND NOT EXISTS (SELECT 1 FROM refund_intents WHERE tenant_id = :tid "
+            "AND refund_ref = :rid)"
+        ),
+        {
+            "tid": refund.tenant_id,
+            "pid": refund.payment_id,
+            "amount": refund.amount_inr,
+            "rid": refund.refund_id,
+        },
+    )
+
+
 async def unspent_credit_of_payment(
     session: AsyncSession, *, tenant_id: UUID, payment_id: str, entry_id: UUID
 ) -> Decimal:
     """What of this payment's purchased credit the client has not spent, has not lapsed and
-    is not already being refunded: its lot's remaining credit, less refunds claimed and not
-    yet processed (a processed refund has already taken its credit off the lot).
+    is not already being refunded: its lot's remaining credit, less claims whose refund is
+    not on the ledger yet (a processed refund has already taken its credit off the lot).
+
+    Pending is counted per claim, not as claims minus refunds: a dashboard refund has no
+    claim, and subtracting it would cancel a claim still in flight.
 
     Lapsed credit is not refundable (D-980). The daily sweep zeroes a lapsed lot, but a lot
     past its `expires_at` that the sweep has not reached yet still holds its credit, so the
@@ -1574,9 +1636,9 @@ async def unspent_credit_of_payment(
             {"lid": lot.lot_id},
         )
     ).scalar()
-    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
-    refunded = await refunded_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
-    pending = max(claimed - refunded, Decimal("0"))
+    pending = await _scalar_inr(
+        session, _PENDING_CLAIMS_SQL, tenant_id=tenant_id, payment_id=payment_id
+    )
     return to_paise(max(Decimal(str(remaining or 0)) - pending, Decimal("0")))
 
 
@@ -1591,7 +1653,7 @@ async def refundable_of_payment(
     """The most a new refund of this payment may be: the lesser of what the payment has not
     already had refunded and its unspent, unlapsed credit. The figure `claim_refund`'s two
     ceilings enforce, and the one the admin refund screen shows."""
-    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    claimed = await committed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
     unspent = await unspent_credit_of_payment(
         session, tenant_id=tenant_id, payment_id=payment_id, entry_id=topup_entry_id
     )
@@ -1669,7 +1731,7 @@ async def claim_refund(
         payment_id=payment_id, amount_inr=amount_inr, attempt=int(failed_attempts or 0)
     )
 
-    claimed = await claimed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
+    claimed = await committed_refund_total_inr(session, tenant_id=tenant_id, payment_id=payment_id)
     remaining = payment_total_inr - claimed
     if amount_inr > remaining:
         raise ProblemError.business_rule(
@@ -2012,6 +2074,7 @@ async def credit_refund(
     is precisely the state the negative balance this method already allows is recording.
     """
     await lock_tenant_credits(session, refund.tenant_id)
+    await _bind_claim_to_landed_refund(session, refund=refund)
 
     existing = await find_entry_by_ref(
         session, tenant_id=refund.tenant_id, reason="refund", ref=refund.refund_id
@@ -2279,6 +2342,7 @@ __all__ = [
     "claim_of_failed_refund",
     "claim_refund",
     "claimed_refund_total_inr",
+    "committed_refund_total_inr",
     "credit_captured_payment",
     "credit_refund",
     "event_name",
