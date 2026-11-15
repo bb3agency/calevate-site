@@ -186,7 +186,7 @@ def unwritten_note(parts: Sequence[LeftOut]) -> str:
     )
 
 
-def _left_out_record(parts: Sequence[LeftOut]) -> list[dict[str, Any]]:
+def left_out_record(parts: Sequence[LeftOut]) -> list[dict[str, Any]]:
     return [
         {
             "part": p.part,
@@ -230,7 +230,7 @@ class ScriptProposal:
     mistake_kind: str | None = None
 
 
-def _left_out(raw: Any) -> list[LeftOut]:
+def left_out_of(raw: Any) -> list[LeftOut]:
     return [
         LeftOut(
             part=str(item.get("part", "")),
@@ -268,7 +268,7 @@ def _parse(raw: dict[str, Any], *, now: datetime) -> ScriptProposal:
         documents=[UUID(str(d)) for d in raw.get("documents") or []],
         document_names=[str(n) for n in raw.get("document_names") or []],
         paths=[str(p) for p in raw.get("paths") or []],
-        left_out=_left_out(raw.get("left_out")),
+        left_out=left_out_of(raw.get("left_out")),
         reason=raw.get("reason"),
         mistake_kind=raw.get("mistake_kind"),
     )
@@ -685,7 +685,7 @@ async def store_ready(
             "script": script.model_dump(mode="json"),
             "unplaced": unplaced,
             "disclosure": disclosure,
-            "left_out": _left_out_record(left_out),
+            "left_out": left_out_record(left_out),
             "repairs": repairs,
             "truncated": truncated,
         },
@@ -711,7 +711,7 @@ async def store_failed(
             "status": "failed",
             "note": note[:400],
             "reason": reason,
-            "left_out": _left_out_record(left_out),
+            "left_out": left_out_record(left_out),
             "repairs": repairs,
             "truncated": truncated,
         },
@@ -1136,6 +1136,8 @@ __all__ = [
     "fix_change",
     "fix_left",
     "kept_to_paths",
+    "left_out_of",
+    "left_out_record",
     "owner_rule",
     "part_label",
     "queue_document_suggestions",

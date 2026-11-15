@@ -31,9 +31,11 @@ from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import script_proposals
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
+from apps.workers.script_assist import LeftOut
 
 MAIN_TASK_MAX: Final = 4_000
 NOTE_MAX: Final = 4_000
@@ -68,6 +70,11 @@ class CampaignProposal:
     base_script: CallScript | None
     script: CallScript | None
     note: str | None
+    #: Who wrote it when it was not the account's own model (D-127 G-6), shown with it.
+    disclosure: str | None = None
+    #: Ready: parts kept as the owner had them and warnings Pip could not clear. Failed:
+    #: the parts it could not write (`script_proposals.LeftOut`).
+    left_out: tuple[LeftOut, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -103,6 +110,8 @@ def _proposal(raw: Any, *, now: datetime) -> CampaignProposal | None:
         base_script=_script(raw.get("base_script")),
         script=_script(raw.get("script")),
         note=note,
+        disclosure=raw.get("disclosure"),
+        left_out=tuple(script_proposals.left_out_of(raw.get("left_out"))),
     )
 
 

@@ -35,6 +35,7 @@ import {
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useClientRealm } from "@/lib/api/session";
 
+import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
 import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 
 import { KIND_LABEL, MATERIALS_HINT, MATERIALS_INFO, MaterialForm } from "./MaterialsDraft";
@@ -360,7 +361,10 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
             onApply={(next) => void keep(next)}
             onDiscard={() => stopFeedback.run(proposal.id)}
-          />
+          >
+            {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
+            {proposal.left_out.length > 0 && <LeftOutNotice parts={proposal.left_out} />}
+          </ProposalReview>
         </div>
       )}
 

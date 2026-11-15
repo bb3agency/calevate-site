@@ -7194,6 +7194,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/contacts/from-excel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read the first sheet of an Excel file (.xlsx) as CSV text for a contact list
+         * @description Nothing is stored: the screen checks the rows as it checks a CSV and adds them to the
+         *     draft the same way, so one set of rules (numbers, duplicates, consent) covers both.
+         */
+        post: operations["contacts_from_excel_v1_campaigns_contacts_from_excel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/numbers": {
         parameters: {
             query?: never;
@@ -16893,6 +16914,11 @@ export interface components {
             /** Rule */
             rule: string;
         };
+        /** Body_contacts_from_excel_v1_campaigns_contacts_from_excel_post */
+        Body_contacts_from_excel_v1_campaigns_contacts_from_excel_post: {
+            /** File */
+            file: string;
+        };
         /** Body_contest_v1_admin_payments_disputes__dispute_id__contest_post */
         Body_contest_v1_admin_payments_disputes__dispute_id__contest_post: {
             /** Amount Inr */
@@ -18989,6 +19015,23 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * CampaignLeftOutOut
+         * @description A part of Pip's script kept as the owner had it, a warning its repairs could not clear
+         *     (ready), or a part it could not write (failed). `LeftOutPartOut`'s shape.
+         */
+        CampaignLeftOutOut: {
+            /** Added */
+            added: boolean;
+            /** Label */
+            label: string;
+            /** Part */
+            part: string;
+            /** Rule */
+            rule: string;
+            /** Unfixed */
+            unfixed: boolean;
+        };
         /** CampaignPageOut */
         CampaignPageOut: {
             /**
@@ -19008,11 +19051,15 @@ export interface components {
         /** CampaignProposalOut */
         CampaignProposalOut: {
             base_script: components["schemas"]["CallScript"] | null;
+            /** Disclosure */
+            disclosure: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Left Out */
+            left_out: components["schemas"]["CampaignLeftOutOut"][];
             /** Note */
             note: string | null;
             /**
@@ -20803,6 +20850,13 @@ export interface components {
             items: components["schemas"]["ContactResultOut"][];
             /** Total */
             total: number;
+        };
+        /** ContactSheetOut */
+        ContactSheetOut: {
+            /** Csv */
+            csv: string;
+            /** Rows */
+            rows: number;
         };
         /**
          * ConversationStage
@@ -52111,6 +52165,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentHolderOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    contacts_from_excel_v1_campaigns_contacts_from_excel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_contacts_from_excel_v1_campaigns_contacts_from_excel_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactSheetOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -40,7 +40,7 @@ import { languageName } from "./sectionParts";
  * the rest of the suggestion is still offered, and these are named rather than dropped
  * without a word.
  */
-function LeftOutNotice({ parts }: { parts: ScriptProposal["left_out"] }) {
+export function LeftOutNotice({ parts }: { parts: ScriptProposal["left_out"] }) {
   // A warning Pip's repairs could not clear is in the suggestion itself, not a part kept as
   // the owner had it, so it is named apart (D-989).
   const unfixed = parts.filter((part) => part.unfixed);

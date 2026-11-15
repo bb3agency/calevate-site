@@ -110,7 +110,6 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
       const base = `/v1/campaigns/${encodeURIComponent(id)}`;
       // Each item leaves the list once it is on the campaign, so pressing again after a
       // refusal sends only what is still missing.
-      let left = materials;
       for (const item of materials) {
         if (item.file) {
           await uploadMaterial(session, id, item.file, item.title);
@@ -118,8 +117,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
           const body = { kind: item.kind, title: item.title, url: item.url, note: item.note, kb_upload_id: item.kb_upload_id };
           await apiRequest(session, `${base}/materials`, { method: "POST", body });
         }
-        left = left.filter((x) => x.key !== item.key);
-        setMaterials(left);
+        setMaterials((held) => held.filter((kept) => kept !== item));
       }
       if (withPip) await apiRequest(session, `${base}/script/proposal`, { method: "POST" });
       void queryClient.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });

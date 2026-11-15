@@ -3,6 +3,31 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.3 — 15-Nov-2026
+
+- **People to call** takes an Excel sheet (.xlsx) as well as a CSV, pasted rows, or names and
+  numbers typed one at a time. The sheet is read on the server and checked like a CSV.
+- **Other call settings** replaces "Start later or repeat" and the "How it calls" summary: the
+  hours it may call (IST, 9 am to 9 pm), an optional later start, and **If nobody answers**: try
+  again at the same time the next day until they are reached, on up to 5 days.
+
+## 0.4.2 — 15-Nov-2026
+
+- **Pip's campaign script is checked like every Pip script.** Before you see it, the call-mistake
+  checks read it and Pip rewrites what they find (three questions in one turn and the like), and
+  an opening line that breaks the opening rules is written again. What Pip could not fix, or kept
+  as you had it, is listed above the changes, and a script written by the backup assistant says so.
+- A campaign's first script is written whole for your business from the main task and materials,
+  starting from your trade's steps, instead of as a change to an empty script.
+- Generate now checks your AI allowance first, and is not available while viewing as the client.
+- Creating a campaign: if one material is refused, pressing again adds only the ones not yet added.
+
+## 0.4.1 — 15-Nov-2026
+
+- "Before you launch" is now **Mandatory Regulatory Compliance Checks**: foldable, open by
+  default, with "N checks to answer" or "All checks done" on its folded line. Launch stays
+  disabled until every check is answered, and the server's compliance gate refuses it anyway.
+
 ## 0.4.0 — 15-Nov-2026
 
 - **Agents hold default settings; campaigns override them (D-994).** Step 4 gains **Voice & call

@@ -61,6 +61,7 @@ from apps.workers.script_assist import (
     CONVERT_INSTRUCTION,
     AskTrace,
     JsonAnswer,
+    LeftOut,
     ScriptBrief,
     ScriptDraft,
     draft_script,
@@ -657,6 +658,49 @@ async def _mistakes_checked(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Finished:
+    """A written script once the checks every Pip script passes have run on it."""
+
+    script: CallScript
+    #: The call-mistake repairs, paid or refused, for the meter (hard rule 7).
+    repairs: list[ScriptDraft | ProblemError]
+    #: The opening repairs, paid or refused, for the meter.
+    opening_spends: list[JsonAnswer[WrittenOpening] | ProblemError]
+    #: The warnings the repairs could not clear, for the owner to read.
+    left_out: list[LeftOut]
+
+
+async def finish_written(
+    tenant_id: UUID,
+    agent_id: UUID,
+    proposal: script_proposals.ScriptProposal,
+    drafted: CallScript,
+    started: float,
+) -> Finished:
+    """What every script Pip writes goes through before an owner reviews it, an agent's
+    suggestion and a campaign's script alike: the call-mistake checks and their repair
+    (D-989), then the opening rule and its repair (D-957). Each step's failure keeps what is
+    already written, since it is paid for and must be stored and metered."""
+    repairs: list[ScriptDraft | ProblemError] = []
+    left_out: list[LeftOut] = []
+    if proposal.mode not in _OPENING_ONLY_MODES and not drafted.raw_override:
+        try:
+            checked = await _mistakes_checked(tenant_id, agent_id, proposal, drafted, started)
+        except Exception:
+            log.exception("script_mistake_check_crashed", extra={"agent_id": str(agent_id)})
+            checked = _Repaired(drafted, [], [])
+        drafted, repairs = checked.script, checked.spends
+        left_out = script_proposals.fix_left(checked.left, drafted)
+    try:
+        script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, drafted)
+    except Exception:
+        # Not left `drafting` until it goes stale: stored as drafted, for the owner to review.
+        log.exception("script_proposal_opening_crashed", extra={"agent_id": str(agent_id)})
+        script, opening_spends = drafted, []
+    return Finished(script, repairs, opening_spends, left_out)
+
+
 async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
@@ -746,23 +790,10 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
         left_out += script_proposals.fix_left(repaired.left, drafted)
     elif proposal.mode == script_proposals.KNOWLEDGE_MODE:
         drafted = script_proposals.emptied_kept(drafted, proposal.base_script)
-    if proposal.mode not in _OPENING_ONLY_MODES and not drafted.raw_override:
-        try:
-            checked = await _mistakes_checked(tenant_id, agent_id, proposal, drafted, started)
-        except Exception:
-            # As the fix repair above: what is already written is paid for and is stored.
-            log.exception("script_mistake_check_crashed", extra={"agent_id": str(agent_id)})
-            checked = _Repaired(drafted, [], [])
-        drafted, repairs = checked.script, [*repairs, *checked.spends]
-        left_out += script_proposals.fix_left(checked.left, drafted)
-    try:
-        script, opening_spends = await _opening_repaired(tenant_id, agent_id, proposal, drafted)
-    except Exception:
-        # The draft is already paid for: a failure in the optional opening repair must not
-        # lose its meter row (hard rule 7) nor leave the request `drafting` until it goes
-        # stale. The proposal is stored as drafted, for the owner to review.
-        log.exception("script_proposal_opening_crashed", extra={"agent_id": str(agent_id)})
-        script, opening_spends = drafted, []
+    finished = await finish_written(tenant_id, agent_id, proposal, drafted, started)
+    script, opening_spends = finished.script, finished.opening_spends
+    repairs = [*repairs, *finished.repairs]
+    left_out += finished.left_out
     unplaced = (
         unplaced_lines(proposal.base_script.raw_override or "", draft.script)
         if proposal.mode == "steps"
@@ -888,7 +919,9 @@ async def suggest_scripts_from_document(ctx: dict[str, Any], payload: dict[str, 
 __all__ = [
     "JOB_NAME",
     "KNOWLEDGE_CHANGE",
+    "Finished",
     "draft_script_proposal",
+    "finish_written",
     "knowledge_change",
     "suggest_scripts_from_document",
 ]

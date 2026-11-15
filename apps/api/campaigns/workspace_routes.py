@@ -4,6 +4,8 @@ and the questions its calls could not answer (D-992). `campaigns/workspace.py` h
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
 from datetime import datetime
@@ -11,20 +13,23 @@ from decimal import Decimal
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
+import openpyxl
 from calevate_shared.call_script import CallScript
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import script_proposals
 from apps.api.agents.call_handling import read_agent_call_handling
 from apps.api.agents.service import effective_call_cap
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.voice_tuning import read_voice_tuning
+from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import learning, workspace
 from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -59,6 +64,17 @@ class MaterialOut(_Out):
     created_at: datetime
 
 
+class CampaignLeftOutOut(_Out):
+    """A part of Pip's script kept as the owner had it, a warning its repairs could not clear
+    (ready), or a part it could not write (failed). `LeftOutPartOut`'s shape."""
+
+    part: str
+    label: str
+    rule: str
+    added: bool
+    unfixed: bool
+
+
 class CampaignProposalOut(_Out):
     id: UUID
     status: Literal["drafting", "ready", "failed"]
@@ -67,6 +83,9 @@ class CampaignProposalOut(_Out):
     base_script: CallScript | None
     script: CallScript | None
     note: str | None
+    #: Who wrote it when it was not the account's own model (D-127 G-6), shown beside it.
+    disclosure: str | None
+    left_out: list[CampaignLeftOutOut]
 
 
 class WorkspaceOut(_Out):
@@ -104,6 +123,17 @@ def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | Non
         base_script=p.base_script,
         script=p.script,
         note=p.note,
+        disclosure=p.disclosure,
+        left_out=[
+            CampaignLeftOutOut(
+                part=part.part,
+                label=script_proposals.part_label(part),
+                rule=part.rule,
+                added=part.added,
+                unfixed=part.unfixed,
+            )
+            for part in p.left_out
+        ],
     )
 
 
@@ -248,14 +278,29 @@ async def archive_material(
 async def request_proposal(
     campaign_id: UUID,
     session: Session,
+    request: Request,
     principal: Dispatcher,
 ) -> CampaignProposalOut:
     assert principal.tenant_id is not None
+    # Writing the script spends the account's dashboard AI allowance, as the agent Script
+    # page's Pip does: refused at the ceiling or under view-as, before anything is queued.
+    assert_view_as_may(principal, "billing.ai_assist")
+    await require_ai_assist(session, tenant_id=principal.tenant_id)
     proposal = await workspace.request_proposal(
         session,
         tenant_id=principal.tenant_id,
         campaign_id=campaign_id,
         requested_by=principal.user_id,
+    )
+    await write_audit(
+        session,
+        action="campaign.script_requested",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="campaign",
+        object_id=str(campaign_id),
+        ip=client_request_ip(request),
+        summary={"proposal_id": str(proposal.id)},
     )
     out = _proposal(proposal)
     assert out is not None
@@ -722,3 +767,72 @@ async def agent_holder(agent_id: UUID, session: Session, _: Reader) -> AgentHold
     return AgentHolderOut(
         campaign_id=row.id if row else None, campaign_name=str(row.name) if row else None
     )
+
+
+# --- A contact list from an Excel sheet --------------------------------------------------------
+
+#: The contact file limit the screen already holds a CSV to (`ContactEditor.MAX_FILE_BYTES`).
+CONTACT_SHEET_MAX_BYTES: Final = 4 * 1024 * 1024
+CONTACT_SHEET_MAX_ROWS: Final = 20_000
+
+
+class ContactSheetOut(_Out):
+    #: The first sheet as CSV text, for the screen's own CSV checks (numbers, duplicates).
+    csv: str
+    rows: int
+
+
+def _cell(value: object) -> str:
+    """A cell as text. A phone number typed into Excel is often stored as a number
+    (9876543210.0); it is written back without the decimal so it reads as the number."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+@router.post(
+    "/contacts/from-excel",
+    response_model=ContactSheetOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Read the first sheet of an Excel file (.xlsx) as CSV text for a contact list",
+)
+async def contacts_from_excel(
+    file: Annotated[UploadFile, File()], principal: Dispatcher
+) -> ContactSheetOut:
+    """Nothing is stored: the screen checks the rows as it checks a CSV and adds them to the
+    draft the same way, so one set of rules (numbers, duplicates, consent) covers both."""
+    del principal
+    data = await read_bounded_upload(file, CONTACT_SHEET_MAX_BYTES)
+    try:
+        book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    except Exception as exc:
+        raise ProblemError(
+            kind="validation",
+            code="contact_sheet_unreadable",
+            title="That file could not be read",
+            detail="It is not an Excel workbook (.xlsx). Save it as .xlsx or CSV and try again.",
+        ) from exc
+    out = io.StringIO()
+    writer = csv.writer(out)
+    rows = 0
+    try:
+        sheet = book.worksheets[0] if book.worksheets else None
+        if sheet is not None:
+            for row in sheet.iter_rows(values_only=True):
+                cells = [_cell(v) for v in row]
+                if not any(cells):
+                    continue
+                if rows >= CONTACT_SHEET_MAX_ROWS:
+                    raise ProblemError(
+                        kind="validation",
+                        code="contact_sheet_too_long",
+                        title="That sheet is too long",
+                        detail=f"Keep a list to {CONTACT_SHEET_MAX_ROWS:,} rows; split the rest.",
+                    )
+                writer.writerow(cells)
+                rows += 1
+    finally:
+        book.close()
+    return ContactSheetOut(csv=out.getvalue(), rows=rows)

@@ -225,3 +225,10 @@ export function useAgentHolder(session: Session, agentId: string) {
       apiRequest<Schemas["AgentHolderOut"]>(session, `/v1/campaigns/agents/${encodeURIComponent(agentId)}/holder`),
   });
 }
+
+/** An Excel sheet's first tab as CSV text, read on the server; nothing is stored. */
+export function contactsFromExcel(session: Session, file: File) {
+  const form = new FormData();
+  form.set("file", file);
+  return apiUpload<Schemas["ContactSheetOut"]>(session, "/v1/campaigns/contacts/from-excel", form);
+}

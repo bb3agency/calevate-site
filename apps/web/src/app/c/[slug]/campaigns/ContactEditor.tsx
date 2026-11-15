@@ -9,6 +9,8 @@ import { FileDrop } from "@/components/fileDrop";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { asciiDigits } from "@/lib/phoneNumber";
 import { lookup } from "@/lib/lookup";
+import { contactsFromExcel } from "@/lib/api/campaignWorkspace";
+import { useClientRealm } from "@/lib/api/session";
 import { Pagination } from "@/components/interior/pagination";
 import {
   FIELD,
@@ -40,7 +42,7 @@ import {
  * never a fixed one: a Hindi agent's owner is not told to write Telugu. English names need
  * no script note, and before an agent is chosen none is named.
  */
-export const FILE_HINT = "A CSV with a phone column. Up to 4 MB.";
+export const FILE_HINT = "An Excel sheet (.xlsx) or CSV with a name and a phone column. Up to 4 MB.";
 
 /** The tips behind "File tips": what else a list can carry, and how names are said best. */
 export function fileTips(agentLanguage: string | null | undefined): string[] {
@@ -55,7 +57,7 @@ const PAGE = 50;
 /** A search term written like a phone number: digits in any script, spaces, +, - and brackets. */
 const PHONE_SHAPED = /^[\p{Nd}\s()+-]+$/u;
 /** What the reader below parses: delimited text, never a spreadsheet binary. */
-const CSV_ACCEPT = ".csv,.tsv,.txt,text/csv";
+const CSV_ACCEPT = ".xlsx,.csv,.tsv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 type Panel = "none" | "paste" | "add";
 
 /**
@@ -82,6 +84,7 @@ export function ContactEditor({
   /** The calling agent's main language, when chosen: the file hint names its script. */
   agentLanguage?: string | null;
 }) {
+  const { session } = useClientRealm();
   const ids = useId();
   const [panel, setPanel] = useState<Panel>("none");
   const [pasteText, setPasteText] = useState("");
@@ -134,7 +137,10 @@ export function ContactEditor({
     }
     let text: string;
     try {
-      text = decodeTextFile(new Uint8Array(await file.arrayBuffer()));
+      // An Excel sheet is read on the server into CSV text, then checked exactly as a CSV is.
+      text = /\.xlsx$/i.test(file.name)
+        ? (await contactsFromExcel(session, file)).csv
+        : decodeTextFile(new Uint8Array(await file.arrayBuffer()));
     } catch {
       // A file moved or locked after it was picked cannot be read.
       setNotice(`${file.name} could not be opened. Pick it again.`);
@@ -248,14 +254,14 @@ export function ContactEditor({
                 type="file"
                 accept={CSV_ACCEPT}
                 className="sr-only"
-                aria-label="Import a CSV file"
+                aria-label="Import an Excel or CSV file"
                 onChange={(e) => {
                   void readFile(e.target.files?.[0]);
                   e.target.value = "";
                 }}
               />
               <FileUp aria-hidden className="h-3.5 w-3.5" />
-              Import CSV
+              Import Excel or CSV
             </label>
             {pasteToggle}
             {addToggle}
