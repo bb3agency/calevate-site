@@ -42,13 +42,14 @@
  * about what to do next.
  */
 
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 import Link from "next/link";
 import { PhoneOff } from "lucide-react";
 
 import { DisconnectedCall } from "@/components/illustration/disconnectedCall";
 import { MonoValue, NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { recoverFromMissingChunk } from "@/components/UpdateWatcher";
 import { ApiProblem } from "@/lib/api/client";
 
 /** One way out of this screen. The first is rendered as the primary action. */
@@ -136,6 +137,11 @@ export function FailureScreen({
   exits: Exit[];
 }) {
   const { detail, remediation, reference } = failureCopy(error);
+  // A deploy removed the code file this page asked for: reload once onto the new build
+  // rather than show a crash for what is only a stale page (global rule 8).
+  useEffect(() => {
+    recoverFromMissingChunk(error);
+  }, [error]);
   return (
     <Frame>
       <NoticeBox

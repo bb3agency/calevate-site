@@ -68,6 +68,13 @@ function isMissingChunk(reason: unknown): boolean {
   );
 }
 
+/** For error boundaries: a missing code chunk after a deploy reloads the page once. */
+export function recoverFromMissingChunk(error: unknown): boolean {
+  if (!isMissingChunk(error)) return false;
+  void reloadFresh(`chunk:${BUILD.commit}`);
+  return true;
+}
+
 export function UpdateWatcher() {
   const [newer, setNewer] = useState<BuildInfo | null>(null);
 
