@@ -1423,6 +1423,7 @@ async def confirm_admin(
         require_step_up(tool.confirm_action(args, viewing))
     object_id = str(claims.get("obj") or "") or None
     await write_tools.burn_proposal(str(claims["jti"]))
+    committed = False
     try:
         if tool.scope == "tenant":
             assert viewing is not None
@@ -1439,6 +1440,9 @@ async def confirm_admin(
                     object_id=object_id,
                     ip=ip,
                 )
+            # Committed on leaving the block: a failure from here on cannot take the change
+            # back, so the token must stay spent or the same card runs it a second time.
+            committed = True
         else:
             executed = await _execute_and_audit(
                 session,
@@ -1467,7 +1471,8 @@ async def confirm_admin(
             ),
         )
     except BaseException:
-        await write_tools.unburn_proposal(str(claims["jti"]))
+        if not committed:
+            await write_tools.unburn_proposal(str(claims["jti"]))
         raise
     return CopilotConfirmOut(
         tool=tool.name,
