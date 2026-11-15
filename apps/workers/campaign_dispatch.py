@@ -1667,6 +1667,13 @@ async def _reap_stuck_dialing(
         max_attempts=max_attempts,
         retry_policy=retry_policy,
     )
+    # A call the person answered whose pipeline has not reached its campaign step yet (an
+    # earlier stage is still retrying): settled `connected`, as `resolve_campaign_contact`
+    # would, rather than put back on the ladder below and rung a second time.
+    await session.execute(
+        _SETTLE_ANSWERED_SQL,
+        {"cid": campaign_id, "stuck": STUCK_DIALING_AFTER.total_seconds()},
+    )
     stranded = (
         (
             await session.execute(
@@ -1728,6 +1735,13 @@ async def _reap_stuck_dialing(
 
 #: How long after the hang-up an unanswered dial waits before its contact is settled here:
 #: long enough for a post-call pipeline that IS coming to claim the call first.
+_SETTLE_ANSWERED_SQL = text(
+    "UPDATE campaign_contacts cc SET status = 'connected', updated_at = now() "
+    "FROM calls c WHERE c.id = cc.last_call_id AND cc.campaign_id = :cid "
+    "AND cc.status = 'dialing' AND c.status = 'completed' "
+    "AND cc.last_attempt_at < now() - make_interval(secs => :stuck)"
+)
+
 UNANSWERED_SETTLE_AFTER = timedelta(minutes=2)
 
 #: The same wait for a call that ended `failed`. Longer, because `failed` is also the status
