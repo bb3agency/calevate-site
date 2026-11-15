@@ -926,6 +926,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "A campaign over a list whose consent is older than this is refused. 0 turns the "
         "age check off.",
     ),
+    "campaign_delete_started": _m(
+        "compliance",
+        "checks",
+        "Delete campaigns that already called",
+        "On lets a client delete an archived campaign that made calls. For the build phase only.",
+        details="Its calls, recordings and charges are kept; its list of people and its "
+        "materials are deleted. Turn this off before launch.",
+    ),
     "pe_verification_max_age_days": _m(
         "compliance",
         "checks",
@@ -1905,6 +1913,8 @@ HIGH_RISK: Final[dict[str, str]] = {
     "payment_provider": "Clients pay through the provider you choose.",
     "razorpay_mode": "Live takes real money; test takes none.",
     "campaign_consent_max_age_days": "Decides which contact lists a campaign may call.",
+    "campaign_delete_started": "Every client can delete an archived campaign's list of people "
+    "for good.",
     "pe_verification_max_age_days": "Decides when a DLT registration must be re-verified.",
     "a2p_declaration_enforced_from": "An earlier date stops every client's calls from "
     "unconfirmed numbers at once.",

@@ -3,6 +3,18 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.16 — 16-Nov-2026
+
+- **Delete an archived campaign** from the Archived list, beside Restore, while the app is being
+  built. Its list of people and materials are deleted; its calls, recordings and charges stay in
+  call logs and bills. A console switch, "Delete campaigns that already called" (on now), turns
+  this off before launch.
+- **One people section on a draft:** Add people keeps the Excel/CSV upload, paste and add one,
+  and lists the people already added underneath. The separate People to call section is gone; a
+  started campaign shows its list as People.
+- **No more blank page during a deploy.** A page that loads while a new version is being put in
+  place now says "Updating Calevate…" and reloads by itself once the new version is live.
+
 ## 0.4.15 — 16-Nov-2026
 
 - **Start campaign** sits at the top of a draft's set-up, beside Collapse all and Expand all,

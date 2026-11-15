@@ -7282,8 +7282,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a draft that never made a call; anything else is archived instead
-         * @description Deletes a draft and its list. A campaign that already made a call, or that a compliance record names, is refused with `campaign_has_history`: archive it instead, which keeps its calls, leads and charges.
+         * Delete a draft, or an archived campaign while the build-phase switch is on
+         * @description Deletes a draft and its list. An archived, finished campaign that made calls is deleted too while `campaign_delete_started` is on (its list and materials go; its calls, leads and charges stay); otherwise it is refused with `campaign_has_history`. `campaign_not_archived` asks for it to be archived first, and `campaign_has_scrub_record` refuses one a do-not-disturb scrub names.
          */
         delete: operations["delete_campaign_v1_campaigns__campaign_id__delete"];
         options?: never;

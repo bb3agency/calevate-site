@@ -32,6 +32,7 @@ from apps.api.campaigns import controls
 from apps.api.campaigns.scheduling import unschedule_campaign
 from apps.api.campaigns.service import set_campaign_status
 from apps.api.core.errors import ProblemError
+from apps.api.core.settings import get_settings
 
 ArchiveRealm = Literal["client", "admin"]
 
@@ -140,10 +141,42 @@ async def restore_campaign(session: AsyncSession, *, campaign_id: UUID) -> Archi
 
 
 async def delete_campaign(session: AsyncSession, *, campaign_id: UUID) -> str:
-    """Delete a draft that never dialled; refuse anything else with `campaign_has_history`
-    (archive it instead). Returns the deleted campaign's name, for the audit row."""
-    name, _status, _archived, _tenant = await _locked(session, campaign_id)
-    await controls.delete_draft(session, campaign_id=campaign_id)
+    """Delete a draft that never dialled, or (while `campaign_delete_started` is on, the
+    build phase) an archived campaign that has finished. Returns the name, for the audit row.
+
+    A started campaign's list of people and its materials go with it (they cascade); its
+    calls, recordings, charges and ledgers stay, because `calls.campaign_id` is no foreign
+    key and the ledgers are append-only. A campaign a national do-not-call scrub names is
+    refused: that row is append-only evidence, so its pointer cannot be cleared."""
+    name, status, archived, _tenant = await _locked(session, campaign_id)
+    if status == "draft":
+        await controls.delete_draft(session, campaign_id=campaign_id)
+        return name
+    if not get_settings().campaign_delete_started or status not in ("completed", "cancelled"):
+        raise ProblemError.conflict(
+            "campaign_has_history",
+            "This campaign has already made calls, so it can't be deleted.",
+            remediation="Archive it instead. Its calls and results are kept.",
+        )
+    if not archived:
+        raise ProblemError.conflict(
+            "campaign_not_archived",
+            "Archive this campaign before deleting it.",
+            remediation="Archive it, then delete it from the Archived list.",
+        )
+    scrubbed = (
+        await session.execute(
+            text("SELECT 1 FROM preference_scrub_runs WHERE campaign_id = :cid LIMIT 1"),
+            {"cid": campaign_id},
+        )
+    ).first()
+    if scrubbed is not None:
+        raise ProblemError.conflict(
+            "campaign_has_scrub_record",
+            "A do-not-disturb check is on record for this campaign, so it can't be deleted.",
+            remediation="Keep it archived. Its record has to stay.",
+        )
+    await session.execute(text("DELETE FROM campaigns WHERE id = :cid"), {"cid": campaign_id})
     return name
 
 

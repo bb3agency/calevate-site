@@ -68,10 +68,65 @@ function isMissingChunk(reason: unknown): boolean {
   );
 }
 
-/** For error boundaries: a missing code chunk after a deploy reloads the page once. */
+/**
+ * A code chunk is missing because a deploy is swapping files. The first time, reload at once.
+ * If that reload still runs this build (the deploy had not finished), the page would stay
+ * blank behind the reload-once guard; instead it says so and waits for `/version.json` to name
+ * a different commit, then reloads onto it.
+ */
+function onMissingChunk(): void {
+  if (readKey() !== `chunk:${BUILD.commit}`) {
+    void reloadFresh(`chunk:${BUILD.commit}`);
+    return;
+  }
+  if (waitingForDeploy) return;
+  waitingForDeploy = true;
+  showUpdatingNotice();
+  const started = Date.now();
+  const poll = window.setInterval(() => {
+    void serverBuild().then((server) => {
+      if (server && server.commit !== BUILD.commit) {
+        window.clearInterval(poll);
+        void reloadFresh(server.commit);
+      } else if (Date.now() - started > DEPLOY_WAIT_MS) {
+        window.clearInterval(poll);
+        window.location.reload();
+      }
+    });
+  }, DEPLOY_POLL_MS);
+}
+
+let waitingForDeploy = false;
+/** How often a page caught mid-deploy asks whether the new version is live, and for how long. */
+const DEPLOY_POLL_MS = 5_000;
+const DEPLOY_WAIT_MS = 10 * 60_000;
+
+/** Plain DOM, because the React tree may be the thing that failed to load. */
+function showUpdatingNotice(): void {
+  if (document.getElementById("calevate-updating")) return;
+  const note = document.createElement("div");
+  note.id = "calevate-updating";
+  note.setAttribute("role", "status");
+  note.textContent = "Updating Calevate… This page reloads by itself in a moment.";
+  Object.assign(note.style, {
+    position: "fixed",
+    inset: "0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+    background: "var(--app, #fafafa)",
+    color: "var(--text, #171a1c)",
+    font: "500 16px ui-sans-serif, system-ui, sans-serif",
+    zIndex: "2147483647",
+  });
+  document.body.appendChild(note);
+}
+
+/** For error boundaries: a missing code chunk after a deploy reloads onto the new build. */
 export function recoverFromMissingChunk(error: unknown): boolean {
   if (!isMissingChunk(error)) return false;
-  void reloadFresh(`chunk:${BUILD.commit}`);
+  onMissingChunk();
   return true;
 }
 
@@ -96,10 +151,10 @@ export function UpdateWatcher() {
     document.addEventListener("visibilitychange", onVisible);
 
     const onError = (event: ErrorEvent) => {
-      if (isMissingChunk(event.error ?? event.message)) void reloadFresh(`chunk:${BUILD.commit}`);
+      if (isMissingChunk(event.error ?? event.message)) onMissingChunk();
     };
     const onRejection = (event: PromiseRejectionEvent) => {
-      if (isMissingChunk(event.reason)) void reloadFresh(`chunk:${BUILD.commit}`);
+      if (isMissingChunk(event.reason)) onMissingChunk();
     };
     window.addEventListener("error", onError);
     window.addEventListener("unhandledrejection", onRejection);

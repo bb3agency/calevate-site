@@ -348,7 +348,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 />
               ) : (
                 // Once it has started, nobody is added; the list shows who was called and how.
-                <FoldSection title="People to call" tone="people" id={peopleSectionId(campaignId)}>
+                <FoldSection title="People" tone="people" id={peopleSectionId(campaignId)}>
                   {people}
                 </FoldSection>
               )}

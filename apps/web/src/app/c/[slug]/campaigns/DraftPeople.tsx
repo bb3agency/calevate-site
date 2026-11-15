@@ -19,10 +19,9 @@ export function peopleSectionId(campaignId: string): string {
 }
 
 /**
- * WHO A DRAFT WILL CALL, as two sections (founder, 15 Nov 2026): "Add people", always open,
- * with an Excel, CSV, pasted or typed list, then
- * "People to call", the list itself. Both go to the server, which dedupes, keeps India
- * numbers only, and refuses once the campaign has started.
+ * WHO A DRAFT WILL CALL, in one section (founder, 16 Nov 2026): "Add people", always open,
+ * with an Excel, CSV, pasted or typed list, and under it the people already added. Both go to
+ * the server, which dedupes, keeps India numbers only, and refuses once the campaign started.
  */
 export function DraftPeople({
   slug,
@@ -41,24 +40,24 @@ export function DraftPeople({
   total: number;
 }) {
   return (
-    <>
-      <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
+    <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
         <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
+        {/* The people already added, under the ways to add more: one section, not two
+            (founder, 16 Nov 2026: "I don't see the point of having both"). */}
+        {total > 0 && (
+          <div className="mt-8 border-t border-line pt-6">
+            <ContactResults
+              slug={slug}
+              campaignId={campaignId}
+              maxAttempts={maxAttempts}
+              live={false}
+              editable
+              canWrite={canWrite}
+              refusal={refusal}
+            />
+          </div>
+        )}
       </FoldSection>
-      {total > 0 && (
-        <FoldSection title="People to call" tone="people">
-          <ContactResults
-            slug={slug}
-            campaignId={campaignId}
-            maxAttempts={maxAttempts}
-            live={false}
-            editable
-            canWrite={canWrite}
-            refusal={refusal}
-          />
-        </FoldSection>
-      )}
-    </>
   );
 }
 

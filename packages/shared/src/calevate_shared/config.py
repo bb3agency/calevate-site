@@ -1808,6 +1808,11 @@ class Settings(BaseSettings):
     # Every other blocker on the list — provenance recorded, source not purchased — keeps
     # running at 0.
     campaign_consent_max_age_days: int = Field(default=365, ge=0, le=36_500)
+    # While the product is being built (founder, 16 Nov 2026: "this is still development phase
+    # and let's delete till the app is finalized"), an archived campaign that already called
+    # people can be deleted. Its calls, recordings, charges and ledgers are kept; its list of
+    # people and its materials go. Turn off before launch: TRAI and billing want the record.
+    campaign_delete_started: bool = True
 
     # HOW LONG A PE REGISTRATION VERIFICATION STAYS GOOD FOR, in days.
     #

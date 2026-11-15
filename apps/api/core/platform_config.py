@@ -473,6 +473,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "keeps the value it read, and the next one (≤30s later) uses the new one",
     ),
     "pe_verification_max_age_days": AppliesRule(LIVE),  # compliance/registration, per check
+    "campaign_delete_started": AppliesRule(LIVE),  # campaigns/archive, per delete
     # Read on every outbound dial and every readiness read (D-941).
     "a2p_declaration_enforced_from": AppliesRule(LIVE),
     "self_serve_signup_enabled": AppliesRule(LIVE),  # tenancy/signup, per request

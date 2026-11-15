@@ -513,6 +513,7 @@ function ShelfButton({
   const archived = campaign.archived_at != null;
   if (archived) {
     return (
+      <span className="flex gap-2">
       <ActionButton
         variant="secondary-sm"
         title={refusal}
@@ -525,6 +526,8 @@ function ShelfButton({
         <ArchiveRestore aria-hidden className="h-3.5 w-3.5" />
         Restore
       </ActionButton>
+      <DeleteDraftButton campaign={campaign} canWrite={canWrite} refusal={refusal} />
+      </span>
     );
   }
   return (
@@ -562,9 +565,9 @@ function ShelfButton({
 }
 
 /**
- * Delete a draft from its row, behind a confirm. Only a draft that never called anyone can
- * be deleted (`DELETE /v1/campaigns/{id}` refuses the rest with `campaign_has_history`):
- * a started campaign's calls, charges and compliance records are kept, so it is archived.
+ * Delete a campaign from its row, behind a confirm: a draft that never called anyone, or an
+ * archived one while the build-phase switch `campaign_delete_started` is on. The server
+ * decides (`DELETE /v1/campaigns/{id}`); a refusal shows in the dialog.
  */
 function DeleteDraftButton({
   campaign,
@@ -577,7 +580,7 @@ function DeleteDraftButton({
 }) {
   const { session } = useClientRealm();
   const remove = useDeleteCampaign(session, campaign.id);
-  const feedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Draft deleted" });
+  const feedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Campaign deleted" });
   const [confirming, setConfirming] = useState(false);
   return (
     <>
@@ -594,8 +597,8 @@ function DeleteDraftButton({
       </button>
       {confirming && (
         <ConfirmDialog
-          title="Delete this draft?"
-          confirmLabel="Delete draft"
+          title={campaign.status === "draft" ? "Delete this draft?" : "Delete this campaign?"}
+          confirmLabel="Delete"
           pendingLabel="Deleting"
           cancelLabel="Keep it"
           status={feedback.status}
@@ -606,7 +609,11 @@ function DeleteDraftButton({
           }}
           onConfirm={() => feedback.run(undefined)}
         >
-          <span className="block">The draft and its list are removed. This cannot be undone.</span>
+          <span className="block">
+            {campaign.status === "draft"
+              ? "The draft and its list are removed. This cannot be undone."
+              : "Its list of people and materials are removed for good. Its calls and charges stay in your call logs and bills."}
+          </span>
         </ConfirmDialog>
       )}
     </>
