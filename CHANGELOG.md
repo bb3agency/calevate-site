@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.14 — 16-Nov-2026
+
+- A draft shows **People to call** only once someone has been added.
+- The compliance card lists only the regulatory checks: "Publish your agent first" is gone from
+  it (the agent's own section says it is not calling yet), and so are the greyed-out Launch
+  button and the line under it. Launch appears in the card once every check is done.
+
 ## 0.4.13 — 15-Nov-2026
 
 - **One layout for every campaign, whatever its status.** The **Set up** tab opens first and

@@ -10,7 +10,6 @@ import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import {
   NoticeBox,
-  PRIMARY_BUTTON_LG,
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
@@ -93,16 +92,21 @@ export function LaunchGate({
   )?.rule;
   const at = (path: string) => href(`/c/${slug}${path}`);
 
-  // Two blockers are not rows here: where the list came from is asked as the question itself
-  // below, and adding people is the People to call section's job (founder, 15 Nov 2026).
+  // Three blockers are not rows here (founder, 15 Nov 2026): where the list came from is asked
+  // as the question itself below, adding people is the Add people section's job, and
+  // publishing the agent is the agent's own. Launch shows only once every check is done.
   const noPeople = blockers.some((b) => b.rule === "no_contacts");
+  const agentNotLive = blockers.some((b) => b.rule === "agent_not_live");
   const provenanceBlocker = blockers.find((b) => b.rule === provenanceRule);
   const provenanceProblem =
     provenanceBlocker && provenanceRule !== "consent_provenance_missing"
       ? (blockerNote(provenanceBlocker.rule, { promotionalOpen })?.text ?? provenanceBlocker.reason)
       : undefined;
   const listed = blockers.filter(
-    (b) => b.rule !== "no_contacts" && !(PROVENANCE_RULES as readonly string[]).includes(b.rule),
+    (b) =>
+      b.rule !== "no_contacts" &&
+      b.rule !== "agent_not_live" &&
+      !(PROVENANCE_RULES as readonly string[]).includes(b.rule),
   );
   const items: ChecklistItem[] = listed.map((blocker) => {
     const note = blockerNote(blocker.rule, { promotionalOpen });
@@ -187,7 +191,7 @@ export function LaunchGate({
           ) : (
             <div className="space-y-4">
               {items.length > 0 && <Checklist label="Checks to answer" items={items} emphasizeNext />}
-              {items.length === 0 && !provenanceRule && !noPeople && (
+              {items.length === 0 && !provenanceRule && !noPeople && !agentNotLive && (
                 // Not ready with nothing itemised: say the true thing, that their side is done.
                 <p className="text-body text-ink-muted">Everything on your side is ready.</p>
               )}
@@ -196,23 +200,6 @@ export function LaunchGate({
               {provenanceRule && (
                 <ConsentProvenanceAnswer campaignId={campaignId} problem={provenanceProblem} />
               )}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
-                <button type="button" disabled className={`${PRIMARY_BUTTON_LG} w-full justify-center sm:w-auto`}>
-                  Launch campaign
-                </button>
-                {(todo > 0 || noPeople) && (
-                  <p className="text-meta text-ink-muted">
-                    {[
-                      todo === 1 ? "Answer 1 check" : todo > 1 ? `Answer ${todo} checks` : null,
-                      noPeople ? "add the people to call above" : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" and ")
-                      .replace(/^a/, "A")}{" "}
-                    first
-                  </p>
-                )}
-              </div>
             </div>
           )}
         </div>

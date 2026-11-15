@@ -30,29 +30,34 @@ export function DraftPeople({
   maxAttempts,
   canWrite,
   refusal,
+  total,
 }: {
   slug: string;
   campaignId: string;
   maxAttempts: number;
   canWrite: boolean;
   refusal: string | undefined;
+  /** People already on the draft. People to call is left out while there are none. */
+  total: number;
 }) {
   return (
     <>
       <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
         <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
       </FoldSection>
-      <FoldSection title="People to call" tone="people">
-        <ContactResults
-          slug={slug}
-          campaignId={campaignId}
-          maxAttempts={maxAttempts}
-          live={false}
-          editable
-          canWrite={canWrite}
-          refusal={refusal}
-        />
-      </FoldSection>
+      {total > 0 && (
+        <FoldSection title="People to call" tone="people">
+          <ContactResults
+            slug={slug}
+            campaignId={campaignId}
+            maxAttempts={maxAttempts}
+            live={false}
+            editable
+            canWrite={canWrite}
+            refusal={refusal}
+          />
+        </FoldSection>
+      )}
     </>
   );
 }

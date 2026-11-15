@@ -330,6 +330,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                   maxAttempts={data.retry_policy.max_attempts}
                   canWrite={write.allowed}
                   refusal={refusal}
+                  total={data.total}
                 />
               ) : (
                 // Once it has started, nobody is added; the list shows who was called and how.
