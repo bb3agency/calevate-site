@@ -640,6 +640,45 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
             ),
             {"i": uuid7(), "t": tenant_id, "a": agent_id, "r": ref.ref, "k": ref.kek_id},
         )
+        # A Follow-up this number is going through (D-940), §11-disclosed and §12-erased
+        # (`retention._erase_follow_up_runs`) on the same equality.
+        follow_up_id, version_id = uuid7(), uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO follow_ups (id, tenant_id, name, status, trigger, settings) VALUES "
+                "(:f, :t, 'Winter recall follow-up', 'draft', '{\"kind\": \"manual\"}'::jsonb, "
+                "'{}'::jsonb)"
+            ),
+            {"f": follow_up_id, "t": tenant_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO follow_up_versions (id, tenant_id, follow_up_id, number, steps, "
+                "trigger, settings) VALUES (:v, :t, :f, 1, "
+                '\'[{"id": "s1", "kind": "end", "goal": true}]\'::jsonb, '
+                "'{\"kind\": \"manual\"}'::jsonb, '{}'::jsonb)"
+            ),
+            {"v": version_id, "t": tenant_id, "f": follow_up_id},
+        )
+        await session.execute(
+            text("UPDATE follow_ups SET status = 'live', live_version_id = :v WHERE id = :f"),
+            {"v": version_id, "f": follow_up_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO follow_up_runs (id, tenant_id, follow_up_id, version_id, lead_id, "
+                "phone_e164, status, step_id, trigger_ref) VALUES (:r, :t, :f, :v, :l, :p, "
+                "'waiting', 's1', 'manual:erasure')"
+            ),
+            {
+                "r": uuid7(),
+                "t": tenant_id,
+                "f": follow_up_id,
+                "v": version_id,
+                "l": lead_id,
+                "p": phone,
+            },
+        )
     request_id = await _file_request(tenant_id, phone)
 
     # THE BEFORE PICTURE, asserted rather than assumed. Every count below is checked
@@ -650,6 +689,7 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
         before = await export.build_subject_export(session, tenant_id=tenant_id, phone_e164=phone)
     assert before["counts"]["campaign_contacts"] == 1, "the uploaded contact never landed"
     assert before["counts"]["remembered_facts"] == 1, "the remembered fact never landed"
+    assert before["counts"]["follow_ups"] == 1, "the follow-up run never landed"
 
     await retention.execute_deletion_request(
         {}, {"tenant_id": str(tenant_id), "request_id": str(request_id)}
@@ -708,6 +748,7 @@ async def test_after_an_erasure_the_subject_is_absent_from_every_store_that_may_
         "remembered_facts": 0,
         "callbacks": 0,
         "handoffs": 0,
+        "follow_ups": 0,
     }
 
 
