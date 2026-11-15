@@ -178,6 +178,15 @@ function raiseSuccess<TData, TVars>(
  * the screen starts it (`run`, `mutate` or `mutateAsync`, with or without per-call
  * callbacks). Each settled submission is announced once, keyed on `submittedAt`.
  */
+/** One in-flight key per argument set, or null when the arguments cannot be keyed. */
+function flightKey(vars: unknown): string | null {
+  try {
+    return JSON.stringify(vars ?? null);
+  } catch {
+    return null;
+  }
+}
+
 export function useActionFeedback<TData, TError, TVars, TContext>(
   mutation: UseMutationResult<TData, TError, TVars, TContext>,
   options: ActionFeedbackOptions<TData, TVars>,
@@ -194,10 +203,22 @@ export function useActionFeedback<TData, TError, TVars, TContext>(
   // (or is closed while it saves) unmounts before an effect could see the outcome, and its
   // toast was lost. The effect below announces only submissions `run` never started.
   const viaRun = useRef(false);
+  // The same action with the same arguments, started again before the first settles, is
+  // dropped: the button disables itself only once React re-renders into pending, so two
+  // presses in one tick sent a signed confirm twice and the second's "already confirmed"
+  // refusal replaced the first's success. Different arguments (another row) still run.
+  const inFlight = useRef(new Set<string>());
   const run = useCallback(
     (vars: TVars) => {
+      const key = flightKey(vars);
+      if (key !== null && inFlight.current.has(key)) return;
+      if (key !== null) inFlight.current.add(key);
       viaRun.current = true;
-      mutateAsync(vars).then(
+      mutateAsync(vars)
+        .finally(() => {
+          if (key !== null) inFlight.current.delete(key);
+        })
+        .then(
         (result) => raiseSuccess(toasts, toastId, optionsRef.current, result, vars),
         (failure: unknown) => {
           const current = optionsRef.current;

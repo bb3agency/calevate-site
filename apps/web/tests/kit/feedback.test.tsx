@@ -108,6 +108,37 @@ describe("ActionButton", () => {
 });
 
 describe("useActionFeedback", () => {
+  it("runs one action once when it is started twice in the same tick, and other arguments still run", async () => {
+    const sent: string[] = [];
+    let resolve: (() => void) | undefined;
+    function Twice() {
+      const confirm = useMutation({
+        mutationFn: (token: string) =>
+          new Promise<void>((done) => {
+            sent.push(token);
+            resolve = done;
+          }),
+      });
+      const feedback = useActionFeedback(confirm, {});
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            feedback.run("t1");
+            feedback.run("t1");
+            feedback.run("t2");
+          }}
+        >
+          Confirm
+        </button>
+      );
+    }
+    render(wrap(<Twice />));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(sent).toEqual(["t1", "t2"]));
+    await act(async () => resolve?.());
+  });
+
   it("shows success on the button and offers Undo in a toast", async () => {
     render(wrap(<Rename fail={false} />));
     fireEvent.click(screen.getByRole("button", { name: "Rename agent" }));
