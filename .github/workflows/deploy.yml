@@ -18,8 +18,11 @@
 # placed by a human from the secrets manager (DEPLOYMENT §6). GitHub holds one path and
 # some flags: paths in Secrets, booleans in Variables.
 #
-# ========================== SUPPLY CHAIN: ZERO ACTIONS USED =========================
-# This workflow calls no third-party action — not even `actions/checkout`. It does not
+# ================== SUPPLY CHAIN: ZERO ACTIONS ON THE PRODUCTION HOST =================
+# The jobs that run ON THE HOST (`web-env`, `deploy`) call no action at all. Only the
+# `web-build` job uses actions, pinned to commits as CI's are, on a GitHub runner with no
+# access to the host; what it produces is checked against this commit before it is used.
+# The host jobs call no action — not even `actions/checkout`. They do not
 # need one: the deploy target IS the runner's host and the checkout it deploys already
 # lives at `VPS_CLIENT_PATH`. That is a deliberate choice, not an omission. Every action
 # in a deploy workflow runs with the deploy job's permissions on the production host, and
@@ -85,13 +88,96 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
+  # ================= THE WEB IS BUILT ON GITHUB, NOT ON THE LIVE HOST ==================
+  # `next build` on the VPS took 4-5 minutes at the lowest priority beside live traffic
+  # (founder, 16 Nov 2026: "make the deploy 1 to 2 min"). It is built on a GitHub runner
+  # instead, in parallel with nothing on the host, and the deploy job only unpacks it
+  # (`vps-deploy.sh --web-build`). The build is for THIS commit and the script checks that;
+  # any failure here leaves the deploy building the web on the host as before.
+  #
+  # `web-env` hands the build the browser tier's settings, which live in
+  # apps/web/.env.local on the host only. They are NEXT_PUBLIC_* values, inlined into the
+  # JavaScript every visitor downloads, so carrying them as a job output reveals nothing.
+  # A file holding any other key is not passed on at all: the host builds instead.
+  web-env:
     if: >-
+      vars.VPS_DEPLOY_ENABLED == 'true' &&
+      github.ref == 'refs/heads/production' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      inputs.commit_sha == ''
+    runs-on: [self-hosted, calevate-vps]
+    timeout-minutes: 2
+    outputs:
+      public: ${{ steps.read.outputs.public }}
+    env:
+      VPS_CLIENT_PATH: ${{ secrets.VPS_CLIENT_PATH }}
+    steps:
+      - name: Read the browser tier's public settings
+        id: read
+        run: |
+          set -euo pipefail
+          file="${VPS_CLIENT_PATH:-/nonexistent}/apps/web/.env.local"
+          if [[ ! -f "$file" ]]; then
+            echo "::warning::$file is missing; the web will be built on the host."
+            exit 0
+          fi
+          other=$(grep -Ev '^[[:space:]]*(#|$)' "$file" | grep -Ev '^NEXT_PUBLIC_[A-Z0-9_]+=' || true)
+          if [[ -n "$other" ]]; then
+            echo "::warning::apps/web/.env.local holds keys other than NEXT_PUBLIC_*; not passed to GitHub, the web will be built on the host."
+            exit 0
+          fi
+          echo "public=$(grep -E '^NEXT_PUBLIC_[A-Z0-9_]+=' "$file" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+  web-build:
+    needs: web-env
+    if: needs.web-env.outputs.public != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The pnpm version comes from `packageManager` in the root package.json, as in CI.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Build the web for this commit
+        env:
+          PUBLIC_ENV: ${{ needs.web-env.outputs.public }}
+          BUILD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          echo "$PUBLIC_ENV" | base64 -d > apps/web/.env.local
+          export CALEVATE_DEPLOY_BUILD=1 CALEVATE_SKIP_BUILD_CHECKS=1 CALEVATE_DIST_DIR=.next-build
+          export CALEVATE_BUILD_COMMIT="$BUILD_SHA"
+          pnpm -C apps/web build
+          rm -rf apps/web/.next-build/cache
+          echo "$BUILD_SHA" > apps/web/.next-build/.calevate-commit
+          tar -czf web-build.tgz -C apps/web/.next-build .
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-build
+          path: web-build.tgz
+          retention-days: 1
+
+  deploy:
+    # After the web build, whether it ran, failed or was skipped (not when the run is cancelled): without it the host builds
+    # the web itself, so a GitHub outage never holds a release back.
+    needs: web-build
+    if: >-
+      !cancelled() &&
       vars.VPS_DEPLOY_ENABLED == 'true' &&
       github.ref == 'refs/heads/production' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: [self-hosted, calevate-vps]
     environment: production
+    permissions:
+      contents: read
+      # To download this run's web build through the REST API.
+      actions: read
     timeout-minutes: 45
 
     env:
@@ -145,6 +231,29 @@ jobs:
         if: ${{ inputs.dry_run != true }}
         run: sudo -n /usr/local/sbin/calevate-predeploy-backup
 
+      - name: Fetch the web build
+        # Through the REST API rather than an action: this job runs on the production host,
+        # where an action would run with the deploy's permissions (see the header). Any
+        # failure leaves no file, and the deploy then builds the web on the host.
+        if: ${{ needs.web-build.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          dir="${RUNNER_TEMP:-/tmp}/web-build"
+          rm -rf "$dir" && mkdir -p "$dir"
+          api="https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts?name=web-build"
+          listing=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$api" || true)
+          pick='import json,sys; a=json.load(sys.stdin).get("artifacts", []); print(a[0]["archive_download_url"] if a else "")'
+          url=$(printf '%s' "$listing" | python3 -c "$pick" 2>/dev/null || true)
+          if [[ -z "$url" ]] || ! curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -o "$dir/web-build.zip" "$url"; then
+            echo "::warning::could not fetch the web build; the web will be built on the host."
+            exit 0
+          fi
+          python3 -m zipfile -e "$dir/web-build.zip" "$dir" && rm -f "$dir/web-build.zip"
+
       - name: Deploy
         # TWO MODES, AND THEY ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION.
         #
@@ -190,6 +299,12 @@ jobs:
           # script rejects any word that is not a known component name.
           # shellcheck disable=SC2206
           if [[ -n "${COMPONENTS:-}" ]]; then args+=(${COMPONENTS}); fi
+          # Only to a script that knows the flag: the copy on the host is the one from the
+          # last deploy until this run updates it, and an older copy would refuse it.
+          web_build="${RUNNER_TEMP:-/tmp}/web-build/web-build.tgz"
+          if [[ -f "$web_build" ]] && grep -q -- '--web-build)' "$VPS_CLIENT_PATH/scripts/vps-deploy.sh"; then
+            args+=(--web-build "$web_build")
+          fi
           "$VPS_CLIENT_PATH/scripts/vps-deploy.sh" "${args[@]}"
 
       - name: Deploy failed — what is running now

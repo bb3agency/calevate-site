@@ -90,3 +90,5 @@ dump.rdb
 *.log
 *.err
 *.pdf
+apps/web/.next-build
+apps/web/.next-prev

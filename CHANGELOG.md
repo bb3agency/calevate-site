@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.22 — 16-Nov-2026
+
+- **Faster deploys, and no blank pages while one runs.** The website is built on GitHub's
+  machines instead of the server, without the lint and type checks (CI runs those), and the
+  server only unpacks it. The server's build, when it still builds (a rollback, or GitHub
+  unavailable), goes into its own folder and is switched in at the end, keeping the last
+  version's files for two days so open pages keep working.
+
 ## 0.4.21 — 16-Nov-2026
 
 - **Your test calls are kept in the Test call section.** Each one made from the campaign is

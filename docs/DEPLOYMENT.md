@@ -516,12 +516,25 @@ request or a push to any other branch never deploys; and `environment: productio
 required-reviewer rule somewhere to attach without editing the workflow. **No credential is wired** — the runner is on the box, so
 there is no SSH key, and application secrets are read from `.env` on the host.
 
-**It uses no third-party action — not even `actions/checkout`** (hard rule 9). It does not
-need one: the deploy target is the runner's own host and the checkout already lives at
-`VPS_CLIENT_PATH`. Every action in a deploy workflow runs with production permissions on
-the production host; the cost of avoiding that entirely is two lines of bash.
+**The jobs on the host use no third-party action — not even `actions/checkout`** (hard
+rule 9). They do not need one: the deploy target is the runner's own host and the checkout
+already lives at `VPS_CLIENT_PATH`. Every action in a deploy workflow runs with production
+permissions on the production host; the cost of avoiding that entirely is two lines of bash.
 
-**One job, not the three this section originally sketched.** The property those three
+**The web is built on a GitHub runner, not on the host** (founder, 16 Nov 2026: deploys in
+one to two minutes). `next build` on the host took 4-5 minutes at the lowest priority beside
+live traffic. Three jobs now run: `web-env` (on the host) reads the `NEXT_PUBLIC_*` lines of
+`apps/web/.env.local`, which are inlined into every visitor's JavaScript and so are not
+secret, and passes nothing if the file holds any other key; `web-build` (GitHub runner,
+actions pinned to commits as in CI) builds this commit with lint and type checks skipped
+(CI's frontend job runs them) and uploads it; `deploy` (on the host) fetches it through the
+REST API and runs `vps-deploy.sh --web-build <tgz>`, which uses it only if it names this
+exact commit. Any failure in the first two, or a rollback, leaves the host building the web
+itself as before. Either way the build is made in `apps/web/.next-build` and swapped in for
+`.next` by two renames, keeping the last build's static files for two days, so the live
+site never serves a half-written build (the blank pages of 15-16 Nov 2026).
+
+**One deploy job doing the release, not the three this section originally sketched.** The property those three
 bought — a docs-only change must not rebuild Docker — is kept, but it is enforced inside
 `scripts/vps-deploy.sh`, which diffs the last deployed SHA against HEAD through an
 explicit path→component map and exits before building when nothing maps. Three jobs would

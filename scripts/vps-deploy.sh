@@ -51,6 +51,9 @@
 #                         it. THE ROLLBACK PATH, and the only supported way to deploy a
 #                         commit that is not the branch tip. Implies --no-pull.
 #   --no-pull             do not `git pull`; deploy the tree as it stands
+#   --web-build FILE      a .tar.gz of apps/web's build made in CI for this same commit;
+#                         the web step unpacks it instead of building here. Ignored, with a
+#                         warning, when it names another commit; the web is then built here.
 #   --dry-run             resolve and print the plan; touch nothing
 #   -h, --help            this text
 #
@@ -189,8 +192,9 @@ DO_PULL=1
 EXPECTED_SHA=""
 CHECKOUT_SHA=""
 SELECTED=()
+WEB_BUILD=""
 
-usage() { sed -n '2,54p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,57p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -199,6 +203,7 @@ while [[ $# -gt 0 ]]; do
     --dry-run)      DRY_RUN=1; shift ;;
     --no-pull)      DO_PULL=0; shift ;;
     --expected-sha) EXPECTED_SHA=${2:?--expected-sha needs a value}; shift 2 ;;
+    --web-build)    WEB_BUILD=${2:?--web-build needs a file}; shift 2 ;;
     --checkout)
       CHECKOUT_SHA=${2:?--checkout needs a value}
       # A COMMIT, never a ref. `--checkout main` would deploy whatever the branch points
@@ -1114,15 +1119,42 @@ deploy_web() {
   local -a yield_to_live=(nice -n 19)
   if command -v ionice >/dev/null 2>&1; then yield_to_live+=(ionice -c 3); fi
   "${yield_to_live[@]}" pnpm install --frozen-lockfile
-  # STATED, never inferred. `apps/web/next.config.ts` refuses to build when this is set
-  # and the browser tier's three build-time values are empty — which is the only moment
-  # anyone can catch it, because `next build` inlines `NEXT_PUBLIC_*` and an absent key
-  # compiles to "" rather than throwing. It is a flag rather than an unconditional check
-  # because CI builds this package as a COMPILE check with no environment at all, and
-  # that is a legitimate build; see the config's comment for the full argument.
-  CALEVATE_DEPLOY_BUILD=1 \
-    NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=${WEB_BUILD_HEAP_MB}" \
-    "${yield_to_live[@]}" pnpm -C apps/web build
+  # BUILT BESIDE THE LIVE ONE, NEVER INTO IT. `next build` used to write into
+  # apps/web/.next while pm2 served from it, so for the four minutes of a build a page could
+  # ask for a file that had just been replaced and render blank (15-16 Nov 2026). The new
+  # build goes to .next-build (`CALEVATE_DIST_DIR`, read by next.config) and is swapped in
+  # by two renames once complete; the live tier never sees a half-written directory.
+  local web="$ROOT/apps/web"
+  rm -rf "$web/.next-build" "$web/.next-prev"
+  if [[ -n "$WEB_BUILD" ]] && web_build_matches "$WEB_BUILD"; then
+    log "  unpacking the web build made in CI for $(git -C "$ROOT" rev-parse --short HEAD)"
+    mkdir -p "$web/.next-build"
+    tar -xzf "$WEB_BUILD" -C "$web/.next-build"
+  else
+    # The webpack cache rides along, so this build is incremental on the last one.
+    mkdir -p "$web/.next-build"
+    if [[ -d "$web/.next/cache" ]]; then mv "$web/.next/cache" "$web/.next-build/cache"; fi
+    # STATED, never inferred. `apps/web/next.config.ts` refuses to build when this is set
+    # and the browser tier's three build-time values are empty — which is the only moment
+    # anyone can catch it, because `next build` inlines `NEXT_PUBLIC_*` and an absent key
+    # compiles to "" rather than throwing. It is a flag rather than an unconditional check
+    # because CI builds this package as a COMPILE check with no environment at all, and
+    # that is a legitimate build; see the config's comment for the full argument.
+    # `CALEVATE_SKIP_BUILD_CHECKS`: lint and type checks are CI's (`frontend` job), and here
+    # they were 95 of a 270-second build on a live host.
+    CALEVATE_DEPLOY_BUILD=1 CALEVATE_SKIP_BUILD_CHECKS=1 CALEVATE_DIST_DIR=.next-build \
+      NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=${WEB_BUILD_HEAP_MB}" \
+      "${yield_to_live[@]}" pnpm -C apps/web build
+  fi
+  # The last build's static files stay beside the new ones, so a page opened before the
+  # swap still loads its own chunks; ones older than two days are dropped below.
+  if [[ -d "$web/.next/static" ]]; then
+    mkdir -p "$web/.next-build/static"
+    cp -an "$web/.next/static/." "$web/.next-build/static/"
+  fi
+  if [[ -d "$web/.next" ]]; then mv "$web/.next" "$web/.next-prev"; fi
+  mv "$web/.next-build" "$web/.next"
+  find "$web/.next/static" -type f -mtime +2 -delete 2>/dev/null || true
 
   # START IF ABSENT, RELOAD IF PRESENT.
   #
@@ -1147,6 +1179,20 @@ deploy_web() {
     pm2 save
   fi
   wait_healthy web
+  rm -rf "$web/.next-prev"
+}
+
+# The CI build carries the commit it was made from (`.calevate-commit`, written by the
+# deploy workflow's build job). Only a build of exactly this checkout is used.
+web_build_matches() {
+  local file=$1 built here
+  [[ -f "$file" ]] || { warn "  --web-build $file does not exist; building the web here"; return 1; }
+  built=$(tar -xzOf "$file" ./.calevate-commit 2>/dev/null || true)
+  here=$(git -C "$ROOT" rev-parse HEAD)
+  if [[ "$built" != "$here" ]]; then
+    warn "  the CI web build is for ${built:-an unknown commit}, not $here; building the web here"
+    return 1
+  fi
 }
 
 # --- 8. nginx -------------------------------------------------------------------------

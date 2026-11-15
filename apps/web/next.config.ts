@@ -110,6 +110,14 @@ if (DEPLOY_BUILD) {
 const nextConfig: NextConfig = {
   // No `X-Powered-By: Next.js` on any response (OWASP ASVS 4.0.3 14.3.3).
   poweredByHeader: false,
+  // A deploy builds into `.next-build` beside the live `.next` and swaps the two once the
+  // build is complete (`scripts/vps-deploy.sh deploy_web`); the server always runs `.next`.
+  distDir: process.env.CALEVATE_DIST_DIR || ".next",
+  // Lint and type checks belong to CI's frontend job; a deploy build skips them because on
+  // the live host they took 95 of 270 seconds and change nothing that ships.
+  ...(process.env.CALEVATE_SKIP_BUILD_CHECKS === "1"
+    ? { typescript: { ignoreBuildErrors: true }, eslint: { ignoreDuringBuilds: true } }
+    : {}),
   env: {
     NEXT_PUBLIC_APP_VERSION: APP_VERSION,
     NEXT_PUBLIC_APP_COMMIT: buildCommit(),
