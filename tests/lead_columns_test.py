@@ -614,6 +614,28 @@ async def test_the_searched_rail_and_the_searched_table_describe_one_population(
     )
 
 
+@pytest.mark.parametrize(
+    "typed",
+    [
+        "98123 45678",
+        "+91 98123 45678",
+        "098123-45678",
+        "".join(chr(0x0C66 + int(d)) for d in "9812345678"),  # Telugu digits
+    ],
+)
+async def test_a_number_written_as_people_write_it_finds_its_lead(typed: str) -> None:
+    """The box says "Name or last digits"; a number pasted with its spaces, its country
+    code, its trunk 0 or in Telugu digits is the same number and finds the same lead."""
+    t = await _tenant()
+    await _lead(t, name="Searched", phone="+919812345678")
+    await _lead(t, name="Other", phone="+919899990001")
+    lens = {"agent_id": str(t.agent_id), "search": typed, "limit": 50}
+    async with _client() as http:
+        table = await http.post("/v1/leads/search", json=lens, headers=t.headers)
+    assert table.status_code == 200, table.text
+    assert [row["name"] for row in table.json()["items"]] == ["Searched"]
+
+
 async def test_with_no_agent_filter_the_columns_are_the_newest_schema_not_the_most_edited() -> None:
     """`lead_columns(None)` promises "the most recently published schema", and it read
     `ORDER BY version DESC` across every agent. `version` counts ONE agent's edits, so the
