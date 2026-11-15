@@ -31,6 +31,7 @@ import { hourWords } from "@/lib/clock";
 import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
 import { FoldSection } from "./FoldSection";
 import { AgentChoice } from "./NewCampaignSteps";
+import { TestCallList } from "./TestCallList";
 
 type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
 
@@ -401,11 +402,11 @@ export function TestCallSection(props: Common) {
     <FoldSection
       title="Test call"
       tone="test"
-     
       hint="The chosen agent rings your phone."
       info="It puts this campaign's script on the agent first, so you hear exactly what people will hear."
     >
       <HearItFirst {...props} />
+      <TestCallList {...props} />
     </FoldSection>
   );
 }

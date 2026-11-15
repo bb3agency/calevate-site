@@ -562,8 +562,74 @@ async def campaign_test_call(
         ip=client_request_ip(request),
         own_number_attested=payload.number_is_mine,
     )
+    if result.call_id is not None:
+        # Listed in the Test call section with its recording; once, whatever the retries.
+        await session.execute(
+            text(
+                "UPDATE campaigns SET test_call_ids = array_append(test_call_ids, :call) "
+                "WHERE id = :c AND NOT (:call = ANY (test_call_ids))"
+            ),
+            {"c": campaign_id, "call": result.call_id},
+        )
     return CampaignTestCallOut(
         status=result.status, blocked_reason=result.blocked_reason, call_id=result.call_id
+    )
+
+
+class CampaignTestCallItem(_Out):
+    call_id: UUID
+    placed_at: datetime
+    status: str
+    duration_s: int | None
+    #: A recording of our own exists; it is played through `/v1/calls/{id}/recording`.
+    has_recording: bool
+
+
+@router.get(
+    "/{campaign_id}/test-calls",
+    response_model=list[CampaignTestCallItem],
+    openapi_extra=permission_meta("leads:read"),
+    summary="The test calls this campaign placed, newest first",
+)
+async def campaign_test_calls(
+    campaign_id: UUID, session: Session, _: Reader
+) -> list[CampaignTestCallItem]:
+    await workspace.read_workspace(session, campaign_id)
+    rows = await session.execute(
+        text(
+            "SELECT k.id, k.created_at, k.status, k.duration_s, k.recording_url IS NOT NULL "
+            "FROM campaigns c JOIN calls k ON k.id = ANY (c.test_call_ids) "
+            "WHERE c.id = :c ORDER BY k.created_at DESC"
+        ),
+        {"c": campaign_id},
+    )
+    return [
+        CampaignTestCallItem(
+            call_id=r[0],
+            placed_at=r[1],
+            status=str(r[2]),
+            duration_s=r[3],
+            has_recording=bool(r[4]),
+        )
+        for r in rows
+    ]
+
+
+@router.delete(
+    "/{campaign_id}/test-calls/{call_id}",
+    status_code=204,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Take a test call off this campaign's list; the call stays in the call logs",
+)
+async def remove_campaign_test_call(
+    campaign_id: UUID, call_id: UUID, session: Session, _: Dispatcher
+) -> None:
+    await workspace.read_workspace(session, campaign_id)
+    await session.execute(
+        text(
+            "UPDATE campaigns SET test_call_ids = array_remove(test_call_ids, :call) WHERE id = :c"
+        ),
+        {"c": campaign_id, "call": call_id},
     )
 
 

@@ -7919,6 +7919,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/test-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The test calls this campaign placed, newest first */
+        get: operations["campaign_test_calls_v1_campaigns__campaign_id__test_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/test-calls/{call_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Take a test call off this campaign's list; the call stays in the call logs */
+        delete: operations["remove_campaign_test_call_v1_campaigns__campaign_id__test_calls__call_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/workspace": {
         parameters: {
             query?: never;
@@ -19321,6 +19355,25 @@ export interface components {
              * @default false
              */
             number_is_mine: boolean;
+        };
+        /** CampaignTestCallItem */
+        CampaignTestCallItem: {
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Duration S */
+            duration_s: number | null;
+            /** Has Recording */
+            has_recording: boolean;
+            /**
+             * Placed At
+             * Format: date-time
+             */
+            placed_at: string;
+            /** Status */
+            status: string;
         };
         /** CampaignTestCallOut */
         CampaignTestCallOut: {
@@ -53479,6 +53532,67 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CampaignTestCallOut"];
                 };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_test_calls_v1_campaigns__campaign_id__test_calls_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTestCallItem"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_campaign_test_call_v1_campaigns__campaign_id__test_calls__call_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.21 — 16-Nov-2026
+
+- **Your test calls are kept in the Test call section.** Each one made from the campaign is
+  listed with its time, how it went and its length, with Play recording, Open the call and
+  Delete. Delete takes it off the list after a confirm; the call itself stays in the call logs.
+  The list refreshes by itself while a call is in progress or its recording is on its way.
+
 ## 0.4.20 — 16-Nov-2026
 
 - Save changes or Close in Edit script brings you back to the Script section (and onto its Edit

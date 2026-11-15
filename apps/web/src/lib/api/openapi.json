@@ -14422,6 +14422,49 @@
         "title": "CampaignTestCallIn",
         "type": "object"
       },
+      "CampaignTestCallItem": {
+        "additionalProperties": false,
+        "properties": {
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
+          "has_recording": {
+            "title": "Has Recording",
+            "type": "boolean"
+          },
+          "placed_at": {
+            "format": "date-time",
+            "title": "Placed At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_id",
+          "placed_at",
+          "status",
+          "duration_s",
+          "has_recording"
+        ],
+        "title": "CampaignTestCallItem",
+        "type": "object"
+      },
       "CampaignTestCallOut": {
         "additionalProperties": false,
         "properties": {
@@ -89647,6 +89690,93 @@
           }
         },
         "summary": "Put the campaign's script on its agent and ring your own phone to hear it",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/test-calls": {
+      "get": {
+        "operationId": "campaign_test_calls_v1_campaigns__campaign_id__test_calls_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CampaignTestCallItem"
+                  },
+                  "title": "Response Campaign Test Calls V1 Campaigns  Campaign Id  Test Calls Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The test calls this campaign placed, newest first",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/test-calls/{call_id}": {
+      "delete": {
+        "operationId": "remove_campaign_test_call_v1_campaigns__campaign_id__test_calls__call_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Take a test call off this campaign's list; the call stays in the call logs",
         "tags": [
           "campaigns"
         ],

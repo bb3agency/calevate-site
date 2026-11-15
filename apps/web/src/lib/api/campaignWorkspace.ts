@@ -177,7 +177,39 @@ export function useCampaignTestCall(session: Session, campaignId: string) {
     onSuccess: (_out, { number }) => {
       held.current.delete(number);
       void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
+      void client.invalidateQueries({ queryKey: testCallsKey(session.orgSlug, campaignId) });
     },
+  });
+}
+
+export type CampaignTestCallItem = Schemas["CampaignTestCallItem"];
+const testCallsKey = (org: string, campaignId: string) => ["campaign-test-calls", org, campaignId];
+
+/** The test calls this campaign placed. Re-read every 10 s while one is still in progress. */
+const LIVE_STATUSES = new Set(["queued", "ringing", "in_progress"]);
+/** A call still going, or finished in the last ten minutes with its recording not yet copied. */
+function stillComing(call: CampaignTestCallItem): boolean {
+  if (LIVE_STATUSES.has(call.status)) return true;
+  const recent = Date.now() - new Date(call.placed_at).getTime() < 10 * 60_000;
+  return call.status === "completed" && !call.has_recording && recent;
+}
+
+export function useCampaignTestCalls(session: Session, campaignId: string) {
+  return useQuery({
+    queryKey: testCallsKey(session.orgSlug, campaignId),
+    queryFn: () => apiRequest<CampaignTestCallItem[]>(session, `${base(campaignId)}/test-calls`),
+    refetchInterval: (query) => ((query.state.data ?? []).some(stillComing) ? 10_000 : false),
+  });
+}
+
+export function useRemoveCampaignTestCall(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (callId: string) =>
+      apiRequest<void>(session, `${base(campaignId)}/test-calls/${encodeURIComponent(callId)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: testCallsKey(session.orgSlug, campaignId) }),
   });
 }
 

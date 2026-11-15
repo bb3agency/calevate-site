@@ -25,8 +25,10 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
@@ -146,6 +148,11 @@ class Campaign(PKMixin, TimestampMixin, Base):
     #: When this campaign last put its script on its agent; the latest holder's overrides
     #: are the ones that agent's published settings carry.
     agent_held_at: Mapped[datetime | None]
+    #: The calls its Test call placed, newest last (migration b3d8e1f6a2c9). Kept here rather
+    #: than in `calls.campaign_id`, which would count them in the campaign's results.
+    test_call_ids: Mapped[list[UUID]] = mapped_column(
+        ARRAY(PG_UUID(as_uuid=True)), nullable=False, server_default=text("'{}'::uuid[]")
+    )
     #: `pip` for a campaign a dialling plan made (D-893, migration f4b8d2a61c39), so its
     #: calls get a campaign's line limit, pacing, hours and retries; `standard` otherwise.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="standard")
