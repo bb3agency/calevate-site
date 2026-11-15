@@ -21,11 +21,11 @@ import { renderAdminPage } from "./harness";
  */
 
 const OPERATOR: AdminMe = {
-  user_id: "op-1",
-  email: "ops@calevate.tech",
+  realm: "admin",
+  user_id: "0192f0aa-7777-7000-8000-00000000ad09",
   role: "superadmin",
-  permissions: ["org:read", "ops:manage"],
-} as unknown as AdminMe;
+  permissions: ["org:read", "ops:manage", "admin:tenants"],
+};
 
 describe("an admin dialog that closes on success still says it worked", () => {
   it("Ops > Call mistakes: Mark fixed toasts after the dialog closes", async () => {

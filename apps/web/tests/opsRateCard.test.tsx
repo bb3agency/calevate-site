@@ -810,6 +810,8 @@ describe("the voice price that decides whether a tier can be sold", () => {
     // never a JSON number (hard rule 7).
     expect(write.body).toContain('"inr_per_1k_chars":"3.4496"');
     expect(write.headers["X-Confirm-Action"]).toBe("attest_tts_price:cartesia");
+    // The form closes on success, so the toast is what says the price was recorded.
+    expect(await screen.findByRole("group", { name: /Price confirmed$/ })).toBeTruthy();
   });
 
   it("shows nothing rather than a table when the API published no voice prices", async () => {
@@ -1066,6 +1068,7 @@ describe("the rupee price of the standby model (Sarvam 105B)", () => {
       source_note: "Sarvam invoice Oct 2026",
     });
     expect(write.headers["X-Confirm-Action"]).toBe("attest_inr_llm_price:sarvam-105b");
+    expect(await screen.findByRole("group", { name: /Price confirmed$/ })).toBeTruthy();
   });
 
   it("sends a chosen start date as midnight India time, and omits an empty cached rung", async () => {
@@ -1612,6 +1615,48 @@ describe("the two date rules the step-up header rests on", () => {
     // No instant, no invented floor — the server is the gate either way.
     expect(earliestPickableDate(null)).toBeNull();
     expect(earliestPickableDate("not a date")).toBeNull();
+  });
+});
+
+describe("a dashboard data-use attestation", () => {
+  beforeEach(() => openSection("language-models"));
+  it("says it was recorded once the form has closed", async () => {
+    const path = `POST ${OPS_DASHBOARD_DATA_USE_PATH}/google`;
+    const { calls } = renderOps(
+      routes({
+        [OPS_DASHBOARD_DATA_USE_PATH]: {
+          statement: "I have opened this provider's own console.",
+          providers: [
+            {
+              provider: "google",
+              eligible: false,
+              blocked_reason: "Not attested yet.",
+              dashboard_leg_built: true,
+              vendor_account_ref: null,
+              paid_tier_confirmed: null,
+              no_training_opt_in_confirmed: null,
+              attested_at: null,
+              attested_by: null,
+              source_note: null,
+            },
+          ],
+        },
+        [path]: { provider: "google", eligible: true },
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Record attestation/ }));
+    fireEvent.change(screen.getByLabelText(/Vendor project or account/), {
+      target: { value: "calevate-prod" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Source/), {
+      target: { value: "AI Studio Projects page" },
+    });
+    fireEvent.change(screen.getByLabelText(/Type CONFIRM/), { target: { value: "CONFIRM" } });
+    fireEvent.submit(screen.getByLabelText(/Vendor project or account/).closest("form") as HTMLFormElement);
+
+    await waitForCall(calls, path);
+    expect(await screen.findByRole("group", { name: /Attestation recorded$/ })).toBeTruthy();
   });
 });
 
