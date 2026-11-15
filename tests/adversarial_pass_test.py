@@ -37,6 +37,7 @@ from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
+from apps.api.agents.call_mistakes import LESSONS
 from apps.api.core import ratelimit
 from apps.api.core.context import bearer_token
 from apps.api.core.ratelimit import LimitProfile
@@ -661,6 +662,8 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}/extraction-schema", {}, {}),
     ("GET", "/v1/agents/{agent_id}/known-facts", {}, {}),
     ("GET", "/v1/agents/{agent_id}/call-mistakes", {}, {}),
+    # D-985: the owner's Undo of a script fix. `{kind}` is a mistake kind, not an object.
+    ("POST", "/v1/agents/{agent_id}/call-mistakes/{kind}/undo", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/extraction-schema", {"fields": []}, {}),
     ("GET", "/v1/agents/{agent_id}/lead-suggestions", {}, {}),
     ("POST", "/v1/agents/{agent_id}/lead-suggestions/check", {}, {}),
@@ -1160,6 +1163,7 @@ async def test_a_neighbours_object_id_is_not_found_and_never_forbidden(
     user_a, _token_a = await _make_member(tenant_a)
     _user_b, token_b = await _make_member(uuid.UUID(str(org_b["id"])))
     ids = await _seed_one_of_everything(tenant_a, user_a)
+    ids["kind"] = next(iter(LESSONS))
 
     headers = {"Authorization": f"Bearer {token_b}", "X-Org-Slug": str(org_b["slug"])}
     offenders: list[str] = []
