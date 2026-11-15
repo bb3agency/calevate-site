@@ -143,6 +143,14 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # Next's own build cache, so a build compiles only what changed since the last one
+      # (83 s from cold). Keyed per commit and restored from the newest earlier one.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/web/.next-build/cache
+          key: web-next-cache-${{ hashFiles('pnpm-lock.yaml') }}-${{ github.sha }}
+          restore-keys: |
+            web-next-cache-${{ hashFiles('pnpm-lock.yaml') }}-
       - name: Build the web for this commit
         env:
           PUBLIC_ENV: ${{ needs.web-env.outputs.public }}
@@ -154,9 +162,9 @@ jobs:
           export CALEVATE_DEPLOY_BUILD=1 CALEVATE_SKIP_BUILD_CHECKS=1 CALEVATE_DIST_DIR=.next-build
           export CALEVATE_BUILD_COMMIT="$BUILD_SHA"
           pnpm -C apps/web build
-          rm -rf apps/web/.next-build/cache
           echo "$BUILD_SHA" > apps/web/.next-build/.calevate-commit
-          tar -czf web-build.tgz -C apps/web/.next-build .
+          # The cache stays on the runner for the next build; it is not shipped to the host.
+          tar -czf web-build.tgz --exclude=./cache -C apps/web/.next-build .
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: web-build

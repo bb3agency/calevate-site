@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.23 — 16-Nov-2026
+
+- The GitHub build keeps the website's build cache between deploys, so each one compiles only
+  what changed.
+
 ## 0.4.22 — 16-Nov-2026
 
 - **Faster deploys, and no blank pages while one runs.** The website is built on GitHub's
