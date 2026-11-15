@@ -13323,6 +13323,68 @@
         "title": "CampaignDayOut",
         "type": "object"
       },
+      "CampaignInsightsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "best_hours": {
+            "items": {
+              "$ref": "#/components/schemas/HourOut"
+            },
+            "title": "Best Hours",
+            "type": "array"
+          },
+          "hours": {
+            "items": {
+              "$ref": "#/components/schemas/HourOut"
+            },
+            "title": "Hours",
+            "type": "array"
+          },
+          "min_calls_per_hour": {
+            "title": "Min Calls Per Hour",
+            "type": "integer"
+          },
+          "opening_b": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening B"
+          },
+          "opening_verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening Verdict"
+          },
+          "openings": {
+            "items": {
+              "$ref": "#/components/schemas/OpeningOut"
+            },
+            "title": "Openings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "hours",
+          "best_hours",
+          "min_calls_per_hour",
+          "opening_b",
+          "openings",
+          "opening_verdict"
+        ],
+        "title": "CampaignInsightsOut",
+        "type": "object"
+      },
       "CampaignLeadOut": {
         "additionalProperties": false,
         "properties": {
@@ -13902,6 +13964,68 @@
           "created_at"
         ],
         "title": "CampaignSummaryOut",
+        "type": "object"
+      },
+      "CampaignTestCallIn": {
+        "additionalProperties": false,
+        "properties": {
+          "number": {
+            "maxLength": 20,
+            "minLength": 8,
+            "title": "Number",
+            "type": "string"
+          },
+          "number_is_mine": {
+            "default": false,
+            "title": "Number Is Mine",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "number"
+        ],
+        "title": "CampaignTestCallIn",
+        "type": "object"
+      },
+      "CampaignTestCallOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Reason"
+          },
+          "call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Call Id"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CampaignTestCallOut",
         "type": "object"
       },
       "CampaignTimelinesOut": {
@@ -31340,6 +31464,35 @@
         "title": "HostedVoicesOut",
         "type": "object"
       },
+      "HourOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "hour": {
+            "title": "Hour",
+            "type": "integer"
+          },
+          "rate": {
+            "title": "Rate",
+            "type": "number"
+          }
+        },
+        "required": [
+          "hour",
+          "calls",
+          "answered",
+          "rate"
+        ],
+        "title": "HourOut",
+        "type": "object"
+      },
       "HoursIn": {
         "additionalProperties": false,
         "properties": {
@@ -40611,6 +40764,25 @@
         "title": "OpenTeachingOut",
         "type": "object"
       },
+      "OpeningBIn": {
+        "additionalProperties": false,
+        "properties": {
+          "opening_b": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opening B"
+          }
+        },
+        "title": "OpeningBIn",
+        "type": "object"
+      },
       "OpeningLineIn": {
         "additionalProperties": false,
         "properties": {
@@ -40707,6 +40879,51 @@
           }
         },
         "title": "OpeningNotices",
+        "type": "object"
+      },
+      "OpeningOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answered": {
+            "title": "Answered",
+            "type": "integer"
+          },
+          "goal_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal Rate"
+          },
+          "goal_reached": {
+            "title": "Goal Reached",
+            "type": "integer"
+          },
+          "people": {
+            "title": "People",
+            "type": "integer"
+          },
+          "variant": {
+            "enum": [
+              "a",
+              "b"
+            ],
+            "title": "Variant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "variant",
+          "people",
+          "answered",
+          "goal_reached",
+          "goal_rate"
+        ],
+        "title": "OpeningOut",
         "type": "object"
       },
       "OperatorCreateIn": {
@@ -87798,6 +88015,46 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/insights": {
+      "get": {
+        "operationId": "campaign_insights_v1_campaigns__campaign_id__insights_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignInsightsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "When people answer this campaign's calls, and how its two openings compare",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/campaigns/{campaign_id}/launch": {
       "post": {
         "operationId": "launch_v1_campaigns__campaign_id__launch_post",
@@ -88015,6 +88272,50 @@
           }
         },
         "summary": "Remove a material from the campaign (archived, not deleted)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/opening-b": {
+      "put": {
+        "description": "Half the people hear this opening, half the script's own. The agent's notices are\nsaid beside it whenever it does not say them itself (`agents.service.campaign_first_words`).",
+        "operationId": "save_opening_b_v1_campaigns__campaign_id__opening_b_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpeningBIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Test a second opening line against the script's own, or stop the test",
         "tags": [
           "campaigns"
         ],
@@ -88622,6 +88923,57 @@
           }
         },
         "summary": "Stop for good: nobody else on the list is called. Idempotent.",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/test-call": {
+      "post": {
+        "description": "The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),\nafter the campaign's script is put live on the agent exactly as Start would put it.",
+        "operationId": "campaign_test_call_v1_campaigns__campaign_id__test_call_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignTestCallIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignTestCallOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put the campaign's script on its agent and ring your own phone to hear it",
         "tags": [
           "campaigns"
         ],

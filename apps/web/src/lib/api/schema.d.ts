@@ -7410,6 +7410,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/insights": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** When people answer this campaign's calls, and how its two openings compare */
+        get: operations["campaign_insights_v1_campaigns__campaign_id__insights_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/launch": {
         parameters: {
             query?: never;
@@ -7489,6 +7506,27 @@ export interface paths {
         put?: never;
         /** Remove a material from the campaign (archived, not deleted) */
         post: operations["archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/opening-b": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Test a second opening line against the script's own, or stop the test
+         * @description Half the people hear this opening, half the script's own. The agent's notices are
+         *     said beside it whenever it does not say them itself (`agents.service.campaign_first_words`).
+         */
+        put: operations["save_opening_b_v1_campaigns__campaign_id__opening_b_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7772,6 +7810,27 @@ export interface paths {
          *     transition only, for `pause`'s reason.
          */
         post: operations["stop_v1_campaigns__campaign_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/test-call": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put the campaign's script on its agent and ring your own phone to hear it
+         * @description The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),
+         *     after the campaign's script is put live on the agent exactly as Start would put it.
+         */
+        post: operations["campaign_test_call_v1_campaigns__campaign_id__test_call_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -18823,6 +18882,21 @@ export interface components {
             /** Leads */
             leads: number;
         };
+        /** CampaignInsightsOut */
+        CampaignInsightsOut: {
+            /** Best Hours */
+            best_hours: components["schemas"]["HourOut"][];
+            /** Hours */
+            hours: components["schemas"]["HourOut"][];
+            /** Min Calls Per Hour */
+            min_calls_per_hour: number;
+            /** Opening B */
+            opening_b: string | null;
+            /** Opening Verdict */
+            opening_verdict: string | null;
+            /** Openings */
+            openings: components["schemas"]["OpeningOut"][];
+        };
         /** CampaignLeadOut */
         CampaignLeadOut: {
             /**
@@ -19045,6 +19119,28 @@ export interface components {
             pause_reason?: ("person" | "maintenance" | "healer" | "complaint_spike" | "out_of_credit" | "spend_cap") | null;
             /** Status */
             status: string;
+        };
+        /** CampaignTestCallIn */
+        CampaignTestCallIn: {
+            /** Number */
+            number: string;
+            /**
+             * Number Is Mine
+             * @default false
+             */
+            number_is_mine: boolean;
+        };
+        /** CampaignTestCallOut */
+        CampaignTestCallOut: {
+            /** Blocked Reason */
+            blocked_reason?: string | null;
+            /** Call Id */
+            call_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "blocked";
         };
         /** CampaignTimelinesOut */
         CampaignTimelinesOut: {
@@ -25556,6 +25652,17 @@ export interface components {
             /** Voices */
             voices: components["schemas"]["HostedVoiceOut"][];
         };
+        /** HourOut */
+        HourOut: {
+            /** Answered */
+            answered: number;
+            /** Calls */
+            calls: number;
+            /** Hour */
+            hour: number;
+            /** Rate */
+            rate: number;
+        };
         /** HoursIn */
         HoursIn: {
             /** Closed */
@@ -29084,6 +29191,11 @@ export interface components {
         OpenTeachingOut: {
             teaching: components["schemas"]["TeachingOut"] | null;
         };
+        /** OpeningBIn */
+        OpeningBIn: {
+            /** Opening B */
+            opening_b?: string | null;
+        };
         /** OpeningLineIn */
         OpeningLineIn: {
             /** Opening Line */
@@ -29143,6 +29255,22 @@ export interface components {
              * @default
              */
             recording: string;
+        };
+        /** OpeningOut */
+        OpeningOut: {
+            /** Answered */
+            answered: number;
+            /** Goal Rate */
+            goal_rate: number | null;
+            /** Goal Reached */
+            goal_reached: number;
+            /** People */
+            people: number;
+            /**
+             * Variant
+             * @enum {string}
+             */
+            variant: "a" | "b";
         };
         /** OperatorCreateIn */
         OperatorCreateIn: {
@@ -52293,6 +52421,37 @@ export interface operations {
             };
         };
     };
+    campaign_insights_v1_campaigns__campaign_id__insights_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignInsightsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     launch_v1_campaigns__campaign_id__launch_post: {
         parameters: {
             query?: never;
@@ -52436,6 +52595,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_opening_b_v1_campaigns__campaign_id__opening_b_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OpeningBIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             204: {
@@ -52888,6 +53080,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_test_call_v1_campaigns__campaign_id__test_call_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignTestCallIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTestCallOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

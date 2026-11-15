@@ -992,12 +992,15 @@ async def _dispatch_for_campaign(
         # the campaign's choice and not whichever of the agent's numbers the engine picks.
         # Its purpose and goal ride every dial too, as the call's reason, so the agent knows
         # why it rings and what to aim for.
-        agent_id, number_id, purpose, goal = (
+        agent_id, number_id, purpose, goal, opening_b = (
             await session.execute(
-                text("SELECT agent_id, number_id, purpose, goal FROM campaigns WHERE id = :cid"),
+                text(
+                    "SELECT agent_id, number_id, purpose, goal, opening_b FROM campaigns "
+                    "WHERE id = :cid"
+                ),
                 {"cid": campaign_id},
             )
-        ).first() or (None, None, None, None)
+        ).first() or (None, None, None, None, None)
         reason = campaign_call_reason(purpose, goal)
     # The claim is COMMITTED here — see this function's docstring. Everything below
     # runs in its own short transaction, so losing one loses at most one dial's
@@ -1085,6 +1088,15 @@ async def _dispatch_for_campaign(
                 # it — and writing it after the dial returned meant a lost response left
                 # a contact with no link, which `_reap_stuck_dialing` then returned to
                 # the ladder and rang a second time.
+                variant = opening_variant(contact_id, opening_b)
+                if variant is not None:
+                    await session.execute(
+                        text(
+                            "UPDATE campaign_contacts SET opening_variant = :v "
+                            "WHERE id = :c AND opening_variant IS DISTINCT FROM :v"
+                        ),
+                        {"v": variant, "c": contact_id},
+                    )
                 await dispatch_call(
                     session,
                     tenant_id=tenant_id,
@@ -1096,6 +1108,7 @@ async def _dispatch_for_campaign(
                     on_reserved=_link_contact_to_call(contact_id, campaign_id, phone),
                     number_id=number_id,
                     contact_details=contact_details_of(custom),
+                    opening_line=opening_b if variant == "b" else None,
                 )
             except ContactNoLongerClaimedError:
                 # Settled by another writer since the claim (an erasure, in practice).
@@ -1385,6 +1398,15 @@ def _refusal_rule(exc: BaseException) -> str:
     if isinstance(exc, EngineRejectedError):
         return f"{exc.code}_{exc.vendor_status}"
     return exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+
+
+def opening_variant(contact_id: object, opening_b: str | None) -> str | None:
+    """Which opening a person hears while a campaign tests a second one (D-992): half the list
+    each, fixed per person by their contact id, so a retry hears the same opening as the
+    first try and the two halves stay comparable. None while no test runs."""
+    if not (opening_b or "").strip():
+        return None
+    return "b" if UUID(str(contact_id)).int % 2 else "a"
 
 
 def _dial_failure_reason(exc: BaseException) -> str:

@@ -9,6 +9,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRef } from "react";
 
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
@@ -131,6 +132,50 @@ export function useAnswerQuestion(session: Session, campaignId: string) {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
       void client.invalidateQueries({ queryKey: questionsKey(session.orgSlug, campaignId) });
+    },
+  });
+}
+
+export type CampaignInsights = Schemas["CampaignInsightsOut"];
+export const insightsKey = (org: string, campaignId: string) => ["campaign-insights", org, campaignId] as const;
+
+export function useCampaignInsights(session: Session, campaignId: string) {
+  return useQuery({
+    queryKey: insightsKey(session.orgSlug, campaignId),
+    queryFn: () => apiRequest<CampaignInsights>(session, `${base(campaignId)}/insights`),
+  });
+}
+
+/** Test a second opening line against the script's own; null stops the test. */
+export function useSaveOpeningB(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (opening_b: string | null) =>
+      apiRequest<void>(session, `${base(campaignId)}/opening-b`, { method: "PUT", body: { opening_b } }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: insightsKey(session.orgSlug, campaignId) }),
+  });
+}
+
+/**
+ * Put the campaign's script on its agent and ring the owner's phone. One Idempotency-Key per
+ * attempt, held until an answer, so a second press after a lost response rings nobody twice.
+ */
+export function useCampaignTestCall(session: Session, campaignId: string) {
+  const held = useRef(new Map<string, string>());
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ number, numberIsMine }: { number: string; numberIsMine: boolean }) => {
+      const key = held.current.get(number) ?? crypto.randomUUID();
+      held.current.set(number, key);
+      return apiRequest<Schemas["CampaignTestCallOut"]>(session, `${base(campaignId)}/test-call`, {
+        method: "POST",
+        body: { number, number_is_mine: numberIsMine },
+        idempotencyKey: key,
+      });
+    },
+    onSuccess: (_out, { number }) => {
+      held.current.delete(number);
+      void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
     },
   });
 }

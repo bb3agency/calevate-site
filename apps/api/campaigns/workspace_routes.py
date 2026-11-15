@@ -4,21 +4,26 @@ and the questions its calls could not answer (D-992). `campaigns/workspace.py` h
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns import workspace
+from apps.api.agents.trial_calls import attest_own_number, place_trial_call
+from apps.api.campaigns import learning, workspace
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
+from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.reliability.service import require_idempotency_key
 from apps.api.teach.struggles import list_struggles
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
@@ -335,3 +340,166 @@ async def answer_question(
         source="call",
     )
     return _material(material)
+
+
+# --- What a campaign's calls teach it, its opening test and its test call (D-992) ----------
+
+OPENING_B_MAX: Final = 200
+_FORMATTING: Final = re.compile(r"[*#`_~|\[\]<>{}]")
+
+
+class OpeningBIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    #: The second opening line to test, or null to stop the test.
+    opening_b: str | None = Field(default=None, max_length=OPENING_B_MAX)
+
+
+@router.put(
+    "/{campaign_id}/opening-b",
+    status_code=204,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Test a second opening line against the script's own, or stop the test",
+)
+async def save_opening_b(
+    campaign_id: UUID, payload: OpeningBIn, session: Session, _: Dispatcher
+) -> None:
+    """Half the people hear this opening, half the script's own. The agent's notices are
+    said beside it whenever it does not say them itself (`agents.service.campaign_first_words`)."""
+    await workspace.read_workspace(session, campaign_id)
+    line = " ".join((payload.opening_b or "").split())
+    if line and _FORMATTING.search(line):
+        raise ProblemError(
+            kind="validation",
+            code="opening_b_formatting",
+            title="Check this field",
+            detail="Write the opening as plain spoken words, without symbols.",
+        )
+    await session.execute(
+        text("UPDATE campaigns SET opening_b = :o, updated_at = now() WHERE id = :cid"),
+        {"o": line or None, "cid": campaign_id},
+    )
+
+
+class HourOut(_Out):
+    #: The hour of the day in IST, 0-23.
+    hour: int
+    calls: int
+    answered: int
+    rate: float
+
+
+class OpeningOut(_Out):
+    variant: Literal["a", "b"]
+    people: int
+    answered: int
+    goal_reached: int
+    goal_rate: float | None
+
+
+class CampaignInsightsOut(_Out):
+    hours: list[HourOut]
+    #: The hours people answer most, among those with enough calls to judge.
+    best_hours: list[HourOut]
+    min_calls_per_hour: int
+    opening_b: str | None
+    openings: list[OpeningOut]
+    opening_verdict: str | None
+
+
+def _hour(r: learning.HourRate) -> HourOut:
+    return HourOut(hour=r.hour, calls=r.calls, answered=r.answered, rate=round(r.rate, 4))
+
+
+@router.get(
+    "/{campaign_id}/insights",
+    response_model=CampaignInsightsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="When people answer this campaign's calls, and how its two openings compare",
+)
+async def campaign_insights(campaign_id: UUID, session: Session, _: Reader) -> CampaignInsightsOut:
+    await workspace.read_workspace(session, campaign_id)
+    rates = await learning.answer_rate_by_hour(session, campaign_id)
+    opening_b = (
+        await session.execute(
+            text("SELECT opening_b FROM campaigns WHERE id = :c"), {"c": campaign_id}
+        )
+    ).scalar_one_or_none()
+    openings = await learning.opening_results(session, campaign_id) if opening_b else []
+    return CampaignInsightsOut(
+        hours=[_hour(r) for r in rates],
+        best_hours=[_hour(r) for r in learning.best_hours(rates)],
+        min_calls_per_hour=learning.MIN_CALLS_PER_HOUR,
+        opening_b=opening_b,
+        openings=[
+            OpeningOut(
+                variant=o.variant,  # type: ignore[arg-type]
+                people=o.people,
+                answered=o.answered,
+                goal_reached=o.goal_reached,
+                goal_rate=None if o.goal_rate is None else round(o.goal_rate, 4),
+            )
+            for o in openings
+        ],
+        opening_verdict=learning.opening_verdict(openings) if openings else None,
+    )
+
+
+class CampaignTestCallIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    number: str = Field(min_length=8, max_length=20)
+    number_is_mine: bool = False
+
+
+class CampaignTestCallOut(_Out):
+    status: Literal["queued", "blocked"]
+    blocked_reason: str | None = None
+    call_id: UUID | None = None
+
+
+@router.post(
+    "/{campaign_id}/test-call",
+    response_model=CampaignTestCallOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Put the campaign's script on its agent and ring your own phone to hear it",
+)
+async def campaign_test_call(
+    campaign_id: UUID,
+    payload: CampaignTestCallIn,
+    request: Request,
+    session: Session,
+    principal: Dispatcher,
+) -> CampaignTestCallOut:
+    """The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),
+    after the campaign's script is put live on the agent exactly as Start would put it."""
+    assert principal.tenant_id is not None
+    idem_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key"),
+        title="A test call needs an Idempotency-Key header",
+        detail="Each test call rings a real phone, so every attempt names itself.",
+    )
+    space = await workspace.read_workspace(session, campaign_id)
+    name = (
+        await session.execute(text("SELECT name FROM campaigns WHERE id = :c"), {"c": campaign_id})
+    ).scalar_one()
+    await workspace.put_script_live(
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        campaign_name=str(name),
+        user_id=principal.user_id,
+    )
+    if payload.number_is_mine:
+        await attest_own_number(
+            principal=principal, number=payload.number, ip=client_request_ip(request)
+        )
+    result = await place_trial_call(
+        session,
+        principal=principal,
+        agent_id=space.agent_id,
+        number=payload.number,
+        idempotency_key=idem_key,
+        ip=client_request_ip(request),
+        own_number_attested=payload.number_is_mine,
+    )
+    return CampaignTestCallOut(
+        status=result.status, blocked_reason=result.blocked_reason, call_id=result.call_id
+    )

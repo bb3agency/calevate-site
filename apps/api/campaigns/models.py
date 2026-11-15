@@ -138,6 +138,8 @@ class Campaign(PKMixin, TimestampMixin, Base):
     script_proposal: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     #: The agent's script version this campaign put live at its last Start.
     script_live_version: Mapped[int | None]
+    #: A second opening line tested against the script's own, alternating per person (D-992).
+    opening_b: Mapped[str | None] = mapped_column(Text)
     #: `pip` for a campaign a dialling plan made (D-893, migration f4b8d2a61c39), so its
     #: calls get a campaign's line limit, pacing, hours and retries; `standard` otherwise.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="standard")
@@ -258,6 +260,10 @@ class CampaignContact(PKMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("campaign_id", "phone_e164"),
         CheckConstraint(f"status IN {CONTACT_STATUSES!r}", name="status_enum"),
+        CheckConstraint(
+            "opening_variant IS NULL OR opening_variant IN ('a', 'b')",
+            name="opening_variant_enum",
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -274,6 +280,8 @@ class CampaignContact(PKMixin, TimestampMixin, Base):
     last_attempt_at: Mapped[datetime | None]
     next_attempt_at: Mapped[datetime | None]
     last_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("calls.id", ondelete="SET NULL"))
+    #: Which opening this person's calls used: `a` (the script's own) or `b` (D-992).
+    opening_variant: Mapped[str | None] = mapped_column(String(1))
 
 
 class DltTemplate(PKMixin, TimestampMixin, Base):

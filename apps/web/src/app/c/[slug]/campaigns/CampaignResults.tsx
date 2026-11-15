@@ -76,7 +76,7 @@ export function ResultFigures({ results }: { results: ResultsRead }) {
   return (
     <section
       aria-label="Campaign results"
-      className={`grid grid-cols-2 gap-x-6 gap-y-6 ${r.goal ? "md:grid-cols-5" : "md:grid-cols-4"}`}
+      className={`grid grid-cols-2 gap-x-6 gap-y-6 ${r.goal ? "md:grid-cols-4 xl:grid-cols-7" : "md:grid-cols-3 xl:grid-cols-6"}`}
     >
       <Metric
         label="Picked up"
@@ -98,6 +98,16 @@ export function ResultFigures({ results }: { results: ResultsRead }) {
         label="Interested"
         value={formatCount(r.interested_leads)}
         hint={r.hot_leads ? `${formatCount(r.hot_leads)} reached a goal` : "None reached a goal yet"}
+      />
+      <Metric
+        label="Call backs booked"
+        value={formatCount(r.outcome_tags.call_back_booked ?? 0)}
+        hint="People who asked to be called at another time"
+      />
+      <Metric
+        label="Opted out"
+        value={formatCount(r.opt_outs)}
+        hint={r.opt_outs ? "Never called again by any campaign" : "Nobody asked to stop"}
       />
       <Metric
         label="Average call"

@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.0 — 15-Nov-2026
+
+- **Hear it first:** ring your own phone with the campaign's script before Start.
+- **Test a second opening:** half the people hear it, half the script's own; goals reached are
+  compared per opening. The AI and recording notices are always said with it.
+- **Improve tab** on a running campaign: best hours to call (IST answer rates), the opening test,
+  a draft for the people never reached, and a WhatsApp follow-up from the Follow-ups page.
+- Results card adds call backs booked and opt-outs.
+
 ## 0.2.0 — 15-Nov-2026
 
 - **Campaigns own their script (D-992).** A new campaign starts with its main task. The

@@ -1,0 +1,325 @@
+"use client";
+
+/**
+ * WHAT MAKES A CAMPAIGN WORK BETTER (D-992, item 8): hear the script on your own phone before
+ * Start, test a second opening line, call at the hours people answer, call the unanswered
+ * again, and follow up on WhatsApp. Each card has its own colour so the eye keeps them apart;
+ * status colours stay reserved for status.
+ */
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+
+import { problemToast } from "@/components/arc/feedback";
+import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { useDuplicateCampaign } from "@/lib/api/campaigns";
+import {
+  useCampaignInsights,
+  useCampaignTestCall,
+  useSaveOpeningB,
+  type CampaignInsights,
+} from "@/lib/api/campaignWorkspace";
+import { useClientRealm } from "@/lib/api/session";
+
+type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
+
+function Card({ title, hint, accent, children }: { title: string; hint: string; accent: string; children: React.ReactNode }) {
+  return (
+    <section className={`rounded-card border border-line border-l-4 ${accent} bg-surface p-4 shadow-card sm:p-5`}>
+      <h3 className="text-body font-semibold text-ink">{title}</h3>
+      <p className="mt-0.5 text-meta text-ink-muted">{hint}</p>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function errorText(error: unknown, fallback: string): string {
+  return problemToast(error, fallback).description ?? fallback;
+}
+
+/** Before Start: hear it, and set up a second opening to test. */
+export function BeforeStartBoosters(props: Common) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <HearItFirst {...props} />
+      <OpeningTest {...props} />
+    </div>
+  );
+}
+
+/** After Start: what the calls teach, and the next moves. */
+export function ImproveTab(props: Common) {
+  const { session } = useClientRealm();
+  const insights = useCampaignInsights(session, props.campaignId);
+  if (insights.isLoading) return <Skeleton rows={4} label="Reading what the calls teach" />;
+  if (!insights.data) return <ProblemNotice error={insights.error} onRetry={() => insights.refetch()} />;
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <BestTime insights={insights.data} />
+      <OpeningTest {...props} insights={insights.data} />
+      <CallUnansweredAgain {...props} />
+      <WhatsAppFollowUp slug={props.slug} />
+      <HearItFirst {...props} />
+    </div>
+  );
+}
+
+function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
+  const { session, href } = useClientRealm();
+  const call = useCampaignTestCall(session, campaignId);
+  const [number, setNumber] = useState("");
+  const [mine, setMine] = useState(true);
+  const result = call.data;
+  return (
+    <Card
+      title="Hear it on your phone first"
+      hint="Puts this campaign's script on the agent and rings your number, so you hear exactly what people will hear."
+      accent="border-l-brand"
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="min-w-48 flex-1 text-meta font-medium text-ink">
+          Your number
+          <input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            className={`${FIELD} mt-1 w-full`}
+            placeholder="98765 43210"
+            value={number}
+            onChange={(e) => setNumber(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className={PRIMARY_BUTTON_SM}
+          disabled={!canWrite || number.replace(/\D/g, "").length < 10 || call.isPending}
+          title={refusal}
+          onClick={() => call.mutate({ number, numberIsMine: mine })}
+        >
+          {call.isPending ? "Calling…" : "Ring me"}
+        </button>
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-meta text-ink-muted">
+        <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+        This number is mine
+      </label>
+      {call.error != null && (
+        <p role="alert" className="mt-2 text-meta text-danger">
+          {errorText(call.error, "The test call did not start")}
+        </p>
+      )}
+      {result?.status === "queued" && (
+        <p role="status" className="mt-2 text-meta text-ink">
+          Calling you now.{" "}
+          {result.call_id && (
+            <Link className="text-brand-strong underline" href={href(`/c/${slug}/calls/${result.call_id}`)}>
+              Open the call
+            </Link>
+          )}
+        </p>
+      )}
+      {result?.status === "blocked" && (
+        <p role="alert" className="mt-2 text-meta text-warn">
+          {result.blocked_reason ?? "The test call could not be placed right now."}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { insights?: CampaignInsights }) {
+  const { session } = useClientRealm();
+  const fallback = useCampaignInsights(session, campaignId);
+  const data = insights ?? fallback.data;
+  const save = useSaveOpeningB(session, campaignId);
+  const [text, setText] = useState("");
+  useEffect(() => setText(data?.opening_b ?? ""), [data?.opening_b]);
+  const running = Boolean(data?.opening_b);
+  const [a, b] = data?.openings ?? [];
+  return (
+    <Card
+      title="Test a second opening line"
+      hint="Half the people hear this opening, half the script's own. The AI and recording notices are always said with it."
+      accent="border-l-info"
+    >
+      <label className="sr-only" htmlFor={`${campaignId}-opening-b`}>
+        Second opening line
+      </label>
+      <textarea
+        id={`${campaignId}-opening-b`}
+        className={`${FIELD} min-h-20 w-full resize-y`}
+        maxLength={200}
+        value={text}
+        placeholder="Namaskaram! This is Anjali from Rytu Khata. Do you have two minutes to set up the app?"
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={PRIMARY_BUTTON_SM}
+          disabled={!canWrite || !text.trim() || text.trim() === (data?.opening_b ?? "") || save.isPending}
+          title={refusal}
+          onClick={() => save.mutate(text.trim())}
+        >
+          {running ? "Save opening" : "Start the test"}
+        </button>
+        {running && (
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            disabled={!canWrite || save.isPending}
+            onClick={() => save.mutate(null)}
+          >
+            Stop the test
+          </button>
+        )}
+      </div>
+      {save.error != null && (
+        <p role="alert" className="mt-2 text-meta text-danger">
+          {errorText(save.error, "That did not save")}
+        </p>
+      )}
+      {running && a && b && (
+        <div className="mt-3 space-y-2">
+          <table className="w-full text-meta">
+            <thead className="text-ink-muted">
+              <tr>
+                <th className="text-left font-medium">Opening</th>
+                <th className="text-right font-medium">People</th>
+                <th className="text-right font-medium">Answered</th>
+                <th className="text-right font-medium">Goal reached</th>
+              </tr>
+            </thead>
+            <tbody className="text-ink">
+              {[
+                { label: "Script's own", o: a },
+                { label: "Second", o: b },
+              ].map(({ label, o }) => (
+                <tr key={o.variant}>
+                  <td>{label}</td>
+                  <td className="text-right tabular-nums">{o.people.toLocaleString("en-IN")}</td>
+                  <td className="text-right tabular-nums">{o.answered.toLocaleString("en-IN")}</td>
+                  <td className="text-right tabular-nums">
+                    {o.goal_reached.toLocaleString("en-IN")}
+                    {o.goal_rate != null && ` (${Math.round(o.goal_rate * 100)}%)`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data?.opening_verdict && <p className="text-meta text-ink-muted">{data.opening_verdict}</p>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function hourLabel(hour: number): string {
+  const h = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h} ${hour < 12 ? "am" : "pm"}`;
+}
+
+function BestTime({ insights }: { insights: CampaignInsights }) {
+  const max = Math.max(1, ...insights.hours.map((h) => h.calls));
+  const best = new Set(insights.best_hours.map((h) => h.hour));
+  return (
+    <Card
+      title="Best time to call"
+      hint={`When people answer this campaign's calls, by hour (IST). An hour needs ${insights.min_calls_per_hour} calls before it can be judged.`}
+      accent="border-l-brand-strong"
+    >
+      {insights.hours.length === 0 ? (
+        <p className="text-meta text-ink-muted">No calls yet.</p>
+      ) : (
+        <>
+          {insights.best_hours.length > 0 ? (
+            <p className="mb-3 text-body text-ink">
+              Best:{" "}
+              {insights.best_hours
+                .map((h) => `${hourLabel(h.hour)} (${Math.round(h.rate * 100)}% answer)`)
+                .join(", ")}
+              . Narrow the calling hours in How it calls to call then.
+            </p>
+          ) : (
+            <p className="mb-3 text-meta text-ink-muted">Not enough calls in any hour yet to say.</p>
+          )}
+          <ul className="space-y-1" aria-label="Calls and answers by hour">
+            {insights.hours.map((h) => (
+              <li key={h.hour} className="flex items-center gap-2 text-meta">
+                <span className="w-12 shrink-0 text-ink-muted tabular-nums">{hourLabel(h.hour)}</span>
+                <span className="relative h-3 flex-1 overflow-hidden rounded-sm bg-surface-muted">
+                  <span
+                    className="absolute inset-y-0 left-0 bg-line"
+                    style={{ width: `${(h.calls / max) * 100}%` }}
+                    aria-hidden
+                  />
+                  <span
+                    className={`absolute inset-y-0 left-0 ${best.has(h.hour) ? "bg-brand" : "bg-brand/50"}`}
+                    style={{ width: `${(h.answered / max) * 100}%` }}
+                    aria-hidden
+                  />
+                </span>
+                <span className="w-28 shrink-0 text-right text-ink tabular-nums">
+                  {h.answered}/{h.calls} answered
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function CallUnansweredAgain({ slug, campaignId, canWrite, refusal }: Common) {
+  const { session, href } = useClientRealm();
+  const router = useRouter();
+  const duplicate = useDuplicateCampaign(session, campaignId);
+  return (
+    <Card
+      title="Call the unanswered again"
+      hint="Makes a new draft with only the people this campaign never reached, same script and settings. You start it when you are ready."
+      accent="border-l-ink-muted"
+    >
+      <button
+        type="button"
+        className={PRIMARY_BUTTON_SM}
+        disabled={!canWrite || duplicate.isPending}
+        title={refusal}
+        onClick={() =>
+          duplicate.mutate(
+            { with_unreached: true },
+            { onSuccess: (made) => router.push(href(`/c/${slug}/campaigns/${made.id}`)) },
+          )
+        }
+      >
+        {duplicate.isPending ? "Making it…" : "Make a draft for the unanswered"}
+      </button>
+      {duplicate.error != null && (
+        <p role="alert" className="mt-2 text-meta text-danger">
+          {errorText(duplicate.error, "The draft was not made")}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function WhatsAppFollowUp({ slug }: { slug: string }) {
+  const { href } = useClientRealm();
+  return (
+    <Card
+      title="Follow up on WhatsApp"
+      hint="Send a WhatsApp message after a call, for example the install steps or a link, to the people who asked for it or did not finish."
+      accent="border-l-brand-bright"
+    >
+      <p className="text-meta text-ink-muted">
+        Make a follow-up that starts when a call ends, choose this campaign&apos;s agent and the outcomes it is for, then
+        add a WhatsApp step.
+      </p>
+      <Link href={href(`/c/${slug}/follow-ups`)} className={`${SECONDARY_BUTTON_SM} mt-3 inline-flex`}>
+        Set up a follow-up
+      </Link>
+    </Card>
+  );
+}

@@ -28,6 +28,7 @@ import { useClientRealm } from "@/lib/api/session";
 
 import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
+import { BeforeStartBoosters, ImproveTab } from "./CampaignBoosters";
 import { CampaignCalls } from "./CampaignCalls";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
 import { CampaignQuestions } from "./CampaignQuestions";
@@ -291,6 +292,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               { value: "calls", label: "Calls & recordings" },
               { value: "questions", label: "Questions to answer" },
               { value: "results", label: "What happened" },
+              { value: "improve", label: "Improve" },
               { value: "setup", label: "Task, materials & script" },
               { value: "settings", label: "How it calls" },
             ]}
@@ -309,6 +311,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 <CampaignCalls slug={slug} campaignId={campaignId} />
               ) : current === "questions" ? (
                 <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+              ) : current === "improve" ? (
+                <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
               ) : current === "setup" ? (
                 <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
               ) : (
@@ -350,6 +354,12 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                       list. Start puts the script on the agent, then calls.
                     </p>
                   </div>
+                  <BeforeStartBoosters
+                    slug={slug}
+                    campaignId={campaignId}
+                    canWrite={write.allowed}
+                    refusal={refusal}
+                  />
                   <div
                     key="before-launch"
                     className="settings-enter space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6"

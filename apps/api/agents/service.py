@@ -4070,6 +4070,19 @@ def lead_first_words(agent: AgentRow, *, call_is_recorded: bool) -> str | None:
     )
 
 
+def campaign_first_words(agent: AgentRow, opening_line: str, *, call_is_recorded: bool) -> str:
+    """A campaign's own opening line with the agent's notices: `join_first_words` says each
+    switched-on notice's stored sentence beside an opening that does not already say it."""
+    posture = posture_of(agent)
+    return join_first_words(
+        compose_opening_line(posture, call_is_recorded=call_is_recorded),
+        opening_line.strip(),
+        ai_notice=spoken_ai_notice(posture),
+        language=str(agent["language_primary"]),
+        names=tuple(n for n in (str(agent.get("business_name") or ""), str(agent["name"])) if n),
+    )
+
+
 def dial_first_words(
     agent: AgentRow, *, test_call: bool, call_is_recorded: bool, lead_name: str | None = None
 ) -> str | None:
@@ -4120,8 +4133,13 @@ async def dispatch_call(
     owner_test: OwnerTestDial | None = None,
     rings_at_any_hour: bool = False,
     contact_details: dict[str, str] | None = None,
+    opening_line: str | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
+
+    `opening_line` is a campaign's own opening for this call (its A/B test, D-992). It goes
+    through `campaign_first_words`, which puts the agent's switched-on notices beside any
+    opening that does not already say them, so no opening can drop a notice (hard rule 5).
 
     THE INTENT ROW IS WRITTEN AND COMMITTED BEFORE THE ENGINE IS ASKED TO DIAL, and this
     used to be a promise the shape of the function could not keep: the INSERT bound
@@ -4378,11 +4396,17 @@ async def dispatch_call(
                     if owner_test is not None
                     else None
                 ),
-                opening=dial_first_words(
-                    agent,
-                    test_call=trial is not None or owner_test is not None,
-                    call_is_recorded=engine.capabilities.records_audio,
-                    lead_name=lead_name or prefill.name,
+                opening=(
+                    campaign_first_words(
+                        agent, opening_line, call_is_recorded=engine.capabilities.records_audio
+                    )
+                    if opening_line and opening_line.strip()
+                    else dial_first_words(
+                        agent,
+                        test_call=trial is not None or owner_test is not None,
+                        call_is_recorded=engine.capabilities.records_audio,
+                        lead_name=lead_name or prefill.name,
+                    )
                 ),
                 rings_at_any_hour=rings_at_any_hour,
             ),
