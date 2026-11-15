@@ -92,7 +92,7 @@ export function WhatItKnows({
   const notes = allNotes.filter((n) => n.state !== "removed");
 
   if (knows.isLoading) return <Skeleton rows={5} label="Loading what your agents know" />;
-  if (knows.error || !knows.data) {
+  if (!knows.data) {
     return (
       <EmptyState
         variant="error"
@@ -162,10 +162,16 @@ export function WhatItKnows({
     );
   }
 
-  const uploadsFailed = uploads.error || (!uploads.isLoading && !uploads.data);
+  // A re-read that failed after the list arrived keeps it (it was true when read).
+  const uploadsFailed = !uploads.isLoading && !uploads.data;
 
   return (
     <div className="space-y-10">
+      {/* A re-read that failed after the page arrived: what is below was true when read. */}
+      {knows.error ? <ProblemNotice error={knows.error} onRetry={() => void knows.refetch()} /> : null}
+      {uploads.error && uploads.data ? (
+        <ProblemNotice error={uploads.error} onRetry={() => void uploads.refetch()} />
+      ) : null}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
