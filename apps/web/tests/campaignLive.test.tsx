@@ -13,7 +13,7 @@ import {
   openTab,
   progressFixture,
 } from "./campaignFixtures";
-import { renderClientPage, type Routes } from "./harness";
+import { problem, renderClientPage, type Routes } from "./harness";
 
 /**
  * A launched campaign's page as an owner watches it: who is on a call now, how many calls
@@ -72,6 +72,25 @@ describe("the live panel of a running campaign", () => {
     // One person listed of the two the count says are on a call: the rest are counted.
     expect(container.textContent).toContain("and 1 more");
     expect(container.textContent).toContain("2 of 3");
+  });
+
+  it("keeps who is on a call on screen when one re-read fails", async () => {
+    const table = routes(
+      progressFixture({ ...LAUNCHED, contacts: { pending: 4, dialing: 1 }, total: 5, effective_concurrency: 3 }),
+      { [ON_A_CALL]: contactsFixture({ total: 1, items: [ON_CALL_PERSON] }) },
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await renderClientPage(campaignPage(), table, "acme", client);
+    await screen.findByText("Lakshmi");
+
+    table[ON_A_CALL] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries({ predicate: (q) => q.queryKey.includes("contacts") });
+    });
+
+    // The list polls every few seconds; one failure says so and keeps the people it had.
+    expect(await screen.findByText(/Couldn't (load|refresh) who is on a call./)).toBeTruthy();
+    expect(screen.getByText("Lakshmi")).toBeTruthy();
   });
 
   it("says the account's call lines hold it to fewer calls at once than it asked for", async () => {
