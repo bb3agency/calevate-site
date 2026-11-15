@@ -1,4 +1,5 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
@@ -7,7 +8,7 @@ import type { Me } from "@/lib/api/client";
 import type { KbUpload } from "@/lib/api/kb";
 
 import { businessProfileFixture } from "./businessProfileFixture";
-import { renderClientPage, type Routes } from "./harness";
+import { problem, renderClientPage, type Routes } from "./harness";
 
 /**
  * WHAT A STATUS MAY CLAIM (D-874, D-868). A PDF reaches the agents once its words are read,
@@ -296,5 +297,52 @@ describe("what the agents know, grouped", () => {
     await renderKnowledge();
     expect(await screen.findByText("Nothing added yet")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /^Links/ })).toBeNull();
+  });
+});
+
+describe("a re-read that fails after the knowledge page arrived", () => {
+  it("keeps the facts and the files on screen beside the notice", async () => {
+    const table: Routes = {
+      "/v1/me": ME,
+      "/v1/kb/notes": { notes: [] },
+      "/v1/kb/uploads": [upload()],
+      "/v1/teach/questions": { items: [], open_count: 0 },
+      "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
+      // Still reaching the agents, so the page looks again on a timer.
+      "/v1/kb/knows": {
+        facts: [
+          {
+            id: "f1",
+            text: "We open at 9 on Sundays.",
+            origin: "typed",
+            pinned: false,
+            question: null,
+            created_at: "2026-11-01T04:30:00Z",
+          },
+        ],
+        facts_state: "publishing",
+        items: [],
+        pinned_not_yet_on: [],
+      },
+      "/v1/kb/teach/open": { teaching: null },
+      "/v1/business-profile": businessProfileFixture({ services: [], faqs: [], hours: [], branches: [] }),
+      "/v1/agents": [],
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    await renderClientPage(<KnowledgePage />, table, "acme", client);
+    expect(await screen.findByText("We open at 9 on Sundays.")).toBeTruthy();
+    expect((await screen.findAllByText("Price list.pdf")).length).toBeGreaterThan(0);
+
+    table["/v1/kb/knows"] = problem(503, { title: "Service unavailable" });
+    table["/v1/kb/uploads"] = problem(503, { title: "Service unavailable" });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["kb-uploads"] });
+      await client.refetchQueries({ queryKey: ["kb-knows"], exact: false });
+    });
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(2));
+
+    // They were true when read; a failed re-read says so and hides nothing.
+    expect(screen.getByText("We open at 9 on Sundays.")).toBeTruthy();
+    expect(screen.getAllByText("Price list.pdf").length).toBeGreaterThan(0);
   });
 });

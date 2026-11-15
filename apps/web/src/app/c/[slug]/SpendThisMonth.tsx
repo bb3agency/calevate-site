@@ -29,7 +29,7 @@ export function SpendThisMonth({
       </MoneyRowPending>
     );
   }
-  if (usage.error || !usage.data) {
+  if (!usage.data) {
     return (
       <MoneyRowPending label="Spend this month">
         <ProblemNotice
@@ -39,7 +39,7 @@ export function SpendThisMonth({
       </MoneyRowPending>
     );
   }
-  return (
+  const metric = (
     <Metric
       className="py-4"
       label="Spend this month"
@@ -51,6 +51,15 @@ export function SpendThisMonth({
         </Link>
       }
     />
+  );
+  // A re-read that failed after the figure arrived keeps it, under the notice.
+  return usage.error ? (
+    <div>
+      {metric}
+      <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />
+    </div>
+  ) : (
+    metric
   );
 }
 

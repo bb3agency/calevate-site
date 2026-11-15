@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -82,6 +82,14 @@ export function FieldsDrawer({
     basis === savedBasis
       ? onClose()
       : saveBasis.mutate({ webhookId: source.id, consentBasis: basis }, { onSuccess: onClose });
+  // The fields are saved through run, not a per-call onSuccess: run raises "Saved" from its
+  // own promise, which still settles after the drawer has closed. Their success then saves
+  // what these leads are (when it changed) and closes, once per save.
+  const afterFields = useRef(saveBasisThenClose);
+  afterFields.current = saveBasisThenClose;
+  useEffect(() => {
+    if (feedback.status === "success") afterFields.current();
+  }, [feedback.status]);
 
   const field = (label: string, value: string, onChange: (next: string) => void, hint: string, placeholder: string) => {
     const id = `${ids}-${label}`;
@@ -128,7 +136,7 @@ export function FieldsDrawer({
             onClick={() =>
               fixed
                 ? saveBasisThenClose()
-                : save.mutate({ webhookId: source.id, mapping }, { onSuccess: saveBasisThenClose })
+                : feedback.run({ webhookId: source.id, mapping })
             }
           >
             Save

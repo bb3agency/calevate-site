@@ -16,6 +16,7 @@ import { AskAssistant } from "@/components/copilot/AskAssistant";
 import { canDialOut } from "@/lib/agentState";
 import { ApiProblem } from "@/lib/api/client";
 import { useAgents } from "@/lib/api/agents";
+import { asciiDigits } from "@/lib/phoneNumber";
 import type { FollowUpStep, FollowUpStepEditIn, FollowUpWaitIn } from "@/lib/api/followUps";
 import { useClientRealm } from "@/lib/api/session";
 import { useWhatsAppTemplates } from "@/lib/api/whatsapp";
@@ -131,7 +132,9 @@ function WaitFields({
   const [unit, setUnit] = useState<WaitUnit>(start.unit);
   const units: WaitUnit[] = step.kind === "call" ? ["minutes", "hours"] : ["minutes", "hours", "days"];
 
-  const update = (nextAmount: string, nextUnit: WaitUnit) => {
+  const update = (typed: string, nextUnit: WaitUnit) => {
+    // A Telugu or Hindi keyboard types its own digits; they are the same number.
+    const nextAmount = /^\s*\p{Nd}+\s*$/u.test(typed) ? asciiDigits(typed) : typed;
     setAmount(nextAmount);
     setUnit(nextUnit);
     const n = Number(nextAmount);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -74,6 +74,11 @@ export function RestoreDialog({
     successToast: COPY.restoredToast,
     successDescription: COPY.restoredToastBody,
   });
+  // Closed from the outcome, not a per-call `onSuccess`: only `run` raises the toast from
+  // its own promise, which still settles after this dialog has unmounted.
+  useEffect(() => {
+    if (restoreFeedback.status === "success") onClose();
+  }, [restoreFeedback.status, onClose]);
   const [ground, setGround] = useState<DncRestoreGround | null>(null);
   const [note, setNote] = useState("");
   const noteId = useId();
@@ -98,15 +103,12 @@ export function RestoreDialog({
       }}
       onConfirm={() => {
         if (!ready) return;
-        restore.mutate(
-          {
-            entryId: entry.id,
-            ground,
-            note: ground === "asked_to_be_called" ? note.trim() : null,
-            latestEvidenceId: records[0]?.id ?? null,
-          },
-          { onSuccess: onClose },
-        );
+        restoreFeedback.run({
+          entryId: entry.id,
+          ground,
+          note: ground === "asked_to_be_called" ? note.trim() : null,
+          latestEvidenceId: records[0]?.id ?? null,
+        });
       }}
     >
       <p>

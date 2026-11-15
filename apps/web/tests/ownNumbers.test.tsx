@@ -540,6 +540,25 @@ describe("buying a number", () => {
       expect(calls.some((call) => call.path === searched)).toBe(true),
     );
   });
+
+  it("takes the digits a Telugu keyboard types, and says the digits found nothing rather than the city", async () => {
+    const searched = OWN_NUMBERS_PATHS.available("Hyderabad", "4321", null);
+    const { calls } = await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), { [searched]: { numbers: [], next_cursor: null } }),
+    );
+    fireEvent.change(await screen.findByLabelText("City"), { target: { value: "Hyderabad" } });
+    const digits = screen.getByLabelText("Digits it contains (optional)") as HTMLInputElement;
+    // U+0C66 is Telugu zero; "౪౩౨౧" is 4321.
+    const telugu = [4, 3, 2, 1].map((d) => String.fromCodePoint(0x0c66 + d)).join("");
+    fireEvent.change(digits, { target: { value: telugu } });
+    expect(digits.value).toBe("4321");
+    fireEvent.click(screen.getByRole("button", { name: "Show numbers" }));
+    await waitFor(() => expect(calls.some((call) => call.path === searched)).toBe(true));
+    // The city may have free numbers; none of them holds these digits.
+    expect(await screen.findByText(/No free number in Hyderabad has 4321 in it/)).toBeTruthy();
+    expect(screen.queryByText(/No number is free in Hyderabad/)).toBeNull();
+  });
 });
 
 describe("what the confirmation says was charged", () => {

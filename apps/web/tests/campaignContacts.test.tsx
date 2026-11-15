@@ -228,6 +228,28 @@ describe("the contact editor", () => {
     expect(within(table).getByText("Ravi")).toBeTruthy();
   });
 
+  it("finds a row by the number as the row prints it, or in any script's digits", () => {
+    // The row shows "+91 98765 43210"; typing what is on screen must find it.
+    render(<Harness initial={entries("phone,name\n9876543210,Priya\n9876501234,Ravi")} />);
+    const box = screen.getByRole("searchbox", { name: "Search contacts" });
+    const table = screen.getByRole("table");
+
+    fireEvent.change(box, { target: { value: "98765 43210" } });
+    expect(within(table).getByText("Priya")).toBeTruthy();
+    expect(within(table).queryByText("Ravi")).toBeNull();
+
+    fireEvent.change(box, { target: { value: "+91 98765 01234" } });
+    expect(within(table).getByText("Ravi")).toBeTruthy();
+    expect(within(table).queryByText("Priya")).toBeNull();
+
+    // The last digits typed on a Telugu keyboard (U+0C66 is Telugu zero).
+    const telugu = (digits: string) =>
+      [...digits].map((d) => String.fromCodePoint(0x0c66 + Number(d))).join("");
+    fireEvent.change(box, { target: { value: telugu("01234") } });
+    expect(within(table).getByText("Ravi")).toBeTruthy();
+    expect(within(table).queryByText("Priya")).toBeNull();
+  });
+
   it("downloads a sample built only from non-dialable demo numbers", async () => {
     const blobs: Blob[] = [];
     vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {

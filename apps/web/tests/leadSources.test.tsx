@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
+import { ToastProvider } from "@/components/arc/toast";
 
 import { LEAD_CALLING_ROUTES } from "./fixtures/leadCalling";
 import type { Me } from "@/lib/api/client";
@@ -1113,6 +1114,23 @@ describe("the fields a lead source reads", () => {
     expect(JSON.parse(put.body ?? "{}")).toEqual({
       mapping: { phone: "mobile", name: "full_name", budget: "Budget (Rs)" },
     });
+  });
+
+  it("says it saved once the drawer has closed", async () => {
+    await renderClientPage(<ToastProvider><LeadSourcesPage /></ToastProvider>, {
+      "/v1/me": ME,
+      [ACTIVITY_PATH]: { items: [] },
+      [SOURCES_PATH]: sourceList(leadSource({ id: FORM_SOURCE_ID, source: "website_form", mapping: { phone: "mobile" } })),
+      [AGENTS_PATH]: [],
+      ...LEAD_CALLING_ROUTES,
+      [MAPPING_PATH]: { id: FORM_SOURCE_ID, mapping: {} },
+    });
+    await screen.findByText("Recent deliveries");
+    await chooseRowAction(FORM_SOURCE_ID, "Change field names");
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "full_name" } });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => expect(screen.queryByLabelText("Name")).toBeNull());
+    expect(await screen.findByRole("group", { name: /Saved/ })).toBeTruthy();
   });
 
   it("says the phone is needed before the click, not after", async () => {

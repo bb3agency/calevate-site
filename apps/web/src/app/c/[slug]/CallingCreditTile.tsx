@@ -57,10 +57,10 @@ export function CallingCreditTile({
       </MoneyRowPending>
     );
   }
-  // `|| !wallet.data` for the PAUSED query (offline): `isLoading` is false, `error` is
-  // null and `data` is undefined, and a tile that fell through all three would print
-  // "—" to a client whose wallet may be empty (§52).
-  if (wallet.error || !wallet.data) {
+  // On `!wallet.data`, not on the error: a failed first read and the PAUSED query (offline:
+  // not loading, no error, no data) both land here, and a tile that fell through would
+  // print "—" to a client whose wallet may be empty (§52).
+  if (!wallet.data) {
     return (
       <MoneyRowPending label="Calling credit">
         <ProblemNotice
@@ -81,7 +81,7 @@ export function CallingCreditTile({
   if (state === "not-prepaid") return null;
   const trial = activeTrial(wallet.data);
 
-  return (
+  const metric = (
     <Metric
       className="py-4"
       label="Calling credit left"
@@ -115,6 +115,15 @@ export function CallingCreditTile({
         </>
       }
     />
+  );
+  // A re-read that failed after the balance arrived keeps it, under the notice.
+  return wallet.error ? (
+    <div>
+      {metric}
+      <ProblemNotice error={wallet.error} onRetry={() => void wallet.refetch()} />
+    </div>
+  ) : (
+    metric
   );
 }
 

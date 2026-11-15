@@ -12,7 +12,7 @@
  * through `useMyCallLines`, so sending here updates the other at once.
  */
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Field } from "@/components/arc/field";
@@ -94,6 +94,12 @@ function AskDialog({ session, data, onClose }: { session: Session; data: MyCallL
     errorDisplay: "inline",
     successToast: "Sent. We'll let you know.",
   });
+  // Closed from the outcome, not a per-call onSuccess: only run raises the toast from its
+  // own promise, which still settles after this dialog has unmounted (the tile swaps it for
+  // "Asked for N" as soon as the request lands).
+  useEffect(() => {
+    if (feedback.status === "success") onClose();
+  }, [feedback.status, onClose]);
   const [wanted, setWanted] = useState<number | null>(Math.min(data.call_lines + 1, data.max_lines));
   const [note, setNote] = useState("");
   const pending = ask.isPending;
@@ -118,7 +124,7 @@ function AskDialog({ session, data, onClose }: { session: Session; data: MyCallL
             onClick={() => {
               if (pending) return;
               const trimmed = note.trim();
-              ask.mutate({ wanted, note: trimmed === "" ? null : trimmed }, { onSuccess: onClose });
+              feedback.run({ wanted, note: trimmed === "" ? null : trimmed });
             }}
           >
             Send

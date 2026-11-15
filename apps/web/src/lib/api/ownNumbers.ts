@@ -20,6 +20,8 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 
+import { asciiDigits } from "@/lib/phoneNumber";
+
 import { accountAction, withAccountCode } from "./accountCode";
 import { agentKeys } from "./agents";
 import { apiRequest, type Session } from "./client";
@@ -67,11 +69,12 @@ export function numberStage(status: OwnNumbersStatus): NumberStage {
 const BASE = "/v1/numbers/own";
 
 /** The number search takes up to ten digits and nothing else (`^\d{1,10}$` on the server,
- * client and admin alike), so the field keeps only those and no search is refused for it. */
+ * client and admin alike), so the field keeps only those and no search is refused for it.
+ * Digits in any script count: a Telugu or Hindi keyboard types its own. */
 export const SEARCH_DIGITS_MAX = 10;
 
 export function searchDigits(value: string): string {
-  return value.replace(/\D/g, "").slice(0, SEARCH_DIGITS_MAX);
+  return asciiDigits(value).slice(0, SEARCH_DIGITS_MAX);
 }
 
 export const OWN_NUMBERS_PATHS = {

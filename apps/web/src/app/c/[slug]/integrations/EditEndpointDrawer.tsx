@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { Drawer } from "@/components/console/drawer";
@@ -45,6 +45,11 @@ export function EditEndpointDrawer({
 }) {
   const update = useUpdateEndpoint(session);
   const feedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Saved" });
+  // Closed from the outcome, not a per-call onSuccess: only run raises the toast from its
+  // own promise, which still settles after this drawer has unmounted.
+  useEffect(() => {
+    if (feedback.status === "success") onClose();
+  }, [feedback.status, onClose]);
   const sheet = endpoint.kind === SHEET_KIND;
   const crm = endpoint.kind === LEADSQUARED_KIND;
   // Only a signed webhook carries recordings and transcripts; a sheet and LeadSquared take events.
@@ -66,7 +71,7 @@ export function EditEndpointDrawer({
       : catalogue;
 
   const save = () =>
-    update.mutate(
+    feedback.run(
       {
         endpointId: endpoint.id,
         change: eventsOnly
@@ -78,7 +83,6 @@ export function EditEndpointDrawer({
             }
           : { events, ...wireExtras(events, extras) },
       },
-      { onSuccess: onClose },
     );
 
   return (

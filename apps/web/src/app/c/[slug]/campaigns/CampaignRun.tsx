@@ -169,7 +169,7 @@ function OnACallNow({ campaignId, count }: { campaignId: string; count: number }
   const { session } = useClientRealm();
   const now = useCallingNow(session, campaignId, true);
   // The list is a moment behind the count; it says so rather than showing an empty box.
-  if (now.error || !now.data || now.data.items.length === 0) {
+  if (!now.data || now.data.items.length === 0) {
     return (
       <div className="min-w-0 space-y-1">
         <h3 className="text-[13px] font-medium text-ink-muted">On a call now</h3>
@@ -189,6 +189,8 @@ function OnACallNow({ campaignId, count }: { campaignId: string; count: number }
       {count > people.length ? (
         <p className="text-meta text-ink-muted">and {formatCount(count - people.length)} more</p>
       ) : null}
+      {/* A poll that failed after the list arrived keeps the people it had, and says so. */}
+      {now.error ? <p className="text-meta text-ink-muted">Couldn&apos;t refresh who is on a call.</p> : null}
     </div>
   );
 }
