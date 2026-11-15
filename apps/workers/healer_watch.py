@@ -80,7 +80,14 @@ async def silent_agents(
 _PARTY: Final = "CASE WHEN {a}.direction = 'inbound' THEN {a}.from_e164 ELSE {a}.to_e164 END"
 
 
-async def repeat_callers(session: AsyncSession) -> dict[UUID, int]:
+@dataclass(frozen=True, slots=True)
+class RingBacks:
+    calls: int
+    #: When the newest of them was recorded: a line check closed after it has seen them all.
+    last_at: datetime
+
+
+async def repeat_callers(session: AsyncSession) -> dict[UUID, RingBacks]:
     """Per agent, the calls inside `healer_repeat_call_window_minutes` that are the same
     caller ringing again within `healer_repeat_call_minutes` of a short or silent call."""
     settings = get_settings()
@@ -88,7 +95,8 @@ async def repeat_callers(session: AsyncSession) -> dict[UUID, int]:
     rows = (
         await session.execute(
             text(
-                "SELECT b.agent_id, count(DISTINCT b.id) FROM calls b JOIN calls a ON "
+                "SELECT b.agent_id, count(DISTINCT b.id), max(b.created_at) FROM calls b "
+                "JOIN calls a ON "
                 "a.agent_id = b.agent_id AND a.id <> b.id AND b.direction = 'inbound' AND "
                 f"b.from_e164 IS NOT NULL AND b.from_e164 = {first} AND "
                 "b.started_at > coalesce(a.ended_at, a.started_at) AND b.started_at <= "
@@ -106,7 +114,7 @@ async def repeat_callers(session: AsyncSession) -> dict[UUID, int]:
             },
         )
     ).all()
-    return {UUID(str(r[0])): int(r[1]) for r in rows}
+    return {UUID(str(r[0])): RingBacks(calls=int(r[1]), last_at=r[2]) for r in rows}
 
 
 # --- failure domains ---------------------------------------------------------------------------
@@ -372,6 +380,7 @@ __all__ = [
     "Burn",
     "ObjectiveCounts",
     "PublishDrop",
+    "RingBacks",
     "actions_recent",
     "burn_rate",
     "burning",

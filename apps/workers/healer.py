@@ -264,7 +264,7 @@ async def score_agent_health(ctx: dict[str, Any]) -> str:
 class _TenantScore:
     verdicts: list[health.Verdict]
     silent: list[tuple[UUID, datetime]]
-    ring_backs: dict[UUID, int]
+    ring_backs: dict[UUID, healer_watch.RingBacks]
     failing_in_domain_window: dict[UUID, str]
     failing_in_page_window: dict[UUID, str]
     objective: healer_watch.ObjectiveCounts
@@ -339,15 +339,21 @@ async def _act_on_calls(tenant_id: UUID, scored: _TenantScore, tally: Counter[st
             tenant_id, agent_id, trigger=AGENT_SILENT_CALL, at=last_at
         ):
             tally["opened_voice_fallback"] += 1
-    for agent_id, ring_backs in scored.ring_backs.items():
+    for agent_id, found in scored.ring_backs.items():
+        ring_backs = found.calls
         if ring_backs < settings.healer_repeat_call_count:
             continue
+        line_key = incidents.dedupe_key("line_protection", agent_id)
         async with untenanted_session() as session:
             if await incidents.open_for(session, incidents.dedupe_key("engine_outage", "platform")):
                 continue
+            if await incidents.resolved_since(session, line_key, found.last_at):
+                # A line check closed after the newest of these calls: they stay inside the
+                # counting window for an hour, and would open the same check every scoring.
+                continue
             _, opened = await incidents.open_incident(
                 session,
-                key=incidents.dedupe_key("line_protection", agent_id),
+                key=line_key,
                 playbook="line_protection",
                 trigger_code=AGENT_REPEAT_HANGUPS,
                 scope="agent",
@@ -683,8 +689,13 @@ async def _advance_due(tally: Counter[str]) -> None:
             await _paused(incident, why="stopped by the action breaker")
             tally["breaker"] += 1
             continue
-        if playbook.key != VOICE_FALLBACK and in_shadow(playbook.key) and incident.state == "open":
-            # The voice fallback writes its own dry run, naming the voice it would move to.
+        if (
+            playbook.key not in (VOICE_FALLBACK, CALL_MISTAKE_FIX)
+            and in_shadow(playbook.key)
+            and incident.state == "open"
+        ):
+            # These two write their own dry run: the voice it would move to, the lines it
+            # would have rewritten, each settling the row the owner's screen reads.
             await _record(
                 playbook=playbook.key,
                 step="act",
