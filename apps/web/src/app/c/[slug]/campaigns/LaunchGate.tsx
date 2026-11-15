@@ -25,7 +25,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 
 import { AtOnceHint } from "./CampaignSettings";
-import { ConsentProvenanceAnswer, listSourceId } from "./ConsentProvenance";
+import { ConsentProvenanceAnswer } from "./ConsentProvenance";
 import { LaunchConfirm } from "./LaunchConfirm";
 import { callingHoursText } from "./campaignProgress";
 import { CONSENT_SOURCES } from "./choices";
@@ -92,13 +92,18 @@ export function LaunchGate({
   )?.rule;
   const at = (path: string) => href(`/c/${slug}${path}`);
 
-  const jumpToListSource = () => {
-    const form = document.getElementById(listSourceId(campaignId));
-    form?.scrollIntoView({ block: "center", behavior: "smooth" });
-    form?.querySelector<HTMLElement>("input")?.focus({ preventScroll: true });
-  };
-
-  const items: ChecklistItem[] = blockers.map((blocker) => {
+  // Two blockers are not rows here: where the list came from is asked as the question itself
+  // below, and adding people is the People to call section's job (founder, 15 Nov 2026).
+  const noPeople = blockers.some((b) => b.rule === "no_contacts");
+  const provenanceBlocker = blockers.find((b) => b.rule === provenanceRule);
+  const provenanceProblem =
+    provenanceBlocker && provenanceRule !== "consent_provenance_missing"
+      ? (blockerNote(provenanceBlocker.rule, { promotionalOpen })?.text ?? provenanceBlocker.reason)
+      : undefined;
+  const listed = blockers.filter(
+    (b) => b.rule !== "no_contacts" && !(PROVENANCE_RULES as readonly string[]).includes(b.rule),
+  );
+  const items: ChecklistItem[] = listed.map((blocker) => {
     const note = blockerNote(blocker.rule, { promotionalOpen });
     const why = note?.why ?? (note?.whyFromServer ? blocker.reason : undefined);
     const inPage = blockerInPage(blocker.rule);
@@ -106,10 +111,6 @@ export function LaunchGate({
       inPage === "add-people" ? (
         <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canWrite} title={refusal} onClick={onAddPeople}>
           Add people
-        </button>
-      ) : inPage === "list-source" && provenanceRule ? (
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={jumpToListSource}>
-          {blocker.rule === "consent_source_refused" ? "Correct answer" : "Answer"}
         </button>
       ) : inPage === "rewrite" ? (
         <AskAssistant
@@ -119,9 +120,9 @@ export function LaunchGate({
       ) : undefined;
     const link = blockerDestination(blocker.rule, at, campaignId, progress.data?.agent_id);
     const detail =
-      note?.owner || why ? (
+      note?.owner === "calevate" || why ? (
         <>
-          {note?.owner ? <span className="mr-3">{OWNER_BADGE[note.owner]}</span> : null}
+          {note?.owner === "calevate" ? <span className="mr-3">{OWNER_BADGE[note.owner]}</span> : null}
           {why ? <Why inline>{why}</Why> : null}
         </>
       ) : undefined;
@@ -135,7 +136,8 @@ export function LaunchGate({
       action,
     };
   });
-  const todo = items.filter((item) => item.state === "todo").length;
+  const todo =
+    items.filter((item) => item.state === "todo").length + (provenanceRule ? 1 : 0);
 
   return (
     // MANDATORY REGULATORY COMPLIANCE CHECKS (founder, 15 Nov 2026): foldable, open by default,
@@ -192,27 +194,30 @@ export function LaunchGate({
             </div>
           ) : (
             <div className="space-y-4">
-              {items.length === 0 ? (
+              {items.length > 0 && <Checklist label="Checks to answer" items={items} emphasizeNext />}
+              {items.length === 0 && !provenanceRule && !noPeople && (
                 // Not ready with nothing itemised: say the true thing, that their side is done.
                 <p className="text-body text-ink-muted">Everything on your side is ready.</p>
-              ) : (
-                <Checklist label="Checks to answer" items={items} emphasizeNext />
               )}
               {/* The one blocker with a control: answered here, against this draft, so a
                   client never has to rebuild a list to record a date. */}
               {provenanceRule && (
-                <ConsentProvenanceAnswer
-                  campaignId={campaignId}
-                  correcting={provenanceRule === "consent_source_refused"}
-                />
+                <ConsentProvenanceAnswer campaignId={campaignId} problem={provenanceProblem} />
               )}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line pt-4">
                 <button type="button" disabled className={`${PRIMARY_BUTTON_LG} w-full justify-center sm:w-auto`}>
                   Launch campaign
                 </button>
-                {todo > 0 && (
+                {(todo > 0 || noPeople) && (
                   <p className="text-meta text-ink-muted">
-                    {todo === 1 ? "Answer 1 check first" : `Answer ${todo} checks first`}
+                    {[
+                      todo === 1 ? "Answer 1 check" : todo > 1 ? `Answer ${todo} checks` : null,
+                      noPeople ? "add the people to call below" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" and ")
+                      .replace(/^a/, "A")}{" "}
+                    first
                   </p>
                 )}
               </div>

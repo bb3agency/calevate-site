@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { ListPlus, UserPlus } from "lucide-react";
+import { ListPlus } from "lucide-react";
 
-import { Section, TEXT_ACTION } from "@/components/console/section";
+import { Section } from "@/components/console/section";
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { StatusPill } from "@/components/console/statusPill";
-import { ProblemNotice, SECONDARY_BUTTON_SM, formatCount } from "@/components/ui";
+import { ProblemNotice, formatCount } from "@/components/ui";
 import { PlanCard } from "@/components/copilot/PlanCard";
 import { useAddContacts, useAddLeadsToCampaign } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
@@ -22,10 +22,10 @@ export function peopleSectionId(campaignId: string): string {
 }
 
 /**
- * WHO A DRAFT WILL CALL, and the way to add more: "Add people" beside the heading opens
- * the two ways in (a pasted, uploaded or typed list; people from your leads) above the
- * list, in place, and closes again with Done. Both go to the server, which dedupes, keeps
- * India numbers only, and refuses once the campaign has started.
+ * WHO A DRAFT WILL CALL, as two sections (founder, 15 Nov 2026): "Add people", always open,
+ * with the two ways in (an Excel, CSV, pasted or typed list; people from your leads), then
+ * "People to call", the list itself. Both go to the server, which dedupes, keeps India
+ * numbers only, and refuses once the campaign has started.
  */
 export function DraftPeople({
   slug,
@@ -33,43 +33,21 @@ export function DraftPeople({
   maxAttempts,
   canWrite,
   refusal,
-  adding,
-  onAddingChange,
 }: {
   slug: string;
   campaignId: string;
   maxAttempts: number;
   canWrite: boolean;
   refusal: string | undefined;
-  /** Held by the page, so the launch checklist's "Add people" can open it. */
-  adding: boolean;
-  onAddingChange: (adding: boolean) => void;
 }) {
   return (
-    <Section
-      title="People to call"
-      action={
-        <button
-          type="button"
-          className={adding ? TEXT_ACTION : SECONDARY_BUTTON_SM}
-          aria-expanded={adding}
-          title={refusal}
-          disabled={!canWrite}
-          onClick={() => onAddingChange(!adding)}
-        >
-          {adding ? (
-            "Done adding"
-          ) : (
-            <>
-              <UserPlus aria-hidden className="h-3.5 w-3.5" />
-              Add people
-            </>
-          )}
-        </button>
-      }
-    >
-      <div id={peopleSectionId(campaignId)} className="scroll-mt-24 space-y-6">
-        {adding && <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />}
+    <>
+      <Section title="Add people">
+        <div id={peopleSectionId(campaignId)} className="scroll-mt-24">
+          <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
+        </div>
+      </Section>
+      <Section title="People to call">
         <ContactResults
           slug={slug}
           campaignId={campaignId}
@@ -79,8 +57,8 @@ export function DraftPeople({
           canWrite={canWrite}
           refusal={refusal}
         />
-      </div>
-    </Section>
+      </Section>
+    </>
   );
 }
 
@@ -107,22 +85,25 @@ function AddPeoplePanel({
   // A set added as a plan reports on its own card, not as "Added 0".
   const result = addContacts.data ?? (addLeads.data?.plan_id ? undefined : addLeads.data);
   return (
-    <div className="settings-enter space-y-8 border-y border-line py-6">
+    <div className="space-y-8">
       <div className="space-y-3">
         {addContacts.error && <ProblemNotice error={addContacts.error} />}
         <ContactEditor entries={form.contacts} onChange={form.setContacts} label="People to add" />
+        {/* Only once there is someone to add: an empty list has nothing to save. */}
+        {checked.ready.length > 0 && (
         <ActionButton
-          variant="secondary"
+          variant="primary"
           title={refusal}
-          disabled={!canWrite || checked.ready.length === 0 || checked.refusal !== null}
+          disabled={!canWrite || checked.refusal !== null}
           status={contactsFeedback.status}
           pendingLabel="Adding"
           successLabel="Added"
           onClick={() => addContacts.mutate(checked.ready, { onSuccess: () => form.setContacts([]) })}
         >
           <ListPlus aria-hidden className="h-4 w-4" />
-          Add these people
+          {checked.ready.length === 1 ? "Add 1 person to the campaign" : `Add ${formatCount(checked.ready.length)} people to the campaign`}
         </ActionButton>
+        )}
       </div>
       <div className="space-y-3 border-t border-line pt-6">
         <h3 className="text-body font-semibold text-ink">From your leads</h3>

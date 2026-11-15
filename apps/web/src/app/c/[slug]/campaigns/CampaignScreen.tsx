@@ -1,7 +1,6 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InlineEdit } from "@/components/arc/inline-edit";
@@ -99,15 +98,9 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   // Inline: the field stays open with the refusal under it (`InlineEdit`).
   const renameFeedback = useActionFeedback(rename, { errorDisplay: "inline" });
   const scheduleForm = useScheduleForm();
-  // The launch checklist's "Add people" opens the panel in "Who will be called" and goes to it.
-  const [addingPeople, setAddingPeople] = useState(false);
-  const addPeople = () => {
-    setAddingPeople(true);
-    // After the panel has rendered, so the scroll lands on it rather than above it.
-    window.setTimeout(() =>
-      document.getElementById(peopleSectionId(campaignId))?.scrollIntoView?.({ block: "start", behavior: "smooth" }),
-    );
-  };
+  // The launch checklist's "Add people" goes to the Add people section.
+  const addPeople = () =>
+    document.getElementById(peopleSectionId(campaignId))?.scrollIntoView?.({ block: "start", behavior: "smooth" });
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   const refusal = write.allowed ? undefined : (write.reason ?? undefined);
 
@@ -378,8 +371,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                     maxAttempts={data.retry_policy.max_attempts}
                     canWrite={write.allowed}
                     refusal={refusal}
-                    adding={addingPeople}
-                    onAddingChange={setAddingPeople}
                   />
                   <OtherCallSettings
                     campaignId={campaignId}

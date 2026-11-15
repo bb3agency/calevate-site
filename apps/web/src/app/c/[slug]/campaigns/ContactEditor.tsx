@@ -4,11 +4,8 @@ import { useId, useMemo, useState, type DragEvent, type KeyboardEvent } from "re
 import { ClipboardPaste, Download, FileUp, Pencil, Plus, ShieldCheck, Trash2, X } from "lucide-react";
 
 import { SearchField } from "@/components/arc/search-field";
-import { HowItWorks } from "@/components/console/howItWorks";
 import { FileDrop } from "@/components/fileDrop";
-import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { asciiDigits } from "@/lib/phoneNumber";
-import { lookup } from "@/lib/lookup";
 import { problemToast } from "@/components/arc/feedback";
 import { ApiProblem } from "@/lib/api/client";
 import { contactsFromExcel } from "@/lib/api/campaignWorkspace";
@@ -39,21 +36,9 @@ import {
   type ContactEntry,
 } from "./contactList";
 
-/**
- * What the file drop says about the list (D-915). The script named is the calling agent's,
- * never a fixed one: a Hindi agent's owner is not told to write Telugu. English names need
- * no script note, and before an agent is chosen none is named.
- */
-export const FILE_HINT = "Excel or CSV, with name and phone columns. Up to 4 MB.";
-
-/** The tips behind "File tips": what else a list can carry, and how names are said best. */
-export function fileTips(agentLanguage: string | null | undefined): string[] {
-  const name = agentLanguage && agentLanguage !== "en-IN" ? lookup(LANGUAGE_NAMES, agentLanguage) : undefined;
-  return [
-    "Add other columns for what the agent should know about each person. It hears them on the call.",
-    ...(name ? [`Names are said best written in ${name} script.`] : []),
-  ];
-}
+/** What the file drop says about the list. Columns past name and phone are read to the agent. */
+export const FILE_HINT =
+  "Excel or CSV, with name and phone columns. Other columns tell the agent about each person. Up to 4 MB.";
 
 const PAGE = 50;
 /** A search term written like a phone number: digits in any script, spaces, +, - and brackets. */
@@ -78,13 +63,10 @@ export function ContactEditor({
   entries,
   onChange,
   label = "Contacts",
-  agentLanguage,
 }: {
   entries: ContactEntry[];
   onChange: (next: ContactEntry[]) => void;
   label?: string;
-  /** The calling agent's main language, when chosen: the file hint names its script. */
-  agentLanguage?: string | null;
 }) {
   const { session } = useClientRealm();
   const ids = useId();
@@ -400,7 +382,6 @@ export function ContactEditor({
           Do-not-call numbers are never dialled. Max {formatCount(MAX_CONTACTS_PER_UPLOAD)} per upload.
         </span>
       </p>
-      <HowItWorks title="File tips" className="mt-0" items={fileTips(agentLanguage)} />
     </section>
   );
 }

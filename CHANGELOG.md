@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.6 — 15-Nov-2026
+
+- The compliance card asks **Where did this list come from?** directly, marked as mandatory
+  under TRAI's Telecom Commercial Communications Customer Preference Regulations, 2018 and the
+  Digital Personal Data Protection Act, 2023. The old checklist rows, "You can fix this" badges
+  and the "Record where this list came from" heading are gone.
+- Adding people is no longer a compliance check: **Add people** is its own always-open section
+  (Excel, CSV, paste, one at a time, or from your leads), above **People to call**. Its button
+  shows only once there is someone to add. "File tips" is gone; the file hint says other
+  columns tell the agent about each person.
+
 ## 0.4.5 — 15-Nov-2026
 
 - **Mandatory Regulatory Compliance Checks** is now a full-width card lined up with the

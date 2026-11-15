@@ -159,6 +159,12 @@ async function openLaunchPanel(
   return rendered;
 }
 
+/** The rows of the compliance card's checklist, not every list on the page. */
+function gateRows(): NodeListOf<HTMLLIElement> {
+  const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("details");
+  return card!.querySelectorAll("li");
+}
+
 describe("the launch panel with blockers outstanding", () => {
   it("shows every blocker the server sent, and no launch button that works", async () => {
     const { container } = await openLaunchPanel(
@@ -172,8 +178,10 @@ describe("the launch panel with blockers outstanding", () => {
     // The count is the assertion, not the presence: a panel that renders two of three
     // blockers is the failure mode — the client fixes what they were shown, presses
     // launch, and meets a refusal for the one that was dropped.
-    expect(container.querySelectorAll("li")).toHaveLength(3);
-    expect(container.textContent).toContain("Add the people to call.");
+    // `no_contacts` is not a row: the Add people section is where people are added, and the
+    // line under the disabled button says so.
+    expect(gateRows()).toHaveLength(2);
+    expect(container.textContent).toContain("add the people to call below");
     expect(container.textContent).toContain("Publish your agent first.");
     // L3-09: one short line; the server's sentence, which names the state, is behind "Why?".
     expect(container.textContent).toContain("Accept the no-cold-calls promise.");
@@ -204,8 +212,8 @@ describe("the launch panel with blockers outstanding", () => {
     expect(container.textContent).toContain("We handle this");
     // …and the one the client genuinely cannot be helped with must not borrow it.
     expectTextCount(container, "We handle this", 1);
-    // `no_contacts` is the client's own, and says so once.
-    expectTextCount(container, "You can fix this", 1);
+    // A client's own task carries no badge; only a wait on us is labelled.
+    expectTextCount(container, "You can fix this", 0);
   });
 
   it("never promises a national check that cannot be run while promotional calls are unavailable (L3-08)", async () => {
@@ -230,7 +238,7 @@ describe("the launch panel with blockers outstanding", () => {
       }),
     );
 
-    expect(container.querySelectorAll("li")).toHaveLength(1);
+    expect(gateRows()).toHaveLength(1);
     expect(container.textContent).toContain(
       "Calling hours for this campaign fall outside",
     );
@@ -267,7 +275,6 @@ describe("the launch panel with blockers outstanding", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Why?" })[0]);
     expect(container.textContent).toContain("start again straight away");
     // Not a queue to wait in — a two-minute fix, with the screen that does it attached.
-    expect(text).toContain("You can fix this");
     expect(text).not.toContain("We handle this");
     const link = screen.getByRole("link", { name: /Add credit/ });
     expect(link.getAttribute("href")).toContain("/billing?tab=credits");
@@ -332,8 +339,9 @@ describe("the launch panel with blockers outstanding", () => {
       "We don't call bought or rented lists.",
     );
     expect(container.textContent).not.toContain("consent_source_refused");
-    // This one the client CAN act on — the correction form is the point of the badge.
-    expect(container.textContent).toContain("You can fix this");
+    // This one the client CAN act on: the question is asked right there, marked mandatory.
+    expect(container.textContent).toContain("Where did this list come from?");
+    expect(container.textContent).toContain("Mandatory: required by TRAI");
   });
 });
 
@@ -438,7 +446,9 @@ describe("the launch panel for a viewer who may not launch", () => {
     expect(launchButtonDisabled()).toBe(false);
     expect(container.textContent).not.toContain("read-only");
     expect(container.textContent).not.toContain("stays with the client");
-    expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
+    // The Add people section's lead picker reads through two POST searches; neither writes.
+    const READS = ["/v1/leads/search", "/v1/leads/facets"];
+    expect(calls.filter((c) => c.method !== "GET" && !READS.includes(c.path))).toEqual([]);
   });
 
   it("still shows a blocked campaign its blockers when the viewer may not launch", async () => {
@@ -451,8 +461,8 @@ describe("the launch panel for a viewer who may not launch", () => {
       STAFF,
     );
 
-    expect(container.querySelectorAll("li")).toHaveLength(1);
-    expect(container.textContent).toContain("Add the people to call.");
+    expect(gateRows()).toHaveLength(0);
+    expect(container.textContent).toContain("Add the people to call below first");
     expect(launchButtonDisabled()).toBe(true);
   });
 });

@@ -228,7 +228,6 @@ export function NewCampaignFlow({
       <ContactEditor
         entries={form.contacts}
         onChange={form.setContacts}
-        agentLanguage={selectedAgent?.language_primary}
       />
       <LeadsChoice form={form} />
       <ConsentPanel form={form} />

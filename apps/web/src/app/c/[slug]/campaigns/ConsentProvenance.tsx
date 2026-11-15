@@ -25,6 +25,16 @@ export function listSourceId(campaignId: string): string {
 }
 
 /**
+ * Who requires the answer. TRAI's TCCCPR 2018 lets a commercial call reach only a person who
+ * gave consent (explicit, or inferred from an existing relationship), and the DPDP Act 2023
+ * s.6(10) puts the burden of proving consent on the business (trai.gov.in Regulation_12022025,
+ * the TCCCPR Second Amendment of 12 Feb 2025; DPDP s.6(10) as reported by dpdpa.com, not
+ * read from the gazette).
+ */
+export const MANDATORY_NOTE =
+  "Mandatory: required by TRAI's Telecom Commercial Communications Customer Preference Regulations, 2018 and the Digital Personal Data Protection Act, 2023";
+
+/**
  * WHERE THIS LIST CAME FROM — the consent-provenance question, and the two places that
  * ask it.
  *
@@ -45,6 +55,7 @@ export function ConsentProvenanceFields({
   onCollectedAt,
   sourceError,
   dateError,
+  mandatory = false,
 }: {
   idPrefix: string;
   source: ConsentSource | "";
@@ -53,12 +64,23 @@ export function ConsentProvenanceFields({
   onCollectedAt: (value: string) => void;
   sourceError?: string | null;
   dateError?: string | null;
+  /** Says beside the question that the law requires it (the launch gate's copy). */
+  mandatory?: boolean;
 }) {
   return (
     <div className="space-y-4">
       <div>
         <ChoiceCards
-          legend="Where did this list come from?"
+          legend={
+            mandatory ? (
+              <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span>Where did this list come from?</span>
+                <span className="text-meta font-medium text-warn">{MANDATORY_NOTE}</span>
+              </span>
+            ) : (
+              "Where did this list come from?"
+            )
+          }
           legendClassName="block text-body font-medium text-ink"
           description={
             <>
@@ -98,11 +120,11 @@ export function ConsentProvenanceFields({
  */
 export function ConsentProvenanceAnswer({
   campaignId,
-  correcting,
+  problem,
 }: {
   campaignId: string;
-  /** True when a refused answer is already on file — the ask is "correct it", not "answer it". */
-  correcting: boolean;
+  /** Why an answer on file is not enough (a bought list, consent too old); none while unanswered. */
+  problem?: string;
 }) {
   const session = useClientSession();
   const write = useWriteAccess(
@@ -125,7 +147,7 @@ export function ConsentProvenanceAnswer({
   return (
     <form
       id={listSourceId(campaignId)}
-      className="scroll-mt-24 space-y-4 border-l-2 border-line pl-4"
+      className="scroll-mt-24 space-y-4"
       noValidate
       onSubmit={(event) => {
         event.preventDefault();
@@ -134,11 +156,11 @@ export function ConsentProvenanceAnswer({
         feedback.run({ source, collected_at: iso });
       }}
     >
-      <p className="text-sm font-semibold text-ink">
-        {correcting
-          ? "Correct where this list came from"
-          : "Record where this list came from"}
-      </p>
+      {problem && (
+        <p role="alert" className="text-meta font-medium text-danger">
+          {problem}
+        </p>
+      )}
 
       <ConsentProvenanceFields
         idPrefix={`answer-${campaignId}`}
@@ -148,6 +170,7 @@ export function ConsentProvenanceAnswer({
         onCollectedAt={setCollectedAt}
         sourceError={tried && !source ? "Choose where the list came from." : null}
         dateError={tried && !iso ? "Choose the day they agreed." : null}
+        mandatory
       />
 
       {/* Said before the click rather than discovered as a 403: `leads:dispatch` is a

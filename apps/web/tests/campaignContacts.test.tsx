@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ContactEditor, FILE_HINT, fileTips } from "@/app/c/[slug]/campaigns/ContactEditor";
+import { ContactEditor, FILE_HINT } from "@/app/c/[slug]/campaigns/ContactEditor";
 import { contactsFromExcel } from "@/lib/api/campaignWorkspace";
 import { ApiProblem } from "@/lib/api/client";
 import {
@@ -32,16 +32,9 @@ vi.mock("@/lib/api/campaignWorkspace", async (original) => ({
 
 const entries = (text: string) => rowsToEntries(parseCsv(text)).entries;
 
-describe("the file hint and tips (D-915)", () => {
-  it("names the calling agent's script, never a fixed one, and no vertical's column", () => {
-    expect(fileTips("hi-IN").join(" ")).toContain("in Hindi script.");
-    expect(fileTips("te-IN").join(" ")).toContain("in Telugu script.");
-    for (const language of [undefined, null, "en-IN", "xx-IN"]) {
-      expect(fileTips(language).join(" ")).not.toMatch(/script/);
-    }
-    expect(fileTips("hi-IN").join(" ")).not.toMatch(/village|Telugu/);
-    // The hint shown by default is one short line naming no script.
-    expect(FILE_HINT).not.toMatch(/script/);
+describe("the file hint", () => {
+  it("is one line naming no script and no vertical's column", () => {
+    expect(FILE_HINT).not.toMatch(/script|village|Telugu/);
   });
 });
 

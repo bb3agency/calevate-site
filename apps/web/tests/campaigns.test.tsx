@@ -193,7 +193,9 @@ describe("the consent declaration on a draft", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record this" }));
     expect(await screen.findByText("Choose where the list came from.")).toBeTruthy();
     expect(screen.getByText("Choose the day they agreed.")).toBeTruthy();
-    expect(rendered.calls.filter((c) => c.method !== "GET")).toEqual([]);
+    // The Add people section's lead picker reads through two POST searches; neither writes.
+    const reads = ["/v1/leads/search", "/v1/leads/facets"];
+    expect(rendered.calls.filter((c) => c.method !== "GET" && !reads.includes(c.path))).toEqual([]);
     expect(screen.getByRole("button", { name: "Launch campaign" }).hasAttribute("disabled")).toBe(true);
   });
 });
@@ -490,8 +492,7 @@ describe("adding leads to a draft", () => {
         "/v1/copilot/plans/0192f0aa-9999-7000-8000-000000000001": stillLoading(),
       }),
     );
-    // The launch checklist's "Add people" (first) opens the same panel as the section's own.
-    fireEvent.click((await screen.findAllByRole("button", { name: "Add people" }))[0]);
+    // The Add people section is always open on a draft.
     fireEvent.change(await screen.findByRole("searchbox", { name: "Search leads" }), {
       target: { value: "Priya" },
     });
