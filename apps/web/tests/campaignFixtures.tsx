@@ -125,7 +125,7 @@ export async function pickDate(label: string, iso: string): Promise<void> {
   throw new Error(`${iso} never appeared in the ${label} calendar`);
 }
 
-/** Opens one of a launched campaign's tabs (People, What happened, How it calls). */
+/** Opens one of a campaign's tabs (Set up, Progress & results, Calls & recordings, ...). */
 export async function openTab(name: string): Promise<void> {
   fireEvent.click(await screen.findByRole("tab", { name }));
 }
@@ -133,27 +133,6 @@ export async function openTab(name: string): Promise<void> {
 /** A launched campaign's day-by-day read (`CampaignTimeline`): the server's whole year. */
 export const timelinePath = (id: string = FIXTURE_CAMPAIGN_ID) =>
   `/v1/analytics/campaigns?days=366&campaign_id=${id}`;
-
-/**
- * The reads the "From your leads" picker makes: the Leads lens counted by the Leads
- * table's own route, its facets and saved views. `total` is how many leads match.
- */
-export function leadPickerRoutes(total = 0): Routes {
-  return {
-    "/v1/leads/search": {
-      items: [],
-      columns: [],
-      available_columns: [],
-      dropped_column_keys: [],
-      total,
-      limit: 1,
-      offset: 0,
-      status_counts_matching_search: { new: total, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
-    },
-    "/v1/leads/facets": { facets: [], omitted_field_count: 0 },
-    "/v1/leads/views": { items: [] },
-  };
-}
 
 /** `GET /v1/campaigns/{id}/workspace`: a main task saved, no materials, no script yet. */
 export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): CampaignWorkspace {
@@ -203,7 +182,8 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/workspace`]: workspaceFixture({ campaign_id: id }),
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
-    ...leadPickerRoutes(),
+    // The Set up tab's agent picker, for every status.
+    "/v1/agents": [],
     ...dltRegistrationRoute(),
     [timelinePath(id)]: {
       window: { days: 366, from_date: "2025-10-25", to_date: "2026-10-24", timezone: "Asia/Kolkata" },

@@ -9,6 +9,7 @@ import {
   contactsFixture,
   contactsPath,
   detailRoutes,
+  openTab,
   progressFixture,
 } from "./campaignFixtures";
 import { renderClientPage, type Routes } from "./harness";
@@ -94,6 +95,7 @@ describe("the status band", () => {
       campaignPage(),
       routes(progressFixture({ status: "running", launched_at: "2026-10-14T04:30:00Z", total: 4, contacts: { pending: 4 } })),
     );
+    await openTab("Progress & results");
     await screen.findByRole("heading", { name: "Right now" });
     expect(container.textContent).not.toContain("Mandatory Regulatory Compliance Checks");
     expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
@@ -107,6 +109,7 @@ describe("the status band", () => {
         progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z", total: 4, contacts: { completed: 4 } }),
       ),
     );
+    await openTab("Progress & results");
     await screen.findByRole("heading", { name: "Progress" });
     expect(screen.queryByRole("heading", { name: "Right now" })).toBeNull();
     expect(screen.getByText("Finished. Every try has been made.")).toBeTruthy();

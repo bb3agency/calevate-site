@@ -12,7 +12,14 @@ import {
 import { replyTimeReport } from "./fixtures/replyTimes";
 import { pipQualityReport } from "./fixtures/pipQuality";
 import { COST_PER_RESULT, COST_PER_RESULT_ROUTE, REPLY_SPEED_FIXTURE } from "./fixtures/proof";
-import { contactsFixture, dltRegistrationRoute, progressFixture, resultsFixture } from "./campaignFixtures";
+import {
+  contactsFixture,
+  dltRegistrationRoute,
+  progressFixture,
+  resultsFixture,
+  settingsFixture,
+  workspaceFixture,
+} from "./campaignFixtures";
 import { ADMIN_FORWARDING, CODES, READY_TO_FORWARD, SETTLED_TEST, WITH_LINE } from "./fixtures/forwarding";
 
 import type { AiQuota } from "@/lib/api/aiQuota";
@@ -3170,8 +3177,7 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    // The create form is where the labelling risk lives: five consent radios, a date, a
-    // file input, a classification picker, the retry choice and the leads filter.
+    // New campaign makes a draft at once and opens it; while it does, a skeleton.
     file: "c/[slug]/campaigns/new/page.tsx",
     realm: "client",
     element: () => <NewCampaignPage params={Promise.resolve({ slug: "acme" })} />,
@@ -3180,6 +3186,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/agents": [AGENT],
       "/v1/call-outcomes": { max_outcomes: 8, agents: [] },
       "/v1/call-lines": { call_lines: 2, in_progress: 0, on_trial: false },
+      "POST /v1/campaigns": { id: CAMPAIGN.id, status: "draft" },
       ...dltRegistrationRoute(true),
       "/v1/campaigns/numbers": [
         {
@@ -3251,6 +3258,11 @@ const CLIENT_SCREENS: Screen[] = [
         total: 1,
       }),
       [`/v1/campaigns/${CAMPAIGN.id}/launch-check`]: { ready: false, blockers: [] },
+      // The Set up tab, which opens first whatever the status.
+      [`/v1/campaigns/${CAMPAIGN.id}/workspace`]: workspaceFixture({ campaign_id: CAMPAIGN.id, status: "running" }),
+      [`/v1/campaigns/${CAMPAIGN.id}/settings`]: settingsFixture(),
+      "/v1/agents": [AGENT],
+      ...dltRegistrationRoute(),
       [`/v1/campaigns/${CAMPAIGN.id}/results`]: resultsFixture({ contacts: 1, tried: 1, pickup_rate: 1 }),
       [`/v1/campaigns/${CAMPAIGN.id}/contacts?limit=50&offset=0`]: contactsFixture({
         total: 1,

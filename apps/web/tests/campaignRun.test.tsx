@@ -9,6 +9,7 @@ import {
   campaignPage,
   contactsFixture,
   detailRoutes,
+  openTab,
   progressFixture,
 } from "./campaignFixtures";
 import { renderClientPage } from "./harness";
@@ -93,7 +94,7 @@ describe("where a campaign is in its run", () => {
 const ON_A_CALL = `/v1/campaigns/${CAMPAIGN_ID}/contacts?limit=10&offset=0&outcome=calling`;
 
 describe("a running campaign's page", () => {
-  it("opens on its progress, with the steps, ahead of its results", async () => {
+  it("shows its progress, with the steps, ahead of its results in the progress tab", async () => {
     const { container } = await renderClientPage(campaignPage(), {
       "/v1/me": ME,
       ...detailRoutes(),
@@ -105,6 +106,7 @@ describe("a running campaign's page", () => {
       [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: { ready: true, blockers: [] },
       [ON_A_CALL]: contactsFixture(),
     });
+    await openTab("Progress & results");
     const steps = await screen.findByRole("list", { name: "Where this campaign is" });
     const current = within(steps).getAllByRole("listitem").find((li) => li.getAttribute("aria-current") === "step");
     expect(current?.textContent).toContain("Calling everyone once");

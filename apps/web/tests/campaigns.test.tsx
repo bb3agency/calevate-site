@@ -2,7 +2,6 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
-import { nameFromMainTask } from "@/app/c/[slug]/campaigns/NewCampaignScreen";
 import { nameFromGoal } from "@/app/c/[slug]/campaigns/campaignForm";
 import type { Agent } from "@/lib/api/agents";
 import type { CallOutcomes } from "@/lib/api/callOutcomes";
@@ -152,21 +151,6 @@ const CONSENT_DATE = "When did they agree?";
 const PURPOSE_FIELD = "Why are you calling them?";
 const GOAL_FIELD = "What should a good call end with?";
 
-const MAIN_TASK = "Call customers about our Diwali offer on service plans and book a visit.";
-
-/** The create page's first section: the main task, in the owner's words. */
-async function writeMainTask(text: string): Promise<void> {
-  const box = await screen.findByRole("textbox", { name: "Main task" });
-  fireEvent.change(box, { target: { value: text } });
-}
-
-/** Writes a note in Materials and adds it to the list the draft will carry. */
-function addNote(text: string): void {
-  fireEvent.click(screen.getByRole("button", { name: "Write a note" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Note" }), { target: { value: text } });
-  fireEvent.click(screen.getByRole("button", { name: "Add" }));
-}
-
 describe("the consent declaration on a draft", () => {
   it("opens unanswered and records nothing until both questions are answered", async () => {
     // Where the list came from is an audited statement, asked on the draft before it can
@@ -252,8 +236,8 @@ describe("choosing which agent makes the calls (D-440)", () => {
 
   it("never offers an archived agent", async () => {
     const { container } = await renderClientPage(
-      newCampaignPage(),
-      newRoutes({
+      campaignPage(),
+      detail(progressFixture({ id: CAMPAIGN_ID, status: "draft" }), {
         "/v1/agents": [
           agentIn({ id: "a-live", name: "Follow-ups" }),
           agentIn({
@@ -278,8 +262,8 @@ describe("choosing which agent makes the calls (D-440)", () => {
 
   it("marks an agent that cannot dial yet", async () => {
     const { container } = await renderClientPage(
-      newCampaignPage(),
-      newRoutes({
+      campaignPage(),
+      detail(progressFixture({ id: CAMPAIGN_ID, status: "draft", agent_id: "a-draft" }), {
         "/v1/agents": [agentIn({ id: "a-draft", name: "Half built", status: "draft", published: false })],
       }),
     );
@@ -350,82 +334,22 @@ describe("the number picker", () => {
 });
 
 describe("creating a campaign", () => {
-  it("creates the draft from the main task, attaches its materials, then asks Pip for the script", async () => {
+  it("makes one draft with the first agent that can call, and nothing else", async () => {
     const rendered = await renderClientPage(
       newCampaignPage(),
-      newRoutes({
-        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/materials`]: { id: "m-1" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/script/proposal`]: { id: "p-1", status: "drafting" },
-      }),
+      newRoutes({ "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" } }),
     );
-    await writeMainTask(MAIN_TASK);
-    addNote("Open Monday to Saturday, 9am to 7pm.");
-    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
-    const asked = await vi.waitFor(() => {
-      const call = rendered.calls.find(
-        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/script/proposal`,
-      );
+    const created = await vi.waitFor(() => {
+      const call = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns");
       expect(call).toBeDefined();
-      return call!;
+      return JSON.parse(call!.body ?? "{}");
     });
-    const created = JSON.parse(rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns")!.body ?? "{}");
-    expect(created).toMatchObject({ agent_id: AGENT_ID, main_task: MAIN_TASK, name: nameFromMainTask(MAIN_TASK) });
-    const material = rendered.calls.find(
-      (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/materials`,
-    );
-    expect(JSON.parse(material?.body ?? "{}")).toMatchObject({ kind: "note", note: "Open Monday to Saturday, 9am to 7pm." });
-    // In that order: the materials are on the campaign before Pip reads it.
-    expect(rendered.calls.indexOf(material!)).toBeLessThan(rendered.calls.indexOf(asked));
+    expect(created).toMatchObject({ agent_id: AGENT_ID, classification: "service" });
+    expect(created.name).toMatch(/^New campaign, /);
+    expect(rendered.calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
-  it("says the draft exists and links to it when a material is refused", async () => {
-    await renderClientPage(
-      newCampaignPage(),
-      newRoutes({
-        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/materials`]: problem(503, {
-          title: "Upstream unavailable",
-          detail: "We could not save that note just now.",
-          retryable: true,
-        }),
-      }),
-    );
-    await writeMainTask(MAIN_TASK);
-    addNote("Open Monday to Saturday.");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText("We could not save that note just now.");
-    expect(screen.getByRole("link", { name: "Open the draft" }).getAttribute("href")).toBe(
-      `/c/acme/campaigns/${CAMPAIGN_ID}`,
-    );
-  });
-
-  it("does not create a second draft when Save is pressed again after a follow-up failed", async () => {
-    const rendered = await renderClientPage(
-      newCampaignPage(),
-      newRoutes({
-        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/materials`]: problem(503, {
-          title: "Upstream unavailable",
-          detail: "We could not save that note just now.",
-          retryable: true,
-        }),
-      }),
-    );
-    await writeMainTask(MAIN_TASK);
-    addNote("Open Monday to Saturday.");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await screen.findByText("We could not save that note just now.");
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await vi.waitFor(() =>
-      expect(
-        rendered.calls.filter((c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/materials`),
-      ).toHaveLength(2),
-    );
-    expect(rendered.calls.filter((c) => c.method === "POST" && c.path === "/v1/campaigns")).toHaveLength(1);
-  });
-
-  it("shows the server's refusal when the draft itself is refused, and links to nothing", async () => {
+  it("shows the server's refusal when the draft is refused, with a way to try again", async () => {
     await renderClientPage(
       newCampaignPage(),
       newRoutes({
@@ -436,12 +360,8 @@ describe("creating a campaign", () => {
         }),
       }),
     );
-    await writeMainTask(MAIN_TASK);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Campaigns open once your account is verified.");
-    expect(screen.queryByRole("link", { name: "Open the draft" })).toBeNull();
   });
-
 });
 
 describe("calls at once on the create page", () => {
@@ -452,8 +372,6 @@ describe("calls at once on the create page", () => {
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
       }),
     );
-    await writeMainTask(MAIN_TASK);
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     const created = await vi.waitFor(() => {
       const call = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns");
       expect(call).toBeDefined();
@@ -593,7 +511,7 @@ describe("one campaign's page", () => {
     expect((screen.getByRole("button", { name: /Resume/ }) as HTMLButtonElement).disabled).toBe(true);
     const confirm = screen.getByRole("button", { name: "Confirm I've reviewed them" }) as HTMLButtonElement;
     expect(confirm.disabled).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("checkbox", { name: /read these/ }));
     fireEvent.click(confirm);
     await vi.waitFor(() =>
       expect(
@@ -650,7 +568,9 @@ describe("one campaign's page", () => {
     expect(screen.getByRole("link", { name: "Open the call with Priya" }).getAttribute("href")).toBe(
       "/c/acme/calls/call-9",
     );
-    expect(container.textContent).toContain("₹12.5");
+    // The money is in the results, a tab away from the people.
+    await openTab("Progress & results");
+    expect(await screen.findByText(/₹12\.5/)).toBeTruthy();
   });
 
   it("breaks the results down by the agent's outcomes and each choice it asks about", async () => {
@@ -678,7 +598,7 @@ describe("one campaign's page", () => {
         }),
       }),
     );
-    await openTab("What happened");
+    await openTab("Progress & results");
     await screen.findByText("What people said");
     // How the counts are made sits behind the heading's info button, not on the page.
     expect(screen.getByRole("button", { name: "About What people said" })).toBeTruthy();
@@ -759,11 +679,12 @@ describe("editing a draft", () => {
 });
 
 describe("Pip on the campaign pages", () => {
-  it("offers Pip to write the script on the create page, and sends nothing until asked", async () => {
-    const rendered = await renderClientPage(newCampaignPage(), newRoutes());
+  it("offers Pip to write the script in the draft's Script section, and sends nothing until asked", async () => {
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture({ id: CAMPAIGN_ID, status: "draft" })),
+    );
     await screen.findByRole("heading", { name: "Let Pip, our AI agent, generate the script" });
-    // Nothing to write from yet: the button waits for the main task.
-    expect((screen.getByRole("button", { name: "Generate" }) as HTMLButtonElement).disabled).toBe(true);
     expect(rendered.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
@@ -772,6 +693,7 @@ describe("Pip on the campaign pages", () => {
       campaignPage(),
       detail(progressFixture({ status: "completed", launched_at: "2026-10-14T04:30:00Z" })),
     );
+    await openTab("Progress & results");
     await screen.findByRole("button", { name: /^Ask Pip about this campaign/ });
   });
 });
@@ -846,16 +768,6 @@ describe("what a campaign is for", () => {
     expect(name.value).toBe("Diwali offer");
   });
 
-  it("names a new campaign from its main task's first line and the IST day", () => {
-    const day = new Date("2026-11-04T19:00:00Z");
-    expect(nameFromMainTask("  Call farmers   who registered \nand never opened the app")).toBe(
-      nameFromGoal("Call farmers who registered"),
-    );
-    expect(nameFromGoal("Call farmers", day)).toBe("Call farmers, 5 Nov");
-    const long = "Call every farmer who registered on the app last season and help them install it";
-    expect(nameFromMainTask(long)).toBe(nameFromGoal("Call every farmer who registered on the app last season and…"));
-  });
-
   it("shows the goal on the campaign, how many reached it, and each person's verdict", async () => {
     const { container } = await renderClientPage(
       campaignPage(),
@@ -892,6 +804,8 @@ describe("what a campaign is for", () => {
     expect(container.textContent).toContain("Goal reached");
     // The why sits under the verdict, so "Goal unclear" on a row says what was missing.
     expect(container.textContent).toContain("They booked a visit for Saturday before the call ended.");
+    await openTab("Progress & results");
+    await screen.findByText(/3 of 4/);
     expect(container.textContent).toContain("3 of 4");
     expect(container.textContent).toContain("1 unclear");
   });

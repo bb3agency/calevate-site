@@ -1,34 +1,24 @@
 "use client";
 
 /**
- * MATERIALS BEFORE THE CAMPAIGN EXISTS (D-992). Files and links are uploaded into the client's
- * knowledge at once (they need no campaign); notes are held here. Create attaches every item to
- * the new campaign (`POST /v1/campaigns/{id}/materials`), where the campaign page's own
- * Materials section takes over.
- *
- * `MaterialForm` is the one way to add a material, here and on the campaign page: only what
- * happens to the finished item differs (held in this list, or attached to the campaign).
- *
- * A file is held as the File itself, never uploaded here: it goes in through the campaign's own
- * upload (`POST /v1/campaigns/{id}/materials/upload`), which reuses a copy already in the
- * knowledge instead of refusing it as a duplicate. So a new campaign's files wait for the draft.
+ * ADDING A MATERIAL (D-992): `MaterialForm` is the one form for a file, a link or a note on a
+ * campaign's Materials section, with the labels and hints that section uses. A file goes in
+ * through the campaign's own upload (`POST /v1/campaigns/{id}/materials/upload`), which reuses
+ * a copy already in the knowledge instead of refusing it as a duplicate.
  */
 
 import { useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
-import { TEXT_ACTION_DANGER } from "@/components/console/section";
 import { FileDrop } from "@/components/fileDrop";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { MaterialIn } from "@/lib/api/campaignWorkspace";
 import { useAddLink } from "@/lib/api/kb";
 import { useClientRealm } from "@/lib/api/session";
 
-import { FoldSection } from "./FoldSection";
 
 /** A material as the form finishes it: a file still carries the File to upload. */
 export type MaterialItem = MaterialIn & { file?: File };
-export type PendingMaterial = MaterialItem & { key: string };
 
 export const KIND_LABEL: Record<MaterialIn["kind"], string> = { file: "File", link: "Link", note: "Note" };
 
@@ -180,50 +170,5 @@ export function MaterialForm({
         </div>
       )}
     </>
-  );
-}
-
-export function MaterialsDraft({
-  items,
-  onChange,
-  canWrite,
-}: {
-  items: PendingMaterial[];
-  onChange: (next: PendingMaterial[]) => void;
-  canWrite: boolean;
-}) {
-  return (
-    <FoldSection title="Materials" tone="materials" hint={MATERIALS_HINT} info={MATERIALS_INFO}>
-
-      <MaterialForm
-        canWrite={canWrite}
-        onAdd={async (item) => onChange([...items, { ...item, key: crypto.randomUUID() }])}
-      />
-
-      {items.length > 0 && (
-        <ul className="mt-4 max-w-4xl divide-y divide-line border-y border-line">
-          {items.map((m) => (
-            <li key={m.key} className="flex items-start gap-3 py-3.5">
-              <span className="mt-0.5 w-12 shrink-0 text-meta text-ink-muted">
-                {KIND_LABEL[m.kind]}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{m.title}</p>
-                {m.url && <p className="text-meta text-ink-muted [overflow-wrap:anywhere]">{m.url}</p>}
-                {m.note && <p className="mt-0.5 whitespace-pre-wrap text-meta text-ink-muted">{m.note}</p>}
-              </div>
-              <button
-                type="button"
-                className={TEXT_ACTION_DANGER}
-                aria-label={`Remove ${m.title}`}
-                onClick={() => onChange(items.filter((x) => x.key !== m.key))}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </FoldSection>
   );
 }

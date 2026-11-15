@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.13 — 15-Nov-2026
+
+- **One layout for every campaign, whatever its status.** The **Set up** tab opens first and
+  shows the campaign as entered: main task, materials, script, agent and its settings, test
+  call, people, the compliance checks and other call settings. How it is going sits in its
+  own **Progress & results** tab (where it stands, results, day by day, how it calls), beside
+  Calls & recordings, Questions to answer and Improve.
+- **New campaign opens the full set-up straight away.** It makes the draft at once, with the
+  first agent that can call, and every section has its controls from the start instead of
+  empty boxes. An unused draft can be deleted from the list.
+
 ## 0.4.12 — 15-Nov-2026
 
 - **New campaign shows every section from the start**, in the same order and colours as a draft:

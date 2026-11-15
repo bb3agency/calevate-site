@@ -260,138 +260,122 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
         )}
       </div>
 
-      {launched ? (
-        // A running campaign's page folds like its set-up page (founder, 15 Nov 2026).
-        <FoldGroup className="space-y-8">
-          <FoldSection title="Where it stands" tone="progress">
-            <CampaignRun progress={data} campaignId={campaignId} />
-            {/* A launched campaign can still repeat; its card sits under the live panel. */}
-            <ScheduleCards {...scheduleCardProps} className="mt-5 border-t border-line pt-5" />
-          </FoldSection>
-          <FoldSection title="Results" tone="results">
-            <div className="mb-3 flex justify-end">
-              <AskAssistant
-                label={`Ask ${ASSISTANT_NAME} about this campaign`}
-                prompt={`Tell me about the campaign "${data.name}": why calls did not connect, what callers asked about, and who I should follow up.`}
-              />
-            </div>
-            <ResultFigures results={results} />
-          </FoldSection>
-          <FoldSection title="Details" tone="details">
-
-          <Tabs
-            label="About this campaign"
-            defaultValue="people"
-            items={[
-              { value: "people", label: "People" },
-              { value: "calls", label: "Calls & recordings" },
-              { value: "questions", label: "Questions to answer" },
-              { value: "results", label: "What happened" },
-              { value: "improve", label: "Improve" },
-              { value: "setup", label: "Task, materials & script" },
-              { value: "settings", label: "How it calls" },
-            ]}
-            panelClassName="pt-5"
-            renderPanel={(current) =>
-              current === "results" ? (
-                <div className="space-y-10">
-                  <CampaignResults slug={slug} campaignId={campaignId} results={results} />
-                  <Section title="Day by day" headingLevel={3}>
-                    <CampaignTimeline campaignId={campaignId} launchedAt={data.launched_at} />
-                  </Section>
-                </div>
-              ) : current === "settings" ? (
-                <CampaignSettings slug={slug} campaignId={campaignId} progress={data} />
-              ) : current === "calls" ? (
-                <CampaignCalls slug={slug} campaignId={campaignId} />
-              ) : current === "questions" ? (
-                <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-              ) : current === "improve" ? (
-                <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-              ) : current === "setup" ? (
-                <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-              ) : (
-                people
-              )
-            }
-          />
-          </FoldSection>
-        </FoldGroup>
-      ) : (
-        <Tabs
-          label="Set up this campaign"
-          defaultValue="setup"
-          items={[
-            { value: "setup", label: "Set up" },
-            { value: "calls", label: "Calls & recordings" },
-            { value: "questions", label: "Questions to answer" },
-          ]}
-          panelClassName="pt-5"
-          renderPanel={(current) =>
-            current === "calls" ? (
-              <CampaignCalls slug={slug} campaignId={campaignId} />
-            ) : current === "questions" ? (
-              <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-            ) : (
-              // Every section folds; Collapse all and Expand all sit above them all (founder, 15 Nov 2026).
+      {/* One layout whatever the status (founder, 15 Nov 2026): the set-up as entered comes
+          first; how it is going sits in its own tab. */}
+      <Tabs
+        label="This campaign"
+        defaultValue="setup"
+        items={[
+          { value: "setup", label: "Set up" },
+          { value: "progress", label: "Progress & results" },
+          { value: "calls", label: "Calls & recordings" },
+          { value: "questions", label: "Questions to answer" },
+          { value: "improve", label: "Improve" },
+        ]}
+        panelClassName="pt-5"
+        renderPanel={(current) =>
+          current === "calls" ? (
+            <CampaignCalls slug={slug} campaignId={campaignId} />
+          ) : current === "questions" ? (
+            <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+          ) : current === "improve" ? (
+            <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+          ) : current === "progress" ? (
+            launched ? (
               <FoldGroup className="space-y-8">
-                <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-                  <AgentSection
-                    campaignId={campaignId}
-                    agentId={data.agent_id}
-                    editable={status === "draft"}
-                    canWrite={write.allowed}
-                    refusal={refusal}
-                  />
-                  <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-                  {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a time. */}
-                  <DraftPeople
-                    slug={slug}
-                    campaignId={campaignId}
-                    maxAttempts={data.retry_policy.max_attempts}
-                    canWrite={write.allowed}
-                    refusal={refusal}
-                  />
-                  <ScheduleCards {...scheduleCardProps} />
-                  <LaunchGate
-                      slug={slug}
-                      campaignId={campaignId}
+                <FoldSection title="Where it stands" tone="progress">
+                  <CampaignRun progress={data} campaignId={campaignId} />
+                </FoldSection>
+                <FoldSection title="Results" tone="results">
+                  <div className="mb-3 flex justify-end">
+                    <AskAssistant
+                      label={`Ask ${ASSISTANT_NAME} about this campaign`}
+                      prompt={`Tell me about the campaign "${data.name}": why calls did not connect, what callers asked about, and who I should follow up.`}
+                    />
+                  </div>
+                  <ResultFigures results={results} />
+                  <div className="mt-8 space-y-10">
+                    <CampaignResults slug={slug} campaignId={campaignId} results={results} />
+                    <Section title="Day by day" headingLevel={3}>
+                      <CampaignTimeline campaignId={campaignId} launchedAt={data.launched_at} />
+                    </Section>
+                  </div>
+                </FoldSection>
+                <FoldSection title="How it calls" tone="details">
+                  <CampaignSettings slug={slug} campaignId={campaignId} progress={data} />
+                </FoldSection>
+              </FoldGroup>
+            ) : (
+              <p className="border-y border-line py-6 text-body text-ink-muted">
+                Progress and results show here once the campaign starts.
+              </p>
+            )
+          ) : (
+            // Every section folds; Collapse all and Expand all sit above them all.
+            <FoldGroup className="space-y-8">
+              <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+              <AgentSection
+                campaignId={campaignId}
+                agentId={data.agent_id}
+                editable={status === "draft"}
+                canWrite={write.allowed}
+                refusal={refusal}
+              />
+              <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+              {status === "draft" ? (
+                // People to call: an Excel or CSV file, pasted rows, or one name and number at a time.
+                <DraftPeople
+                  slug={slug}
+                  campaignId={campaignId}
+                  maxAttempts={data.retry_policy.max_attempts}
+                  canWrite={write.allowed}
+                  refusal={refusal}
+                />
+              ) : (
+                // Once it has started, nobody is added; the list shows who was called and how.
+                <FoldSection title="People to call" tone="people" id={peopleSectionId(campaignId)}>
+                  {people}
+                </FoldSection>
+              )}
+              <ScheduleCards {...scheduleCardProps} />
+              <LaunchGate
+                slug={slug}
+                campaignId={campaignId}
+                status={status}
+                check={check}
+                progress={progress}
+                launch={launchFeedback}
+                canWrite={write.allowed}
+                writeReason={write.reason}
+                refusal={refusal}
+                onAddPeople={addPeople}
+              />
+              <OtherCallSettings
+                campaignId={campaignId}
+                editable={status === "draft"}
+                callingHours={data.calling_hours}
+                retryPolicy={data.retry_policy}
+                canWrite={write.allowed}
+                refusal={refusal}
+                startLater={
+                  check.data && status === "draft" ? (
+                    <ArmingForms
                       status={status}
                       check={check}
-                      progress={progress}
-                      launch={launchFeedback}
+                      schedule={scheduleFeedback}
+                      repeat={repeatFeedback}
+                      scheduleForm={scheduleForm}
                       canWrite={write.allowed}
-                      writeReason={write.reason}
                       refusal={refusal}
-                      onAddPeople={addPeople}
+                      showRepeat={false}
                     />
-                  <OtherCallSettings
-                    campaignId={campaignId}
-                    editable={status === "draft"}
-                    callingHours={data.calling_hours}
-                    retryPolicy={data.retry_policy}
-                    canWrite={write.allowed}
-                    refusal={refusal}
-                    startLater={
-                      check.data && status === "draft" ? (
-                        <ArmingForms
-                          status={status}
-                          check={check}
-                          schedule={scheduleFeedback}
-                          repeat={repeatFeedback}
-                          scheduleForm={scheduleForm}
-                          canWrite={write.allowed}
-                          refusal={refusal}
-                          showRepeat={false}
-                        />
-                      ) : undefined
-                    }
-                  />
-              </FoldGroup>
-            )
-          }
-        />
-      )}
+                  ) : undefined
+                }
+              />
+            </FoldGroup>
+          )
+        }
+      />
     </div>
   );
 }
