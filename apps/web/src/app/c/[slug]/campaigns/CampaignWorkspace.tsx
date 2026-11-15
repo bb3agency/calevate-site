@@ -406,7 +406,12 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   );
 }
 
+/**
+ * A short read of the saved script, named exactly as Edit script names the same parts
+ * (`scriptDiff.PARTS`), so the owner recognises each one when they open it to change it.
+ */
 function ScriptSummary({ script }: { script: CallScript }) {
+  const outbound = script.outbound_opening_line !== "";
   const opening = script.outbound_opening_line || script.opening_line;
   const steps =
     script.stages.length > 0
@@ -416,13 +421,15 @@ function ScriptSummary({ script }: { script: CallScript }) {
     <dl className="grid grid-cols-1 gap-3 text-body sm:grid-cols-[10rem_1fr]">
       {opening && (
         <>
-          <dt className="text-meta font-medium text-ink-muted">Opens with</dt>
+          <dt className="text-meta font-medium text-ink-muted">
+            {outbound ? "Opening line when it calls" : "Opening line"}
+          </dt>
           <dd className="text-ink">“{opening}”</dd>
         </>
       )}
       {script.goal && (
         <>
-          <dt className="text-meta font-medium text-ink-muted">Aims for</dt>
+          <dt className="text-meta font-medium text-ink-muted">The goal</dt>
           <dd className="text-ink">{script.goal}</dd>
         </>
       )}
@@ -439,8 +446,10 @@ function ScriptSummary({ script }: { script: CallScript }) {
         </>
       )}
       <dt className="text-meta font-medium text-ink-muted">Quick facts</dt>
+      <dd className="text-ink">{script.faqs.length === 1 ? "1 fact" : `${script.faqs.length} facts`}</dd>
+      <dt className="text-meta font-medium text-ink-muted">When callers push back</dt>
       <dd className="text-ink">
-        {script.faqs.length} · objections {script.objections.length}
+        {script.objections.length === 1 ? "1 answer" : `${script.objections.length} answers`}
       </dd>
     </dl>
   );

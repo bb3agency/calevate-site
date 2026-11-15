@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.19 — 16-Nov-2026
+
+- The script's short read uses the names Edit script uses: Opening line (when it calls), The
+  goal, Steps, Quick facts and When callers push back, with counts in words instead of
+  "4 · objections 4".
+
 ## 0.4.18 — 16-Nov-2026
 
 - **The campaign tabs are coloured pills**, each with its own colour (Set up green, Progress &
