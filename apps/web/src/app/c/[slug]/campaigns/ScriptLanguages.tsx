@@ -13,7 +13,7 @@
 
 import { Check } from "lucide-react";
 
-import { problemToast } from "@/components/arc/feedback";
+import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { Skeleton } from "@/components/ui";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { useCampaignSettings, useSaveCampaignSettings } from "@/lib/api/campaignWorkspace";
@@ -33,6 +33,7 @@ export function ScriptLanguages({
   const { session } = useClientRealm();
   const settings = useCampaignSettings(session, campaignId, agentId);
   const save = useSaveCampaignSettings(session, campaignId);
+  useActionFeedback(save, { errorDisplay: "inline" });
   if (!settings.data) return settings.isLoading ? <Skeleton rows={1} label="Loading the languages" /> : null;
   const { overrides, defaults, offered_languages: offered } = settings.data;
   const main = overrides.language_primary ?? defaults.language_primary ?? offered[0];

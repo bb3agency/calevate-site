@@ -14,8 +14,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { NoticeBox, PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
-import type { CampaignProposal } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
+
+/** What these read of a Pip draft: a campaign's script or the company training. */
+type PipDraft = { status: string; requested_at: string; reason?: string | null; note?: string | null };
 
 /** Reasons a retry cannot cure: the account's allowance, not Pip's answer. */
 const ALLOWANCE_REASONS = new Set(["ai_quota_exceeded", "ai_quota_exhausted", "ai_paused_platform_wide"]);
@@ -30,8 +33,8 @@ const TITLES: Record<string, string> = {
   ai_paused_platform_wide: "AI help is paused for now",
 };
 
-export function failedTitle(reason: string | null | undefined): string {
-  return (reason && TITLES[reason]) || "Pip could not write the script";
+export function failedTitle(reason: string | null | undefined, what = "the script"): string {
+  return lookup(TITLES, reason) ?? `Pip could not write ${what}`;
 }
 
 export function retryable(reason: string | null | undefined): boolean {
@@ -48,10 +51,13 @@ export function PipWriting({
   proposal,
   stopping,
   onStop,
+  what = "the script",
 }: {
-  proposal: CampaignProposal;
+  proposal: PipDraft;
   stopping: boolean;
   onStop: () => void;
+  /** What Pip is writing, as the sentence names it. */
+  what?: string;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -63,7 +69,7 @@ export function PipWriting({
       <span className="h-3 w-3 shrink-0 animate-pulse rounded-full bg-brand motion-reduce:animate-none" aria-hidden />
       <div className="min-w-0">
         <p role="status" className="text-body text-ink">
-          Pip is writing the script.
+          Pip is writing {what}.
         </p>
         <p className="text-meta text-ink-muted">
           <span className="tabular-nums" aria-hidden>
@@ -86,8 +92,10 @@ export function PipFailed({
   dismissing,
   onRetry,
   onDismiss,
+  what = "the script",
 }: {
-  proposal: CampaignProposal;
+  proposal: PipDraft;
+  what?: string;
   canWrite: boolean;
   retrying: boolean;
   dismissing: boolean;
@@ -97,7 +105,7 @@ export function PipFailed({
   const { session, href } = useClientRealm();
   const again = retryable(proposal.reason);
   return (
-    <NoticeBox tone="warn" role="alert" title={failedTitle(proposal.reason)}>
+    <NoticeBox tone="warn" role="alert" title={failedTitle(proposal.reason, what)}>
       {proposal.note && <p className="mt-1 max-w-prose text-meta text-ink">{proposal.note}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {again ? (

@@ -119,6 +119,7 @@ import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
 import KnowledgePage from "@/app/c/[slug]/knowledge/page";
+import CompanyTrainingPage from "@/app/c/[slug]/company-training/page";
 import LeadDetailPage from "@/app/c/[slug]/leads/[leadId]/page";
 import LeadsPage from "@/app/c/[slug]/leads/page";
 import MessagingConsentPage from "@/app/c/[slug]/messaging-consent/page";
@@ -3261,6 +3262,7 @@ const CLIENT_SCREENS: Screen[] = [
       // The Set up tab, which opens first whatever the status.
       [`/v1/campaigns/${CAMPAIGN.id}/workspace`]: workspaceFixture({ campaign_id: CAMPAIGN.id, status: "running" }),
       [`/v1/campaigns/${CAMPAIGN.id}/settings`]: settingsFixture(),
+      [`/v1/campaigns/${CAMPAIGN.id}/test-calls`]: [],
       "/v1/agents": [AGENT],
       ...dltRegistrationRoute(),
       [`/v1/campaigns/${CAMPAIGN.id}/results`]: resultsFixture({ contacts: 1, tried: 1, pickup_rate: 1 }),
@@ -3752,6 +3754,45 @@ const CLIENT_SCREENS: Screen[] = [
       // Not a deployment that rents numbers in the client's own account (D-693), so the one
       // "not on sale here" line renders; `ownNumbers.test.tsx` sweeps the journey.
       [OWN_NUMBERS_STATUS_PATH]: OWN_NUMBERS_OFF,
+    },
+  },
+  {
+    file: "c/[slug]/company-training/page.tsx",
+    realm: "client",
+    element: () => <CompanyTrainingPage />,
+    routes: {
+      "/v1/me": ME,
+      // A saved training, a material and a ready Pip draft, so the sweep covers the
+      // populated folds and the draft's Keep / Edit first / Discard rather than empty ones.
+      "/v1/company-training": {
+        overview: "We build flats in Kompally.",
+        training: "Address people as sir or madam.",
+        version: 2,
+        updated_at: "2026-11-16T05:00:00Z",
+        proposal: {
+          id: "p-1",
+          status: "ready",
+          requested_at: "2026-11-16T05:00:00Z",
+          base_training: "Address people as sir or madam.",
+          training: "We are Sunrise Homes. Address people as sir or madam.",
+          note: null,
+          disclosure: null,
+          reason: null,
+        },
+        materials: [
+          {
+            id: "m-1",
+            kind: "note",
+            title: "Prices",
+            url: null,
+            note: "Flats from 60 lakh.",
+            kb_upload_id: null,
+            created_at: "2026-11-16T05:00:00Z",
+          },
+        ],
+        overview_max: 4000,
+        training_max: 6000,
+      },
     },
   },
   {

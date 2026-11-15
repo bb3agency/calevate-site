@@ -175,6 +175,16 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("outbound", "calling list", "dialer", "broadcast"),
     ),
     Screen(
+        route="/c/{slug}/company-training",
+        name="Company training",
+        group=None,
+        summary=(
+            "Describe the business and add materials; Pip writes the training every agent "
+            "is given before its own script."
+        ),
+        aliases=("company overview", "train my agents", "about my business", "agent training"),
+    ),
+    Screen(
         route="/c/{slug}/agents",
         name="Agents",
         group=None,

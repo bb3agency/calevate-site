@@ -134,7 +134,7 @@ export function FoldSection({
   const look = TONE[tone];
   return (
     <section id={id} className="relative scroll-mt-24 pt-4">
-      <div className="absolute left-4 top-0 z-10 flex items-center gap-3">
+      <div className="absolute left-4 top-0 z-raised flex items-center gap-3">
         <h2 className="text-body font-semibold">
           <button
             type="button"

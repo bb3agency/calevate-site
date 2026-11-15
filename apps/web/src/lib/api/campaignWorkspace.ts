@@ -198,7 +198,9 @@ export function useCampaignTestCalls(session: Session, campaignId: string) {
   return useQuery({
     queryKey: testCallsKey(session.orgSlug, campaignId),
     queryFn: () => apiRequest<CampaignTestCallItem[]>(session, `${base(campaignId)}/test-calls`),
-    refetchInterval: (query) => ((query.state.data ?? []).some(stillComing) ? 10_000 : false),
+    refetchInterval: untilRefused((query: { state: { data?: CampaignTestCallItem[] } }) =>
+      (query.state.data ?? []).some(stillComing) ? 10_000 : false,
+    ),
   });
 }
 

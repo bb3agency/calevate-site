@@ -18,6 +18,7 @@ import { CallAudioPlayer } from "@/components/callAudioPlayer";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ProblemNotice, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
+import { lookup } from "@/lib/lookup";
 import {
   useCampaignTestCalls,
   useRemoveCampaignTestCall,
@@ -58,8 +59,10 @@ export function TestCallList({
 }) {
   const { session } = useClientRealm();
   const calls = useCampaignTestCalls(session, campaignId);
-  if (calls.error) return <ProblemNotice error={calls.error} onRetry={() => calls.refetch()} />;
-  const items = calls.data ?? [];
+  if (calls.error || !calls.data) {
+    return calls.error ? <ProblemNotice error={calls.error} onRetry={() => calls.refetch()} /> : null;
+  }
+  const items = calls.data;
   if (items.length === 0) return null;
   return (
     <div className="mt-5 border-t border-line pt-4">
@@ -95,10 +98,11 @@ function TestCallRow({
 }) {
   const { session, href } = useClientRealm();
   const link = useRecordingLink(session, call.call_id);
+  useActionFeedback(link, { errorDisplay: "inline" });
   const remove = useRemoveCampaignTestCall(session, campaignId);
   const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Test call removed" });
   const [confirming, setConfirming] = useState(false);
-  const words = STATUS_WORDS[call.status] ?? call.status;
+  const words = lookup(STATUS_WORDS, call.status) ?? call.status;
 
   return (
     <li className="py-3">

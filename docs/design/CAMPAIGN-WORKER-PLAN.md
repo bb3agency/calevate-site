@@ -37,12 +37,11 @@ The research behind this plan is in rememory `5e127481`. Every file reference be
 Each engine agent is composed as:
 
 1. platform rules
-2. company training (a new layer, before the client fence)
-3. this holder's script (the client fence)
-4. what the account can do
-5. confidentiality
-6. truthful answers
-7. this call
+2. the client fence, holding first the company training, then this holder's script
+3. what the account can do
+4. confidentiality
+5. truthful answers
+6. this call
 
 Hard rule 5, `CONFIDENTIALITY_RULE` and the speech rules are composed into every holder exactly as today.
 
@@ -68,10 +67,10 @@ Every new tenant table ships with its RLS policy and a cross-tenant zero-rows te
 
 ## 4. Build order (each phase ships green on its own)
 
-### Phase 1: Company training
+### Phase 1: Company training (built, D-995)
 - Table, API and page. The page is a new client screen following the campaign workspace, with sidebar and `copilot/screens.py` entries.
 - Pip writes the training from the overview, the business profile, knowledge and the first-run answers.
-- Composition: the training becomes its own prompt layer. Agents compose it ahead of their (still existing) script, so nothing callers hear changes yet beyond the shared facts.
+- Composition: the training is the first section, `[COMPANY TRAINING]`, inside the client fence of every agent and A/B arm (`agents/company_training.with_training`). It sits inside the fence rather than as a platform layer because the business wrote it. An account with no training composes byte for byte as before.
 
 ### Phase 2: Campaign engine agents
 Hazards to fix first:
@@ -113,8 +112,8 @@ Then:
 - The readiness score and the Overview checklist drop their script items.
 - The Pip agent-script tools retire. Pip writes the company training, campaign scripts and line briefs instead.
 
-## 5. Decisions still open
+## 5. Decisions (founder, 16 Nov 2026)
 
-1. May a campaign change a company fact for its own calls (a festival price)? Proposed: yes, a campaign's script wins over the training for its own calls, and Pip marks the override.
-2. Caller memory is per engine agent (D-973). A caller known to the inbound line is unknown to a campaign. Accept for now, or work around it with our own caller lookup?
+1. A campaign may change a company fact for its own calls (a festival price): its script wins over the training on its own calls, and Pip marks the override.
+2. Caller memory stays per engine agent (D-973) for now: a caller known to the inbound line is unknown to a campaign.
 3. A/B opening tests stay on campaigns (opening B is already campaign-level). Per-agent experiments retire with the script.

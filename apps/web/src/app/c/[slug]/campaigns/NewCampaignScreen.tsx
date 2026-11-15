@@ -15,6 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef } from "react";
 
+import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
@@ -38,6 +39,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const agents = useAgents(session);
   const callLines = useMyCallLines(session);
   const create = useCreateCampaign(session);
+  useActionFeedback(create, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   const started = useRef(false);
 

@@ -142,6 +142,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-settings",
     "agent-holder",
     "campaign-insights",
+    // The calls a campaign's Test call placed, listed on the campaign (`campaigns.test_call_ids`).
+    "campaign-test-calls",
   ],
   callbacks: [
     ...SUMMARY,
@@ -214,6 +216,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   agents: [
     ...SUMMARY,
     "agent",
+    // The company training every agent is given (`company_trainings`, its materials).
+    "company-training",
     // A campaign's settings page shows the agent's own values beside its overrides (D-994).
     "campaign-settings",
     "agents",

@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.24 — 16-Nov-2026
+
+- **Company training.** A new page in the sidebar, above Agents. Describe your business in your
+  own words and add price lists, links or notes; Pip writes the training, and you keep it, edit
+  it first or discard it. Every agent is given it before its own script, and a save brings
+  every agent onto it at once. Where an agent's or a campaign's own script says something
+  different, that script wins on its own calls.
+- Campaign pages: the Test call list waits for its answer rather than showing nothing, and a
+  few small fixes the checks asked for.
+
 ## 0.4.23 — 16-Nov-2026
 
 - The GitHub build keeps the website's build cache between deploys, so each one compiles only

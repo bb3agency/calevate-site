@@ -183,6 +183,8 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/workspace`]: workspaceFixture({ campaign_id: id }),
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
+    // The Test call section's list of calls made from the campaign: none yet.
+    [`/v1/campaigns/${id}/test-calls`]: [],
     // The Set up tab's agent picker, for every status.
     "/v1/agents": [],
     ...dltRegistrationRoute(),

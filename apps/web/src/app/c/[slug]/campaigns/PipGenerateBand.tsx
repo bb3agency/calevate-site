@@ -15,7 +15,13 @@ export function PipGenerateBand({
   refusal,
   label = "Generate",
   inline = false,
+  heading = "Let Pip, our AI agent, generate the script",
+  from = "Pip writes it from your main task and materials.",
 }: {
+  /** The band's heading: what Pip will write. */
+  heading?: string;
+  /** What Pip writes it from, shown while nothing holds Generate back. */
+  from?: string;
   /** Inside the Script section: a plain row, not a card of its own. */
   inline?: boolean;
   /** The button's word: Generate, or Try again after a failed draft. */
@@ -40,15 +46,15 @@ export function PipGenerateBand({
       <div className="min-w-0">
         {inline ? (
           <h3 id="pip-generate" className="text-body font-semibold text-ink">
-            Let Pip, our AI agent, generate the script
+            {heading}
           </h3>
         ) : (
           <h2 id="pip-generate" className="text-heading text-ink">
-            Let Pip, our AI agent, generate the script
+            {heading}
           </h2>
         )}
         <p className="mt-0.5 text-meta text-ink-muted">
-          {reason ?? "Pip writes it from your main task and materials."}
+          {reason ?? from}
         </p>
       </div>
       <button
