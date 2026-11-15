@@ -87,6 +87,7 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     # campaigns
     "campaigns": "campaigns",
     "campaign_contacts": "campaigns",
+    "campaign_materials": "campaigns",
     "preference_scrub_runs": "campaigns",
     "dlt_registrations": "campaigns",
     "dlt_templates": "campaigns",
