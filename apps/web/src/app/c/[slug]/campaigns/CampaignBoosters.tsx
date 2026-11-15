@@ -13,14 +13,20 @@ import { useEffect, useState } from "react";
 
 import { problemToast } from "@/components/arc/feedback";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
-import { useDuplicateCampaign } from "@/lib/api/campaigns";
+import { useQueryClient } from "@tanstack/react-query";
+
+import { LANGUAGE_NAMES, isAssignable } from "@/lib/agentState";
+import { useAgents } from "@/lib/api/agents";
+import { useDuplicateCampaign, useUpdateCampaign } from "@/lib/api/campaigns";
 import {
   useCampaignInsights,
   useCampaignTestCall,
   useSaveOpeningB,
+  workspaceKey,
   type CampaignInsights,
 } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
 
 type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
 
@@ -36,16 +42,6 @@ function Card({ title, hint, accent, children }: { title: string; hint: string; 
 
 function errorText(error: unknown, fallback: string): string {
   return problemToast(error, fallback).description ?? fallback;
-}
-
-/** Before Start: hear it, and set up a second opening to test. */
-export function BeforeStartBoosters(props: Common) {
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <HearItFirst {...props} />
-      <OpeningTest {...props} />
-    </div>
-  );
 }
 
 /** After Start: what the calls teach, and the next moves. */
@@ -72,11 +68,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
   const [mine, setMine] = useState(true);
   const result = call.data;
   return (
-    <Card
-      title="Hear it on your phone first"
-      hint="Puts this campaign's script on the agent and rings your number, so you hear exactly what people will hear."
-      accent="border-l-brand"
-    >
+    <Card title="Test call" hint="The chosen agent rings your phone and speaks this campaign's script." accent="border-l-brand">
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-48 flex-1 text-meta font-medium text-ink">
           Your number
@@ -97,7 +89,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
           title={refusal}
           onClick={() => call.mutate({ number, numberIsMine: mine })}
         >
-          {call.isPending ? "Calling…" : "Ring me"}
+          {call.isPending ? "Calling…" : "Call me"}
         </button>
       </div>
       <label className="mt-2 flex items-center gap-2 text-meta text-ink-muted">
@@ -321,5 +313,85 @@ function WhatsAppFollowUp({ slug }: { slug: string }) {
         Set up a follow-up
       </Link>
     </Card>
+  );
+}
+
+/**
+ * STEP 4, KEPT SIMPLE (founder, 15 Nov 2026): the agents to choose from, then a test call with
+ * the chosen one speaking this campaign's script. What the call says (its opening included)
+ * belongs in the script, not here. The agent can be changed while the campaign is a draft.
+ */
+export function AgentAndTestCall({
+  slug,
+  campaignId,
+  agentId,
+  editable,
+  canWrite,
+  refusal,
+}: Common & { agentId: string; editable: boolean }) {
+  const { session } = useClientRealm();
+  const agents = useAgents(session);
+  const update = useUpdateCampaign(session, campaignId);
+  const client = useQueryClient();
+  const [error, setError] = useState<unknown>(null);
+  const options = (agents.data ?? []).filter(isAssignable);
+
+  const choose = (id: string) => {
+    if (id === agentId || !editable) return;
+    setError(null);
+    update.mutate(
+      { agent_id: id },
+      {
+        onSuccess: () => void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) }),
+        onError: setError,
+      },
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
+      {agents.error != null && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
+      {options.length > 0 && (
+        <div role="radiogroup" aria-label="Agent" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {options.map((agent) => {
+            const on = agent.id === agentId;
+            return (
+              <button
+                key={agent.id}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                disabled={!canWrite || !editable || update.isPending}
+                title={!editable ? "The agent can be changed while the campaign is a draft" : refusal}
+                onClick={() => choose(agent.id)}
+                className={`flex items-center gap-3 rounded-card border bg-surface p-4 text-left transition-colors ${
+                  on ? "border-brand ring-1 ring-brand" : "border-line hover:bg-surface-muted"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 ${on ? "border-brand" : "border-line"}`}
+                >
+                  {on && <span className="h-2.5 w-2.5 rounded-full bg-brand" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-body font-semibold text-ink">{agent.name}</span>
+                  <span className="block text-meta text-ink-muted">
+                    {lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {error != null && (
+        <p role="alert" className="text-meta text-danger">
+          {errorText(error, "The agent did not change")}
+        </p>
+      )}
+      <HearItFirst slug={slug} campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
+    </div>
   );
 }

@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.7 — 15-Nov-2026
+
+- Step 4 is now **Agent and test call**: the list of your agents to choose from (while the campaign
+  is a draft), then **Test call**, where the chosen agent rings your phone speaking this campaign's
+  script. The second-opening test left this step; what a call says belongs in the script.
+
 ## 0.3.6 — 15-Nov-2026
 
 - A campaign file that is already in your knowledge is no longer refused as a duplicate: the

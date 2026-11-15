@@ -28,7 +28,7 @@ import { useClientRealm } from "@/lib/api/session";
 
 import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
-import { BeforeStartBoosters, ImproveTab } from "./CampaignBoosters";
+import { AgentAndTestCall, ImproveTab } from "./CampaignBoosters";
 import { CampaignCalls } from "./CampaignCalls";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
 import { CampaignQuestions } from "./CampaignQuestions";
@@ -347,16 +347,15 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                       <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-meta font-semibold text-surface">
                         4
                       </span>
-                      Agent and start
+                      Agent and test call
                     </h2>
-                    <p className="mt-1 text-meta text-ink-muted">
-                      {data.agent_name} speaks this campaign&apos;s script. Change the agent in the settings beside the
-                      list. Start puts the script on the agent, then calls.
-                    </p>
+                    <p className="mt-1 text-meta text-ink-muted">Choose the agent, then hear it on your phone.</p>
                   </div>
-                  <BeforeStartBoosters
+                  <AgentAndTestCall
                     slug={slug}
                     campaignId={campaignId}
+                    agentId={data.agent_id}
+                    editable={status === "draft"}
                     canWrite={write.allowed}
                     refusal={refusal}
                   />
