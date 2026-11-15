@@ -185,6 +185,13 @@ function DataUseRow({
 }) {
   const [open, setOpen] = useState(false);
   const attested = hasAttestation(leg);
+  // Owned by the row, not the form: the form closes on success, and an unmounted owner
+  // never sees the outcome its toast is raised from. The in-call panel does the same.
+  const save = useAttestDashboardDataUse();
+  const saveFeedback = useActionFeedback(save, {
+    errorDisplay: "inline",
+    successToast: "Attestation recorded",
+  });
 
   return (
     <div className="py-3.5 sm:px-2">
@@ -275,7 +282,13 @@ function DataUseRow({
       {access.allowed ? (
         <div className="mt-3">
           {open ? (
-            <DashboardAttestForm leg={leg} statement={statement} onDone={() => setOpen(false)} />
+            <AttestForm
+              leg={leg}
+              statement={statement}
+              onDone={() => setOpen(false)}
+              save={save}
+              status={saveFeedback.status}
+            />
           ) : (
             <button
               type="button"
@@ -295,15 +308,6 @@ function DataUseRow({
       )}
     </div>
   );
-}
-
-function DashboardAttestForm(props: { leg: DashboardDataUse; statement: string; onDone: () => void }) {
-  const save = useAttestDashboardDataUse();
-  const feedback = useActionFeedback(save, {
-    errorDisplay: "inline",
-    successToast: "Attestation recorded",
-  });
-  return <AttestForm {...props} save={save} status={feedback.status} />;
 }
 
 /** The latest attestation the form is seeded from: the fields both data-use legs share. */

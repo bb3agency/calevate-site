@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useAdminAccess } from "@/app/admin/access";
 import { WriteFailure } from "@/app/admin/writeFailure";
@@ -232,13 +232,18 @@ function MarkFixedDialog({ mistake, onClose }: { mistake: PlatformMistake; onClo
   const [note, setNote] = useState("");
   const [tried, setTried] = useState(false);
   const blank = note.trim() === "";
+  // Closed from the outcome, not a per-call `onSuccess`: only `run` raises the toast from
+  // its own promise, which still settles after this dialog has unmounted.
+  useEffect(() => {
+    if (feedback.status === "success") onClose();
+  }, [feedback.status, onClose]);
 
   const submit = () => {
     setTried(true);
     // The form has no submit button inside it, so Enter submits it directly rather than
     // through the busy button below.
     if (blank || mark.isPending) return;
-    mark.mutate({ kind: mistake.kind, note: note.trim() }, { onSuccess: onClose });
+    feedback.run({ kind: mistake.kind, note: note.trim() });
   };
 
   return (

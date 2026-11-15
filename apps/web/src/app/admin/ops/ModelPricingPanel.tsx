@@ -2,7 +2,7 @@
 
 import { TEXT_ACTION } from "@/components/console/section";
 import { Section } from "@/components/console/section";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   WithheldPanel,
@@ -25,7 +25,7 @@ import {
   istDateToInstant,
 } from "@/components/ui";
 import { DatePicker } from "@/components/arc/calendar";
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
 import { todayIST } from "@/components/arc/ist-dates";
 import { TypedConfirmation, confirmationMatches } from "@/components/typedConfirmation";
 import { useFormValidation } from "@/components/formValidation";
@@ -51,6 +51,17 @@ import { providerLabel } from "@/lib/api/llmModels";
 
 /** Every price form closes on success, so the confirmation lands where the form was. */
 const PRICE_FEEDBACK = { errorDisplay: "inline", successToast: "Price confirmed" } as const;
+
+/**
+ * Closes an attest form once its write succeeded. Not a per-call `onSuccess`: the form owns
+ * the feedback, and only `run` raises the toast from its own promise, which still settles
+ * after the form has unmounted.
+ */
+function useCloseOnSuccess(status: FeedbackStatus, onDone: () => void): void {
+  useEffect(() => {
+    if (status === "success") onDone();
+  }, [status, onDone]);
+}
 
 /**
  * Model prices — PLATFORM-CONFIG §5: the founder types the AUTHORITATIVE billing price for
@@ -410,6 +421,7 @@ function AttestForm({
 
   const save = useAttestModelPrice();
   const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
+  useCloseOnSuccess(saveFeedback.status, onDone);
   // The word the operator TYPES to arm the save — a clean, short word rather than the raw
   // step-up string the API checks. The real confirmation (`attest_model_price:<model>`)
   // still goes on the wire, set inside `useAttestModelPrice`; conflating the two is how a
@@ -428,7 +440,7 @@ function AttestForm({
       noValidate
       onSubmit={valid.onSubmit(() => {
         if (!ready || save.isPending) return;
-        save.mutate(
+        saveFeedback.run(
           {
             model: price.model,
             // The exact strings the operator typed — no Number(), no rounding (hard rule 7).
@@ -437,7 +449,6 @@ function AttestForm({
             cachedInputUsdPerMtok: cachedUsd.trim() || undefined,
             sourceNote: sourceNote.trim(),
           },
-          { onSuccess: onDone },
         );
       })}
     >
@@ -746,6 +757,7 @@ function EmbeddingAttestForm({
 
   const save = useAttestEmbeddingPrice();
   const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
+  useCloseOnSuccess(saveFeedback.status, onDone);
   const word = "CONFIRM";
   const valid = useFormValidation();
   const ready = confirmationMatches(confirm, word, "exact");
@@ -756,14 +768,13 @@ function EmbeddingAttestForm({
       noValidate
       onSubmit={valid.onSubmit(() => {
         if (!ready || save.isPending) return;
-        save.mutate(
+        saveFeedback.run(
           {
             model: price.model,
             // The exact string the operator typed — no Number(), no rounding (hard rule 7).
             inputUsdPerMtok: inputUsd.trim(),
             sourceNote: sourceNote.trim(),
           },
-          { onSuccess: onDone },
         );
       })}
     >
@@ -1034,6 +1045,7 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
 
   const save = useAttestTtsPrice();
   const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
+  useCloseOnSuccess(saveFeedback.status, onDone);
   const word = "CONFIRM";
   const valid = useFormValidation();
   const ready = confirmationMatches(confirm, word, "exact");
@@ -1044,7 +1056,7 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
       noValidate
       onSubmit={valid.onSubmit(() => {
         if (!ready || save.isPending) return;
-        save.mutate(
+        saveFeedback.run(
           {
             provider: price.provider,
             // The exact string typed — no Number(), no rounding (hard rule 7). ₹3.4496 is
@@ -1052,7 +1064,6 @@ function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void 
             inrPer1kChars: inr.trim(),
             sourceNote: sourceNote.trim(),
           },
-          { onSuccess: onDone },
         );
       })}
     >
@@ -1311,6 +1322,7 @@ function InrLlmAttestForm({ price, onDone }: { price: InrLlmPrice; onDone: () =>
 
   const save = useAttestInrLlmPrice();
   const saveFeedback = useActionFeedback(save, PRICE_FEEDBACK);
+  useCloseOnSuccess(saveFeedback.status, onDone);
   const word = "CONFIRM";
   const valid = useFormValidation();
   const ready = confirmationMatches(confirm, word, "exact");
@@ -1323,7 +1335,7 @@ function InrLlmAttestForm({ price, onDone }: { price: InrLlmPrice; onDone: () =>
       onSubmit={valid.onSubmit(() => {
         if (!ready || save.isPending) return;
         const effectiveFrom = startsOn ? istDateToInstant(startsOn) : null;
-        save.mutate(
+        saveFeedback.run(
           {
             model: price.model,
             inInrPerMtok: inInr.trim(),
@@ -1332,7 +1344,6 @@ function InrLlmAttestForm({ price, onDone }: { price: InrLlmPrice; onDone: () =>
             sourceNote: sourceNote.trim(),
             effectiveFrom: effectiveFrom ?? undefined,
           },
-          { onSuccess: onDone },
         );
       })}
     >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CircleAlert } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
@@ -78,11 +78,14 @@ function EntryEditor({ entry, onClose }: { entry: CallWord; onClose: () => void 
   const id = `words-${entry.key.replace(/[^A-Za-z0-9]/g, "-")}`;
   const pressedReset = change.variables?.value === null;
 
+  // Closed from the outcome, not a per-call `onSuccess`: only `run` raises the toast from
+  // its own promise, which still settles after this editor has unmounted.
+  useEffect(() => {
+    if (feedback.status === "success") onClose();
+  }, [feedback.status, onClose]);
+
   const send = (value: CallWord["value"] | null) =>
-    change.mutate(
-      { key: entry.key, value, note, confirmation: entry.confirmation },
-      { onSuccess: onClose },
-    );
+    feedback.run({ key: entry.key, value, note, confirmation: entry.confirmation });
 
   return (
     <form
