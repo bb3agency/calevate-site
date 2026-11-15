@@ -26,6 +26,7 @@ from apps.api.billing.trials import (
     counter_epoch,
     end_trial,
     read_trial,
+    replace_open_trial,
     start_trial,
     trial_billing_active,
     trial_covers,
@@ -253,6 +254,26 @@ async def test_a_trial_stopped_early_stops_covering_calls_at_the_moment_it_stopp
         )
         assert await trial_covers(session, tenant_id=tenant_id, at=started + timedelta(days=1))
         assert not await trial_covers(session, tenant_id=tenant_id, at=started + timedelta(days=4))
+
+
+async def test_a_call_inside_a_replaced_trial_stays_covered_after_the_replacement() -> None:
+    """The sign-up trial is replaced by an operator's (D-853). A call spoken inside the
+    first one and settling after the second opened was still free when it was spoken."""
+    tenant_id, _ = await _org()
+    started = datetime.now(UTC) - timedelta(days=10)
+    async with tenant_session(tenant_id) as session:
+        await start_trial(session, tenant_id=tenant_id, days=30, actor_user_id=None, at=started)
+        await replace_open_trial(session, tenant_id=tenant_id, at=started + timedelta(days=3))
+        await start_trial(
+            session,
+            tenant_id=tenant_id,
+            days=30,
+            actor_user_id=None,
+            at=started + timedelta(days=3),
+        )
+        assert await trial_covers(session, tenant_id=tenant_id, at=started + timedelta(days=1))
+        assert await trial_covers(session, tenant_id=tenant_id, at=started + timedelta(days=4))
+        assert not await trial_covers(session, tenant_id=tenant_id, at=started - timedelta(days=1))
 
 
 # --- the boundary -------------------------------------------------------------------

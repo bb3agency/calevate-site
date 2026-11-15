@@ -127,3 +127,43 @@ async def test_ending_a_trial_keeps_a_zero_cap_armed() -> None:
     assert (await _gate(tenant_id, agent_id)).rule == "spend_cap"
     zero = Decimal("0")
     assert await _row(tenant_id) == (current_billing_month(), zero, zero, zero, True)
+
+
+async def test_a_zero_cap_set_last_month_still_stops_the_first_dial_of_this_month() -> None:
+    """The stop button was pressed last month, so the armed row carries last month's stamp.
+    Nothing re-arms it at the month roll, and the gate reads a stale row as no cap: the
+    first dials of the new month went out until one completed and the meter re-armed it.
+    Zero counters have already reached a zero ceiling in every month."""
+    from apps.api.billing.plans import ist_billing_month
+
+    tenant_id, agent_id, _ = await _tenant("zerocaproll")
+    await _plan(tenant_id)
+    assert await _set_client_caps(tenant_id, cap_spend=Decimal("0")) is True
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE spend_state SET month = :m WHERE tenant_id = :t"),
+            {"m": ist_billing_month(LAST_MONTH), "t": tenant_id},
+        )
+
+    assert (await _gate(tenant_id, agent_id)).rule == "spend_cap"
+
+
+async def test_a_positive_cap_reached_last_month_does_not_stop_this_month() -> None:
+    """Last month's flag is not this month's cap: a positive ceiling starts each month
+    with headroom, and the month roll lifts it."""
+    from apps.api.billing.plans import ist_billing_month
+
+    tenant_id, agent_id, _ = await _tenant("poscaproll")
+    await _plan(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 500, 100, 900, true, now(), now())"
+            ),
+            {"m": ist_billing_month(LAST_MONTH), "t": tenant_id},
+        )
+    assert await _set_client_caps(tenant_id, cap_spend=Decimal("50.00")) is False
+
+    assert (await _gate(tenant_id, agent_id)).allowed

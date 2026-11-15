@@ -81,6 +81,7 @@ from apps.api.agents.reconciliation import (
     TRUTHFUL_ANSWER_MISSING,
     TRUTHFUL_ANSWER_VERDICT_TTL_S,
 )
+from apps.api.billing.caps import ceiling_reached_at_zero
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
 from apps.api.billing.first_payment import has_paid
 from apps.api.billing.platform_fee import (
@@ -431,6 +432,10 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
     a cap at the billing boundary rather than at the mercy of the next metered call. The
     same reasoning applies to a raised ceiling: it takes effect immediately instead of
     on the next call that manages to get through.
+
+    A month with no counters yet is asked whether a ceiling is reached at zero: a zero cap
+    (the client's stop button) armed last month sits on a stale row, and the first dials
+    of the new month would otherwise go out until one completed and the meter re-armed it.
     """
     row = (
         await session.execute(
@@ -438,9 +443,9 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
             {"tid": tenant_id},
         )
     ).first()
-    if row is None or not bool(row[0]):
-        return False
-    return str(row[1]) == current_billing_month()
+    if row is not None and str(row[1]) == current_billing_month():
+        return bool(row[0])
+    return await ceiling_reached_at_zero(session, tenant_id=tenant_id)
 
 
 # The tiers whose identity we have not verified out of band. `credits_exhausted` draws

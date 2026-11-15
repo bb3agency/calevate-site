@@ -469,6 +469,18 @@ WHERE spend_state.month < EXCLUDED.month
 RETURNING capped
 """
 
+_CEILING_REACHED_AT_ZERO = f"WITH caps AS ({CAPS_CTE}) SELECT {over_cap_sql('0', '0')}"
+
+
+async def ceiling_reached_at_zero(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """Is an effective ceiling already reached by a month with nothing metered? Only a zero
+    one is. The gate asks it of a month with no counters yet, because a stop button armed
+    last month is on a row the gate reads as stale and nothing re-arms at the month roll."""
+    return bool(
+        (await session.execute(text(_CEILING_REACHED_AT_ZERO), {"tid": tenant_id})).scalar()
+    )
+
+
 _SPEND_STATE_SELECT = (
     "SELECT minutes_used, spend_used, capped, month, billed_inr "
     "FROM spend_state WHERE tenant_id = :tid"
@@ -670,6 +682,7 @@ __all__ = [
     "announce_cap_headroom",
     "apply_client_caps",
     "cap_fullness",
+    "ceiling_reached_at_zero",
     "effective_cap",
     "lock_tenant_spend_state",
     "over_cap_sql",
