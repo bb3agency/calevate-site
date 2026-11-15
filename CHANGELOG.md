@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.3 — 15-Nov-2026
+
+- A page opened while a deploy swapped the server no longer shows "This screen stopped": a
+  missing code file reloads the page once onto the new build.
+
 ## 0.3.2 — 15-Nov-2026
 
 - **Let Pip, our AI agent, generate the script:** a band with a **Generate** button between
