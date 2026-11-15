@@ -138,11 +138,11 @@ export function LaunchGate({
   const todo = items.filter((item) => item.state === "todo").length;
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-10">
-      {/* MANDATORY REGULATORY COMPLIANCE CHECKS (founder, 15 Nov 2026): foldable, open by
-          default. Launch stays disabled here until every check is answered, and the server's
-          compliance gate refuses a launch that skips one (hard rule 5), whatever this shows. */}
-      <details open className="group min-w-0 rounded-card border border-warn-line border-l-4 border-l-warn bg-surface">
+    // MANDATORY REGULATORY COMPLIANCE CHECKS (founder, 15 Nov 2026): foldable, open by default,
+    // a full-width card like the Agent and test call card above it. Launch stays disabled here
+    // until every check is answered, and the server's compliance gate refuses a launch that
+    // skips one (hard rule 5), whatever this shows.
+    <details open className="group min-w-0 rounded-card border border-line border-l-4 border-l-warn bg-surface shadow-card">
         <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 p-4 sm:p-5 [&::-webkit-details-marker]:hidden">
           <h2 id={`launch-${campaignId}`} className="text-heading text-ink">
             Mandatory Regulatory Compliance Checks
@@ -158,7 +158,11 @@ export function LaunchGate({
             <ChevronDown aria-hidden className="h-4 w-4 text-ink-muted transition-transform group-open:rotate-180" />
           </span>
         </summary>
-        <section aria-labelledby={`launch-${campaignId}`} className="border-t border-line p-4 sm:p-5">
+        <section
+          aria-labelledby={`launch-${campaignId}`}
+          className="grid grid-cols-1 gap-6 border-t border-line p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_17rem] lg:gap-8"
+        >
+        <div className="min-w-0">
         <p className="text-meta text-ink-muted">Required by law before any call goes out.</p>
         <p className="text-meta text-ink-muted">It cannot start until each one is answered.</p>
         <DeclarationDue declaration={declaration.data} href={`${at("/verify-business")}#calling-numbers`} />
@@ -215,10 +219,10 @@ export function LaunchGate({
             </div>
           )}
         </div>
+        </div>
+        {progress.data && <LaunchSummary progress={progress.data} purpose={purpose.data?.purpose} />}
         </section>
-      </details>
-      {progress.data && <LaunchSummary progress={progress.data} purpose={purpose.data?.purpose} />}
-    </div>
+    </details>
   );
 }
 

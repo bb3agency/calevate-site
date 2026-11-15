@@ -358,12 +358,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                     canWrite={write.allowed}
                     refusal={refusal}
                   />
-                  <div
-                    key="before-launch"
-                    className="settings-enter space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6"
-                  >
-                    <ScheduleCards {...scheduleCardProps} className="border-b border-line pb-6" />
-                    <LaunchGate
+                  <ScheduleCards {...scheduleCardProps} />
+                  <LaunchGate
                       slug={slug}
                       campaignId={campaignId}
                       status={status}
@@ -375,7 +371,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                       refusal={refusal}
                       onAddPeople={addPeople}
                     />
-                  </div>
                   {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a time. */}
                   <DraftPeople
                     slug={slug}

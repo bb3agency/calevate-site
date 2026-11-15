@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.5 — 15-Nov-2026
+
+- **Mandatory Regulatory Compliance Checks** is now a full-width card lined up with the
+  Agent and test call card above it, with the launch summary inside it rather than nested in
+  a second box.
+
 ## 0.4.4 — 15-Nov-2026
 
 - **Pip's campaign script no longer gives up after one try.** When its script breaks a call
