@@ -370,11 +370,19 @@ async def trial_covers(session: AsyncSession, *, tenant_id: UUID, at: datetime) 
     on covering calls placed after the operator stopped it. `ended_at` beats `ends_at`
     whenever a human ended it first; for a trial that ran its course the two are the same
     boundary and `LEAST` picks either.
+
+    EVERY trial is asked, not only the newest, as `ON_TRIAL_ROW_SQL` asks: the sign-up
+    trial is replaced by an operator's (D-853), and a call spoken inside the first that
+    settles after the second opened was free when it was spoken.
     """
-    trial = await read_trial(session, tenant_id=tenant_id)
-    if trial is None:
-        return False
-    return trial.started_at <= at < trial.covered_until
+    found = await session.execute(text(_TRIAL_COVERS_SQL), {"tid": tenant_id, "at": at})
+    return bool(found.scalar())
+
+
+_TRIAL_COVERS_SQL: Final = (
+    "SELECT EXISTS (SELECT 1 FROM tenant_trials WHERE tenant_id = :tid "
+    "AND started_at <= :at AND :at < LEAST(ends_at, COALESCE(ended_at, ends_at)))"
+)
 
 
 #: `trial_covers` as a predicate on a `usage_events` row, for the readers that split a month
