@@ -15,7 +15,7 @@
  *     (`tests/noticeStyle.test.tsx`).
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
@@ -304,11 +304,26 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const script = space.script;
   const hasTask = space.main_task.trim() !== "";
 
+  // Closing the editor (Save changes, Close, or keeping Pip's script) swaps a long list for
+  // the short read, which would leave the view far below the section. Bring the section
+  // back into view and put the focus on Edit script, so the owner is where they were.
+  const editButton = useRef<HTMLButtonElement>(null);
+  const backToScript = () =>
+    window.requestAnimationFrame(() => {
+      const section = document.getElementById("campaign-script");
+      if (section && section.getBoundingClientRect().top < 0) section.scrollIntoView({ block: "start" });
+      editButton.current?.focus({ preventScroll: true });
+    });
+  const closeEditor = () => {
+    setEditing(false);
+    backToScript();
+  };
+
   const keep = async (next: CallScript) => {
     try {
       await save.mutateAsync(next);
       if (proposal) await clear.mutateAsync(proposal.id);
-      setEditing(false);
+      closeEditor();
     } catch {
       // A refused save is `save.error`, rendered above; a refused clear is toasted.
     }
@@ -376,7 +391,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             proposal={script ?? EMPTY_SCRIPT}
             pending={save.isPending ? "apply" : null}
             onApply={(next) => void keep(next)}
-            onDiscard={() => setEditing(false)}
+            onDiscard={closeEditor}
           />
         </div>
       )}
@@ -387,7 +402,14 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             <>
               <ScriptSummary script={script} />
               <div className="mt-4 flex flex-wrap items-center gap-3">
-                <button type="button" className={SECONDARY_BUTTON_SM} disabled={!canWrite} title={refusal} onClick={() => setEditing(true)}>
+                <button
+                  ref={editButton}
+                  type="button"
+                  className={SECONDARY_BUTTON_SM}
+                  disabled={!canWrite}
+                  title={refusal}
+                  onClick={() => setEditing(true)}
+                >
                   Edit script
                 </button>
                 {space.script_live_version != null && (

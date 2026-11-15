@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.20 — 16-Nov-2026
+
+- Save changes or Close in Edit script brings you back to the Script section (and onto its Edit
+  script button) instead of leaving the view somewhere further down the page. The same after
+  keeping Pip's script.
+
 ## 0.4.19 — 16-Nov-2026
 
 - The script's short read uses the names Edit script uses: Opening line (when it calls), The
