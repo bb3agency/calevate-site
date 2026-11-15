@@ -613,6 +613,51 @@ def test_the_kill_switches_stop_it(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "call_mistake_seen" in healer_jobs.SELF_OPENED
 
 
+async def test_a_dry_run_names_the_lines_and_leaves_no_fix_in_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from collections import Counter
+
+    monkeypatch.setattr(get_settings(), "healer_shadow_playbooks", "call_mistake_fix")
+    tenant_id, agent_id = await _agent("shadow")
+    await _seen(tenant_id, agent_id)
+    incident = await _incident(await _fix(tenant_id, agent_id))
+
+    async def claim(*_: Any, **__: Any) -> list[Incident]:
+        return [incident]
+
+    async def quiet(*_: Any) -> int:
+        return 0  # the other tests' actions share this ledger
+
+    monkeypatch.setattr(healer_jobs.incidents, "claim_due", claim)
+    monkeypatch.setattr(healer_jobs.healer_watch, "actions_recent", quiet)
+    await healer_jobs._advance_due(Counter())
+    async with untenanted_session() as session:
+        closed = await incidents.read_incident(session, incident.id)
+        detail = (
+            await session.execute(
+                text(
+                    "SELECT detail FROM heal_actions WHERE incident_id = :i AND outcome = 'shadow'"
+                ),
+                {"i": incident.id},
+            )
+        ).scalar_one()
+    assert closed is not None and closed.state == "resolved" and closed.last_outcome == "shadow"
+    assert "stages.0.instruction" in detail
+    async with tenant_session(tenant_id) as session:
+        left = (
+            await session.execute(
+                text("SELECT count(*) FROM agent_mistake_fixes WHERE agent_id = :a"),
+                {"a": agent_id},
+            )
+        ).scalar_one()
+        mistakes = await call_mistakes.agent_mistakes(session, agent_id)
+        proposal = await script_proposals.read_proposal(session, agent_id)
+    # Nothing is being fixed, so the owner is not told it is.
+    assert left == 0 and proposal is None
+    assert [m.state for m in mistakes] != ["script_fixing"]
+
+
 def test_its_limits_are_the_console_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     playbook = playbooks.PLAYBOOK_BY_KEY["call_mistake_fix"]
     monkeypatch.setattr(get_settings(), "call_mistake_fix_max_attempts", 7)

@@ -70,7 +70,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.healer import incidents, ledger
 from apps.api.healer.incidents import Incident
-from apps.api.healer.playbooks import may_run
+from apps.api.healer.playbooks import in_shadow, may_run
 
 log = get_logger(__name__)
 
@@ -761,6 +761,39 @@ async def _recheck_escalated(incident: Incident, fix: MistakeFix) -> None:
     await _advance(incident, state="escalated", next_in_s=_wait_s(), outcome="escalated")
 
 
+async def _shadow(incident: Incident, fix: MistakeFix) -> None:
+    """Dry run (`playbooks.in_shadow`): write the lines the fix would have asked for and
+    change nothing. The fix row goes too: left `fixing`, the owner's Training tab would say
+    the script is being fixed when nothing will fix it. The next call showing the kind opens
+    it again, and runs for real once the dry run ends."""
+    async with tenant_session(fix.tenant_id) as session:
+        loaded = await script_builder.load_agent_script(session, fix.agent_id)
+        lint = await lint_context_for(session, tenant_id=fix.tenant_id, agent_id=fix.agent_id)
+        paths = mistake_fixes.fix_paths(
+            mistake_findings(upgrade_to_v2(loaded.script), lint, fix.kind)
+        )
+        await session.execute(
+            text(
+                "DELETE FROM agent_mistake_fixes WHERE id = :id AND state = 'fixing' "
+                "AND proposal_id IS NULL AND attempts = 0"
+            ),
+            {"id": fix.id},
+        )
+        await _close_client_notice(session, incident)
+    await _record(
+        incident,
+        fix,
+        step="act",
+        outcome="shadow",
+        detail=(
+            f"dry run: would ask for {len(paths)} line(s): {', '.join(paths)}"
+            if paths
+            else "dry run: no line of the script causes it; would hand it to our team"
+        )[:400],
+    )
+    await _advance(incident, state="resolved", next_in_s=None, outcome="shadow")
+
+
 async def call_mistake_fix(incident: Incident) -> None:
     """One step of one fix (`_STEPS["call_mistake_fix"]`)."""
     assert incident.tenant_id is not None and incident.agent_id is not None
@@ -768,6 +801,15 @@ async def call_mistake_fix(incident: Incident) -> None:
         fix = await mistake_fixes.fix_for_incident(session, incident.id)
     if fix is None:
         await _advance(incident, state="resolved", next_in_s=None, outcome="verified")
+        return
+    if (
+        in_shadow(PLAYBOOK)
+        and incident.state == "open"
+        and fix.state == "fixing"
+        and fix.proposal_id is None
+        and fix.attempts == 0
+    ):
+        await _shadow(incident, fix)
         return
     if incident.state == "escalated" or fix.state in ("needs_person", "rolled_back"):
         await _recheck_escalated(incident, fix)
