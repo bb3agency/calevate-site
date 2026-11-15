@@ -67,6 +67,7 @@ from apps.api.core.ratelimit import (
     bucket_subject,
     consume,
     fingerprint,
+    forget,
     profile_for,
     too_many_requests,
 )
@@ -796,7 +797,12 @@ class RateLimitMiddleware:
             # have met. Once per credential per window for an honest caller; once per
             # request for one inventing credentials. Fails open with everything else: a
             # counter we could not reach reports no minting, so nothing is charged.
+            minted = decision
             decision = await consume(profile, "client", minted_from, profile.per_client)
+            if not decision.allowed:
+                # A refused mint leaves no bucket behind, so the same credential's next
+                # request is a mint again and meets the spent address again.
+                await forget(minted)
         if decision.allowed and profile.tenant_from_last_path_segment and profile.per_tenant:
             # The `webhook_id` in `/hooks/v1/ingest/...` — the tenant dimension on a
             # surface that authenticates with a per-source secret rather than a session,
