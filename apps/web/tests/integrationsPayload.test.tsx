@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
+import { ToastProvider } from "@/components/arc/toast";
 import type { Delivery, Endpoint } from "@/lib/api/integrations";
 
 import { browserOffline, problem, renderClientPage } from "./harness";
@@ -374,5 +375,19 @@ describe("the integration logs when the read did not answer (§52)", () => {
     ).toHaveLength(1);
     // …and stated once, not once per place that used to carry it.
     expect(screen.queryByText("No destinations yet")).toBeNull();
+  });
+});
+
+describe("changing what a destination is sent", () => {
+  it("says it saved once the drawer has closed", async () => {
+    await renderClientPage(<ToastProvider>{page}</ToastProvider>, {
+      ...routes(),
+      "PATCH /v1/integrations/endpoints/e1": ENDPOINTS[0],
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Change what is sent to https://crm.example/hook" }));
+    const drawer = await screen.findByRole("dialog", { name: "Change what is sent" });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Change what is sent" })).toBeNull());
+    expect(await screen.findByText("Saved")).toBeTruthy();
   });
 });
