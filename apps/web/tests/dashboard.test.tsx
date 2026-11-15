@@ -1759,3 +1759,47 @@ describe("Pip's notes on the home screen (D-936, out of Pip's panel since 9 Nov 
     expect(screen.queryByText(linked.line)).toBeNull();
   });
 });
+
+describe("a re-read that fails after the home screen's figures arrived", () => {
+  it("keeps the latest calls, the spend and the credit on screen beside the notice", async () => {
+    const call: CallSummary = {
+      id: "c9",
+      agent_id: "a1",
+      agent_name: "Reception",
+      direction: "inbound",
+      status: "completed",
+      caller_e164: "+919876543219",
+      started_at: "2026-08-13T04:30:00Z",
+      duration_s: 92,
+      outcome_tag: "answered",
+      summary_state: "ready",
+      test_call: false,
+      sentiment: "positive",
+      summary: "Asked about the Sunday timings.",
+      lead_id: null,
+    };
+    const table: Record<string, unknown> = routes({ "/v1/calls?limit=6": [call] });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const { container } = await renderClientPage(page, table, "acme", client);
+    expect(await screen.findByText("Asked about the Sunday timings.")).toBeTruthy();
+    await screen.findByText("Calling credit left");
+    await waitFor(() => expect(container.textContent).toContain("₹15,158"));
+    expect(container.textContent).toContain("₹3,400");
+
+    // The latest calls poll every few seconds; the money tiles re-read on focus.
+    for (const path of ["/v1/calls?limit=6", "/v1/usage", "/v1/billing/wallet"]) {
+      table[path] = problem(503, { title: "Service unavailable" });
+    }
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["calls"] });
+      await client.refetchQueries({ queryKey: ["usage"] });
+      await client.refetchQueries({ queryKey: ["wallet"] });
+    });
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(3));
+
+    // They were true when read; a failed re-read says so beside them and hides nothing.
+    expect(screen.getByText("Asked about the Sunday timings.")).toBeTruthy();
+    expect(container.textContent).toContain("₹15,158");
+    expect(container.textContent).toContain("₹3,400");
+  });
+});

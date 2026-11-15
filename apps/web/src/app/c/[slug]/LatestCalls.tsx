@@ -56,9 +56,14 @@ export function LatestCalls({
         </Link>
       }
     >
+      {/* A poll that failed after the rows arrived: they stay (they were true when read)
+          and this says they may be behind. */}
+      {recent.error && recent.data ? (
+        <ProblemNotice error={recent.error} onRetry={() => void recent.refetch()} />
+      ) : null}
       {recent.isLoading ? (
         <Skeleton rows={5} />
-      ) : recent.error || !recent.data ? (
+      ) : !recent.data ? (
         /* Both non-answers — a refusal and a paused (offline) query — are this arm, so
            "No calls yet" is only ever printed over a list the server sent (§52). */
         <ProblemNotice
