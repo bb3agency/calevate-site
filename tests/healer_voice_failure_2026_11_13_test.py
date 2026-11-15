@@ -441,6 +441,51 @@ async def test_a_relapse_after_restore_holds_the_backup_and_pages(
     assert switch is not None and switch.state == "held"
 
 
+async def test_a_call_under_way_at_the_switch_is_not_held_against_the_backup(
+    monkeypatch: pytest.MonkeyPatch, pages: list[str], mover: _Mover
+) -> None:
+    # The call that tripped the switch ends after it: its row is written then, stamped with
+    # the backup voice, and it carries a second problem raised after the switch.
+    tenant_id, agent_id = await _agent("underway", CLEAR)
+    _backups(monkeypatch, [STUDIO])
+    await _signal(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        tripped = (
+            await session.execute(
+                text("SELECT engine_call_id FROM call_engine_signals WHERE agent_id = :a"),
+                {"a": agent_id},
+            )
+        ).scalar_one()
+    await _open(tenant_id, agent_id)
+    incident = await _step(agent_id)
+    assert await _voice(tenant_id, agent_id) == STUDIO
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO call_engine_signals (id, tenant_id, agent_id, engine_call_id, kind, "
+                "occurred_at, created_at, updated_at) VALUES (:id, :t, :a, :e, "
+                "'no_answer_from_model', now(), now(), now())"
+            ),
+            {"id": uuid7(), "t": tenant_id, "a": agent_id, "e": tripped},
+        )
+    silent = await _call(
+        tenant_id, agent_id, quality='{"turns": 0}', voice=STUDIO, ago=timedelta(minutes=3)
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET created_at = now() WHERE id = :c"), {"c": silent}
+        )
+    pages.clear()
+    incident = await _step(agent_id)
+    switch = await _switch(tenant_id, incident.id)
+    assert switch is not None and switch.state == "switched"
+    assert incident.state == "mitigated" and voice_fallback.REPEAT not in pages
+    # A call that started on the backup and failed still holds it.
+    await _call(tenant_id, agent_id, quality='{"turns": 0}', voice=STUDIO, ago=timedelta(0))
+    incident = await _step(agent_id)
+    assert incident.state == "escalated" and voice_fallback.REPEAT in pages
+
+
 async def test_the_owner_choosing_a_voice_stands_the_healer_down(
     monkeypatch: pytest.MonkeyPatch, pages: list[str], mover: _Mover
 ) -> None:
@@ -599,8 +644,49 @@ async def test_callers_ringing_back_are_counted_and_no_number_is_logged(
     caplog.set_level(logging.DEBUG)
     async with tenant_session(tenant_id) as session:
         found = await healer_watch.repeat_callers(session)
-    assert found.get(agent_id) == 1
+    assert found[agent_id].calls == 1
     assert number not in caplog.text
+
+
+async def test_ring_backs_a_closed_line_check_saw_do_not_open_it_again(
+    pages: list[str],
+) -> None:
+    from collections import Counter
+
+    tenant_id, agent_id = await _agent("ringagain", CLEAR)
+    number = "+919812345679"
+    await _call(tenant_id, agent_id, party=number, duration=4, ago=timedelta(minutes=20))
+    await _call(tenant_id, agent_id, party=number, duration=4, ago=timedelta(minutes=19))
+    await _call(tenant_id, agent_id, party=number, ago=timedelta(minutes=18))
+
+    async def score() -> Counter[str]:
+        async with tenant_session(tenant_id) as session:
+            ring_backs = await healer_watch.repeat_callers(session)
+        tally: Counter[str] = Counter()
+        scored = healer_jobs._TenantScore(
+            verdicts=[],
+            silent=[],
+            ring_backs=ring_backs,
+            failing_in_domain_window={},
+            failing_in_page_window={},
+            objective=healer_watch.ObjectiveCounts(),
+            drops=[],
+        )
+        await healer_jobs._act_on_calls(tenant_id, scored, tally)
+        return tally
+
+    assert (await score())["opened_line_check"] == 1
+    key = incidents.dedupe_key("line_protection", agent_id)
+    async with untenanted_session() as session:
+        opened = await incidents.open_for(session, key)
+        assert opened is not None
+        assert await incidents.close_by_person(session, opened.id)
+    # The next scoring still counts the same calls inside its hour.
+    assert (await score())["opened_line_check"] == 0
+    # A caller ringing back after the check closed opens it again.
+    await _call(tenant_id, agent_id, party=number, duration=4, ago=timedelta(seconds=60))
+    await _call(tenant_id, agent_id, party=number, ago=timedelta(0))
+    assert (await score())["opened_line_check"] == 1
 
 
 async def test_failures_on_one_voice_domain_make_one_incident(pages: list[str]) -> None:

@@ -588,6 +588,13 @@ async def _agent_voice_now(tenant_id: UUID, agent_id: UUID) -> str | None:
 
 
 async def _heard_since(tenant_id: UUID, agent_id: UUID, since: datetime) -> bool:
+    """Whether a call that STARTED after `since` failed in a way the caller heard.
+
+    A call keeps the voice it started on, so a call already under way at the switch (or the
+    restore) is evidence about the voice before it, never this one. Its row is first written
+    when it ends (`call.completed`), stamped with the agent's voice at that moment, so
+    neither `created_at` nor the stamp says which voice spoke; `started_at` does. A signal
+    counts only for a call no row or earlier signal places before `since`."""
     async with tenant_session(tenant_id) as session:
         params = call_check_params(_now())
         row = (
@@ -595,8 +602,13 @@ async def _heard_since(tenant_id: UUID, agent_id: UUID, since: datetime) -> bool
                 text(
                     "SELECT 1 FROM call_engine_signals s WHERE s.agent_id = :aid AND s.kind = "
                     "ANY(CAST(:heard AS text[])) AND coalesce(s.occurred_at, s.created_at) > "
-                    ":since UNION ALL SELECT 1 FROM calls c WHERE c.agent_id = :aid AND "
-                    "c.created_at > :since AND " + SILENT_CALL_SQL + " LIMIT 1"
+                    ":since AND NOT EXISTS (SELECT 1 FROM calls b WHERE b.engine_call_id = "
+                    "s.engine_call_id AND coalesce(b.started_at, b.created_at) <= :since) "
+                    "AND NOT EXISTS (SELECT 1 FROM call_engine_signals e WHERE e.engine_call_id "
+                    "= s.engine_call_id AND coalesce(e.occurred_at, e.created_at) <= :since) "
+                    "UNION ALL SELECT 1 FROM calls c WHERE c.agent_id = :aid AND "
+                    "c.created_at > :since AND coalesce(c.started_at, c.created_at) > :since "
+                    "AND " + SILENT_CALL_SQL + " LIMIT 1"
                 ),
                 {**params, "aid": agent_id, "since": since},
             )
