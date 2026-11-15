@@ -7,6 +7,7 @@ import { SearchField } from "@/components/arc/search-field";
 import { HowItWorks } from "@/components/console/howItWorks";
 import { FileDrop } from "@/components/fileDrop";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
+import { asciiDigits } from "@/lib/phoneNumber";
 import { lookup } from "@/lib/lookup";
 import { Pagination } from "@/components/interior/pagination";
 import {
@@ -51,6 +52,8 @@ export function fileTips(agentLanguage: string | null | undefined): string[] {
 }
 
 const PAGE = 50;
+/** A search term written like a phone number: digits in any script, spaces, +, - and brackets. */
+const PHONE_SHAPED = /^[\p{Nd}\s()+-]+$/u;
 /** What the reader below parses: delimited text, never a spreadsheet binary. */
 const CSV_ACCEPT = ".csv,.tsv,.txt,text/csv";
 type Panel = "none" | "paste" | "add";
@@ -93,9 +96,14 @@ export function ContactEditor({
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return checked.rows;
-    return checked.rows.filter(
-      ({ entry }) => entry.phone.toLowerCase().includes(q) || entry.name.toLowerCase().includes(q),
-    );
+    // A number is matched on its digits, so what the row prints ("+91 98765 43210"), the
+    // bare ten, or digits typed on a Telugu or Hindi keyboard all find it.
+    const digits = PHONE_SHAPED.test(q) ? asciiDigits(q) : "";
+    return checked.rows.filter(({ entry, status }) => {
+      if (entry.phone.toLowerCase().includes(q) || entry.name.toLowerCase().includes(q)) return true;
+      if (!digits) return false;
+      return asciiDigits(status.kind === "invalid" ? entry.phone : status.e164).includes(digits);
+    });
   }, [checked.rows, query]);
   const pages = Math.max(1, Math.ceil(shown.length / PAGE));
   const current = Math.min(page, pages);
