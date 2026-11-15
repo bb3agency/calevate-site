@@ -286,7 +286,7 @@ faster path when SSH is the thing that is slow.
 **The tree stays detached on purpose**, so the next automatic deploy REFUSES instead of
 pulling back to the branch tip and redeploying what you just rolled away from. When the
 fix has merged, either dispatch the workflow again with the new sha, or
-`git -C /var/www/calevate checkout main` to hand the host back to automatic deploys.
+`git -C /var/www/calevate checkout production` to hand the host back to automatic deploys.
 
 **It does not rebuild if it does not have to.** Each deploy tags its image
 `calevate/app:<12-char sha>` and `history` records the ref, so if that artefact is still on

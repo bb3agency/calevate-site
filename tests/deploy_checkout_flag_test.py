@@ -157,7 +157,7 @@ def test_an_ordinary_deploy_refuses_from_a_rolled_back_tree(
     assert result.returncode != 0
     assert "detached" in result.stderr
     assert "--checkout <sha> --all" in result.stderr, "the refusal must name the way forward"
-    assert "checkout main" in result.stderr, "and the way back to automatic deploys"
+    assert "checkout production" in result.stderr, "and the way back to automatic deploys"
     assert _git(deploy_host, "rev-parse", "HEAD") == previous, (
         "the refusal must happen before anything moves"
     )

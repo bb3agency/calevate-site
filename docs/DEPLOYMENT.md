@@ -499,7 +499,7 @@ connection sum in `tests/starter_sizing_test.py` against the new values.
 web typecheck) → alembic upgrade head against the service DB → smoke test.
 
 **Deploy workflow** (`.github/workflows/deploy.yml` — BUILT, and disabled until a repo
-Variable says otherwise): `workflow_run` on CI success on main + `workflow_dispatch`.
+Variable says otherwise): a push to `production` + `workflow_dispatch` (D-991).
 Runs on the **self-hosted runner installed on the VPS** (label `calevate-vps`) — the
 runner polls GitHub via outbound HTTPS; **no inbound SSH ever**. Paths in Secrets
 (`VPS_CLIENT_PATH=/var/www/calevate`), booleans/labels in Variables (raghava rule:
@@ -507,16 +507,13 @@ paths are Secrets, flags are Variables). Concurrency group `deploy-production` p
 overlapping deploys, with `cancel-in-progress: false` — cancelling a deploy between the
 migration and the swap would manufacture the half-deployed state §4 exists to prevent.
 
-**It cannot fire by accident, and that is enforced four times over**: repo Variable
-`VPS_DEPLOY_ENABLED` must be the string `true` (unset = every job skipped, so merging the
-file changes nothing); the job re-checks `workflow_run.conclusion == 'success'`, because
-`workflow_run` fires on FAILED runs too and that is the classic way a deploy workflow
-ships a red build; `head_branch` must be `main`, or CI on a pull request would deploy the
-PR — and because a fork's pull request can be named `main` too, the triggering run must
-also be a `push` (`workflow_run.event == 'push'`) from this repository
-(`workflow_run.head_repository.full_name == github.repository`); and
-`environment: production` gives a required-reviewer rule somewhere to attach
-without editing the workflow. **No credential is wired** — the runner is on the box, so
+**A push to `production` is the release, and it does not wait for CI** (D-991, founder
+15 Nov 2026). CI runs on `main` and reports, but cannot hold a deploy back, so push a
+commit to `production` once it is green on `main`. Three gates remain: repo Variable
+`VPS_DEPLOY_ENABLED` must be the string `true` (unset or `false` = every job skipped);
+`github.ref` must be `refs/heads/production`, for a push and a dispatch alike, so a pull
+request or a push to any other branch never deploys; and `environment: production` gives a
+required-reviewer rule somewhere to attach without editing the workflow. **No credential is wired** — the runner is on the box, so
 there is no SSH key, and application secrets are read from `.env` on the host.
 
 **It uses no third-party action — not even `actions/checkout`** (hard rule 9). It does not
@@ -556,6 +553,23 @@ checkout and talk to the Docker socket, and a runner that needs `sudo` for the o
 path is a runner whose sudoers entry grows until it is root with extra steps. The only
 privileged thing the deploy does is install nginx config, and that goes through
 `infra/privileged/` — one command, empty argument list (§11).
+
+**This is what production uses (D-990, founder 15 Nov 2026)**, in place of the §3c pull
+timer. Do not install `calevate-autodeploy.timer` beside it: two automatic deployers would
+each build on a one-vCPU host. The deploy follows `production` (D-991), so the checkout at
+`/var/www/calevate` must be on `production` (`git -C /var/www/calevate branch --show-current`).
+
+0. **Install the pre-deploy backup grant**, as the sudo-capable login. The workflow takes
+   a verified database backup before every deploy and its preflight fails without this:
+
+   ```sh
+   sudo -iu calevate git -C /var/www/calevate pull --ff-only        # brings these files
+   cd /var/www/calevate
+   sudo install -o root -g root -m 0755 infra/privileged/sbin/calevate-predeploy-backup /usr/local/sbin/
+   sudo install -o root -g root -m 0440 infra/privileged/sudoers.d/calevate-deploy /etc/sudoers.d/calevate-deploy
+   sudo visudo -c -f /etc/sudoers.d/calevate-deploy                  # must print "parsed OK"
+   sudo -u calevate sudo -n /usr/local/sbin/calevate-predeploy-backup   # must print BACKUP OK
+   ```
 
 1. **Get a registration token.** GitHub → repo → Settings → Actions → Runners → *New
    self-hosted runner* → Linux x64. The page shows the current release URL and a token
@@ -657,7 +671,10 @@ long-lived token to this repository, so a wipe is not a substitute for the remov
 about it. Re-registering is steps 1–3 again in the same directory (`--replace` makes it
 idempotent), about five minutes.
 
-### 3c. Automatic deploys by pull — what production uses (founder, 11 Nov 2026)
+### 3c. Automatic deploys by pull — chosen 11 Nov 2026, replaced by the §3a runner (D-990)
+
+**Not installed in production.** The founder chose the §3a runner on 15 Nov 2026 (D-990).
+This section stays as the alternative; installing it as well would deploy every release twice.
 
 Pushing to `production` deploys it. The host pulls: `calevate-autodeploy.timer` runs
 `scripts/deploy/auto-deploy.sh` as `calevate` every 2 minutes; it fetches `production`
@@ -718,10 +735,10 @@ Three things follow from that, all of them deliberate:
   The migrate step recognises a database that is ahead of the artefact, prints
   **MIGRATIONS SKIPPED**, and carries on to the swap (§4a).
 - **The checkout is left detached, and the next automatic deploy REFUSES.** Otherwise the
-  first green CI after a rollback pulls back to the branch tip and redeploys the release
+  first push after a rollback pulls back to the branch tip and redeploys the release
   you just rolled away from, unattended, with nobody deciding it. The refusal names both
   ways out: another `commit_sha` dispatch to roll forward onto a fix, or
-  `git -C /var/www/calevate checkout main` to resume automatic deploys.
+  `git -C /var/www/calevate checkout production` to resume automatic deploys.
   `tests/deploy_checkout_flag_test.py` drives both halves against a real git tree.
 
 `commit_sha` accepts 7–40 hex characters and refuses a branch or tag name, because a ref
@@ -1044,11 +1061,12 @@ production has been deployed by hand with `scripts/vps-deploy.sh` since 22 Sep 2
    commit, then dispatch the workflow with `commit_sha` set to the one before it. *Pass
    condition*: the run reaches the summary banner, `.deploy-state/history` shows the older
    sha, the image was reused rather than rebuilt, and the NEXT automatic deploy refuses
-   with the detached-checkout message until `git checkout main` is run on the box. Nothing
+   with the detached-checkout message until `git checkout production` is run on the box. Nothing
    about this has been executed and the script's own tests cannot execute it.
 
-> **Since 11 Nov 2026 a push to `production` deploys itself once §3c is installed** (backup
-> first, then this same script). The hand deploy below stays the fallback.
+> **Since 15 Nov 2026 (D-990, D-991) a push to `production` deploys itself through the §3a
+> runner** (backup first, then this same script, without waiting for CI). The hand deploy below stays the
+> fallback.
 >
 > **Current state (28 Oct 2026).** Production runs on the Hostinger VPS, repository at
 > `/var/www/calevate`, deploy account `calevate`, deployed by hand from the `production`

@@ -640,7 +640,7 @@ sync_checkout() {
      rollback leaves behind. This deploy would have pulled straight back onto the branch
      tip — i.e. undone the rollback — so it stops instead.
        roll forward to a fix:  scripts/vps-deploy.sh --checkout <sha> --all
-       resume automatic CD:    git -C $ROOT checkout main
+       resume automatic CD:    git -C $ROOT checkout production
      Automatic deploys stay stuck here until one of those is run, by design."
     git -C "$ROOT" pull --ff-only
   else
