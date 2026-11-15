@@ -485,7 +485,9 @@ function BuyOwnNumber({ canBuy }: { canBuy: boolean }) {
           <Skeleton rows={3} label="Finding numbers" />
         ) : numbers.length === 0 ? (
           <p className="text-body text-ink-muted">
-            No number is free in {search.city} right now. Try another city.
+            {search.pattern
+              ? `No free number in ${search.city} has ${search.pattern} in it. Try other digits.`
+              : `No number is free in ${search.city} right now. Try another city.`}
           </p>
         ) : (
           <>
