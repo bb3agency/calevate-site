@@ -327,6 +327,53 @@ async def clear_proposal(session: AsyncSession, campaign_id: UUID, proposal_id: 
     return done is not None
 
 
+async def copy_workspace(
+    session: AsyncSession, *, tenant_id: UUID, source_id: UUID, target_id: UUID
+) -> None:
+    """A copied campaign keeps what it says and how: the main task, the script, the second
+    opening, the setting overrides and the live materials. Pip's unreviewed proposal and the
+    agent hold are not copied: the first belongs to the old draft's review, the second to
+    whichever campaign last started."""
+    await session.execute(
+        text(
+            "UPDATE campaigns AS t SET main_task = s.main_task, script = s.script, "
+            "opening_b = s.opening_b, settings_overrides = s.settings_overrides, "
+            "updated_at = now() FROM campaigns AS s WHERE t.id = :t AND s.id = :s"
+        ),
+        {"t": target_id, "s": source_id},
+    )
+    materials = (
+        await session.execute(
+            text(
+                "SELECT kind, source, title, url, note, kb_upload_id, created_by "
+                "FROM campaign_materials WHERE campaign_id = :s AND archived_at IS NULL "
+                "ORDER BY created_at, id"
+            ),
+            {"s": source_id},
+        )
+    ).all()
+    for kind, source, title, url, note, kb_upload_id, created_by in materials:
+        await session.execute(
+            text(
+                "INSERT INTO campaign_materials (id, tenant_id, campaign_id, kind, source, title, "
+                "url, note, kb_upload_id, created_by) VALUES (:id, :tn, :c, :k, :src, :ti, :u, "
+                ":n, :kb, :by)"
+            ),
+            {
+                "id": uuid7(),
+                "tn": tenant_id,
+                "c": target_id,
+                "k": kind,
+                "src": source,
+                "ti": title,
+                "u": url,
+                "n": note,
+                "kb": kb_upload_id,
+                "by": created_by,
+            },
+        )
+
+
 async def put_script_live(
     *, tenant_id: UUID, campaign_id: UUID, campaign_name: str, user_id: UUID | None
 ) -> int | None:

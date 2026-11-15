@@ -179,6 +179,53 @@ async def test_a_copy_keeps_the_purpose_and_goal() -> None:
     assert tuple(row) == (PURPOSE, GOAL)
 
 
+async def test_a_copy_keeps_the_task_script_settings_and_live_materials() -> None:
+    account = await _account()
+    campaign_id = await _campaign(account)
+    async with tenant_session(account.tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE campaigns SET main_task = 'Help them install the app', "
+                "settings_overrides = CAST(:o AS jsonb) WHERE id = :c"
+            ),
+            {"c": campaign_id, "o": '{"speaking_speed": "0.9"}'},
+        )
+        for title, archived in (("Pricing note", False), ("Old note", True)):
+            await session.execute(
+                text(
+                    "INSERT INTO campaign_materials (id, tenant_id, campaign_id, kind, title, "
+                    "note, archived_at) VALUES (:id, :t, :c, 'note', :ti, 'x', "
+                    "CASE WHEN :a THEN now() END)"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "t": account.tenant_id,
+                    "c": campaign_id,
+                    "ti": title,
+                    "a": archived,
+                },
+            )
+        copy_id, _ = await controls.duplicate_campaign(
+            session,
+            tenant_id=account.tenant_id,
+            source_id=campaign_id,
+            name=None,
+            with_unreached=False,
+        )
+    row = await _one(
+        account.tenant_id,
+        "SELECT main_task, settings_overrides FROM campaigns WHERE id = :c",
+        c=copy_id,
+    )
+    assert tuple(row) == ("Help them install the app", {"speaking_speed": "0.9"})
+    titles = await _one(
+        account.tenant_id,
+        "SELECT array_agg(title) FROM campaign_materials WHERE campaign_id = :c",
+        c=copy_id,
+    )
+    assert titles[0] == ["Pricing note"]
+
+
 # --- every campaign dial carries them --------------------------------------------------
 
 

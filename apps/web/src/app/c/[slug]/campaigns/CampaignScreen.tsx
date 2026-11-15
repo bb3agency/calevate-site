@@ -37,7 +37,7 @@ import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
 import { CampaignTimeline } from "./CampaignTimeline";
 import { CampaignWorkspace } from "./CampaignWorkspace";
-import { FoldGroup } from "./FoldSection";
+import { FoldGroup, FoldSection } from "./FoldSection";
 import { OtherCallSettings } from "./OtherCallSettings";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
@@ -261,23 +261,23 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
       </div>
 
       {launched ? (
-        <>
-          <div key="launched" className="settings-enter">
+        // A running campaign's page folds like its set-up page (founder, 15 Nov 2026).
+        <FoldGroup className="space-y-8">
+          <FoldSection title="Where it stands" tone="progress">
             <CampaignRun progress={data} campaignId={campaignId} />
-          </div>
-          {/* A launched campaign can still repeat; its card sits under the live panel. */}
-          <ScheduleCards {...scheduleCardProps} className="border-y border-line py-5" />
-          <Section
-            title="Results"
-            action={
+            {/* A launched campaign can still repeat; its card sits under the live panel. */}
+            <ScheduleCards {...scheduleCardProps} className="mt-5 border-t border-line pt-5" />
+          </FoldSection>
+          <FoldSection title="Results" tone="results">
+            <div className="mb-3 flex justify-end">
               <AskAssistant
                 label={`Ask ${ASSISTANT_NAME} about this campaign`}
                 prompt={`Tell me about the campaign "${data.name}": why calls did not connect, what callers asked about, and who I should follow up.`}
               />
-            }
-          >
+            </div>
             <ResultFigures results={results} />
-          </Section>
+          </FoldSection>
+          <FoldSection title="Details" tone="details">
 
           <Tabs
             label="About this campaign"
@@ -315,7 +315,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               )
             }
           />
-        </>
+          </FoldSection>
+        </FoldGroup>
       ) : (
         <Tabs
           label="Set up this campaign"

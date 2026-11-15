@@ -28,7 +28,10 @@ export type FoldTone =
   | "compliance"
   | "add"
   | "people"
-  | "settings";
+  | "settings"
+  | "progress"
+  | "results"
+  | "details";
 
 /** One colour per section, none of them a status colour except compliance's amber warning. */
 const TONE: Record<FoldTone, { pill: string; card: string }> = {
@@ -42,6 +45,10 @@ const TONE: Record<FoldTone, { pill: string; card: string }> = {
   add: { pill: "bg-series-1 text-ink", card: "border-series-1/30 border-l-series-1 bg-series-1/5" },
   people: { pill: "bg-series-4 text-surface", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
   settings: { pill: "bg-ink text-surface", card: "border-line border-l-ink bg-surface-muted/60" },
+  // A running campaign's page.
+  progress: { pill: "bg-brand-deep text-surface", card: "border-success-line border-l-brand-deep bg-brand-soft/30" },
+  results: { pill: "bg-series-2 text-ink", card: "border-series-2/30 border-l-series-2 bg-series-2/5" },
+  details: { pill: "bg-series-4 text-surface", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
 };
 
 export function FoldGroup({

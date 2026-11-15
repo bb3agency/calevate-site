@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.11 — 15-Nov-2026
+
+- **A started campaign's page folds too**, with Collapse all and Expand all at the top: Where it
+  stands (green), Results (blue) and Details (violet, holding the People, Calls, Questions,
+  What happened, Improve, Task/materials/script and How it calls tabs).
+- **Duplicate keeps the whole campaign.** A copy now carries the main task, the script, the
+  second opening, the voice & call settings and the live materials, not only the old settings.
+  Pip's unreviewed suggestion is not copied.
+
 ## 0.4.10 — 15-Nov-2026
 
 - **Add people and People to call sit above the compliance checks**, so the list is built

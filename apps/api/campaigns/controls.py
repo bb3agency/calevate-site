@@ -40,6 +40,7 @@ from apps.api.campaigns.service import (
     set_campaign_status,
     validated_window,
 )
+from apps.api.campaigns.workspace import copy_workspace
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.registration import refuse_promotional_without_registration
 from apps.api.compliance.service import (
@@ -343,6 +344,7 @@ async def duplicate_campaign(
         purpose=row[9],
         goal=row[10],
     )
+    await copy_workspace(session, tenant_id=tenant_id, source_id=source_id, target_id=campaign_id)
     if not with_unreached:
         return campaign_id, 0
     contacts = (
