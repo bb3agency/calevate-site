@@ -130,6 +130,7 @@ from calevate_shared.events import (
     TranscriptTurn,
     TurnTiming,
 )
+from calevate_shared.extraction import ascii_digits
 from calevate_shared.webhook_signature import (
     signed_time_is_fresh,
     timestamped_sha256_signature_matches,
@@ -673,7 +674,7 @@ def _e164(value: Any) -> str | None:
     """Their numbers come with or without `+` (place-call.md:60-63, get-call.md:23-24)."""
     if not isinstance(value, str):
         return None
-    digits = "".join(ch for ch in value if ch.isdigit())
+    digits = ascii_digits(value)
     return f"+{digits}" if digits else None
 
 
@@ -1479,7 +1480,7 @@ def _tools_not_pinned() -> ProblemError:
 def _digits(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
-    return "".join(ch for ch in value if ch.isdigit()) or None
+    return ascii_digits(value) or None
 
 
 #: Whether the agent searches its knowledge during phone and web calls: a top-level boolean

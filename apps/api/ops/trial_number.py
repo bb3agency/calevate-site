@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Final, Literal
 
+from calevate_shared.extraction import ascii_digits
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
@@ -60,7 +61,7 @@ class TrialNumberCandidate:
 
 
 def _digits(value: str) -> str:
-    return "".join(ch for ch in value if ch.isdigit())
+    return ascii_digits(value)
 
 
 async def recorded_number_digits() -> set[str]:

@@ -28,6 +28,8 @@ from __future__ import annotations
 from typing import Final
 from urllib.parse import quote
 
+from calevate_shared.extraction import ascii_digits
+
 from apps.api.actions import oauth
 from apps.api.actions.schema import PreparedRequest
 from apps.api.core.settings import get_settings
@@ -113,7 +115,7 @@ def rows_of(body: object) -> list[list[str]]:
 def digits_tail(raw: str, n: int = 10) -> str:
     """The last `n` digits of a phone number as typed in a sheet (`098765 43210`,
     `+91-98765-43210`), so two spellings of one Indian mobile compare equal."""
-    digits = "".join(ch for ch in raw if ch.isdigit())
+    digits = ascii_digits(raw)
     return digits[-n:] if len(digits) >= n else ""
 
 

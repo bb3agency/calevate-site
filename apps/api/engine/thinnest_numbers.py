@@ -61,6 +61,7 @@ from typing import Any, Final, Literal
 
 import httpx
 from calevate_shared.engine_scope import raw_of, scope_of, scoped_handle
+from calevate_shared.extraction import ascii_digits
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -174,7 +175,7 @@ class Attachment:
 
 def digits(number: str) -> str:
     """The digits of a number: how the vendor compares them, and the path we send."""
-    return "".join(ch for ch in raw_of(number) if ch.isdigit())
+    return ascii_digits(raw_of(number))
 
 
 def _bad(detail: str) -> ProblemError:
