@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Archive, ArchiveRestore, Pause, Play, Plus } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
@@ -128,6 +128,13 @@ export function CampaignsListScreen({ slug }: { slug: string }) {
 
   const data = campaigns.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
+  // A page that lost its rows (a running campaign finished under the Running filter, one was
+  // archived) steps back to the last page that has some, rather than saying none match. Only
+  // on the server's answer for THIS page, never on the previous page's placeholder.
+  const settledPages = data && !campaigns.isPlaceholderData ? pages : undefined;
+  useEffect(() => {
+    if (settledPages !== undefined && page > settledPages) setPage(settledPages);
+  }, [page, settledPages]);
   const everything = data ? Object.values(data.status_counts).reduce((a, b) => a + b, 0) : 0;
   const detail = (id: string) => href(`/c/${slug}/campaigns/${id}`);
   const newHref = href(`/c/${slug}/campaigns/new`);

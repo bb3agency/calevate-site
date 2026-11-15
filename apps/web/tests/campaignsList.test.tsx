@@ -1,4 +1,5 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CampaignSummary } from "@/lib/api/campaigns";
@@ -211,5 +212,44 @@ describe("the first visit", () => {
     });
     await screen.findByRole("heading", { name: "No campaigns yet" });
     expect(screen.queryByRole("link", { name: "Start a campaign" })).toBeNull();
+  });
+});
+
+describe("a page that loses its rows", () => {
+  it("steps back to the last page that has campaigns instead of saying none match", async () => {
+    // Twenty-six running campaigns; the one on page 2 finishes while it is open.
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...RUNNING,
+      id: `0192f0aa-2222-7000-8000-${String(100 + i).padStart(12, "0")}`,
+      name: `Campaign ${i + 1}`,
+    }));
+    const last = { ...RUNNING, id: "0192f0aa-2222-7000-8000-000000000999", name: "The last one" };
+    const counts = { ...pageFixture([]).status_counts, running: 26 };
+    const first = "/v1/campaigns/page?limit=25&offset=0&status=running";
+    const second = "/v1/campaigns/page?limit=25&offset=25&status=running";
+    window.history.replaceState(null, "", "/c/acme/campaigns?status=running");
+    const table: Record<string, unknown> = {
+      "/v1/me": ME,
+      [first]: { items: many, total: 26, status_counts: counts, archived_total: 0 },
+      [second]: { items: [last], total: 26, status_counts: counts, archived_total: 0 },
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      await renderClientPage(listPage(), table, "acme", client);
+      fireEvent.click(await screen.findByRole("button", { name: "Page 2" }));
+      expect(await screen.findByRole("link", { name: "The last one" })).toBeTruthy();
+
+      const after = { ...counts, running: 25, completed: 1 };
+      table[second] = { items: [], total: 25, status_counts: after, archived_total: 0 };
+      table[first] = { items: many, total: 25, status_counts: after, archived_total: 0 };
+      await act(async () => {
+        await client.refetchQueries({ queryKey: ["campaigns"] });
+      });
+
+      expect(await screen.findByRole("link", { name: "Campaign 1" })).toBeTruthy();
+      expect(screen.queryByText("No campaign matches.")).toBeNull();
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
   });
 });
