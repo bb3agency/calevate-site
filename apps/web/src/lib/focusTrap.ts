@@ -159,12 +159,16 @@ export function useFocusTrap(
     const token = {};
     armedTraps.push(token);
     const onKeyDown = (event: KeyboardEvent): void => {
+      const topmost = armedTraps[armedTraps.length - 1] === token;
       if (event.key === "Escape") {
-        if (!pressedInAnotherLayer(event, panel.current)) escape.current();
+        // Only the newest trap, as for Tab: focus on <body> (a press on a dialog's scrim)
+        // is in no layer, so the layer test alone let one Escape close the dialog AND the
+        // drawer it was opened from.
+        if (topmost && !pressedInAnotherLayer(event, panel.current)) escape.current();
         return;
       }
       if (event.key !== "Tab") return;
-      if (armedTraps[armedTraps.length - 1] !== token) return;
+      if (!topmost) return;
       const items = tabbablesWithin(panel.current);
       const first = items[0];
       const last = items[items.length - 1];
