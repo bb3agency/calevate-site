@@ -1226,6 +1226,8 @@ class TestRedactionExposure:
             "LeadOut.data",
             "CallDetailOut.extraction",
             "SubjectExportLeadOut.data",
+            # One call's own captured details in the same access document (E7-01).
+            "SubjectExportCallOut.captured",
         }
 
 
