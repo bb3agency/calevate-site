@@ -350,6 +350,35 @@ function ShortChoice<T extends string>({
  * needs verified KYC and the no-cold-calls pledge); it is still offered for a client who
  * registered one.
  */
+/**
+ * THE MAIN TASK, FIRST (D-992): what the campaign should achieve, in the owner's own words and
+ * as many lines as it takes. Pip writes the campaign's script from it and the materials the
+ * campaign page collects next; the agent only speaks that script.
+ */
+function MainTaskField({ form }: { form: CampaignFormState }) {
+  const id = "new-campaign-main-task";
+  return (
+    <section className="rounded-card border border-line border-l-4 border-l-brand bg-brand-soft/40 p-4 sm:p-5 dark:bg-brand-strong/10">
+      <label htmlFor={id} className="block text-heading text-ink">
+        Main task
+      </label>
+      <p className="mt-1 text-meta text-ink-muted">
+        What should this campaign achieve? Write it in your own words, as much as you like. Next, on the campaign
+        page, you add your materials and Pip writes the script from both.
+      </p>
+      <textarea
+        id={id}
+        className={`${FIELD} mt-3 min-h-36 w-full resize-y bg-surface`}
+        value={form.mainTask}
+        maxLength={4000}
+        placeholder="For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone."
+        onChange={(e) => form.setMainTask(e.target.value)}
+      />
+      <p className="mt-1 text-right text-meta text-ink-faint">{form.mainTask.length.toLocaleString("en-IN")} / 4,000</p>
+    </section>
+  );
+}
+
 export function BasicsStep({
   form,
   agents,
@@ -361,6 +390,7 @@ export function BasicsStep({
   templates,
   showTemplate = true,
   placementOpen = false,
+  showMainTask = false,
 }: {
   form: CampaignFormState;
   agents: { data: Agent[] | undefined };
@@ -374,6 +404,8 @@ export function BasicsStep({
   showTemplate?: boolean;
   /** Open on the edit page, where the owner came to change something. */
   placementOpen?: boolean;
+  /** The main task box leads a NEW campaign; once made, it is edited on the campaign page. */
+  showMainTask?: boolean;
 }) {
   const usable = campaignNumbers(numbers.data);
   const { session, href } = useClientRealm();
@@ -384,6 +416,7 @@ export function BasicsStep({
   );
   return (
     <div className="space-y-8">
+      {showMainTask && <MainTaskField form={form} />}
       {hasNoAgents && (
         <div className="space-y-3 rounded-card border border-dashed border-line p-4">
           <p className="text-body text-ink">No agent is set up yet.</p>

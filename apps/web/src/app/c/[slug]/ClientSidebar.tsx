@@ -1,5 +1,6 @@
 "use client";
 
+import { BuildStamp } from "@/components/UpdateWatcher";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { UserRound } from "lucide-react";
@@ -260,6 +261,7 @@ export function ClientSidebar({
           signInPath={CLIENT_SIGN_IN_PATH}
           isCollapsed={isCollapsed}
         />
+        {!isCollapsed && <BuildStamp className="mt-2 px-2" />}
       </div>
     </NavDrawer>
   );

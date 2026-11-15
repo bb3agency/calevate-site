@@ -92,6 +92,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
       {
         agent_id: selectedAgentId,
         name: form.name.trim(),
+        main_task: form.mainTask.trim() || null,
         purpose: briefValue(form.purpose),
         goal: briefValue(form.goal),
         classification: form.classification,

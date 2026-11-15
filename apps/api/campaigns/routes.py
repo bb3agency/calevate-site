@@ -138,6 +138,8 @@ class CreateCampaignIn(Strict):
     classification: ClientClassification
     purpose: PurposeIn = None
     goal: GoalIn = None
+    #: What the campaign should achieve, many lines (D-992); Pip writes the script from it.
+    main_task: str | None = Field(default=None, max_length=campaign_workspace.MAIN_TASK_MAX)
     number_id: UUID | None = None
     dlt_template_id: UUID | None = None
     concurrency: int = Field(default=3, ge=1, le=10)
@@ -949,6 +951,8 @@ async def create_campaign(
         purpose=payload.purpose,
         goal=payload.goal,
     )
+    if payload.main_task and payload.main_task.strip():
+        await campaign_workspace.save_main_task(session, campaign_id, payload.main_task)
     if payload.consent_provenance is not None:
         provenance = payload.consent_provenance
         await write_audit(

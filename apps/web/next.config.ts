@@ -1,4 +1,25 @@
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+
 import type { NextConfig } from "next";
+
+/**
+ * THIS BUILD'S IDENTITY (global rule 8): the version in package.json, the commit it was built
+ * from and when. Inlined into the bundle as `NEXT_PUBLIC_APP_*` and served live by
+ * `/version.json`, so a page can tell that the server now runs a newer build than the one it
+ * loaded. The commit is read from git at build time (the deploy builds inside the checkout);
+ * `CALEVATE_BUILD_COMMIT` overrides it where there is no git.
+ */
+function buildCommit(): string {
+  if (process.env.CALEVATE_BUILD_COMMIT) return process.env.CALEVATE_BUILD_COMMIT.slice(0, 12);
+  try {
+    return execSync("git rev-parse --short=9 HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "unknown";
+  }
+}
+const APP_VERSION = (JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string })
+  .version;
 
 /**
  * The build-time refusal for the browser tier's configuration.
@@ -89,6 +110,22 @@ if (DEPLOY_BUILD) {
 const nextConfig: NextConfig = {
   // No `X-Powered-By: Next.js` on any response (OWASP ASVS 4.0.3 14.3.3).
   poweredByHeader: false,
+  env: {
+    NEXT_PUBLIC_APP_VERSION: APP_VERSION,
+    NEXT_PUBLIC_APP_COMMIT: buildCommit(),
+    NEXT_PUBLIC_APP_BUILT_AT: new Date().toISOString(),
+  },
+  async headers() {
+    // The HTML and the version file are never cached, so a reload always reaches the newest
+    // deploy; Next already serves the hashed `/_next/static` files as immutable.
+    return [
+      { source: "/version.json", headers: [{ key: "Cache-Control", value: "no-store, max-age=0" }] },
+      {
+        source: "/((?!_next/static|_next/image|.*\\.(?:png|jpg|jpeg|gif|svg|ico|webp|avif|woff2?)$).*)",
+        headers: [{ key: "Cache-Control", value: "no-store, max-age=0" }],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

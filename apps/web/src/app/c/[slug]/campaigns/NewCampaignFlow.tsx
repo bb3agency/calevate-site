@@ -150,6 +150,7 @@ export function NewCampaignFlow({
   function problemAt(index: number): string | null {
     if (index === 0) {
       if (!selectedAgentId) return "Choose the agent that makes these calls.";
+      if (form.mainTask.trim().length < 10) return "Write the main task: what should this campaign achieve?";
       return briefProblem(form) ?? (form.name.trim().length < 2 ? "Give this campaign a name." : null);
     }
     if (index === 1) {
@@ -217,6 +218,7 @@ export function NewCampaignFlow({
     <div key="purpose" className="space-y-8">
       <AssistantOffer>{assistant}</AssistantOffer>
       <BasicsStep
+        showMainTask
         form={form}
         agents={agents}
         agentOptions={agentOptions}

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { BuildStamp } from "@/components/UpdateWatcher";
 import { SignInOptionsFromServer } from "@/components/authn/googleSignIn";
 import { readSignInOptionsOnServer } from "@/lib/authn/signInOptionsServer";
 
@@ -11,5 +12,10 @@ import { readSignInOptionsOnServer } from "@/lib/authn/signInOptionsServer";
  */
 export default async function AuthLayout({ children }: { children: ReactNode }) {
   const options = await readSignInOptionsOnServer();
-  return <SignInOptionsFromServer options={options}>{children}</SignInOptionsFromServer>;
+  return (
+    <SignInOptionsFromServer options={options}>
+      {children}
+      <BuildStamp className="py-4 text-center" />
+    </SignInOptionsFromServer>
+  );
 }

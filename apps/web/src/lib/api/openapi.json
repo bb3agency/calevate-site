@@ -20722,6 +20722,18 @@
             ],
             "title": "Goal"
           },
+          "main_task": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Task"
+          },
           "name": {
             "maxLength": 120,
             "minLength": 2,

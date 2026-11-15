@@ -48,6 +48,9 @@ export interface CampaignFormState {
   setName: (value: string) => void;
   /** True while the name is the one made from the goal, not one the owner typed. */
   nameFollowsGoal: boolean;
+  /** What the campaign should achieve, many lines (`campaigns.main_task`, D-992). */
+  mainTask: string;
+  setMainTask: (value: string) => void;
   /** Why these people are called, in the business's words (`campaigns.purpose`). */
   purpose: string;
   setPurpose: (value: string) => void;
@@ -109,6 +112,7 @@ export function useCampaignForm(): CampaignFormState {
     setNameValue(value);
     followGoal(value.trim() === "");
   };
+  const [mainTask, setMainTask] = useState("");
   const [purpose, setPurpose] = useState("");
   const [goal, setGoalValue] = useState("");
   const setGoal = (value: string) => {
@@ -163,6 +167,7 @@ export function useCampaignForm(): CampaignFormState {
     setNameValue("");
     followGoal(true);
     setPurpose("");
+    setMainTask("");
     setGoal("");
     setContacts([]);
     setFromLeads(false);
@@ -174,6 +179,7 @@ export function useCampaignForm(): CampaignFormState {
 
   return {
     name, setName, nameFollowsGoal,
+    mainTask, setMainTask,
     purpose, setPurpose,
     goal, setGoal,
     agentId, setAgentId,

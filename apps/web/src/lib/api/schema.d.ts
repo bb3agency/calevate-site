@@ -21683,6 +21683,8 @@ export interface components {
             dlt_template_id?: string | null;
             /** Goal */
             goal?: string | null;
+            /** Main Task */
+            main_task?: string | null;
             /** Name */
             name: string;
             /** Number Id */
