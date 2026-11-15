@@ -62,6 +62,10 @@ const TRANSPORTS: Record<string, string> = {
     "The AUTHN transport, deliberately separate (D-177): the admin realm and the client " +
     "realm have separate first-party session modules and must not share session logic, " +
     "and this is the one that can run before a session exists.",
+  "components/UpdateWatcher.tsx":
+    "Not the API: it asks the web server's own `/version.json` route (app/version.json) " +
+    "which build is deployed. Same origin, no session, no problem+json; `apiRequest` " +
+    "would send it to the API host, which has no such route.",
 };
 
 /** Every `.ts`/`.tsx` under `src`, as repo-relative `/` paths. */
@@ -137,7 +141,7 @@ describe("every request goes through the typed client", () => {
     }
   });
 
-  it("has no ad-hoc fetch outside the two transport modules", () => {
+  it("has no ad-hoc fetch outside the transport modules", () => {
     const offenders = sourceFiles()
       .filter((file) => !Object.hasOwn(TRANSPORTS, relPosix(SRC, file)))
       .flatMap(fetchSites);

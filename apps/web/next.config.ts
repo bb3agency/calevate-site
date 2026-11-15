@@ -1,7 +1,8 @@
 import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 
 import type { NextConfig } from "next";
+
+import packageJson from "./package.json";
 
 /**
  * THIS BUILD'S IDENTITY (global rule 8): the version in package.json, the commit it was built
@@ -18,8 +19,7 @@ function buildCommit(): string {
     return "unknown";
   }
 }
-const APP_VERSION = (JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string })
-  .version;
+const APP_VERSION: string = packageJson.version;
 
 /**
  * The build-time refusal for the browser tier's configuration.

@@ -116,7 +116,7 @@ export function UpdateWatcher() {
   return (
     <div
       role="status"
-      className="fixed inset-x-0 bottom-0 z-50 flex flex-wrap items-center justify-center gap-3 border-t border-info-line bg-info-soft px-4 py-3 text-body text-ink shadow-card"
+      className="fixed inset-x-0 bottom-0 z-assistant flex flex-wrap items-center justify-center gap-3 border-t border-info-line bg-info-soft px-4 py-3 text-body text-ink shadow-card"
     >
       <span>A new version of Calevate is ready (v{newer.version}). Save what you are typing, then update.</span>
       <button
