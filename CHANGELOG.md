@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.5 — 15-Nov-2026
+
+- Uploading a material: a dashed box saying **Click to choose a file, or drag it here** replaces
+  the browser's plain file field, and shows the chosen file's name and size.
+
 ## 0.3.4 — 15-Nov-2026
 
 - A long main task wraps and opens folded to six lines with **Show more** / **Show less**;

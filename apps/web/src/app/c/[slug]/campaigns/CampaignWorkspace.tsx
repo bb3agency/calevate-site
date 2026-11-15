@@ -36,6 +36,7 @@ import { useClientRealm } from "@/lib/api/session";
 
 import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 
+import { FilePicker } from "./FilePicker";
 import { matchesWords } from "./matchWords";
 import { PipGenerateBand } from "./PipGenerateBand";
 
@@ -316,18 +317,11 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
             <input className={`${FIELD} mt-1 w-full`} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </label>
           {mode === "file" && (
-            <label className="block text-meta font-medium text-ink">
-              File
-              <input
-                type="file"
-                className="mt-1 block w-full text-meta"
-                accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.jpg,.jpeg,.png,.webp,.heic"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              <span className="mt-1 block font-normal text-ink-muted">
-                PDF, Word, Excel, CSV, text or a photo, up to 20 MB. For a video or a call recording, add its link for now.
-              </span>
-            </label>
+            <FilePicker
+              file={file}
+              onFile={setFile}
+              hint="PDF, Word, Excel, CSV, text or a photo, up to 20 MB. For a video or a call recording, add its link."
+            />
           )}
           {mode === "link" && (
             <label className="block text-meta font-medium text-ink">
