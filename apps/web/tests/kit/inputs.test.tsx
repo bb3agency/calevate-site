@@ -175,6 +175,15 @@ describe("number field", () => {
     expect(screen.getByRole("button", { name: "Increase Calls at the same time" }).getAttribute("aria-disabled")).toBe("true");
   });
 
+  it("steps from what was just typed, not from the value before it", () => {
+    render(<Counter />);
+    const box = screen.getByRole("spinbutton") as HTMLInputElement;
+    fireEvent.change(box, { target: { value: "7" } });
+    fireEvent.keyDown(box, { key: "ArrowUp" });
+    expect(box.getAttribute("aria-valuenow")).toBe("8");
+    expect(box.value).toBe("8");
+  });
+
   it("pulls typing past a limit back and says so", () => {
     render(<Counter />);
     const box = screen.getByRole("spinbutton") as HTMLInputElement;

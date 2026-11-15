@@ -86,12 +86,19 @@ export function NumberField({
     const rounded = Number(snapped.toFixed(decimals));
     return Math.min(max, Math.max(min, rounded));
   };
-  const nudge = (by: number) => {
+  const goTo = (target: number) => {
     if (disabled) return;
-    const next = settle((value ?? min) + by);
+    const next = settle(target);
     setNote(null);
     setTyping(false);
     if (next !== value) onChange(next);
+  };
+  const nudge = (by: number) => {
+    // From the number being typed, which is not committed until blur or Enter: stepping
+    // from `value` threw the typed figure away and stepped the old one.
+    const typed = typing ? Number(draft.replace(/[,\s]/g, "")) : Number.NaN;
+    const from = typing && draft.trim() !== "" && Number.isFinite(typed) ? typed : (value ?? min);
+    goTo(from + by);
   };
   const commitDraft = () => {
     setTyping(false);
@@ -119,8 +126,8 @@ export function NumberField({
       ArrowDown: () => nudge(-big),
       PageUp: () => nudge(largeStep),
       PageDown: () => nudge(-largeStep),
-      Home: () => min !== undefined && nudge(min - (value ?? min)),
-      End: () => max !== Number.MAX_SAFE_INTEGER && nudge(max - (value ?? min)),
+      Home: () => goTo(min),
+      End: () => max !== Number.MAX_SAFE_INTEGER && goTo(max),
       Enter: commitDraft,
     };
     const run = actions[event.key];
