@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.12 — 15-Nov-2026
+
+- **New campaign shows every section from the start**, in the same order and colours as a draft:
+  Main task, Materials, Script, Agent and its settings, then Test call, Add people, People to
+  call, the compliance checks and Other call settings, blank until there is something to show.
+- **Delete a draft from the campaigns list.** A draft that never called anyone has a Delete
+  button beside it, behind a confirm. A campaign that has started keeps its calls, charges and
+  compliance records, so it is archived instead.
+
 ## 0.4.11 — 15-Nov-2026
 
 - **A started campaign's page folds too**, with Collapse all and Expand all at the top: Where it

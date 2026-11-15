@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Archive, ArchiveRestore, Pause, Play, Plus } from "lucide-react";
+import { Archive, ArchiveRestore, Pause, Play, Plus, Trash2 } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -28,6 +28,7 @@ import {
 import {
   usePauseCampaign,
   useArchiveCampaign,
+  useDeleteCampaign,
   useCampaignPage,
   type CampaignStatus,
   type CampaignSummary,
@@ -560,6 +561,58 @@ function ShelfButton({
   );
 }
 
+/**
+ * Delete a draft from its row, behind a confirm. Only a draft that never called anyone can
+ * be deleted (`DELETE /v1/campaigns/{id}` refuses the rest with `campaign_has_history`):
+ * a started campaign's calls, charges and compliance records are kept, so it is archived.
+ */
+function DeleteDraftButton({
+  campaign,
+  canWrite,
+  refusal,
+}: {
+  campaign: CampaignSummary;
+  canWrite: boolean;
+  refusal: string | undefined;
+}) {
+  const { session } = useClientRealm();
+  const remove = useDeleteCampaign(session, campaign.id);
+  const feedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Draft deleted" });
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        className={SECONDARY_BUTTON_SM}
+        title={refusal}
+        disabled={!canWrite}
+        onClick={() => setConfirming(true)}
+        aria-label={`Delete ${campaign.name}`}
+      >
+        <Trash2 aria-hidden className="h-3.5 w-3.5" />
+        Delete
+      </button>
+      {confirming && (
+        <ConfirmDialog
+          title="Delete this draft?"
+          confirmLabel="Delete draft"
+          pendingLabel="Deleting"
+          cancelLabel="Keep it"
+          status={feedback.status}
+          error={feedback.error ?? null}
+          onCancel={() => {
+            feedback.reset();
+            setConfirming(false);
+          }}
+          onConfirm={() => feedback.run(undefined)}
+        >
+          <span className="block">The draft and its list are removed. This cannot be undone.</span>
+        </ConfirmDialog>
+      )}
+    </>
+  );
+}
+
 function RowActions({
   campaign,
   canWrite,
@@ -591,12 +644,22 @@ function RowActions({
   // A pause whose cause must be cleared first is not resumed from the row: its fix is.
   const held = campaign.status === "paused" && HELD_PAUSES.includes(campaign.pause_reason ?? "");
   const fix = rowFix(campaign, at, detail);
+  // A draft that never called anyone can be deleted from its row (founder, 15 Nov 2026).
+  const deletable = campaign.status === "draft" && campaign.launched_at == null;
   if (fix && (held || campaign.status === "draft")) {
     return (
-      <div className={cell}>
+      <div className="relative z-raised flex gap-2 sm:justify-end">
         <Link href={fix.href} className={SECONDARY_BUTTON_SM} aria-label={`${fix.label}: ${campaign.name}`}>
           {fix.label}
         </Link>
+        {deletable && <DeleteDraftButton campaign={campaign} canWrite={canWrite} refusal={refusal} />}
+      </div>
+    );
+  }
+  if (deletable) {
+    return (
+      <div className={cell}>
+        <DeleteDraftButton campaign={campaign} canWrite={canWrite} refusal={refusal} />
       </div>
     );
   }

@@ -42,7 +42,7 @@ import { MAIN_TASK_HINT, MAIN_TASK_INFO, MAIN_TASK_PLACEHOLDER, SCRIPT_HINT, SCR
 import { MaterialsDraft, type PendingMaterial } from "./MaterialsDraft";
 import { AgentChoice, NoAgentYet } from "./NewCampaignSteps";
 import { PipGenerateBand } from "./PipGenerateBand";
-import { FoldGroup, FoldSection } from "./FoldSection";
+import { FoldGroup, FoldSection, type FoldTone } from "./FoldSection";
 import { clampConcurrency, concurrencyCap, nameFromGoal } from "./campaignForm";
 
 const MAIN_TASK_MIN = 10;
@@ -55,6 +55,15 @@ export function nameFromMainTask(task: string): string {
   const short = first.length > 60 ? `${first.slice(0, 60).replace(/\s+\S*$/, "")}…` : first;
   return nameFromGoal(short).slice(0, 120);
 }
+
+/** The draft page's sections after the agent, in its order and colours. */
+const LATER_SECTIONS: { title: string; tone: FoldTone }[] = [
+  { title: "Test call", tone: "test" },
+  { title: "Add people", tone: "add" },
+  { title: "People to call", tone: "people" },
+  { title: "Mandatory Regulatory Compliance Checks", tone: "compliance" },
+  { title: "Other call settings", tone: "settings" },
+];
 
 export function NewCampaignScreen({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
@@ -188,17 +197,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
               <MaterialsDraft items={materials} onChange={setMaterials} canWrite={write.allowed} />
 
               <FoldSection title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO}>
-                {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
-                {agents.data && agentOptions.length === 0 && <NoAgentYet />}
-                {agentOptions.length > 0 && (
-                  <AgentChoice
-                    onChange={setAgentId}
-                    agentOptions={agentOptions}
-                    selectedAgentId={selectedAgentId}
-                    selectedAgent={selectedAgent}
-                  />
-                )}
-                <div className="mt-4 space-y-3">
+                <div className="space-y-3">
                   <PipGenerateBand
                     inline
                     onGenerate={() => void submit(true)}
@@ -220,6 +219,31 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                   )}
                 </div>
               </FoldSection>
+
+              <FoldSection
+                title="Agent and its settings"
+                tone="agent"
+                hint="Who makes these calls."
+              >
+                {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
+                {agents.data && agentOptions.length === 0 && <NoAgentYet />}
+                {agentOptions.length > 0 && (
+                  <AgentChoice
+                    onChange={setAgentId}
+                    agentOptions={agentOptions}
+                    selectedAgentId={selectedAgentId}
+                    selectedAgent={selectedAgent}
+                  />
+                )}
+              </FoldSection>
+
+              {/* The whole set-up is visible from the start; these fill in once the campaign
+                  has its main task (founder, 15 Nov 2026: "keep other sections blank"). */}
+              {LATER_SECTIONS.map(({ title, tone }) => (
+                <FoldSection key={title} title={title} tone={tone}>
+                  {null}
+                </FoldSection>
+              ))}
             </FoldGroup>
           )
         }
