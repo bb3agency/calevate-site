@@ -109,7 +109,6 @@ function defaultLabel(key: Key, d: CampaignSettingsValues): string {
 }
 
 const ROWS: { key: Key; label: string; hint?: string }[] = [
-  { key: "language_primary", label: "Language" },
   { key: "speaking_speed", label: "Speaking speed", hint: "0.6 to 1.5; 1 is normal" },
   { key: "max_call_duration_s", label: "Longest call", hint: "minutes" },
   { key: "nudge_after_seconds", label: "Ask “are you still there?” after", hint: "seconds of silence; 0 never" },
@@ -148,7 +147,13 @@ export function CampaignVoiceSettings({
   const dirty = KEYS.some((k) => draft[k] !== saved[k]);
   const set = (key: Key, value: string) => setDraft({ ...draft, [key]: value });
 
-  const submit = () => save.mutate(fromDraft(draft));
+  // The languages are chosen in the Script section; this save keeps them as they are.
+  const submit = () =>
+    save.mutate({
+      ...fromDraft(draft),
+      language_primary: data.overrides.language_primary ?? null,
+      languages_extra: data.overrides.languages_extra ?? null,
+    });
 
   const input = (key: Key) => {
     const common = {

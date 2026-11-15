@@ -14009,6 +14009,13 @@
           "defaults": {
             "$ref": "#/components/schemas/CampaignSettingsValues-Output"
           },
+          "offered_languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Offered Languages",
+            "type": "array"
+          },
           "overrides": {
             "$ref": "#/components/schemas/CampaignSettingsValues-Output"
           }
@@ -14018,7 +14025,8 @@
           "agent_name",
           "defaults",
           "overrides",
-          "applied_now"
+          "applied_now",
+          "offered_languages"
         ],
         "title": "CampaignSettingsOut",
         "type": "object"
@@ -14084,6 +14092,20 @@
               }
             ],
             "title": "Language Primary"
+          },
+          "languages_extra": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Languages Extra"
           },
           "max_call_duration_s": {
             "anyOf": [
@@ -14198,6 +14220,20 @@
               }
             ],
             "title": "Language Primary"
+          },
+          "languages_extra": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Languages Extra"
           },
           "max_call_duration_s": {
             "anyOf": [

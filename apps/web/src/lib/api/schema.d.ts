@@ -19208,6 +19208,8 @@ export interface components {
             /** Applied Now */
             applied_now: boolean;
             defaults: components["schemas"]["CampaignSettingsValues-Output"];
+            /** Offered Languages */
+            offered_languages: string[];
             overrides: components["schemas"]["CampaignSettingsValues-Output"];
         };
         /**
@@ -19225,6 +19227,8 @@ export interface components {
             filler_lines?: string[] | null;
             /** Language Primary */
             language_primary?: string | null;
+            /** Languages Extra */
+            languages_extra?: string[] | null;
             /** Max Call Duration S */
             max_call_duration_s?: number | null;
             /** Nudge After Seconds */
@@ -19249,6 +19253,8 @@ export interface components {
             filler_lines?: string[] | null;
             /** Language Primary */
             language_primary?: string | null;
+            /** Languages Extra */
+            languages_extra?: string[] | null;
             /** Max Call Duration S */
             max_call_duration_s?: number | null;
             /** Nudge After Seconds */

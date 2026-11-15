@@ -805,11 +805,14 @@ async def discard(session: AsyncSession, *, agent_id: UUID, proposal_id: UUID) -
     return cleared is not None
 
 
-async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> ScriptBrief:
+async def brief_for(
+    session: AsyncSession, tenant_id: UUID, agent_id: UUID, *, language: str | None = None
+) -> ScriptBrief:
     """What every draft is written from besides the owner's words: the business, the
     agent's direction and call language with its spoken register, the details it collects
     and the knowledge titles, what it can do on a call and the owner's facts (D-945).
-    Tenant-authored configuration only (D-127 G-2)."""
+    `language` writes it in another language than the agent's own (a campaign's main
+    language). Tenant-authored configuration only (D-127 G-2)."""
     row = (
         await session.execute(
             text(
@@ -824,7 +827,7 @@ async def brief_for(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> S
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
-    language = str(row[1])
+    language = language or str(row[1])
     style = style_for(language)
     titles = await session.execute(
         text(

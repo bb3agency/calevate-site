@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.17 — 16-Nov-2026
+
+- **Languages for the script.** The Script section has a Languages row: pick one or more of the
+  languages offered. Pip writes the script and the opening line in the first one (marked
+  "main"); the agent opens every call in it and switches when a caller speaks one of the others,
+  following the same steps and answers. One script, not one per language.
+- The language moved out of Voice & call settings into the Script section.
+
 ## 0.4.16 — 16-Nov-2026
 
 - **Delete an archived campaign** from the Archived list, beside Restore, while the app is being

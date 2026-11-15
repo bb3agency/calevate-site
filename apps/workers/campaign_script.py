@@ -189,7 +189,16 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
             for doc in found
             if doc.state == "read"
         ]
-        context = await script_proposals.brief_for(session, tenant_id, space.agent_id)
+        # Written in the campaign's main language when it sets one over the agent's.
+        main_language = (
+            await session.execute(
+                text("SELECT settings_overrides->>'language_primary' FROM campaigns WHERE id = :c"),
+                {"c": campaign_id},
+            )
+        ).scalar_one_or_none()
+        context = await script_proposals.brief_for(
+            session, tenant_id, space.agent_id, language=main_language
+        )
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
 

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.call_handling import read_agent_call_handling
+from apps.api.agents.languages import client_language_tags
 from apps.api.agents.service import effective_call_cap
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.voice_tuning import read_voice_tuning
@@ -636,6 +637,9 @@ class CampaignSettingsValues(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     language_primary: str | None = None
+    #: The other languages the agent switches to when a caller speaks one; the script is
+    #: written in `language_primary` and followed in each (founder, 16 Nov 2026).
+    languages_extra: list[str] | None = None
     speaking_speed: Decimal | None = None
     max_call_duration_s: int | None = None
     nudge_after_seconds: int | None = None
@@ -655,13 +659,18 @@ class CampaignSettingsOut(_Out):
     overrides: CampaignSettingsValues
     #: This campaign currently holds the agent, so a save reaches its calls at once.
     applied_now: bool
+    #: The languages this account may choose, in picker order.
+    offered_languages: list[str]
 
 
 async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSettingsOut:
     space = await workspace.read_workspace(session, campaign_id)
     agent = (
         await session.execute(
-            text("SELECT name, language_primary, max_call_duration_s FROM agents WHERE id = :a"),
+            text(
+                "SELECT name, language_primary, max_call_duration_s, languages_extra "
+                "FROM agents WHERE id = :a"
+            ),
             {"a": space.agent_id},
         )
     ).one()
@@ -683,6 +692,7 @@ async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSet
         agent_name=str(agent.name),
         defaults=CampaignSettingsValues(
             language_primary=str(agent.language_primary),
+            languages_extra=list(agent.languages_extra or []),
             speaking_speed=tuning.tuning.speed,
             max_call_duration_s=effective_call_cap(agent.max_call_duration_s),
             nudge_after_seconds=values.nudge_after_seconds,
@@ -694,6 +704,7 @@ async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSet
         ),
         overrides=CampaignSettingsValues(**(raw[0] or {})),
         applied_now=bool(raw[1]),
+        offered_languages=list(client_language_tags()),
     )
 
 

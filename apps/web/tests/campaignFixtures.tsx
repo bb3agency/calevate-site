@@ -168,7 +168,8 @@ export function settingsFixture(over: Partial<CampaignSettings> = {}): CampaignS
     agent_id: FIXTURE_AGENT_ID,
     agent_name: "Outbound follow-up",
     applied_now: false,
-    defaults: { language_primary: "te-IN", speaking_speed: "1", max_call_duration_s: 600 },
+    defaults: { language_primary: "te-IN", speaking_speed: "1", max_call_duration_s: 600, languages_extra: [] },
+    offered_languages: ["te-IN", "hi-IN", "en-IN"],
     overrides: {},
     ...over,
   };

@@ -29,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.call_handling import CallSettings, refuse_invalid_settings, settings_of
+from apps.api.agents.languages import MAX_REPLY_LANGUAGES, client_language_tags
 from apps.api.agents.models import CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.voice_tuning import SPEED_MAX, SPEED_MIN
 from apps.api.core.errors import ProblemError
@@ -44,6 +45,7 @@ CALL_SETTING_KEYS: Final = (
 )
 OVERRIDE_KEYS: Final = (
     "language_primary",
+    "languages_extra",
     "speaking_speed",
     "max_call_duration_s",
     *CALL_SETTING_KEYS,
@@ -71,6 +73,19 @@ def clean_overrides(raw: dict[str, Any]) -> dict[str, Any]:
         if str(language) not in LANGUAGES:
             raise _invalid("Choose one of the languages offered.")
         out["language_primary"] = str(language)
+    extra = raw.get("languages_extra")
+    if extra is not None:
+        tags = [str(tag) for tag in extra]
+        allowed = client_language_tags()
+        if any(tag not in allowed for tag in tags):
+            raise _invalid("Choose only the languages offered.")
+        if len(set(tags)) != len(tags):
+            raise _invalid("Each language can be chosen only once.")
+        if out.get("language_primary") in tags:
+            raise _invalid("The main language is already spoken; pick the others.")
+        if len(tags) > MAX_REPLY_LANGUAGES - 1:
+            raise _invalid(f"An agent speaks at most {MAX_REPLY_LANGUAGES} languages.")
+        out["languages_extra"] = tags
     speed = raw.get("speaking_speed")
     if speed is not None:
         try:
@@ -107,6 +122,8 @@ def apply_overrides(agent: dict[str, Any], overrides: dict[str, Any] | None) -> 
     row = dict(agent)
     if "language_primary" in overrides:
         row["language_primary"] = overrides["language_primary"]
+    if "languages_extra" in overrides:
+        row["languages_extra"] = list(overrides["languages_extra"])
     if "max_call_duration_s" in overrides:
         row["max_call_duration_s"] = overrides["max_call_duration_s"]
     if "speaking_speed" in overrides:
