@@ -425,6 +425,25 @@ describe("one Follow-up's steps", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("takes a wait typed in Telugu digits", async () => {
+    const { calls } = await detail({
+      [`PATCH ${PATH}`]: followUp({ has_unpublished_changes: true }),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "More actions for Wait 1 day" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Change the wait" }));
+    const dialog = await screen.findByRole("dialog", { name: "Change the wait" });
+    // U+0C68 is the Telugu digit two.
+    fireEvent.change(within(dialog).getByLabelText("Wait"), { target: { value: String.fromCodePoint(0x0c68) } });
+    expect(within(dialog).queryByText("Enter a whole number.")).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    });
+    await waitFor(() => expect(calls.some((call) => call.method === "PATCH")).toBe(true));
+    expect(JSON.parse(calls.find((call) => call.method === "PATCH")?.body ?? "{}")).toEqual({
+      step_edits: [{ step_id: "s4", remove: false, wait: { days: 2 } }],
+    });
+  });
+
   it("changes a WhatsApp step's message to another approved one", async () => {
     const { calls } = await detail({
       "/v1/whatsapp/templates": TEMPLATES,
