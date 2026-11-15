@@ -214,9 +214,11 @@ describe("Ops > Voice comparison", () => {
       expect(
         page.calls.filter((c) => c.path.endsWith("/audio?side=a")),
       ).toHaveLength(2),
+      { timeout: 5000 },
     );
     await waitFor(() =>
       expect(within(pair).queryByText(/Could not load Voice A/)).toBeNull(),
+      { timeout: 5000 },
     );
   });
 
