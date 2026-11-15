@@ -13,6 +13,7 @@
 
 import { ChevronDown } from "lucide-react";
 import { InfoTip } from "@/components/console/infoTip";
+import { keepInView } from "@/lib/keepInView";
 import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
 
 type Command = { open: boolean; seq: number };
@@ -76,14 +77,20 @@ export function FoldGroup({
           <button
             type="button"
             className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted"
-            onClick={() => press(false)}
+            onClick={(e) => {
+              keepInView(e.currentTarget);
+              press(false);
+            }}
           >
             Collapse all
           </button>
           <button
             type="button"
             className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted"
-            onClick={() => press(true)}
+            onClick={(e) => {
+              keepInView(e.currentTarget);
+              press(true);
+            }}
           >
             Expand all
           </button>
@@ -133,7 +140,10 @@ export function FoldSection({
             type="button"
             aria-expanded={open}
             aria-controls={bodyId}
-            onClick={() => setOpen(!open)}
+            onClick={(e) => {
+              keepInView(e.currentTarget);
+              setOpen(!open);
+            }}
             className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 shadow-card ${look.pill}`}
           >
             <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${open ? "" : "-rotate-90"}`} />

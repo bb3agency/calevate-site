@@ -13,6 +13,8 @@ export type TabItem = {
   value: string;
   label: string;
   disabled?: boolean;
+  /** `variant="pills"` only: the classes of this tab when selected (its fill and text). */
+  accent?: string;
 };
 
 export type TabsActivation = "automatic" | "manual";
@@ -177,6 +179,12 @@ export type TabsProps = {
   label?: string;
   panelClassName?: string;
   className?: string;
+  /**
+   * `underline` (the default) is the console's quiet row. `pills` gives each tab its own
+   * colour and fills the open one, for a screen whose tabs are its main navigation
+   * (founder, 16 Nov 2026, the campaign page: "easier to identify which tab I am on").
+   */
+  variant?: "underline" | "pills";
 };
 
 /**
@@ -199,6 +207,7 @@ export function Tabs({
   label = "Tabs",
   panelClassName = "",
   className = "",
+  variant = "underline",
 }: TabsProps) {
   const tabs = useTabs({ items, value, defaultValue, onValueChange, activation });
 
@@ -210,10 +219,31 @@ export function Tabs({
         label={label}
         className="border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div {...tabs.tabListProps} aria-label={label} className="flex w-max gap-6">
+        <div
+          {...tabs.tabListProps}
+          aria-label={label}
+          className={variant === "pills" ? "flex w-max gap-2 pb-3" : "flex w-max gap-6"}
+        >
           {items.map((item, index) => {
             const selected = item.value === tabs.value;
             const tabProps = tabs.getTabProps(item, index);
+            if (variant === "pills") {
+              return (
+                <button
+                  key={item.value}
+                  {...tabProps}
+                  className={`flex h-9 shrink-0 items-center rounded-full border px-4 text-body outline-none transition-colors duration-(--duration-fast) focus-visible:ring-2 focus-visible:ring-brand touch:h-11 ${
+                    item.disabled
+                      ? "cursor-default border-line text-ink-faint"
+                      : selected
+                        ? `border-transparent font-semibold shadow-card ${item.accent ?? "bg-brand-strong text-surface"}`
+                        : "border-line bg-surface text-ink-muted hover:border-ink-faint hover:text-ink"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              );
+            }
             return (
               <button
                 key={item.value}

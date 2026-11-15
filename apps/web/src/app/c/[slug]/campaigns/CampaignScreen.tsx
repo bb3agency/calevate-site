@@ -266,12 +266,13 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
       <Tabs
         label="This campaign"
         defaultValue="setup"
+        variant="pills"
         items={[
-          { value: "setup", label: "Set up" },
-          { value: "progress", label: "Progress & results" },
-          { value: "calls", label: "Calls & recordings" },
-          { value: "questions", label: "Questions to answer" },
-          { value: "improve", label: "Improve" },
+          { value: "setup", label: "Set up", accent: "bg-brand-strong text-surface" },
+          { value: "progress", label: "Progress & results", accent: "bg-series-2 text-ink" },
+          { value: "calls", label: "Calls & recordings", accent: "bg-series-3 text-ink" },
+          { value: "questions", label: "Questions to answer", accent: "bg-series-5 text-ink" },
+          { value: "improve", label: "Improve", accent: "bg-series-4 text-surface" },
         ]}
         panelClassName="pt-5"
         renderPanel={(current) =>

@@ -30,6 +30,7 @@ import { TEXT_ACTION } from "@/components/console/section";
 import { StatusPill } from "@/components/console/statusPill";
 import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, type NoticeTone } from "@/components/ui";
 import type { CallScript } from "@/lib/api/script";
+import { keepInView } from "@/lib/keepInView";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { PartEditor, SectionFields, partShows, sectionShows, unshownIssues } from "./ProposalEditors";
@@ -400,11 +401,18 @@ function Row({
 }) {
   const id = domId(change);
   const gone = since === "deleted";
+  // The row stays where it is on screen while it opens or closes and the page reflows.
+  const row = useRef<HTMLLIElement>(null);
+  const held = (act: () => void) => () => {
+    keepInView(row.current);
+    act();
+  };
   const editable = !gone && change.kind !== "section-removed" && change.kind !== "order";
   return (
     // An unticked change fades, so what will be applied is visible at a glance; the row being
     // edited sits on a tinted ground so the eye stays on it.
     <li
+      ref={row}
       data-editing={open || undefined}
       className={`flex items-start gap-3 py-3 transition-[opacity,background-color] duration-150 ${
         open
@@ -452,14 +460,14 @@ function Row({
         {editable &&
           (open ? (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button type="button" className={PRIMARY_BUTTON_SM} aria-label={`Update ${headline(change)}`} onClick={onUpdate}>
+              <button type="button" className={PRIMARY_BUTTON_SM} aria-label={`Update ${headline(change)}`} onClick={held(onUpdate)}>
                 Update
               </button>
               <button
                 type="button"
                 className={SECONDARY_BUTTON_SM}
                 aria-label={`Cancel ${settled ? "editing" : "reviewing"} ${headline(change)}`}
-                onClick={onCancel}
+                onClick={held(onCancel)}
               >
                 Cancel
               </button>
@@ -476,7 +484,7 @@ function Row({
                 className={`${TEXT_ACTION} text-meta`}
                 aria-expanded={false}
                 aria-label={`${settled ? "Edit" : "Review"} ${headline(change)}`}
-                onClick={onEdit}
+                onClick={held(onEdit)}
               >
                 {/* Reviewed once, a row is final: further changes are edits, not a review. */}
                 {settled ? "Edit" : "Review"}

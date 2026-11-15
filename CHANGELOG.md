@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.18 — 16-Nov-2026
+
+- **The campaign tabs are coloured pills**, each with its own colour (Set up green, Progress &
+  results blue, Calls & recordings orange, Questions to answer pink, Improve violet); the one you
+  are on is filled in, so it is easy to see.
+- **The view no longer jumps when a section folds or opens.** Collapsing or expanding a section,
+  Collapse all / Expand all, and Edit, Update or Cancel on a part of the script keep what you
+  pressed where it was on screen.
+
 ## 0.4.17 — 16-Nov-2026
 
 - **Languages for the script.** The Script section has a Languages row: pick one or more of the
