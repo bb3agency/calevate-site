@@ -3,6 +3,7 @@
 import { useId, type ReactNode } from "react";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL } from "@/components/ui";
+import { asciiDigits } from "@/lib/phoneNumber";
 
 /**
  * "Type X to confirm" — the human half of a step-up confirmation, and the ONE control for
@@ -46,7 +47,11 @@ export function confirmationMatches(
   match: ConfirmMatch = "loose",
 ): boolean {
   if (match === "exact") return typed === phrase;
-  return typed.trim().toLowerCase() === phrase.trim().toLowerCase();
+  // A count typed on a Telugu or Hindi keyboard is the same count: digits in any script
+  // read as ASCII before comparing.
+  const latin = (text: string) =>
+    text.replace(/\p{Nd}/gu, (digit) => asciiDigits(digit)).trim().toLowerCase();
+  return latin(typed) === latin(phrase);
 }
 
 export interface TypedConfirmationProps {
