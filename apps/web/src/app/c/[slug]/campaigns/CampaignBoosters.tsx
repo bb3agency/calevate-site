@@ -28,6 +28,8 @@ import {
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
+import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
+
 type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
 
 function Card({ title, hint, accent, children }: { title: string; hint: string; accent: string; children: React.ReactNode }) {
@@ -391,6 +393,7 @@ export function AgentAndTestCall({
           {errorText(error, "The agent did not change")}
         </p>
       )}
+      <CampaignVoiceSettings campaignId={campaignId} agentId={agentId} canWrite={canWrite} refusal={refusal} />
       <HearItFirst slug={slug} campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
     </div>
   );

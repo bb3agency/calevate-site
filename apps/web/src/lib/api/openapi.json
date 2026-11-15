@@ -3333,6 +3333,40 @@
         "title": "AgentDailySpendOut",
         "type": "object"
       },
+      "AgentHolderOut": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "campaign_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Name"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "campaign_name"
+        ],
+        "title": "AgentHolderOut",
+        "type": "object"
+      },
       "AgentKnowledgeItemOut": {
         "additionalProperties": false,
         "properties": {
@@ -13873,6 +13907,264 @@
           "days"
         ],
         "title": "CampaignSeriesOut",
+        "type": "object"
+      },
+      "CampaignSettingsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "applied_now": {
+            "title": "Applied Now",
+            "type": "boolean"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/CampaignSettingsValues-Output"
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/CampaignSettingsValues-Output"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "defaults",
+          "overrides",
+          "applied_now"
+        ],
+        "title": "CampaignSettingsOut",
+        "type": "object"
+      },
+      "CampaignSettingsValues-Input": {
+        "additionalProperties": false,
+        "description": "Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.",
+        "properties": {
+          "ambience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "language_primary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language Primary"
+          },
+          "max_call_duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Call Duration S"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
+          },
+          "speaking_speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaking Speed"
+          }
+        },
+        "title": "CampaignSettingsValues",
+        "type": "object"
+      },
+      "CampaignSettingsValues-Output": {
+        "additionalProperties": false,
+        "description": "Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.",
+        "properties": {
+          "ambience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience"
+          },
+          "ambience_volume_pct": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ambience Volume Pct"
+          },
+          "end_after_silence_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End After Silence Seconds"
+          },
+          "filler_lines": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filler Lines"
+          },
+          "language_primary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language Primary"
+          },
+          "max_call_duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Call Duration S"
+          },
+          "nudge_after_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nudge After Seconds"
+          },
+          "reask_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reask After Ms"
+          },
+          "speaking_speed": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaking Speed"
+          }
+        },
+        "title": "CampaignSettingsValues",
         "type": "object"
       },
       "CampaignSummaryOut": {
@@ -87298,6 +87590,46 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/agents/{agent_id}/holder": {
+      "get": {
+        "operationId": "agent_holder_v1_campaigns_agents__agent_id__holder_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentHolderOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The campaign whose script this agent speaks now (the last one to put it live)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/campaigns/numbers": {
       "get": {
         "operationId": "list_numbers_v1_campaigns_numbers_get",
@@ -88966,6 +89298,95 @@
           }
         },
         "summary": "Stop Pip's draft while it is written, or discard it once reviewed",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/settings": {
+      "get": {
+        "operationId": "campaign_settings_v1_campaigns__campaign_id__settings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The agent's default settings and what this campaign sets over them",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "put": {
+        "description": "Stored, then, when this campaign currently holds its agent, put live at once through the\nsame publish Start uses; otherwise they reach the agent at the next Start or Test call.",
+        "operationId": "save_campaign_settings_v1_campaigns__campaign_id__settings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignSettingsValues-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignSettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set this campaign's own settings over its agent's defaults; null follows the agent",
         "tags": [
           "campaigns"
         ],

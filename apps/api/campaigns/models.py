@@ -140,6 +140,12 @@ class Campaign(PKMixin, TimestampMixin, Base):
     script_live_version: Mapped[int | None]
     #: A second opening line tested against the script's own, alternating per person (D-992).
     opening_b: Mapped[str | None] = mapped_column(Text)
+    #: The agent settings this campaign sets for its own calls (D-994), each key present only
+    #: when overridden (`campaigns/settings.py`). The agent holds the defaults.
+    settings_overrides: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: When this campaign last put its script on its agent; the latest holder's overrides
+    #: are the ones that agent's published settings carry.
+    agent_held_at: Mapped[datetime | None]
     #: `pip` for a campaign a dialling plan made (D-893, migration f4b8d2a61c39), so its
     #: calls get a campaign's line limit, pacing, hours and retries; `standard` otherwise.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="standard")

@@ -193,3 +193,34 @@ export function useUploadMaterial(session: Session, campaignId: string) {
     uploadMaterial(session, campaignId, file, title),
   );
 }
+
+export type CampaignSettings = Schemas["CampaignSettingsOut"];
+export type CampaignSettingsValues = Schemas["CampaignSettingsValues-Output"];
+export type CampaignSettingsInput = Schemas["CampaignSettingsValues-Input"];
+export const settingsKey = (org: string, campaignId: string) => ["campaign-settings", org, campaignId] as const;
+
+/** The agent's defaults and this campaign's own settings over them (D-994). */
+export function useCampaignSettings(session: Session, campaignId: string, agentId: string) {
+  return useQuery({
+    queryKey: [...settingsKey(session.orgSlug, campaignId), agentId],
+    queryFn: () => apiRequest<CampaignSettings>(session, `${base(campaignId)}/settings`),
+  });
+}
+
+export function useSaveCampaignSettings(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (overrides: CampaignSettingsInput) =>
+      apiRequest<CampaignSettings>(session, `${base(campaignId)}/settings`, { method: "PUT", body: overrides }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: settingsKey(session.orgSlug, campaignId) }),
+  });
+}
+
+/** The campaign whose script and settings an agent carries now, if any. */
+export function useAgentHolder(session: Session, agentId: string) {
+  return useQuery({
+    queryKey: ["agent-holder", session.orgSlug, agentId],
+    queryFn: () =>
+      apiRequest<Schemas["AgentHolderOut"]>(session, `/v1/campaigns/agents/${encodeURIComponent(agentId)}/holder`),
+  });
+}

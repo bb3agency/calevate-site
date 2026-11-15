@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.0 — 15-Nov-2026
+
+- **Agents hold default settings; campaigns override them (D-994).** Step 4 gains **Voice & call
+  settings**: the agent's own value for language, speaking speed, longest call, silence
+  handling, re-ask wait, background sound and filler lines, and a box per setting for this
+  campaign's own. Start and Test call put them on the agent with the script; a save while the
+  campaign holds the agent applies at once. The agent's stored defaults never change.
+- The agent's Script tab says which campaign's script it is carrying, with a link to edit it there.
+
 ## 0.3.7 — 15-Nov-2026
 
 - Step 4 is now **Agent and test call**: the list of your agents to choose from (while the campaign
