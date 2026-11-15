@@ -2,8 +2,11 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ImprovementReview } from "@/app/c/[slug]/agents/[agentId]/script/ImprovementReview";
+import { CallMistakes } from "@/components/improvement/CallMistakes";
+import { agentMistakesPath, mistakeUndoPath, type AgentMistake } from "@/lib/api/callMistakes";
 import type { Me } from "@/lib/api/client";
-import { EMPTY_SCRIPT, type Improvement, type ScriptOut, type TestRun } from "@/lib/api/script";
+import { EMPTY_SCRIPT, useScript, type Improvement, type ScriptOut, type TestRun } from "@/lib/api/script";
+import { useClientSession } from "@/lib/api/session";
 
 import { problem, renderClientPage, type ApiCall, type Routes } from "./harness";
 
@@ -46,6 +49,50 @@ function improvementWith(facts: Improvement["facts"]): Improvement {
 }
 
 const RUN = { id: "run-1", results: [] } as unknown as TestRun;
+
+/** Whatever on the page reads the script (the header's main task and Put it live do). */
+function ScriptProbe() {
+  const script = useScript(useClientSession(), "agent-1");
+  return <p>Script read: {script.data ? "yes" : "no"}</p>;
+}
+
+describe("the owner's Undo of our fix on Mistakes on real calls", () => {
+  it("reads the script again, since Undo puts the old one live", async () => {
+    const fixed: AgentMistake = {
+      kind: "said_again",
+      label: "Said the same line again",
+      instead: "Ask once in other words.",
+      calls: 3,
+      calls_since_fix: 0,
+      last_seen_at: "2026-11-12T10:00:00Z",
+      last_call_id: "call-9",
+      fixed_at: "2026-11-12T10:00:00Z",
+      state: "script_live",
+      clean_calls: 0,
+      clean_calls_needed: 5,
+      can_undo: true,
+      found_in_script: false,
+    };
+    const { calls } = await renderClientPage(
+      <>
+        <CallMistakes agentId="agent-1" />
+        <ScriptProbe />
+      </>,
+      {
+        "/v1/me": OWNER,
+        [agentMistakesPath("agent-1")]: { items: [fixed], window_days: 30 },
+        "/v1/agents/agent-1/script": SCRIPT,
+        [`POST ${mistakeUndoPath("agent-1", "said_again")}`]: { kind: "said_again", version: 7 },
+      },
+    );
+    expect(await screen.findByText("Script read: yes")).toBeTruthy();
+    const reads = () => calls.filter((c: ApiCall) => c.method === "GET" && c.path === "/v1/agents/agent-1/script").length;
+    const before = reads();
+    fireEvent.click(await screen.findByRole("button", { name: "Undo our fix: Said the same line again" }));
+    await waitFor(() => expect(calls.some((c: ApiCall) => c.method === "POST")).toBe(true));
+    await waitFor(() => expect(reads()).toBeGreaterThan(before));
+  });
+});
 
 describe("suggested fixes: the facts to pin", () => {
   it("names each fact's tick box, whatever the question says", async () => {

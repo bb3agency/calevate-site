@@ -19,6 +19,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 
 import { adminSession } from "./admin";
 import { apiRequest, type Session } from "./client";
+import { invalidateScript } from "./script";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -99,13 +100,20 @@ export function useFleetFixes(enabled = true): UseQueryResult<FleetFixes> {
   });
 }
 
-/** Undo puts the script from before our fix back live; the list is read again after. */
+/**
+ * Undo puts the script from before our fix back live as a new version, so the list and every
+ * read of the script (the header's main task and Put it live, the Script tab) are read again.
+ */
 export function useUndoMistakeFix(session: Session, agentId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (kind: string) =>
       apiRequest<MistakeUndo>(session, mistakeUndoPath(agentId, kind), { method: "POST" }),
-    onSuccess: () => void client.invalidateQueries({ queryKey: agentMistakesKey(session.orgSlug, agentId) }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: agentMistakesKey(session.orgSlug, agentId) }),
+        invalidateScript(client, session, agentId),
+      ]),
   });
 }
 
