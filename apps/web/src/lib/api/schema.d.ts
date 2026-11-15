@@ -7444,6 +7444,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/main-task": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save what the campaign should achieve */
+        put: operations["save_main_task_v1_campaigns__campaign_id__main_task_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/materials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add a document, link or note for the campaign to work from */
+        post: operations["add_material_v1_campaigns__campaign_id__materials_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/materials/{material_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Remove a material from the campaign (archived, not deleted) */
+        post: operations["archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/opt-outs": {
         parameters: {
             query?: never;
@@ -7475,6 +7526,44 @@ export interface paths {
          * @description Pause a running campaign. Idempotent: pausing a campaign that is already paused returns 204, so a second click and the retry of a request whose response was lost are both safe. 409 means the campaign is in some other state (cancelled, or still a draft) and the response names it. 404 means no campaign of yours has that id.
          */
         post: operations["pause_v1_campaigns__campaign_id__pause_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/questions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the agent could not answer on this campaign's calls */
+        get: operations["campaign_questions_v1_campaigns__campaign_id__questions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/questions/answer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer a question the agent could not: kept as a note learned from the calls
+         * @description The answer joins the campaign's materials as a note learned from its calls, so the next
+         *     script Pip writes works it in; the owner updates the script to put it on calls.
+         */
+        post: operations["answer_question_v1_campaigns__campaign_id__questions_answer_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7617,6 +7706,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/script": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save the campaign's script (it reaches calls at Start) */
+        put: operations["save_script_v1_campaigns__campaign_id__script_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/proposal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask Pip to write the campaign's script from its main task and materials */
+        post: operations["request_proposal_v1_campaigns__campaign_id__script_proposal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop Pip's draft while it is written, or discard it once reviewed */
+        delete: operations["clear_proposal_v1_campaigns__campaign_id__script_proposal__proposal_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/stop": {
         parameters: {
             query?: never;
@@ -7632,6 +7772,23 @@ export interface paths {
          *     transition only, for `pause`'s reason.
          */
         post: operations["stop_v1_campaigns__campaign_id__stop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The campaign's main task, materials, script and Pip's pending draft */
+        get: operations["read_workspace_v1_campaigns__campaign_id__workspace_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -18645,6 +18802,13 @@ export interface components {
             /** Undeclared Clis */
             undeclared_clis: string[];
         };
+        /** CampaignAnswerIn */
+        CampaignAnswerIn: {
+            /** Answer */
+            answer: string;
+            /** Topic */
+            topic: string;
+        };
         /** CampaignDayOut */
         CampaignDayOut: {
             /** Connected */
@@ -18692,6 +18856,28 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** CampaignProposalOut */
+        CampaignProposalOut: {
+            base_script: components["schemas"]["CallScript"] | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Note */
+            note: string | null;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            script: components["schemas"]["CallScript"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "drafting" | "ready" | "failed";
+        };
         /** CampaignPurposeOut */
         CampaignPurposeOut: {
             /**
@@ -18708,6 +18894,36 @@ export interface components {
             campaign_id: string;
             purpose: components["schemas"]["PurposeOut"];
             report: components["schemas"]["PromoReportOut"];
+        };
+        /** CampaignQuestionOut */
+        CampaignQuestionOut: {
+            /** Answer */
+            answer: string | null;
+            /** Calls */
+            calls: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "didnt_know" | "put_off" | "unanswered" | "needed_you";
+            /** Last Call Id */
+            last_call_id: string | null;
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Question */
+            question: string | null;
+            /** Times */
+            times: number;
+            /** Topic */
+            topic: string;
         };
         /**
          * CampaignResultsOut
@@ -20559,9 +20775,8 @@ export interface components {
          *     a caller to tamper with: no lead id, no status, no campaign. A body that also carried
          *     the target would be a body that could disagree with the description the person read.
          *
-         *     The bound is generous against a JWT carrying a small `args` object — this is not a
-         *     length a legitimate client approaches, it is the wall in front of a caller feeding the
-         *     verifier megabytes.
+         *     The bound is the wall in front of a caller feeding the verifier megabytes, sized to the
+         *     largest token we sign (`MAX_CONFIRM_TOKEN_CHARS`).
          */
         CopilotConfirmIn: {
             /** Token */
@@ -27803,6 +28018,11 @@ export interface components {
             /** Threshold Inr */
             threshold_inr: string;
         };
+        /** MainTaskIn */
+        MainTaskIn: {
+            /** Main Task */
+            main_task: string;
+        };
         /**
          * MaintenanceAmendIn
          * @description A PATCH body: whichever fields moved, and nothing else.
@@ -28040,6 +28260,53 @@ export interface components {
         MasterSwitchIn: {
             /** Enabled */
             enabled: boolean;
+        };
+        /** MaterialIn */
+        MaterialIn: {
+            /** Kb Upload Id */
+            kb_upload_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "file" | "link" | "note";
+            /** Note */
+            note?: string | null;
+            /** Title */
+            title: string;
+            /** Url */
+            url?: string | null;
+        };
+        /** MaterialOut */
+        MaterialOut: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kb Upload Id */
+            kb_upload_id: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "file" | "link" | "note";
+            /** Note */
+            note: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "owner" | "call";
+            /** Title */
+            title: string;
+            /** Url */
+            url: string | null;
         };
         /** MeOut */
         MeOut: {
@@ -32653,6 +32920,10 @@ export interface components {
             op: "set_step" | "add_step" | "set_objection" | "set_part";
             /** Why */
             why: string;
+        };
+        /** ScriptIn */
+        ScriptIn: {
+            script: components["schemas"]["CallScript"];
         };
         /**
          * ScriptLimitsOut
@@ -38355,6 +38626,29 @@ export interface components {
             tenant_id: string;
             /** Tenant Name */
             tenant_name: string;
+        };
+        /** WorkspaceOut */
+        WorkspaceOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Campaign Id
+             * Format: uuid
+             */
+            campaign_id: string;
+            /** Main Task */
+            main_task: string;
+            /** Materials */
+            materials: components["schemas"]["MaterialOut"][];
+            proposal: components["schemas"]["CampaignProposalOut"] | null;
+            script: components["schemas"]["CallScript"] | null;
+            /** Script Live Version */
+            script_live_version: number | null;
+            /** Status */
+            status: string;
         };
         /**
          * WorkspacesSummaryOut
@@ -52059,6 +52353,106 @@ export interface operations {
             };
         };
     };
+    save_main_task_v1_campaigns__campaign_id__main_task_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MainTaskIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_material_v1_campaigns__campaign_id__materials_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaterialIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                material_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     campaign_opt_outs_v1_campaigns__campaign_id__opt_outs_get: {
         parameters: {
             query?: {
@@ -52109,6 +52503,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_questions_v1_campaigns__campaign_id__questions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignQuestionOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    answer_question_v1_campaigns__campaign_id__questions_answer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignAnswerIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -52313,6 +52773,102 @@ export interface operations {
             };
         };
     };
+    save_script_v1_campaigns__campaign_id__script_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScriptIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    request_proposal_v1_campaigns__campaign_id__script_proposal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignProposalOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    clear_proposal_v1_campaigns__campaign_id__script_proposal__proposal_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                proposal_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     stop_v1_campaigns__campaign_id__stop_post: {
         parameters: {
             query?: never;
@@ -52330,6 +52886,37 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_workspace_v1_campaigns__campaign_id__workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

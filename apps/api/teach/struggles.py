@@ -57,11 +57,22 @@ class Struggle:
     last_seen_at: datetime
 
 
-async def list_struggles(session: AsyncSession, *, agent_id: UUID | None = None) -> list[Struggle]:
+async def list_struggles(
+    session: AsyncSession, *, agent_id: UUID | None = None, campaign_id: UUID | None = None
+) -> list[Struggle]:
+    """`campaign_id` keeps only what came up on that campaign's calls (D-992): a gap with at
+    least one occurrence on one of them, and its "needed you" calls."""
     agent_clause = "AND g.agent_id = :aid" if agent_id else ""
     params: dict[str, object] = {"limit": MAX_GAPS}
     if agent_id:
         params["aid"] = agent_id
+    if campaign_id:
+        agent_clause += (
+            " AND EXISTS (SELECT 1 FROM knowledge_gap_occurrences o2 JOIN calls c2 "
+            "ON c2.id = o2.call_id WHERE o2.agent_id = g.agent_id "
+            "AND o2.topic_key = g.topic_key AND c2.campaign_id = :cid)"
+        )
+        params["cid"] = campaign_id
     gap_rows = (
         await session.execute(
             text(
@@ -103,6 +114,9 @@ async def list_struggles(session: AsyncSession, *, agent_id: UUID | None = None)
     }
     if agent_id:
         call_params["aid"] = agent_id
+    if campaign_id:
+        call_clause += " AND c.campaign_id = :cid"
+        call_params["cid"] = campaign_id
     call_rows = (
         await session.execute(
             text(

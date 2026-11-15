@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy import (
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -126,6 +127,17 @@ class Campaign(PKMixin, TimestampMixin, Base):
     #: against the goal (`calls.goal_reached`). NULL on a campaign made before they existed.
     purpose: Mapped[str | None] = mapped_column(Text)
     goal: Mapped[str | None] = mapped_column(Text)
+    #: What the campaign should achieve, in the owner's words, many lines (D-992). Pip writes
+    #: the campaign's script from it and the campaign's materials.
+    main_task: Mapped[str | None] = mapped_column(Text)
+    #: The campaign's own call script (a `CallScript` as JSON, D-992). The campaign owns what
+    #: its calls say; Start puts it live on the campaign's agent, which is the voice.
+    script: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: Pip's pending draft of that script (`campaigns/workspace.py`): id, status, the written
+    #: script or the failure note. Replaced by the next request, cleared by Update or Discard.
+    script_proposal: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    #: The agent's script version this campaign put live at its last Start.
+    script_live_version: Mapped[int | None]
     #: `pip` for a campaign a dialling plan made (D-893, migration f4b8d2a61c39), so its
     #: calls get a campaign's line limit, pacing, hours and retries; `standard` otherwise.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="standard")
@@ -204,6 +216,41 @@ class Campaign(PKMixin, TimestampMixin, Base):
     #: is "autogenerate + hand-review diff", which makes an unreviewed accept a data-loss
     #: event on compliance evidence.
     dnc_scrubbed_at: Mapped[datetime | None]
+
+
+MATERIAL_KINDS = ("file", "link", "note")
+MATERIAL_SOURCES = ("owner", "call")
+
+
+class CampaignMaterial(PKMixin, TimestampMixin, Base):
+    """What the owner gives a campaign to work from (D-992): an uploaded document (held in the
+    client's knowledge, `kb_upload_id`, so the agent can also look it up on a call), a link, or
+    a note. `source = 'call'` is a note learned from the campaign's own calls: an answer the
+    owner gave to a question the agent could not answer. Removed by archiving, never deleted."""
+
+    __tablename__ = "campaign_materials"
+    __table_args__ = (
+        CheckConstraint(f"kind IN {MATERIAL_KINDS!r}", name="kind_enum"),
+        CheckConstraint(f"source IN {MATERIAL_SOURCES!r}", name="source_enum"),
+        Index("ix_campaign_materials_campaign", "campaign_id", "created_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    campaign_id: Mapped[UUID] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    source: Mapped[str] = mapped_column(String(8), nullable=False, server_default="owner")
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    kb_upload_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("kb_uploads.id", ondelete="SET NULL")
+    )
+    created_by: Mapped[UUID | None]
+    archived_at: Mapped[datetime | None]
 
 
 class CampaignContact(PKMixin, TimestampMixin, Base):

@@ -13270,6 +13270,29 @@
         "title": "CallingNumberDeclarationOut",
         "type": "object"
       },
+      "CampaignAnswerIn": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Answer",
+            "type": "string"
+          },
+          "topic": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic",
+          "answer"
+        ],
+        "title": "CampaignAnswerIn",
+        "type": "object"
+      },
       "CampaignDayOut": {
         "additionalProperties": false,
         "properties": {
@@ -13373,6 +13396,71 @@
         "title": "CampaignPageOut",
         "type": "object"
       },
+      "CampaignProposalOut": {
+        "additionalProperties": false,
+        "properties": {
+          "base_script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "drafting",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "requested_at",
+          "base_script",
+          "script",
+          "note"
+        ],
+        "title": "CampaignProposalOut",
+        "type": "object"
+      },
       "CampaignPurposeOut": {
         "additionalProperties": false,
         "properties": {
@@ -13405,6 +13493,90 @@
           "blocks_launch"
         ],
         "title": "CampaignPurposeOut",
+        "type": "object"
+      },
+      "CampaignQuestionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "didnt_know",
+              "put_off",
+              "unanswered",
+              "needed_you"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Id"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "times": {
+            "title": "Times",
+            "type": "integer"
+          },
+          "topic": {
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "topic",
+          "question",
+          "answer",
+          "times",
+          "calls",
+          "last_call_id",
+          "last_seen_at"
+        ],
+        "title": "CampaignQuestionOut",
         "type": "object"
       },
       "CampaignResultsOut": {
@@ -37661,6 +37833,21 @@
         "title": "LowBalanceAlertOut",
         "type": "object"
       },
+      "MainTaskIn": {
+        "additionalProperties": false,
+        "properties": {
+          "main_task": {
+            "maxLength": 4000,
+            "title": "Main Task",
+            "type": "string"
+          }
+        },
+        "required": [
+          "main_task"
+        ],
+        "title": "MainTaskIn",
+        "type": "object"
+      },
       "MaintenanceAmendIn": {
         "additionalProperties": false,
         "description": "A PATCH body: whichever fields moved, and nothing else.\n\nEvery field optional for `DisclosureIn`'s reason \u2014 a screen with four inputs sends the\none that changed, and a body that could only send all four would make extending a\nwindow a read-modify-write race against an operator rewriting its reason. The service\ndecides which of them an ANNOUNCED window may still take.",
@@ -38286,6 +38473,150 @@
           "enabled"
         ],
         "title": "MasterSwitchIn",
+        "type": "object"
+      },
+      "MaterialIn": {
+        "additionalProperties": false,
+        "properties": {
+          "kb_upload_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kb Upload Id"
+          },
+          "kind": {
+            "enum": [
+              "file",
+              "link",
+              "note"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "kind",
+          "title"
+        ],
+        "title": "MaterialIn",
+        "type": "object"
+      },
+      "MaterialOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kb_upload_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kb Upload Id"
+          },
+          "kind": {
+            "enum": [
+              "file",
+              "link",
+              "note"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "source": {
+            "enum": [
+              "owner",
+              "call"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "title",
+          "url",
+          "note",
+          "kb_upload_id",
+          "created_at"
+        ],
+        "title": "MaterialOut",
         "type": "object"
       },
       "MeOut": {
@@ -51046,6 +51377,19 @@
           "why"
         ],
         "title": "ScriptEditOut",
+        "type": "object"
+      },
+      "ScriptIn": {
+        "additionalProperties": false,
+        "properties": {
+          "script": {
+            "$ref": "#/components/schemas/CallScript"
+          }
+        },
+        "required": [
+          "script"
+        ],
+        "title": "ScriptIn",
         "type": "object"
       },
       "ScriptLimitsOut": {
@@ -66356,6 +66700,79 @@
           "last_error_code"
         ],
         "title": "WorkspaceFailureOut",
+        "type": "object"
+      },
+      "WorkspaceOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "campaign_id": {
+            "format": "uuid",
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "main_task": {
+            "title": "Main Task",
+            "type": "string"
+          },
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialOut"
+            },
+            "title": "Materials",
+            "type": "array"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CampaignProposalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "script": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallScript"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "script_live_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Script Live Version"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "agent_id",
+          "status",
+          "main_task",
+          "script",
+          "script_live_version",
+          "proposal",
+          "materials"
+        ],
+        "title": "WorkspaceOut",
         "type": "object"
       },
       "WorkspacesSummaryOut": {
@@ -87449,6 +87866,149 @@
         "x-calevate-permission": "leads:read"
       }
     },
+    "/v1/campaigns/{campaign_id}/main-task": {
+      "put": {
+        "operationId": "save_main_task_v1_campaigns__campaign_id__main_task_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MainTaskIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save what the campaign should achieve",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/materials": {
+      "post": {
+        "operationId": "add_material_v1_campaigns__campaign_id__materials_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add a document, link or note for the campaign to work from",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/materials/{material_id}/archive": {
+      "post": {
+        "operationId": "archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "material_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Material Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a material from the campaign (archived, not deleted)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/opt-outs": {
       "get": {
         "operationId": "campaign_opt_outs_v1_campaigns__campaign_id__opt_outs_get",
@@ -87533,6 +88093,101 @@
           }
         },
         "summary": "Stop dialling now \u2014 idempotent, so a panicked double-click is not an error",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/questions": {
+      "get": {
+        "operationId": "campaign_questions_v1_campaigns__campaign_id__questions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CampaignQuestionOut"
+                  },
+                  "title": "Response Campaign Questions V1 Campaigns  Campaign Id  Questions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the agent could not answer on this campaign's calls",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/questions/answer": {
+      "post": {
+        "description": "The answer joins the campaign's materials as a note learned from its calls, so the next\nscript Pip writes works it in; the owner updates the script to put it on calls.",
+        "operationId": "answer_question_v1_campaigns__campaign_id__questions_answer_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignAnswerIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Answer a question the agent could not: kept as a note learned from the calls",
         "tags": [
           "campaigns"
         ],
@@ -87794,6 +88449,139 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/script": {
+      "put": {
+        "operationId": "save_script_v1_campaigns__campaign_id__script_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the campaign's script (it reaches calls at Start)",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script/proposal": {
+      "post": {
+        "operationId": "request_proposal_v1_campaigns__campaign_id__script_proposal_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask Pip to write the campaign's script from its main task and materials",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}": {
+      "delete": {
+        "operationId": "clear_proposal_v1_campaigns__campaign_id__script_proposal__proposal_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop Pip's draft while it is written, or discard it once reviewed",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/stop": {
       "post": {
         "description": "Running, paused or scheduled \u2192 cancelled (`controls.stop_campaign`). Audited on a real\ntransition only, for `pause`'s reason.",
@@ -87826,6 +88614,46 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/workspace": {
+      "get": {
+        "operationId": "read_workspace_v1_campaigns__campaign_id__workspace_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The campaign's main task, materials, script and Pip's pending draft",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/compliance/autodialer-notice": {

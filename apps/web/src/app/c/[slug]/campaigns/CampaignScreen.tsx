@@ -28,12 +28,15 @@ import { useClientRealm } from "@/lib/api/session";
 
 import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
+import { CampaignCalls } from "./CampaignCalls";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
+import { CampaignQuestions } from "./CampaignQuestions";
 import { CampaignResults, ResultFigures } from "./CampaignResults";
 import { CampaignRun } from "./CampaignRun";
 import { CampaignSettings } from "./CampaignSettings";
 import { CampaignStateNotice } from "./CampaignStateNotice";
 import { CampaignTimeline } from "./CampaignTimeline";
+import { CampaignWorkspace } from "./CampaignWorkspace";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
 import { ScheduleCards } from "./ScheduleCards";
@@ -261,52 +264,13 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
         )}
       </div>
 
-      {/* THE STATUS BAND: the one block whose job changes with the campaign. Keyed on the
-          phase so a launch swaps it in with a short settle rather than a jump. */}
-      {launched ? (
-        <div key="launched" className="settings-enter">
-          <CampaignRun progress={data} campaignId={campaignId} />
-        </div>
-      ) : (
-        <div
-          key="before-launch"
-          className="settings-enter space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6"
-        >
-          <ScheduleCards {...scheduleCardProps} className="border-b border-line pb-6" />
-          <LaunchGate
-            slug={slug}
-            campaignId={campaignId}
-            status={status}
-            check={check}
-            progress={progress}
-            launch={launchFeedback}
-            canWrite={write.allowed}
-            writeReason={write.reason}
-            refusal={refusal}
-            onAddPeople={addPeople}
-          />
-        </div>
-      )}
-
-      {/* A launched campaign can still repeat; its card sits under the live panel. */}
-      {launched && <ScheduleCards {...scheduleCardProps} className="rounded-card border border-line p-4 sm:p-5" />}
-
-      {!launched && check.data && (
-        <Section title={status === "scheduled" ? "Make it weekly" : "Start later or repeat"}>
-          <ArmingForms
-            status={status}
-            check={check}
-            schedule={scheduleFeedback}
-            repeat={repeatFeedback}
-            scheduleForm={scheduleForm}
-            canWrite={write.allowed}
-            refusal={refusal}
-          />
-        </Section>
-      )}
-
       {launched ? (
         <>
+          <div key="launched" className="settings-enter">
+            <CampaignRun progress={data} campaignId={campaignId} />
+          </div>
+          {/* A launched campaign can still repeat; its card sits under the live panel. */}
+          <ScheduleCards {...scheduleCardProps} className="rounded-card border border-line p-4 sm:p-5" />
           <Section
             title="Results"
             action={
@@ -324,20 +288,29 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             defaultValue="people"
             items={[
               { value: "people", label: "People" },
+              { value: "calls", label: "Calls & recordings" },
+              { value: "questions", label: "Questions to answer" },
               { value: "results", label: "What happened" },
+              { value: "setup", label: "Task, materials & script" },
               { value: "settings", label: "How it calls" },
             ]}
             panelClassName="pt-5"
-            renderPanel={(tab) =>
-              tab === "results" ? (
+            renderPanel={(current) =>
+              current === "results" ? (
                 <div className="space-y-10">
                   <CampaignResults slug={slug} campaignId={campaignId} results={results} />
                   <Section title="Day by day" headingLevel={3}>
                     <CampaignTimeline campaignId={campaignId} launchedAt={data.launched_at} />
                   </Section>
                 </div>
-              ) : tab === "settings" ? (
+              ) : current === "settings" ? (
                 <CampaignSettings slug={slug} campaignId={campaignId} progress={data} />
+              ) : current === "calls" ? (
+                <CampaignCalls slug={slug} campaignId={campaignId} />
+              ) : current === "questions" ? (
+                <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+              ) : current === "setup" ? (
+                <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
               ) : (
                 people
               )
@@ -345,20 +318,87 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
           />
         </>
       ) : (
-        // The people take the width and the settings sit beside them on a wide screen,
-        // because the list is what changes before launch and the settings are checked once.
-        <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <DraftPeople
-            slug={slug}
-            campaignId={campaignId}
-            maxAttempts={data.retry_policy.max_attempts}
-            canWrite={write.allowed}
-            refusal={refusal}
-            adding={addingPeople}
-            onAddingChange={setAddingPeople}
-          />
-          <CampaignSettings slug={slug} campaignId={campaignId} progress={data} layout="aside" />
-        </div>
+        <Tabs
+          label="Set up this campaign"
+          defaultValue="setup"
+          items={[
+            { value: "setup", label: "Set up" },
+            { value: "calls", label: "Calls & recordings" },
+            { value: "questions", label: "Questions to answer" },
+          ]}
+          panelClassName="pt-5"
+          renderPanel={(current) =>
+            current === "calls" ? (
+              <CampaignCalls slug={slug} campaignId={campaignId} />
+            ) : current === "questions" ? (
+              <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+            ) : (
+              <div className="space-y-8">
+                <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+
+                {/* 4. The voice and the start: who speaks the script, who is called, when. */}
+                <section aria-labelledby="campaign-start" className="space-y-6">
+                  <div id="campaign-start">
+                    <h2 className="text-heading text-ink">
+                      <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-meta font-semibold text-surface">
+                        4
+                      </span>
+                      Agent and start
+                    </h2>
+                    <p className="mt-1 text-meta text-ink-muted">
+                      {data.agent_name} speaks this campaign&apos;s script. Change the agent in the settings beside the
+                      list. Start puts the script on the agent, then calls.
+                    </p>
+                  </div>
+                  <div
+                    key="before-launch"
+                    className="settings-enter space-y-6 rounded-card border border-line bg-surface p-4 shadow-card sm:p-6"
+                  >
+                    <ScheduleCards {...scheduleCardProps} className="border-b border-line pb-6" />
+                    <LaunchGate
+                      slug={slug}
+                      campaignId={campaignId}
+                      status={status}
+                      check={check}
+                      progress={progress}
+                      launch={launchFeedback}
+                      canWrite={write.allowed}
+                      writeReason={write.reason}
+                      refusal={refusal}
+                      onAddPeople={addPeople}
+                    />
+                  </div>
+                  {check.data && (
+                    <Section title={status === "scheduled" ? "Make it weekly" : "Start later or repeat"}>
+                      <ArmingForms
+                        status={status}
+                        check={check}
+                        schedule={scheduleFeedback}
+                        repeat={repeatFeedback}
+                        scheduleForm={scheduleForm}
+                        canWrite={write.allowed}
+                        refusal={refusal}
+                      />
+                    </Section>
+                  )}
+                  {/* The people take the width and the settings sit beside them on a wide screen. */}
+                  <div className="grid grid-cols-1 items-start gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
+                    <DraftPeople
+                      slug={slug}
+                      campaignId={campaignId}
+                      maxAttempts={data.retry_policy.max_attempts}
+                      canWrite={write.allowed}
+                      refusal={refusal}
+                      adding={addingPeople}
+                      onAddingChange={setAddingPeople}
+                    />
+                    <CampaignSettings slug={slug} campaignId={campaignId} progress={data} layout="aside" />
+                  </div>
+                </section>
+              </div>
+            )
+          }
+        />
       )}
     </div>
   );

@@ -147,6 +147,7 @@ from apps.workers.caller_help import judge_caller_help
 from apps.workers.caller_memory_refile import refile_caller_memories
 from apps.workers.campaign_archive_notice import notify_campaign_archived
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
+from apps.workers.campaign_script import draft_campaign_script
 from apps.workers.client_actions import run_after_call_actions, run_client_action
 from apps.workers.client_health import refresh_client_health
 from apps.workers.comp_notices import notify_comp
@@ -463,6 +464,7 @@ FUNCTIONS: list[Any] = [
         # The script change Pip was asked for (D-820), from the outbox
         # (`agents/script_proposals.request_proposal`).
         draft_script_proposal,
+        draft_campaign_script,
         # An opening line written again to say the notices switched on in its own words
         # (D-971), from the outbox (`agents/opening_notices.queue_opening_notices`).
         weave_opening_notices,

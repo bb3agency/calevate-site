@@ -37,6 +37,7 @@ from apps.api.campaigns import (
     scheduling,
     service,
 )
+from apps.api.campaigns import workspace as campaign_workspace
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -1061,6 +1062,25 @@ async def launch_check(
     )
 
 
+async def _put_campaign_script_live(
+    session: AsyncSession, principal: Principal, campaign_id: UUID
+) -> None:
+    """The campaign's own script becomes its agent's live script before it can dial (D-992):
+    the campaign says what its calls say, the agent is the voice."""
+    assert principal.tenant_id is not None
+    name = (
+        await session.execute(text("SELECT name FROM campaigns WHERE id = :c"), {"c": campaign_id})
+    ).scalar_one_or_none()
+    if name is None:
+        raise ProblemError.not_found("Campaign")
+    await campaign_workspace.put_script_live(
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        campaign_name=str(name),
+        user_id=principal.user_id,
+    )
+
+
 @router.post(
     "/{campaign_id}/launch",
     response_model=LaunchOut,
@@ -1074,6 +1094,7 @@ async def launch(
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> LaunchOut:
     assert principal.tenant_id is not None
+    await _put_campaign_script_live(session, principal, campaign_id)
     result = await service.launch_campaign(
         session, tenant_id=principal.tenant_id, campaign_id=campaign_id
     )
@@ -1121,6 +1142,7 @@ async def schedule(
     question `campaign.launched` exists to answer.
     """
     assert principal.tenant_id is not None
+    await _put_campaign_script_live(session, principal, campaign_id)
     result = await scheduling.schedule_campaign(
         session,
         tenant_id=principal.tenant_id,

@@ -1,0 +1,136 @@
+"use client";
+
+/**
+ * A campaign's workspace (D-992): its main task, materials, its own call script and Pip's
+ * draft of it, and the questions its calls could not answer. `/v1/campaigns/{id}/...`.
+ *
+ * The campaign owns what its calls say. Start puts only the script live on the campaign's
+ * agent, which is the voice; everything else stays here.
+ */
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { apiRequest, type Session } from "./client";
+import type { components } from "./schema";
+import type { CallScript } from "./script";
+
+type Schemas = components["schemas"];
+export type CampaignMaterial = Schemas["MaterialOut"];
+export type CampaignProposal = Omit<Schemas["CampaignProposalOut"], "script" | "base_script"> & {
+  script: CallScript | null;
+  base_script: CallScript | null;
+};
+export type CampaignWorkspace = Omit<Schemas["WorkspaceOut"], "script" | "proposal"> & {
+  script: CallScript | null;
+  proposal: CampaignProposal | null;
+};
+export type CampaignQuestion = Schemas["CampaignQuestionOut"];
+
+/** While Pip writes, the page asks every 5 seconds (global rule 3: live status, 5-10 s). */
+export const PIP_POLL_MS = 5_000;
+
+export const workspaceKey = (org: string, campaignId: string) => ["campaign-workspace", org, campaignId] as const;
+export const questionsKey = (org: string, campaignId: string) => ["campaign-questions", org, campaignId] as const;
+
+const base = (campaignId: string) => `/v1/campaigns/${encodeURIComponent(campaignId)}`;
+
+export function useCampaignWorkspace(session: Session, campaignId: string) {
+  return useQuery({
+    queryKey: workspaceKey(session.orgSlug, campaignId),
+    queryFn: () => apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/workspace`),
+    refetchInterval: (query) => (query.state.data?.proposal?.status === "drafting" ? PIP_POLL_MS : false),
+  });
+}
+
+function useWorkspaceMutation<TIn>(
+  session: Session,
+  campaignId: string,
+  call: (input: TIn) => Promise<CampaignWorkspace | unknown>,
+) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: call,
+    onSuccess: (out) => {
+      if (out && typeof out === "object" && "campaign_id" in out) {
+        client.setQueryData(workspaceKey(session.orgSlug, campaignId), out);
+      } else {
+        void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
+      }
+    },
+  });
+}
+
+export function useSaveMainTask(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (main_task: string) =>
+    apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/main-task`, {
+      method: "PUT",
+      body: { main_task },
+    }),
+  );
+}
+
+export function useSaveCampaignScript(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (script: CallScript) =>
+    apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/script`, {
+      method: "PUT",
+      body: { script },
+    }),
+  );
+}
+
+export type MaterialIn = Schemas["MaterialIn"];
+
+export function useAddMaterial(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (material: MaterialIn) =>
+    apiRequest<CampaignMaterial>(session, `${base(campaignId)}/materials`, {
+      method: "POST",
+      body: material,
+    }),
+  );
+}
+
+export function useArchiveMaterial(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (materialId: string) =>
+    apiRequest<void>(session, `${base(campaignId)}/materials/${encodeURIComponent(materialId)}/archive`, {
+      method: "POST",
+    }),
+  );
+}
+
+export function useRequestCampaignScript(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, () =>
+    apiRequest<CampaignProposal>(session, `${base(campaignId)}/script/proposal`, { method: "POST" }),
+  );
+}
+
+/** Stop Pip while it writes, or discard / settle a written draft. */
+export function useClearCampaignProposal(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (proposalId: string) =>
+    apiRequest<void>(session, `${base(campaignId)}/script/proposal/${encodeURIComponent(proposalId)}`, {
+      method: "DELETE",
+    }),
+  );
+}
+
+export function useCampaignQuestions(session: Session, campaignId: string, enabled = true) {
+  return useQuery({
+    queryKey: questionsKey(session.orgSlug, campaignId),
+    queryFn: () => apiRequest<CampaignQuestion[]>(session, `${base(campaignId)}/questions`),
+    enabled,
+  });
+}
+
+export function useAnswerQuestion(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (answer: { topic: string; answer: string }) =>
+      apiRequest<CampaignMaterial>(session, `${base(campaignId)}/questions/answer`, {
+        method: "POST",
+        body: answer,
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
+      void client.invalidateQueries({ queryKey: questionsKey(session.orgSlug, campaignId) });
+    },
+  });
+}

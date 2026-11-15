@@ -191,6 +191,7 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.campaigns.workspace_routes import router as campaign_workspace_router
     from apps.api.compliance.a2p_filing_routes import board_router as a2p_filing_board_router
     from apps.api.compliance.a2p_filing_routes import tenant_router as a2p_filing_router
     from apps.api.compliance.autodialer_routes import router as autodialer_notice_router
@@ -413,6 +414,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(call_outcomes_agent_router)
     application.include_router(business_type_router)
     application.include_router(campaigns_router)
+    application.include_router(campaign_workspace_router)
     # `/v1/numbers` — its own prefix, so nothing above can swallow it. It lives in the
     # campaigns package because that module owns `phone_numbers`.
     application.include_router(own_numbers_router)
