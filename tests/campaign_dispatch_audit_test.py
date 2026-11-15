@@ -1585,6 +1585,36 @@ async def _due_now(tenant_id: uuid.UUID, campaign_id: uuid.UUID) -> None:
         )
 
 
+async def test_a_contact_whose_call_was_answered_is_not_rung_again_by_the_reaper() -> None:
+    """A completed call whose post-call pipeline has not yet reached the campaign step.
+
+    The call row says `completed` (the webhook landed), but the pipeline that settles the
+    contact `connected` is still retrying an earlier stage (a recording copy, a model
+    outage). Past `STUCK_DIALING_AFTER` the reaper must not put a person who has already
+    spoken to the agent back on the dialling ladder.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876855001",), slider=1)
+    assert (await _tick_one_campaign(tenant_id, campaign_id, slots=1))["dialled"] == 1
+    placed = await _calls_placed(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET status = 'completed', ended_at = now() - interval '5 minutes' "
+                "WHERE id = (SELECT last_call_id FROM campaign_contacts WHERE campaign_id = :c)"
+            ),
+            {"c": campaign_id},
+        )
+
+    await _age_dialing(tenant_id, campaign_id, campaign_dispatch.STUCK_DIALING_AFTER + MINUTE)
+    await _tick_one_campaign(tenant_id, campaign_id, slots=0)
+    await _due_now(tenant_id, campaign_id)
+    swept = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+
+    assert swept["dialled"] == 0, f"the reaper rang a person who answered: {swept}"
+    assert await _contacts(tenant_id, campaign_id) == [("connected", 1)]
+    assert await _calls_placed(tenant_id) == placed
+
+
 async def test_a_contact_whose_calls_keep_stranding_is_rung_at_most_max_attempts_times() -> None:
     """The claim increments `attempts` and never compares it with `max_attempts`; only
     `_record_failure` does. A reaper that returned a stranded contact straight to
