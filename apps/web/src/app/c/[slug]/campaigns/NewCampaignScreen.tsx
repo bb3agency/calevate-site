@@ -22,7 +22,7 @@ import { useState } from "react";
 import { problemToast } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Tabs } from "@/components/interior/tabs";
-import { FIELD, PRIMARY_BUTTON, PRIMARY_BUTTON_SM, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
+import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
 import { LANGUAGE_NAMES, isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useCreateCampaign } from "@/lib/api/campaigns";
@@ -34,6 +34,7 @@ import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { TrialLockNotice } from "../TrialLockNotice";
 import { MaterialsDraft, type PendingMaterial } from "./MaterialsDraft";
+import { PipGenerateBand } from "./PipGenerateBand";
 import { nameFromGoal } from "./campaignForm";
 
 const MAIN_TASK_MIN = 10;
@@ -179,11 +180,31 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
 
               <MaterialsDraft items={materials} onChange={setMaterials} canWrite={write.allowed} />
 
+              <PipGenerateBand
+                onGenerate={() => void submit(true)}
+                busy={busy}
+                disabled={!write.allowed || !ready}
+                reason={!ready ? "Write the main task first, then Pip can write the script." : (write.reason ?? undefined)}
+              />
+              {error != null && (
+                <p role="alert" className="text-meta text-danger">
+                  {problemToast(error, "That did not finish").description ?? "That did not finish"}
+                  {draftId && (
+                    <>
+                      {" "}
+                      <a className="underline" href={detail(draftId)}>
+                        Open the draft
+                      </a>
+                    </>
+                  )}
+                </p>
+              )}
+
               <section className="rounded-card border border-brand/30 bg-brand-soft p-4 sm:p-6 dark:bg-brand-strong/15">
                 <Step
                   n={3}
                   title="Script"
-                  hint="Pip writes the script from your main task and materials, for the agent you choose to speak it. You review it and change anything; then add who to call and start."
+                  hint="The agent you choose speaks the script Pip writes. You review it and change anything; then add who to call and start."
                 />
                 <p className="mb-2 text-meta font-medium text-ink">Who speaks it</p>
                 {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
@@ -215,31 +236,9 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                     })}
                   </div>
                 )}
-                {error != null && (
-                  <p role="alert" className="mt-3 text-meta text-danger">
-                    {problemToast(error, "That did not finish").description ?? "That did not finish"}
-                    {draftId && (
-                      <>
-                        {" "}
-                        <a className="underline" href={detail(draftId)}>
-                          Open the draft
-                        </a>
-                      </>
-                    )}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  className={`${PRIMARY_BUTTON} mt-4`}
-                  disabled={!write.allowed || !ready || busy}
-                  title={!ready ? "Write the main task first" : (write.reason ?? undefined)}
-                  onClick={() => void submit(true)}
-                >
-                  {busy ? "Creating…" : "Create and write the script with Pip"}
-                </button>
-                {!ready && (
-                  <p className="mt-2 text-meta text-ink-muted">Write the main task (a sentence or more) to continue.</p>
-                )}
+                <p className="mt-4 text-meta text-ink-muted">
+                  Press Generate above. The script appears here for your review on the campaign page.
+                </p>
               </section>
             </div>
           )

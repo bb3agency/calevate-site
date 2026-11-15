@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.2 — 15-Nov-2026
+
+- **Let Pip, our AI agent, generate the script:** a band with a **Generate** button between
+  Materials and Script, on the new campaign page and the campaign page. Pip writes the script
+  from the main task and materials; it appears below for review.
+
 ## 0.3.1 — 15-Nov-2026
 
 - **New campaign is one page**, a complete new design: 1 Main task (Save), 2 Materials (files,

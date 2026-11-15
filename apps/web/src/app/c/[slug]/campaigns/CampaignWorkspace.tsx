@@ -36,6 +36,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 
 import { matchesWords } from "./matchWords";
+import { PipGenerateBand } from "./PipGenerateBand";
 
 export function CampaignWorkspace({
   campaignId,
@@ -61,12 +62,43 @@ export function CampaignWorkspace({
     <div className="space-y-6">
       <MainTask campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
       <Materials campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
+      <GenerateScript campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
       <ScriptSection campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
     </div>
   );
 }
 
 type Props = { campaignId: string; space: Workspace; canWrite: boolean; refusal?: string };
+
+/** Generate: Pip writes (or rewrites) the script from the main task and materials. */
+function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
+  const { session } = useClientRealm();
+  const ask = useRequestCampaignScript(session, campaignId);
+  const [error, setError] = useState<unknown>(null);
+  const hasTask = space.main_task.trim() !== "";
+  const drafting = space.proposal?.status === "drafting";
+  const reason = !hasTask
+    ? "Write and save the main task first, then Pip can write the script."
+    : space.proposal?.status === "ready"
+      ? "Pip's script is waiting for your review below. Keep or discard it, then generate again."
+      : space.proposal?.status === "failed"
+        ? "Pip's last try did not finish. Dismiss it below, then generate again."
+        : refusal;
+  return (
+    <div className="space-y-2">
+      <PipGenerateBand
+        onGenerate={() => {
+          setError(null);
+          ask.mutate(undefined, { onError: setError });
+        }}
+        busy={ask.isPending || drafting}
+        disabled={!canWrite || !hasTask || space.proposal != null}
+        reason={reason}
+      />
+      <InlineError error={error} title="Pip could not start" />
+    </div>
+  );
+}
 
 function InlineError({ error, title }: { error: unknown; title: string }) {
   if (!error) return null;
@@ -374,10 +406,8 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
 
 function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
-  const ask = useRequestCampaignScript(session, campaignId);
   const clear = useClearCampaignProposal(session, campaignId);
   const save = useSaveCampaignScript(session, campaignId);
-  const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   const [saveError, setSaveError] = useState<unknown>(null);
   const [editing, setEditing] = useState(false);
@@ -407,19 +437,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
           title="Script"
           hint="What the agent says and how it runs each call. Pip writes it from your main task and materials; change anything, any time. Start puts only this script on the agent."
         />
-        {!proposal && (
-          <button
-            type="button"
-            className={PRIMARY_BUTTON_SM}
-            disabled={!canWrite || !hasTask || ask.isPending}
-            title={refusal ?? (!hasTask ? "Write and save the main task first" : undefined)}
-            onClick={() => askFeedback.run(undefined)}
-          >
-            {ask.isPending ? "Asking Pip…" : script ? "Rewrite with Pip" : "Write the script with Pip"}
-          </button>
-        )}
       </div>
-      <InlineError error={askFeedback.error} title="Pip could not start" />
 
       <InlineError error={saveError} title="The script did not save" />
 
@@ -493,7 +511,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
           ) : (
             <p className="text-body text-ink-muted">
               {hasTask
-                ? "No script yet. Ask Pip to write it from your main task and materials."
+                ? "No script yet. Press Generate above and Pip writes it from your main task and materials."
                 : "Write the main task first. Then Pip can write the script."}
             </p>
           )}
