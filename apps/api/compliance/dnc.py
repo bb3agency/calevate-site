@@ -180,13 +180,19 @@ async def add_numbers(
     if not unique:
         return AddResult(added=0, already_suppressed=0, malformed=malformed)
 
+    # A person's own request (a source outside `REMOVABLE_SOURCES`) is recorded on this
+    # account's row even when a global row already blocks the number: ops may lift the
+    # global row (`remove_global_entry`), and the account's record of what the person asked
+    # it must survive that. A hand-typed entry adds nothing over a global row, so it is
+    # still deduplicated against one.
+    shadowed_by_global = "OR tenant_id IS NULL" if source in REMOVABLE_SOURCES else ""
     existing = {
         row[0]
         for row in (
             await session.execute(
                 text(
                     "SELECT phone_e164 FROM dnc_list WHERE phone_e164 = ANY(:phones) "
-                    "AND (tenant_id = :tid OR tenant_id IS NULL)"
+                    f"AND (tenant_id = :tid {shadowed_by_global})"
                 ),
                 {"phones": unique, "tid": tenant_id},
             )
