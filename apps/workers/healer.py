@@ -264,7 +264,7 @@ async def score_agent_health(ctx: dict[str, Any]) -> str:
 class _TenantScore:
     verdicts: list[health.Verdict]
     silent: list[tuple[UUID, datetime]]
-    ring_backs: dict[UUID, int]
+    ring_backs: dict[UUID, healer_watch.RingBacks]
     failing_in_domain_window: dict[UUID, str]
     failing_in_page_window: dict[UUID, str]
     objective: healer_watch.ObjectiveCounts
@@ -339,15 +339,21 @@ async def _act_on_calls(tenant_id: UUID, scored: _TenantScore, tally: Counter[st
             tenant_id, agent_id, trigger=AGENT_SILENT_CALL, at=last_at
         ):
             tally["opened_voice_fallback"] += 1
-    for agent_id, ring_backs in scored.ring_backs.items():
+    for agent_id, found in scored.ring_backs.items():
+        ring_backs = found.calls
         if ring_backs < settings.healer_repeat_call_count:
             continue
+        line_key = incidents.dedupe_key("line_protection", agent_id)
         async with untenanted_session() as session:
             if await incidents.open_for(session, incidents.dedupe_key("engine_outage", "platform")):
                 continue
+            if await incidents.resolved_since(session, line_key, found.last_at):
+                # A line check closed after the newest of these calls: they stay inside the
+                # counting window for an hour, and would open the same check every scoring.
+                continue
             _, opened = await incidents.open_incident(
                 session,
-                key=incidents.dedupe_key("line_protection", agent_id),
+                key=line_key,
                 playbook="line_protection",
                 trigger_code=AGENT_REPEAT_HANGUPS,
                 scope="agent",
@@ -683,8 +689,13 @@ async def _advance_due(tally: Counter[str]) -> None:
             await _paused(incident, why="stopped by the action breaker")
             tally["breaker"] += 1
             continue
-        if playbook.key != VOICE_FALLBACK and in_shadow(playbook.key) and incident.state == "open":
-            # The voice fallback writes its own dry run, naming the voice it would move to.
+        if (
+            playbook.key not in (VOICE_FALLBACK, CALL_MISTAKE_FIX)
+            and in_shadow(playbook.key)
+            and incident.state == "open"
+        ):
+            # These two write their own dry run: the voice it would move to, the lines it
+            # would have rewritten, each settling the row the owner's screen reads.
             await _record(
                 playbook=playbook.key,
                 step="act",
@@ -736,8 +747,27 @@ async def _advance(
         )
 
 
+async def _paused_already(incident_id: UUID, why: str) -> bool:
+    """Whether this incident's newest ledger row is already this pause."""
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT step, outcome, detail FROM heal_actions WHERE incident_id = :iid "
+                    "ORDER BY at DESC, id DESC LIMIT 1"
+                ),
+                {"iid": incident_id},
+            )
+        ).first()
+    return row is not None and tuple(row) == ("act", "skipped", why)
+
+
 async def _paused(incident: Incident, *, why: str = "paused by a kill switch") -> None:
-    if incident.last_outcome != "paused":
+    """Hold the incident where it is until the switch or breaker lets it run. Its last
+    outcome is left as the playbook wrote it, because the playbook resumes from it: line
+    protection branches on `held:…` and `probation`, the outage on `restoring`, and a pause
+    written over one left a held line with no step that gives it back."""
+    if not await _paused_already(incident.id, why):
         await _record(
             playbook=incident.playbook,
             step="act",
@@ -747,7 +777,7 @@ async def _paused(incident: Incident, *, why: str = "paused by a kill switch") -
             agent_id=incident.agent_id,
             detail=why,
         )
-    await _advance(incident, state=incident.state, next_in_s=300, outcome="paused")  # type: ignore[arg-type]
+    await _advance(incident, state=incident.state, next_in_s=300)  # type: ignore[arg-type]
 
 
 async def _escalate(incident: Incident, *, why: str, recheck_s: int = ESCALATED_RECHECK_S) -> None:
