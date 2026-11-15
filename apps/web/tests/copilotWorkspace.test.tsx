@@ -257,6 +257,31 @@ describe("routines", () => {
       enabled: true,
     });
   });
+
+  it("says the routine was added once the drawer has closed", async () => {
+    await renderClientPage(
+      <ToastProvider>
+        <WithSession>{(session) => <Routines session={session} />}</WithSession>
+      </ToastProvider>,
+      {
+        ...workspaceRoutes(),
+        "POST /v1/copilot/routines": ROUTINE_ON,
+      },
+    );
+    await screen.findByText(ROUTINE_ON.name);
+    fireEvent.click(screen.getByRole("button", { name: "New routine" }));
+    const drawer = await screen.findByRole("dialog", { name: "New routine" });
+    fireEvent.click(within(drawer).getByRole("button", { name: "Friday summary" }));
+    fireEvent.click(within(drawer).getByRole("button", { name: "Next" }));
+    await within(drawer).findByText("When should it run?");
+    fireEvent.click(within(drawer).getByRole("button", { name: "Next" }));
+    await within(drawer).findByText(/waits in\s+Approvals/);
+    await act(async () => {
+      fireEvent.click(within(drawer).getByRole("button", { name: "Add routine" }));
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New routine" })).toBeNull());
+    expect(await screen.findByText("Routine added")).toBeTruthy();
+  });
 });
 
 describe("plans in the workspace (D-893)", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Plus } from "lucide-react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -228,6 +228,12 @@ function RoutineEditor({
   // refusal inside the drawer.
   const createFeedback = useActionFeedback(create, { errorDisplay: "inline", successToast: "Routine added" });
   const updateFeedback = useActionFeedback(update, { errorDisplay: "inline", successToast: "Routine saved" });
+  // Closed from the outcome, not a per-call onSuccess: only run raises the toast from its
+  // own promise, which still settles after this editor has unmounted.
+  const saved = createFeedback.status === "success" || updateFeedback.status === "success";
+  useEffect(() => {
+    if (saved) onDone();
+  }, [saved, onDone]);
   const ids = { name: useId(), instruction: useId(), time: useId(), days: useId() };
   const error = create.error ?? update.error;
   const ordered = WEEKDAYS.map((day) => day.value).filter((day) => days.includes(day));
@@ -235,8 +241,8 @@ function RoutineEditor({
 
   const save = () => {
     const body = { name: name.trim(), instruction: instruction.trim(), schedule };
-    if (routine === null) create.mutate({ ...body, enabled: true }, { onSuccess: onDone });
-    else update.mutate({ id: routine.id, patch: body }, { onSuccess: onDone });
+    if (routine === null) createFeedback.run({ ...body, enabled: true });
+    else updateFeedback.run({ id: routine.id, patch: body });
   };
 
   return (
