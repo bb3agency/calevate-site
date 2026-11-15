@@ -2,7 +2,7 @@
 
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { CalendarClock, Save, TriangleAlert, Undo2 } from "lucide-react";
 
@@ -812,6 +812,11 @@ function WithdrawForm({ pending, onDone }: { pending: PendingCard; onDone: () =>
     errorDisplay: "inline",
     successToast: "Rate card withdrawn",
   });
+  // Closed from the outcome, not a per-call `onSuccess`: only `run` raises the toast from
+  // its own promise, which still settles after this form has unmounted.
+  useEffect(() => {
+    if (withdrawFeedback.status === "success") onDone();
+  }, [withdrawFeedback.status, onDone]);
   const valid = useFormValidation();
   const word = "WITHDRAW";
   const ready = confirmationMatches(confirm, word, "exact");
@@ -824,11 +829,10 @@ function WithdrawForm({ pending, onDone }: { pending: PendingCard; onDone: () =>
       noValidate
       onSubmit={valid.onSubmit(() => {
         if (!ready || withdraw.isPending) return;
-        withdraw.mutate(
+        withdrawFeedback.run(
           // THE SERVER'S OWN INSTANT, ECHOED. Re-deriving it here would be a second
           // spelling of one fact, and the step-up header is built from this string.
           { effectiveFrom: pending.effective_from, reason: reason.trim() },
-          { onSuccess: onDone },
         );
       })}
     >
@@ -1029,6 +1033,10 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
     errorDisplay: "inline",
     successToast: "Rate card recorded",
   });
+  // Closed from the outcome, as the withdraw form is.
+  useEffect(() => {
+    if (saveFeedback.status === "success") onDone();
+  }, [saveFeedback.status, onDone]);
   const valid = useFormValidation();
   const word = "RECORD";
   const ready = confirmationMatches(confirm, word, "exact");
@@ -1054,7 +1062,7 @@ function RecordCardForm({ card, onDone }: { card: RateCard; onDone: () => void }
     // Null for a day the parser could not read: nothing is sent for an instant nobody picked.
     const effectiveFrom = cardInstant(day);
     if (effectiveFrom === null) return;
-    save.mutate({ effectiveFrom, reason: reason.trim(), cells }, { onSuccess: onDone });
+    saveFeedback.run({ effectiveFrom, reason: reason.trim(), cells });
   });
 
   return (

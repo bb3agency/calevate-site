@@ -6,6 +6,7 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { formatWholeCount } from "@/components/ui";
 import { addMonths, formatDateLong, startOfMonth, todayIST } from "@/components/arc/ist-dates";
 import OpsConfigPage from "@/app/admin/ops/config/page";
+import { ToastProvider } from "@/components/arc/toast";
 import { OPS_CONFIG_SECTIONS, SELF_SERVE_PRICE_META } from "./fixtures/opsConfig";
 import {
   OPS_RATE_CARD_PATH,
@@ -509,7 +510,9 @@ function renderOps(table: Routes) {
   });
   const result = render(
     <QueryClientProvider client={client}>
-      <OpsConfigPage />
+      <ToastProvider>
+        <OpsConfigPage />
+      </ToastProvider>
     </QueryClientProvider>,
   );
   // The change form opens in a Drawer, which is portalled to <body>; assertions about the
@@ -1427,6 +1430,8 @@ describe("recording the next rate card", () => {
     // asserted because only their EQUALITY makes the save possible.
     expect(write.body).toContain(`"effective_from":"${day}T00:00:00+05:30"`);
     expect(write.headers["X-Confirm-Action"]).toBe(`record_rate_card:${day}T00:00:00+05:30`);
+    // The form closes on success, so the toast is what says the card was recorded.
+    expect(await screen.findByText("Rate card recorded")).toBeTruthy();
   });
 
   it("shows what each rate moved by, against the card in force", async () => {
@@ -1539,6 +1544,7 @@ describe("a card that is scheduled but has not started", () => {
     expect(write.headers["X-Confirm-Action"]).toBe(
       `cancel_rate_card:${SCHEDULED.effective_from}`,
     );
+    expect(await screen.findByText("Rate card withdrawn")).toBeTruthy();
   });
 
   it("says nothing is scheduled rather than leaving a blank, and survives an API that omits the field", async () => {

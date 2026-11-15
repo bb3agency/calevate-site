@@ -228,6 +228,11 @@ function DeclineDialog({
   const [reason, setReason] = useState("");
   const pending = decline.isPending;
   const blank = reason.trim() === "";
+  // Closed from the outcome, not a per-call `onSuccess`: only `run` raises the toast from
+  // its own promise, which still settles after this dialog has unmounted.
+  useEffect(() => {
+    if (feedback.status === "success") onClose();
+  }, [feedback.status, onClose]);
 
   return (
     <ModalDialog
@@ -249,7 +254,7 @@ function DeclineDialog({
             disabled={blank}
             onClick={() => {
               if (pending || blank) return;
-              decline.mutate({ requestId, reason: reason.trim() }, { onSuccess: onClose });
+              feedback.run({ requestId, reason: reason.trim() });
             }}
           >
             Decline
