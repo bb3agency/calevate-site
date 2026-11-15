@@ -5,39 +5,63 @@
  * knowledge at once (they need no campaign); notes are held here. Create attaches every item to
  * the new campaign (`POST /v1/campaigns/{id}/materials`), where the campaign page's own
  * Materials section takes over.
+ *
+ * `MaterialForm` is the one way to add a material, here and on the campaign page: only what
+ * happens to the finished item differs (held in this list, or attached to the campaign).
  */
 
 import { useState } from "react";
 
-import { problemToast } from "@/components/arc/feedback";
-import { FIELD, PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { useActionFeedback } from "@/components/arc/feedback";
+import { FileDrop } from "@/components/fileDrop";
+import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { MaterialIn } from "@/lib/api/campaignWorkspace";
 import { useAddLink, useUploadDocument } from "@/lib/api/kb";
 import { useClientRealm } from "@/lib/api/session";
 
+import { SectionHead } from "./SectionHead";
+
 export type PendingMaterial = MaterialIn & { key: string };
 
-const KIND_LABEL: Record<MaterialIn["kind"], string> = { file: "File", link: "Link", note: "Note" };
+export const KIND_LABEL: Record<MaterialIn["kind"], string> = { file: "File", link: "Link", note: "Note" };
 
-export function MaterialsDraft({
-  items,
-  onChange,
+const MATERIAL_ACCEPT = ".pdf,.docx,.txt,.md,.csv,.xlsx,.jpg,.jpeg,.png,.webp,.heic";
+const MATERIAL_MAX_BYTES = 20 * 1024 * 1024;
+
+export const MATERIALS_HINT = "What Pip and the agent should know.";
+export const MATERIALS_INFO =
+  "Documents, price lists, website and video links, call recordings, notes. Files and links also go into your knowledge, so the agent can look things up on a call.";
+
+/**
+ * Upload a file, add a link or write a note, then hand the finished item to `onAdd`. Files and
+ * links go into the knowledge first; `addError` is the refusal of whatever `onAdd` sends.
+ */
+export function MaterialForm({
   canWrite,
+  refusal,
+  onAdd,
+  adding = false,
+  addError,
 }: {
-  items: PendingMaterial[];
-  onChange: (next: PendingMaterial[]) => void;
   canWrite: boolean;
+  refusal?: string;
+  onAdd: (item: MaterialIn) => Promise<unknown>;
+  adding?: boolean;
+  addError?: unknown;
 }) {
   const { session } = useClientRealm();
   const upload = useUploadDocument(session);
   const addLink = useAddLink(session);
+  useActionFeedback(upload, { errorDisplay: "inline" });
+  useActionFeedback(addLink, { errorDisplay: "inline" });
   const [mode, setMode] = useState<MaterialIn["kind"] | null>(null);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const busy = upload.isPending || addLink.isPending;
+  const [missing, setMissing] = useState<string | null>(null);
+  const busy = adding || upload.isPending || addLink.isPending;
+  const problem = upload.error ?? addLink.error ?? addError;
 
   const reset = () => {
     setMode(null);
@@ -45,59 +69,51 @@ export function MaterialsDraft({
     setUrl("");
     setNote("");
     setFile(null);
-    setError(null);
+    setMissing(null);
+    upload.reset();
+    addLink.reset();
   };
 
-  const add = async () => {
-    setError(null);
+  const submit = async () => {
+    setMissing(null);
+    upload.reset();
+    addLink.reset();
+    let item: MaterialIn;
     try {
-      let item: MaterialIn;
       if (mode === "file") {
-        if (!file) return setError("Choose a file.");
+        if (!file) return setMissing("Choose a file.");
         const up = await upload.mutateAsync({ file });
         item = { kind: "file", title: title.trim() || file.name, kb_upload_id: up.id };
       } else if (mode === "link") {
-        if (!/^https?:\/\//i.test(url.trim())) return setError("Paste the full address, starting with https://");
+        if (!/^https?:\/\//i.test(url.trim())) return setMissing("Paste the full address, starting with https://");
         const up = await addLink.mutateAsync({ url: url.trim() });
         item = { kind: "link", title: title.trim() || url.trim(), url: url.trim(), kb_upload_id: up.id };
       } else {
-        if (!note.trim()) return setError("Write the note.");
+        if (!note.trim()) return setMissing("Write the note.");
         item = { kind: "note", title: title.trim() || note.trim().slice(0, 60), note: note.trim() };
       }
-      onChange([...items, { ...item, key: crypto.randomUUID() }]);
-      reset();
-    } catch (e) {
-      setError(problemToast(e, "That did not upload. Try again.").description ?? "That did not upload. Try again.");
+      await onAdd(item);
+    } catch {
+      // The refusal is on the mutation that failed and is rendered below.
+      return;
     }
+    reset();
   };
 
   return (
-    <section
-      aria-labelledby="new-campaign-materials"
-      className="rounded-card border border-info-line bg-info-soft p-4 sm:p-6 dark:bg-info/10"
-    >
-      <h2 id="new-campaign-materials" className="text-heading text-ink">
-        <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-meta font-semibold text-surface">
-          2
-        </span>
-        Materials
-      </h2>
-      <p className="mt-1 text-meta text-ink-muted">
-        Everything Pip and the agent should know: documents, price lists, website links, video links, call recordings,
-        notes. Files and links also go into your knowledge, so the agent can look things up on a call.
-      </p>
-
-      <div className="mt-3 flex flex-wrap gap-2">
+    <>
+      <div className="flex flex-wrap gap-2">
         {(["file", "link", "note"] as const).map((kind) => (
           <button
             key={kind}
             type="button"
             className={mode === kind ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM}
             disabled={!canWrite}
+            title={refusal}
             aria-pressed={mode === kind}
             onClick={() => (mode === kind ? reset() : (reset(), setMode(kind)))}
           >
-            {kind === "file" ? "Upload a file" : kind === "link" ? "Add a link (website, video)" : "Write a note"}
+            {kind === "file" ? "Upload a file" : kind === "link" ? "Add a link" : "Write a note"}
           </button>
         ))}
       </div>
@@ -109,19 +125,18 @@ export function MaterialsDraft({
             <input className={`${FIELD} mt-1 w-full`} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
           </label>
           {mode === "file" && (
-            <label className="block text-meta font-medium text-ink">
-              File
-              <input
-                type="file"
-                className="mt-1 block w-full text-meta"
-                accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.jpg,.jpeg,.png,.webp,.heic"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              <span className="mt-1 block font-normal text-ink-muted">
-                PDF, Word, Excel, CSV, text or a photo, up to 20 MB. For a video or a call recording, add its link.
-              </span>
-            </label>
+            <FileDrop
+              label="File"
+              hint="PDF, Word, Excel, CSV, text or a photo, up to 20 MB."
+              accept={MATERIAL_ACCEPT}
+              maxBytes={MATERIAL_MAX_BYTES}
+              files={file ? [file] : []}
+              onRemove={() => setFile(null)}
+              sending={upload.isPending && file ? { file, percent: null } : null}
+              onFiles={([chosen]) => setFile(chosen ?? null)}
+            />
           )}
+          {mode === "file" && <p className="text-meta text-ink-muted">For a video or a recording, add its link.</p>}
           {mode === "link" && (
             <label className="block text-meta font-medium text-ink">
               Address
@@ -146,14 +161,15 @@ export function MaterialsDraft({
               />
             </label>
           )}
-          {error && (
+          {missing && (
             <p role="alert" className="text-meta text-danger">
-              {error}
+              {missing}
             </p>
           )}
+          {problem != null && !busy && <ProblemNotice error={problem} />}
           <div className="flex gap-2">
-            <button type="button" className={PRIMARY_BUTTON_SM} disabled={busy} onClick={() => void add()}>
-              {busy ? "Uploading…" : "Add"}
+            <button type="button" className={PRIMARY_BUTTON_SM} disabled={busy} onClick={() => void submit()}>
+              {busy ? "Adding…" : "Add"}
             </button>
             <button type="button" className={SECONDARY_BUTTON_SM} disabled={busy} onClick={reset}>
               Cancel
@@ -161,6 +177,30 @@ export function MaterialsDraft({
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+export function MaterialsDraft({
+  items,
+  onChange,
+  canWrite,
+}: {
+  items: PendingMaterial[];
+  onChange: (next: PendingMaterial[]) => void;
+  canWrite: boolean;
+}) {
+  return (
+    <section
+      aria-labelledby="new-campaign-materials"
+      className="rounded-card border border-info-line bg-info-soft p-4 sm:p-6 dark:bg-info/10"
+    >
+      <SectionHead id="new-campaign-materials" step={2} title="Materials" hint={MATERIALS_HINT} info={MATERIALS_INFO} />
+
+      <MaterialForm
+        canWrite={canWrite}
+        onAdd={async (item) => onChange([...items, { ...item, key: crypto.randomUUID() }])}
+      />
 
       {items.length > 0 && (
         <ul className="mt-4 divide-y divide-info-line overflow-hidden rounded-card border border-info-line bg-surface">

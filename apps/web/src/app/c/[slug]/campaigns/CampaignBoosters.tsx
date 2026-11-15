@@ -11,7 +11,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { problemToast } from "@/components/arc/feedback";
+import { problemToast, useActionFeedback } from "@/components/arc/feedback";
+import { InfoTip } from "@/components/console/infoTip";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { useDuplicateCampaign } from "@/lib/api/campaigns";
 import {
@@ -21,14 +22,34 @@ import {
   type CampaignInsights,
 } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
+import { hourWords } from "@/lib/clock";
 
 type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
 
-function Card({ title, hint, accent, children }: { title: string; hint: string; accent: string; children: React.ReactNode }) {
+function Card({
+  title,
+  hint,
+  info,
+  accent,
+  children,
+}: {
+  title: string;
+  hint: string;
+  info?: React.ReactNode;
+  accent: string;
+  children: React.ReactNode;
+}) {
   return (
     <section className={`rounded-card border border-line border-l-4 ${accent} bg-surface p-4 shadow-card sm:p-5`}>
       <h3 className="text-body font-semibold text-ink">{title}</h3>
-      <p className="mt-0.5 text-meta text-ink-muted">{hint}</p>
+      <p className="mt-0.5 flex items-center gap-1 text-meta text-ink-muted">
+        <span className="block">{hint}</span>
+        {info && (
+          <InfoTip label={title.toLowerCase()} align="start">
+            {info}
+          </InfoTip>
+        )}
+      </p>
       <div className="mt-3">{children}</div>
     </section>
   );
@@ -41,7 +62,7 @@ function errorText(error: unknown, fallback: string): string {
 /** Before Start: hear it, and set up a second opening to test. */
 export function BeforeStartBoosters(props: Common) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <HearItFirst {...props} />
       <OpeningTest {...props} />
     </div>
@@ -55,7 +76,7 @@ export function ImproveTab(props: Common) {
   if (insights.isLoading) return <Skeleton rows={4} label="Reading what the calls teach" />;
   if (!insights.data) return <ProblemNotice error={insights.error} onRetry={() => insights.refetch()} />;
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <BestTime insights={insights.data} />
       <OpeningTest {...props} insights={insights.data} />
       <CallUnansweredAgain {...props} />
@@ -68,13 +89,15 @@ export function ImproveTab(props: Common) {
 function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
   const { session, href } = useClientRealm();
   const call = useCampaignTestCall(session, campaignId);
+  useActionFeedback(call, { errorDisplay: "inline" });
   const [number, setNumber] = useState("");
   const [mine, setMine] = useState(true);
   const result = call.data;
   return (
     <Card
       title="Hear it on your phone first"
-      hint="Puts this campaign's script on the agent and rings your number, so you hear exactly what people will hear."
+      hint="Rings your number with this campaign's script."
+      info="It puts the script on the agent first, so you hear exactly what people will hear."
       accent="border-l-brand"
     >
       <div className="flex flex-wrap items-end gap-2">
@@ -133,6 +156,7 @@ function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { ins
   const fallback = useCampaignInsights(session, campaignId);
   const data = insights ?? fallback.data;
   const save = useSaveOpeningB(session, campaignId);
+  useActionFeedback(save, { errorDisplay: "inline" });
   const [text, setText] = useState("");
   useEffect(() => setText(data?.opening_b ?? ""), [data?.opening_b]);
   const running = Boolean(data?.opening_b);
@@ -140,9 +164,10 @@ function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { ins
   return (
     <Card
       title="Test a second opening line"
-      hint="Half the people hear this opening, half the script's own. The AI and recording notices are always said with it."
+      hint="Half hear this opening, half the script's own."
       accent="border-l-info"
     >
+      <p className="mb-2 text-meta text-ink-muted">The AI and recording notices are still said.</p>
       <label className="sr-only" htmlFor={`${campaignId}-opening-b`}>
         Second opening line
       </label>
@@ -215,18 +240,14 @@ function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { ins
   );
 }
 
-function hourLabel(hour: number): string {
-  const h = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h} ${hour < 12 ? "am" : "pm"}`;
-}
-
 function BestTime({ insights }: { insights: CampaignInsights }) {
   const max = Math.max(1, ...insights.hours.map((h) => h.calls));
   const best = new Set(insights.best_hours.map((h) => h.hour));
   return (
     <Card
       title="Best time to call"
-      hint={`When people answer this campaign's calls, by hour (IST). An hour needs ${insights.min_calls_per_hour} calls before it can be judged.`}
+      hint="When people answer, by hour (IST)."
+      info={`An hour needs ${insights.min_calls_per_hour} calls before it can be judged.`}
       accent="border-l-brand-strong"
     >
       {insights.hours.length === 0 ? (
@@ -237,17 +258,19 @@ function BestTime({ insights }: { insights: CampaignInsights }) {
             <p className="mb-3 text-body text-ink">
               Best:{" "}
               {insights.best_hours
-                .map((h) => `${hourLabel(h.hour)} (${Math.round(h.rate * 100)}% answer)`)
+                .map((h) => `${hourWords(h.hour)} (${Math.round(h.rate * 100)}% answer)`)
                 .join(", ")}
-              . Narrow the calling hours in How it calls to call then.
             </p>
           ) : (
             <p className="mb-3 text-meta text-ink-muted">Not enough calls in any hour yet to say.</p>
           )}
+          {insights.best_hours.length > 0 && (
+            <p className="mb-3 text-meta text-ink-muted">Narrow the calling hours in How it calls.</p>
+          )}
           <ul className="space-y-1" aria-label="Calls and answers by hour">
             {insights.hours.map((h) => (
               <li key={h.hour} className="flex items-center gap-2 text-meta">
-                <span className="w-12 shrink-0 text-ink-muted tabular-nums">{hourLabel(h.hour)}</span>
+                <span className="w-12 shrink-0 text-ink-muted tabular-nums">{hourWords(h.hour)}</span>
                 <span className="relative h-3 flex-1 overflow-hidden rounded-sm bg-surface-muted">
                   <span
                     className="absolute inset-y-0 left-0 bg-line"
@@ -276,10 +299,12 @@ function CallUnansweredAgain({ slug, campaignId, canWrite, refusal }: Common) {
   const { session, href } = useClientRealm();
   const router = useRouter();
   const duplicate = useDuplicateCampaign(session, campaignId);
+  useActionFeedback(duplicate, { errorDisplay: "inline" });
   return (
     <Card
       title="Call the unanswered again"
-      hint="Makes a new draft with only the people this campaign never reached, same script and settings. You start it when you are ready."
+      hint="A new draft of only the people it never reached."
+      info="Same script and settings. You start it when you are ready."
       accent="border-l-ink-muted"
     >
       <button
@@ -310,14 +335,19 @@ function WhatsAppFollowUp({ slug }: { slug: string }) {
   return (
     <Card
       title="Follow up on WhatsApp"
-      hint="Send a WhatsApp message after a call, for example the install steps or a link, to the people who asked for it or did not finish."
+      hint="Send a WhatsApp message after a call."
+      info={
+        <>
+          <p>For example the install steps or a link, to the people who asked for it or did not finish.</p>
+          <p>
+            Make a follow-up that starts when a call ends, choose this campaign&apos;s agent and the outcomes it is for,
+            then add a WhatsApp step.
+          </p>
+        </>
+      }
       accent="border-l-brand-bright"
     >
-      <p className="text-meta text-ink-muted">
-        Make a follow-up that starts when a call ends, choose this campaign&apos;s agent and the outcomes it is for, then
-        add a WhatsApp step.
-      </p>
-      <Link href={href(`/c/${slug}/follow-ups`)} className={`${SECONDARY_BUTTON_SM} mt-3 inline-flex`}>
+      <Link href={href(`/c/${slug}/follow-ups`)} className={`${SECONDARY_BUTTON_SM} inline-flex`}>
         Set up a follow-up
       </Link>
     </Card>

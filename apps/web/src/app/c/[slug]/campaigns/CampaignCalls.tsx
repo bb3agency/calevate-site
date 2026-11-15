@@ -31,18 +31,26 @@ export function CampaignCalls({ slug, campaignId }: { slug: string; campaignId: 
   const log = useCallsLog(session, { campaignId, pageSize: 25 });
   const [query, setQuery] = useState("");
   const rows = useMemo(() => {
+    if (!log.data) return null;
     const seen = new Set<string>();
-    return (log.data?.pages.flat() ?? []).filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
+    return log.data.pages.flat().filter((c) => (seen.has(c.id) ? false : (seen.add(c.id), true)));
   }, [log.data]);
+
+  if (log.isLoading) return <Skeleton rows={4} label="Loading this campaign's calls" />;
+  if (log.error || !rows) {
+    return (
+      <ProblemNotice
+        error={log.error ?? new Error("This campaign's calls did not load.")}
+        onRetry={() => log.refetch()}
+      />
+    );
+  }
+  if (rows.length === 0) {
+    return <p className="text-body text-ink-muted">No calls yet. They show here once it calls.</p>;
+  }
   const shown = rows.filter((c) =>
     matchesWords(query, [c.lead_name, c.headline, c.summary, c.agent_name, OUTCOME[c.outcome_tag ?? ""] ?? c.status]),
   );
-
-  if (log.isLoading) return <Skeleton rows={4} label="Loading this campaign's calls" />;
-  if (log.error && rows.length === 0) return <ProblemNotice error={log.error} onRetry={() => log.refetch()} />;
-  if (rows.length === 0) {
-    return <p className="text-body text-ink-muted">No calls yet. They appear here, with their recordings, once it starts calling.</p>;
-  }
   return (
     <div className="space-y-4">
       <SearchField

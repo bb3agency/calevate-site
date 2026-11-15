@@ -13,45 +13,40 @@
  *      it, with Stop, then the review. Section 4 (agent and start) is on the campaign page.
  * Saving the main task alone also makes the draft (with any materials) and continues there.
  * The name is made from the main task; it can be renamed on the campaign page.
+ *
+ * Every draft starts as Service calls held to the account's call lines; where the list came
+ * from, the kind of call and the number are answered on the campaign page, and the launch
+ * check refuses to start until they are.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { problemToast } from "@/components/arc/feedback";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { PageHeader } from "@/components/console/pageHeader";
 import { Tabs } from "@/components/interior/tabs";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, RestrictionNote, Skeleton } from "@/components/ui";
-import { LANGUAGE_NAMES, isAssignable } from "@/lib/agentState";
+import { isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
+import { useMyCallLines } from "@/lib/api/callLines";
 import { useCreateCampaign } from "@/lib/api/campaigns";
 import { apiRequest } from "@/lib/api/client";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { lookup } from "@/lib/lookup";
 import { useClientRealm } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { TrialLockNotice } from "../TrialLockNotice";
+import { MAIN_TASK_HINT, MAIN_TASK_INFO, MAIN_TASK_PLACEHOLDER, SCRIPT_HINT, SCRIPT_INFO } from "./CampaignWorkspace";
 import { MaterialsDraft, type PendingMaterial } from "./MaterialsDraft";
+import { AgentChoice, NoAgentYet } from "./NewCampaignSteps";
 import { PipGenerateBand } from "./PipGenerateBand";
-import { nameFromGoal } from "./campaignForm";
+import { SectionHead } from "./SectionHead";
+import { clampConcurrency, concurrencyCap, nameFromGoal } from "./campaignForm";
 
 const MAIN_TASK_MIN = 10;
-
-function Step({ n, title, hint }: { n: number; title: string; hint: string }) {
-  return (
-    <div className="mb-3">
-      <h2 className="text-heading text-ink">
-        <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-meta font-semibold text-surface">
-          {n}
-        </span>
-        {title}
-      </h2>
-      <p className="mt-1 text-meta text-ink-muted">{hint}</p>
-    </div>
-  );
-}
+/** What a new draft asks for before the account's lines hold it. */
+const DEFAULT_CONCURRENCY = 3;
 
 /** The list name, from the main task's first line: "Help farmers install the app, 15 Nov". */
 export function nameFromMainTask(task: string): string {
@@ -65,18 +60,21 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const agents = useAgents(session);
+  const callLines = useMyCallLines(session);
   const create = useCreateCampaign(session);
+  useActionFeedback(create, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
 
   const [mainTask, setMainTask] = useState("");
   const [materials, setMaterials] = useState<PendingMaterial[]>([]);
   const [agentId, setAgentId] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<unknown>(null);
+  const [followUpError, setFollowUpError] = useState<unknown>(null);
   const [draftId, setDraftId] = useState<string | null>(null);
 
   const agentOptions = (agents.data ?? []).filter(isAssignable);
   const selectedAgentId = agentId || agentOptions[0]?.id || "";
+  const selectedAgent = agentOptions.find((agent) => agent.id === selectedAgentId);
   const ready = mainTask.trim().length >= MAIN_TASK_MIN && selectedAgentId !== "";
   const busy = saving || create.isPending;
   useUnsavedGuard(!saving && (mainTask.trim() !== "" || materials.length > 0));
@@ -86,7 +84,8 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   /** The draft, then its materials, then (with Pip) the script; a refusal stops with the draft linked. */
   const submit = async (withPip: boolean) => {
     if (!ready || busy) return;
-    setError(null);
+    setFollowUpError(null);
+    create.reset();
     setSaving(true);
     let id = draftId;
     try {
@@ -96,11 +95,17 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
           name: nameFromMainTask(mainTask),
           main_task: mainTask.trim(),
           classification: "service",
-          concurrency: 3,
+          concurrency: clampConcurrency(DEFAULT_CONCURRENCY, concurrencyCap(callLines.data?.call_lines)),
         });
         id = made.id;
         setDraftId(id);
       }
+    } catch {
+      // The refusal is `create.error`, rendered beside the buttons.
+      setSaving(false);
+      return;
+    }
+    try {
       const base = `/v1/campaigns/${encodeURIComponent(id)}`;
       for (const item of materials) {
         const body = { kind: item.kind, title: item.title, url: item.url, note: item.note, kb_upload_id: item.kb_upload_id };
@@ -112,7 +117,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
       router.push(detail(id));
     } catch (e) {
       setSaving(false);
-      setError(e);
+      setFollowUpError(e);
     }
   };
 
@@ -139,18 +144,23 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
         panelClassName="pt-5"
         renderPanel={(tab) =>
           tab === "calls" ? (
-            empty("No calls yet. Each call and its recording shows here once the campaign starts calling.")
+            empty("No calls yet. They show here once it calls.")
           ) : tab === "questions" ? (
-            empty("Nothing yet. Questions the agent could not answer on this campaign's calls show here for you to answer.")
+            empty("Questions its calls could not answer show here.")
           ) : tab === "improve" ? (
-            empty("Once the campaign calls: the best hours to call, how two opening lines compare, and a re-call of the people not reached.")
+            empty("Ways to do better show here once it calls.")
           ) : (
             <div className="max-w-4xl space-y-6">
-              <section className="rounded-card border border-line border-l-4 border-l-brand bg-surface p-4 shadow-card sm:p-6">
-                <Step
-                  n={1}
+              <section
+                aria-labelledby="new-campaign-main-task-head"
+                className="rounded-card border border-line border-l-4 border-l-brand bg-surface p-4 shadow-card sm:p-6"
+              >
+                <SectionHead
+                  id="new-campaign-main-task-head"
+                  step={1}
                   title="Main task"
-                  hint="What should this campaign achieve? Write it in your own words, as much as you like."
+                  hint={MAIN_TASK_HINT}
+                  info={MAIN_TASK_INFO}
                 />
                 <label htmlFor="new-campaign-main-task" className="sr-only">
                   Main task
@@ -161,7 +171,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                   value={mainTask}
                   maxLength={4000}
                   disabled={!write.allowed}
-                  placeholder="For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone."
+                  placeholder={MAIN_TASK_PLACEHOLDER}
                   onChange={(e) => setMainTask(e.target.value)}
                 />
                 <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -174,7 +184,7 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                   >
                     {busy ? "Saving…" : "Save"}
                   </button>
-                  <span className="text-meta text-ink-muted">Saves this as a draft campaign. You can edit it any time.</span>
+                  <span className="text-meta text-ink-muted">Saves it as a draft.</span>
                 </div>
               </section>
 
@@ -184,61 +194,37 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
                 onGenerate={() => void submit(true)}
                 busy={busy}
                 disabled={!write.allowed || !ready}
-                reason={!ready ? "Write the main task first, then Pip can write the script." : (write.reason ?? undefined)}
+                reason={!ready ? "Write the main task first." : undefined}
+                refusal={write.reason ?? undefined}
               />
-              {error != null && (
-                <p role="alert" className="text-meta text-danger">
-                  {problemToast(error, "That did not finish").description ?? "That did not finish"}
+              {create.error != null && <ProblemNotice error={create.error} />}
+              {followUpError != null && (
+                <div className="space-y-2">
+                  <ProblemNotice error={followUpError} />
                   {draftId && (
-                    <>
-                      {" "}
-                      <a className="underline" href={detail(draftId)}>
-                        Open the draft
-                      </a>
-                    </>
+                    <a className="text-meta text-brand-strong underline" href={detail(draftId)}>
+                      Open the draft
+                    </a>
                   )}
-                </p>
+                </div>
               )}
 
-              <section className="rounded-card border border-brand/30 bg-brand-soft p-4 sm:p-6 dark:bg-brand-strong/15">
-                <Step
-                  n={3}
-                  title="Script"
-                  hint="The agent you choose speaks the script Pip writes. You review it and change anything; then add who to call and start."
-                />
-                <p className="mb-2 text-meta font-medium text-ink">Who speaks it</p>
+              <section
+                aria-labelledby="new-campaign-script"
+                className="rounded-card border border-line border-l-4 border-l-brand-strong bg-surface p-4 shadow-card sm:p-6"
+              >
+                <SectionHead id="new-campaign-script" step={3} title="Script" hint={SCRIPT_HINT} info={SCRIPT_INFO} />
                 {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
-                {agents.data && agentOptions.length === 0 && (
-                  <p className="text-body text-ink-muted">No agent is set up yet. Create one under Agents first.</p>
-                )}
+                {agents.data && agentOptions.length === 0 && <NoAgentYet />}
                 {agentOptions.length > 0 && (
-                  <div role="radiogroup" aria-label="Who speaks it" className="grid gap-3 sm:grid-cols-2">
-                    {agentOptions.map((agent) => {
-                      const on = agent.id === selectedAgentId;
-                      return (
-                        <button
-                          key={agent.id}
-                          type="button"
-                          role="radio"
-                          aria-checked={on}
-                          disabled={!write.allowed}
-                          onClick={() => setAgentId(agent.id)}
-                          className={`rounded-card border bg-surface p-4 text-left transition-colors ${
-                            on ? "border-brand ring-1 ring-brand" : "border-line hover:bg-surface-muted"
-                          }`}
-                        >
-                          <span className="block text-body font-semibold text-ink">{agent.name}</span>
-                          <span className="block text-meta text-ink-muted">
-                            {lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <AgentChoice
+                    onChange={setAgentId}
+                    agentOptions={agentOptions}
+                    selectedAgentId={selectedAgentId}
+                    selectedAgent={selectedAgent}
+                  />
                 )}
-                <p className="mt-4 text-meta text-ink-muted">
-                  Press Generate above. The script appears here for your review on the campaign page.
-                </p>
+                <p className="mt-4 text-meta text-ink-muted">Press Generate above to write it.</p>
               </section>
             </div>
           )

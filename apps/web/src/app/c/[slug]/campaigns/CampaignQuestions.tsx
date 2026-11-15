@@ -11,7 +11,8 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { SearchField } from "@/components/arc/search-field";
-import { problemToast } from "@/components/arc/feedback";
+import { useActionFeedback } from "@/components/arc/feedback";
+import { InfoTip } from "@/components/console/infoTip";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatIST } from "@/components/ui";
 import { useAnswerQuestion, useCampaignQuestions, type CampaignQuestion } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
@@ -46,16 +47,17 @@ export function CampaignQuestions({
   if (!questions.data) return <ProblemNotice error={questions.error} onRetry={() => questions.refetch()} />;
   if (questions.data.length === 0) {
     return (
-      <p className="text-body text-ink-muted">
-        Nothing yet. When a caller asks something the agent cannot answer, it shows here for you to answer once.
-      </p>
+      <p className="text-body text-ink-muted">Nothing yet. Questions it could not answer show here.</p>
     );
   }
   const shown = questions.data.filter((q) => matchesWords(query, [q.topic, q.question, q.answer, KIND[q.kind]]));
   return (
     <div className="space-y-4">
-      <p className="text-meta text-ink-muted">
-        Answer once and the answer is kept with this campaign. Then rewrite or edit the script so the agent says it on calls.
+      <p className="flex items-center gap-1 text-meta text-ink-muted">
+        <span className="block">Answer once; it is kept with this campaign.</span>
+        <InfoTip label="answering a question" align="start">
+          Then rewrite or edit the script so the agent says it on calls.
+        </InfoTip>
       </p>
       {questions.data.length > 3 && (
         <SearchField label="Search questions" hideLabel value={query} onValueChange={setQuery} placeholder="Search questions" />
@@ -97,21 +99,21 @@ function Question({
 }) {
   const { session } = useClientRealm();
   const answer = useAnswerQuestion(session, campaignId);
+  useActionFeedback(answer, { errorDisplay: "inline" });
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
-  const submit = async () => {
-    setError(null);
-    try {
-      await answer.mutateAsync({ topic: question.topic, answer: text.trim() });
-      setDone(true);
-      setOpen(false);
-      onAnswered?.();
-    } catch (e) {
-      setError(problemToast(e, "The answer did not save").description ?? "The answer did not save");
-    }
-  };
+  const submit = () =>
+    answer.mutate(
+      { topic: question.topic, answer: text.trim() },
+      {
+        onSuccess: () => {
+          setDone(true);
+          setOpen(false);
+          onAnswered?.();
+        },
+      },
+    );
   return (
     <li className="rounded-card border border-warn-line border-l-4 border-l-warn bg-surface p-4">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -154,16 +156,12 @@ function Question({
               onChange={(e) => setText(e.target.value)}
             />
           </label>
-          {error && (
-            <p role="alert" className="text-meta text-danger">
-              {error}
-            </p>
-          )}
+          {answer.error != null && <ProblemNotice error={answer.error} />}
           <button
             type="button"
             className={PRIMARY_BUTTON_SM}
             disabled={!text.trim() || answer.isPending}
-            onClick={() => void submit()}
+            onClick={submit}
           >
             {answer.isPending ? "Saving…" : "Keep this answer"}
           </button>

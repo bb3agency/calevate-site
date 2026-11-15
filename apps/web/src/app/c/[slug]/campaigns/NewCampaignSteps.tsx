@@ -137,13 +137,13 @@ function agentReadiness(agent: Agent): string {
  * their agent by name, and a card can say whether it is ready without the "not able to
  * call out yet" suffix a select option had to carry.
  */
-function AgentChoice({
-  form,
+export function AgentChoice({
+  onChange,
   agentOptions,
   selectedAgentId,
   selectedAgent,
 }: {
-  form: CampaignFormState;
+  onChange: (agentId: string) => void;
   agentOptions: Agent[];
   selectedAgentId: string;
   selectedAgent: Agent | undefined;
@@ -170,7 +170,7 @@ function AgentChoice({
         name="campaign-agent"
         value={selectedAgentId}
         options={options}
-        onChange={form.setAgentId}
+        onChange={onChange}
         columns="sm:grid-cols-2"
       />
       {selectedAgent && !canDialOut(selectedAgent) ? (
@@ -358,7 +358,7 @@ function ShortChoice<T extends string>({
 function MainTaskField({ form }: { form: CampaignFormState }) {
   const id = "new-campaign-main-task";
   return (
-    <section className="rounded-card border border-line border-l-4 border-l-brand bg-brand-soft/40 p-4 sm:p-5 dark:bg-brand-strong/10">
+    <section className="rounded-card border border-line border-l-4 border-l-brand bg-surface p-4 sm:p-5">
       <label htmlFor={id} className="block text-heading text-ink">
         Main task
       </label>
@@ -376,6 +376,19 @@ function MainTaskField({ form }: { form: CampaignFormState }) {
       />
       <p className="mt-1 text-right text-meta text-ink-faint">{form.mainTask.length.toLocaleString("en-IN")} / 4,000</p>
     </section>
+  );
+}
+
+/** The server answered with no agent the campaign could use. */
+export function NoAgentYet() {
+  const { session, href } = useClientRealm();
+  return (
+    <div className="space-y-3 rounded-card border border-dashed border-line p-4">
+      <p className="text-body text-ink">No agent is set up yet.</p>
+      <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
+        Create an agent
+      </Link>
+    </div>
   );
 }
 
@@ -408,7 +421,7 @@ export function BasicsStep({
   showMainTask?: boolean;
 }) {
   const usable = campaignNumbers(numbers.data);
-  const { session, href } = useClientRealm();
+  const { session } = useClientRealm();
   const registration = usePeRegistration(session);
   const classifications = offeredClassifications(
     registration.data?.calevate_tm_active === true,
@@ -417,19 +430,12 @@ export function BasicsStep({
   return (
     <div className="space-y-8">
       {showMainTask && <MainTaskField form={form} />}
-      {hasNoAgents && (
-        <div className="space-y-3 rounded-card border border-dashed border-line p-4">
-          <p className="text-body text-ink">No agent is set up yet.</p>
-          <Link href={href(`/c/${session.orgSlug}/agents`)} className={SECONDARY_BUTTON_SM}>
-            Create an agent
-          </Link>
-        </div>
-      )}
+      {hasNoAgents && <NoAgentYet />}
       {/* Only from a list the server sent: an empty picker over a read in flight or failed
           would read as "you have no agent". */}
       {Boolean(agents.data) && agentOptions.length > 0 && (
         <AgentChoice
-          form={form}
+          onChange={form.setAgentId}
           agentOptions={agentOptions}
           selectedAgentId={selectedAgentId}
           selectedAgent={selectedAgent}

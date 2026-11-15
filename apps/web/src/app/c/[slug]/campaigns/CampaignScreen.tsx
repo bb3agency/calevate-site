@@ -41,6 +41,7 @@ import { CampaignWorkspace } from "./CampaignWorkspace";
 import { ContactResults } from "./ContactResults";
 import { LaunchGate } from "./LaunchGate";
 import { ScheduleCards } from "./ScheduleCards";
+import { SectionHead } from "./SectionHead";
 import { useScheduleForm } from "./campaignForm";
 import { CampaignStatusPill } from "./campaignStatus";
 
@@ -342,18 +343,13 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
 
                 {/* 4. The voice and the start: who speaks the script, who is called, when. */}
                 <section aria-labelledby="campaign-start" className="space-y-6">
-                  <div id="campaign-start">
-                    <h2 className="text-heading text-ink">
-                      <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-meta font-semibold text-surface">
-                        4
-                      </span>
-                      Agent and start
-                    </h2>
-                    <p className="mt-1 text-meta text-ink-muted">
-                      {data.agent_name} speaks this campaign&apos;s script. Change the agent in the settings beside the
-                      list. Start puts the script on the agent, then calls.
-                    </p>
-                  </div>
+                  <SectionHead
+                    id="campaign-start"
+                    step={4}
+                    title="Agent and start"
+                    hint={`${data.agent_name} speaks this campaign's script.`}
+                    info="Change the agent in the settings beside the list. Start puts the script on the agent, then calls."
+                  />
                   <BeforeStartBoosters
                     slug={slug}
                     campaignId={campaignId}

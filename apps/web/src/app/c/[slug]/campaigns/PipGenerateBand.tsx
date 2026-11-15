@@ -12,12 +12,15 @@ export function PipGenerateBand({
   busy,
   disabled,
   reason,
+  refusal,
 }: {
   onGenerate: () => void;
   busy: boolean;
   disabled: boolean;
-  /** Why Generate waits (no main task yet, no permission). */
+  /** Why Generate waits on this campaign (no main task yet, a draft to review first). */
   reason?: string;
+  /** Why this person may not press it; the page's RestrictionNote already says it, so only the control carries it. */
+  refusal?: string;
 }) {
   return (
     <section
@@ -29,14 +32,14 @@ export function PipGenerateBand({
           Let Pip, our AI agent, generate the script
         </h2>
         <p className="mt-0.5 text-meta text-ink-muted">
-          {reason ?? "Pip reads your main task and materials and writes the script for your review."}
+          {reason ?? "Pip writes it from your main task and materials."}
         </p>
       </div>
       <button
         type="button"
         className={`${PRIMARY_BUTTON} shrink-0`}
         disabled={disabled || busy}
-        title={reason}
+        title={reason ?? refusal}
         onClick={onGenerate}
       >
         {busy ? "Generating…" : "Generate"}

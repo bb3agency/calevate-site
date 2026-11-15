@@ -9,13 +9,15 @@
  *  1. Main task — a green rule: the owner's words, many lines.
  *  2. Materials — a blue ground: documents, links and notes, including notes learned from
  *     the campaign's own calls (the Questions tab adds them).
- *  3. Script — a green ground: Pip writes it from 1 and 2, the owner reviews it part by part
- *     with the same Review / Update / Edit the agent Script page uses, and edits it any time.
+ *  3. Script — a dark green rule: Pip writes it from 1 and 2, the owner reviews it part by
+ *     part with the same Review / Update / Edit the agent Script page uses, and edits it any
+ *     time. A rule rather than a green ground: a tinted card reads as a notice
+ *     (`tests/noticeStyle.test.tsx`).
  */
 
 import { useMemo, useState } from "react";
 
-import { problemToast, useActionFeedback } from "@/components/arc/feedback";
+import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { SearchField } from "@/components/arc/search-field";
 import { FIELD, NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
@@ -27,17 +29,25 @@ import {
   useRequestCampaignScript,
   useSaveCampaignScript,
   useSaveMainTask,
-  type CampaignMaterial,
   type CampaignWorkspace as Workspace,
 } from "@/lib/api/campaignWorkspace";
-import { useAddLink, useUploadDocument } from "@/lib/api/kb";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useClientRealm } from "@/lib/api/session";
 
 import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 
+import { KIND_LABEL, MATERIALS_HINT, MATERIALS_INFO, MaterialForm } from "./MaterialsDraft";
 import { matchesWords } from "./matchWords";
 import { PipGenerateBand } from "./PipGenerateBand";
+import { SectionHead } from "./SectionHead";
+
+export const MAIN_TASK_HINT = "What should this campaign achieve?";
+export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
+export const MAIN_TASK_PLACEHOLDER =
+  "For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone.";
+export const SCRIPT_HINT = "What the agent says on each call.";
+export const SCRIPT_INFO =
+  "Pip writes it from your main task and materials; change anything, any time. Start puts only this script on the agent.";
 
 export function CampaignWorkspace({
   campaignId,
@@ -75,51 +85,26 @@ type Props = { campaignId: string; space: Workspace; canWrite: boolean; refusal?
 function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const ask = useRequestCampaignScript(session, campaignId);
-  const [error, setError] = useState<unknown>(null);
+  const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const hasTask = space.main_task.trim() !== "";
   const drafting = space.proposal?.status === "drafting";
   const reason = !hasTask
-    ? "Write and save the main task first, then Pip can write the script."
+    ? "Save the main task first."
     : space.proposal?.status === "ready"
-      ? "Pip's script is waiting for your review below. Keep or discard it, then generate again."
+      ? "Review Pip's script below first."
       : space.proposal?.status === "failed"
-        ? "Pip's last try did not finish. Dismiss it below, then generate again."
-        : refusal;
+        ? "Dismiss Pip's last try below first."
+        : undefined;
   return (
     <div className="space-y-2">
       <PipGenerateBand
-        onGenerate={() => {
-          setError(null);
-          ask.mutate(undefined, { onError: setError });
-        }}
+        onGenerate={() => askFeedback.run(undefined)}
         busy={ask.isPending || drafting}
         disabled={!canWrite || !hasTask || space.proposal != null}
         reason={reason}
+        refusal={refusal}
       />
-      <InlineError error={error} title="Pip could not start" />
-    </div>
-  );
-}
-
-function InlineError({ error, title }: { error: unknown; title: string }) {
-  if (!error) return null;
-  return (
-    <p role="alert" className="mt-2 text-meta text-danger">
-      {problemToast(error, title).description ?? title}
-    </p>
-  );
-}
-
-function SectionHead({ step, title, hint }: { step: number; title: string; hint: string }) {
-  return (
-    <div className="mb-3">
-      <h2 className="text-heading text-ink">
-        <span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-ink text-meta font-semibold text-surface">
-          {step}
-        </span>
-        {title}
-      </h2>
-      <p className="mt-1 text-meta text-ink-muted">{hint}</p>
+      {ask.error != null && <ProblemNotice error={ask.error} />}
     </div>
   );
 }
@@ -128,42 +113,28 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const [editing, setEditing] = useState(space.main_task.trim() === "");
   const [text, setText] = useState(space.main_task);
-  const [error, setError] = useState<unknown>(null);
   const save = useSaveMainTask(session, campaignId);
+  useActionFeedback(save, { errorDisplay: "inline" });
   const dirty = text.trim() !== space.main_task.trim();
 
   const startEdit = () => {
     setText(space.main_task);
-    setError(null);
+    save.reset();
     setEditing(true);
   };
   const cancel = () => {
     setText(space.main_task);
-    setError(null);
+    save.reset();
     setEditing(space.main_task.trim() === "");
   };
-  const submit = async () => {
-    setError(null);
-    try {
-      await save.mutateAsync(text);
-      setEditing(false);
-    } catch (e) {
-      setError(e);
-    }
-  };
+  const submit = () => save.mutate(text, { onSuccess: () => setEditing(false) });
 
   return (
     <section
       aria-labelledby="campaign-main-task"
       className="rounded-card border border-line border-l-4 border-l-brand bg-surface p-4 shadow-card sm:p-6"
     >
-      <div id="campaign-main-task">
-        <SectionHead
-          step={1}
-          title="Main task"
-          hint="What should this campaign achieve? Write it in your own words, as much as you like."
-        />
-      </div>
+      <SectionHead id="campaign-main-task" step={1} title="Main task" hint={MAIN_TASK_HINT} info={MAIN_TASK_INFO} />
       {editing ? (
         <>
           <label htmlFor={`${campaignId}-main-task`} className="sr-only">
@@ -176,7 +147,7 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
             maxLength={4000}
             disabled={!canWrite}
             title={refusal}
-            placeholder="For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone."
+            placeholder={MAIN_TASK_PLACEHOLDER}
             onChange={(e) => setText(e.target.value)}
           />
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -185,7 +156,7 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
               className={PRIMARY_BUTTON_SM}
               disabled={!canWrite || !text.trim() || !dirty || save.isPending}
               title={refusal}
-              onClick={() => void submit()}
+              onClick={submit}
             >
               {save.isPending ? "Saving…" : "Save"}
             </button>
@@ -195,7 +166,11 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
               </button>
             )}
           </div>
-          <InlineError error={error} title="The main task did not save" />
+          {save.error != null && (
+            <div className="mt-2">
+              <ProblemNotice error={save.error} />
+            </div>
+          )}
         </>
       ) : (
         <>
@@ -224,23 +199,13 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
   );
 }
 
-const KIND_LABEL: Record<CampaignMaterial["kind"], string> = { file: "File", link: "Link", note: "Note" };
-
 function Materials({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const add = useAddMaterial(session, campaignId);
   const archive = useArchiveMaterial(session, campaignId);
-  const upload = useUploadDocument(session);
-  const addLink = useAddLink(session);
+  useActionFeedback(add, { errorDisplay: "inline" });
   const archiveFeedback = useActionFeedback(archive, { errorTitle: "Could not remove it", successToast: "Removed" });
-  const [mode, setMode] = useState<"file" | "link" | "note" | null>(null);
-  const [title, setTitle] = useState("");
-  const [url, setUrl] = useState("");
-  const [note, setNote] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const busy = add.isPending || upload.isPending || addLink.isPending;
 
   const shown = useMemo(
     () =>
@@ -250,124 +215,20 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
     [space.materials, query],
   );
 
-  const reset = () => {
-    setMode(null);
-    setTitle("");
-    setUrl("");
-    setNote("");
-    setFile(null);
-    setError(null);
-  };
-
-  const submit = async () => {
-    setError(null);
-    try {
-      if (mode === "file") {
-        if (!file) return setError("Choose a file.");
-        const up = await upload.mutateAsync({ file });
-        await add.mutateAsync({ kind: "file", title: title.trim() || file.name, kb_upload_id: up.id });
-      } else if (mode === "link") {
-        if (!/^https?:\/\//i.test(url.trim())) return setError("Paste the full address, starting with https://");
-        const up = await addLink.mutateAsync({ url: url.trim() });
-        await add.mutateAsync({ kind: "link", title: title.trim() || url.trim(), url: url.trim(), kb_upload_id: up.id });
-      } else if (mode === "note") {
-        if (!note.trim()) return setError("Write the note.");
-        await add.mutateAsync({ kind: "note", title: title.trim() || note.trim().slice(0, 60), note: note.trim() });
-      }
-      reset();
-    } catch (e) {
-      setError(problemToast(e, "That did not save. Try again.").description ?? "That did not save. Try again.");
-    }
-  };
-
   return (
     <section
       aria-labelledby="campaign-materials"
       className="rounded-card border border-info-line bg-info-soft p-4 sm:p-6 dark:bg-info/10"
     >
-      <div id="campaign-materials">
-        <SectionHead
-          step={2}
-          title="Materials"
-          hint="Everything Pip and the agent should know: documents, price lists, website links, video links, call recordings, notes. Files and links also go into your knowledge, so the agent can look things up on a call."
-        />
-      </div>
+      <SectionHead id="campaign-materials" step={2} title="Materials" hint={MATERIALS_HINT} info={MATERIALS_INFO} />
 
-      <div className="flex flex-wrap gap-2">
-        {(["file", "link", "note"] as const).map((kind) => (
-          <button
-            key={kind}
-            type="button"
-            className={mode === kind ? PRIMARY_BUTTON_SM : SECONDARY_BUTTON_SM}
-            disabled={!canWrite}
-            title={refusal}
-            aria-pressed={mode === kind}
-            onClick={() => (mode === kind ? reset() : (reset(), setMode(kind)))}
-          >
-            {kind === "file" ? "Upload a file" : kind === "link" ? "Add a link" : "Write a note"}
-          </button>
-        ))}
-      </div>
-
-      {mode && (
-        <div className="mt-4 space-y-3 rounded-card border border-info-line bg-surface p-4">
-          <label className="block text-meta font-medium text-ink">
-            Name <span className="font-normal text-ink-muted">(optional)</span>
-            <input className={`${FIELD} mt-1 w-full`} value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} />
-          </label>
-          {mode === "file" && (
-            <label className="block text-meta font-medium text-ink">
-              File
-              <input
-                type="file"
-                className="mt-1 block w-full text-meta"
-                accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.jpg,.jpeg,.png,.webp,.heic"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-              <span className="mt-1 block font-normal text-ink-muted">
-                PDF, Word, Excel, CSV, text or a photo, up to 20 MB. For a video or a call recording, add its link for now.
-              </span>
-            </label>
-          )}
-          {mode === "link" && (
-            <label className="block text-meta font-medium text-ink">
-              Address
-              <input
-                type="url"
-                inputMode="url"
-                className={`${FIELD} mt-1 w-full`}
-                value={url}
-                placeholder="https://"
-                onChange={(e) => setUrl(e.target.value)}
-              />
-            </label>
-          )}
-          {mode === "note" && (
-            <label className="block text-meta font-medium text-ink">
-              Note
-              <textarea
-                className={`${FIELD} mt-1 min-h-28 w-full resize-y`}
-                value={note}
-                maxLength={4000}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            </label>
-          )}
-          {error && (
-            <p role="alert" className="text-meta text-danger">
-              {error}
-            </p>
-          )}
-          <div className="flex gap-2">
-            <button type="button" className={PRIMARY_BUTTON_SM} disabled={busy} onClick={() => void submit()}>
-              {busy ? "Adding…" : "Add"}
-            </button>
-            <button type="button" className={SECONDARY_BUTTON_SM} disabled={busy} onClick={reset}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+      <MaterialForm
+        canWrite={canWrite}
+        refusal={refusal}
+        onAdd={(item) => add.mutateAsync(item)}
+        adding={add.isPending}
+        addError={add.error}
+      />
 
       {space.materials.length > 0 && (
         <div className="mt-4 space-y-3">
@@ -429,44 +290,39 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const clear = useClearCampaignProposal(session, campaignId);
   const save = useSaveCampaignScript(session, campaignId);
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
-  const [saveError, setSaveError] = useState<unknown>(null);
+  useActionFeedback(save, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
   const proposal = space.proposal;
   const script = space.script;
   const hasTask = space.main_task.trim() !== "";
 
   const keep = async (next: CallScript) => {
-    setSaveError(null);
     try {
       await save.mutateAsync(next);
       if (proposal) await clear.mutateAsync(proposal.id);
       setEditing(false);
-    } catch (e) {
-      setSaveError(e);
+    } catch {
+      // A refused save is `save.error`, rendered above; a refused clear is toasted.
     }
   };
 
   return (
     <section
       aria-labelledby="campaign-script"
-      className="rounded-card border border-brand/30 bg-brand-soft p-4 sm:p-6 dark:bg-brand-strong/15"
+      className="rounded-card border border-line border-l-4 border-l-brand-strong bg-surface p-4 shadow-card sm:p-6"
     >
-      <div id="campaign-script" className="flex flex-wrap items-start justify-between gap-3">
-        <SectionHead
-          step={3}
-          title="Script"
-          hint="What the agent says and how it runs each call. Pip writes it from your main task and materials; change anything, any time. Start puts only this script on the agent."
-        />
-      </div>
+      <SectionHead id="campaign-script" step={3} title="Script" hint={SCRIPT_HINT} info={SCRIPT_INFO} />
 
-      <InlineError error={saveError} title="The script did not save" />
+      {save.error != null && (
+        <div className="mb-3">
+          <ProblemNotice error={save.error} />
+        </div>
+      )}
 
       {proposal?.status === "drafting" && (
         <div role="status" className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface p-4">
           <span className="h-3 w-3 animate-pulse rounded-full bg-brand" aria-hidden />
-          <span className="text-body text-ink">
-            Pip is writing the script from your main task and materials. This page checks every 5 seconds.
-          </span>
+          <span className="text-body text-ink">Pip is writing the script. It shows here when done.</span>
           <button
             type="button"
             className={`${SECONDARY_BUTTON_SM} ml-auto`}
@@ -530,9 +386,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             </>
           ) : (
             <p className="text-body text-ink-muted">
-              {hasTask
-                ? "No script yet. Press Generate above and Pip writes it from your main task and materials."
-                : "Write the main task first. Then Pip can write the script."}
+              {hasTask ? "No script yet. Press Generate above." : "Write the main task first. Then Pip can write the script."}
             </p>
           )}
         </div>
@@ -548,7 +402,7 @@ function ScriptSummary({ script }: { script: CallScript }) {
       ? script.stages.map((s) => s.name)
       : script.steps.map((s) => (s.instruction.length > 80 ? `${s.instruction.slice(0, 80)}…` : s.instruction));
   return (
-    <dl className="grid gap-3 text-body sm:grid-cols-[10rem_1fr]">
+    <dl className="grid grid-cols-1 gap-3 text-body sm:grid-cols-[10rem_1fr]">
       {opening && (
         <>
           <dt className="text-meta font-medium text-ink-muted">Opens with</dt>
