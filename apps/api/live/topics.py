@@ -130,6 +130,8 @@ TABLE_TOPICS: Final[dict[str, Topic]] = {
     # agents
     "agents": "agents",
     "agent_workspace_moves": "agents",
+    "company_trainings": "agents",
+    "company_training_materials": "agents",
     "agent_config_versions": "agents",
     "agent_config_attestations": "agents",
     "agent_handoff_members": "agents",

@@ -70,6 +70,7 @@ SCRIPT_SECTION_LABELS: Final[dict[str, str]] = {
     "[FAQ]": "Questions and answers",
     "[EXAMPLE CALL]": "Example call",
     "[T0 FACTS]": "Business facts",
+    "[COMPANY TRAINING]": "Company training",
     "[END CALL]": "Ending the call",
 }
 
@@ -207,13 +208,15 @@ async def publish_config(
     engine: VoiceEngine,
     body: str | None = None,
     structured_script: dict[str, Any] | None = None,
+    company_training: str | None = None,
 ) -> AgentConfig:
     """The config a publish of this agent would send right now.
 
     Built by `service._to_config` over `service._load_agent` and the on-duty hand-over, the
     three steps `publish_agent` takes, so it carries everything the agent's settings add
     (languages, caller memory, a forwarded line, the account's call-back rule). `body` and
-    `structured_script` stand in for the applied script, for a script not yet saved. Raises
+    `structured_script` stand in for the applied script, for a script not yet saved, and
+    `company_training` for the saved training, for one not yet saved. Raises
     what `_to_config` raises (an agent with no script).
     """
     from apps.api.agents.handoff import spec_for
@@ -222,6 +225,8 @@ async def publish_config(
     row = await _load_agent(session, tenant_id, agent_id)
     if body is not None:
         row = {**row, "prompt": body, "structured_script": structured_script}
+    if company_training is not None:
+        row = {**row, "company_training": company_training}
     handoff, _duty = await spec_for(session, dict(row))
     return _to_config(tenant_id, row, engine=engine, handoff=handoff)
 

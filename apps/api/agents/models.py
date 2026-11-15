@@ -2155,3 +2155,49 @@ class AgentMistakeFix(PKMixin, TimestampMixin, Base):
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: The client user who pressed Undo; None for the healer or an operator in view-as.
     undone_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+
+#: What a company training material can be; `company_training.MaterialKind` spells the same.
+TRAINING_MATERIAL_KINDS: Final = ("file", "link", "note")
+
+
+class CompanyTraining(PKMixin, TimestampMixin, Base):
+    """The one training every agent of a client is given (founder, 16 Nov 2026): the owner's
+    overview, the reviewed training text, Pip's pending draft and a version moved by every
+    save. Composed into each agent's script by `agents/company_training.with_training`."""
+
+    __tablename__ = "company_trainings"
+    __table_args__ = (UniqueConstraint("tenant_id"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    overview: Mapped[str | None] = mapped_column(Text)
+    training: Mapped[str | None] = mapped_column(Text)
+    proposal: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    updated_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+
+
+class CompanyTrainingMaterial(PKMixin, TimestampMixin, Base):
+    """A document, link or note the company training is written from. A file is a knowledge
+    upload, so agents can also look it up on a call. Removed by archiving, never deleted."""
+
+    __tablename__ = "company_training_materials"
+    __table_args__ = (
+        CheckConstraint(f"kind IN {TRAINING_MATERIAL_KINDS!r}", name="kind_enum"),
+        Index("ix_company_training_materials_tenant_id", "tenant_id", "created_at"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    url: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    kb_upload_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("kb_uploads.id", ondelete="SET NULL")
+    )
+    created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -531,6 +531,10 @@ TENANT_TABLES = [
     # What a campaign works from (D-992): its documents, links and notes, including notes
     # learned from its own calls. FORCE-RLS'd; archived, never deleted.
     "campaign_materials",
+    # The company training every agent of a client is given and what it is written from
+    # (founder, 16 Nov 2026). FORCE-RLS'd; materials archived, never deleted.
+    "company_trainings",
+    "company_training_materials",
     # A client's existing number forwarded to its Calevate number (D-746, migration
     # d6f2b8a41c73): the line and its findings, each verification-call run (CAS-updated;
     # `audit_log` is the immutable record), and the once-per-caller "save our number"

@@ -646,6 +646,34 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
         )
         ids["material_id"] = str(material_id)
         ids["proposal_id"] = str(proposal_id)
+        # The company training's material and written draft on A, for the same reason.
+        training_material_id, training_proposal_id = uuid.uuid4(), uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO company_training_materials (id, tenant_id, kind, title, note) "
+                "VALUES (:m, :t, 'note', 'Adversarial note', 'Closed on Sundays')"
+            ),
+            {"m": training_material_id, "t": tenant_id},
+        )
+        await s.execute(
+            text(
+                "INSERT INTO company_trainings (id, tenant_id, proposal) "
+                "VALUES (:i, :t, CAST(:p AS jsonb))"
+            ),
+            {
+                "i": uuid.uuid4(),
+                "t": tenant_id,
+                "p": json.dumps(
+                    {
+                        "id": str(training_proposal_id),
+                        "status": "ready",
+                        "requested_at": datetime.now(UTC).isoformat(),
+                    }
+                ),
+            },
+        )
+        ids["training_material_id"] = str(training_material_id)
+        ids["training_proposal_id"] = str(training_proposal_id)
         await s.execute(
             text(
                 "INSERT INTO data_rights_requests (id, tenant_id, kind, channel, subject_ref, "
@@ -820,6 +848,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ),
     ("POST", "/v1/campaigns/{campaign_id}/materials/upload", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/materials/{material_id}/archive", {}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/test-calls", {}, {}),
+    ("DELETE", "/v1/campaigns/{campaign_id}/test-calls/{call_id}", {}, {}),
+    ("POST", "/v1/company-training/materials/{training_material_id}/archive", {}, {}),
+    ("DELETE", "/v1/company-training/proposal/{training_proposal_id}", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/questions", {}, {}),

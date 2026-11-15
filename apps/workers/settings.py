@@ -151,6 +151,7 @@ from apps.workers.campaign_script import draft_campaign_script
 from apps.workers.client_actions import run_after_call_actions, run_client_action
 from apps.workers.client_health import refresh_client_health
 from apps.workers.comp_notices import notify_comp
+from apps.workers.company_training_draft import draft_company_training
 from apps.workers.copilot_jobs import run_copilot_job
 from apps.workers.copilot_memory import DISTILL_HOUR, DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.copilot_plans import resume_copilot_plans, run_copilot_plan
@@ -465,6 +466,9 @@ FUNCTIONS: list[Any] = [
         # (`agents/script_proposals.request_proposal`).
         draft_script_proposal,
         draft_campaign_script,
+        # The company training Pip was asked for, from the outbox
+        # (`agents/company_training.request_proposal`).
+        draft_company_training,
         # An opening line written again to say the notices switched on in its own words
         # (D-971), from the outbox (`agents/opening_notices.queue_opening_notices`).
         weave_opening_notices,

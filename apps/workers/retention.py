@@ -3965,6 +3965,10 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # like the facts above. A file material's object sits under the account's upload
         # prefix, which the sweep below removes.
         await session.execute(text("DELETE FROM campaign_materials"))
+        # The company training (founder, 16 Nov 2026): the owner's overview, the training
+        # every agent was given and what it was written from, the business's own words.
+        await session.execute(text("DELETE FROM company_training_materials"))
+        await session.execute(text("DELETE FROM company_trainings"))
         # Leads held after hours for release (D-716): a hold left behind could still be
         # released into a call-back after the certificate said the account holds nothing.
         await session.execute(text("DELETE FROM lead_call_holds"))

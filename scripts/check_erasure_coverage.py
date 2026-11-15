@@ -485,6 +485,12 @@ ENTRYPOINT_EXEMPT: dict[str, dict[str, str]] = {
             "every field — so a caller's deletion request has nothing to match here. The "
             "rows end with the engagement, which `execute_tenant_erasure` covers."
         ),
+        "company_training_materials": (
+            "What the BUSINESS gave the company training to be written from: a note, a link "
+            "or an uploaded document. The owner wrote every field, so a caller's deletion "
+            "request has nothing to match here. It ends with the engagement, which "
+            "`execute_tenant_erasure` covers."
+        ),
         "forwarded_lines": (
             "The business's OWN published phone number, forwarded to its Calevate number "
             "(D-746), recorded by the account owner who confirmed it belongs to the "

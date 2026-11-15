@@ -140,6 +140,7 @@ from apps.api.agents import (
     assignment,
     call_outcomes,
     caller_help,
+    company_training,
     field_suggestions,
     hot_facts,
 )
@@ -552,6 +553,9 @@ class AgentRow(TypedDict):
     opening_waits_for_caller: NotRequired[bool]
     # The facts the agent knows by heart, in rank order (D-896, `agents/hot_facts`).
     hot_facts: NotRequired[tuple[str, ...]]
+    #: The client's company training, the first section of every agent's script
+    #: (`agents/company_training`); '' when the client has none.
+    company_training: NotRequired[str]
     #: An operator's turn detection for this agent alone (D-901); None follows the console.
     turn_detection: NotRequired[TurnDetection | None]
     #: The caller follows the agent's steps on a screen of their own (D-906).
@@ -768,6 +772,7 @@ async def _load_agent(
         "forwarded_line": await has_forwarded_line(session),
         # The facts this agent knows by heart, in rank order (D-896, `agents/hot_facts`).
         "hot_facts": await hot_facts.load_texts(session, agent_id=agent_id),
+        "company_training": await company_training.live_text(session),
     }
     # The agent holds defaults; the campaign that last put its script on it lays its own
     # settings over them here, the one place an engine config's row is read (D-994), so a
@@ -1055,6 +1060,8 @@ def _to_config(
         # drift path both pass it deliberately rather than by default.
         handoff=handoff,
     )
+    # The company training first, so the known facts below are cut to fit beside it.
+    config = company_training.with_training(config, agent.get("company_training") or "")
     # The facts this agent knows by heart, cut to fit (D-896); a no-op on every engine that
     # holds the facts in the prompt already.
     return hot_facts.with_known_facts(config, agent.get("hot_facts") or (), engine)
@@ -3463,7 +3470,8 @@ def _variant_config(
         }
     )
     # The arm's own body replaced the agent's above, so its known facts are spliced again:
-    # an arm carries the client's knowledge like the agent (D-689).
+    # an arm carries the client's knowledge like the agent (D-689), and its training.
+    arm = company_training.with_training(arm, agent.get("company_training") or "")
     return hot_facts.with_known_facts(arm, agent.get("hot_facts") or (), engine)
 
 

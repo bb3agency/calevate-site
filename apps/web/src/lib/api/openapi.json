@@ -7373,6 +7373,32 @@
         "title": "Body_upload_material_v1_campaigns__campaign_id__materials_upload_post",
         "type": "object"
       },
+      "Body_upload_material_v1_company_training_materials_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_material_v1_company_training_materials_upload_post",
+        "type": "object"
+      },
       "Body_upload_preview_v1_ops_voices_hosted_preview_post": {
         "properties": {
           "sample": {
@@ -17465,6 +17491,72 @@
           "loosening_confirmation"
         ],
         "title": "CommercialTermsOut",
+        "type": "object"
+      },
+      "CompanyTrainingOut": {
+        "additionalProperties": false,
+        "properties": {
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingMaterialOut"
+            },
+            "title": "Materials",
+            "type": "array"
+          },
+          "overview": {
+            "title": "Overview",
+            "type": "string"
+          },
+          "overview_max": {
+            "title": "Overview Max",
+            "type": "integer"
+          },
+          "proposal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrainingProposalOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "training": {
+            "title": "Training",
+            "type": "string"
+          },
+          "training_max": {
+            "title": "Training Max",
+            "type": "integer"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "overview",
+          "training",
+          "version",
+          "updated_at",
+          "proposal",
+          "materials",
+          "overview_max",
+          "training_max"
+        ],
+        "title": "CompanyTrainingOut",
         "type": "object"
       },
       "ComplaintReviewIn": {
@@ -42291,6 +42383,21 @@
         "title": "OverridePackOut",
         "type": "object"
       },
+      "OverviewIn": {
+        "additionalProperties": false,
+        "properties": {
+          "overview": {
+            "maxLength": 4000,
+            "title": "Overview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "overview"
+        ],
+        "title": "OverviewIn",
+        "type": "object"
+      },
       "OwnModelEnableIn": {
         "additionalProperties": false,
         "properties": {
@@ -61110,6 +61217,259 @@
           "lot"
         ],
         "title": "TopUpOut",
+        "type": "object"
+      },
+      "TrainingIn": {
+        "additionalProperties": false,
+        "properties": {
+          "proposal_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
+          "training": {
+            "maxLength": 6000,
+            "title": "Training",
+            "type": "string"
+          }
+        },
+        "required": [
+          "training"
+        ],
+        "title": "TrainingIn",
+        "type": "object"
+      },
+      "TrainingMaterialIn": {
+        "additionalProperties": false,
+        "properties": {
+          "kb_upload_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kb Upload Id"
+          },
+          "kind": {
+            "enum": [
+              "file",
+              "link",
+              "note"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "kind",
+          "title"
+        ],
+        "title": "TrainingMaterialIn",
+        "type": "object"
+      },
+      "TrainingMaterialOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kb_upload_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kb Upload Id"
+          },
+          "kind": {
+            "enum": [
+              "file",
+              "link",
+              "note"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "url",
+          "note",
+          "kb_upload_id",
+          "created_at"
+        ],
+        "title": "TrainingMaterialOut",
+        "type": "object"
+      },
+      "TrainingProposalOut": {
+        "additionalProperties": false,
+        "properties": {
+          "base_training": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Training"
+          },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "drafting",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "training": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Training"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "requested_at",
+          "base_training",
+          "training",
+          "note",
+          "disclosure",
+          "reason"
+        ],
+        "title": "TrainingProposalOut",
         "type": "object"
       },
       "TranscriptTurnOut": {
@@ -89821,6 +90181,281 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/company-training": {
+      "get": {
+        "operationId": "read_company_training_v1_company_training_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyTrainingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The company training every agent is given, its materials and Pip's draft",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/company-training/materials": {
+      "post": {
+        "operationId": "add_material_v1_company_training_materials_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingMaterialIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingMaterialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add a document, link or note for the training to be written from",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/company-training/materials/upload": {
+      "post": {
+        "description": "The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,\nunless these exact bytes are already live there: then that upload is attached instead of\nbeing refused as a duplicate, as a campaign's materials are (D-992).",
+        "operationId": "upload_material_v1_company_training_materials_upload_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_material_v1_company_training_materials_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingMaterialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Upload a file for the training; a file already in the knowledge is reused",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/company-training/materials/{training_material_id}/archive": {
+      "post": {
+        "operationId": "archive_material_v1_company_training_materials__training_material_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_material_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Material Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Remove a material from the training (archived, not deleted)",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/company-training/overview": {
+      "put": {
+        "operationId": "save_overview_v1_company_training_overview_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverviewIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyTrainingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the owner's description of the business, which Pip writes the training from",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/company-training/proposal": {
+      "post": {
+        "operationId": "request_proposal_v1_company_training_proposal_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingProposalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask Pip to write the training from the overview and materials",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/company-training/proposal/{training_proposal_id}": {
+      "delete": {
+        "operationId": "clear_proposal_v1_company_training_proposal__training_proposal_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "training_proposal_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Training Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Stop Pip's draft while it is written, or discard it",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/company-training/training": {
+      "put": {
+        "operationId": "save_training_v1_company_training_training_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyTrainingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Save the training; every agent is brought onto it",
+        "tags": [
+          "company-training"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/autodialer-notice": {
