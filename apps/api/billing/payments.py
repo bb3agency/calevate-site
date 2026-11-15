@@ -1570,7 +1570,9 @@ _UNCLAIMED_REFUNDS_SQL: Final = (
 )
 
 
-async def _scalar_inr(session: AsyncSession, sql: str, *, tenant_id: UUID, payment_id: str) -> Decimal:
+async def _scalar_inr(
+    session: AsyncSession, sql: str, *, tenant_id: UUID, payment_id: str
+) -> Decimal:
     total = (await session.execute(text(sql), {"tid": tenant_id, "pid": payment_id})).scalar()
     return Decimal(str(total or 0))
 

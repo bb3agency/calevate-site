@@ -273,9 +273,7 @@ async def test_a_call_inside_a_replaced_trial_stays_covered_after_the_replacemen
         )
         assert await trial_covers(session, tenant_id=tenant_id, at=started + timedelta(days=1))
         assert await trial_covers(session, tenant_id=tenant_id, at=started + timedelta(days=4))
-        assert not await trial_covers(
-            session, tenant_id=tenant_id, at=started - timedelta(days=1)
-        )
+        assert not await trial_covers(session, tenant_id=tenant_id, at=started - timedelta(days=1))
 
 
 # --- the boundary -------------------------------------------------------------------
