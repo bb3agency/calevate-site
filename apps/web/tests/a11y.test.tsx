@@ -4257,6 +4257,8 @@ const ADMIN_SCREENS: Screen[] = [
         },
         open_incidents: 1,
         escalated_incidents: 1,
+        shadow: ["voice_fallback"],
+        metrics: { days: 7, actions: 4, failed: 1, undone: 0, shadow: 1, recurrences: 0 },
       },
       "/v1/ops/healer/incidents?days=7&limit=50": {
         items: [
@@ -4946,6 +4948,13 @@ const ADMIN_SCREENS: Screen[] = [
           { kind: "said_again", label: "Said the same line again", calls_7d: 4, calls_30d: 9, accounts_30d: 3, calls_since_fix: 2, last_seen_at: "2026-08-13T04:30:00Z", fixed_at: "2026-08-10T04:30:00Z", fix_note: "Rephrase rule added.", fixed_by: null, state: "back" },
           { kind: "wrong_language", label: "Answered in a different language from the caller", calls_7d: 1, calls_30d: 2, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-12T04:30:00Z", fixed_at: null, fix_note: null, fixed_by: null, state: "fixing" },
           { kind: "opened_again", label: "Greeted the caller again in the middle of the call", calls_7d: 0, calls_30d: 1, accounts_30d: 1, calls_since_fix: 0, last_seen_at: "2026-08-01T04:30:00Z", fixed_at: "2026-08-05T04:30:00Z", fix_note: "Greet once.", fixed_by: null, state: "fixed" },
+        ],
+      },
+      "/v1/ops/call-mistakes/fixes": {
+        window_days: 30,
+        items: [
+          { id: "01a1a188-0000-7000-8000-000000000001", client_slug: "acme", agent_id: "01a1a188-0000-7000-8000-000000000002", agent_name: "Asha", kind: "said_again", label: "Said the same line again", state: "live", ended_because: null, attempts: 1, version_before: 3, version_after: 4, live_at: "2026-08-13T05:00:00Z", settled_at: null, created_at: "2026-08-13T04:40:00Z", found_by: "call" },
+          { id: "01a1a188-0000-7000-8000-000000000003", client_slug: "acme", agent_id: "01a1a188-0000-7000-8000-000000000002", agent_name: "Asha", kind: "wrong_language", label: "Answered in a different language from the caller", state: "rolled_back", ended_because: "came_back", attempts: 1, version_before: 4, version_after: 5, live_at: "2026-08-12T05:00:00Z", settled_at: "2026-08-12T09:00:00Z", created_at: "2026-08-12T04:40:00Z", found_by: "script_check" },
         ],
       },
     },

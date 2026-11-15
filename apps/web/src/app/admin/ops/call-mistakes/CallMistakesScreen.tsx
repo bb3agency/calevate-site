@@ -37,6 +37,7 @@ import {
 import { viewAsHref } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { lookup } from "@/lib/lookup";
 
 const STATE_LABELS: Record<PlatformMistakeState, string> = {
   back: "Back after the fix",
@@ -333,7 +334,7 @@ function ScriptFixes() {
           <StatusPill tone={FIX_TONES[row.state]}>{FIX_STATE_WORDS[row.state]}</StatusPill>
           {row.ended_because ? (
             <span className="block text-meta text-ink-muted">
-              {FIX_ENDED_WORDS[row.ended_because] ?? row.ended_because}
+              {lookup(FIX_ENDED_WORDS, row.ended_because) ?? row.ended_because}
             </span>
           ) : null}
         </span>
