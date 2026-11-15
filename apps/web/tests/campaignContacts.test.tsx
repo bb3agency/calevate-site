@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ContactEditor, FILE_HINT, fileTips } from "@/app/c/[slug]/campaigns/ContactEditor";
+import { contactsFromExcel } from "@/lib/api/campaignWorkspace";
+import { ApiProblem } from "@/lib/api/client";
 import {
   MAX_CONTACTS_PER_UPLOAD,
   SAMPLE_CSV,
@@ -12,6 +14,15 @@ import {
   rowsToEntries,
   type ContactEntry,
 } from "@/app/c/[slug]/campaigns/contactList";
+
+import { renderClientPage } from "./harness";
+
+// The sheet is read on the server through a multipart upload (an XMLHttpRequest, not the
+// fetch route table), so its reader is stubbed at the module.
+vi.mock("@/lib/api/campaignWorkspace", async (original) => ({
+  ...(await original<typeof import("@/lib/api/campaignWorkspace")>()),
+  contactsFromExcel: vi.fn(),
+}));
 
 /**
  * The campaign contact list: the CSV reader, the per-row verdicts that mirror the server's
@@ -164,7 +175,7 @@ describe("the contact editor", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("imports a chosen file and reports what it found", async () => {
-    render(<Harness />);
+    await renderClientPage(<Harness />, {});
     const file = new File(["phone,name\n9876543210,Priya\n12345,Bad\n9876543210,Dup"], "list.csv", {
       type: "text/csv",
     });
@@ -177,8 +188,33 @@ describe("the contact editor", () => {
     expect(screen.getByText("We can't read this number")).toBeTruthy();
   });
 
+  it("reads an Excel sheet on the server and checks its rows as a CSV's", async () => {
+    vi.mocked(contactsFromExcel).mockResolvedValue({ csv: "phone,name\n9876543210,Priya\n12345,Bad", rows: 2 });
+    await renderClientPage(<Harness />, {});
+    const file = new File(["not really a workbook"], "list.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    fireEvent.change(screen.getByLabelText("Your contacts file"), { target: { files: [file] } });
+
+    await screen.findByText(/Added 2 rows from list\.xlsx/);
+    expect(screen.getByText("1 ready")).toBeTruthy();
+    expect(vi.mocked(contactsFromExcel)).toHaveBeenCalledWith(expect.anything(), file);
+  });
+
+  it("says the server's reason when it cannot read an Excel sheet", async () => {
+    vi.mocked(contactsFromExcel).mockRejectedValue(
+      new ApiProblem(422, { title: "Unreadable sheet", detail: "This sheet has no phone column.", retryable: false }),
+    );
+    await renderClientPage(<Harness />, {});
+    const file = new File(["x"], "list.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    fireEvent.change(screen.getByLabelText("Your contacts file"), { target: { files: [file] } });
+    expect(await screen.findByText(/This sheet has no phone column\./)).toBeTruthy();
+  });
+
   it("removes a row, and clears every row that will not be called in one press", async () => {
-    render(<Harness initial={entries("phone\n9876543210\n12345\n9876543210")} />);
+    await renderClientPage(<Harness initial={entries("phone\n9876543210\n12345\n9876543210")} />, {});
     fireEvent.click(screen.getByRole("button", { name: "Remove 2 that won't be called" }));
     expect(screen.getByText("1 ready")).toBeTruthy();
     expect(screen.queryByText(/can't be called/)).toBeNull();
@@ -187,8 +223,8 @@ describe("the contact editor", () => {
     expect(screen.queryByText("1 ready")).toBeNull();
   });
 
-  it("edits a row in place: a wrong number fixed becomes ready, and Escape keeps the old row", () => {
-    render(<Harness initial={entries("phone,name\n12345,Priya")} />);
+  it("edits a row in place: a wrong number fixed becomes ready, and Escape keeps the old row", async () => {
+    await renderClientPage(<Harness initial={entries("phone,name\n12345,Priya")} />, {});
     expect(screen.getByText("We can't read this number")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit 12345" }));
@@ -205,8 +241,8 @@ describe("the contact editor", () => {
     expect(screen.getByText("1 ready")).toBeTruthy();
   });
 
-  it("adds one contact, and pastes rows from a spreadsheet", () => {
-    render(<Harness />);
+  it("adds one contact, and pastes rows from a spreadsheet", async () => {
+    await renderClientPage(<Harness />, {});
     fireEvent.click(screen.getByRole("button", { name: "Add contact" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Phone" }), { target: { value: "98765 43210" } });
     fireEvent.click(screen.getByRole("button", { name: "Add" }));
@@ -220,17 +256,17 @@ describe("the contact editor", () => {
     expect(screen.getByText("2 ready")).toBeTruthy();
   });
 
-  it("finds a row by search", () => {
-    render(<Harness initial={entries("phone,name\n9876543210,Priya\n9876501234,Ravi")} />);
+  it("finds a row by search", async () => {
+    await renderClientPage(<Harness initial={entries("phone,name\n9876543210,Priya\n9876501234,Ravi")} />, {});
     fireEvent.change(screen.getByRole("searchbox", { name: "Search contacts" }), { target: { value: "rav" } });
     const table = screen.getByRole("table");
     expect(within(table).queryByText("Priya")).toBeNull();
     expect(within(table).getByText("Ravi")).toBeTruthy();
   });
 
-  it("finds a row by the number as the row prints it, or in any script's digits", () => {
+  it("finds a row by the number as the row prints it, or in any script's digits", async () => {
     // The row shows "+91 98765 43210"; typing what is on screen must find it.
-    render(<Harness initial={entries("phone,name\n9876543210,Priya\n9876501234,Ravi")} />);
+    await renderClientPage(<Harness initial={entries("phone,name\n9876543210,Priya\n9876501234,Ravi")} />, {});
     const box = screen.getByRole("searchbox", { name: "Search contacts" });
     const table = screen.getByRole("table");
 
@@ -259,7 +295,7 @@ describe("the contact editor", () => {
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
 
-    render(<Harness />);
+    await renderClientPage(<Harness />, {});
     fireEvent.click(screen.getByRole("button", { name: "Sample CSV" }));
 
     expect(click).toHaveBeenCalledTimes(1);
@@ -269,8 +305,8 @@ describe("the contact editor", () => {
     for (const [phone] of parseCsv(text).slice(1)) expect(phone.startsWith("+9199000")).toBe(true);
   });
 
-  it("states the do-not-call rule as a fact, with no control to turn it off", () => {
-    render(<Harness />);
+  it("states the do-not-call rule as a fact, with no control to turn it off", async () => {
+    await renderClientPage(<Harness />, {});
     expect(screen.getByText(/Do-not-call numbers are never dialled/)).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("switch")).toBeNull();

@@ -130,7 +130,7 @@ const AGENT: Agent = {
   llm_surcharged: false,
 };
 
-/** Draft, because the "Before you launch" card only exists for a draft. */
+/** Draft, because the "Mandatory Regulatory Compliance Checks" card only exists for a draft. */
 const PROGRESS: CampaignProgress = progressFixture({ total: 4 });
 
 function check(...blockers: { rule: string; reason: string }[]): LaunchCheck {
@@ -155,7 +155,7 @@ async function openLaunchPanel(
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: launchCheck,
     ...over,
   });
-  await screen.findByText("Before you launch");
+  await screen.findByText("Mandatory Regulatory Compliance Checks");
   return rendered;
 }
 

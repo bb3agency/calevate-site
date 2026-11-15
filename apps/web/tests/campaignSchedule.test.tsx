@@ -182,7 +182,7 @@ describe("scheduling from the launch card", () => {
           first_dial_not_before: "2026-08-17T04:30:00+00:00",
         },
       },
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
 
     await pickDate("Start date", FUTURE_DAY);
@@ -210,7 +210,7 @@ describe("scheduling from the launch card", () => {
           launched_at: null,
         }),
       },
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
     fireEvent.click(screen.getByRole("button", { name: "Schedule start" }));
     expect((await screen.findByRole("alert")).textContent).toBe("Choose the day it should start.");
@@ -227,7 +227,7 @@ describe("scheduling from the launch card", () => {
           launched_at: null,
         }),
       },
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
     expect(container.textContent).toContain(
       "We check everything again when it starts.",
@@ -257,7 +257,7 @@ describe("a campaign waiting for its start", () => {
     ).toBeTruthy();
     // And the launch gate's list is still on screen, because it is still the question:
     // the server re-runs exactly this check when the schedule fires.
-    expect(container.textContent).toContain("Before it starts");
+    expect(container.textContent).toContain("Mandatory Regulatory Compliance Checks");
   });
 
   it("says the start was refused rather than letting it expire in silence", async () => {
@@ -317,7 +317,7 @@ describe("a campaign waiting for its start", () => {
           detail: "A campaign can only be scheduled to start in the future.",
         }),
       },
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
     await pickDate("Start date", FUTURE_DAY);
     fireEvent.click(screen.getByRole("button", { name: "Schedule start" }));
@@ -364,11 +364,11 @@ describe("arming a schedule while the gate is refusing", () => {
   it("offers both forms with blockers outstanding, and still lists every blocker", async () => {
     const { container } = await openCampaign(
       DRAFT_BLOCKED,
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
 
-    // Reachable: the one-time start and the repeat, both live rather than merely
-    // rendered — a form a client can see and cannot submit is the same dead end.
+    // Reachable: the one-time start, live rather than merely rendered — a form a client
+    // can see and cannot submit is the same dead end.
     expect(screen.getByRole("button", { name: "Start date" })).toBeTruthy();
     expect(screen.getByLabelText("Start time (IST)")).toBeTruthy();
     await pickDate("Start date", FUTURE_DAY);
@@ -379,11 +379,8 @@ describe("arming a schedule while the gate is refusing", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
-    expect(
-      (screen.getByRole("button", { name: "Set repeat" }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+    // A weekly repeat is not offered on a draft any more.
+    expect(screen.queryByRole("button", { name: "Set repeat" })).toBeNull();
 
     // AND the blockers are still there, both of them, in the client's words. This is the
     // half that must never be traded for the half above.
@@ -406,38 +403,22 @@ describe("arming a schedule while the gate is refusing", () => {
     ).toBe(true);
   });
 
-  it("says what the start will do about the blockers, beside each form", async () => {
+  it("says what the start will do about the blockers, beside the form", async () => {
     const { container } = await openCampaign(
       DRAFT_BLOCKED,
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
 
-    // Once per form, because a client reading only the repeat form must not have to
-    // scroll back up to learn that arming it is not the same as it running.
-    expectTextCount(container, "Fix the items above", 2);
+    // Beside the form, so a client need not scroll back up to learn that arming it is not
+    // the same as it running; setting a time is allowed, and the check is what decides.
+    expectTextCount(container, "Fix the items above", 1);
     expect(container.textContent).toContain(
       "You can set a time. Fix the items above before then.",
     );
-    expect(container.textContent).toContain(
-      "You can set a repeat. Fix the items above before it runs.",
-    );
-    // And the permission this whole fix rests on, in the client's words: setting a time
-    // is allowed, and the check is what decides — not this form.
-    expectTextCount(
-      container,
-      "You can set a",
-      2,
-    );
-    // The two consequences differ, and a client plans differently around them: a
-    // one-time start is given up on after a day, an occurrence is skipped and the
-    // repeat carries on. Both come from the server (`GRACE` vs `RECURRENCE_CATCHUP`).
+    // From the server's `GRACE`: a one-time start is given up on after a day.
     expect(container.textContent).toContain(
       "After a day of trying, it goes back to draft.",
     );
-    expect(container.textContent).toContain(
-      "That run is skipped.",
-    );
-    expect(container.textContent).toContain("The repeat carries on.");
     // The rule names stay the gate's vocabulary.
     expect(container.textContent).not.toContain("national_dnd_scrub_missing");
   });
@@ -451,7 +432,7 @@ describe("arming a schedule while the gate is refusing", () => {
           first_dial_not_before: "2026-08-17T04:30:00+00:00",
         },
       },
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
 
     await pickDate("Start date", FUTURE_DAY);
@@ -478,7 +459,7 @@ describe("arming a schedule while the gate is refusing", () => {
           launched_at: null,
         }),
       },
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
 
     await screen.findByText("Everything checks out.");
@@ -503,7 +484,7 @@ describe("arming a schedule while the gate is refusing", () => {
           retryable: true,
         }),
       },
-      "Before you launch",
+      "Mandatory Regulatory Compliance Checks",
     );
 
     await screen.findByRole("alert");

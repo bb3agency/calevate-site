@@ -1,5 +1,5 @@
 import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { campaignPage, detailRoutes, progressFixture } from "./campaignFixtures";
 import type { Agent } from "@/lib/api/agents";
@@ -115,14 +115,6 @@ const REPEATING: CampaignProgress = progressFixture({
     last_skipped_at: null,
     last_skipped_reason: null,
   },
-});
-
-const DRAFT: CampaignProgress = progressFixture({
-  status: "draft",
-  contacts: {},
-  total: 0,
-  concurrency: 3,
-  launched_at: null,
 });
 
 const READY: LaunchCheck = { ready: true, blockers: [] };
@@ -249,82 +241,5 @@ describe("a repeat the screen could not read", () => {
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
     expect(container.textContent).not.toContain("Repeats");
     expect(container.textContent).not.toContain("Next:");
-  });
-});
-
-describe("setting a repeat", () => {
-  it("cannot be submitted until a day is chosen, and says so", async () => {
-    const { calls } = await openCampaign(DRAFT);
-
-    await screen.findByRole("heading", { name: "Repeat every week" });
-    // The message waits for a press: a form that opens shouting is read as broken.
-    expect(screen.queryByText("Choose at least one day.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
-    expect((await screen.findByRole("alert")).textContent).toBe("Choose at least one day.");
-    expect(calls.some((c) => c.path.endsWith("/recurrence"))).toBe(false);
-
-    // Every day toggle is reachable by its full name, not by a three-letter abbreviation
-    // a screen reader spells out; ticking one clears the message.
-    fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
-    expect(screen.queryByText("Choose at least one day.")).toBeNull();
-  });
-
-  it("sends ISO weekday numbers and an IST wall-clock time", async () => {
-    /**
-     * The wire contract, asserted at the seam rather than trusted: `days` is 1 = Monday
-     * (the server's and `isoweekday()`'s numbering, NOT `Date.getDay()`'s Sunday = 0),
-     * and `at` is a wall-clock "HH:MM" rather than an instant. Both are off-by-one
-     * mistakes that would dial on the wrong day or at the wrong hour, and neither shows
-     * up in a render.
-     */
-    const { calls } = await openCampaign(DRAFT, {
-      [`POST /v1/campaigns/${CAMPAIGN_ID}/recurrence`]: {
-        days: [2],
-        at: "10:00",
-        until: null,
-        next_occurrence_at: NEXT_TUESDAY,
-        first_dial_not_before: NEXT_TUESDAY,
-      },
-    });
-
-    await screen.findByRole("heading", { name: "Repeat every week" });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
-    fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
-
-    const posted = await vi.waitFor(() => {
-      const call = calls.find(
-        (c) => c.path.endsWith("/recurrence") && c.method === "POST",
-      );
-      expect(call, "the repeat was never sent").toBeTruthy();
-      return call!;
-    });
-    expect(JSON.parse(posted.body ?? "{}")).toEqual({
-      days: [2],
-      at: "10:00",
-      until: null,
-    });
-  });
-
-  it("renders the server's refusal rather than a form that silently did nothing", async () => {
-    /**
-     * A repeat outside 9am-9pm is refused by name (`campaign_recurrence_outside_calling_
-     * hours`). The client can only act on that if it is on screen — and this is a
-     * refusal they CAN act on, which is exactly what §52 asks a failure to be.
-     */
-    const { container } = await openCampaign(DRAFT, {
-      [`POST /v1/campaigns/${CAMPAIGN_ID}/recurrence`]: problem(422, {
-        title: "That time is outside calling hours",
-        detail: "Calls may only be placed between 09:00 and 21:00 IST.",
-      }),
-    });
-
-    await screen.findByRole("heading", { name: "Repeat every week" });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
-    fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
-
-    await screen.findByRole("alert");
-    expect(container.textContent).toContain(
-      "Calls may only be placed between 09:00 and 21:00 IST.",
-    );
   });
 });

@@ -59,12 +59,12 @@ const PERSON = {
 describe("the status band", () => {
   it("is a launch panel for a draft, with what pressing Call does beside it", async () => {
     const { container } = await renderClientPage(campaignPage(), routes(progressFixture({ total: 3 })));
-    await screen.findByRole("heading", { name: "Before you launch" });
+    await screen.findByRole("heading", { name: "Mandatory Regulatory Compliance Checks" });
     expect(screen.getByRole("button", { name: "Call 3 people" })).toBeTruthy();
     expect(screen.getByRole("group", { name: "What launching does" }).textContent).toContain("3 people");
-    // Starting later and repeating are two option cards, not one hidden panel.
+    // Other call settings offers a later start; a weekly repeat is no longer set here.
     expect(screen.getByRole("heading", { name: "Start later" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Repeat every week" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Repeat every week" })).toBeNull();
     expect(container.textContent).not.toContain("Right now");
   });
 
@@ -81,13 +81,12 @@ describe("the status band", () => {
       ),
     );
     const scheduled = await screen.findByRole("heading", { name: "Scheduled" });
-    const before = screen.getByRole("heading", { name: "Before it starts" });
+    const before = screen.getByRole("heading", { name: "Mandatory Regulatory Compliance Checks" });
     // The start comes first in the band, the check under it.
     expect(scheduled.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("button", { name: "Cancel scheduled start" })).toBeTruthy();
-    // A scheduled campaign can only add a repeat; its start is already set.
+    // Its start is already set, so no second start is offered.
     expect(screen.queryByRole("heading", { name: "Start later" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "Repeat every week" })).toBeTruthy();
   });
 
   it("is the live panel once launched, with no launch or schedule forms left", async () => {
@@ -96,7 +95,7 @@ describe("the status band", () => {
       routes(progressFixture({ status: "running", launched_at: "2026-10-14T04:30:00Z", total: 4, contacts: { pending: 4 } })),
     );
     await screen.findByRole("heading", { name: "Right now" });
-    expect(container.textContent).not.toContain("Before you launch");
+    expect(container.textContent).not.toContain("Mandatory Regulatory Compliance Checks");
     expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Start later" })).toBeNull();
   });

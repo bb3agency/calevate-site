@@ -159,9 +159,8 @@ export function LaunchGate({
           </span>
         </summary>
         <section aria-labelledby={`launch-${campaignId}`} className="border-t border-line p-4 sm:p-5">
-        <p className="text-meta text-ink-muted">
-          Required by law before any call goes out. The campaign cannot start until each one is answered.
-        </p>
+        <p className="text-meta text-ink-muted">Required by law before any call goes out.</p>
+        <p className="text-meta text-ink-muted">It cannot start until each one is answered.</p>
         <DeclarationDue declaration={declaration.data} href={`${at("/verify-business")}#calling-numbers`} />
         <div className="mt-3">
           {check.isLoading ? (

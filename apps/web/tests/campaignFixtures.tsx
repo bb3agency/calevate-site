@@ -10,7 +10,7 @@ import type {
 } from "@/lib/api/campaigns";
 import type { CampaignInsights, CampaignSettings, CampaignWorkspace } from "@/lib/api/campaignWorkspace";
 
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 
 import { formatDateLong, todayIST } from "@/components/arc/ist-dates";
 
@@ -110,14 +110,17 @@ export async function pickDate(label: string, iso: string): Promise<void> {
   fireEvent.click(screen.getByRole("button", { name: label }));
   const day = new RegExp(`^${formatDateLong(iso)}`);
   const step = iso < todayIST() ? "Previous month" : "Next month";
-  await screen.findByRole("grid");
+  const grid = await screen.findByRole("grid");
+  // Role queries walk the whole accessibility tree, so on a full campaign page dozens of
+  // month steps over `screen` take seconds; the calendar's own panel holds every control used.
+  const panel = within((grid.closest('[role="dialog"]') as HTMLElement | null) ?? document.body);
   for (let moves = 0; moves < 240; moves += 1) {
-    const cell = screen.queryByRole("button", { name: day });
+    const cell = panel.queryByRole("button", { name: day });
     if (cell) {
       fireEvent.click(cell);
       return;
     }
-    fireEvent.click(screen.getByRole("button", { name: step }));
+    fireEvent.click(panel.getByRole("button", { name: step }));
   }
   throw new Error(`${iso} never appeared in the ${label} calendar`);
 }

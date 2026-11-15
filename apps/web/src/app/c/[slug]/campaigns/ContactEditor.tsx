@@ -9,6 +9,8 @@ import { FileDrop } from "@/components/fileDrop";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { asciiDigits } from "@/lib/phoneNumber";
 import { lookup } from "@/lib/lookup";
+import { problemToast } from "@/components/arc/feedback";
+import { ApiProblem } from "@/lib/api/client";
 import { contactsFromExcel } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
 import { Pagination } from "@/components/interior/pagination";
@@ -42,7 +44,7 @@ import {
  * never a fixed one: a Hindi agent's owner is not told to write Telugu. English names need
  * no script note, and before an agent is chosen none is named.
  */
-export const FILE_HINT = "An Excel sheet (.xlsx) or CSV with a name and a phone column. Up to 4 MB.";
+export const FILE_HINT = "Excel or CSV, with name and phone columns. Up to 4 MB.";
 
 /** The tips behind "File tips": what else a list can carry, and how names are said best. */
 export function fileTips(agentLanguage: string | null | undefined): string[] {
@@ -141,9 +143,11 @@ export function ContactEditor({
       text = /\.xlsx$/i.test(file.name)
         ? (await contactsFromExcel(session, file)).csv
         : decodeTextFile(new Uint8Array(await file.arrayBuffer()));
-    } catch {
-      // A file moved or locked after it was picked cannot be read.
-      setNotice(`${file.name} could not be opened. Pick it again.`);
+    } catch (failure) {
+      // The server's own sentence when it refused the sheet; otherwise the file moved or was
+      // locked after it was picked.
+      const fallback = `${file.name} could not be opened. Pick it again.`;
+      setNotice(failure instanceof ApiProblem ? (problemToast(failure, fallback).description ?? fallback) : fallback);
       return;
     }
     append(text, file.name);

@@ -172,7 +172,7 @@ describe("the campaign screens' default view", () => {
 
   it("shows a blocked draft's checklist in short lines, every blocker at once", async () => {
     const { container } = await renderClientPage(campaignPage(), detail(progressFixture()));
-    await screen.findByText("Before you launch");
+    await screen.findByText("Mandatory Regulatory Compliance Checks");
     await screen.findByText("Add the people to call.");
     expect(tooLong(visibleLines(container))).toEqual([]);
   });

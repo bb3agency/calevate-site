@@ -15,10 +15,12 @@
 
 import { useEffect, useState } from "react";
 
-import { problemToast } from "@/components/arc/feedback";
-import { FIELD, PRIMARY_BUTTON_SM } from "@/components/ui";
+import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
+import { FIELD, ProblemNotice } from "@/components/ui";
 import { useUpdateCampaign } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
+
+import { PLATFORM_WINDOW, windowRefusal } from "./NewCampaignFlow";
 
 const DAY_MINUTES = 1440;
 const MAX_DAYS = 5;
@@ -49,28 +51,25 @@ export function OtherCallSettings({
 }) {
   const { session } = useClientRealm();
   const update = useUpdateCampaign(session, campaignId);
-  const [start, setStart] = useState(callingHours?.start ?? "09:00");
-  const [end, setEnd] = useState(callingHours?.end ?? "21:00");
+  const feedback = useActionFeedback(update, { errorDisplay: "inline" });
+  const [start, setStart] = useState(callingHours?.start ?? PLATFORM_WINDOW.start);
+  const [end, setEnd] = useState(callingHours?.end ?? PLATFORM_WINDOW.end);
   const [days, setDays] = useState(retryDays(retryPolicy) || MAX_DAYS);
-  const [error, setError] = useState<unknown>(null);
-  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    setStart(callingHours?.start ?? "09:00");
-    setEnd(callingHours?.end ?? "21:00");
+    setStart(callingHours?.start ?? PLATFORM_WINDOW.start);
+    setEnd(callingHours?.end ?? PLATFORM_WINDOW.end);
   }, [callingHours?.start, callingHours?.end]);
 
+  // Said before the save rather than learned from the server's refusal.
+  const hoursProblem = windowRefusal(start, end);
   const save = () => {
-    setError(null);
-    setSaved(false);
-    const platform = start === "09:00" && end === "21:00";
-    update.mutate(
-      {
-        calling_hours: platform ? null : { start, end },
-        retry_policy: { max_attempts: days, gaps_minutes: Array(days - 1).fill(DAY_MINUTES) },
-      },
-      { onSuccess: () => setSaved(true), onError: setError },
-    );
+    if (hoursProblem) return;
+    const platform = start === PLATFORM_WINDOW.start && end === PLATFORM_WINDOW.end;
+    feedback.run({
+      calling_hours: platform ? null : { start, end },
+      retry_policy: { max_attempts: days, gaps_minutes: Array(days - 1).fill(DAY_MINUTES) },
+    });
   };
 
   const disabled = !canWrite || !editable;
@@ -86,10 +85,10 @@ export function OtherCallSettings({
         <p className="mt-1 text-meta text-ink-muted">These can be changed while the campaign is a draft.</p>
       )}
 
-      <div className="mt-4 grid gap-6 md:grid-cols-2">
+      <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
         <div>
           <h3 className="text-body font-semibold text-ink">When to call</h3>
-          <p className="mt-0.5 text-meta text-ink-muted">The hours it may call each day, in IST, between 9 am and 9 pm.</p>
+          <p className="mt-0.5 text-meta text-ink-muted">Each day, in IST, from 9am to 9pm at most.</p>
           <div className="mt-2 flex items-end gap-2">
             <label className="text-meta font-medium text-ink">
               From
@@ -116,13 +115,16 @@ export function OtherCallSettings({
               />
             </label>
           </div>
+          {hoursProblem && (
+            <p role="alert" className="mt-2 text-meta text-danger">
+              {hoursProblem}
+            </p>
+          )}
         </div>
 
         <div>
           <h3 className="text-body font-semibold text-ink">If nobody answers</h3>
-          <p className="mt-0.5 text-meta text-ink-muted">
-            Try again at the same time the next day, until they are reached.
-          </p>
+          <p className="mt-0.5 text-meta text-ink-muted">Try again at the same time the next day.</p>
           <label className="mt-2 block text-meta font-medium text-ink">
             Keep trying for
             <select
@@ -138,26 +140,27 @@ export function OtherCallSettings({
               ))}
             </select>
           </label>
-          <p className="mt-1 text-meta text-ink-faint">At most {MAX_DAYS} days, so nobody is called every day without end.</p>
+          <p className="mt-1 text-meta text-ink-faint">At most {MAX_DAYS} days, so no one is called every day.</p>
         </div>
       </div>
 
-      {error != null && (
-        <p role="alert" className="mt-3 text-meta text-danger">
-          {problemToast(error, "The settings did not save").description ?? "The settings did not save"}
-        </p>
+      {update.error != null && (
+        <div className="mt-3">
+          <ProblemNotice error={update.error} />
+        </div>
       )}
       <div className="mt-4 flex items-center gap-3">
-        <button
+        <ActionButton
           type="button"
-          className={PRIMARY_BUTTON_SM}
-          disabled={disabled || update.isPending}
+          variant="primary-sm"
+          status={feedback.status}
+          successLabel="Saved"
+          disabled={disabled || hoursProblem !== null}
           title={refusal}
           onClick={save}
         >
-          {update.isPending ? "Saving…" : "Save"}
-        </button>
-        {saved && <span className="text-meta text-brand-strong">Saved</span>}
+          Save
+        </ActionButton>
       </div>
 
       {startLater && <div className="mt-6 border-t border-line pt-5">{startLater}</div>}
