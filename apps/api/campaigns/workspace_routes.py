@@ -34,6 +34,7 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
 from apps.api.kb import uploads as kb_uploads
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
@@ -285,6 +286,7 @@ async def request_proposal(
     principal: Dispatcher,
 ) -> CampaignProposalOut:
     assert principal.tenant_id is not None
+    await workspace.read_workspace(session, campaign_id)
     # Writing the script spends the account's dashboard AI allowance, as the agent Script
     # page's Pip does: refused at the ceiling or under view-as, before anything is queued.
     assert_view_as_may(principal, "billing.ai_assist")
@@ -430,7 +432,7 @@ async def save_opening_b(
         raise ProblemError(
             kind="validation",
             code="opening_b_formatting",
-            title="Check this field",
+            title="Use plain words in the opening",
             detail="Write the opening as plain spoken words, without symbols.",
         )
     await session.execute(
@@ -758,6 +760,7 @@ class AgentHolderOut(_Out):
     summary="The campaign whose script this agent speaks now (the last one to put it live)",
 )
 async def agent_holder(agent_id: UUID, session: Session, _: Reader) -> AgentHolderOut:
+    await assert_visible(session, "agent", agent_id)
     row = (
         await session.execute(
             text(

@@ -621,6 +621,31 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             },
         )
         ids["follow_up_id"] = str(follow_up_id)
+        # D-992: a material and a written Pip draft on A's campaign, so archiving and
+        # discarding them from a neighbour reach rows that exist.
+        material_id, proposal_id = uuid.uuid4(), uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO campaign_materials (id, tenant_id, campaign_id, kind, title, note) "
+                "VALUES (:m, :t, :c, 'note', 'Adversarial note', 'Closed on Sundays')"
+            ),
+            {"m": material_id, "t": tenant_id, "c": uuid.UUID(ids["campaign_id"])},
+        )
+        await s.execute(
+            text("UPDATE campaigns SET script_proposal = CAST(:p AS jsonb) WHERE id = :c"),
+            {
+                "p": json.dumps(
+                    {
+                        "id": str(proposal_id),
+                        "status": "ready",
+                        "requested_at": datetime.now(UTC).isoformat(),
+                    }
+                ),
+                "c": uuid.UUID(ids["campaign_id"]),
+            },
+        )
+        ids["material_id"] = str(material_id)
+        ids["proposal_id"] = str(proposal_id)
         await s.execute(
             text(
                 "INSERT INTO data_rights_requests (id, tenant_id, kind, channel, subject_ref, "
@@ -642,6 +667,15 @@ _TOMORROW_NOON_IST = (
     datetime.now(UTC).astimezone(timezone(timedelta(hours=5, minutes=30))).date()
     + timedelta(days=1)
 ).isoformat() + "T12:00:00+05:30"
+
+#: Routes in `_IDOR_ROUTES` that take a multipart form rather than JSON: a JSON body would be
+#: refused as a missing file (422) before the handler reads the id, so the sweep sends this
+#: smallest valid upload instead.
+_MULTIPART_ROUTES: dict[str, dict[str, tuple[str, bytes, str]]] = {
+    "POST /v1/campaigns/{campaign_id}/materials/upload": {
+        "file": ("idor-sweep.txt", b"idor sweep", "text/plain"),
+    },
+}
 
 #: (method, template, body, headers). The body is the SMALLEST one that passes validation,
 #: because a 422 would mean the sweep never reached the tenant check — see the assertion
@@ -772,6 +806,40 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/campaigns/{campaign_id}/results", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/opt-outs", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/complaint-review", {"reviewed": True}, {}),
+    # The D-992 workspace: the main task, script, materials and Pip's draft, what the calls
+    # taught, the opening test, the test call and the campaign's own settings. Each reads the
+    # campaign (or, for the holder, the agent) under the caller's RLS before anything else.
+    ("GET", "/v1/campaigns/{campaign_id}/workspace", {}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/main-task", {"main_task": "idor sweep"}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/script", {"script": {}}, {}),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/materials",
+        {"kind": "note", "title": "idor sweep", "note": "idor sweep"},
+        {},
+    ),
+    ("POST", "/v1/campaigns/{campaign_id}/materials/upload", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/materials/{material_id}/archive", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/script/proposal", {}, {}),
+    ("DELETE", "/v1/campaigns/{campaign_id}/script/proposal/{proposal_id}", {}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/questions", {}, {}),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/questions/answer",
+        {"topic": "idor sweep", "answer": "idor sweep"},
+        {},
+    ),
+    ("PUT", "/v1/campaigns/{campaign_id}/opening-b", {"opening_b": None}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/insights", {}, {}),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/test-call",
+        {"number": "+919000000005"},
+        {"Idempotency-Key": "idor-sweep-campaign-test-call"},
+    ),
+    ("GET", "/v1/campaigns/{campaign_id}/settings", {}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/settings", {}, {}),
+    ("GET", "/v1/campaigns/agents/{agent_id}/holder", {}, {}),
     ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
     # A neighbour's opt-out evidence is the caller's own words; restoring one would put a
     # person who said "do not call me" back on another business's dialling list.
@@ -1183,7 +1251,13 @@ async def test_a_neighbours_object_id_is_not_found_and_never_forbidden(
             extra = {k: v.replace("{caller_slug}", str(org_b["slug"])) for k, v in extra.items()}
             for key, value in ids.items():
                 extra = {k: v.replace("{" + key + "}", value) for k, v in extra.items()}
-            response = await http.request(method, path, headers={**headers, **extra}, json=sent)
+            upload = _MULTIPART_ROUTES.get(f"{method} {template}")
+            if upload is not None:
+                response = await http.request(
+                    method, path, headers={**headers, **extra}, files=upload
+                )
+            else:
+                response = await http.request(method, path, headers={**headers, **extra}, json=sent)
             payload = response.json() if response.content else {}
             code = (
                 str(payload.get("type", "")).rsplit("/", 1)[-1]

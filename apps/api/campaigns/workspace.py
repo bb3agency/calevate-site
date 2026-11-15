@@ -164,14 +164,16 @@ async def read_workspace(session: AsyncSession, campaign_id: UUID) -> Workspace:
     )
 
 
-def _invalid(code: str, detail: str) -> ProblemError:
-    return ProblemError(kind="validation", code=code, title="Check this field", detail=detail)
+def _invalid(code: str, title: str, detail: str) -> ProblemError:
+    return ProblemError(kind="validation", code=code, title=title, detail=detail)
 
 
 def _clean(value: str, *, limit: int, field: str) -> str:
     cleaned = value.strip()
     if len(cleaned) > limit:
-        raise _invalid(f"{field}_too_long", f"Keep this under {limit:,} characters.")
+        raise _invalid(
+            f"{field}_too_long", "That is too long", f"Keep this under {limit:,} characters."
+        )
     return cleaned
 
 
@@ -214,11 +216,11 @@ async def add_material(
     await _campaign_row(session, campaign_id)
     title = _clean(title, limit=TITLE_MAX, field="title")
     if not title:
-        raise _invalid("title_required", "Give it a short name.")
+        raise _invalid("title_required", "Name this material", "Give it a short name.")
     if kind == "note" and not (note or "").strip():
-        raise _invalid("note_required", "Write the note.")
+        raise _invalid("note_required", "The note is empty", "Write the note.")
     if kind == "file" and kb_upload_id is None:
-        raise _invalid("file_required", "Upload the file first.")
+        raise _invalid("file_required", "No file uploaded yet", "Upload the file first.")
     if kb_upload_id is not None:
         # RLS scopes this read to the caller's account, so another account's upload is absent.
         found = (
@@ -276,7 +278,9 @@ async def request_proposal(
     row = await _campaign_row(session, campaign_id, lock=True)
     if not (row.main_task or "").strip():
         raise _invalid(
-            "main_task_required", "Write the main task first, so Pip knows what the calls are for."
+            "main_task_required",
+            "Write the main task first",
+            "Write the main task first, so Pip knows what the calls are for.",
         )
     now = datetime.now(UTC)
     pending = _proposal(row.script_proposal, now=now)
@@ -315,6 +319,7 @@ async def request_proposal(
 async def clear_proposal(session: AsyncSession, campaign_id: UUID, proposal_id: UUID) -> bool:
     """Stop a draft being written, or discard / settle a written one. The job's own write is a
     compare-and-set on the id, so a stopped draft is never written back."""
+    await _campaign_row(session, campaign_id)
     done = (
         await session.execute(
             text(
