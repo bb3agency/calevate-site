@@ -16,7 +16,7 @@ from sqlalchemy import text
 from tests.admin_security_test import _make_admin
 from tests.api_security_test import _make_tenant
 
-from apps.api.copilot import admin_actions, admin_tools, service, tools
+from apps.api.copilot import action_log, admin_actions, admin_tools, service, tools
 from apps.api.copilot.actions import WriteRefusedError
 from apps.api.core.context import Principal
 from apps.api.db.session import tenant_session, untenanted_session
@@ -436,7 +436,7 @@ async def test_a_change_the_clients_session_committed_keeps_its_token_spent(
         raise RuntimeError("the platform session failed")
 
     with monkeypatch.context() as patched:
-        patched.setattr(admin_actions.action_log, "insert", _fails)
+        patched.setattr(action_log, "insert", _fails)
         with pytest.raises(RuntimeError):
             await _confirm(token, proposal, role="operator")
     async with tenant_session(tenant_id) as session:
