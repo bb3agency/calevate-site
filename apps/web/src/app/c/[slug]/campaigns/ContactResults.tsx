@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PhoneCall, UserMinus } from "lucide-react";
 
 import { ChipGroup } from "@/components/arc/chip-group";
@@ -92,6 +92,13 @@ export function ContactResults({
   });
   const data = people.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
+  // A page that lost its rows (the last person taken off, everyone under "Calling" moving
+  // on) steps back to the last page that has some, rather than saying nobody matches. Only
+  // on the server's answer for THIS page, never on the previous page's placeholder.
+  const settledPages = data && !people.isPlaceholderData ? pages : undefined;
+  useEffect(() => {
+    if (settledPages !== undefined && page > settledPages) setPage(settledPages);
+  }, [page, settledPages]);
   const all = data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : 0;
 
   const shown = OUTCOME_ORDER.filter((o) => (data?.counts[o] ?? 0) > 0);

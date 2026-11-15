@@ -1,4 +1,5 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { QueryClient } from "@tanstack/react-query";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Me } from "@/lib/api/client";
@@ -162,5 +163,38 @@ describe("renaming a campaign", () => {
     );
     const name = (await screen.findByRole("button", { name: "Edit Campaign name: Diwali offer" })) as HTMLButtonElement;
     expect(name.disabled).toBe(true);
+  });
+});
+
+describe("a page of people that loses its rows", () => {
+  it("steps back to the last page that has people instead of saying nobody matches", async () => {
+    const person = (i: number) => ({
+      ...ON_CALL_PERSON,
+      id: `cc-${i}`,
+      name: `Person ${i}`,
+      phone_e164: `+9198765${String(10000 + i).slice(-5)}`,
+      call_id: null,
+    });
+    const counts = (n: number) => ({ ...contactsFixture().counts, calling: n });
+    const pageTwo = `/v1/campaigns/${CAMPAIGN_ID}/contacts?limit=50&offset=50`;
+    const table = routes(progressFixture({ ...LAUNCHED, total: 51, contacts: { dialing: 51 } }), {
+      [contactsPath()]: contactsFixture({ total: 51, counts: counts(51), items: Array.from({ length: 50 }, (_, i) => person(i)) }),
+      [pageTwo]: contactsFixture({ total: 51, counts: counts(51), items: [{ ...person(50), name: "The last one" }] }),
+      [ON_A_CALL]: contactsFixture(),
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    await renderClientPage(campaignPage(), table, "acme", client);
+    fireEvent.click(await screen.findByRole("button", { name: "Page 2" }));
+    expect(await screen.findByText("The last one")).toBeTruthy();
+
+    // The re-read of that page comes back empty: there are fifty now, all on page 1.
+    table[pageTwo] = contactsFixture({ total: 50, counts: counts(50), items: [] });
+    table[contactsPath()] = contactsFixture({ total: 50, counts: counts(50), items: Array.from({ length: 50 }, (_, i) => person(i)) });
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["campaign"] });
+    });
+
+    expect(await screen.findByText("Person 0")).toBeTruthy();
+    expect(screen.queryByText("Nobody matches.")).toBeNull();
   });
 });
