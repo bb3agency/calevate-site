@@ -45,9 +45,10 @@ dependencies = [
     # from the internet in the worker image. The floor is a security floor: pypdf < 6.21.2
     # has published resource-exhaustion advisories on crafted files (GHSA-6c7f-9265-g8fw,
     # GHSA-jr96-gvgh-j3r4, GHSA-gmh7-3g9r-mjh5 fixed in 6.21.2; GHSA-cgf9-327m-v77c in
-    # 6.21.0; github.com/py-pdf/pypdf/security/advisories, read 29 Oct 2026). Pure Python,
+    # 6.21.0; github.com/py-pdf/pypdf/security/advisories, read 29 Oct 2026); seven more
+    # (CVE-2026-119203..119209) are fixed in 6.21.4 (pip-audit, 15 Nov 2026). Pure Python,
     # no build hooks, no required dependencies.
-    "pypdf>=6.21.2",
+    "pypdf>=6.21.4",
     # Decodes the pictures inside a client's document (`document_pictures`, D-956), and
     # pypdf needs it to extract PDF images. Already locked at 13.0.0 through the api's
     # fpdf2; declared here because the workers import it by name. 13.0.0 is the floor the

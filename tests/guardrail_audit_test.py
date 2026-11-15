@@ -1153,6 +1153,8 @@ class TestRedactionExposure:
             "SubjectExportCallOut.summary_local",
             "SubjectExportTurnOut.text",
             "SubjectExportCallOut.summary",
+            # Why the call did or did not reach its goal, masked like the summary (E7-02).
+            "SubjectExportCallOut.goal_reason",
             # The hand-off brief in the subject export: the model's summary, stored
             # redacted like the call summary.
             "SubjectExportHandoffOut.summary",
