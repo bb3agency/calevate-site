@@ -56,7 +56,7 @@ async def planted() -> AsyncIterator[list[str]]:
             for row in (
                 await session.execute(
                     text("SELECT id FROM users WHERE lower(email) = ANY(:e)"),
-                    {"e": [a.casefold() for a in addresses]},
+                    {"e": [a.lower() for a in addresses]},
                 )
             ).all()
         ]
@@ -154,6 +154,67 @@ async def test_a_weak_password_is_refused_before_the_code_is_spent(
         email=email, code=box.sent[0]["secret"], password=GOOD_PASSWORD, name=None, ip=None
     )
     assert created.subject_id is not None, "the same code still works after a retype"
+
+
+async def test_a_code_mailed_to_one_address_does_not_verify_one_that_only_casefolds_to_it(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """`maß@…` and `mass@…` are two mailboxes. `casefold()` makes them one string while
+    `lower()` keeps them apart, so a code mailed to the second must not open a verified
+    account on the first."""
+    tag = uuid.uuid4().hex[:10]
+    mine, theirs = f"mass-{tag}@calevate-test.example", f"maß-{tag}@calevate-test.example"
+    planted.extend([mine, theirs])
+    box = await _start(monkeypatch, mine)
+
+    with pytest.raises(ProblemError):
+        await registration.complete_signup(
+            email=theirs, code=box.sent[0]["secret"], password=GOOD_PASSWORD, name=None, ip=None
+        )
+    async with untenanted_session() as session:
+        made = (
+            await session.execute(
+                text("SELECT count(*) FROM users WHERE lower(email) = lower(:e)"), {"e": theirs}
+            )
+        ).scalar_one()
+    assert made == 0
+
+
+async def test_an_address_with_a_sharp_s_can_be_found_to_sign_in(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    address = f"maß-{uuid.uuid4().hex[:10]}@calevate-test.example"
+    planted.append(address)
+    box = await _start(monkeypatch, address)
+    created = await registration.complete_signup(
+        email=address, code=box.sent[0]["secret"], password=GOOD_PASSWORD, name=None, ip=None
+    )
+
+    found = await resolve_by_email("client", address)
+    assert found is not None and found.subject_id == created.subject_id
+
+
+async def test_a_decomposed_passphrase_the_policy_accepts_is_stored_not_orphaned(
+    monkeypatch: pytest.MonkeyPatch, planted: list[str]
+) -> None:
+    """The policy counts NFC code points and so must the store: a passphrase typed in
+    decomposed form, over the raw limit but within it once composed, used to pass the
+    policy, spend the code and create the account, and only then be refused — an account
+    with no password whose only answer afterwards was `account_exists`."""
+    import unicodedata
+
+    email = _address("nfd")
+    planted.append(email)
+    words = "élève été château forêt répété " * 4
+    password = unicodedata.normalize("NFD", words.strip())
+    composed = unicodedata.normalize("NFC", password)
+    assert len(password) > 128 >= len(composed), (len(password), len(composed))
+    box = await _start(monkeypatch, email)
+
+    created = await registration.complete_signup(
+        email=email, code=box.sent[0]["secret"], password=password, name=None, ip=None
+    )
+    assert await has_password("client", created.subject_id)
 
 
 # --- Google sign-in -------------------------------------------------------------------

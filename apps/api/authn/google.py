@@ -504,9 +504,7 @@ async def finish(
             await _link(subject_id, sub, at)
             linked = True
         else:
-            invited = (
-                invited_email is not None and invited_email.strip().casefold() == email.casefold()
-            )
+            invited = invited_email is not None and invited_email.strip().lower() == email.lower()
             if not signup_open and not invited:
                 raise _refused(
                     "no_account_for_google",

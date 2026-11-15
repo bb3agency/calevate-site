@@ -478,7 +478,7 @@ async def accept_for_verified_address(
         ).first()
     if row is None:
         raise invitation_unusable()
-    if str(row[1]).strip().casefold() != verified_email.strip().casefold():
+    if str(row[1]).strip().lower() != verified_email.strip().lower():
         log.info("auth_invitation_address_mismatch", extra={"user_id": str(user_id)})
         return None
     tenant_id = UUID(str(row[0]))
@@ -547,7 +547,7 @@ async def _find_or_create_user(
     The re-read after a conflict is not the old read repeated — `ON CONFLICT DO NOTHING`
     tells us a row exists but not which, and its id is the whole return value.
     """
-    needle = email.casefold()
+    needle = email.lower()
     async with untenanted_session() as session:
         existing = (
             await session.execute(
