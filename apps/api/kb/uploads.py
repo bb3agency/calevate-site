@@ -431,6 +431,22 @@ def assert_within_limit(byte_size: int) -> None:
         )
 
 
+async def live_duplicate_of(session: AsyncSession, *, tenant_id: UUID, data: bytes) -> UUID | None:
+    """The upload already LIVE in this account with exactly these bytes, if any. A campaign
+    material reuses it rather than being refused (D-992): the file is already knowledge, and
+    the campaign only needs to point at it."""
+    return (
+        await session.execute(
+            text(
+                "SELECT u.id FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id "
+                "WHERE u.tenant_id = :tid AND u.original_sha256 = :sha AND s.is_active "
+                "ORDER BY u.created_at DESC LIMIT 1"
+            ),
+            {"tid": tenant_id, "sha": hashlib.sha256(data).hexdigest()},
+        )
+    ).scalar()
+
+
 async def _refuse_live_duplicate(session: AsyncSession, *, tenant_id: UUID, digest: str) -> None:
     """Refuse a file byte-identical to one already live in this account.
 

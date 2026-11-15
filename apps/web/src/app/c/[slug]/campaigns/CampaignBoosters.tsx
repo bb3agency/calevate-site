@@ -7,6 +7,7 @@
  * status colours stay reserved for status.
  */
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -14,15 +15,21 @@ import { useEffect, useState } from "react";
 import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
-import { useDuplicateCampaign } from "@/lib/api/campaigns";
+import { isAssignable } from "@/lib/agentState";
+import { useAgents } from "@/lib/api/agents";
+import { useDuplicateCampaign, useUpdateCampaign } from "@/lib/api/campaigns";
 import {
   useCampaignInsights,
   useCampaignTestCall,
   useSaveOpeningB,
+  workspaceKey,
   type CampaignInsights,
 } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
 import { hourWords } from "@/lib/clock";
+
+import { CampaignVoiceSettings } from "./CampaignVoiceSettings";
+import { AgentChoice } from "./NewCampaignSteps";
 
 type Common = { slug: string; campaignId: string; canWrite: boolean; refusal?: string };
 
@@ -59,16 +66,6 @@ function errorText(error: unknown, fallback: string): string {
   return problemToast(error, fallback).description ?? fallback;
 }
 
-/** Before Start: hear it, and set up a second opening to test. */
-export function BeforeStartBoosters(props: Common) {
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <HearItFirst {...props} />
-      <OpeningTest {...props} />
-    </div>
-  );
-}
-
 /** After Start: what the calls teach, and the next moves. */
 export function ImproveTab(props: Common) {
   const { session } = useClientRealm();
@@ -95,9 +92,9 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
   const result = call.data;
   return (
     <Card
-      title="Hear it on your phone first"
-      hint="Rings your number with this campaign's script."
-      info="It puts the script on the agent first, so you hear exactly what people will hear."
+      title="Test call"
+      hint="The chosen agent rings your phone."
+      info="It puts this campaign's script on the agent first, so you hear exactly what people will hear."
       accent="border-l-brand"
     >
       <div className="flex flex-wrap items-end gap-2">
@@ -120,7 +117,7 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
           title={refusal}
           onClick={() => call.mutate({ number, numberIsMine: mine })}
         >
-          {call.isPending ? "Calling…" : "Ring me"}
+          {call.isPending ? "Calling…" : "Call me"}
         </button>
       </div>
       <label className="mt-2 flex items-center gap-2 text-meta text-ink-muted">
@@ -351,5 +348,54 @@ function WhatsAppFollowUp({ slug }: { slug: string }) {
         Set up a follow-up
       </Link>
     </Card>
+  );
+}
+
+/**
+ * STEP 4, KEPT SIMPLE (founder, 15 Nov 2026): the agents to choose from, then a test call with
+ * the chosen one speaking this campaign's script. What the call says (its opening included)
+ * belongs in the script, not here. The agent can be changed while the campaign is a draft.
+ */
+export function AgentAndTestCall({
+  slug,
+  campaignId,
+  agentId,
+  editable,
+  canWrite,
+  refusal,
+}: Common & { agentId: string; editable: boolean }) {
+  const { session } = useClientRealm();
+  const agents = useAgents(session);
+  const update = useUpdateCampaign(session, campaignId);
+  useActionFeedback(update, { errorDisplay: "inline" });
+  const client = useQueryClient();
+  const options = (agents.data ?? []).filter(isAssignable);
+
+  const choose = (id: string) => {
+    if (id === agentId || !editable || !canWrite) return;
+    update.mutate(
+      { agent_id: id },
+      { onSuccess: () => void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) }) },
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {!agents.data && !agents.error && <Skeleton rows={2} label="Loading your agents" />}
+      {agents.error != null && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
+      {options.length > 0 && (
+        <AgentChoice
+          onChange={choose}
+          agentOptions={options}
+          selectedAgentId={agentId}
+          selectedAgent={options.find((agent) => agent.id === agentId)}
+          disabled={!canWrite || !editable || update.isPending}
+        />
+      )}
+      {!editable && <p className="text-meta text-ink-muted">The agent can change only while it is a draft.</p>}
+      {update.error != null && <ProblemNotice error={update.error} />}
+      <CampaignVoiceSettings campaignId={campaignId} agentId={agentId} canWrite={canWrite} refusal={refusal} />
+      <HearItFirst slug={slug} campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
+    </div>
   );
 }

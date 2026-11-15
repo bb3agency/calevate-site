@@ -11,7 +11,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useRef } from "react";
 
-import { apiRequest, type Session } from "./client";
+import { apiRequest, apiUpload, type Session } from "./client";
 import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 import type { CallScript } from "./script";
@@ -178,5 +178,50 @@ export function useCampaignTestCall(session: Session, campaignId: string) {
       held.current.delete(number);
       void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
     },
+  });
+}
+
+/** Upload a file for a campaign: into the knowledge, or the copy already there reused. */
+export function uploadMaterial(session: Session, campaignId: string, file: File, title?: string) {
+  const form = new FormData();
+  form.set("file", file);
+  if (title) form.set("title", title);
+  return apiUpload<CampaignMaterial>(session, `${base(campaignId)}/materials/upload`, form);
+}
+
+export function useUploadMaterial(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, ({ file, title }: { file: File; title?: string }) =>
+    uploadMaterial(session, campaignId, file, title),
+  );
+}
+
+export type CampaignSettings = Schemas["CampaignSettingsOut"];
+export type CampaignSettingsValues = Schemas["CampaignSettingsValues-Output"];
+export type CampaignSettingsInput = Schemas["CampaignSettingsValues-Input"];
+export const settingsKey = (org: string, campaignId: string) => ["campaign-settings", org, campaignId] as const;
+
+/** The agent's defaults and this campaign's own settings over them (D-994). */
+export function useCampaignSettings(session: Session, campaignId: string, agentId: string) {
+  return useQuery({
+    queryKey: [...settingsKey(session.orgSlug, campaignId), agentId],
+    queryFn: () => apiRequest<CampaignSettings>(session, `${base(campaignId)}/settings`),
+  });
+}
+
+export function useSaveCampaignSettings(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (overrides: CampaignSettingsInput) =>
+      apiRequest<CampaignSettings>(session, `${base(campaignId)}/settings`, { method: "PUT", body: overrides }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: settingsKey(session.orgSlug, campaignId) }),
+  });
+}
+
+/** The campaign whose script and settings an agent carries now, if any. */
+export function useAgentHolder(session: Session, agentId: string) {
+  return useQuery({
+    queryKey: ["agent-holder", session.orgSlug, agentId],
+    queryFn: () =>
+      apiRequest<Schemas["AgentHolderOut"]>(session, `/v1/campaigns/agents/${encodeURIComponent(agentId)}/holder`),
   });
 }

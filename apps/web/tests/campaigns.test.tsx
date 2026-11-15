@@ -140,6 +140,7 @@ const OUTCOMES: CallOutcomes = {
 function detail(progress: unknown, extra: Routes = {}): Routes {
   return {
     "/v1/me": ME,
+    "/v1/agents": [AGENT],
     ...detailRoutes(),
     [`/v1/campaigns/${CAMPAIGN_ID}`]: progress,
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: BLOCKED,

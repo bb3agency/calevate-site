@@ -142,11 +142,13 @@ export function AgentChoice({
   agentOptions,
   selectedAgentId,
   selectedAgent,
+  disabled = false,
 }: {
   onChange: (agentId: string) => void;
   agentOptions: Agent[];
   selectedAgentId: string;
   selectedAgent: Agent | undefined;
+  disabled?: boolean;
 }) {
   const { session, href } = useClientRealm();
   const options = agentOptions.map((agent) => ({
@@ -171,6 +173,7 @@ export function AgentChoice({
         value={selectedAgentId}
         options={options}
         onChange={onChange}
+        disabled={disabled}
         columns="sm:grid-cols-2"
       />
       {selectedAgent && !canDialOut(selectedAgent) ? (

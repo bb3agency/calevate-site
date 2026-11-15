@@ -530,6 +530,8 @@ class AgentRow(TypedDict):
     forwarded_line: NotRequired[bool]
     #: The applied version's authored `CallScript`, or NULL for a freeform one.
     structured_script: NotRequired[dict[str, Any] | None]
+    #: The settings the campaign holding this agent sets over its defaults (D-994).
+    campaign_overrides: NotRequired[dict[str, Any] | None]
     #: The agent's call handling values and the account's (D-751); NULL inherits.
     turn_silence_ms: NotRequired[int | None]
     end_call_on_finish: NotRequired[bool | None]
@@ -709,7 +711,7 @@ async def _load_agent(
             "published or dialled.",
             remediation="Set the agent to inbound, outbound or both and try again.",
         )
-    return {
+    loaded: AgentRow = {
         "id": row[0],
         "name": row[1],
         "direction": direction,
@@ -767,6 +769,12 @@ async def _load_agent(
         # The facts this agent knows by heart, in rank order (D-896, `agents/hot_facts`).
         "hot_facts": await hot_facts.load_texts(session, agent_id=agent_id),
     }
+    # The agent holds defaults; the campaign that last put its script on it lays its own
+    # settings over them here, the one place an engine config's row is read (D-994), so a
+    # publish, the drift sweep and a dial agree.
+    from apps.api.campaigns.settings import apply_overrides, held_overrides
+
+    return cast(AgentRow, apply_overrides(dict(loaded), await held_overrides(session, agent_id)))
 
 
 def posture_of(agent: AgentRow) -> DisclosurePosture:

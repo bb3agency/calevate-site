@@ -8,7 +8,7 @@ import type {
   CampaignSummary,
   ContactResults,
 } from "@/lib/api/campaigns";
-import type { CampaignInsights, CampaignWorkspace } from "@/lib/api/campaignWorkspace";
+import type { CampaignInsights, CampaignSettings, CampaignWorkspace } from "@/lib/api/campaignWorkspace";
 
 import { fireEvent, screen } from "@testing-library/react";
 
@@ -180,6 +180,18 @@ export function insightsFixture(over: Partial<CampaignInsights> = {}): CampaignI
   };
 }
 
+/** `GET /v1/campaigns/{id}/settings` (D-994): the agent's defaults, nothing overridden yet. */
+export function settingsFixture(over: Partial<CampaignSettings> = {}): CampaignSettings {
+  return {
+    agent_id: FIXTURE_AGENT_ID,
+    agent_name: "Outbound follow-up",
+    applied_now: false,
+    defaults: { language_primary: "te-IN", speaking_speed: "1", max_call_duration_s: 600 },
+    overrides: {},
+    ...over,
+  };
+}
+
 /** The reads every render of one campaign makes, besides the progress and launch check. */
 export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
   return {
@@ -187,6 +199,7 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/results`]: resultsFixture(),
     [`/v1/campaigns/${id}/workspace`]: workspaceFixture({ campaign_id: id }),
     [`/v1/campaigns/${id}/insights`]: insightsFixture(),
+    [`/v1/campaigns/${id}/settings`]: settingsFixture(),
     ...leadPickerRoutes(),
     ...dltRegistrationRoute(),
     [timelinePath(id)]: {

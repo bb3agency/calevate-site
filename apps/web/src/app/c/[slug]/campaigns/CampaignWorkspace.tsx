@@ -29,6 +29,7 @@ import {
   useRequestCampaignScript,
   useSaveCampaignScript,
   useSaveMainTask,
+  useUploadMaterial,
   type CampaignWorkspace as Workspace,
 } from "@/lib/api/campaignWorkspace";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
@@ -202,8 +203,10 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
 function Materials({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const add = useAddMaterial(session, campaignId);
+  const uploadFile = useUploadMaterial(session, campaignId);
   const archive = useArchiveMaterial(session, campaignId);
   useActionFeedback(add, { errorDisplay: "inline" });
+  useActionFeedback(uploadFile, { errorDisplay: "inline" });
   const archiveFeedback = useActionFeedback(archive, { errorTitle: "Could not remove it", successToast: "Removed" });
   const [query, setQuery] = useState("");
 
@@ -225,9 +228,13 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
       <MaterialForm
         canWrite={canWrite}
         refusal={refusal}
-        onAdd={(item) => add.mutateAsync(item)}
-        adding={add.isPending}
-        addError={add.error}
+        onAdd={({ file, ...item }) => {
+          add.reset();
+          uploadFile.reset();
+          return file ? uploadFile.mutateAsync({ file, title: item.title }) : add.mutateAsync(item);
+        }}
+        adding={add.isPending || uploadFile.isPending}
+        addError={uploadFile.error ?? add.error}
       />
 
       {space.materials.length > 0 && (

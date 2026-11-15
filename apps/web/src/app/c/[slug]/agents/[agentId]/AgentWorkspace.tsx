@@ -41,6 +41,7 @@ import { PageHeader } from "@/components/console/pageHeader";
 import { SettingsLayout, useActiveSection } from "@/components/console/settingsLayout";
 import { isDeleted } from "@/lib/agentState";
 import { useAgent, type Agent } from "@/lib/api/agents";
+import { useAgentHolder } from "@/lib/api/campaignWorkspace";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
@@ -173,6 +174,7 @@ function LiveAgent({ agent, slug, leadsLink }: { agent: Agent; slug: string; lea
             case "script":
               return (
                 <>
+                  <CampaignHolderNotice agentId={agent.id} slug={slug} />
                   <StarterDraftNotice agent={agent} />
                   <ScriptBuilder
                     agentId={agent.id}
@@ -215,6 +217,32 @@ function StarterDraftNotice({ agent }: { agent: Agent }) {
   return (
     <NoticeBox tone="neutral" className="mb-6">
       Your agent is a draft. Review the script, then put it live.
+    </NoticeBox>
+  );
+}
+
+/**
+ * Scripts belong to campaigns now (D-992, D-994): the agent is the voice and holds default
+ * settings. When a campaign has put its script on this agent, say so and point there.
+ */
+function CampaignHolderNotice({ agentId, slug }: { agentId: string; slug: string }) {
+  const { session, href } = useClientRealm();
+  const holder = useAgentHolder(session, agentId);
+  const campaignId = holder.data?.campaign_id;
+  if (!campaignId) return null;
+  return (
+    <NoticeBox
+      tone="info"
+      title="This agent speaks a campaign's script"
+      info="The script below is the one that campaign put on this agent. Its next Start or test call puts any change here."
+      className="mb-4"
+    >
+      <p>
+        Change it in &ldquo;{holder.data?.campaign_name}&rdquo;.{" "}
+        <Link className="font-medium underline" href={href(`/c/${slug}/campaigns/${campaignId}`)}>
+          Open the campaign
+        </Link>
+      </p>
     </NoticeBox>
   );
 }

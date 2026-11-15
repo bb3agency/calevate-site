@@ -4,32 +4,43 @@ and the questions its calls could not answer (D-992). `campaigns/workspace.py` h
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.call_handling import read_agent_call_handling
+from apps.api.agents.service import effective_call_cap
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
+from apps.api.agents.voice_tuning import read_voice_tuning
 from apps.api.campaigns import learning, workspace
+from apps.api.campaigns import settings as campaign_settings_rules
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.db.session import tenant_session
+from apps.api.kb import uploads as kb_uploads
+from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
 from apps.api.reliability.service import require_idempotency_key
+from apps.api.teach.routes import read_bounded_upload
 from apps.api.teach.struggles import list_struggles
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("leads:read"))]
 Dispatcher = Annotated[Principal, Depends(requires("leads:dispatch"))]
+KbWriter = Annotated[Principal, Depends(requires_kb_curation())]
 
 
 class _Out(BaseModel):
@@ -502,4 +513,212 @@ async def campaign_test_call(
     )
     return CampaignTestCallOut(
         status=result.status, blocked_reason=result.blocked_reason, call_id=result.call_id
+    )
+
+
+@router.post(
+    "/{campaign_id}/materials/upload",
+    response_model=MaterialOut,
+    status_code=201,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Upload a file for the campaign; a file already in the knowledge is reused",
+)
+async def upload_material(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    principal: KbWriter,
+    title: Annotated[str | None, Form(max_length=workspace.TITLE_MAX)] = None,
+) -> MaterialOut:
+    """The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
+    unless these exact bytes are already live there: then that upload is attached instead of
+    being refused as a duplicate, because the campaign only needs to point at it (D-992)."""
+    assert principal.tenant_id is not None
+    await workspace.read_workspace(session, campaign_id)
+    data = await read_bounded_upload(file, kb_uploads.MAX_UPLOAD_BYTES)
+    upload_id = await kb_uploads.live_duplicate_of(
+        session, tenant_id=principal.tenant_id, data=data
+    )
+    if upload_id is None:
+        made = await kb_uploads.create_upload(
+            session,
+            tenant_id=principal.tenant_id,
+            name=None,
+            filename=file.filename or "document",
+            content_type=file.content_type,
+            data=data,
+            submitted_by=principal.user_id,
+            auto_approve=goes_live_without_review(
+                realm=principal.realm, impersonating=principal.impersonating
+            ),
+        )
+        upload_id = UUID(str(made["id"]))
+        await write_audit(
+            session,
+            action="kb.uploaded",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="kb_source",
+            object_id=str(made["source_id"]),
+            ip=client_request_ip(request),
+            summary={"upload_id": str(upload_id), "via": "campaign_material"},
+        )
+    material = await workspace.add_material(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        kind="file",
+        title=(title or "").strip() or (file.filename or "Document"),
+        url=None,
+        note=None,
+        kb_upload_id=upload_id,
+        created_by=principal.user_id,
+    )
+    return _material(material)
+
+
+# --- The campaign's own settings over its agent's defaults (D-994) ---------------------------
+
+
+class CampaignSettingsValues(BaseModel):
+    """Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's."""
+
+    model_config = ConfigDict(extra="forbid")
+    language_primary: str | None = None
+    speaking_speed: Decimal | None = None
+    max_call_duration_s: int | None = None
+    nudge_after_seconds: int | None = None
+    end_after_silence_seconds: int | None = None
+    filler_lines: list[str] | None = None
+    ambience: str | None = None
+    ambience_volume_pct: int | None = None
+    reask_after_ms: int | None = None
+
+
+class CampaignSettingsOut(_Out):
+    agent_id: UUID
+    agent_name: str
+    #: The agent's own settings, as its calls get them without this campaign.
+    defaults: CampaignSettingsValues
+    #: What this campaign sets instead; a null key follows the agent.
+    overrides: CampaignSettingsValues
+    #: This campaign currently holds the agent, so a save reaches its calls at once.
+    applied_now: bool
+
+
+async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSettingsOut:
+    space = await workspace.read_workspace(session, campaign_id)
+    agent = (
+        await session.execute(
+            text("SELECT name, language_primary, max_call_duration_s FROM agents WHERE id = :a"),
+            {"a": space.agent_id},
+        )
+    ).one()
+    tuning = await read_voice_tuning(session, space.agent_id)
+    handling = await read_agent_call_handling(session, space.agent_id)
+    values = handling.resolved.values
+    raw = (
+        await session.execute(
+            text(
+                "SELECT settings_overrides, agent_held_at IS NOT NULL AND agent_held_at = "
+                "(SELECT max(agent_held_at) FROM campaigns c2 WHERE c2.agent_id = c.agent_id "
+                "AND c2.archived_at IS NULL) FROM campaigns c WHERE id = :c"
+            ),
+            {"c": campaign_id},
+        )
+    ).one()
+    return CampaignSettingsOut(
+        agent_id=space.agent_id,
+        agent_name=str(agent.name),
+        defaults=CampaignSettingsValues(
+            language_primary=str(agent.language_primary),
+            speaking_speed=tuning.tuning.speed,
+            max_call_duration_s=effective_call_cap(agent.max_call_duration_s),
+            nudge_after_seconds=values.nudge_after_seconds,
+            end_after_silence_seconds=values.end_after_silence_seconds,
+            filler_lines=list(values.filler_lines or ()),
+            ambience=values.ambience,
+            ambience_volume_pct=values.ambience_volume_pct,
+            reask_after_ms=values.reask_after_ms,
+        ),
+        overrides=CampaignSettingsValues(**(raw[0] or {})),
+        applied_now=bool(raw[1]),
+    )
+
+
+@router.get(
+    "/{campaign_id}/settings",
+    response_model=CampaignSettingsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="The agent's default settings and what this campaign sets over them",
+)
+async def campaign_settings(campaign_id: UUID, session: Session, _: Reader) -> CampaignSettingsOut:
+    return await _settings_out(session, campaign_id)
+
+
+@router.put(
+    "/{campaign_id}/settings",
+    response_model=CampaignSettingsOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Set this campaign's own settings over its agent's defaults; null follows the agent",
+)
+async def save_campaign_settings(
+    campaign_id: UUID, payload: CampaignSettingsValues, session: Session, principal: Dispatcher
+) -> CampaignSettingsOut:
+    """Stored, then, when this campaign currently holds its agent, put live at once through the
+    same publish Start uses; otherwise they reach the agent at the next Start or Test call."""
+    assert principal.tenant_id is not None
+    cleaned = campaign_settings_rules.clean_overrides(payload.model_dump(exclude_none=True))
+    await workspace.read_workspace(session, campaign_id)
+    # Its own transaction, committed before the publish below reads it in another session;
+    # committing the request's session instead would drop its tenant setting mid-request.
+    async with tenant_session(principal.tenant_id) as own:
+        await own.execute(
+            text(
+                "UPDATE campaigns SET settings_overrides = CAST(:o AS jsonb), updated_at = now() "
+                "WHERE id = :c AND archived_at IS NULL"
+            ),
+            {"o": json.dumps(cleaned) if cleaned else None, "c": campaign_id},
+        )
+    out = await _settings_out(session, campaign_id)
+    if out.applied_now:
+        name = (
+            await session.execute(
+                text("SELECT name FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar_one()
+        await workspace.put_script_live(
+            tenant_id=principal.tenant_id,
+            campaign_id=campaign_id,
+            campaign_name=str(name),
+            user_id=principal.user_id,
+        )
+    return out
+
+
+class AgentHolderOut(_Out):
+    #: The campaign whose script and settings this agent carries now, or null.
+    campaign_id: UUID | None
+    campaign_name: str | None
+
+
+@router.get(
+    "/agents/{agent_id}/holder",
+    response_model=AgentHolderOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="The campaign whose script this agent speaks now (the last one to put it live)",
+)
+async def agent_holder(agent_id: UUID, session: Session, _: Reader) -> AgentHolderOut:
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, name FROM campaigns WHERE agent_id = :a AND archived_at IS NULL "
+                "AND agent_held_at IS NOT NULL ORDER BY agent_held_at DESC LIMIT 1"
+            ),
+            {"a": agent_id},
+        )
+    ).first()
+    return AgentHolderOut(
+        campaign_id=row.id if row else None, campaign_name=str(row.name) if row else None
     )

@@ -32,6 +32,7 @@ import { useAgents } from "@/lib/api/agents";
 import { useMyCallLines } from "@/lib/api/callLines";
 import { useCreateCampaign } from "@/lib/api/campaigns";
 import { apiRequest } from "@/lib/api/client";
+import { uploadMaterial } from "@/lib/api/campaignWorkspace";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
@@ -107,11 +108,19 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
     }
     try {
       const base = `/v1/campaigns/${encodeURIComponent(id)}`;
+      // Each item leaves the list once it is on the campaign, so pressing again after a
+      // refusal sends only what is still missing.
+      let left = materials;
       for (const item of materials) {
-        const body = { kind: item.kind, title: item.title, url: item.url, note: item.note, kb_upload_id: item.kb_upload_id };
-        await apiRequest(session, `${base}/materials`, { method: "POST", body });
+        if (item.file) {
+          await uploadMaterial(session, id, item.file, item.title);
+        } else {
+          const body = { kind: item.kind, title: item.title, url: item.url, note: item.note, kb_upload_id: item.kb_upload_id };
+          await apiRequest(session, `${base}/materials`, { method: "POST", body });
+        }
+        left = left.filter((x) => x.key !== item.key);
+        setMaterials(left);
       }
-      setMaterials([]);
       if (withPip) await apiRequest(session, `${base}/script/proposal`, { method: "POST" });
       void queryClient.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
       router.push(detail(id));

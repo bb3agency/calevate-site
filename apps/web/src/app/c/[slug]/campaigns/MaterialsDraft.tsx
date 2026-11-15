@@ -8,6 +8,10 @@
  *
  * `MaterialForm` is the one way to add a material, here and on the campaign page: only what
  * happens to the finished item differs (held in this list, or attached to the campaign).
+ *
+ * A file is held as the File itself, never uploaded here: it goes in through the campaign's own
+ * upload (`POST /v1/campaigns/{id}/materials/upload`), which reuses a copy already in the
+ * knowledge instead of refusing it as a duplicate. So a new campaign's files wait for the draft.
  */
 
 import { useState } from "react";
@@ -16,12 +20,14 @@ import { useActionFeedback } from "@/components/arc/feedback";
 import { FileDrop } from "@/components/fileDrop";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { MaterialIn } from "@/lib/api/campaignWorkspace";
-import { useAddLink, useUploadDocument } from "@/lib/api/kb";
+import { useAddLink } from "@/lib/api/kb";
 import { useClientRealm } from "@/lib/api/session";
 
 import { SectionHead } from "./SectionHead";
 
-export type PendingMaterial = MaterialIn & { key: string };
+/** A material as the form finishes it: a file still carries the File to upload. */
+export type MaterialItem = MaterialIn & { file?: File };
+export type PendingMaterial = MaterialItem & { key: string };
 
 export const KIND_LABEL: Record<MaterialIn["kind"], string> = { file: "File", link: "Link", note: "Note" };
 
@@ -33,8 +39,8 @@ export const MATERIALS_INFO =
   "Documents, price lists, website and video links, call recordings, notes. Files and links also go into your knowledge, so the agent can look things up on a call.";
 
 /**
- * Upload a file, add a link or write a note, then hand the finished item to `onAdd`. Files and
- * links go into the knowledge first; `addError` is the refusal of whatever `onAdd` sends.
+ * Choose a file, add a link or write a note, then hand the finished item to `onAdd`. A link goes
+ * into the knowledge first; `addError` is the refusal of whatever `onAdd` sends.
  */
 export function MaterialForm({
   canWrite,
@@ -45,14 +51,12 @@ export function MaterialForm({
 }: {
   canWrite: boolean;
   refusal?: string;
-  onAdd: (item: MaterialIn) => Promise<unknown>;
+  onAdd: (item: MaterialItem) => Promise<unknown>;
   adding?: boolean;
   addError?: unknown;
 }) {
   const { session } = useClientRealm();
-  const upload = useUploadDocument(session);
   const addLink = useAddLink(session);
-  useActionFeedback(upload, { errorDisplay: "inline" });
   useActionFeedback(addLink, { errorDisplay: "inline" });
   const [mode, setMode] = useState<MaterialIn["kind"] | null>(null);
   const [title, setTitle] = useState("");
@@ -60,8 +64,8 @@ export function MaterialForm({
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [missing, setMissing] = useState<string | null>(null);
-  const busy = adding || upload.isPending || addLink.isPending;
-  const problem = upload.error ?? addLink.error ?? addError;
+  const busy = adding || addLink.isPending;
+  const problem = addLink.error ?? addError;
 
   const reset = () => {
     setMode(null);
@@ -70,20 +74,17 @@ export function MaterialForm({
     setNote("");
     setFile(null);
     setMissing(null);
-    upload.reset();
     addLink.reset();
   };
 
   const submit = async () => {
     setMissing(null);
-    upload.reset();
     addLink.reset();
-    let item: MaterialIn;
+    let item: MaterialItem;
     try {
       if (mode === "file") {
         if (!file) return setMissing("Choose a file.");
-        const up = await upload.mutateAsync({ file });
-        item = { kind: "file", title: title.trim() || file.name, kb_upload_id: up.id };
+        item = { kind: "file", title: title.trim() || file.name, file };
       } else if (mode === "link") {
         if (!/^https?:\/\//i.test(url.trim())) return setMissing("Paste the full address, starting with https://");
         const up = await addLink.mutateAsync({ url: url.trim() });
@@ -132,7 +133,7 @@ export function MaterialForm({
               maxBytes={MATERIAL_MAX_BYTES}
               files={file ? [file] : []}
               onRemove={() => setFile(null)}
-              sending={upload.isPending && file ? { file, percent: null } : null}
+              sending={adding && file ? { file, percent: null } : null}
               onFiles={([chosen]) => setFile(chosen ?? null)}
             />
           )}

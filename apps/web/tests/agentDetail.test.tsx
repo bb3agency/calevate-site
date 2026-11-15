@@ -416,6 +416,7 @@ const SCRIPT_TAB_READS = {
     standard_variables: [],
   },
   "/v1/agents/agent-1/script/proposal": { proposal: null },
+  "/v1/campaigns/agents/agent-1/holder": { campaign_id: null, campaign_name: null },
   "/v1/agents/agent-1/script/proposed-rules": [],
   "POST /v1/agents/agent-1/script/preview": { compiled: "", instructions_chars: 1000, instructions_limit: 8000, native_steps: 0 },
 };

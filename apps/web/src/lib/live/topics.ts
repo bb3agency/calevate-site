@@ -138,6 +138,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "pin-card",
     // Main task, script, Pip's draft and the second opening live on the campaign row (D-992).
     "campaign-workspace",
+    // A campaign's own voice and call settings, and which campaign holds an agent (D-994).
+    "campaign-settings",
+    "agent-holder",
     "campaign-insights",
   ],
   callbacks: [
@@ -211,6 +214,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   agents: [
     ...SUMMARY,
     "agent",
+    // A campaign's settings page shows the agent's own values beside its overrides (D-994).
+    "campaign-settings",
     "agents",
     "agents-archived",
     "agent-stats",

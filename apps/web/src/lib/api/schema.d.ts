@@ -7177,6 +7177,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/agents/{agent_id}/holder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The campaign whose script this agent speaks now (the last one to put it live) */
+        get: operations["agent_holder_v1_campaigns_agents__agent_id__holder_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/numbers": {
         parameters: {
             query?: never;
@@ -7495,6 +7512,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/materials/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file for the campaign; a file already in the knowledge is reused
+         * @description The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
+         *     unless these exact bytes are already live there: then that upload is attached instead of
+         *     being refused as a duplicate, because the campaign only needs to point at it (D-992).
+         */
+        post: operations["upload_material_v1_campaigns__campaign_id__materials_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/materials/{material_id}/archive": {
         parameters: {
             query?: never;
@@ -7790,6 +7829,28 @@ export interface paths {
         post?: never;
         /** Stop Pip's draft while it is written, or discard it once reviewed */
         delete: operations["clear_proposal_v1_campaigns__campaign_id__script_proposal__proposal_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The agent's default settings and what this campaign sets over them */
+        get: operations["campaign_settings_v1_campaigns__campaign_id__settings_get"];
+        /**
+         * Set this campaign's own settings over its agent's defaults; null follows the agent
+         * @description Stored, then, when this campaign currently holds its agent, put live at once through the
+         *     same publish Start uses; otherwise they reach the agent at the next Start or Test call.
+         */
+        put: operations["save_campaign_settings_v1_campaigns__campaign_id__settings_put"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -15552,6 +15613,13 @@ export interface components {
             /** Calls Inr */
             calls_inr: string;
         };
+        /** AgentHolderOut */
+        AgentHolderOut: {
+            /** Campaign Id */
+            campaign_id: string | null;
+            /** Campaign Name */
+            campaign_name: string | null;
+        };
         /** AgentKnowledgeItemOut */
         AgentKnowledgeItemOut: {
             /** Detail */
@@ -16916,6 +16984,13 @@ export interface components {
             file: string;
             /** Name */
             name?: string | null;
+        };
+        /** Body_upload_material_v1_campaigns__campaign_id__materials_upload_post */
+        Body_upload_material_v1_campaigns__campaign_id__materials_upload_post: {
+            /** File */
+            file: string;
+            /** Title */
+            title?: string | null;
         };
         /** Body_upload_preview_v1_ops_voices_hosted_preview_post */
         Body_upload_preview_v1_ops_voices_hosted_preview_post: {
@@ -19071,6 +19146,68 @@ export interface components {
             name: string;
             /** Status */
             status: string;
+        };
+        /** CampaignSettingsOut */
+        CampaignSettingsOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Applied Now */
+            applied_now: boolean;
+            defaults: components["schemas"]["CampaignSettingsValues-Output"];
+            overrides: components["schemas"]["CampaignSettingsValues-Output"];
+        };
+        /**
+         * CampaignSettingsValues
+         * @description Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.
+         */
+        "CampaignSettingsValues-Input": {
+            /** Ambience */
+            ambience?: string | null;
+            /** Ambience Volume Pct */
+            ambience_volume_pct?: number | null;
+            /** End After Silence Seconds */
+            end_after_silence_seconds?: number | null;
+            /** Filler Lines */
+            filler_lines?: string[] | null;
+            /** Language Primary */
+            language_primary?: string | null;
+            /** Max Call Duration S */
+            max_call_duration_s?: number | null;
+            /** Nudge After Seconds */
+            nudge_after_seconds?: number | null;
+            /** Reask After Ms */
+            reask_after_ms?: number | null;
+            /** Speaking Speed */
+            speaking_speed?: number | string | null;
+        };
+        /**
+         * CampaignSettingsValues
+         * @description Each value null when not set: on `defaults`, the platform's; on `overrides`, the agent's.
+         */
+        "CampaignSettingsValues-Output": {
+            /** Ambience */
+            ambience?: string | null;
+            /** Ambience Volume Pct */
+            ambience_volume_pct?: number | null;
+            /** End After Silence Seconds */
+            end_after_silence_seconds?: number | null;
+            /** Filler Lines */
+            filler_lines?: string[] | null;
+            /** Language Primary */
+            language_primary?: string | null;
+            /** Max Call Duration S */
+            max_call_duration_s?: number | null;
+            /** Nudge After Seconds */
+            nudge_after_seconds?: number | null;
+            /** Reask After Ms */
+            reask_after_ms?: number | null;
+            /** Speaking Speed */
+            speaking_speed?: string | null;
         };
         /**
          * CampaignSummaryOut
@@ -51956,6 +52093,37 @@ export interface operations {
             };
         };
     };
+    agent_holder_v1_campaigns_agents__agent_id__holder_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentHolderOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_numbers_v1_campaigns_numbers_get: {
         parameters: {
             query?: never;
@@ -52584,6 +52752,41 @@ export interface operations {
             };
         };
     };
+    upload_material_v1_campaigns__campaign_id__materials_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_material_v1_campaigns__campaign_id__materials_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post: {
         parameters: {
             query?: never;
@@ -53051,6 +53254,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_settings_v1_campaigns__campaign_id__settings_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignSettingsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_campaign_settings_v1_campaigns__campaign_id__settings_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignSettingsValues-Input"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignSettingsOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

@@ -5900,6 +5900,7 @@ const SCRIPT_TAB_ROUTES = {
   "/v1/agents/agent-1/script": SCRIPT,
   "/v1/agents/agent-1/pending": settledPending(),
   "/v1/agents/agent-1/script/proposal": { proposal: null },
+  "/v1/campaigns/agents/agent-1/holder": { campaign_id: null, campaign_name: null },
   "/v1/agents/agent-1/script/proposed-rules": [
     {
       id: "rule-1",

@@ -345,15 +345,37 @@ async def put_script_live(
                 f"This agent is already speaking the campaign “{clash.name}”.",
                 remediation="Pause that campaign first, or choose another agent for this one.",
             )
-    done = await script_publish.put_draft_live(
-        tenant_id=tenant_id,
-        agent_id=row.agent_id,
-        summary=f"Campaign: {campaign_name}"[:200],
-        created_by=user_id,
-        script=script,
-        check_version=False,
-        expected_version=None,
-    )
+    # This campaign holds the agent from now: its settings overrides are what the publish
+    # below, and every later drift repair, lay over the agent's defaults (D-994). Marked first
+    # so the publish reads them; put back if the publish fails.
+    async with tenant_session(tenant_id) as session:
+        held_before = (
+            await session.execute(
+                text(
+                    "UPDATE campaigns c SET agent_held_at = now() FROM "
+                    "(SELECT agent_held_at AS before FROM campaigns WHERE id = :cid) old "
+                    "WHERE c.id = :cid RETURNING old.before"
+                ),
+                {"cid": campaign_id},
+            )
+        ).scalar_one_or_none()
+    try:
+        done = await script_publish.put_draft_live(
+            tenant_id=tenant_id,
+            agent_id=row.agent_id,
+            summary=f"Campaign: {campaign_name}"[:200],
+            created_by=user_id,
+            script=script,
+            check_version=False,
+            expected_version=None,
+        )
+    except BaseException:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE campaigns SET agent_held_at = :b WHERE id = :cid"),
+                {"b": held_before, "cid": campaign_id},
+            )
+        raise
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE campaigns SET script_live_version = :v WHERE id = :cid"),
