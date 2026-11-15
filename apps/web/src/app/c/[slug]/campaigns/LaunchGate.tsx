@@ -204,7 +204,7 @@ export function LaunchGate({
                   <p className="text-meta text-ink-muted">
                     {[
                       todo === 1 ? "Answer 1 check" : todo > 1 ? `Answer ${todo} checks` : null,
-                      noPeople ? "add the people to call below" : null,
+                      noPeople ? "add the people to call above" : null,
                     ]
                       .filter(Boolean)
                       .join(" and ")

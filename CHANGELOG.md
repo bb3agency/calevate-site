@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.10 — 15-Nov-2026
+
+- **Add people and People to call sit above the compliance checks**, so the list is built
+  before the checks are answered. The line under Launch says to add people above.
+- **"From your leads" is gone from Add people.** People come from an Excel or CSV file, a
+  paste, or one at a time.
+
 ## 0.4.9 — 15-Nov-2026
 
 - **The coloured fold sections are back** (founder's choice over 0.4.8's plain headings): each

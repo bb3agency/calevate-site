@@ -17,7 +17,6 @@ import {
   contactsPath,
   detailRoutes,
   dltRegistrationRoute,
-  leadPickerRoutes,
   newCampaignPage,
   openTab,
   progressFixture,
@@ -193,9 +192,7 @@ describe("the consent declaration on a draft", () => {
     fireEvent.click(screen.getByRole("button", { name: "Record this" }));
     expect(await screen.findByText("Choose where the list came from.")).toBeTruthy();
     expect(screen.getByText("Choose the day they agreed.")).toBeTruthy();
-    // The Add people section's lead picker reads through two POST searches; neither writes.
-    const reads = ["/v1/leads/search", "/v1/leads/facets"];
-    expect(rendered.calls.filter((c) => c.method !== "GET" && !reads.includes(c.path))).toEqual([]);
+    expect(rendered.calls.filter((c) => c.method !== "GET")).toEqual([]);
     expect(screen.getByRole("button", { name: "Launch campaign" }).hasAttribute("disabled")).toBe(true);
   });
 });
@@ -477,39 +474,12 @@ describe("calls at once on the create page", () => {
   });
 });
 
-describe("adding leads to a draft", () => {
-  it("sends the Leads lens and the count shown, and shows a large set as its plan", async () => {
-    const rendered = await renderClientPage(
-      campaignPage(),
-      detail(progressFixture({ id: CAMPAIGN_ID, status: "draft" }), {
-        ...leadPickerRoutes(7),
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`]: {
-          added: 0,
-          duplicate: 0,
-          malformed: 0,
-          plan_id: "0192f0aa-9999-7000-8000-000000000001",
-        },
-        "/v1/copilot/plans/0192f0aa-9999-7000-8000-000000000001": stillLoading(),
-      }),
-    );
-    // The Add people section is always open on a draft.
-    fireEvent.change(await screen.findByRole("searchbox", { name: "Search leads" }), {
-      target: { value: "Priya" },
-    });
-    // The count under the typed search, not the one from before it: the button waits.
-    await vi.waitFor(() =>
-      expect(rendered.calls.some((c) => c.path === "/v1/leads/search" && c.body?.includes("Priya"))).toBe(true),
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Add 7 leads" }));
-    const added = await vi.waitFor(() => {
-      const call = rendered.calls.find(
-        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`,
-      );
-      expect(call).toBeDefined();
-      return call!;
-    });
-    expect(JSON.parse(added.body ?? "{}")).toEqual({ lens: { search: "Priya" }, expected_count: 7 });
-    expect(rendered.container.textContent).not.toContain("Added 0");
+describe("adding people to a draft", () => {
+  it("offers no lead picker: people come from a file, a paste or one at a time", async () => {
+    await renderClientPage(campaignPage(), detail(progressFixture({ id: CAMPAIGN_ID, status: "draft" })));
+    await screen.findByRole("button", { name: /Add people/ });
+    expect(screen.queryByRole("searchbox", { name: "Search leads" })).toBeNull();
+    expect(screen.queryByText("From your leads")).toBeNull();
   });
 });
 

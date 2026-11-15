@@ -343,6 +343,14 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                     refusal={refusal}
                   />
                   <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
+                  {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a time. */}
+                  <DraftPeople
+                    slug={slug}
+                    campaignId={campaignId}
+                    maxAttempts={data.retry_policy.max_attempts}
+                    canWrite={write.allowed}
+                    refusal={refusal}
+                  />
                   <ScheduleCards {...scheduleCardProps} />
                   <LaunchGate
                       slug={slug}
@@ -356,14 +364,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                       refusal={refusal}
                       onAddPeople={addPeople}
                     />
-                  {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a time. */}
-                  <DraftPeople
-                    slug={slug}
-                    campaignId={campaignId}
-                    maxAttempts={data.retry_policy.max_attempts}
-                    canWrite={write.allowed}
-                    refusal={refusal}
-                  />
                   <OtherCallSettings
                     campaignId={campaignId}
                     editable={status === "draft"}

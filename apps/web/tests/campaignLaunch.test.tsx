@@ -181,7 +181,7 @@ describe("the launch panel with blockers outstanding", () => {
     // `no_contacts` is not a row: the Add people section is where people are added, and the
     // line under the disabled button says so.
     expect(gateRows()).toHaveLength(2);
-    expect(container.textContent).toContain("add the people to call below");
+    expect(container.textContent).toContain("add the people to call above");
     expect(container.textContent).toContain("Publish your agent first.");
     // L3-09: one short line; the server's sentence, which names the state, is behind "Why?".
     expect(container.textContent).toContain("Accept the no-cold-calls promise.");
@@ -446,9 +446,7 @@ describe("the launch panel for a viewer who may not launch", () => {
     expect(launchButtonDisabled()).toBe(false);
     expect(container.textContent).not.toContain("read-only");
     expect(container.textContent).not.toContain("stays with the client");
-    // The Add people section's lead picker reads through two POST searches; neither writes.
-    const READS = ["/v1/leads/search", "/v1/leads/facets"];
-    expect(calls.filter((c) => c.method !== "GET" && !READS.includes(c.path))).toEqual([]);
+    expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
   it("still shows a blocked campaign its blockers when the viewer may not launch", async () => {
@@ -462,7 +460,7 @@ describe("the launch panel for a viewer who may not launch", () => {
     );
 
     expect(gateRows()).toHaveLength(0);
-    expect(container.textContent).toContain("Add the people to call below first");
+    expect(container.textContent).toContain("Add the people to call above first");
     expect(launchButtonDisabled()).toBe(true);
   });
 });

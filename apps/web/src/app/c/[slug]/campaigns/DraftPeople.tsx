@@ -1,19 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import { ListPlus } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { StatusPill } from "@/components/console/statusPill";
 import { ProblemNotice, formatCount } from "@/components/ui";
-import { PlanCard } from "@/components/copilot/PlanCard";
-import { useAddContacts, useAddLeadsToCampaign } from "@/lib/api/campaigns";
+import { useAddContacts } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
 import { ContactEditor } from "./ContactEditor";
 import { FoldSection } from "./FoldSection";
 import { ContactResults } from "./ContactResults";
-import { LeadPicker, usePickedLeads } from "./LeadPicker";
 import { useCampaignForm } from "./campaignForm";
 
 /** The people section's element id, so "Add people" in the launch checklist can go to it. */
@@ -23,7 +20,7 @@ export function peopleSectionId(campaignId: string): string {
 
 /**
  * WHO A DRAFT WILL CALL, as two sections (founder, 15 Nov 2026): "Add people", always open,
- * with the two ways in (an Excel, CSV, pasted or typed list; people from your leads), then
+ * with an Excel, CSV, pasted or typed list, then
  * "People to call", the list itself. Both go to the server, which dedupes, keeps India
  * numbers only, and refuses once the campaign has started.
  */
@@ -72,16 +69,11 @@ function AddPeoplePanel({
   const { session } = useClientRealm();
   const form = useCampaignForm();
   const addContacts = useAddContacts(session, campaignId);
-  const addLeads = useAddLeadsToCampaign(session);
-  // Inline: each refusal sits above the list it refused. The count sentence below says
-  // what was added, so success needs no toast.
+  // Inline: a refusal sits above the list it refused. The count sentence below says what
+  // was added, so success needs no toast.
   const contactsFeedback = useActionFeedback(addContacts, { errorDisplay: "inline" });
-  const leadsFeedback = useActionFeedback(addLeads, { errorDisplay: "inline" });
-  const { matching } = usePickedLeads(session, form.leads);
-  const [planDismissed, setPlanDismissed] = useState(false);
   const { checked } = form;
-  // A set added as a plan reports on its own card, not as "Added 0".
-  const result = addContacts.data ?? (addLeads.data?.plan_id ? undefined : addLeads.data);
+  const result = addContacts.data;
   return (
     <div className="space-y-8">
       <div className="space-y-3">
@@ -101,29 +93,6 @@ function AddPeoplePanel({
           <ListPlus aria-hidden className="h-4 w-4" />
           {checked.ready.length === 1 ? "Add 1 person to the campaign" : `Add ${formatCount(checked.ready.length)} people to the campaign`}
         </ActionButton>
-        )}
-      </div>
-      <div className="space-y-3 border-t border-line pt-6">
-        <h3 className="text-body font-semibold text-ink">From your leads</h3>
-        {addLeads.error && <ProblemNotice error={addLeads.error} />}
-        <LeadPicker f={form.leads} />
-        <ActionButton
-          variant="secondary"
-          title={refusal}
-          disabled={!canWrite || !matching}
-          status={leadsFeedback.status}
-          pendingLabel="Adding"
-          successLabel="Added"
-          onClick={() => {
-            if (!matching) return;
-            setPlanDismissed(false);
-            leadsFeedback.run({ campaignId, lens: form.leads.lens, expectedCount: matching });
-          }}
-        >
-          {matching !== undefined ? `Add ${formatCount(matching)} ${matching === 1 ? "lead" : "leads"}` : "Add leads"}
-        </ActionButton>
-        {addLeads.data?.plan_id && !planDismissed && (
-          <PlanCard session={session} planId={addLeads.data.plan_id} onDismiss={() => setPlanDismissed(true)} />
         )}
       </div>
       {result && (

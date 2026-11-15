@@ -385,7 +385,7 @@ describe("arming a schedule while the gate is refusing", () => {
     // AND the blockers are still there, both of them, in the client's words. This is the
     // half that must never be traded for the half above. Adding people is said beside the
     // launch button rather than as a checklist row (0.4.6); the national check stays a row.
-    expect(container.textContent).toMatch(/add the people to call below first/i);
+    expect(container.textContent).toMatch(/add the people to call above first/i);
     expect(container.textContent).toContain(
       "national do-not-disturb check",
     );
@@ -531,7 +531,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     expect(container.textContent).toContain(
       "Couldn’t start. Fix the items below.",
     );
-    expect(container.textContent).toMatch(/add the people to call below first/i);
+    expect(container.textContent).toMatch(/add the people to call above first/i);
   });
 
   it("still offers the way out of a repeat", async () => {
@@ -557,7 +557,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     const stop = screen.getByRole("button", { name: "Stop repeating" });
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
-    expect(container.textContent).toMatch(/add the people to call below first/i);
+    expect(container.textContent).toMatch(/add the people to call above first/i);
   });
 });
 
