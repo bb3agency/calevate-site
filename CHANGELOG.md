@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.1 — 15-Nov-2026
+
+- "Before you launch" is now **Mandatory Regulatory Compliance Checks**: foldable, open by
+  default, with "N checks to answer" or "All checks done" on its folded line. Launch stays
+  disabled until every check is answered, and the server's compliance gate refuses it anyway.
+
 ## 0.4.0 — 15-Nov-2026
 
 - **Agents hold default settings; campaigns override them (D-994).** Step 4 gains **Voice & call
