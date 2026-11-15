@@ -8,6 +8,7 @@ import type {
   CampaignSummary,
   ContactResults,
 } from "@/lib/api/campaigns";
+import type { CampaignInsights, CampaignWorkspace } from "@/lib/api/campaignWorkspace";
 
 import { fireEvent, screen } from "@testing-library/react";
 
@@ -151,11 +152,41 @@ export function leadPickerRoutes(total = 0): Routes {
   };
 }
 
+/** `GET /v1/campaigns/{id}/workspace`: a main task saved, no materials, no script yet. */
+export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): CampaignWorkspace {
+  return {
+    campaign_id: FIXTURE_CAMPAIGN_ID,
+    agent_id: FIXTURE_AGENT_ID,
+    status: "draft",
+    main_task: "Tell customers about our Diwali offer on service plans.",
+    materials: [],
+    proposal: null,
+    script: null,
+    script_live_version: null,
+    ...over,
+  };
+}
+
+/** `GET /v1/campaigns/{id}/insights` before any call: no hours, no second opening. */
+export function insightsFixture(over: Partial<CampaignInsights> = {}): CampaignInsights {
+  return {
+    hours: [],
+    best_hours: [],
+    min_calls_per_hour: 10,
+    opening_b: null,
+    openings: [],
+    opening_verdict: null,
+    ...over,
+  };
+}
+
 /** The reads every render of one campaign makes, besides the progress and launch check. */
 export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
   return {
     [contactsPath(id)]: contactsFixture(),
     [`/v1/campaigns/${id}/results`]: resultsFixture(),
+    [`/v1/campaigns/${id}/workspace`]: workspaceFixture({ campaign_id: id }),
+    [`/v1/campaigns/${id}/insights`]: insightsFixture(),
     ...leadPickerRoutes(),
     ...dltRegistrationRoute(),
     [timelinePath(id)]: {

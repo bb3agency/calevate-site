@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import EditCampaignPage from "@/app/c/[slug]/campaigns/[campaignId]/edit/page";
+import { nameFromMainTask } from "@/app/c/[slug]/campaigns/NewCampaignScreen";
 import { nameFromGoal } from "@/app/c/[slug]/campaigns/campaignForm";
 import type { Agent } from "@/lib/api/agents";
 import type { CallOutcomes } from "@/lib/api/callOutcomes";
@@ -19,7 +20,6 @@ import {
   leadPickerRoutes,
   newCampaignPage,
   openTab,
-  pickDate,
   progressFixture,
   resultsFixture,
 } from "./campaignFixtures";
@@ -181,25 +181,19 @@ function fillBasics(name: string, purpose = "Our Diwali service offer", goal = "
   fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: goal } });
 }
 
-/** Fills the basics and the list, then walks to the review step. */
-async function fillNew(
-  container: HTMLElement,
-  name = "Diwali reminder",
-  { atWhoToCall = false }: { atWhoToCall?: boolean } = {},
-): Promise<void> {
-  if (!atWhoToCall) {
-    await screen.findByRole("heading", { name: BASICS });
-    fillBasics(name);
-    next();
-  }
-  await screen.findByRole("heading", { name: "Who should we call?" });
-  pasteContacts("9876543210,Priya");
-  fireEvent.click(consentRadios(container)[0]);
-  await pickDate(CONSENT_DATE, "2026-08-01");
-  next();
-  await screen.findByRole("heading", { name: "When should we call?" });
-  next();
-  await screen.findByRole("heading", { name: "Check it, then create it" });
+const MAIN_TASK = "Call customers about our Diwali offer on service plans and book a visit.";
+
+/** The create page's first section: the main task, in the owner's words. */
+async function writeMainTask(text: string): Promise<void> {
+  const box = await screen.findByRole("textbox", { name: "Main task" });
+  fireEvent.change(box, { target: { value: text } });
+}
+
+/** Writes a note in Materials and adds it to the list the draft will carry. */
+function addNote(text: string): void {
+  fireEvent.click(screen.getByRole("button", { name: "Write a note" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Note" }), { target: { value: text } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
 }
 
 describe("the create page's consent declaration", () => {
@@ -235,6 +229,60 @@ describe("the create page's consent declaration", () => {
     await renderClientPage(newCampaignPage(), newRoutes(dltRegistrationRoute(true)));
     await screen.findByRole("heading", { name: BASICS });
     change("How the calls go out");
+    expect(await screen.findByRole("radio", { name: /Promotional/ })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
+  });
+});
+
+describe("the consent declaration on a draft", () => {
+  it("opens unanswered and records nothing until both questions are answered", async () => {
+    // Where the list came from is an audited statement, asked on the draft before it can
+    // launch. A pre-selected answer would be an assertion nobody made.
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture(), {
+        [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: {
+          ready: false,
+          blockers: [{ rule: "consent_provenance_missing", reason: "Say where the list came from." }],
+        },
+      }),
+    );
+    const radios = await vi.waitFor(() => {
+      const found = Array.from(
+        rendered.container.querySelectorAll<HTMLInputElement>(`input[name="answer-${CAMPAIGN_ID}-consent-source"]`),
+      );
+      expect(found).toHaveLength(5);
+      return found;
+    });
+    expect(radios.some((r) => r.checked)).toBe(false);
+    expect(screen.getByRole("button", { name: CONSENT_DATE }).textContent).toContain("Choose a date");
+    fireEvent.click(screen.getByRole("button", { name: "Record this" }));
+    expect(await screen.findByText("Choose where the list came from.")).toBeTruthy();
+    expect(screen.getByText("Choose the day they agreed.")).toBeTruthy();
+    expect(rendered.calls.filter((c) => c.method !== "GET")).toEqual([]);
+    expect(screen.getByRole("button", { name: "Launch campaign" }).hasAttribute("disabled")).toBe(true);
+  });
+});
+
+describe("the kind of call on Edit", () => {
+  it("offers Service only while Calevate's telemarketer registration is not live, and never Transactional", async () => {
+    await renderClientPage(
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({ [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture({ classification: "service" }) }),
+    );
+    expect(await screen.findByRole("radio", { name: /Service/ })).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: /Promotional/ })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /Transactional/ })).toBeNull();
+  });
+
+  it("offers Promotional once the telemarketer registration is live", async () => {
+    await renderClientPage(
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture({ classification: "service" }),
+        ...dltRegistrationRoute(true),
+      }),
+    );
     expect(await screen.findByRole("radio", { name: /Promotional/ })).toBeTruthy();
     expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
   });
@@ -333,7 +381,7 @@ describe("choosing which agent makes the calls (D-440)", () => {
 });
 
 describe("the number picker", () => {
-  it("offers every number of the account that can make calls, whichever agent answers it", async () => {
+  it("offers every number of the account that can make calls on Edit, whichever agent answers it", async () => {
     const base = {
       series: "standard",
       dlt_status: "unregistered",
@@ -345,8 +393,9 @@ describe("the number picker", () => {
       releasable: false,
     };
     const { container } = await renderClientPage(
-      newCampaignPage(),
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
       newRoutes({
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture(),
         "/v1/campaigns/numbers": [
           { ...base, id: "n-ok", e164: "+918041000001", agent_id: AGENT_ID, places_calls: true },
           {
@@ -361,10 +410,6 @@ describe("the number picker", () => {
         ],
       }),
     );
-    await screen.findByRole("heading", { name: BASICS });
-    // The number has an answer already, so it sits behind Change with that answer said.
-    expect(container.textContent).toContain("Service calls, from the agent's own number.");
-    change("How the calls go out");
     const picker = (await screen.findByRole("combobox", { name: /^Calling from/ })) as HTMLSelectElement;
     expect(Array.from(picker.options).map((o) => o.value)).toEqual(["", "n-ok", "n-other"]);
     expect(container.textContent).toContain("Any of your numbers. Every agent can call from them.");
@@ -372,160 +417,110 @@ describe("the number picker", () => {
 });
 
 describe("creating a campaign", () => {
-  it("creates the draft, then sends its list and its retry choice", async () => {
+  it("creates the draft from the main task, attaches its materials, then asks Pip for the script", async () => {
     const rendered = await renderClientPage(
       newCampaignPage(),
       newRoutes({
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/materials`]: { id: "m-1" },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/script/proposal`]: { id: "p-1", status: "drafting" },
       }),
     );
-    await fillNew(rendered.container);
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-    const upload = await vi.waitFor(() => {
+    await writeMainTask(MAIN_TASK);
+    addNote("Open Monday to Saturday, 9am to 7pm.");
+    fireEvent.click(screen.getByRole("button", { name: "Generate" }));
+    const asked = await vi.waitFor(() => {
       const call = rendered.calls.find(
-        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts`,
+        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/script/proposal`,
       );
       expect(call).toBeDefined();
       return call!;
     });
-    expect(JSON.parse(upload.body ?? "{}").contacts).toEqual([{ phone: "+919876543210", name: "Priya" }]);
-    const created = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns")!;
-    expect(JSON.parse(created.body ?? "{}").retry_policy).toEqual({ max_attempts: 3, gaps_minutes: [30, 120] });
+    const created = JSON.parse(rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns")!.body ?? "{}");
+    expect(created).toMatchObject({ agent_id: AGENT_ID, main_task: MAIN_TASK, name: nameFromMainTask(MAIN_TASK) });
+    const material = rendered.calls.find(
+      (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/materials`,
+    );
+    expect(JSON.parse(material?.body ?? "{}")).toMatchObject({ kind: "note", note: "Open Monday to Saturday, 9am to 7pm." });
+    // In that order: the materials are on the campaign before Pip reads it.
+    expect(rendered.calls.indexOf(material!)).toBeLessThan(rendered.calls.indexOf(asked));
   });
 
-  it("says the draft exists and links to it when the list upload is refused", async () => {
-    const rendered = await renderClientPage(
+  it("says the draft exists and links to it when a material is refused", async () => {
+    await renderClientPage(
       newCampaignPage(),
       newRoutes({
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: problem(503, {
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/materials`]: problem(503, {
           title: "Upstream unavailable",
-          detail: "We could not save those contacts just now.",
+          detail: "We could not save that note just now.",
           retryable: true,
         }),
       }),
     );
-    await fillNew(rendered.container);
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-    await screen.findByText("We could not save those contacts just now.");
+    await writeMainTask(MAIN_TASK);
+    addNote("Open Monday to Saturday.");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("We could not save that note just now.");
     expect(screen.getByRole("link", { name: "Open the draft" }).getAttribute("href")).toBe(
       `/c/acme/campaigns/${CAMPAIGN_ID}`,
     );
   });
 
-  it("does not create a second draft when Create is pressed again after a follow-up failed", async () => {
+  it("does not create a second draft when Save is pressed again after a follow-up failed", async () => {
     const rendered = await renderClientPage(
       newCampaignPage(),
       newRoutes({
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: problem(503, {
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/materials`]: problem(503, {
           title: "Upstream unavailable",
-          detail: "We could not save those contacts just now.",
+          detail: "We could not save that note just now.",
           retryable: true,
         }),
       }),
     );
-    await fillNew(rendered.container);
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-    await screen.findByText("We could not save those contacts just now.");
-    const finish = screen.getByRole("button", { name: "Create campaign" }) as HTMLButtonElement;
-    expect(finish.disabled).toBe(true);
-    fireEvent.click(finish);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await writeMainTask(MAIN_TASK);
+    addNote("Open Monday to Saturday.");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("We could not save that note just now.");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() =>
+      expect(
+        rendered.calls.filter((c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/materials`),
+      ).toHaveLength(2),
+    );
     expect(rendered.calls.filter((c) => c.method === "POST" && c.path === "/v1/campaigns")).toHaveLength(1);
   });
 
-  it("adds leads by the Leads lens with the count it showed", async () => {
-    const rendered = await renderClientPage(
+  it("shows the server's refusal when the draft itself is refused, and links to nothing", async () => {
+    await renderClientPage(
       newCampaignPage(),
       newRoutes({
-        ...leadPickerRoutes(4),
-        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`]: {
-          added: 4,
-          duplicate: 0,
-          malformed: 0,
-          foreign: 0,
-          plan_id: null,
-        },
+        "POST /v1/campaigns": problem(409, {
+          title: "Campaigns are locked",
+          detail: "Campaigns open once your account is verified.",
+          retryable: false,
+        }),
       }),
     );
-    await screen.findByRole("heading", { name: BASICS });
-    fillBasics("Hot leads");
-    next();
-    await screen.findByRole("heading", { name: "Who should we call?" });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Also call people from your leads" }));
-    const stages = await screen.findByRole("radiogroup", { name: "Filter by status" });
-    fireEvent.click(within(stages).getByRole("radio", { name: /^Hot/ }));
-    await screen.findByText(/4 leads match/);
-    await fillNew(rendered.container, "Hot leads", { atWhoToCall: true });
-    expect(screen.getByText(/plus 4 leads/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-    const added = await vi.waitFor(() => {
-      const call = rendered.calls.find(
-        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/contacts/from-leads`,
-      );
-      expect(call).toBeDefined();
-      return call!;
-    });
-    expect(JSON.parse(added.body ?? "{}")).toEqual({ lens: { status: "hot" }, expected_count: 4 });
+    await writeMainTask(MAIN_TASK);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Campaigns open once your account is verified.");
+    expect(screen.queryByRole("link", { name: "Open the draft" })).toBeNull();
   });
 
-  it("arms a chosen start after the draft exists, with its IST offset", async () => {
-    const rendered = await renderClientPage(
-      newCampaignPage(),
-      newRoutes({
-        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/schedule`]: {
-          start_at: "2030-01-15T04:30:00+00:00",
-          first_dial_not_before: "2030-01-15T04:30:00+00:00",
-        },
-      }),
-    );
-    await fillNew(rendered.container);
-    change("When");
-    fireEvent.click(await screen.findByRole("radio", { name: /At a set time/ }));
-    next();
-    expect((await screen.findByRole("alert")).textContent).toContain("Choose the date and time");
-    await pickDate("Start date", "2030-01-15");
-    next();
-    fireEvent.click(await screen.findByRole("button", { name: "Create campaign" }));
-    const armed = await vi.waitFor(() => {
-      const call = rendered.calls.find(
-        (c) => c.method === "POST" && c.path === `/v1/campaigns/${CAMPAIGN_ID}/schedule`,
-      );
-      expect(call).toBeDefined();
-      return call!;
-    });
-    expect(JSON.parse(armed.body ?? "{}").start_at).toBe("2030-01-15T10:00:00+05:30");
-  });
 });
 
 describe("calls at once on the create page", () => {
-  it("offers only as many as the account's lines, says so, and sends no more", async () => {
+  it("asks for no more calls at once than the account's lines", async () => {
     const rendered = await renderClientPage(
       newCampaignPage(),
       newRoutes({
         "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
       }),
     );
-    await fillNew(rendered.container);
-    // The review states the pace that will be sent, never the unclamped default of 3.
-    expect(rendered.container.textContent).toContain("up to 2 at a time");
-    expect(rendered.container.textContent).not.toContain("up to 3 at a time");
-    change("When");
-    await screen.findByRole("heading", { name: "When should we call?" });
-    change("Calling rules");
-    const pace = await screen.findByRole("radiogroup", { name: "Calls at the same time" });
-    expect(within(pace).getAllByRole("radio").map((r) => r.textContent)).toEqual(["1", "2"]);
-    expect(within(pace).getByRole("radio", { name: "2" }).getAttribute("aria-checked")).toBe("true");
-    expect(rendered.container.textContent).toContain("Up to 2 at once on your account.");
-    next();
-    fireEvent.click(await screen.findByRole("button", { name: "Create campaign" }));
+    await writeMainTask(MAIN_TASK);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     const created = await vi.waitFor(() => {
       const call = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns");
       expect(call).toBeDefined();
@@ -534,21 +529,14 @@ describe("calls at once on the create page", () => {
     expect(created.concurrency).toBe(2);
   });
 
-  it("offers the campaign's own bound and says so when the account's lines could not be read", async () => {
+  it("offers the campaign's own bound on Edit and says so when the account's lines could not be read", async () => {
     await renderClientPage(
-      newCampaignPage(),
-      newRoutes({ "/v1/call-lines": problem(503, { title: "Unavailable", retryable: true }) }),
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
+      newRoutes({
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture(),
+        "/v1/call-lines": problem(503, { title: "Unavailable", retryable: true }),
+      }),
     );
-    await screen.findByRole("heading", { name: BASICS });
-    fillBasics("Pace");
-    next();
-    await screen.findByRole("heading", { name: "Who should we call?" });
-    pasteContacts("9876543210");
-    fireEvent.click(consentRadios(document.body)[0]!);
-    await pickDate(CONSENT_DATE, "2026-08-01");
-    next();
-    await screen.findByRole("heading", { name: "When should we call?" });
-    change("Calling rules");
     expect(await screen.findByText("We couldn't check your account's limit. It still applies.")).toBeTruthy();
   });
 });
@@ -866,11 +854,12 @@ describe("editing a draft", () => {
 });
 
 describe("Pip on the campaign pages", () => {
-  it("offers to build the campaign on the create page, prefilled and never sent", async () => {
+  it("offers Pip to write the script on the create page, and sends nothing until asked", async () => {
     const rendered = await renderClientPage(newCampaignPage(), newRoutes());
-    const button = await screen.findByRole("button", { name: /^Build a campaign with Pip/ });
-    expect(button.textContent).toContain("Build a campaign with Pip");
-    expect(rendered.calls.some((c) => c.path.startsWith("/v1/copilot"))).toBe(false);
+    await screen.findByRole("heading", { name: "Let Pip, our AI agent, generate the script" });
+    // Nothing to write from yet: the button waits for the main task.
+    expect((screen.getByRole("button", { name: "Generate" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(rendered.calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 
   it("offers to answer questions about a launched campaign", async () => {
@@ -891,50 +880,28 @@ describe("nameFromGoal", () => {
 });
 
 describe("what a campaign is for", () => {
-  it("asks why it calls and the goal before the basics are done", async () => {
-    await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: BASICS });
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Visits" } });
-    next();
-    expect((await screen.findByRole("alert")).textContent).toContain("Say why you are calling");
-    fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), { target: { value: "Our new offer" } });
-    fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: "**Book**" } });
-    next();
-    expect((await screen.findByRole("alert")).textContent).toContain("plain words");
-    expect(screen.getByRole("heading", { name: BASICS })).toBeTruthy();
-  });
-
-  it("offers the agent's own outcomes that move a lead up as goals, and sends both lines", async () => {
+  it("offers the agent's own outcomes that move a lead up as goals on Edit, and sends the one picked", async () => {
     const rendered = await renderClientPage(
-      newCampaignPage(),
+      <EditCampaignPage params={Promise.resolve({ slug: "acme", campaignId: CAMPAIGN_ID })} />,
       newRoutes({
-        "POST /v1/campaigns": { id: CAMPAIGN_ID, status: "draft" },
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 1, duplicate: 0, malformed: 0, foreign: 0 },
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progressFixture(),
+        [`PATCH /v1/campaigns/${CAMPAIGN_ID}`]: new Response(null, { status: 204 }),
       }),
     );
-    await screen.findByRole("heading", { name: BASICS });
     const suggestions = await screen.findByRole("group", { name: "Goal suggestions" });
     expect(within(suggestions).getAllByRole("button").map((b) => b.textContent)).toEqual([
       "Booked a visit",
       "Wants the price list",
     ]);
-    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Visits" } });
-    fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), {
-      target: { value: "  Our new   service plan " },
-    });
     fireEvent.click(within(suggestions).getByRole("button", { name: "Booked a visit" }));
     expect((screen.getByRole("textbox", { name: GOAL_FIELD }) as HTMLInputElement).value).toBe("Booked a visit");
-    next();
-    await fillNew(rendered.container, "Visits", { atWhoToCall: true });
-    expect(rendered.container.textContent).toContain("Our new service plan");
-    fireEvent.click(screen.getByRole("button", { name: "Create campaign" }));
-    const created = await vi.waitFor(() => {
-      const call = rendered.calls.find((c) => c.method === "POST" && c.path === "/v1/campaigns");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const sent = await vi.waitFor(() => {
+      const call = rendered.calls.find((c) => c.method === "PATCH");
       expect(call).toBeDefined();
       return JSON.parse(call!.body ?? "{}");
     });
-    expect(created.purpose).toBe("Our new service plan");
-    expect(created.goal).toBe("Booked a visit");
+    expect(sent.goal).toBe("Booked a visit");
   });
 
   it("reads them back on Edit and sends the changed goal", async () => {
@@ -974,42 +941,14 @@ describe("what a campaign is for", () => {
     expect(name.value).toBe("Diwali offer");
   });
 
-  it("names the campaign from its goal until the owner types a name", async () => {
-    await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: BASICS });
-    const name = screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement;
-    expect(name.value).toBe("");
-    const suggestions = await screen.findByRole("group", { name: "Goal suggestions" });
-    fireEvent.click(within(suggestions).getByRole("button", { name: "Booked a visit" }));
-    expect(name.value).toBe(nameFromGoal("Booked a visit"));
-    expect(screen.getByText("Made from the goal. Type to change it.")).toBeTruthy();
-
-    fireEvent.change(name, { target: { value: "Weekend visits" } });
-    fireEvent.click(within(suggestions).getByRole("button", { name: "Wants the price list" }));
-    expect(name.value).toBe("Weekend visits");
-
-    // Cleared, it follows the goal again rather than staying blank.
-    fireEvent.change(name, { target: { value: "" } });
-    fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: "They book" } });
-    expect(name.value).toBe(nameFromGoal("They book"));
-  });
-
-  it("counts the room left only once there is a line to count", async () => {
-    const { container } = await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: BASICS });
-    expect(container.textContent).not.toContain("characters left");
-    fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), { target: { value: "Our offer" } });
-    expect(container.textContent).toContain("characters left");
-  });
-
-  it("asks nothing it already has an answer for, and says the answer", async () => {
-    const { container } = await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: BASICS });
-    expect(screen.queryByRole("combobox", { name: /^Calling from/ })).toBeNull();
-    expect(container.textContent).toContain("Service calls, from the agent's own number.");
-    // No running summary of unanswered questions beside the steps.
-    expect(container.textContent).not.toContain("Not said");
-    expect(container.textContent).not.toContain("Untitled campaign");
+  it("names a new campaign from its main task's first line and the IST day", () => {
+    const day = new Date("2026-11-04T19:00:00Z");
+    expect(nameFromMainTask("  Call farmers   who registered \nand never opened the app")).toBe(
+      nameFromGoal("Call farmers who registered"),
+    );
+    expect(nameFromGoal("Call farmers", day)).toBe("Call farmers, 5 Nov");
+    const long = "Call every farmer who registered on the app last season and help them install it";
+    expect(nameFromMainTask(long)).toBe(nameFromGoal("Call every farmer who registered on the app last season and…"));
   });
 
   it("shows the goal on the campaign, how many reached it, and each person's verdict", async () => {
