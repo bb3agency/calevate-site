@@ -134,7 +134,21 @@ jobs:
             echo "::error::no workflow writes it and none ever should (DEPLOYMENT §6)."
             missing=1
           fi
+          # `sudo -n -l <path>` asks whether THIS command is granted without a prompt; a
+          # prompting sudo under CD blocks until the job times out instead of failing.
+          if ! sudo -n -l /usr/local/sbin/calevate-predeploy-backup >/dev/null 2>&1; then
+            echo "::error::the runner's account may not run /usr/local/sbin/calevate-predeploy-backup"
+            echo "::error::without a password. Install it and infra/privileged/sudoers.d/calevate-deploy"
+            echo "::error::as DEPLOYMENT §3a step 0 shows."
+            missing=1
+          fi
           exit "$missing"
+
+      - name: Back up the database
+        # Before anything changes, as the pull path does (scripts/deploy/auto-deploy.sh): no
+        # backup, no deploy. A dry run changes nothing, so it takes none.
+        if: ${{ inputs.dry_run != true }}
+        run: sudo -n /usr/local/sbin/calevate-predeploy-backup
 
       - name: Deploy
         # TWO MODES, AND THEY ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION.

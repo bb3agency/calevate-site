@@ -557,6 +557,23 @@ path is a runner whose sudoers entry grows until it is root with extra steps. Th
 privileged thing the deploy does is install nginx config, and that goes through
 `infra/privileged/` — one command, empty argument list (§11).
 
+**This is what production uses (D-990, founder 15 Nov 2026)**, in place of the §3c pull
+timer. Do not install `calevate-autodeploy.timer` beside it: two automatic deployers would
+each build on a one-vCPU host. The deploy follows `main`, so the checkout at
+`/var/www/calevate` must be on `main` (`git -C /var/www/calevate branch --show-current`).
+
+0. **Install the pre-deploy backup grant**, as the sudo-capable login. The workflow takes
+   a verified database backup before every deploy and its preflight fails without this:
+
+   ```sh
+   sudo -iu calevate git -C /var/www/calevate pull --ff-only        # brings these files
+   cd /var/www/calevate
+   sudo install -o root -g root -m 0755 infra/privileged/sbin/calevate-predeploy-backup /usr/local/sbin/
+   sudo install -o root -g root -m 0440 infra/privileged/sudoers.d/calevate-deploy /etc/sudoers.d/calevate-deploy
+   sudo visudo -c -f /etc/sudoers.d/calevate-deploy                  # must print "parsed OK"
+   sudo -u calevate sudo -n /usr/local/sbin/calevate-predeploy-backup   # must print BACKUP OK
+   ```
+
 1. **Get a registration token.** GitHub → repo → Settings → Actions → Runners → *New
    self-hosted runner* → Linux x64. The page shows the current release URL and a token
    that **expires in one hour**. Do not reuse a token from an older set of instructions.
@@ -657,7 +674,10 @@ long-lived token to this repository, so a wipe is not a substitute for the remov
 about it. Re-registering is steps 1–3 again in the same directory (`--replace` makes it
 idempotent), about five minutes.
 
-### 3c. Automatic deploys by pull — what production uses (founder, 11 Nov 2026)
+### 3c. Automatic deploys by pull — chosen 11 Nov 2026, replaced by the §3a runner (D-990)
+
+**Not installed in production.** The founder chose the §3a runner on 15 Nov 2026 (D-990).
+This section stays as the alternative; installing it as well would deploy every release twice.
 
 Pushing to `production` deploys it. The host pulls: `calevate-autodeploy.timer` runs
 `scripts/deploy/auto-deploy.sh` as `calevate` every 2 minutes; it fetches `production`
@@ -1047,8 +1067,9 @@ production has been deployed by hand with `scripts/vps-deploy.sh` since 22 Sep 2
    with the detached-checkout message until `git checkout main` is run on the box. Nothing
    about this has been executed and the script's own tests cannot execute it.
 
-> **Since 11 Nov 2026 a push to `production` deploys itself once §3c is installed** (backup
-> first, then this same script). The hand deploy below stays the fallback.
+> **Since 15 Nov 2026 (D-990) a green CI run on `main` deploys itself once the §3a runner
+> is installed** (backup first, then this same script). The hand deploy below stays the
+> fallback.
 >
 > **Current state (28 Oct 2026).** Production runs on the Hostinger VPS, repository at
 > `/var/www/calevate`, deploy account `calevate`, deployed by hand from the `production`
