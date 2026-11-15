@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from apps.api.copilot.memory import stored_content
 from apps.api.copilot.models import MAX_CONTENT_CHARS, MAX_TURN_CHARS
+from apps.api.copilot.prompt import build_messages
 from apps.api.copilot.schemas import MAX_QUESTION_CHARS, CopilotAskIn
 
 _SCREEN = {"route": "/c/x", "title": "Home", "realm": "client"}
@@ -33,6 +34,38 @@ def test_a_long_question_and_its_replay_are_accepted() -> None:
 def test_a_question_past_the_limit_is_refused_not_cut() -> None:
     with pytest.raises(ValidationError):
         CopilotAskIn.model_validate({"screen": _SCREEN, "question": "x" * (MAX_QUESTION_CHARS + 1)})
+
+
+def test_the_next_question_after_a_long_answer_is_accepted() -> None:
+    """An answer may run to `MAX_ANSWER_TOKENS`, well past 8,000 characters, and the panel
+    replays it as history: the question after it used to be a 422."""
+    answer = "The opening line greets the caller by name. " * 400
+    assert len(answer) > MAX_QUESTION_CHARS
+    payload = CopilotAskIn.model_validate(
+        {
+            "screen": _SCREEN,
+            "question": "Shorten it",
+            "history": [
+                {"role": "user", "content": "Write the whole script"},
+                {"role": "assistant", "content": answer},
+            ],
+        }
+    )
+    replayed = build_messages(payload)
+    sent = [m["content"] for m in replayed if m.get("role") == "assistant"]
+    # The model reads the answer as the stored turn holds it, so a reload changes nothing.
+    assert sent == [stored_content(answer, cap=MAX_TURN_CHARS)]
+
+
+def test_a_user_turn_past_the_limit_is_still_refused() -> None:
+    with pytest.raises(ValidationError):
+        CopilotAskIn.model_validate(
+            {
+                "screen": _SCREEN,
+                "question": "Go on",
+                "history": [{"role": "user", "content": "x" * (MAX_QUESTION_CHARS + 1)}],
+            }
+        )
 
 
 def test_a_long_question_is_stored_whole() -> None:

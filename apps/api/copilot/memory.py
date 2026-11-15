@@ -67,6 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot.models import MAX_CONTENT_CHARS, SEARCH_CONFIG
 from apps.api.copilot.prompt import xml_attr, xml_text
+from apps.api.copilot.schemas import clipped
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.workers.redaction import redact
@@ -170,10 +171,7 @@ def stored_content(*parts: str, cap: int = MAX_CONTENT_CHARS) -> str:
 
 
 def _capped(content: str, cap: int = MAX_CONTENT_CHARS) -> str:
-    cleaned = content.strip()
-    if len(cleaned) > cap:
-        cleaned = cleaned[: cap - 1].rstrip() + "…"
-    return cleaned
+    return clipped(content, cap)
 
 
 async def remember_exchange(

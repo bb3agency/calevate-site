@@ -69,6 +69,21 @@ _MAX_TEXT = 2_000
 #: the stored turn holds the same number (`models.MAX_TURN_CHARS`).
 MAX_QUESTION_CHARS: Final = 8_000
 
+#: The longest answer the browser may replay as a history turn before it is cut to
+#: `MAX_QUESTION_CHARS` (`CopilotTurn`). A wall, not a size: `MAX_HISTORY` turns this long
+#: in a three-byte script still fit `core/middleware.MAX_BODY_BYTES`.
+MAX_REPLAYED_ANSWER_CHARS: Final = 32_000
+
+
+def clipped(content: str, cap: int) -> str:
+    """`content` stripped and cut to `cap` characters, the cut marked with an ellipsis so a
+    model reading it can tell it is a fragment. The one cut for stored and replayed turns."""
+    cleaned = content.strip()
+    if len(cleaned) > cap:
+        cleaned = cleaned[: cap - 1].rstrip() + "…"
+    return cleaned
+
+
 #: A screen with more controls than this is not a screen a person is asking a question
 #: about. The widest form in this console is the agent intake, and it is well under a
 #: hundred controls including every repeated group.
@@ -216,7 +231,22 @@ class CopilotTurn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     role: Literal["user", "assistant"]
-    content: Annotated[str, Field(max_length=MAX_QUESTION_CHARS)]
+    content: Annotated[str, Field(max_length=MAX_REPLAYED_ANSWER_CHARS)]
+
+    @model_validator(mode="after")
+    def _within_a_turn(self) -> CopilotTurn:
+        """A person's turn is held to the question's bound; an answer is cut to it.
+
+        An answer is only bounded by tokens (`service.MAX_ANSWER_TOKENS`), so the panel
+        replays answers longer than a question may be, and refusing one made every question
+        after a long answer a 422. It is cut exactly as the stored turn is (`clipped`), so
+        the model reads the same history before and after a reload."""
+        if len(self.content) <= MAX_QUESTION_CHARS:
+            return self
+        if self.role == "user":
+            raise ValueError(f"a question is at most {MAX_QUESTION_CHARS} characters")
+        self.content = clipped(self.content, MAX_QUESTION_CHARS)
+        return self
 
 
 class CopilotAskIn(BaseModel):
@@ -925,6 +955,7 @@ __all__ = [
     "MAX_HISTORY",
     "MAX_OPTIONS",
     "MAX_QUESTION_CHARS",
+    "MAX_REPLAYED_ANSWER_CHARS",
     "STREAM_FRAMES",
     "CopilotActionEvent",
     "CopilotActionOut",
@@ -961,4 +992,5 @@ __all__ = [
     "CopilotVoteIn",
     "CopilotVoteOut",
     "CopilotVoteReason",
+    "clipped",
 ]
