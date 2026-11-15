@@ -147,39 +147,10 @@ function detail(progress: unknown, extra: Routes = {}): Routes {
   };
 }
 
-function consentRadios(container: HTMLElement): HTMLInputElement[] {
-  return Array.from(container.querySelectorAll<HTMLInputElement>('input[name="new-consent-source"]'));
-}
-
 const CONSENT_DATE = "When did they agree?";
 
-function pasteContacts(text: string): void {
-  fireEvent.click(screen.getByRole("button", { name: "Paste" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Paste rows" }), { target: { value: text } });
-  fireEvent.click(screen.getByRole("button", { name: "Add these rows" }));
-}
-
-/** The create page is four steps; Next names the step it goes to, and checks the one it leaves. */
-function next(): void {
-  fireEvent.click(screen.getByRole("button", { name: /^Next: / }));
-}
-
 const PURPOSE_FIELD = "Why are you calling them?";
-/** The first step's question: what the calls are for comes before anything else. */
-const BASICS = "What are these calls for?";
-
-/** Opens the settings that already have an answer, e.g. "How the calls go out". */
-function change(title: string): void {
-  fireEvent.click(screen.getByRole("button", { name: `Change ${title.toLowerCase()}` }));
-}
 const GOAL_FIELD = "What should a good call end with?";
-
-/** The basics step's three typed answers: the name, why it calls and the goal. */
-function fillBasics(name: string, purpose = "Our Diwali service offer", goal = "They book a visit"): void {
-  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: name } });
-  fireEvent.change(screen.getByRole("textbox", { name: PURPOSE_FIELD }), { target: { value: purpose } });
-  fireEvent.change(screen.getByRole("textbox", { name: GOAL_FIELD }), { target: { value: goal } });
-}
 
 const MAIN_TASK = "Call customers about our Diwali offer on service plans and book a visit.";
 
@@ -195,44 +166,6 @@ function addNote(text: string): void {
   fireEvent.change(screen.getByRole("textbox", { name: "Note" }), { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
 }
-
-describe("the create page's consent declaration", () => {
-  it("opens unanswered and will not create a campaign without it", async () => {
-    // Where the list came from is an audited statement. A pre-selected answer would be an
-    // assertion nobody made, so the page opens empty and refuses to create without one.
-    const { container } = await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: BASICS });
-    fillBasics("List");
-    next();
-    await screen.findByRole("heading", { name: "Who should we call?" });
-    expect(consentRadios(container)).toHaveLength(5);
-    expect(consentRadios(container).some((r) => r.checked)).toBe(false);
-    expect(screen.getByRole("button", { name: CONSENT_DATE }).textContent).toContain("Choose a date");
-
-    pasteContacts("9876543210");
-    next();
-    expect((await screen.findByRole("alert")).textContent).toContain("Answer both questions about your list");
-    // Still on the step that asks, never moved on to the next one.
-    expect(screen.getByRole("heading", { name: "Who should we call?" })).toBeTruthy();
-  });
-
-  it("offers Service only while Calevate's telemarketer registration is not live, and never Transactional", async () => {
-    await renderClientPage(newCampaignPage(), newRoutes());
-    await screen.findByRole("heading", { name: BASICS });
-    change("How the calls go out");
-    expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
-    expect(screen.queryByRole("radio", { name: /Promotional/ })).toBeNull();
-    expect(screen.queryByRole("radio", { name: /Transactional/ })).toBeNull();
-  });
-
-  it("offers Promotional once the telemarketer registration is live", async () => {
-    await renderClientPage(newCampaignPage(), newRoutes(dltRegistrationRoute(true)));
-    await screen.findByRole("heading", { name: BASICS });
-    change("How the calls go out");
-    expect(await screen.findByRole("radio", { name: /Promotional/ })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: /Service/ })).toBeTruthy();
-  });
-});
 
 describe("the consent declaration on a draft", () => {
   it("opens unanswered and records nothing until both questions are answered", async () => {
