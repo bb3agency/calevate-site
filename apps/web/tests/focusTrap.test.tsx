@@ -87,6 +87,37 @@ describe("useFocusTrap", () => {
     expect(document.activeElement).toBe(keep);
   });
 
+  it("closes only the newest trap on Escape, even when focus has fallen to the page", () => {
+    const closeDrawer = vi.fn();
+    const closeDialog = vi.fn();
+    function Layer({ label, onEscape, children }: { label: string; onEscape: () => void; children?: React.ReactNode }) {
+      const ref = useRef<HTMLDivElement>(null);
+      useFocusTrap(ref, true, onEscape);
+      return (
+        <div ref={ref} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1}>
+          <button type="button">{`Close ${label}`}</button>
+          {children}
+        </div>
+      );
+    }
+    function Host({ dialog }: { dialog: boolean }) {
+      return (
+        <Layer label="History" onEscape={closeDrawer}>
+          {dialog ? createPortal(<Layer label="Restore" onEscape={closeDialog} />, document.body) : null}
+        </Layer>
+      );
+    }
+    const { rerender } = render(<Host dialog={false} />);
+    rerender(<Host dialog />);
+    // A press on the dialog's scrim, which is not focusable, leaves focus on <body>.
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(closeDialog).toHaveBeenCalledTimes(1);
+    expect(closeDrawer).not.toHaveBeenCalled();
+  });
+
   it("hands Tab back to the drawer once the dialog on top of it closes", () => {
     function Host({ dialog }: { dialog: boolean }) {
       return (

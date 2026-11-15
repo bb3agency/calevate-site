@@ -405,6 +405,10 @@ export function useCopilotConversation(
   //: The last question sent, for `retry`. Cleared by `reset`, because a forgotten
   //: conversation must not leave a question this panel can still re-send.
   const lastAsked = useRef<{ question: string; files: SentAttachment[] } | null>(null);
+  //: True while the error on screen is a refused `reset` delete, so `retry` sends the
+  //: delete again: `reset` has already forgotten the last question, so re-asking it
+  //: would make Try again a button that does nothing.
+  const clearRefused = useRef(false);
 
   // THE REALM, read once per render from the surface. It is what chooses the endpoint
   // (`conversationPath`), and it is the same value `stream.ts` sends, so a conversation
@@ -562,7 +566,11 @@ export function useCopilotConversation(
     // stored — which is still there. A cache we kept empty to match the click would be
     // this console asserting a deletion that did not happen.
     if (realm !== null) {
-      void clearConversation(session, realm).catch((cause: unknown) => setError(cause));
+      clearRefused.current = false;
+      void clearConversation(session, realm).catch((cause: unknown) => {
+        clearRefused.current = true;
+        setError(cause);
+      });
       // Forgetting the turns is not forgetting whether files can be attached.
       queries.setQueryData<StoredConversation>(conversationKey(session.orgSlug, realm), (current) => ({
         ...EMPTY_CONVERSATION,
@@ -630,6 +638,7 @@ export function useCopilotConversation(
       // WHAT `retry` RE-SENDS. A ref rather than state: nothing renders from it, and it
       // must be readable by a callback created in an earlier render.
       lastAsked.current = { question: asked, files };
+      clearRefused.current = false;
       const surface = holder.read();
 
       inFlight.current?.abort();
@@ -723,7 +732,9 @@ export function useCopilotConversation(
         {
           onText: (delta) => {
             answerWire += delta;
-            answer += pass.restore(delta);
+            // Restored over the WHOLE answer, not the delta: a frame is a model chunk, and
+            // a chunk boundary inside «PHONE_1» left both halves unmatched for good.
+            answer = pass.restore(answerWire);
             partial.current = { answer, wire: answerWire, id: turnIds.answer };
             setStreaming(answer);
           },
@@ -871,9 +882,13 @@ export function useCopilotConversation(
    * would be a second charge dressed up as the first one.
    */
   const retry = useCallback(() => {
+    if (clearRefused.current) {
+      reset();
+      return;
+    }
     const last = lastAsked.current;
     if (last !== null) ask(last.question, last.files);
-  }, [ask]);
+  }, [ask, reset]);
 
   const atCeiling = error instanceof ApiProblem && error.code === AI_CEILING_CODE;
 

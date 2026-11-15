@@ -20,7 +20,7 @@
  *   still matches. `RESTORE` is a plain global replace of a literal, not a regex over
  *   user data.
  * - **Idempotent.** Restoring text that contains no token returns it unchanged, so the
- *   same function runs over every streamed delta and every filled value without a caller
+ *   same function runs over the answer so far and every filled value without a caller
  *   having to know which of them could contain one.
  *
  * ## What this deliberately does NOT do
@@ -66,9 +66,10 @@ const TOKEN_PREFIX: Record<PersonalKind, string> = {
 /**
  * One exchange's redaction: the values that went out, and the way back.
  *
- * `restore` is handed to the panel and run over EVERY string that comes back — each
- * streamed delta and each filled value — because a model asked to "copy the branch number
- * into the escalation field" answers with the token, and a token reaching a form field is
+ * `restore` is handed to the panel and run over EVERY string that comes back — the
+ * streamed answer (whole, since a token can span two deltas) and each filled value —
+ * because a model asked to "copy the branch number into the escalation field" answers
+ * with the token, and a token reaching a form field is
  * a form field holding `«PHONE_1»` instead of a number.
  */
 export interface RedactionPass {

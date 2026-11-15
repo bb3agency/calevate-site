@@ -606,6 +606,28 @@ describe("the panel", () => {
     ).toBe("Ring +919876543210");
   });
 
+  it("RESTORES A PLACEHOLDER THE STREAM SPLIT ACROSS TWO TEXT FRAMES", async () => {
+    // A text frame is a model chunk, and a chunk boundary can fall inside «PHONE_1».
+    stubCopilot({
+      chunks: [
+        'event: text\ndata: {"delta":"Calls go to «PHO"}\n\n',
+        'event: text\ndata: {"delta":"NE_1» after hours."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <PanelMount />
+        </>,
+      ),
+    );
+    await ask("who gets the calls at night?");
+    expect(await screen.findByText("Calls go to +919876543210 after hours.")).toBeTruthy();
+    expect(screen.queryByText(/«PHO/)).toBeNull();
+  });
+
   it("shows a dropped stream as a retryable refusal and keeps what arrived", async () => {
     stubCopilot({ chunks: ['event: text\ndata: {"delta":"half an ans"}\n\n'] });
     render(
