@@ -2,16 +2,24 @@
 
 Queued by `campaigns/workspace.request_proposal`. The script is written by the one script
 writer (`workers/script_assist.draft_script`) in the campaign agent's language and business
-context (`agents/script_proposals.brief_for`), as an edit of the campaign's current script
-when it has one, so the owner's own wording survives wherever the materials do not change
-it. Documents are read the way onboarding reads them (`first_run.documents_block`: redacted,
-fenced, one word budget). Every write back is a compare-and-set on the proposal id, so a
-draft the owner stopped or replaced is never resurrected.
+context (`agents/script_proposals.brief_for`). A campaign's first script is written whole, from
+the trade's step plan like any new script; a campaign that already has one gets an edit of it,
+so the owner's own wording survives wherever the materials do not change it. Documents are read
+the way onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
+
+What Pip wrote then goes through what every Pip script does before an owner reviews it
+(`script_proposal.finish_written`): the call-mistake checks and their repair (D-989), then the
+opening rule and its repair (D-957). Every write back is a compare-and-set on the proposal id,
+so a draft the owner stopped or replaced is never resurrected.
 """
 
 from __future__ import annotations
 
 import json
+import time
+from dataclasses import replace
+from datetime import UTC, datetime
+from functools import partial
 from typing import Any, Final
 from uuid import UUID
 
@@ -28,24 +36,74 @@ from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
 from apps.workers.first_run import documents_block
-from apps.workers.script_assist import AskTrace, ScriptDraft, draft_script
-
-# The agent proposal job's budget: a job nobody waits on gives a long script more time and tokens.
-from apps.workers.script_proposal import PROPOSAL_MAX_TOKENS, PROPOSAL_REQUEST_TIMEOUT_S
+from apps.workers.opening_line import WrittenOpening
+from apps.workers.script_assist import AskTrace, JsonAnswer, LeftOut, ScriptDraft, draft_script
+from apps.workers.script_proposal import (
+    PROPOSAL_MAX_TOKENS,
+    PROPOSAL_REQUEST_TIMEOUT_S,
+    finish_written,
+    refusal_note,
+)
 
 log = get_logger(__name__)
 
-CAMPAIGN_CHANGE: Final = (
+#: The ask, shared by a first script and an edit; each adds its own last sentence.
+CAMPAIGN_ASK: Final = (
     "Write this campaign's call script. Every call this agent places for the campaign follows "
     "it. The campaign's main task, in the owner's words, says what the calls must achieve; the "
     "owner's notes, links and documents below say what to tell people and how. Write the "
     "opening line for the call it places, the steps that get to the main task one at a time, "
     "quick facts (the faqs list: a question people ask and a short spoken answer, at most "
     "eight), the objections people raise with how to answer, and how the call ends. Where a "
-    "note or document says how the agent should handle the call, follow it. Keep anything "
-    "already in the script that the main task and materials do not change.\n"
-    "MAIN TASK:\n{main_task}\n"
+    "note or document says how the agent should handle the call, follow it."
 )
+EDIT_TAIL: Final = (
+    " Keep anything already in the script that the main task and materials do not change."
+)
+
+
+def _materials_text(materials: list[workspace.Material]) -> str:
+    """Notes and links as plain lines; documents are read separately, in full."""
+    lines: list[str] = []
+    for item in materials:
+        if item.kind == "note" and item.note:
+            label = "Learned from calls" if item.source == "call" else "Note"
+            lines.append(f"{label} ({item.title}): {item.note}")
+        elif item.kind == "link" and item.url:
+            lines.append(f"Link ({item.title}): {item.url}")
+    return "\n".join(lines)
+
+
+def owners_words(main_task: str, notes: str) -> str:
+    """The campaign in the owner's own words: a line Pip took from them word for word is
+    theirs, and is not judged by the opening rule (`finish_written`)."""
+    return "\n".join(part for part in (main_task.strip(), notes) if part)
+
+
+def campaign_change(main_task: str, notes: str, documents: str, *, edit: bool) -> str:
+    """What the script is written from: the ask, the main task, the notes and the documents."""
+    change = f"{CAMPAIGN_ASK}{EDIT_TAIL if edit else ''}\nMAIN TASK:\n{main_task.strip()}\n"
+    if notes:
+        change += f"OWNER'S NOTES AND LINKS:\n{notes}\n"
+    return change + documents
+
+
+def _proposal(
+    proposal_id: UUID, base: CallScript | None, request: str
+) -> script_proposals.ScriptProposal:
+    """The campaign's request in the agent proposal's shape, which `finish_written` reads: a
+    `change` of the campaign's script, or a `whole` first script, so a finding the owner's own
+    script already had stays theirs to fix."""
+    return script_proposals.ScriptProposal(
+        id=proposal_id,
+        mode="change" if base is not None else "whole",
+        status="drafting",
+        request=request,
+        answers={},
+        base_script=base or CallScript(),
+        requested_by=None,
+        requested_at=datetime.now(UTC),
+    )
 
 
 async def _claim(tenant_id: UUID, campaign_id: UUID, proposal_id: UUID) -> bool:
@@ -66,32 +124,28 @@ async def _claim(tenant_id: UUID, campaign_id: UUID, proposal_id: UUID) -> bool:
     return claimed is not None
 
 
-async def _store(
-    tenant_id: UUID, campaign_id: UUID, proposal_id: UUID, update: dict[str, Any]
-) -> bool:
+_STORE: Final = text(
+    "UPDATE campaigns SET script_proposal = script_proposal || CAST(:u AS jsonb) "
+    "WHERE id = :cid AND script_proposal->>'id' = :pid RETURNING id"
+)
+
+
+async def _fail(
+    tenant_id: UUID,
+    campaign_id: UUID,
+    proposal_id: UUID,
+    note: str,
+    left_out: list[LeftOut] | None = None,
+) -> None:
+    update = {
+        "status": "failed",
+        "note": note[:400],
+        "left_out": script_proposals.left_out_record(left_out or []),
+    }
     async with tenant_session(tenant_id) as session:
-        done = (
-            await session.execute(
-                text(
-                    "UPDATE campaigns SET script_proposal = script_proposal || CAST(:u AS jsonb) "
-                    "WHERE id = :cid AND script_proposal->>'id' = :pid RETURNING id"
-                ),
-                {"cid": campaign_id, "pid": str(proposal_id), "u": json.dumps(update)},
-            )
-        ).first()
-    return done is not None
-
-
-def _materials_text(materials: list[workspace.Material]) -> str:
-    """Notes and links as plain lines; documents are read separately, in full."""
-    lines: list[str] = []
-    for item in materials:
-        if item.kind == "note" and item.note:
-            label = "Learned from calls" if item.source == "call" else "Note"
-            lines.append(f"{label} ({item.title}): {item.note}")
-        elif item.kind == "link" and item.url:
-            lines.append(f"Link ({item.title}): {item.url}")
-    return "\n".join(lines)
+        await session.execute(
+            _STORE, {"cid": campaign_id, "pid": str(proposal_id), "u": json.dumps(update)}
+        )
 
 
 async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -102,6 +156,7 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
     if not await _claim(tenant_id, campaign_id, proposal_id):
         return "not_pending"
 
+    started = time.monotonic()
     async with tenant_session(tenant_id) as session:
         space = await workspace.read_workspace(session, campaign_id)
         uploads = [m.kb_upload_id for m in space.materials if m.kb_upload_id is not None]
@@ -115,87 +170,106 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
 
-    change = CAMPAIGN_CHANGE.format(main_task=space.main_task)
+    # Written from the script the request was made from, as the review lists its changes
+    # against it: a script saved since would otherwise be shown as Pip's change.
+    base = space.proposal.base_script if space.proposal is not None else space.script
     notes = _materials_text(space.materials)
-    if notes:
-        change += f"OWNER'S NOTES AND LINKS:\n{notes}\n"
-    documents = documents_block(words)
-    if documents:
-        change += documents
-    base = space.script or CallScript()
+    change = campaign_change(space.main_task, notes, documents_block(words), edit=base is not None)
+    proposal = _proposal(proposal_id, base, owners_words(space.main_task, notes))
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     trace = AskTrace()
+    write = partial(
+        draft_script,
+        tenant_leg=tenant_leg,
+        quota_exhausted=quota.at_ceiling or quota.platform_paused,
+        timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
+        max_tokens=PROPOSAL_MAX_TOKENS,
+        trace=trace,
+    )
     try:
-        draft: ScriptDraft = await draft_script(
-            context,
-            tenant_leg=tenant_leg,
-            quota_exhausted=quota.at_ceiling or quota.platform_paused,
-            edit_of=base,
-            change=change,
-            timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
-            max_tokens=PROPOSAL_MAX_TOKENS,
-            trace=trace,
-        )
+        if base is None:
+            # A first script: written whole from the trade's step plan, the campaign's words
+            # as the owner's description, so every figure in them may be spoken.
+            draft: ScriptDraft = await write(replace(context, description=change))
+        else:
+            draft = await write(context, edit_of=base, change=change)
     except ProblemError as refused:
         log.info(
             "campaign_script_refused",
-            extra={"campaign_id": str(campaign_id), "reason": refused.code},
+            extra={
+                "campaign_id": str(campaign_id),
+                "reason": refused.code,
+                "repairs": trace.repairs,
+                "truncated": trace.truncated,
+            },
         )
         async with tenant_session(tenant_id) as session:
             await crm_assist.meter_refusal(
                 session, tenant_id=tenant_id, refusal=refused, feature=feature
             )
-        await _store(
-            tenant_id,
-            campaign_id,
-            proposal_id,
-            {"status": "failed", "note": refused.detail or workspace.FAILED_NOTE},
+        await _fail(
+            tenant_id, campaign_id, proposal_id, refusal_note(refused, trace), trace.unwritten
         )
         return "refused"
     except Exception:
         log.exception("campaign_script_crashed", extra={"campaign_id": str(campaign_id)})
-        await _store(
-            tenant_id, campaign_id, proposal_id, {"status": "failed", "note": workspace.FAILED_NOTE}
-        )
+        await _fail(tenant_id, campaign_id, proposal_id, workspace.FAILED_NOTE)
         return "failed"
 
+    finished = await finish_written(tenant_id, space.agent_id, proposal, draft.script, started)
+    spends: list[ScriptDraft | JsonAnswer[WrittenOpening] | ProblemError] = [
+        draft,
+        *finished.repairs,
+        *finished.opening_spends,
+    ]
+    update = {
+        "status": "ready",
+        "script": finished.script.model_dump(mode="json"),
+        # A draft or repair the standby answered is disclosed with it (D-127 G-6).
+        "disclosure": next(
+            (
+                spent.capability.disclosure
+                for spent in (draft, *finished.repairs)
+                if not isinstance(spent, ProblemError) and spent.capability.disclosure
+            ),
+            None,
+        ),
+        "left_out": script_proposals.left_out_record([*trace.left_out, *finished.left_out]),
+    }
     # A completed run is money spent: metered in the same transaction that stores the draft.
     async with tenant_session(tenant_id) as session:
         stored = (
             await session.execute(
-                text(
-                    "UPDATE campaigns SET script_proposal = script_proposal || CAST(:u AS jsonb) "
-                    "WHERE id = :cid AND script_proposal->>'id' = :pid RETURNING id"
-                ),
-                {
-                    "cid": campaign_id,
-                    "pid": str(proposal_id),
-                    "u": json.dumps(
-                        {"status": "ready", "script": draft.script.model_dump(mode="json")}
-                    ),
-                },
+                _STORE, {"cid": campaign_id, "pid": str(proposal_id), "u": json.dumps(update)}
             )
         ).first()
-        await crm_assist.meter_earlier(
-            session, tenant_id=tenant_id, earlier=draft.earlier, feature=feature
-        )
-        await crm_assist.meter_assist(
-            session,
-            tenant_id=tenant_id,
-            ref=new_assist_ref(),
-            result=draft,
-            model=draft.model,
-            feature=feature,
-        )
+        for spent in spends:
+            if isinstance(spent, ProblemError):
+                await crm_assist.meter_refusal(
+                    session, tenant_id=tenant_id, refusal=spent, feature=feature
+                )
+                continue
+            await crm_assist.meter_earlier(
+                session, tenant_id=tenant_id, earlier=spent.earlier, feature=feature
+            )
+            await crm_assist.meter_assist(
+                session,
+                tenant_id=tenant_id,
+                ref=new_assist_ref(),
+                result=spent,
+                model=spent.model,
+                feature=feature,
+            )
     log.info(
         "campaign_script_written",
         extra={
             "campaign_id": str(campaign_id),
             "stored": stored is not None,
             "repairs": trace.repairs,
+            "checked_repairs": len(finished.repairs),
         },
     )
     return "ready" if stored is not None else "not_pending"
 
 
-__all__ = ["draft_campaign_script"]
+__all__ = ["campaign_change", "draft_campaign_script", "owners_words"]

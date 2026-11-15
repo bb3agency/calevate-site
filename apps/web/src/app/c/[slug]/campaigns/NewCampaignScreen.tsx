@@ -107,12 +107,13 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
       for (const item of materials) {
         if (item.file) {
           await uploadMaterial(session, id, item.file, item.title);
-          continue;
+        } else {
+          const body = { kind: item.kind, title: item.title, url: item.url, note: item.note, kb_upload_id: item.kb_upload_id };
+          await apiRequest(session, `${base}/materials`, { method: "POST", body });
         }
-        const body = { kind: item.kind, title: item.title, url: item.url, note: item.note, kb_upload_id: item.kb_upload_id };
-        await apiRequest(session, `${base}/materials`, { method: "POST", body });
+        // Each one leaves the list as it is added, so a retry after a refusal adds only the rest.
+        setMaterials((held) => held.filter((kept) => kept !== item));
       }
-      setMaterials([]);
       if (withPip) await apiRequest(session, `${base}/script/proposal`, { method: "POST" });
       void queryClient.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
       router.push(detail(id));

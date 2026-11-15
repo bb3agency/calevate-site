@@ -18989,6 +18989,23 @@ export interface components {
              */
             updated_at: string;
         };
+        /**
+         * CampaignLeftOutOut
+         * @description A part of Pip's script kept as the owner had it, a warning its repairs could not clear
+         *     (ready), or a part it could not write (failed). `LeftOutPartOut`'s shape.
+         */
+        CampaignLeftOutOut: {
+            /** Added */
+            added: boolean;
+            /** Label */
+            label: string;
+            /** Part */
+            part: string;
+            /** Rule */
+            rule: string;
+            /** Unfixed */
+            unfixed: boolean;
+        };
         /** CampaignPageOut */
         CampaignPageOut: {
             /**
@@ -19008,11 +19025,15 @@ export interface components {
         /** CampaignProposalOut */
         CampaignProposalOut: {
             base_script: components["schemas"]["CallScript"] | null;
+            /** Disclosure */
+            disclosure: string | null;
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /** Left Out */
+            left_out: components["schemas"]["CampaignLeftOutOut"][];
             /** Note */
             note: string | null;
             /**

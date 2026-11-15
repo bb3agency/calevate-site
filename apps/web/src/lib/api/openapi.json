@@ -13483,6 +13483,41 @@
         "title": "CampaignLeadOut",
         "type": "object"
       },
+      "CampaignLeftOutOut": {
+        "additionalProperties": false,
+        "description": "A part of Pip's script kept as the owner had it, a warning its repairs could not clear\n(ready), or a part it could not write (failed). `LeftOutPartOut`'s shape.",
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "part": {
+            "title": "Part",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "unfixed": {
+            "title": "Unfixed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "part",
+          "label",
+          "rule",
+          "added",
+          "unfixed"
+        ],
+        "title": "CampaignLeftOutOut",
+        "type": "object"
+      },
       "CampaignPageOut": {
         "additionalProperties": false,
         "properties": {
@@ -13531,10 +13566,28 @@
               }
             ]
           },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclosure"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "left_out": {
+            "items": {
+              "$ref": "#/components/schemas/CampaignLeftOutOut"
+            },
+            "title": "Left Out",
+            "type": "array"
           },
           "note": {
             "anyOf": [
@@ -13578,7 +13631,9 @@
           "requested_at",
           "base_script",
           "script",
-          "note"
+          "note",
+          "disclosure",
+          "left_out"
         ],
         "title": "CampaignProposalOut",
         "type": "object"

@@ -3,6 +3,17 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.2 — 15-Nov-2026
+
+- **Pip's campaign script is checked like every Pip script.** Before you see it, the call-mistake
+  checks read it and Pip rewrites what they find (three questions in one turn and the like), and
+  an opening line that breaks the opening rules is written again. What Pip could not fix, or kept
+  as you had it, is listed above the changes, and a script written by the backup assistant says so.
+- A campaign's first script is written whole for your business from the main task and materials,
+  starting from your trade's steps, instead of as a change to an empty script.
+- Generate now checks your AI allowance first, and is not available while viewing as the client.
+- Creating a campaign: if one material is refused, pressing again adds only the ones not yet added.
+
 ## 0.4.1 — 15-Nov-2026
 
 - "Before you launch" is now **Mandatory Regulatory Compliance Checks**: foldable, open by
