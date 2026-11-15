@@ -63,6 +63,8 @@ interface Common {
   /** This row's save, from the caller's `useActionFeedback`. */
   status: FeedbackStatus;
   error: Error | null;
+  /** Another row's save on the same write is running: this one waits, saying so. */
+  waitingFor?: ReactNode;
   /** On an agent's Settings, for a reader who may change every agent: "All my agents". */
   scope?: ScopeOffer<InheritedVoice>;
 }
@@ -111,12 +113,14 @@ function Footer({
   status,
   label,
   disabled,
+  waitingFor,
   onClose,
 }: {
   changed: boolean;
   status: FeedbackStatus;
   label: string;
   disabled?: boolean;
+  waitingFor?: ReactNode;
   onClose: () => void;
 }) {
   if (changed || status === "pending") {
@@ -125,6 +129,7 @@ function Footer({
         label={label}
         status={status}
         disabled={disabled}
+        waitingFor={waitingFor}
         onCancel={onClose}
         note={CALL_HANDLING_NEXT_CALL}
       />
@@ -174,6 +179,7 @@ export function SilenceRow({
   canChange,
   status,
   error,
+  waitingFor,
   scope,
   own,
   effective,
@@ -408,6 +414,7 @@ export function SilenceRow({
           <Footer
             changed={changed}
             status={status}
+            waitingFor={waitingFor}
             label={form.scope === "all" ? ALL_AGENTS_SAVE : "Save"}
             disabled={!valid}
             onClose={close}
@@ -430,6 +437,7 @@ export function FillerLinesRow({
   canChange,
   status,
   error,
+  waitingFor,
   scope,
   own,
   effective,
@@ -566,6 +574,7 @@ export function FillerLinesRow({
           <Footer
             changed={changed}
             status={status}
+            waitingFor={waitingFor}
             label={form.scope === "all" ? ALL_AGENTS_SAVE : "Save lines"}
             disabled={!valid}
             onClose={close}
@@ -602,6 +611,7 @@ export function BackgroundSoundRow({
   canChange,
   status,
   error,
+  waitingFor,
   scope,
   own,
   effective,
@@ -718,6 +728,7 @@ export function BackgroundSoundRow({
           <Footer
             changed={changed}
             status={status}
+            waitingFor={waitingFor}
             label={form.scope === "all" ? ALL_AGENTS_SAVE : "Save sound"}
             onClose={close}
           />
@@ -741,11 +752,14 @@ export function AgentVoiceRows({
   error,
   status,
   others,
+  waitingFor,
 }: {
   idPrefix: string;
   data: AgentCallHandling;
   canChange: boolean;
   onSave: (payload: AgentCallHandlingIn, done: () => void, scope: CallHandlingScope) => void;
+  /** Why a row's save waits: the caller's one write is busy with another row's. */
+  waitingFor?: (row: VoiceRow) => ReactNode;
   /** The last save's refusal, shown on the row that saved. */
   error: Error | null;
   /** The caller's `useActionFeedback` status, shown on the row that saved. */
@@ -785,6 +799,7 @@ export function AgentVoiceRows({
         canChange={canChange}
         status={rowStatus("silence")}
         error={failed("silence")}
+        waitingFor={waitingFor?.("silence")}
         own={{
           nudge_after_seconds: data.nudge_after_seconds,
           nudge_count: data.nudge_count,
@@ -808,6 +823,7 @@ export function AgentVoiceRows({
         canChange={canChange}
         status={rowStatus("filler")}
         error={failed("filler")}
+        waitingFor={waitingFor?.("filler")}
         own={data.filler_lines}
         effective={data.filler_lines_effective}
         scope={offer("filler")}
@@ -821,6 +837,7 @@ export function AgentVoiceRows({
         canChange={canChange}
         status={rowStatus("sound")}
         error={failed("sound")}
+        waitingFor={waitingFor?.("sound")}
         own={{ ambience: data.ambience, ambience_volume_pct: data.ambience_volume_pct }}
         effective={{
           ambience: data.ambience_effective,

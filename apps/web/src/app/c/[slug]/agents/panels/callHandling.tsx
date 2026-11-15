@@ -190,6 +190,7 @@ export function AgentCallHandlingRows({
           }
           error={row === "silence" || row === "filler" || row === "sound" ? save.error : null}
           others={others ?? undefined}
+          waitingFor={waiting}
           onSave={(changes, done, scope) => {
             // The voice rows track which of them saved; this records that one of them did.
             setRow(voiceRow(changes));

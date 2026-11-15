@@ -230,6 +230,37 @@ describe("one agent's call handling", () => {
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
   });
 
+  it("holds the background sound's save too while another row's save is in flight", async () => {
+    const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
+      "/v1/me": OWNER,
+      [ORG_PATH]: organization(),
+      [AGENT_PATH]: agent(),
+      [`PATCH ${AGENT_PATH}`]: stillLoading(),
+    });
+    await screen.findByText("Background sound");
+    const changes = screen.getAllByRole("button", { name: "Change" });
+    await act(async () => {
+      fireEvent.click(changes[1]!);
+      fireEvent.click(changes[5]!);
+    });
+    await toggle("Use the Calevate default: On");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("switch", { name: /^Hang up when the agent has finished/ }));
+    });
+    await press("Save");
+    await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1));
+
+    await toggle("Use the Calevate default: Off");
+    await pick("Office");
+    const soundSave = await screen.findByRole("button", { name: /Save sound/ });
+    expect(soundSave.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByText("Waiting for your other change to save.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(soundSave);
+    });
+    expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1);
+  });
+
   it("switches the hang-up off for this agent alone", async () => {
     const { calls } = await renderClientPage(<AgentCallHandlingRows agentId="agent-1" />, {
       "/v1/me": OWNER,
