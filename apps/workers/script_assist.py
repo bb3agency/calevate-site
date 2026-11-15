@@ -1818,6 +1818,9 @@ async def draft_script(
     timeout_s: float = ASSIST_TIMEOUT_S,
     max_tokens: int = _DRAFT_MAX_TOKENS,
     trace: AskTrace | None = None,
+    repair_rounds: int | None = None,
+    standby_after_answer: bool | None = None,
+    owners_words: str = "",
 ) -> ScriptDraft:
     """Draft a `CallScript` from a business description (the AI writing assist), or, with
     `CONVERT_INSTRUCTION`, propose sections for a hand-written prompt, or, with `edit_of`,
@@ -1831,6 +1834,12 @@ async def draft_script(
     gives a long script more of both. An edit's repairs ask only for the broken parts, and
     what still breaks a rule after them is put back as the owner had it (`salvaged_edit`),
     recorded in `ScriptDraft.left_out` and in `trace`.
+
+    `repair_rounds` and `standby_after_answer` override the defaults (an edit: the console's
+    rounds and no standby once the account's model answered; a new script: one round, then
+    the standby). A job writing a whole long script passes both, since the standby's token
+    ceiling cannot hold it. `owners_words`: the owner's own text a new script is written
+    from, whose words are theirs to keep (`language_problems`' `allowed`).
     """
     # A bare string is the old one-box description; the builder now sends a full brief.
     full = ScriptBrief(description=brief) if isinstance(brief, str) else brief
@@ -1891,7 +1900,7 @@ async def draft_script(
         parse = partial(
             drafted_script,
             language=full.language,
-            allowed=full.description if converting else "",
+            allowed=full.description if converting else owners_words,
             instructions=not converting,
             names=names,
             introduced=full.introduced,
@@ -1908,12 +1917,16 @@ async def draft_script(
         quota_exhausted=quota_exhausted,
         max_tokens=max_tokens,
         timeout_s=timeout_s,
-        repair_rounds=get_settings().script_edit_repair_rounds if targeted is not None else 1,
+        repair_rounds=repair_rounds
+        if repair_rounds is not None
+        else (get_settings().script_edit_repair_rounds if targeted is not None else 1),
         targeted=targeted,
         salvage=salvage,
         trace=seen,
         # An edit the account's model answered is repaired, never rewritten by the standby.
-        standby_after_answer=edit_of is None,
+        standby_after_answer=edit_of is None
+        if standby_after_answer is None
+        else standby_after_answer,
     )
     return ScriptDraft(
         script=answer.value,

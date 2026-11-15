@@ -32,12 +32,20 @@ from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import workspace
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
 from apps.workers.first_run import documents_block
 from apps.workers.opening_line import WrittenOpening
-from apps.workers.script_assist import AskTrace, JsonAnswer, LeftOut, ScriptDraft, draft_script
+from apps.workers.script_assist import (
+    ANSWER_UNUSABLE_CODE,
+    AskTrace,
+    JsonAnswer,
+    LeftOut,
+    ScriptDraft,
+    draft_script,
+)
 from apps.workers.script_proposal import (
     PROPOSAL_MAX_TOKENS,
     PROPOSAL_REQUEST_TIMEOUT_S,
@@ -56,6 +64,10 @@ CAMPAIGN_ASK: Final = (
     "quick facts (the faqs list: a question people ask and a short spoken answer, at most "
     "eight), the objections people raise with how to answer, and how the call ends. Where a "
     "note or document says how the agent should handle the call, follow it."
+)
+UNUSABLE_NOTE: Final = (
+    "Pip's script still broke a call rule after its repairs. Press Generate to try again, or "
+    "add a note saying what the calls should say."
 )
 EDIT_TAIL: Final = (
     " Keep anything already in the script that the main task and materials do not change."
@@ -106,6 +118,14 @@ def _proposal(
     )
 
 
+def _failed_note(refused: ProblemError, trace: AskTrace) -> str:
+    """The agent page's note, except for an answer that broke a rule on every try with no
+    part named: its words speak of a change, and a campaign script is written whole."""
+    if refused.code == ANSWER_UNUSABLE_CODE and not trace.unwritten:
+        return UNUSABLE_NOTE
+    return refusal_note(refused, trace)
+
+
 async def _claim(tenant_id: UUID, campaign_id: UUID, proposal_id: UUID) -> bool:
     """Take the request once: the outbox delivers at least once."""
     async with tenant_session(tenant_id) as session:
@@ -136,10 +156,13 @@ async def _fail(
     proposal_id: UUID,
     note: str,
     left_out: list[LeftOut] | None = None,
+    *,
+    reason: str,
 ) -> None:
     update = {
         "status": "failed",
         "note": note[:400],
+        "reason": reason,
         "left_out": script_proposals.left_out_record(left_out or []),
     }
     async with tenant_session(tenant_id) as session:
@@ -185,6 +208,11 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         timeout_s=PROPOSAL_REQUEST_TIMEOUT_S,
         max_tokens=PROPOSAL_MAX_TOKENS,
         trace=trace,
+        repair_rounds=get_settings().campaign_script_repair_rounds,
+        # The standby's 4,096-token ceiling cuts a whole Telugu campaign script off, so an
+        # answer that broke a rule is repaired by the account's model, never handed to it.
+        standby_after_answer=False,
+        owners_words=owners_words(space.main_task, notes),
     )
     try:
         if base is None:
@@ -208,12 +236,17 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
                 session, tenant_id=tenant_id, refusal=refused, feature=feature
             )
         await _fail(
-            tenant_id, campaign_id, proposal_id, refusal_note(refused, trace), trace.unwritten
+            tenant_id,
+            campaign_id,
+            proposal_id,
+            _failed_note(refused, trace),
+            trace.unwritten,
+            reason=refused.code,
         )
         return "refused"
     except Exception:
         log.exception("campaign_script_crashed", extra={"campaign_id": str(campaign_id)})
-        await _fail(tenant_id, campaign_id, proposal_id, workspace.FAILED_NOTE)
+        await _fail(tenant_id, campaign_id, proposal_id, workspace.FAILED_NOTE, reason="crashed")
         return "failed"
 
     finished = await finish_written(tenant_id, space.agent_id, proposal, draft.script, started)

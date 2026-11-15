@@ -305,6 +305,9 @@ and `script_check_sweep_max_fixes` (20) fixes one sweep may start. Under Assista
 (2, 1 to 5, live) is how many times Pip may repair its own change to a script, when a part
 breaks a rule or the answer comes back in the wrong shape, before the parts still broken are
 put back as the owner had them (`apps/workers/script_assist.ask_json`).
+`campaign_script_repair_rounds` (2, 1 to 5, live) is how many times Pip may repair a campaign
+script it wrote before giving up; the standby is never asked, since its 4,096-token ceiling cuts a
+whole Telugu script off (`apps/workers/campaign_script.py`).
 D-987 (13 Nov 2026) adds, all live, read per healer tick or scored window:
 under Moving an agent off a failing voice (`voice_fallback`, `apps/workers/voice_fallback.py`)
 `healer_voice_probe_max_chars` (40), `healer_voice_probe_minutes` (10),

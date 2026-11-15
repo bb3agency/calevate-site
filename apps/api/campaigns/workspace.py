@@ -75,6 +75,9 @@ class CampaignProposal:
     #: Ready: parts kept as the owner had them and warnings Pip could not clear. Failed:
     #: the parts it could not write (`script_proposals.LeftOut`).
     left_out: tuple[LeftOut, ...] = ()
+    #: Failed: why, as the refusal's code (`assist_answer_unusable`, `ai_quota_exceeded`, ...),
+    #: `crashed`, or `stale` for a job that never wrote back; the screen picks its words by it.
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -101,8 +104,9 @@ def _proposal(raw: Any, *, now: datetime) -> CampaignProposal | None:
     requested_at = datetime.fromisoformat(str(raw["requested_at"]))
     status: ProposalStatus = raw.get("status", "drafting")
     note = raw.get("note")
+    reason = raw.get("reason")
     if status == "drafting" and (now - requested_at).total_seconds() > STALE_AFTER_S:
-        status, note = "failed", FAILED_NOTE
+        status, note, reason = "failed", FAILED_NOTE, "stale"
     return CampaignProposal(
         id=UUID(str(raw["id"])),
         status=status,
@@ -112,6 +116,7 @@ def _proposal(raw: Any, *, now: datetime) -> CampaignProposal | None:
         note=note,
         disclosure=raw.get("disclosure"),
         left_out=tuple(script_proposals.left_out_of(raw.get("left_out"))),
+        reason=reason,
     )
 
 

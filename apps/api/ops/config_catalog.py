@@ -664,6 +664,14 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         details="Each round uses the client's AI allowance. A part still broken after the last "
         "round is put back as the owner had it and listed for them.",
     ),
+    "campaign_script_repair_rounds": _m(
+        "language-models",
+        "assistant",
+        "Assistant: repairs on a campaign script",
+        "Times Pip may fix a campaign script it wrote before it gives up.",
+        details="Each round uses the client's AI allowance. A campaign script is too long for "
+        "the backup assistant, so these rounds are the only tries.",
+    ),
     "copilot_planning_model": _m(
         "language-models",
         "assistant",
@@ -1769,6 +1777,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "call_mistake_fix_worse_per_100_calls": ControlHint(unit="mistakes per 100 calls"),
     "script_mistake_repair_passes": ControlHint(unit="rounds"),
     "script_edit_repair_rounds": ControlHint(unit="rounds"),
+    "campaign_script_repair_rounds": ControlHint(unit="rounds"),
     "script_check_sweep_minutes": ControlHint(unit="minutes"),
     "script_check_sweep_agents": ControlHint(unit="agents"),
     "script_check_sweep_max_fixes": ControlHint(unit="fixes"),

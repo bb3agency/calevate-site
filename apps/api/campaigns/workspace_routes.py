@@ -86,6 +86,8 @@ class CampaignProposalOut(_Out):
     #: Who wrote it when it was not the account's own model (D-127 G-6), shown beside it.
     disclosure: str | None
     left_out: list[CampaignLeftOutOut]
+    #: Failed: why (a refusal code, `crashed` or `stale`), so the screen can say what to do.
+    reason: str | None
 
 
 class WorkspaceOut(_Out):
@@ -124,6 +126,7 @@ def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | Non
         script=p.script,
         note=p.note,
         disclosure=p.disclosure,
+        reason=p.reason,
         left_out=[
             CampaignLeftOutOut(
                 part=part.part,

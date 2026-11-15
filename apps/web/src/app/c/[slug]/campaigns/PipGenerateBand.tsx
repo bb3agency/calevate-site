@@ -13,7 +13,10 @@ export function PipGenerateBand({
   disabled,
   reason,
   refusal,
+  label = "Generate",
 }: {
+  /** The button's word: Generate, or Try again after a failed draft. */
+  label?: string;
   onGenerate: () => void;
   busy: boolean;
   disabled: boolean;
@@ -42,7 +45,7 @@ export function PipGenerateBand({
         title={reason ?? refusal}
         onClick={onGenerate}
       >
-        {busy ? "Generating…" : "Generate"}
+        {busy ? "Generating…" : label}
       </button>
     </section>
   );

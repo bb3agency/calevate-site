@@ -382,6 +382,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "call_mistake_fix_worse_per_100_calls": AppliesRule(LIVE),
     "script_mistake_repair_passes": AppliesRule(LIVE),
     "script_edit_repair_rounds": AppliesRule(LIVE),
+    "campaign_script_repair_rounds": AppliesRule(LIVE),
     "script_check_sweep_minutes": AppliesRule(LIVE),
     "script_check_sweep_agents": AppliesRule(LIVE),
     "script_check_sweep_max_fixes": AppliesRule(LIVE),

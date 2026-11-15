@@ -47,7 +47,10 @@ def _script(*lines: str) -> CallScript:
     return CallScript(
         schema_version=2,
         opening_line=OPENING,
-        stages=[*(_stage(f"s{i}", line) for i, line in enumerate(lines)), _stage("close", "Thank you.")],
+        stages=[
+            *(_stage(f"s{i}", line) for i, line in enumerate(lines)),
+            _stage("close", "Thank you."),
+        ],
     )
 
 
@@ -210,3 +213,82 @@ async def test_a_standby_draft_is_disclosed_and_what_stays_unfixed_is_told(
     )
     assert proposal.disclosure == "Written by our backup assistant."
     assert [part.unfixed for part in proposal.left_out] == [True]
+
+
+async def test_the_writer_gets_the_consoles_rounds_and_never_the_standby(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: a campaign script that broke a rule is handed to the standby, whose 4,096
+    tokens cut a whole Telugu script off, instead of being repaired the console's times
+    (campaign 01a1dec5, 15 Nov 2026: 22 problems, then 2, then the standby truncated it)."""
+    monkeypatch.setattr(get_settings(), "script_mistake_repair_passes", 0)
+    monkeypatch.setattr(get_settings(), "campaign_script_repair_rounds", 4)
+    tenant_id, campaign_id = await _campaign()
+    _, calls, _ = await _run(monkeypatch, tenant_id, campaign_id, [_answer(_script(ONE_QUESTION))])
+    [first] = calls
+    assert first["repair_rounds"] == 4
+    assert first["standby_after_answer"] is False
+    assert MAIN_TASK in first["owners_words"]
+
+
+async def test_a_refusal_is_stored_with_its_reason_and_a_campaign_note(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.core.errors import ProblemError
+    from apps.workers.script_assist import ANSWER_UNUSABLE_CODE
+
+    tenant_id, campaign_id = await _campaign()
+    async with tenant_session(tenant_id) as session:
+        requested = await workspace.request_proposal(
+            session, tenant_id=tenant_id, campaign_id=campaign_id, requested_by=None
+        )
+
+    async def refuse(_brief: Any, **_kwargs: Any) -> Any:
+        raise ProblemError.business_rule(
+            ANSWER_UNUSABLE_CODE, "AI help could not make that change."
+        )
+
+    async def meter_refusal(_session: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(campaign_script, "draft_script", refuse)
+    monkeypatch.setattr(crm_assist, "meter_refusal", meter_refusal)
+    payload = {
+        "tenant_id": str(tenant_id),
+        "campaign_id": str(campaign_id),
+        "proposal_id": str(requested.id),
+    }
+    assert await campaign_script.draft_campaign_script({}, payload) == "refused"
+    async with tenant_session(tenant_id) as session:
+        space = await workspace.read_workspace(session, campaign_id)
+    assert space.proposal is not None and space.proposal.status == "failed"
+    assert space.proposal.reason == ANSWER_UNUSABLE_CODE
+    assert space.proposal.note == campaign_script.UNUSABLE_NOTE
+    # A failed draft is replaced by the next request: Try again needs no Dismiss first.
+    async with tenant_session(tenant_id) as session:
+        again = await workspace.request_proposal(
+            session, tenant_id=tenant_id, campaign_id=campaign_id, requested_by=None
+        )
+    assert again.id != requested.id and again.status == "drafting"
+
+
+async def test_draft_script_hands_the_overrides_to_the_ladder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.workers import script_assist
+
+    seen: dict[str, Any] = {}
+
+    async def ask(_description: str, _instruction: str, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return SimpleNamespace(
+            value=_script(ONE_QUESTION), capability=None, usage=None, model="m", earlier=()
+        )
+
+    monkeypatch.setattr(script_assist, "ask_json", ask)
+    await script_assist.draft_script(
+        script_assist.ScriptBrief(description="x"), repair_rounds=3, standby_after_answer=False
+    )
+    assert (seen["repair_rounds"], seen["standby_after_answer"]) == (3, False)
+    await script_assist.draft_script(script_assist.ScriptBrief(description="x"))
+    assert (seen["repair_rounds"], seen["standby_after_answer"]) == (1, True)

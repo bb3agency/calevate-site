@@ -3,6 +3,19 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.4 — 15-Nov-2026
+
+- **Pip's campaign script no longer gives up after one try.** When its script breaks a call
+  rule, Pip now fixes it again (two rounds by default, set in the console as "Assistant: repairs
+  on a campaign script") instead of handing it to the backup assistant, which could not fit a
+  whole Telugu script and cut it off.
+- When Pip cannot write the script, the Script section says why (a call rule it kept breaking,
+  the AI not answering, Pip stopping, or the AI allowance being used up) and offers **Try
+  again**. A used-up allowance links to the AI allowance page instead. Generate becomes Try again
+  too, with no Dismiss needed first.
+- While Pip writes, the Script section shows how long it has been and that it usually takes
+  about a minute, beside Stop.
+
 ## 0.4.3 — 15-Nov-2026
 
 - **People to call** takes an Excel sheet (.xlsx) as well as a CSV, pasted rows, or names and

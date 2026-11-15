@@ -19062,6 +19062,8 @@ export interface components {
             left_out: components["schemas"]["CampaignLeftOutOut"][];
             /** Note */
             note: string | null;
+            /** Reason */
+            reason: string | null;
             /**
              * Requested At
              * Format: date-time

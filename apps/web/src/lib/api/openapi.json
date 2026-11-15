@@ -13614,6 +13614,17 @@
             ],
             "title": "Note"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
           "requested_at": {
             "format": "date-time",
             "title": "Requested At",
@@ -13647,7 +13658,8 @@
           "script",
           "note",
           "disclosure",
-          "left_out"
+          "left_out",
+          "reason"
         ],
         "title": "CampaignProposalOut",
         "type": "object"

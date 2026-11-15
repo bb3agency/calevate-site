@@ -20,7 +20,7 @@ import { useMemo, useState } from "react";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { SearchField } from "@/components/arc/search-field";
-import { FIELD, NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
+import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import {
   useAddMaterial,
   useArchiveMaterial,
@@ -41,6 +41,7 @@ import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 import { KIND_LABEL, MATERIALS_HINT, MATERIALS_INFO, MaterialForm } from "./MaterialsDraft";
 import { matchesWords } from "./matchWords";
 import { PipGenerateBand } from "./PipGenerateBand";
+import { PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { SectionHead } from "./SectionHead";
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
@@ -90,21 +91,24 @@ function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const hasTask = space.main_task.trim() !== "";
   const drafting = space.proposal?.status === "drafting";
+  // A failed draft is replaced by the next request, so Generate is Try again, not a wait.
+  const failed = space.proposal?.status === "failed";
   const reason = !hasTask
     ? "Save the main task first."
     : space.proposal?.status === "ready"
       ? "Review Pip's script below first."
-      : space.proposal?.status === "failed"
-        ? "Dismiss Pip's last try below first."
+      : failed
+        ? "Pip's last try did not finish. See why below."
         : undefined;
   return (
     <div className="space-y-2">
       <PipGenerateBand
         onGenerate={() => askFeedback.run(undefined)}
         busy={ask.isPending || drafting}
-        disabled={!canWrite || !hasTask || space.proposal != null}
+        disabled={!canWrite || !hasTask || (space.proposal != null && !(failed && retryable(space.proposal.reason)))}
         reason={reason}
         refusal={refusal}
+        label={failed ? "Try again" : "Generate"}
       />
       {ask.error != null && <ProblemNotice error={ask.error} />}
     </div>
@@ -299,6 +303,8 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const save = useSaveCampaignScript(session, campaignId);
   const stopFeedback = useActionFeedback(clear, { errorTitle: "Could not stop Pip" });
   useActionFeedback(save, { errorDisplay: "inline" });
+  const ask = useRequestCampaignScript(session, campaignId);
+  const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
   const proposal = space.proposal;
   const script = space.script;
@@ -328,27 +334,25 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
       )}
 
       {proposal?.status === "drafting" && (
-        <div role="status" className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-surface p-4">
-          <span className="h-3 w-3 animate-pulse rounded-full bg-brand" aria-hidden />
-          <span className="text-body text-ink">Pip is writing the script. It shows here when done.</span>
-          <button
-            type="button"
-            className={`${SECONDARY_BUTTON_SM} ml-auto`}
-            disabled={clear.isPending}
-            onClick={() => stopFeedback.run(proposal.id)}
-          >
-            {clear.isPending ? "Stopping…" : "Stop"}
-          </button>
-        </div>
+        <PipWriting proposal={proposal} stopping={clear.isPending} onStop={() => stopFeedback.run(proposal.id)} />
       )}
 
       {proposal?.status === "failed" && (
-        <NoticeBox tone="warn" title="Pip could not write it this time">
-          <p>{proposal.note}</p>
-          <button type="button" className={`${SECONDARY_BUTTON_SM} mt-2`} onClick={() => stopFeedback.run(proposal.id)}>
-            Dismiss
-          </button>
-        </NoticeBox>
+        <>
+          <PipFailed
+            proposal={proposal}
+            canWrite={canWrite}
+            retrying={ask.isPending}
+            dismissing={clear.isPending}
+            onRetry={() => askFeedback.run(undefined)}
+            onDismiss={() => stopFeedback.run(proposal.id)}
+          />
+          {ask.error != null && (
+            <div className="mt-3">
+              <ProblemNotice error={ask.error} />
+            </div>
+          )}
+        </>
       )}
 
       {proposal?.status === "ready" && proposal.script && (
