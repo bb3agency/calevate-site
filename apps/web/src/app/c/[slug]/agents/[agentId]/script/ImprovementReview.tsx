@@ -16,7 +16,7 @@
  * owner presses "Keep and put live".
  */
 
-import { useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { ActionButton, useActionFeedback, useAsyncAction } from "@/components/arc/feedback";
 import { HowItWorks } from "@/components/console/howItWorks";
@@ -125,20 +125,35 @@ export function ImprovementReview({
       return next;
     });
 
+  // What a Keep that failed part-way already wrote, so pressing it again finishes the chain
+  // rather than pinning the same fact twice or putting the same script live a second time.
+  // Facts by their row; the script by where it went and which edits it held.
+  const written = useRef<{ facts: Set<number>; script: { key: string; skipped: string[] } | null }>({
+    facts: new Set(),
+    script: null,
+  });
+
   const saveFacts = async () => {
-    for (const { fact, answer } of keptFacts) {
+    for (const [index, { fact, keep, answer }] of facts.entries()) {
+      if (!keep || written.current.facts.has(index)) continue;
       if (fact.action === "fix" && fact.fact_id) {
         await editFact.mutateAsync({ id: fact.fact_id, text: answer.trim(), question: fact.question });
       } else {
         await addFact.mutateAsync({ text: answer.trim(), question: fact.question, pinned: true });
       }
+      written.current.facts.add(index);
     }
   };
 
   const keepChain = async (goLive: boolean) => {
     if (!working) return;
     let skipped: ReturnType<typeof skippedNote> = null;
-    if (keptIds.length > 0) {
+    const key = `${goLive ? "live" : "draft"}:${keptIds.join(",")}`;
+    const already = written.current.script;
+    if (keptIds.length > 0 && already?.key === key) {
+      skipped = skippedNote(already.skipped, improvement);
+      await saveFacts();
+    } else if (keptIds.length > 0) {
       const applied = await apply.mutateAsync({ runId: run.id, script: working, edits: keptIds });
       skipped = skippedNote(applied.skipped, improvement);
       await saveFacts();
@@ -151,6 +166,7 @@ export function ImprovementReview({
       } else {
         await saveDraft.mutateAsync({ script: applied.script, base_saved_at: loaded.data?.draft?.saved_at ?? null });
       }
+      written.current.script = { key, skipped: applied.skipped };
     } else {
       await saveFacts();
     }
@@ -355,7 +371,9 @@ function FactRow({
   testTitle?: string;
   onChange: (patch: { keep?: boolean; answer?: string }) => void;
 }) {
-  const id = `fact-${fact.question.slice(0, 24)}`;
+  // From `useId`, never from the question: `aria-labelledby` is a list of ids split on
+  // spaces, so an id holding the question's words named nothing.
+  const id = useId();
   return (
     <li className="py-3">
       <div className="flex items-start gap-3">

@@ -394,7 +394,8 @@ export interface ScriptVersion {
 
 const versionsKey = (org: string, agentId: string) => ["script-versions", org, agentId] as const;
 
-function invalidateScript(client: ReturnType<typeof useQueryClient>, session: Session, agentId: string) {
+/** Every read a new script version moves: the script, its history, the agent, the tests, readiness. */
+export function invalidateScript(client: ReturnType<typeof useQueryClient>, session: Session, agentId: string) {
   return Promise.all([
     client.invalidateQueries({ queryKey: scriptKeys.one(session.orgSlug, agentId) }),
     client.invalidateQueries({ queryKey: versionsKey(session.orgSlug, agentId) }),

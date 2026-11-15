@@ -167,6 +167,8 @@ describe("D1-02 a taught rule added as a step is reached, and the limit is the a
   it("hands the last step's end of call to the new step, so the call reaches it", async () => {
     const changes = await taught(scriptOf([step("hello"), step("bye", END)]));
     fireEvent.click(await screen.findByRole("button", { name: "Add as a step" }));
+    // The draft takes the step once the rule is marked used.
+    await waitFor(() => expect(changes).toHaveLength(1));
     const stages = sectionsOf(changes[0]!);
     expect(stages.map((s) => s.otherwise)).toEqual(["", "", END]);
     expect(stages[2]!.instruction).toBe(RULE.text);

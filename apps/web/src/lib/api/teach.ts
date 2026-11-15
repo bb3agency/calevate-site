@@ -224,8 +224,9 @@ export function useResolveRule(session: Session, agentId: string) {
         `/v1/agents/${agentId}/script/proposed-rules/${ruleId}`,
         { method: "POST", body: { status } },
       ),
+    // Awaited, so the rule is off the list before its buttons are offered again.
     onSuccess: () =>
-      void client.invalidateQueries({
+      client.invalidateQueries({
         queryKey: ["agent-proposed-rules", session.orgSlug, agentId],
       }),
   });
