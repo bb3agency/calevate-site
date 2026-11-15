@@ -520,6 +520,25 @@ async def test_dry_run_writes_the_switch_it_would_make_and_changes_nothing(
     assert any(r.outcome == "shadow" and STUDIO in (r.detail or "") for r in rows)
 
 
+async def test_a_dry_run_probe_page_does_not_say_the_agent_is_moving(
+    monkeypatch: pytest.MonkeyPatch, mover: _Mover
+) -> None:
+    said: dict[str, str] = {}
+
+    def capture(stage: str, code: str, **kwargs: Any) -> None:
+        said[code] = str(kwargs.get("detail", ""))
+
+    monkeypatch.setattr(voice_fallback, "alert", capture)
+    monkeypatch.setattr(get_settings(), "healer_shadow_playbooks", "voice_fallback")
+    tenant_id, agent_id = await _agent("shadowprobe", STUDIO)
+    _probe(monkeypatch, ok=False)
+    _backups(monkeypatch, [CLEAR])
+    await _open(tenant_id, agent_id)
+    await _step(agent_id)
+    assert await _voice(tenant_id, agent_id) == STUDIO
+    assert "being moved" not in said[voice_fallback.PROBE_FAILED]
+
+
 def test_new_playbooks_start_in_dry_run_for_the_configured_days(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

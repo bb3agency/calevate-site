@@ -445,6 +445,7 @@ async def _switch(incident: Incident) -> None:
         await _advance(incident, state="open", next_in_s=_probe_s(), outcome="voice_waiting")
         return
     failed = agent.voice_id
+    shadow = in_shadow(PLAYBOOK)
     findings: list[str] = [f"voice {voices.rung_of(failed)}"]
     if voices.rung_of(failed) == "studio":
         probe = await voices.probe_studio_voice(failed, agent)
@@ -455,7 +456,12 @@ async def _switch(incident: Incident) -> None:
                 "CORE_LOGIC",
                 PROBE_FAILED,
                 detail=f"a Studio voice failed its probe on our key ({probe.why}); "
-                f"{status.words()}. The agent is being moved to a Clear voice.",
+                f"{status.words()}. "
+                + (
+                    "Dry run: the agent stays on it."
+                    if shadow
+                    else "The agent is being moved to a Clear voice."
+                ),
                 episode=str(agent_id),
                 **_ids(incident),
             )
@@ -465,7 +471,7 @@ async def _switch(incident: Incident) -> None:
         tenant_id, agent_id, failed=failed, language=agent.language
     )
     reason = _REASON_BY_TRIGGER.get(incident.trigger_code, "voice_failed")
-    if in_shadow(PLAYBOOK):
+    if shadow:
         await _shadow(incident, failed=failed, candidates=candidates, reason=reason)
         return
     if await _switches_since(
