@@ -33,6 +33,8 @@ import { useClientRealm } from "@/lib/api/session";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { TrialLockNotice } from "../TrialLockNotice";
+import { uploadMaterial } from "@/lib/api/campaignWorkspace";
+
 import { MaterialsDraft, type PendingMaterial } from "./MaterialsDraft";
 import { PipGenerateBand } from "./PipGenerateBand";
 import { nameFromGoal } from "./campaignForm";
@@ -103,6 +105,10 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
       }
       const base = `/v1/campaigns/${encodeURIComponent(id)}`;
       for (const item of materials) {
+        if (item.file) {
+          await uploadMaterial(session, id, item.file, item.title);
+          continue;
+        }
         const body = { kind: item.kind, title: item.title, url: item.url, note: item.note, kb_upload_id: item.kb_upload_id };
         await apiRequest(session, `${base}/materials`, { method: "POST", body });
       }

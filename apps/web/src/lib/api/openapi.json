@@ -7299,6 +7299,32 @@
         "title": "Body_upload_document_v1_kb_uploads_post",
         "type": "object"
       },
+      "Body_upload_material_v1_campaigns__campaign_id__materials_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_material_v1_campaigns__campaign_id__materials_upload_post",
+        "type": "object"
+      },
       "Body_upload_preview_v1_ops_voices_hosted_preview_post": {
         "properties": {
           "sample": {
@@ -88233,6 +88259,57 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/materials/upload": {
+      "post": {
+        "description": "The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,\nunless these exact bytes are already live there: then that upload is attached instead of\nbeing refused as a duplicate, because the campaign only needs to point at it (D-992).",
+        "operationId": "upload_material_v1_campaigns__campaign_id__materials_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_material_v1_campaigns__campaign_id__materials_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Upload a file for the campaign; a file already in the knowledge is reused",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/campaigns/{campaign_id}/materials/{material_id}/archive": {

@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.3.6 — 15-Nov-2026
+
+- A campaign file that is already in your knowledge is no longer refused as a duplicate: the
+  existing copy is attached to the campaign and used.
+
 ## 0.3.5 — 15-Nov-2026
 
 - Uploading a material: a dashed box saying **Click to choose a file, or drag it here** replaces

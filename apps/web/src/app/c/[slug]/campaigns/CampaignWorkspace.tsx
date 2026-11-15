@@ -27,10 +27,11 @@ import {
   useRequestCampaignScript,
   useSaveCampaignScript,
   useSaveMainTask,
+  useUploadMaterial,
   type CampaignMaterial,
   type CampaignWorkspace as Workspace,
 } from "@/lib/api/campaignWorkspace";
-import { useAddLink, useUploadDocument } from "@/lib/api/kb";
+import { useAddLink } from "@/lib/api/kb";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useClientRealm } from "@/lib/api/session";
 
@@ -231,7 +232,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const add = useAddMaterial(session, campaignId);
   const archive = useArchiveMaterial(session, campaignId);
-  const upload = useUploadDocument(session);
+  const uploadFile = useUploadMaterial(session, campaignId);
   const addLink = useAddLink(session);
   const archiveFeedback = useActionFeedback(archive, { errorTitle: "Could not remove it", successToast: "Removed" });
   const [mode, setMode] = useState<"file" | "link" | "note" | null>(null);
@@ -241,7 +242,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const busy = add.isPending || upload.isPending || addLink.isPending;
+  const busy = add.isPending || uploadFile.isPending || addLink.isPending;
 
   const shown = useMemo(
     () =>
@@ -265,8 +266,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
     try {
       if (mode === "file") {
         if (!file) return setError("Choose a file.");
-        const up = await upload.mutateAsync({ file });
-        await add.mutateAsync({ kind: "file", title: title.trim() || file.name, kb_upload_id: up.id });
+        await uploadFile.mutateAsync({ file, title: title.trim() || undefined });
       } else if (mode === "link") {
         if (!/^https?:\/\//i.test(url.trim())) return setError("Paste the full address, starting with https://");
         const up = await addLink.mutateAsync({ url: url.trim() });

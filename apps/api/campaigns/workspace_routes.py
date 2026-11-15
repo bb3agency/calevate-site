@@ -10,7 +10,7 @@ from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import CallScript
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,13 +23,17 @@ from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
+from apps.api.kb import uploads as kb_uploads
+from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
 from apps.api.reliability.service import require_idempotency_key
+from apps.api.teach.routes import read_bounded_upload
 from apps.api.teach.struggles import list_struggles
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("leads:read"))]
 Dispatcher = Annotated[Principal, Depends(requires("leads:dispatch"))]
+KbWriter = Annotated[Principal, Depends(requires_kb_curation())]
 
 
 class _Out(BaseModel):
@@ -503,3 +507,65 @@ async def campaign_test_call(
     return CampaignTestCallOut(
         status=result.status, blocked_reason=result.blocked_reason, call_id=result.call_id
     )
+
+
+@router.post(
+    "/{campaign_id}/materials/upload",
+    response_model=MaterialOut,
+    status_code=201,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Upload a file for the campaign; a file already in the knowledge is reused",
+)
+async def upload_material(
+    campaign_id: UUID,
+    session: Session,
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    principal: KbWriter,
+    title: Annotated[str | None, Form(max_length=workspace.TITLE_MAX)] = None,
+) -> MaterialOut:
+    """The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
+    unless these exact bytes are already live there: then that upload is attached instead of
+    being refused as a duplicate, because the campaign only needs to point at it (D-992)."""
+    assert principal.tenant_id is not None
+    await workspace.read_workspace(session, campaign_id)
+    data = await read_bounded_upload(file, kb_uploads.MAX_UPLOAD_BYTES)
+    upload_id = await kb_uploads.live_duplicate_of(
+        session, tenant_id=principal.tenant_id, data=data
+    )
+    if upload_id is None:
+        made = await kb_uploads.create_upload(
+            session,
+            tenant_id=principal.tenant_id,
+            name=None,
+            filename=file.filename or "document",
+            content_type=file.content_type,
+            data=data,
+            submitted_by=principal.user_id,
+            auto_approve=goes_live_without_review(
+                realm=principal.realm, impersonating=principal.impersonating
+            ),
+        )
+        upload_id = UUID(str(made["id"]))
+        await write_audit(
+            session,
+            action="kb.uploaded",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="kb_source",
+            object_id=str(made["source_id"]),
+            ip=client_request_ip(request),
+            summary={"upload_id": str(upload_id), "via": "campaign_material"},
+        )
+    material = await workspace.add_material(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        kind="file",
+        title=(title or "").strip() or (file.filename or "Document"),
+        url=None,
+        note=None,
+        kb_upload_id=upload_id,
+        created_by=principal.user_id,
+    )
+    return _material(material)

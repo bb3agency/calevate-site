@@ -7495,6 +7495,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/materials/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file for the campaign; a file already in the knowledge is reused
+         * @description The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
+         *     unless these exact bytes are already live there: then that upload is attached instead of
+         *     being refused as a duplicate, because the campaign only needs to point at it (D-992).
+         */
+        post: operations["upload_material_v1_campaigns__campaign_id__materials_upload_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/materials/{material_id}/archive": {
         parameters: {
             query?: never;
@@ -16916,6 +16938,13 @@ export interface components {
             file: string;
             /** Name */
             name?: string | null;
+        };
+        /** Body_upload_material_v1_campaigns__campaign_id__materials_upload_post */
+        Body_upload_material_v1_campaigns__campaign_id__materials_upload_post: {
+            /** File */
+            file: string;
+            /** Title */
+            title?: string | null;
         };
         /** Body_upload_preview_v1_ops_voices_hosted_preview_post */
         Body_upload_preview_v1_ops_voices_hosted_preview_post: {
@@ -52561,6 +52590,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["MaterialIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upload_material_v1_campaigns__campaign_id__materials_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_material_v1_campaigns__campaign_id__materials_upload_post"];
             };
         };
         responses: {

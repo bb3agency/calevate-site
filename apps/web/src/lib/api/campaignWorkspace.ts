@@ -11,7 +11,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 
-import { apiRequest, type Session } from "./client";
+import { apiRequest, apiUpload, type Session } from "./client";
 import type { components } from "./schema";
 import type { CallScript } from "./script";
 
@@ -178,4 +178,18 @@ export function useCampaignTestCall(session: Session, campaignId: string) {
       void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
     },
   });
+}
+
+/** Upload a file for a campaign: into the knowledge, or the copy already there reused. */
+export function uploadMaterial(session: Session, campaignId: string, file: File, title?: string) {
+  const form = new FormData();
+  form.set("file", file);
+  if (title) form.set("title", title);
+  return apiUpload<CampaignMaterial>(session, `${base(campaignId)}/materials/upload`, form);
+}
+
+export function useUploadMaterial(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, ({ file, title }: { file: File; title?: string }) =>
+    uploadMaterial(session, campaignId, file, title),
+  );
 }

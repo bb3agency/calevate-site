@@ -12,12 +12,14 @@ import { useState } from "react";
 import { problemToast } from "@/components/arc/feedback";
 import { FIELD, PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
 import type { MaterialIn } from "@/lib/api/campaignWorkspace";
-import { useAddLink, useUploadDocument } from "@/lib/api/kb";
+import { useAddLink } from "@/lib/api/kb";
 import { useClientRealm } from "@/lib/api/session";
 
 import { FilePicker } from "./FilePicker";
 
-export type PendingMaterial = MaterialIn & { key: string };
+/** A file waits here as the File itself and is uploaded once the campaign exists, through the
+ * campaign's own upload, which reuses a copy already in the knowledge. */
+export type PendingMaterial = MaterialIn & { key: string; file?: File };
 
 const KIND_LABEL: Record<MaterialIn["kind"], string> = { file: "File", link: "Link", note: "Note" };
 
@@ -31,7 +33,6 @@ export function MaterialsDraft({
   canWrite: boolean;
 }) {
   const { session } = useClientRealm();
-  const upload = useUploadDocument(session);
   const addLink = useAddLink(session);
   const [mode, setMode] = useState<MaterialIn["kind"] | null>(null);
   const [title, setTitle] = useState("");
@@ -39,7 +40,7 @@ export function MaterialsDraft({
   const [note, setNote] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const busy = upload.isPending || addLink.isPending;
+  const busy = addLink.isPending;
 
   const reset = () => {
     setMode(null);
@@ -56,8 +57,9 @@ export function MaterialsDraft({
       let item: MaterialIn;
       if (mode === "file") {
         if (!file) return setError("Choose a file.");
-        const up = await upload.mutateAsync({ file });
-        item = { kind: "file", title: title.trim() || file.name, kb_upload_id: up.id };
+        onChange([...items, { kind: "file", title: title.trim() || file.name, file, key: crypto.randomUUID() }]);
+        reset();
+        return;
       } else if (mode === "link") {
         if (!/^https?:\/\//i.test(url.trim())) return setError("Paste the full address, starting with https://");
         const up = await addLink.mutateAsync({ url: url.trim() });
