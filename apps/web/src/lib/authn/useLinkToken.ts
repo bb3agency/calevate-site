@@ -56,7 +56,10 @@ export function useLinkToken(): LinkToken {
   useEffect(() => {
     const url = new URL(window.location.href);
     const token = (url.searchParams.get(LINK_TOKEN_PARAM) ?? "").trim();
-    setState({ token, ready: true });
+    // Keeps a token already captured: a second run of this effect (React Strict Mode,
+    // which `next dev` enables) finds the URL this effect already cleaned, and taking that
+    // empty reading would turn every live link into "missing its code".
+    setState((now) => ({ token: token || now.token, ready: true }));
 
     if (!url.searchParams.has(LINK_TOKEN_PARAM)) return;
     url.searchParams.delete(LINK_TOKEN_PARAM);
