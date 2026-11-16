@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.27 — 16-Nov-2026
+
+- Deploys: a website build made on the server no longer edits a tracked file, which had
+  stopped every deploy after it.
+
 ## 0.4.26 — 16-Nov-2026
 
 - Campaign pages: section titles, the tabs and the chosen script languages read in white on
