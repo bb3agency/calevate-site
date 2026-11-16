@@ -1,7 +1,7 @@
 """A mistake on real calls is fixed as a Pip draft on the line or campaign the call was on (D-1005)
 
 Revision ID: f3b8d1a6c2e9
-Revises: e2a7c9d4b6f1
+Revises: e8f4b1c3d5a2
 Create Date: 2026-11-16 21:00:00.000000
 
 An agent has no script of its own (D-997, D-1000), so the healer no longer writes a fix into
@@ -36,7 +36,7 @@ from sqlalchemy.dialects import postgresql
 from apps.api.db.migration_offline import execute_data_statement
 
 revision: str = "f3b8d1a6c2e9"
-down_revision: str | None = "e2a7c9d4b6f1"
+down_revision: str | None = "e8f4b1c3d5a2"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
