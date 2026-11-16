@@ -60,7 +60,9 @@ export function ActionRow({
       />
       <button
         type="button"
-        className={`${TEXT_ACTION} inline-flex items-center gap-0.5`}
+        // On a phone the word is hidden and the chevron alone is the target, so it takes
+        // the 44 px width a finger needs.
+        className={`${TEXT_ACTION} inline-flex items-center justify-center gap-0.5 touch:min-w-11`}
         aria-label={`Manage ${title}`}
         onClick={onOpen}
       >

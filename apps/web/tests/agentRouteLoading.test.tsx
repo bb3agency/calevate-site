@@ -2,8 +2,10 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { render, screen } from "@testing-library/react";
+import { CalendarDays } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
+import { ActionRow } from "@/app/c/[slug]/agents/actions/ActionRow";
 import RealmLoading from "@/app/c/[slug]/loading";
 import AgentsLoading from "@/app/c/[slug]/agents/loading";
 import AgentLoading from "@/app/c/[slug]/agents/[agentId]/loading";
@@ -43,6 +45,31 @@ describe("every agents screen has a loading boundary", () => {
     );
     expect(source).not.toMatch(/^["']use client["']/m);
     expect(source).not.toMatch(/^import /m);
+  });
+});
+
+describe("an action's Manage button on a phone", () => {
+  it("is 44 px wide when only its chevron shows", () => {
+    // jsdom has no layout; this pins the classes that measured 44 px in a phone browser
+    // (it was 32 px: the word is screen-reader-only below `sm`).
+    render(
+      <ul>
+        <ActionRow
+          title="Book a slot"
+          summary=""
+          logo={null}
+          icon={CalendarDays}
+          problem={null}
+          enabled
+          onToggle={() => {}}
+          onOpen={() => {}}
+        />
+      </ul>,
+    );
+    const manage = screen.getByRole("button", { name: "Manage Book a slot" });
+    expect((manage.getAttribute("class") ?? "").split(/\s+/)).toEqual(
+      expect.arrayContaining(["touch:min-w-11", "justify-center"]),
+    );
   });
 });
 
