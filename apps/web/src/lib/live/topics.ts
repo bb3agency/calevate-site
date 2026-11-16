@@ -251,7 +251,6 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "script",
     "script-tests",
     "script-versions",
-    "script-proposal",
     "call-handling",
     // Tell my team (D-904): a rule offers the agent's outcomes and choice fields.
     "team-alerts",

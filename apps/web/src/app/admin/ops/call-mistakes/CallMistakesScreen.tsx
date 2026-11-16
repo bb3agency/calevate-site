@@ -299,6 +299,7 @@ const FIX_TONES: Record<FleetFix["state"], NoticeTone> = {
   fixed: "ok",
   rolled_back: "warn",
   needs_person: "stop",
+  proposed: "neutral",
 };
 
 /**

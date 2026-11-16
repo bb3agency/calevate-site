@@ -1100,27 +1100,6 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one agent's `CallScript`, every list bounded by the `max_length` ceilings in "
         "`calevate_shared.call_script`; `standard_variables` is the `STANDARD_VARIABLES` constant."
     ),
-    "GET /v1/agents/{agent_id}/script/proposal": BoundedByConstruction(
-        by="one suggestion: two `CallScript`s under the `call_script` ceilings, and "
-        "`unplaced`, lines of one hand-written script (`raw_override`, at most 20,000 "
-        "characters; only lines of three words or more are listed), and `left_out`, at most "
-        "one entry per part of the suggested script (each step and each top-level field)."
-    ),
-    "POST /v1/agents/{agent_id}/script/fix-lines": BoundedByConstruction(
-        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
-    ),
-    "POST /v1/agents/{agent_id}/script/proposal/starter": BoundedByConstruction(
-        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
-    ),
-    "POST /v1/agents/{agent_id}/script/proposal/main-task": BoundedByConstruction(
-        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
-    ),
-    "POST /v1/agents/{agent_id}/script/opening-line/after-introduction": BoundedByConstruction(
-        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
-    ),
-    "POST /v1/agents/{agent_id}/script/opening-line/in-language": BoundedByConstruction(
-        by="the same one suggestion as `GET .../script/proposal`, queued rather than read."
-    ),
     "PATCH /v1/agents/{agent_id}/caller-screen": BoundedByConstruction(
         by="`give_callers_time_settings` names call settings of the fixed preset in "
         "`agents/give_callers_time.py`, never a caller's row count."

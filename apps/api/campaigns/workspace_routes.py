@@ -86,6 +86,9 @@ class CampaignProposalOut(_Out):
     #: Ready: Pip's one-sentence reason for each part it wrote, by the part's key
     #: (`opening_line`, `faqs`, `stages.<id>`, ...), shown beside the part in the review.
     why: dict[str, str]
+    #: A fix of a mistake on real calls the healer asked Pip for (D-1005), in the owner's
+    #: words; null for a draft the owner asked for.
+    fixes: str | None
 
 
 class WorkspaceOut(_Out):
@@ -114,6 +117,7 @@ def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | Non
         disclosure=p.disclosure,
         reason=p.reason,
         why=p.why,
+        fixes=p.fixes,
         left_out=[
             CampaignLeftOutOut(
                 part=part.part,

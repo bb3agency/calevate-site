@@ -117,7 +117,6 @@ from apps.workers.account_closure import (
 )
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
-from apps.workers.agent_fields_draft import draft_agent_fields
 from apps.workers.agent_moves import move_agents_to_workspace, sweep_agent_moves
 from apps.workers.agent_test_cases import run_agent_test_cases
 from apps.workers.agent_test_conversations import (
@@ -281,7 +280,6 @@ from apps.workers.maintenance import (
     maintenance_tick,
     notify_maintenance,
 )
-from apps.workers.mistake_fix import check_live_scripts
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.number_holds import SWEEP_MINUTE as NUMBER_HOLD_SWEEP_MINUTE
 from apps.workers.number_holds import (
@@ -353,7 +351,7 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.retired_line_strip import strip_retired_example_lines
-from apps.workers.script_proposal import draft_script_proposal
+from apps.workers.script_proposal import draft_mistake_fix
 from apps.workers.starter_steps import write_starter_steps
 from apps.workers.studio_voice_key import (
     push_studio_voice_key,
@@ -441,7 +439,6 @@ FUNCTIONS: list[Any] = [
         name_core_details,
         write_starter_steps,
         write_profile_wording,
-        draft_agent_fields,
         # An account brought to its business type: lead details, scripts, and the AI's
         # suggestion where nobody chose a type (D-722), from the outbox
         # (`admin/business_type.queue_apply`, migration d7a3c91e5b20).
@@ -462,9 +459,9 @@ FUNCTIONS: list[Any] = [
         # a run with failures (D-724), from the outbox (`agents/test_conversations`).
         improve_agent_test_run,
         run_agent_test_conversations,
-        # The script change Pip was asked for (D-820), from the outbox
-        # (`agents/script_proposals.request_proposal`).
-        draft_script_proposal,
+        # The healer's fix of a mistake on real calls, as a Pip draft on the line or campaign
+        # (D-1005), from the outbox (`agents/mistake_fixes.request_holder_fix`).
+        draft_mistake_fix,
         draft_campaign_script,
         draft_line_script,
         # The company training Pip was asked for, from the outbox
@@ -1549,19 +1546,6 @@ CRON_JOBS = [
             "owed a notice, each capped per tick"
         ),
         second={25},
-        max_tries=WORKER_MAX_TRIES,
-    ),
-    # THE CALL-MISTAKE CHECKS ON LIVE SCRIPTS (D-989). Fired every minute and run only on the
-    # minutes the console's `script_check_sweep_minutes` names (`mistake_fix.sweep_due`), so
-    # the cadence is a setting rather than this schedule; the batch and the fixes per run
-    # are settings too, and the healer's switches stop it like the fix it opens.
-    _cron(
-        traced_job(check_live_scripts),
-        walk=bounded(
-            "one directory scan of agents whose live script changed, capped per run, then one "
-            "tenant_session per listed agent"
-        ),
-        second={35},
         max_tries=WORKER_MAX_TRIES,
     ),
     _cron(

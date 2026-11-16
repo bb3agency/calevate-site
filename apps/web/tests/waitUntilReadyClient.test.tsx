@@ -1,16 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PipAsk } from "@/app/c/[slug]/agents/[agentId]/script/PipAsk";
-import { ScriptToolbar, publishBlock } from "@/app/c/[slug]/agents/[agentId]/script/ScriptToolbar";
-import type { SaveState } from "@/app/c/[slug]/agents/[agentId]/script/scriptDraft";
 import { LaunchConfirm } from "@/app/c/[slug]/campaigns/LaunchConfirm";
 import { TrialCallCard, callWait } from "@/app/c/[slug]/TrialCallPanel";
 import type { TestCall, TrialPanel } from "@/lib/api/trialCalls";
 
 import { OWNER_ME, agentRow } from "./fixtures/sharedReads";
-import { businessProfileFixture } from "./businessProfileFixture";
 import { renderClientPage } from "./harness";
 
 /**
@@ -34,44 +29,6 @@ function waitingReason(el: HTMLElement): string | null {
   const text = ids.map((id) => document.getElementById(id)?.textContent ?? "").join(" ").trim();
   return text || null;
 }
-
-describe("Put it live waits for the draft to save", () => {
-  const toolbar = (save: SaveState, onPublish = vi.fn()) => (
-    <ScriptToolbar
-      save={save}
-      room={null}
-      unpublished
-      canWrite
-      writeReason={null}
-      publishing={false}
-      live={{ text: "Changes not live yet", tone: "warn" }}
-      menu={[]}
-      onPublish={onPublish}
-    />
-  );
-
-  it("is greyed with its reason while a save is on its way, and ignores a press", () => {
-    const onPublish = vi.fn();
-    render(toolbar({ kind: "saving" }, onPublish));
-    expect(waitingReason(button("Put it live"))).toBe("Waiting for your draft to save");
-    fireEvent.click(button("Put it live"));
-    expect(onPublish).not.toHaveBeenCalled();
-  });
-
-  it("comes back by itself once the draft is saved", () => {
-    const onPublish = vi.fn();
-    const { rerender } = render(toolbar({ kind: "saving" }, onPublish));
-    rerender(toolbar({ kind: "clean", savedAt: "2026-11-01T05:00:00Z" }, onPublish));
-    expect(waitingReason(button("Put it live"))).toBeNull();
-    fireEvent.click(button("Put it live"));
-    expect(onPublish).toHaveBeenCalledTimes(1);
-  });
-
-  it("is released after a failed save, whose own notice offers Try again", () => {
-    expect(publishBlock({ save: { kind: "failed" }, tooLong: false })).toBeNull();
-    expect(publishBlock({ save: { kind: "conflict" }, tooLong: false })).toBe("Choose which draft to keep first.");
-  });
-});
 
 describe("Launch waits for the launch check it relies on", () => {
   const confirm = (waiting: string | null, onLaunch = vi.fn()) => (
@@ -180,29 +137,5 @@ describe("a test call waits for the one still ringing", () => {
       "Waiting for your agents to load",
     );
     expect(callWait({ onCall: false, agentsLoading: false, number: "98765", canCall: true })).toBeNull();
-  });
-});
-
-describe("asking Pip waits for the suggestion being written", () => {
-  it("holds the ask, the ideas and the whole-script ask while Pip is writing, and lifts after", async () => {
-    function Written() {
-      const [drafting, setDrafting] = useState(true);
-      return (
-        <>
-          <PipAsk drafting={drafting} />
-          <button type="button" onClick={() => setDrafting(false)}>
-            Suggestion written
-          </button>
-        </>
-      );
-    }
-    await renderClientPage(<Written />, { "/v1/me": OWNER_ME, "/v1/business-profile": businessProfileFixture() });
-    fireEvent.change(await screen.findByLabelText("What should change?"), { target: { value: "Shorter opening" } });
-    await waitFor(() => expect(waitingReason(button("Ask Pip"))).toMatch(/to finish this suggestion$/));
-    expect(button(/^Let Pip draft the whole script:/).disabled).toBe(true);
-
-    fireEvent.click(button("Suggestion written"));
-    await waitFor(() => expect(waitingReason(button("Ask Pip"))).toBeNull());
-    expect(button("Ask Pip").disabled).toBe(false);
   });
 });

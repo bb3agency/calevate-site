@@ -120,6 +120,7 @@ class ClientIncidentOut(_Out):
         "script_fix_waiting",
         "script_check_fixed",
         "script_check_waiting",
+        "script_fix_proposed",
     ]
     protection: Literal["none", "paused", "forwarded"]
     state: Literal["open", "resolved"]

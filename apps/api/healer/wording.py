@@ -26,7 +26,6 @@ from apps.api.healer.playbooks import (
     CALL_MISTAKE_SEEN,
     ENGINE_PLATFORM_OUTAGE,
     MONEY_REVIEW,
-    SCRIPT_CHECK_FOUND,
     STATUS_POST,
     VOICE_DOMAIN_FAILING,
 )
@@ -119,20 +118,12 @@ INCIDENT_KINDS: Final[Mapping[str, IncidentKind]] = {
         "ThinnestAI's console. Past calls are not re-priced.",
     ),
     CALL_MISTAKE_SEEN: IncidentKind(
-        title="A mistake on real calls, fixed in the agent's script",
-        meaning="A real call showed a mistake that the agent's own script can cause. The "
-        "healer fixes those lines, puts the fix live, watches the next calls and puts the old "
-        "script back if they go worse.",
+        title="A mistake on real calls, drafted as a fix for the owner",
+        meaning="A real call showed a mistake that the script it was spoken from can cause. "
+        "The healer has Pip rewrite those lines as a draft on that Inbound line or campaign, "
+        "and the owner keeps it or not there. A call on neither has no script to fix.",
         next_step="Nothing unless it is handed to you. Then the mistake needs a platform rule "
         "change, or the script needs fixing by hand with the owner.",
-    ),
-    SCRIPT_CHECK_FOUND: IncidentKind(
-        title="A live script line that could cause a mistake",
-        meaning="The script check found lines of an agent's live script that cause a known "
-        "mistake on calls, before any call showed it. The healer fixes those lines the same "
-        "way as one seen on a call, and watches the next calls.",
-        next_step="Nothing unless it is handed to you. Then the script needs fixing by hand "
-        "with the owner.",
     ),
     AGENT_VOICE_FAILED: IncidentKind(
         title="Callers could not hear an agent's voice",
@@ -225,9 +216,13 @@ def progress(
             if attempts == 0:
                 return "Fixed automatically"
             return f"Fixed automatically after {_tries(attempts)}"
+        if outcome == "no_job":
+            return "Closed: the call was on no line or campaign, so there was no script to fix"
+        if outcome == "reviewed":
+            return "Closed: the owner looked at the fix on its line or campaign"
         return "Closed"
     if outcome == "waiting":
-        return "Waiting for a chance to fix the script (an unpublished change or no AI allowance)"
+        return "Waiting for a chance to fix the script (a draft already open or no AI allowance)"
     if outcome == "paused":
         return "Waiting: this repair is switched off in configuration"
     if outcome == "voice_waiting":
@@ -250,7 +245,9 @@ def progress(
         return "Just found; the automatic fix runs on the next minute's check"
     # mitigated: the healer has acted and is waiting to see whether it worked.
     if outcome == "fix_requested":
-        return "Writing the fix for the agent's script"
+        return "Writing the fix as a draft on its line or campaign"
+    if outcome == "fix_proposed":
+        return "Fix drafted on its line or campaign; waiting for the owner to look at it"
     if outcome == "fix_live":
         return "Script fix live; watching the next calls"
     if outcome == "voice_switched":

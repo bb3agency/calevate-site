@@ -122,14 +122,17 @@ export function useUndoMistakeFix(session: Session, agentId: string) {
  * what is true (D-970). The platform's three: "told" because the account's first call
  * showing a kind alerts our team (`call_mistake_new`) and a kind back after a fix alerts it
  * again (`call_mistake_back`); "fixed" only once an operator recorded the change. The
- * `script_*` ones are the agent's own script fix (D-985), which the server says is live,
- * held, put back or undone.
+ * `script_*` ones are the healer's fix: written as a draft on the line or campaign the call
+ * was on for the owner to review (D-1005, `waiting` while it is still there), or, made before
+ * that, live, held, put back or undone in the agent's own script (D-985).
  */
 export function clientStateLine(
   state: MistakeState,
   fixedOn: string | null,
   cleanCalls = 0,
+  waiting = true,
 ): string {
+  if (state === "script_proposed" && !waiting) return "You looked at our fix";
   switch (state) {
     case "back":
       return fixedOn ? `Seen again after our fix on ${fixedOn} · our team has been told` : "Seen again after our fix · our team has been told";
@@ -137,6 +140,10 @@ export function clientStateLine(
       return fixedOn ? `Fixed on ${fixedOn} · not seen since` : "Fixed · not seen since";
     case "script_fixing":
       return "Fixing it in your script";
+    case "script_proposed":
+      return "A fix is ready for you to review";
+    case "no_job":
+      return "Not on an Inbound line or campaign · no script to fix";
     case "script_live":
       return fixedOn ? `Fixed in your script on ${fixedOn} · watching the next calls` : "Fixed in your script · watching the next calls";
     case "script_fixed":
@@ -163,6 +170,7 @@ export const FIX_STATE_WORDS: Record<FleetFix["state"], string> = {
   fixed: "Held",
   rolled_back: "Put back",
   needs_person: "Handed to us",
+  proposed: "Draft for the owner",
 };
 
 export const FIX_ENDED_WORDS: Record<string, string> = {
@@ -174,6 +182,7 @@ export const FIX_ENDED_WORDS: Record<string, string> = {
   attempts_spent: "the fixes did not pass their check",
   script_changed: "the script changed after the fix",
   agent_gone: "the agent is gone",
+  no_job: "the call was on no line or campaign",
 };
 
 /** Where a mistake no call showed came from: the check of the live script (D-989). */

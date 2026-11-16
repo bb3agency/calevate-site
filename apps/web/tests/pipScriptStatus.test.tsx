@@ -18,6 +18,7 @@ function failed(reason: string | null, note = "Pip's script still broke a call r
     left_out: [],
     reason,
     why: {},
+    fixes: null,
   };
 }
 

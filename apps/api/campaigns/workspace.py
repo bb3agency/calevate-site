@@ -18,7 +18,8 @@ is worked in. The agent's own instructions hold 20,000 (`engine/thinnest.INSTRUC
 The cost is that a voice speaks one campaign's script at a time, which Start enforces.
 
 The pending Pip draft lives on the campaign row (`campaigns.script_proposal`), one at a time,
-the same shape and compare-and-set discipline as `agents.script_proposal`.
+written with a compare-and-set on its id; the healer's fix of a mistake on the campaign's calls
+is written there too (D-1005, `agents/mistake_fixes.request_holder_fix`).
 """
 
 from __future__ import annotations
@@ -71,6 +72,9 @@ class CampaignProposal:
     #: Ready: Pip's one-sentence reason per part it wrote, by the part's key (`opening_line`,
     #: `stages.<id>`, ...), for the owner to read beside it (D-1004).
     why: dict[str, str] = field(default_factory=dict)
+    #: A fix the healer asked for (D-1005): the mistake on real calls it fixes, in the
+    #: owner's words. None for a draft the owner asked for.
+    fixes: str | None = None
 
 
 def _why(raw: Any) -> dict[str, str]:
@@ -118,6 +122,7 @@ def _proposal(raw: Any, *, now: datetime) -> CampaignProposal | None:
         left_out=tuple(script_proposals.left_out_of(raw.get("left_out"))),
         reason=reason,
         why=_why(raw.get("why")),
+        fixes=raw.get("fix_label"),
     )
 
 

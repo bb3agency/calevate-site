@@ -568,8 +568,8 @@ class Agent(PKMixin, TimestampMixin, Base):
     #: clears it (D-714). NULL when there is nothing unpublished. Never reaches a call.
     script_draft: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     script_draft_saved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    #: The one script change Pip prepared and the owner has not yet kept or discarded
-    #: (D-820, `agents/script_proposals.py`). It never reaches the draft by itself.
+    #: Retired with the agent's script suggestions (D-1005): nothing writes or reads it. Kept
+    #: under hard rule 8's two-step deprecation; a later release drops it.
     script_proposal: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     # THE SENT VOICE: what `publish_agent` last handed the engine, as opposed to
     # `tts_voice`, which is what an operator CONFIGURED (migration c8b3f14e7a29). The
@@ -2074,9 +2074,10 @@ class PlatformMistakeFix(PKMixin, Base):
     )
 
 
-#: `agent_mistake_fixes.state` (D-985): the healer is writing or waiting to write the fix;
-#: the fix is live and being watched; it held; it was put back; a person must look.
-MISTAKE_FIX_STATES: Final = ("fixing", "live", "fixed", "rolled_back", "needs_person")
+#: `agent_mistake_fixes.state` (D-985, D-1005): the healer is writing or waiting to write the
+#: fix; the fix is live and being watched (before D-1005 only); it held; it was put back; a
+#: person must look; Pip's fix waits as a draft on the line or campaign for the owner.
+MISTAKE_FIX_STATES: Final = ("fixing", "live", "fixed", "rolled_back", "needs_person", "proposed")
 #: Why a fix stopped, where it stopped short of `fixed`.
 MISTAKE_FIX_ENDINGS: Final = (
     "came_back",
@@ -2087,8 +2088,10 @@ MISTAKE_FIX_ENDINGS: Final = (
     "attempts_spent",
     "script_changed",
     "agent_gone",
+    # The call was on no Inbound line or campaign, so there is no script to fix (D-1005).
+    "no_job",
 )
-MistakeFixState = Literal["fixing", "live", "fixed", "rolled_back", "needs_person"]
+MistakeFixState = Literal["fixing", "live", "fixed", "rolled_back", "needs_person", "proposed"]
 #: What opened a fix: a real call showing the kind (D-985), or the sweep of live scripts
 #: finding its cause before any call (D-989).
 MistakeFixFoundBy = Literal["call", "script_check"]
@@ -2112,7 +2115,8 @@ class AgentMistakeFix(PKMixin, TimestampMixin, Base):
             name="ended_because_enum",
         ),
         CheckConstraint(
-            "(state IN ('fixed', 'rolled_back', 'needs_person')) = (settled_at IS NOT NULL)",
+            "(state IN ('fixed', 'rolled_back', 'needs_person', 'proposed')) "
+            "= (settled_at IS NOT NULL)",
             name="settled_iff",
         ),
         CheckConstraint("attempts >= 0 AND waits >= 0", name="counts_nonnegative"),
@@ -2159,6 +2163,13 @@ class AgentMistakeFix(PKMixin, TimestampMixin, Base):
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     #: The client user who pressed Undo; None for the healer or an operator in view-as.
     undone_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    #: Where the fix's draft was written (D-1005): the line or campaign the call was on.
+    inbound_line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("inbound_lines.id", ondelete="SET NULL")
+    )
+    campaign_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="SET NULL")
+    )
 
 
 #: What a company training material could be (the table is retired, D-996).

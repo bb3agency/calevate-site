@@ -1,17 +1,19 @@
-"""The healer fixes a mistake on real calls in the agent's own script (D-985), end to end
-against a real database: the fix opens with the call's mistakes, Pip's fix is asked for the
-lines the script check names and metered, it waits rather than write over the owner, it is
-checked and put live with a version check, the next calls settle it or put the old script
-back, and the owner can undo it.
+"""The healer fixes a mistake on real calls in the script the call was spoken from (D-985,
+D-1005), end to end against a real database: the fix opens with the call's mistakes, Pip's
+fix of exactly the lines the mistake's check names is written as a draft on that call's
+Inbound line or campaign and metered to the client, it waits rather than write over a draft
+already there, the owner is told and reviews it there, and a call on neither says plainly
+that there is no script to fix. A fix the healer put live on the agent's own script before
+D-1005 is settled, and the owner can still undo it.
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here and every assertion is scoped
-to its own ids. The model is never called: Pip's written fix is stored directly, the way the
-job stores it (`script_proposals.store_ready`).
+to its own ids. The model is never called: the writer is replaced at its seam.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,15 +24,14 @@ from uuid import UUID
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from apps.api.agents import call_mistakes, mistake_fixes, script_builder, script_proposals
-from apps.api.agents.capability_manifest import lint_context_for
-from apps.api.agents.mistake_lints import mistake_findings
-from apps.api.agents.script_lint import LintContext
+from apps.api.agents import call_mistakes, mistake_fixes, script_builder
+from apps.api.campaigns import workspace
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.healer import incidents, notices, playbooks
 from apps.api.healer.incidents import Incident
+from apps.api.inbound import lines
 from apps.api.main import app
 from apps.workers import healer as healer_jobs
 from apps.workers import mistake_fix
@@ -59,7 +60,7 @@ def _script(first: str = GREETS) -> CallScript:
     )
 
 
-async def _agent(prefix: str, script: CallScript | None = None) -> tuple[UUID, UUID]:
+async def _agent(prefix: str) -> tuple[UUID, UUID]:
     created = await create_org_with_receptionist(
         name="Fix Homes",
         slug=f"fix-{prefix}-{uuid.uuid4().hex[:8]}",
@@ -68,63 +69,69 @@ async def _agent(prefix: str, script: CallScript | None = None) -> tuple[UUID, U
         language="en-IN",
         created_by=None,
     )
-    tenant_id, agent_id = UUID(str(created["id"])), UUID(str(created["agent_id"]))
+    return UUID(str(created["id"])), UUID(str(created["agent_id"]))
+
+
+async def _line(tenant_id: UUID, agent_id: UUID, script: CallScript | None = None) -> UUID:
     async with tenant_session(tenant_id) as session:
-        await script_builder.clear_draft(session, agent_id)
-        await script_builder.save_agent_script(
+        return await lines.create_line(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
+            name="Front desk",
+            main_task="Answer questions about the flats.",
             script=script or _script(),
-            notes="test script",
             created_by=None,
         )
-    return tenant_id, agent_id
 
 
-async def _call(
-    tenant_id: UUID, agent_id: UUID, *, started: datetime, kinds: tuple[str, ...] = ()
+async def _campaign(tenant_id: UUID, agent_id: UUID, script: CallScript | None = None) -> UUID:
+    campaign_id = uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, script) "
+                "VALUES (:id, :t, :a, 'Site visits', 'service', CAST(:s AS jsonb))"
+            ),
+            {
+                "id": campaign_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "s": (script or _script()).model_dump_json(),
+            },
+        )
+    return campaign_id
+
+
+async def _seen(
+    tenant_id: UUID,
+    agent_id: UUID,
+    kind: str = KIND,
+    *,
+    line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> UUID:
-    """A checked call: a transcript, and its mistake rows."""
+    """A real call showing `kind`, on a line, a campaign or neither, recorded the way the
+    pipeline records it."""
+    started = datetime.now(UTC) - timedelta(minutes=5)
     call_id = uuid7()
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, status, "
-                "started_at, created_at, updated_at) VALUES (:id, :t, :a, :e, 'inbound', "
-                "'completed', :s, now(), now())"
+                "started_at, inbound_line_id, campaign_id, created_at, updated_at) VALUES "
+                "(:id, :t, :a, :e, 'inbound', 'completed', :s, :line, :campaign, now(), now())"
             ),
-            {"id": call_id, "t": tenant_id, "a": agent_id, "e": f"x_{call_id.hex}", "s": started},
+            {
+                "id": call_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "e": f"x_{call_id.hex}",
+                "s": started,
+                "line": line_id,
+                "campaign": campaign_id,
+            },
         )
-        await session.execute(
-            text(
-                "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text) "
-                "VALUES (:id, :t, :c, 0, 'agent', 'Hello')"
-            ),
-            {"id": uuid7(), "t": tenant_id, "c": call_id},
-        )
-        for kind in kinds:
-            await session.execute(
-                text(
-                    "INSERT INTO call_mistakes (id, tenant_id, agent_id, call_id, kind, turn_idx, "
-                    "call_started_at) VALUES (:id, :t, :a, :c, :k, 0, :s)"
-                ),
-                {
-                    "id": uuid7(),
-                    "t": tenant_id,
-                    "a": agent_id,
-                    "c": call_id,
-                    "k": kind,
-                    "s": started,
-                },
-            )
-    return call_id
-
-
-async def _seen(tenant_id: UUID, agent_id: UUID, kind: str = KIND) -> UUID:
-    """A real call showing `kind`, recorded the way the pipeline records it."""
-    started = datetime.now(UTC) - timedelta(minutes=5)
-    call_id = await _call(tenant_id, agent_id, started=started)
     await call_mistakes.record_call_mistakes(
         tenant_id=tenant_id,
         agent_id=agent_id,
@@ -154,36 +161,69 @@ async def _step(tenant_id: UUID, agent_id: UUID, kind: str = KIND) -> mistake_fi
     return await _fix(tenant_id, agent_id, kind)
 
 
-async def _written(tenant_id: UUID, agent_id: UUID, script: CallScript) -> None:
-    """Pip's fix, stored as the job stores it."""
+async def _draft_of(tenant_id: UUID, table: str, holder_id: UUID) -> dict[str, Any] | None:
     async with tenant_session(tenant_id) as session:
-        proposal = await script_proposals.read_proposal(session, agent_id)
-        assert proposal is not None and proposal.status == "drafting"
-        assert await script_proposals.store_ready(
-            session,
-            agent_id=agent_id,
-            proposal_id=proposal.id,
-            script=script,
-            unplaced=[],
-            disclosure=None,
-        )
+        found = (
+            await session.execute(
+                text(f"SELECT script_proposal FROM {table} WHERE id = :h"), {"h": holder_id}
+            )
+        ).scalar_one()
+    return found  # type: ignore[no-any-return]
 
 
-async def _live_script(tenant_id: UUID, agent_id: UUID) -> tuple[CallScript, int | None]:
-    async with tenant_session(tenant_id) as session:
-        loaded = await script_builder.load_agent_script(session, agent_id, applied=True)
-        if loaded.version is None:
-            loaded = await script_builder.load_agent_script(session, agent_id)
-    return loaded.script, loaded.version
+def _answer(script: CallScript) -> Any:
+    return SimpleNamespace(
+        script=script,
+        capability=SimpleNamespace(disclosure=None),
+        usage=None,
+        model="gemini-2.5-flash-lite",
+        earlier=(),
+        left_out=(),
+    )
 
 
-async def _live_fix(tenant_id: UUID, agent_id: UUID) -> mistake_fixes.MistakeFix:
-    await _seen(tenant_id, agent_id)
-    await _step(tenant_id, agent_id)
-    await _written(tenant_id, agent_id, _script(FIXED))
-    fix = await _step(tenant_id, agent_id)
-    assert fix.state == "live"
-    return fix
+def _writer(monkeypatch: pytest.MonkeyPatch, written: CallScript | Exception) -> dict[str, Any]:
+    """Pip's writer replaced, and the meter counted."""
+    seen: dict[str, Any] = {"changes": [], "metered": [], "refused": []}
+
+    async def write(_brief: Any, **kwargs: Any) -> Any:
+        seen["changes"].append(kwargs["change"])
+        if isinstance(written, Exception):
+            raise written
+        return _answer(written)
+
+    async def meter(_session: Any, *, tenant_id: UUID, **_kwargs: Any) -> None:
+        seen["metered"].append(tenant_id)
+
+    async def refusal(_session: Any, *, tenant_id: UUID, **_kwargs: Any) -> None:
+        seen["refused"].append(tenant_id)
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def openings(_t: UUID, _a: UUID, _p: Any, script: CallScript) -> Any:
+        return script, []
+
+    monkeypatch.setattr(proposal_job, "draft_script", write)
+    monkeypatch.setattr(proposal_job, "_opening_repaired", openings)
+    monkeypatch.setattr(proposal_job.crm_assist, "meter_earlier", nothing)
+    monkeypatch.setattr(proposal_job.crm_assist, "meter_assist", meter)
+    monkeypatch.setattr(proposal_job.crm_assist, "meter_refusal", refusal)
+    return seen
+
+
+async def _write_draft(tenant_id: UUID, fix: mistake_fixes.MistakeFix) -> str:
+    holder = fix.holder
+    assert holder is not None and fix.proposal_id is not None
+    return await proposal_job.draft_mistake_fix(
+        {},
+        {
+            "tenant_id": str(tenant_id),
+            "holder_kind": holder.kind,
+            "holder_id": str(holder.id),
+            "proposal_id": str(fix.proposal_id),
+        },
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -191,12 +231,11 @@ def _settings(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "healer_enabled", True)
     monkeypatch.setattr(settings, "healer_paused_playbooks", "")
-    monkeypatch.setattr(settings, "call_mistake_fix_clean_calls", 2)
-    monkeypatch.setattr(settings, "call_mistake_fix_compare_calls", 2)
+    monkeypatch.setattr(settings, "healer_shadow_playbooks", "")
     monkeypatch.setattr(settings, "call_mistake_fix_max_attempts", 2)
     monkeypatch.setattr(settings, "call_mistake_fix_max_waits", 3)
     monkeypatch.setattr(settings, "call_mistake_fix_wait_minutes", 30)
-    monkeypatch.setattr(settings, "call_mistake_fix_worse_per_100_calls", 50)
+    monkeypatch.setattr(settings, "script_mistake_repair_passes", 0)
 
 
 # --- open ---------------------------------------------------------------------------------------
@@ -226,95 +265,106 @@ async def test_a_call_showing_a_mistake_opens_one_fix_and_one_incident() -> None
     assert [(m.kind, m.state) for m in mistakes] == [(KIND, "script_fixing")]
 
 
-# --- act ----------------------------------------------------------------------------------------
+# --- where the fix goes -------------------------------------------------------------------------
 
 
-async def test_the_fix_is_asked_for_exactly_the_lines_the_check_names() -> None:
-    tenant_id, agent_id = await _agent("act")
-    _, version = await _live_script(tenant_id, agent_id)
-    await _seen(tenant_id, agent_id)
+async def test_a_mistake_on_a_lines_call_is_asked_for_on_that_line_for_the_named_lines() -> None:
+    """FAILS IF: the fix is written anywhere but the line the call was on, or may change more
+    than the lines the mistake's check names."""
+    tenant_id, agent_id = await _agent("line")
+    line_id = await _line(tenant_id, agent_id)
+    other = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
     fix = await _step(tenant_id, agent_id)
+    assert (fix.inbound_line_id, fix.campaign_id, fix.attempts) == (line_id, None, 1)
+    draft = await _draft_of(tenant_id, "inbound_lines", line_id)
+    assert draft is not None and draft["id"] == str(fix.proposal_id)
+    assert (draft["status"], draft["requested_by"], draft["fix_kind"]) == ("drafting", None, KIND)
+    assert draft["paths"] == ["stages.0.instruction"]
+    assert draft["fix_label"] == call_mistakes.LESSONS[KIND].label
+    assert await _draft_of(tenant_id, "inbound_lines", other) is None
     async with tenant_session(tenant_id) as session:
-        proposal = await script_proposals.read_proposal(session, agent_id)
         queued = (
             await session.execute(
                 text(
                     "SELECT count(*) FROM outbox_messages WHERE job = :j "
-                    "AND payload->>'proposal_id' = :p"
+                    "AND payload->>'proposal_id' = :p AND payload->>'holder_id' = :h"
                 ),
-                {"j": script_proposals.PROPOSAL_JOB, "p": str(fix.proposal_id)},
+                {"j": mistake_fixes.MISTAKE_FIX_JOB, "p": str(fix.proposal_id), "h": str(line_id)},
             )
         ).scalar_one()
-    assert proposal is not None and proposal.id == fix.proposal_id
-    assert (proposal.mode, proposal.requested_by, proposal.mistake_kind) == ("change", None, KIND)
-    assert proposal.paths == ["stages.0.instruction"]
     assert queued == 1
-    assert (fix.attempts, fix.version_base, fix.version_before) == (1, version, version)
     assert (await _incident(fix)).last_outcome == "fix_requested"
 
 
-async def test_the_job_writes_the_fix_for_the_mistake_and_meters_it_to_the_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id = await _agent("meter")
+async def test_a_mistake_on_a_campaigns_call_is_asked_for_on_that_campaign() -> None:
+    tenant_id, agent_id = await _agent("campaign")
+    campaign_id = await _campaign(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, campaign_id=campaign_id)
+    fix = await _step(tenant_id, agent_id)
+    assert (fix.campaign_id, fix.inbound_line_id) == (campaign_id, None)
+    draft = await _draft_of(tenant_id, "campaigns", campaign_id)
+    assert draft is not None and draft["fix_kind"] == KIND
+    async with tenant_session(tenant_id) as session:
+        space = await workspace.read_workspace(session, campaign_id)
+    assert space.proposal is not None and space.proposal.status == "drafting"
+    assert space.proposal.fixes == call_mistakes.LESSONS[KIND].label
+
+
+async def test_a_call_on_no_line_or_campaign_says_there_is_no_script_to_fix() -> None:
+    """FAILS IF: a mistake on a call with no line or campaign is written onto the agent, or
+    handed to our team as if a script could be fixed."""
+    tenant_id, agent_id = await _agent("nojob")
     await _seen(tenant_id, agent_id)
     fix = await _step(tenant_id, agent_id)
-    asked: dict[str, Any] = {}
-    metered: list[UUID] = []
-
-    async def drafted(_t: UUID, _a: UUID, proposal: Any, _trace: Any, change: Any) -> Any:
-        asked["change"] = change
-        return SimpleNamespace(
-            script=_script(FIXED),
-            earlier=(),
-            model="gemini-2.5-flash-lite",
-            capability=SimpleNamespace(disclosure=None),
-        )
-
-    async def meter(_session: Any, *, tenant_id: UUID, **_kwargs: Any) -> None:
-        metered.append(tenant_id)
-
-    async def openings(_t: UUID, _a: UUID, _p: Any, script: CallScript) -> Any:
-        return script, []
-
-    monkeypatch.setattr(proposal_job, "_draft", drafted)
-    monkeypatch.setattr(proposal_job, "_opening_repaired", openings)
-    monkeypatch.setattr(proposal_job.crm_assist, "meter_earlier", meter)
-    monkeypatch.setattr(proposal_job.crm_assist, "meter_assist", meter)
-    payload = {
-        "tenant_id": str(tenant_id),
-        "agent_id": str(agent_id),
-        "proposal_id": str(fix.proposal_id),
-    }
-    assert await proposal_job.draft_script_proposal({}, payload) == "ready"
-    # The finding is the mistake's own check's, at its real path.
-    assert "stages.0.instruction" in asked["change"]
-    assert "greets" in asked["change"]
-    assert metered and set(metered) == {tenant_id}
-    async with tenant_session(tenant_id) as session:
-        stored = await script_proposals.read_proposal(session, agent_id)
-    assert stored is not None and stored.status == "ready"
-    assert stored.script is not None and stored.script.stages[0].instruction == FIXED
-    # The healer is nudged rather than left to its next look.
+    assert (fix.state, fix.ended_because, fix.proposal_id) == ("needs_person", "no_job", None)
     incident = await _incident(fix)
-    assert incident.next_attempt_at is not None
-    assert incident.next_attempt_at <= datetime.now(UTC) + timedelta(seconds=5)
-
-
-async def test_it_waits_rather_than_write_over_the_owners_draft() -> None:
-    tenant_id, agent_id = await _agent("draft")
+    assert (incident.state, incident.last_outcome) == ("resolved", "no_job")
     async with tenant_session(tenant_id) as session:
-        await script_builder.save_draft(session, agent_id, _script("Ask their budget first."))
-    await _seen(tenant_id, agent_id)
+        mistakes = await call_mistakes.agent_mistakes(session, agent_id)
+    assert [(m.kind, m.state) for m in mistakes] == [(KIND, "no_job")]
+    headers = await _org_headers(tenant_id)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        listed = (await http.get(f"/v1/agents/{agent_id}/call-mistakes", headers=headers)).json()
+    assert [(i["state"], i["fix_holder"]) for i in listed["items"]] == [("no_job", None)]
+
+
+async def test_a_line_with_no_script_has_nothing_to_fix() -> None:
+    tenant_id, agent_id = await _agent("noscript")
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, created_by=None
+        )
+    await _seen(tenant_id, agent_id, line_id=line_id)
     fix = await _step(tenant_id, agent_id)
+    assert (fix.state, fix.ended_because) == ("needs_person", "no_job")
+
+
+# --- waits --------------------------------------------------------------------------------------
+
+
+async def test_it_waits_rather_than_write_over_a_draft_already_on_the_line() -> None:
+    tenant_id, agent_id = await _agent("waits")
+    line_id = await _line(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
-        proposal = await script_proposals.read_proposal(session, agent_id)
-        draft = await script_builder.read_draft(session, agent_id)
-    assert proposal is None and fix.proposal_id is None
-    assert (fix.state, fix.waits, fix.attempts) == ("fixing", 1, 0)
-    assert draft is not None and draft.script.stages[0].instruction == "Ask their budget first."
+        await session.execute(
+            text("UPDATE inbound_lines SET script_proposal = CAST(:p AS jsonb) WHERE id = :h"),
+            {
+                "h": line_id,
+                "p": json.dumps(
+                    {
+                        "id": str(uuid7()),
+                        "status": "ready",
+                        "requested_at": datetime.now(UTC).isoformat(),
+                        "base_script": None,
+                    }
+                ),
+            },
+        )
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    fix = await _step(tenant_id, agent_id)
+    assert (fix.state, fix.waits, fix.attempts, fix.proposal_id) == ("fixing", 1, 0, None)
     assert (await _incident(fix)).last_outcome == "waiting"
-    # After the last look a person is asked.
     await _step(tenant_id, agent_id)
     fix = await _step(tenant_id, agent_id)
     assert (fix.state, fix.ended_because) == ("needs_person", "waited_too_long")
@@ -329,7 +379,8 @@ async def test_an_empty_ai_allowance_waits_and_tells_the_owner(
 
     monkeypatch.setattr(mistake_fix, "read_ai_quota", used_up)
     tenant_id, agent_id = await _agent("quota")
-    await _seen(tenant_id, agent_id)
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
     fix = await _step(tenant_id, agent_id)
     assert (fix.proposal_id, fix.waits) == (None, 1)
     async with tenant_session(tenant_id) as session:
@@ -344,7 +395,8 @@ async def test_an_empty_ai_allowance_waits_and_tells_the_owner(
 
 async def test_a_kind_no_line_causes_is_handed_to_our_team() -> None:
     tenant_id, agent_id = await _agent("platform")
-    await _seen(tenant_id, agent_id, kind="wrong_language")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, kind="wrong_language", line_id=line_id)
     fix = await _step(tenant_id, agent_id, kind="wrong_language")
     assert (fix.state, fix.ended_because, fix.proposal_id) == (
         "needs_person",
@@ -366,240 +418,209 @@ def test_a_fix_never_names_the_openings_or_their_notices() -> None:
         "stages.1.instruction: greets",
     ]
     assert mistake_fixes.fix_paths(findings) == ["stages.1.instruction"]
-    base = _script()
-    for part, value in (
-        ("opening_line", "Hello there, Sunrise Homes calling."),
-        ("raw_override", "Say hello."),
-    ):
-        changed = base.model_copy(update={part: value, "stages": _script(FIXED).stages})
-        why = mistake_fix.verify_candidate(base, changed, LintContext(), KIND)
-        assert why is not None and part in why
-    assert mistake_fix.verify_candidate(base, _script(FIXED), LintContext(), KIND) is None
 
 
-# --- verify and put live ------------------------------------------------------------------------
+# --- the draft, and the owner's review ----------------------------------------------------------
 
 
-async def test_a_checked_fix_goes_live_and_the_owner_is_told() -> None:
-    tenant_id, agent_id = await _agent("live")
-    _, before = await _live_script(tenant_id, agent_id)
-    fix = await _live_fix(tenant_id, agent_id)
-    script, version = await _live_script(tenant_id, agent_id)
+async def test_the_job_writes_the_fix_as_the_lines_draft_and_meters_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FAILS IF: the draft changes more than the named line, is not charged to the client
+    (hard rule 7), or the healer waits for its next look to see it."""
+    tenant_id, agent_id = await _agent("job")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    fix = await _step(tenant_id, agent_id)
+    # The model also rewrites the opening and the close: neither is a line the check named.
+    rewritten = _script(FIXED).model_copy(update={"opening_line": "Hi, new opening here."})
+    rewritten.stages[1] = rewritten.stages[1].model_copy(update={"instruction": "Say bye."})
+    seen = _writer(monkeypatch, rewritten)
+    assert await _write_draft(tenant_id, fix) == "ready"
+    [change] = seen["changes"]
+    assert "stages.0.instruction" in change and "greets" in change
+    assert seen["metered"] == [tenant_id]
     async with tenant_session(tenant_id) as session:
-        lint = await lint_context_for(session, tenant_id=tenant_id, agent_id=agent_id)
-        proposal = await script_proposals.read_proposal(session, agent_id)
-        notice = (
+        line = await lines.read_line(session, line_id)
+    draft = line.proposal
+    assert draft is not None and draft.status == "ready" and draft.script is not None
+    assert draft.script.stages[0].instruction == FIXED
+    assert draft.script.opening_line == _script().opening_line
+    assert draft.script.stages[1].instruction == _script().stages[1].instruction
+    assert draft.base_script == _script()
+    assert draft.fixes == call_mistakes.LESSONS[KIND].label
+    assert line.script == _script(), "nothing reaches the line's script before the owner keeps it"
+    incident = await _incident(fix)
+    assert incident.next_attempt_at is not None
+    assert incident.next_attempt_at <= datetime.now(UTC) + timedelta(seconds=5)
+    # A second delivery of the same message writes nothing again.
+    assert await _write_draft(tenant_id, fix) == "not_pending"
+
+
+async def test_a_written_fix_waits_for_the_owner_who_is_told_and_then_reviews_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id = await _agent("review")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    fix = await _step(tenant_id, agent_id)
+    _writer(monkeypatch, _script(FIXED))
+    await _write_draft(tenant_id, fix)
+    fix = await _step(tenant_id, agent_id)
+    assert (fix.state, fix.inbound_line_id) == ("proposed", line_id)
+    assert (await _incident(fix)).state == "mitigated"
+    async with tenant_session(tenant_id) as session:
+        told = (
             await session.execute(
-                text("SELECT kind, must_act FROM heal_client_incidents WHERE incident_id = :i"),
+                text("SELECT kind, state FROM heal_client_incidents WHERE incident_id = :i"),
                 {"i": fix.incident_id},
             )
         ).one()
-        mistakes = await call_mistakes.agent_mistakes(session, agent_id)
-    assert mistake_findings(script, lint, KIND) == []
-    assert script.stages[0].instruction == FIXED
-    assert script.opening_line == _script().opening_line
-    assert (fix.version_before, fix.version_after) == (before, version)
-    assert proposal is None
-    assert (notice[0], notice[1]) == ("script_fixed", False)
-    assert [(m.state, m.can_undo) for m in mistakes] == [("script_live", True)]
-    assert (await _incident(fix)).last_outcome == "fix_live"
-
-
-async def test_a_fix_that_still_has_the_cause_is_not_put_live() -> None:
-    tenant_id, agent_id = await _agent("unverified")
-    _, before = await _live_script(tenant_id, agent_id)
-    await _seen(tenant_id, agent_id)
-    await _step(tenant_id, agent_id)
-    await _written(tenant_id, agent_id, _script("Greet them again and ask their need."))
+        [mistake] = await call_mistakes.agent_mistakes(session, agent_id)
+    assert (told[0], told[1]) == ("script_fix_proposed", "open")
+    assert (mistake.state, mistake.fix_waiting, mistake.fix_holder_name) == (
+        "script_proposed",
+        True,
+        "Front desk",
+    )
+    # Another call showing it while the draft waits starts no second draft.
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    assert (await _fix(tenant_id, agent_id)).id == fix.id
+    # Still waiting: the next look keeps it open.
     fix = await _step(tenant_id, agent_id)
-    _, now = await _live_script(tenant_id, agent_id)
+    assert (await _incident(fix)).state == "mitigated"
+    # The owner discards (or keeps) it on the line's page; the next look closes it.
+    assert fix.proposal_id is not None
     async with tenant_session(tenant_id) as session:
-        proposal = await script_proposals.read_proposal(session, agent_id)
-    assert now == before and proposal is None
-    assert (fix.state, fix.proposal_id, fix.attempts) == ("fixing", None, 1)
-    # The second attempt is asked from the live script; when it fails too, a person is.
+        await lines.clear_proposal(session, line_id, fix.proposal_id)
+    fix = await _step(tenant_id, agent_id)
+    assert (await _incident(fix)).state == "resolved"
+    async with tenant_session(tenant_id) as session:
+        closed = (
+            await session.execute(
+                text("SELECT state FROM heal_client_incidents WHERE incident_id = :i"),
+                {"i": fix.incident_id},
+            )
+        ).scalar_one()
+        [mistake] = await call_mistakes.agent_mistakes(session, agent_id)
+    assert closed == "resolved"
+    assert (mistake.state, mistake.fix_waiting) == ("script_proposed", False)
+
+
+async def test_a_draft_that_could_not_be_written_is_cleared_and_tried_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, agent_id = await _agent("retry")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    fix = await _step(tenant_id, agent_id)
+    seen = _writer(monkeypatch, ProblemError.business_rule("provider_unavailable", "No answer."))
+    assert await _write_draft(tenant_id, fix) == "refused"
+    assert seen["refused"] == [tenant_id], "a refusal is metered like any Pip draft"
+    fix = await _step(tenant_id, agent_id)
+    assert (fix.state, fix.proposal_id) == ("fixing", None)
+    assert await _draft_of(tenant_id, "inbound_lines", line_id) is None
+    # Asked again, refused again, and after the last attempt our team is told.
     fix = await _step(tenant_id, agent_id)
     assert fix.attempts == 2 and fix.proposal_id is not None
-    await _written(tenant_id, agent_id, _script("Greet them and ask."))
+    await _write_draft(tenant_id, fix)
     fix = await _step(tenant_id, agent_id)
     assert (fix.state, fix.ended_because) == ("needs_person", "attempts_spent")
 
 
-async def test_a_script_changed_after_the_fix_was_asked_is_not_overwritten() -> None:
-    tenant_id, agent_id = await _agent("cas")
-    await _seen(tenant_id, agent_id)
-    await _step(tenant_id, agent_id)
-    await _written(tenant_id, agent_id, _script(FIXED))
-    owner = _script("Ask whether they want to buy or rent.")
+async def test_a_draft_that_changed_nothing_is_not_offered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id = await _agent("same")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    fix = await _step(tenant_id, agent_id)
+    _writer(monkeypatch, _script())
+    assert await _write_draft(tenant_id, fix) == "ready"
+    fix = await _step(tenant_id, agent_id)
+    assert (fix.state, fix.proposal_id) == ("fixing", None)
+    assert await _draft_of(tenant_id, "inbound_lines", line_id) is None
+
+
+# --- fixes made before D-1005 -------------------------------------------------------------------
+
+
+async def _legacy_live_fix(tenant_id: UUID, agent_id: UUID) -> tuple[mistake_fixes.MistakeFix, int]:
+    """A fix the healer put live on the agent's own script before D-1005: two versions."""
     async with tenant_session(tenant_id) as session:
-        await script_builder.save_agent_script(
+        await script_builder.clear_draft(session, agent_id)
+        before = await script_builder.save_agent_script(
             session,
             tenant_id=tenant_id,
             agent_id=agent_id,
-            script=owner,
-            notes="owner edit",
+            script=_script(),
+            notes="before",
             created_by=None,
         )
-    fix = await _step(tenant_id, agent_id)
-    script, _ = await _live_script(tenant_id, agent_id)
-    assert script.stages[0].instruction == owner.stages[0].instruction
-    assert fix.state == "fixing" and fix.proposal_id is None
-
-
-# --- watch --------------------------------------------------------------------------------------
-
-
-async def test_clean_calls_after_the_fix_settle_it() -> None:
-    tenant_id, agent_id = await _agent("settle")
-    fix = await _live_fix(tenant_id, agent_id)
-    assert fix.live_at is not None
-    for n in (1, 2):
-        await _call(tenant_id, agent_id, started=fix.live_at + timedelta(seconds=n))
-    fix = await _step(tenant_id, agent_id)
-    assert fix.state == "fixed" and fix.settled_at is not None
-    incident = await _incident(fix)
-    assert (incident.state, incident.last_outcome) == ("resolved", "verified")
-    async with tenant_session(tenant_id) as session:
-        mistakes = await call_mistakes.agent_mistakes(session, agent_id)
-    assert [(m.state, m.clean_calls) for m in mistakes] == [("script_fixed", 2)]
-
-
-async def test_the_mistake_back_is_fixed_again_from_the_live_script(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, agent_id = await _agent("back")
-    fix = await _live_fix(tenant_id, agent_id)
-    assert fix.live_at is not None
-    await _call(tenant_id, agent_id, started=fix.live_at + timedelta(seconds=1), kinds=(KIND,))
-    fix = await _step(tenant_id, agent_id)
-    assert (fix.state, fix.live_at) == ("fixing", None)
-
-    def still(_script: CallScript, _lint: Any, _kind: str) -> list[str]:
-        return ["stages.1.instruction: greets again"]
-
-    monkeypatch.setattr(mistake_fix, "mistake_findings", still)
-    fix = await _step(tenant_id, agent_id)
-    async with tenant_session(tenant_id) as session:
-        proposal = await script_proposals.read_proposal(session, agent_id)
-    # The second fix is asked from the live script, which holds the first.
-    assert proposal is not None and proposal.base_script.stages[0].instruction == FIXED
-    assert proposal.paths == ["stages.1.instruction"]
-    assert fix.attempts == 2
-
-
-async def test_a_mistake_back_with_no_cause_left_puts_the_old_script_back() -> None:
-    tenant_id, agent_id = await _agent("back-nocause")
-    original, _ = await _live_script(tenant_id, agent_id)
-    fix = await _live_fix(tenant_id, agent_id)
-    assert fix.live_at is not None
-    await _call(tenant_id, agent_id, started=fix.live_at + timedelta(seconds=1), kinds=(KIND,))
-    await _step(tenant_id, agent_id)
-    fix = await _step(tenant_id, agent_id)
-    script, _ = await _live_script(tenant_id, agent_id)
-    assert (fix.state, fix.ended_because) == ("rolled_back", "came_back")
-    assert script.stages[0].instruction == original.stages[0].instruction
-
-
-async def test_after_the_last_attempt_a_mistake_back_puts_the_old_script_back(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(get_settings(), "call_mistake_fix_max_attempts", 1)
-    tenant_id, agent_id = await _agent("rollback")
-    original, before = await _live_script(tenant_id, agent_id)
-    fix = await _live_fix(tenant_id, agent_id)
-    assert fix.live_at is not None
-    await _call(tenant_id, agent_id, started=fix.live_at + timedelta(seconds=1), kinds=(KIND,))
-    fix = await _step(tenant_id, agent_id)
-    script, version = await _live_script(tenant_id, agent_id)
-    assert (fix.state, fix.ended_because) == ("rolled_back", "came_back")
-    assert script.stages[0].instruction == original.stages[0].instruction
-    assert version is not None and before is not None and version > before
-    incident = await _incident(fix)
-    assert (incident.state, incident.last_outcome) == ("escalated", "rolled_back")
-    # A later call showing it does not start a fix while a person has it.
-    await _seen(tenant_id, agent_id)
-    assert (await _fix(tenant_id, agent_id)).id == fix.id
-
-
-async def test_more_other_mistakes_after_the_fix_put_the_old_script_back() -> None:
-    tenant_id, agent_id = await _agent("worse")
-    original, _ = await _live_script(tenant_id, agent_id)
-    fix = await _live_fix(tenant_id, agent_id)
-    assert fix.live_at is not None
-    for n in (1, 2):
-        await _call(
-            tenant_id,
-            agent_id,
-            started=fix.live_at + timedelta(seconds=n),
-            kinds=("said_again", "too_long"),
+        after = await script_builder.save_agent_script(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=_script(FIXED),
+            notes="the fix",
+            created_by=None,
         )
-    fix = await _step(tenant_id, agent_id)
-    script, _ = await _live_script(tenant_id, agent_id)
-    assert (fix.state, fix.ended_because) == ("rolled_back", "worse")
-    assert script.stages[0].instruction == original.stages[0].instruction
+    await _seen(tenant_id, agent_id)
+    fix = await _fix(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agent_mistake_fixes SET state = 'live', live_at = now(), attempts = 1, "
+                "version_before = :b, version_base = :b, version_after = :a WHERE id = :id"
+            ),
+            {"b": before.version, "a": after.version, "id": fix.id},
+        )
+    return await _fix(tenant_id, agent_id), before.version
 
 
-# --- the owner's Undo ---------------------------------------------------------------------------
-
-
-async def test_the_owner_undoes_the_fix_and_the_healer_does_not_redo_it() -> None:
-    tenant_id, agent_id = await _agent("undo")
-    original, _ = await _live_script(tenant_id, agent_id)
-    fix = await _live_fix(tenant_id, agent_id)
+async def test_a_fix_live_from_before_is_settled_and_can_still_be_undone() -> None:
+    tenant_id, agent_id = await _agent("legacy")
+    fix, before = await _legacy_live_fix(tenant_id, agent_id)
+    settled = await _step(tenant_id, agent_id)
+    assert settled.state == "fixed"
+    assert (await _incident(fix)).state == "resolved"
     headers = await _org_headers(tenant_id)
     path = f"/v1/agents/{agent_id}/call-mistakes/{KIND}/undo"
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
         listed = (await http.get(f"/v1/agents/{agent_id}/call-mistakes", headers=headers)).json()
-        assert [(i["state"], i["can_undo"]) for i in listed["items"]] == [("script_live", True)]
+        assert [(i["state"], i["can_undo"]) for i in listed["items"]] == [("script_fixed", True)]
         done = await http.post(path, headers=headers)
-        assert done.status_code == 200, done.text
-        again = await http.post(path, headers=headers)
-        assert again.status_code == 404
-        listed = (await http.get(f"/v1/agents/{agent_id}/call-mistakes", headers=headers)).json()
-    assert [(i["state"], i["can_undo"]) for i in listed["items"]] == [("script_undone", False)]
-    script, version = await _live_script(tenant_id, agent_id)
-    assert script.stages[0].instruction == original.stages[0].instruction
-    assert done.json() == {"kind": KIND, "version": version}
+    assert done.status_code == 200, done.text
+    async with tenant_session(tenant_id) as session:
+        script = (await script_builder.load_agent_script(session, agent_id)).script
+    assert script.stages[0].instruction == GREETS
     undone = await _fix(tenant_id, agent_id)
-    assert (undone.state, undone.ended_because) == ("rolled_back", "owner")
-    assert (await _incident(fix)).state == "resolved"
+    assert (undone.state, undone.ended_because, undone.version_before) == (
+        "rolled_back",
+        "owner",
+        before,
+    )
+
+
+async def test_a_fix_asked_of_the_agents_own_script_is_asked_again_where_the_call_was() -> None:
+    tenant_id, agent_id = await _agent("moved")
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
+    fix = await _fix(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
-        audited = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM audit_log WHERE action = 'agent.mistake_fix_undone' "
-                    "AND object_id = :a"
-                ),
-                {"a": str(agent_id)},
-            )
-        ).scalar_one()
-    assert audited == 1
-    await _seen(tenant_id, agent_id)
-    assert (await _fix(tenant_id, agent_id)).id == undone.id
-
-
-async def test_undo_is_refused_once_the_script_changed_after_the_fix() -> None:
-    tenant_id, agent_id = await _agent("undo-moved")
-    await _live_fix(tenant_id, agent_id)
-    async with tenant_session(tenant_id) as session:
-        await script_builder.save_agent_script(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            script=_script("Ask whether they want to buy or rent."),
-            notes="owner edit",
-            created_by=None,
+        await session.execute(
+            text("UPDATE agent_mistake_fixes SET proposal_id = :p, attempts = 1 WHERE id = :id"),
+            {"p": uuid7(), "id": fix.id},
         )
-    headers = await _org_headers(tenant_id)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        refused = await http.post(
-            f"/v1/agents/{agent_id}/call-mistakes/{KIND}/undo", headers=headers
-        )
-    assert refused.status_code == 409
-    assert refused.json()["type"].endswith(f"/{mistake_fixes.SCRIPT_CHANGED_CODE}")
+    fix = await _step(tenant_id, agent_id)
+    assert (fix.state, fix.proposal_id) == ("fixing", None)
+    fix = await _step(tenant_id, agent_id)
+    assert fix.inbound_line_id == line_id and fix.proposal_id is not None
 
 
-# --- switches, isolation, schema ----------------------------------------------------------------
+# --- switches, notices, isolation, schema -------------------------------------------------------
 
 
 def test_the_kill_switches_stop_it(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -620,7 +641,8 @@ async def test_a_dry_run_names_the_lines_and_leaves_no_fix_in_progress(
 
     monkeypatch.setattr(get_settings(), "healer_shadow_playbooks", "call_mistake_fix")
     tenant_id, agent_id = await _agent("shadow")
-    await _seen(tenant_id, agent_id)
+    line_id = await _line(tenant_id, agent_id)
+    await _seen(tenant_id, agent_id, line_id=line_id)
     incident = await _incident(await _fix(tenant_id, agent_id))
 
     async def claim(*_: Any, **__: Any) -> list[Incident]:
@@ -651,11 +673,8 @@ async def test_a_dry_run_names_the_lines_and_leaves_no_fix_in_progress(
                 {"a": agent_id},
             )
         ).scalar_one()
-        mistakes = await call_mistakes.agent_mistakes(session, agent_id)
-        proposal = await script_proposals.read_proposal(session, agent_id)
-    # Nothing is being fixed, so the owner is not told it is.
-    assert left == 0 and proposal is None
-    assert [m.state for m in mistakes] != ["script_fixing"]
+    assert left == 0
+    assert await _draft_of(tenant_id, "inbound_lines", line_id) is None
 
 
 def test_its_limits_are_the_console_settings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -666,7 +685,7 @@ def test_its_limits_are_the_console_settings(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.parametrize("outcome", [None, "rolled_back", "undone"])
-@pytest.mark.parametrize("kind", ["script_fixed", "script_fix_waiting"])
+@pytest.mark.parametrize("kind", ["script_fixed", "script_fix_waiting", "script_fix_proposed"])
 @pytest.mark.parametrize("state", ["open", "resolved"])
 def test_the_owners_notices_name_nothing_internal(
     kind: str, state: str, outcome: str | None
@@ -711,11 +730,7 @@ async def test_a_tenant_reads_only_its_own_fixes() -> None:
     assert unscoped == 0
 
 
-STEM = "c4e8a2f6d1b9_agent_mistake_fixes"
-#: The revisions built on this one, newest first (D-987, then D-989): each is stepped down
-#: before this one and up after it, since their rows would violate the narrower CHECK this
-#: one restores.
-LATER = ("d7f3a9c1e5b2_voice_fallback", "a9e4c7d2f5b1_script_checks_before_calls")
+STEM = "f3b8d1a6c2e9_mistake_fixes_on_lines_and_campaigns"
 
 
 def _revision(stem: str = STEM) -> ModuleType:
@@ -728,14 +743,13 @@ def _revision(stem: str = STEM) -> ModuleType:
 
 
 def test_the_migration_goes_down_and_up() -> None:
-    revision, later = _revision(), [_revision(stem) for stem in LATER]
+    revision = _revision()
     url = (get_settings().alembic_database_url or get_settings().database_url).replace(
         "+asyncpg", "+psycopg"
     )
-    exists = text("SELECT to_regclass('agent_mistake_fixes') IS NOT NULL")
-    found_by = text(
+    holders = text(
         "SELECT count(*) FROM information_schema.columns WHERE table_name = "
-        "'agent_mistake_fixes' AND column_name = 'found_by'"
+        "'agent_mistake_fixes' AND column_name IN ('inbound_line_id', 'campaign_id')"
     )
     sync = create_engine(url)
     try:
@@ -743,16 +757,10 @@ def test_the_migration_goes_down_and_up() -> None:
             transaction = connection.begin()
             try:
                 with Operations.context(MigrationContext.configure(connection)):
-                    for newer in later:
-                        newer.downgrade()
-                    assert connection.execute(found_by).scalar() == 0
                     revision.downgrade()
-                    assert connection.execute(exists).scalar() is False
+                    assert connection.execute(holders).scalar() == 0
                     revision.upgrade()
-                    assert connection.execute(exists).scalar() is True
-                    for newer in reversed(later):
-                        newer.upgrade()
-                    assert connection.execute(found_by).scalar() == 1
+                    assert connection.execute(holders).scalar() == 2
             finally:
                 transaction.rollback()
     finally:

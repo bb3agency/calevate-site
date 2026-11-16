@@ -65,6 +65,8 @@ def line_notice(
 ) -> Notice:
     """The notice for one `heal_client_incidents` row, open or resolved."""
     name = f"“{agent_name}”" if agent_name else "Your agent"
+    if kind == "script_fix_proposed":
+        return proposed_fix_notice(name=name, state=state)
     if kind in ("script_fixed", "script_fix_waiting", *SCRIPT_CHECK_KINDS):
         return script_fix_notice(kind=kind, name=name, state=state, outcome=worst_signal)
     if kind == "voice_switched":
@@ -227,6 +229,28 @@ def script_fix_notice(*, kind: str, name: str, state: str, outcome: str | None =
     )
 
 
+def proposed_fix_notice(*, name: str, state: str) -> Notice:
+    """Pip's fix of a mistake on real calls, waiting as a draft on the Inbound line or
+    campaign the call was on (D-1005). Nothing changes for callers until the owner keeps it
+    there and puts it live."""
+    if state == "resolved":
+        return Notice(
+            headline=f"A fix for {name} was looked at",
+            what_happened=f"On real calls, {name} made a mistake that came from its script.",
+            what_we_did="We wrote a fix, and it is no longer waiting.",
+            your_part="Nothing.",
+            must_act=False,
+        )
+    return Notice(
+        headline=f"A fix for {name} is ready to review",
+        what_happened=f"On real calls, {name} made a mistake that came from its script.",
+        what_we_did="We changed only the lines that cause it, as a draft. Callers still "
+        "hear the old script.",
+        your_part="Review the draft on the agent's Training tab, then keep it or not.",
+        must_act=False,
+    )
+
+
 def voice_notice(*, name: str, state: str, outcome: str | None = None) -> Notice:
     """The agent moved to a backup voice because callers could not hear it (D-987), or back.
     `outcome` is the incident's last step: `stood_down` when the owner chose a voice."""
@@ -267,6 +291,7 @@ __all__ = [
     "Notice",
     "incident_link",
     "line_notice",
+    "proposed_fix_notice",
     "script_fix_notice",
     "voice_notice",
 ]

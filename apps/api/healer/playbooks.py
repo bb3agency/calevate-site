@@ -45,10 +45,7 @@ STATUS_POST: Final = "status_post"
 #: A real call showed a mistake kind (`agents/call_mistakes`); opened by the pipeline per
 #: agent and kind (`agents/mistake_fixes.open_fixes`), never from the alarm episode.
 CALL_MISTAKE_SEEN: Final = "call_mistake_seen"
-#: The sweep of live scripts found the cause of a mistake kind before any call showed it
-#: (D-989); opened by `agents/mistake_fixes.open_fixes` like `CALL_MISTAKE_SEEN`.
-SCRIPT_CHECK_FOUND: Final = "script_check_found"
-#: The playbook that fixes such a mistake in the agent's own script (D-985).
+#: The playbook that fixes such a mistake in its line's or campaign's script (D-985, D-1005).
 CALL_MISTAKE_FIX: Final = "call_mistake_fix"
 #: The playbook that moves an agent off a voice callers cannot hear (D-987), and the two
 #: codes the pipeline and the call-problem intake open it with, never from an alarm episode.
@@ -207,15 +204,16 @@ PLAYBOOKS: Final[tuple[Playbook, ...]] = (
     ),
     Playbook(
         key=CALL_MISTAKE_FIX,
-        title="Fix a mistake on real calls in the agent's script",
-        triggers=(CALL_MISTAKE_SEEN, SCRIPT_CHECK_FOUND),
-        action="Find the lines of the agent's live script that cause the mistake, have them "
-        "rewritten (billed to the client's AI allowance) and put the fix live; wait while "
-        "the owner has an unpublished change or the allowance is used up.",
-        verify="The script check finds nothing more and no new warning before it goes live; "
-        "then the next real calls do not show the mistake and other mistakes do not rise.",
-        undo="Put back the script from before the fix, automatically when the mistake comes "
-        "back after the last attempt or calls go worse, or by the owner's Undo.",
+        title="Fix a mistake on real calls in its line's or campaign's script",
+        triggers=(CALL_MISTAKE_SEEN,),
+        action="Find the lines of the script of the Inbound line or campaign the call was on "
+        "that cause the mistake, and have Pip rewrite them as a draft there for the owner "
+        "(billed to the client's AI allowance); wait while a draft is already open or the "
+        "allowance is used up. A call on neither has no script to fix.",
+        verify="The draft is written and changes the named lines; the owner keeps or "
+        "discards it on the line's or campaign's page.",
+        undo="None needed: nothing reaches a caller until the owner keeps the draft and puts "
+        "it live.",
         # The step reads the console's `call_mistake_fix_*` settings instead
         # (`effective_limits`); these two are the registry's shape only.
         max_attempts=2,
@@ -379,7 +377,6 @@ __all__ = [
     "PLAYBOOK_BY_JOB",
     "PLAYBOOK_BY_KEY",
     "PLAYBOOK_BY_TRIGGER",
-    "SCRIPT_CHECK_FOUND",
     "STATUS_POST",
     "VOICE_DOMAIN_FAILING",
     "VOICE_DOMAIN_OUTAGE",

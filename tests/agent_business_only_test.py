@@ -371,11 +371,6 @@ async def test_a_new_agent_carries_what_the_business_knows_and_asks_no_one_for_a
                 {"a": agent_id},
             )
         ).scalar()
-        proposal = (
-            await session.execute(
-                text("SELECT script_proposal FROM agents WHERE id = :a"), {"a": agent_id}
-            )
-        ).scalar()
         notices = (
             await session.execute(
                 text("SELECT ai_disclosure_line, recording_notice_line FROM agents WHERE id = :a"),
@@ -383,7 +378,6 @@ async def test_a_new_agent_carries_what_the_business_knows_and_asks_no_one_for_a
             )
         ).one()
     assert body is not None and "[T0 FACTS]" in str(body) and "Haircut" in str(body)
-    assert proposal is None, "no script is asked of Pip"
     assert all(str(sentence).strip() for sentence in notices), "both notice sentences are on file"
 
 

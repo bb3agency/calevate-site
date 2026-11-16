@@ -116,7 +116,7 @@ def brief_hash(brief: str, document_ids: Sequence[UUID] = ()) -> str:
 #: A build still `building` after this long is reported as failed, so the owner can try again.
 #: The worker finishes or records its failure well inside it (at most three model budgets,
 #: `workers/script_assist`); past it the job was lost, and a screen ticking forever is the
-#: worse answer. `script_proposals.DRAFTING_STALE_AFTER`'s reasoning, same figure.
+#: worse answer.
 BUILD_STALE_AFTER: Final = timedelta(minutes=10)
 
 

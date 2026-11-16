@@ -45,7 +45,8 @@ function mistake(over: Partial<AgentMistake> = {}): AgentMistake {
     fixed_at: null,
     state: "fixing",
     clean_calls: 0,
-    clean_calls_needed: 5,
+    fix_holder: null,
+    fix_waiting: false,
     can_undo: false,
     found_in_script: false,
     ...over,
@@ -116,6 +117,43 @@ describe("the Training tab's mistakes on real calls", () => {
     expect(within(rows[3]!).getByRole("button", { name: "Undo our fix: D" })).toBeTruthy();
     for (const row of [rows[0]!, rows[1]!, rows[2]!, rows[4]!, rows[5]!]) {
       expect(within(row).queryByRole("button", { name: /Undo/ })).toBeNull();
+    }
+  });
+
+  it("opens a fix drafted on a line or campaign there, and says when a call had no script (D-1005)", async () => {
+    await renderCard([
+      mistake({
+        kind: "a",
+        label: "A",
+        state: "script_proposed",
+        fix_waiting: true,
+        fix_holder: { kind: "inbound_line", id: "line-1", name: "Front desk" },
+      }),
+      mistake({
+        kind: "b",
+        label: "B",
+        state: "script_proposed",
+        fix_waiting: true,
+        fix_holder: { kind: "campaign", id: "camp-1", name: "Site visits" },
+      }),
+      mistake({ kind: "c", label: "C", state: "script_proposed", fix_waiting: false }),
+      mistake({ kind: "d", label: "D", state: "no_job" }),
+    ]);
+    const rows = within(await screen.findByRole("list", { name: "Mistakes on real calls" })).getAllByRole("listitem");
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("A fix is ready for you to review"),
+      expect.stringContaining("A fix is ready for you to review"),
+      expect.stringContaining("You looked at our fix"),
+      expect.stringContaining("Not on an Inbound line or campaign · no script to fix"),
+    ]);
+    expect(within(rows[0]!).getByRole("link", { name: "Review our fix on Front desk: A" }).getAttribute("href")).toBe(
+      "/c/acme/inbound/line-1",
+    );
+    expect(within(rows[1]!).getByRole("link", { name: "Review our fix on Site visits: B" }).getAttribute("href")).toBe(
+      "/c/acme/campaigns/camp-1",
+    );
+    for (const row of [rows[2]!, rows[3]!]) {
+      expect(within(row).queryByRole("link", { name: /Review our fix/ })).toBeNull();
     }
   });
 

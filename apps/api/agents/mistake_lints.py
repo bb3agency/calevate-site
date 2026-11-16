@@ -1,9 +1,9 @@
-"""The script cause of each mistake on a real call, for the auto-healer (D-985).
+"""The script cause of each mistake on a real call, for the auto-healer (D-985, D-1005).
 
 `call_mistakes.LESSONS` names what went wrong on real calls; this module finds, for one of
-those kinds, the lines of the agent's own script that make the in-call model do it, so the
-healer can rewrite exactly those lines. Each finding is a `script_lint` finding
-("<path>: <problem>"), so `script_proposals.request_proposal(mode="change", paths=...)`,
+those kinds, the lines of a script (an Inbound line's or a campaign's) that make the in-call
+model do it, so the healer can rewrite exactly those lines. Each finding is a `script_lint`
+finding ("<path>: <problem>"), so `mistake_fixes.request_holder_fix(paths=...)`,
 `fix_change`, `finding_key` and `kept_to_paths` take it as they take any other.
 
 Each check runs the in-call detector for its kind (`turn_checks`) on the script's lines,

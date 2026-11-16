@@ -354,7 +354,6 @@ function PutLiveButton({
       </ActionButton>
       {asking && (
         <PutLiveDialog
-          agentId={agent.id}
           live={out.script}
           draft={local}
           agentOn={agent.published && agent.status === "live"}

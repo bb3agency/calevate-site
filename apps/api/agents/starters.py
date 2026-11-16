@@ -824,9 +824,7 @@ async def apply_starter(
     version.
 
     The script carries no opening line (D-965): the starter's is the same for every business
-    of a type (D-962, D-963). The caller has one written for the business: Meet your agent
-    writes it in its run, `POST /v1/agents` and Pip queue a `written` suggestion
-    (`script_proposals.request_written_opening`).
+    of a type (D-962, D-963). A job's opening is written on its Inbound line or campaign.
     """
     jobs = starter_jobs(job)
     # The ACCOUNT's business fields, not the starter catalogue's vertical: a type with no

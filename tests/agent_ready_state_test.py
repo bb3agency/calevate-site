@@ -6,7 +6,7 @@ WHAT IS UNDER TEST:
    tried in the chat, binds no number, leaves it non-live, asks no business-profile facts and
    is allowed for a free trial's answer-only agent; a live agent is left as it is.
 2. **A main-language change rewrites the three notices** in the same transaction, and the
-   opening line is only offered (into the draft).
+   opening line is left as it is.
 3. **A builder save rebases over the platform's own recompiles** instead of refusing with
    `script_changed_elsewhere`, and still refuses a colleague's authored change.
 4. **Pinned facts not yet on an agent are named**, with the reason.
@@ -21,7 +21,7 @@ import uuid
 from typing import Any
 
 import pytest
-from apps.api.agents import lifecycle, publishing, script_builder, script_proposals
+from apps.api.agents import lifecycle, publishing, script_builder
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.script_routes import router as script_router
 from apps.api.billing.trials import start_trial
@@ -33,7 +33,7 @@ from apps.api.compliance.disclosure import (
 )
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.teach import pinned as pinned_store
 from apps.api.tenancy import business_profile as bp
 from calevate_shared.call_script import CallScript
@@ -180,57 +180,17 @@ async def test_changing_the_main_language_rewrites_the_notices_and_keeps_the_tog
     )
 
 
-async def test_the_opening_line_in_the_new_language_is_queued_as_a_suggestion() -> None:
-    """D-965: the language button asks the proposal job for a line written for the business;
-    the request handler calls no model and puts no ready-made line in the draft."""
-    _fresh_engine()
-    tenant_id, agent_id, token = await _tenant()
-    async with tenant_session(tenant_id) as session:
-        await script_builder.save_agent_script(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            script=CallScript(schema_version=2, identity="You answer.", opening_line="Hi there."),
-            notes=None,
-            created_by=None,
-        )
-        await lifecycle.update_agent(
-            session, tenant_id=tenant_id, agent_id=agent_id, language_primary="hi-IN"
-        )
-    code, body = await _post(token, f"/v1/agents/{agent_id}/script/opening-line/in-language")
-    assert code == 202, body
-    assert (body["mode"], body["status"]) == ("written", "drafting")
-    async with tenant_session(tenant_id) as session:
-        draft = await script_builder.read_draft(session, agent_id)
-        saved = await script_builder.load_agent_script(session, agent_id)
-    async with untenanted_session() as session:
-        queued = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM outbox_messages WHERE job = 'draft_script_proposal' "
-                    "AND payload->>'proposal_id' = :pid"
-                ),
-                {"pid": body["id"]},
-            )
-        ).scalar_one()
-    assert draft is None, "nothing is written into the draft before the owner keeps it"
-    assert saved.script.opening_line == "Hi there."
-    assert queued == 1
-
-
-async def test_an_agent_made_from_a_starter_has_no_ready_made_opening_and_one_is_queued() -> None:
+async def test_an_agent_made_from_a_starter_has_no_ready_made_opening() -> None:
     """D-965: the starter's opening is the same for every business of a type, so the new agent
-    carries none and its whole script is written for the business as a suggestion."""
+    carries none; a job's opening is written on its line or campaign (D-1005)."""
     tenant_id, _, token = await _tenant()
     code, body = await _post(token, "/v1/agents", {"name": "Second", "starter": "answer_calls"})
     assert code == 201, body
     agent_id = uuid.UUID(body["id"])
     async with tenant_session(tenant_id) as session:
         saved = await script_builder.load_agent_script(session, agent_id)
-        proposal = await script_proposals.read_proposal(session, agent_id)
     assert (saved.script.opening_line, saved.script.outbound_opening_line) == ("", "")
     assert saved.script.stages, "the rest of the starter is kept"
-    assert proposal is not None and (proposal.mode, proposal.status) == ("starter", "drafting")
 
 
 # --- 3. a save over the platform's recompiles -------------------------------------------

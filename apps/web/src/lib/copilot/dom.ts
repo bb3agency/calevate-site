@@ -19,9 +19,8 @@
  * React tracks the last value it wrote on the DOM node and skips the `change` event when
  * the node's value already matches — so assigning through the instance property both
  * fails to notify React AND poisons its tracker. The working technique is the
- * prototype's own setter plus a bubbling `input` event, and it is already proven in this
- * codebase: `app/c/[slug]/agents/[agentId]/script/ScriptBuilder.tsx` uses exactly this to
- * insert `{{variables}}` into a controlled textarea.
+ * prototype's own setter plus a bubbling `input` event, the same technique a controlled
+ * textarea needs to take inserted `{{variables}}`.
  *
  * FOR CHECKBOXES AND RADIOS THE ANALOGUE IS `.click()`, not `input`. React's `onChange`
  * for those is delegated from a `click`, so dispatching `input` on a checkbox updates

@@ -1436,22 +1436,15 @@ class Settings(BaseSettings):
     healer_founder_whatsapp: str | None = Field(
         default=None, max_length=16, pattern=r"^\+[1-9][0-9]{7,14}$"
     )
-    # Fixing a mistake on real calls in the agent's own script (D-985, playbook
-    # `call_mistake_fix`). Each is read per healer tick.
-    # Checked calls after a fix went live, none showing the mistake, before it counts as held.
-    call_mistake_fix_clean_calls: int = Field(default=5, ge=1, le=200)
-    # Fixes one mistake may get in one agent's script before a person is asked.
+    # Fixing a mistake on real calls as a Pip draft on its line or campaign (D-985, D-1005,
+    # playbook `call_mistake_fix`). Each is read per healer tick.
+    # Drafts one mistake may get written before a person is asked.
     call_mistake_fix_max_attempts: int = Field(default=2, ge=1, le=10)
-    # Minutes between looks while a fix waits (the owner's own unpublished change, a Pip
-    # suggestion, the AI allowance, the fix being written).
+    # Minutes between looks while a fix waits (a Pip draft already open on the line or
+    # campaign, the AI allowance, the fix being written or reviewed).
     call_mistake_fix_wait_minutes: int = Field(default=30, ge=1, le=1440)
     # Looks a fix may wait through before a person is asked.
     call_mistake_fix_max_waits: int = Field(default=48, ge=1, le=1000)
-    # Checked calls on each side of a fix compared for other mistakes.
-    call_mistake_fix_compare_calls: int = Field(default=10, ge=1, le=500)
-    # The fix is put back when the calls after it show more than this many extra other
-    # mistakes per 100 calls than the calls before it.
-    call_mistake_fix_worse_per_100_calls: int = Field(default=50, ge=0, le=10000)
     # The same checks before any call hears the mistake (D-989).
     # Repair rounds Pip may spend on a script it wrote, after its first draft, on the lines
     # the call-mistake checks still find. 0 checks and reports without repairing.
@@ -1462,12 +1455,6 @@ class Settings(BaseSettings):
     # Repairs Pip may ask for when a campaign script it writes breaks a rule, before it gives
     # up; a whole script is too long for the standby, so these are the only tries it has.
     campaign_script_repair_rounds: int = Field(default=2, ge=1, le=5)
-    # Minutes between sweeps of live scripts, counted from midnight IST.
-    script_check_sweep_minutes: int = Field(default=60, ge=5, le=1440)
-    # Agents one sweep checks; the rest wait for the next.
-    script_check_sweep_agents: int = Field(default=50, ge=1, le=1000)
-    # Fixes one sweep may open across every client; an agent left over is checked again next.
-    script_check_sweep_max_fixes: int = Field(default=20, ge=0, le=1000)
     # Moving an agent off a voice callers cannot hear (D-987, playbook `voice_fallback`).
     # Every one is read per healer tick or per scored window.
     # Longest probe line, in characters: a Studio probe is spoken on our key and billed per

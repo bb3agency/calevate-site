@@ -61,18 +61,12 @@ const FILES = [
   "actions/ToolRow.tsx",
   "actions/ToolDetail.tsx",
   "actions/BookingJob.tsx",
-  "[agentId]/script/ScriptBuilder.tsx",
   "[agentId]/script/ScriptSections.tsx",
   "[agentId]/script/SectionEditor.tsx",
-  "[agentId]/script/HandWritten.tsx",
-  "[agentId]/script/PipAsk.tsx",
   "[agentId]/script/PipProposal.tsx",
   "[agentId]/script/ProposalReview.tsx",
-  "[agentId]/script/ScriptHistory.tsx",
   "[agentId]/script/PutLive.tsx",
-  "[agentId]/script/ScriptToolbar.tsx",
   "[agentId]/script/SmallSteps.tsx",
-  "[agentId]/script/TaughtRules.tsx",
 ] as const;
 
 /** What is shown only after a tap on these screens, or never to a person. */

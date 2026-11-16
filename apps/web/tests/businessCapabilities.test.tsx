@@ -2,13 +2,11 @@ import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Actions } from "@/app/c/[slug]/agents/actions/Actions";
-import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
 import { costFigure } from "@/app/c/[slug]/CostPerLead";
 import { teachPrompts } from "@/app/c/[slug]/knowledge/TeachBox";
 import type { ActionsSettings } from "@/lib/api/actions";
 import type { BusinessCopy } from "@/lib/api/businessCopy";
 import type { CostWindow } from "@/lib/api/proof";
-import { EMPTY_SCRIPT, type CallScript, type ScriptOut } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 import {
   UNKNOWN_CAPABILITIES,
@@ -23,8 +21,7 @@ import {
 import { suggestedQuestions } from "@/lib/copilot/suggestions";
 
 import { NO_BUSINESS_COPY, renderClientPage } from "./harness";
-import { businessProfileFixture, NEUTRAL_WORDING } from "./businessProfileFixture";
-import { OWNER_ME, agentRow, settledPending } from "./fixtures/sharedReads";
+import { OWNER_ME } from "./fixtures/sharedReads";
 
 /**
  * The client screens follow the business's capability profile (`GET /v1/business-copy`):
@@ -177,89 +174,6 @@ describe("the home screen's cost figure", () => {
     expect(costFigure(WEEK, [], capabilitiesOf(UNKNOWN)).count).toBe("4 leads");
   });
 });
-
-/* ---------------------------------------------------------------- the script screen */
-
-const SCRIPT: CallScript = {
-  ...EMPTY_SCRIPT,
-  opening_line: "Hello.",
-  business_line: "A business",
-  identity: "You answer the phone.",
-  goal: "Help the caller.",
-  objections: [{ objection: "", response: "" }],
-};
-
-function scriptOut(): ScriptOut {
-  return {
-    script: SCRIPT,
-    draft: null,
-    stored_schema_version: 2,
-    context: null,
-    version: 1,
-    is_freeform: false,
-    has_pending: false,
-    standard_variables: [],
-  };
-}
-
-function scriptRoutes(copy: BusinessCopy, priceLabel: string | null = "Price") {
-  return {
-    "/v1/me": OWNER_ME,
-    "/v1/agents/agent-1": agentRow(),
-    "/v1/agents/agent-1/script": scriptOut(),
-    "POST /v1/agents/agent-1/script/preview": { compiled: "", instructions_chars: 10, instructions_limit: 8000, native_steps: 0 },
-    "/v1/agents/agent-1/script/proposed-rules": [],
-    "/v1/agents/agent-1/pending": settledPending(),
-    "/v1/agents/agent-1/script/proposal": { proposal: null },
-    "/v1/business-profile": businessProfileFixture({ wording: { ...NEUTRAL_WORDING, price_label: priceLabel } }),
-    "/v1/business-copy": copy,
-  };
-}
-
-const scriptPage = (
-  <ScriptBuilder agentId="agent-1" knowledgeHref="/c/acme/knowledge" trainingHref="/c/acme/agents/agent-1?section=training" />
-);
-
-describe("What it may do", () => {
-  it("shows only the call back to a business with no prices, bookings or orders", async () => {
-    await renderClientPage(scriptPage, scriptRoutes(HELPS_USERS));
-    expect(await screen.findByRole("switch", { name: /Offer a call back/ })).toBeTruthy();
-    // The prices and bookings switches stay away once the copy is read.
-    await screen.findByPlaceholderText("I am busy right now.");
-    expect(screen.queryByRole("switch", { name: /Tell callers prices/ })).toBeNull();
-    expect(screen.queryByRole("switch", { name: /Take bookings|Take orders/ })).toBeNull();
-    expect(screen.getByText(/Timings and answers, shared by all your agents/)).toBeTruthy();
-  });
-
-  it("shows all three switches to a shop", async () => {
-    await renderClientPage(scriptPage, scriptRoutes(SHOP));
-    expect(await screen.findByRole("switch", { name: /Tell callers prices/ })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: /Take bookings and orders/ })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: /Offer a call back/ })).toBeTruthy();
-  });
-
-  it("hides prices for a shop whose profile quotes none", async () => {
-    await renderClientPage(scriptPage, scriptRoutes(SHOP, null));
-    expect(await screen.findByRole("switch", { name: /Take bookings and orders/ })).toBeTruthy();
-    await screen.findByText(/Timings and answers/);
-    expect(screen.queryByRole("switch", { name: /Tell callers prices/ })).toBeNull();
-  });
-
-  it("keeps every switch while the business is not judged, with a neutral push-back example", async () => {
-    await renderClientPage(scriptPage, scriptRoutes(UNKNOWN));
-    expect(await screen.findByRole("switch", { name: /Tell callers prices/ })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: /Take bookings and orders/ })).toBeTruthy();
-    expect(screen.getByPlaceholderText("I need to think about it.")).toBeTruthy();
-    expect(screen.queryByPlaceholderText("It is too expensive.")).toBeNull();
-  });
-
-  it("offers Pip's price idea only where prices apply", async () => {
-    await renderClientPage(scriptPage, scriptRoutes(HELPS_USERS));
-    await screen.findByPlaceholderText("I am busy right now.");
-    expect(screen.queryByRole("button", { name: /Price is too high/ })).toBeNull();
-  });
-});
-
 /* ---------------------------------------------------------------- the actions catalogue */
 
 const NO_ACTIONS: ActionsSettings = { api_actions_enabled: false, calendar_available: true, tools: [] };

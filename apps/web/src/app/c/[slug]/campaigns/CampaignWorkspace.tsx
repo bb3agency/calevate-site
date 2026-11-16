@@ -400,6 +400,9 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             onApply={(next) => void keep(next)}
             onDiscard={() => stopFeedback.run(proposal.id)}
           >
+            {proposal.fixes && (
+              <p className="text-sm text-ink [overflow-wrap:anywhere]">Written to fix a mistake on calls: {proposal.fixes}.</p>
+            )}
             {proposal.disclosure && <p className="text-meta text-ink-muted">{proposal.disclosure}</p>}
             {proposal.left_out.length > 0 && <LeftOutNotice parts={proposal.left_out} />}
           </ProposalReview>

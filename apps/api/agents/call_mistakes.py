@@ -6,15 +6,16 @@ never rewrites its own instructions from its own reading of its calls, which rep
 own wrong lessons ("Memory Reward Inflation in Self-Improving LLM Agents", arXiv 2608.00017;
 "Governing Evolving Memory in LLM Agents", arXiv 2603.11768). What these checks find is
 fixed in two places: the platform prompt decides every kind (`turn_checks.SOUND_KINDS`,
-`JOB_KINDS`), and where a line of the agent's own script causes it, the healer fixes that
-line (D-985, `agents/mistake_fixes`). So:
+`JOB_KINDS`), and where a line of a script causes it, the healer writes Pip's fix of that
+line as a draft on the Inbound line or campaign the call was on (D-985, D-1005,
+`agents/mistake_fixes`). So:
 
 1. `mistakes_in` runs `turn_checks` over a real call's turns: the same code that judges a
    practice conversation, so a practice test and a real call can never disagree.
 2. `record_call_mistakes` stores one row per (call, kind), a kind and a turn index only,
-   and in the same transaction starts the healer's fix of each kind in the agent's script.
+   and in the same transaction starts the healer's fix of each kind.
 3. The owner sees each kind with its count and where its fix stands (`agent_mistakes`): the
-   agent's own script fix first, else the platform's.
+   healer's fix first, else the platform's.
 4. An operator marks a kind fixed once the platform rule is changed (`mark_fixed`); a call
    that STARTED after that and shows it again is the mistake coming back, which raises
    `call_mistake_back` so the fix is known not to have held.
@@ -326,8 +327,8 @@ async def record_call_mistakes(
             "CORE_LOGIC",
             "call_mistake_seen",
             detail=(
-                f"A mistake on a real call ({kind}); the healer is checking the agent's "
-                "script for the lines that cause it."
+                f"A mistake on a real call ({kind}); the healer is checking the script of the "
+                "line or campaign the call was on for the lines that cause it."
             ),
             tenant_id=str(tenant_id),
             agent_id=str(agent_id),
@@ -442,15 +443,19 @@ def _state(fixed_at: datetime | None, last_seen: datetime | None) -> State:
     return "fixed"
 
 
-#: Where one agent's mistake stands. The platform's three (`State`) where its own script has
-#: no fix of it, else the script fix's (D-985): being written, live and watched, held, put
-#: back by us because it came back or calls went worse, undone by the owner, or with our team
-#: (no line of the script causes it, or the fix could not be made).
+#: Where one agent's mistake stands. The platform's three (`State`) where the healer has no
+#: fix of it, else the fix's (D-985, D-1005): being written, a draft waiting on the line or
+#: campaign for the owner (`script_proposed`), the call was on neither so there is no script
+#: to fix (`no_job`), or with our team (no line of the script causes it, or the fix could
+#: not be made). A fix the healer put live itself before D-1005 reads live, held, put back
+#: or undone by the owner.
 AgentState = Literal[
     "fixing",
     "fixed",
     "back",
     "script_fixing",
+    "script_proposed",
+    "no_job",
     "script_live",
     "script_fixed",
     "script_rolled_back",
@@ -460,22 +465,25 @@ AgentState = Literal[
 
 _SCRIPT_STATES: Final[dict[str, AgentState]] = {
     "fixing": "script_fixing",
+    "proposed": "script_proposed",
     "live": "script_live",
     "fixed": "script_fixed",
     "needs_person": "with_team",
 }
 
-#: Most urgent first: still happening, then being fixed, then settled.
+#: Most urgent first: still happening, then waiting on the owner, being fixed, then settled.
 _AGENT_ORDER: Final[dict[AgentState, int]] = {
     "back": 0,
     "script_rolled_back": 1,
-    "with_team": 2,
-    "fixing": 3,
-    "script_fixing": 4,
-    "script_live": 5,
-    "script_undone": 6,
-    "script_fixed": 7,
-    "fixed": 8,
+    "script_proposed": 2,
+    "with_team": 3,
+    "fixing": 4,
+    "script_fixing": 5,
+    "no_job": 6,
+    "script_live": 7,
+    "script_undone": 8,
+    "script_fixed": 9,
+    "fixed": 10,
 }
 
 
@@ -486,6 +494,8 @@ def _agent_state(
         return _state(fixed_at, last_seen)
     if fix.state == "rolled_back":
         return "script_undone" if fix.ended_because == "owner" else "script_rolled_back"
+    if fix.ended_because == "no_job":
+        return "no_job"
     return _SCRIPT_STATES[fix.state]
 
 
@@ -528,13 +538,30 @@ class AgentMistake:
     #: No call in the window showed it: the script check found its cause in the live script
     #: and the healer fixed it before any call (D-989).
     found_in_script: bool = False
+    #: The Inbound line or campaign the fix's draft was written on (D-1005), and its name.
+    fix_holder: mistake_fixes.Holder | None = None
+    fix_holder_name: str | None = None
+    #: The draft still waits there for the owner to keep or discard.
+    fix_waiting: bool = False
+
+
+async def _fix_holder(
+    session: AsyncSession, fix: mistake_fixes.MistakeFix | None
+) -> tuple[mistake_fixes.Holder | None, str | None, bool]:
+    holder = fix.holder if fix is not None else None
+    if fix is None or holder is None:
+        return None, None, False
+    found = await mistake_fixes.read_holder(session, holder)
+    if found is None:
+        return None, None, False
+    return holder, found.name, await mistake_fixes.draft_waiting(session, fix)
 
 
 async def agent_mistakes(
     session: AsyncSession, agent_id: UUID, *, now: datetime | None = None
 ) -> list[AgentMistake]:
     """This agent's mistakes on real calls in the window, the ones still happening first.
-    The agent's own script fix decides each kind's state where there is one (D-985), so the
+    The healer's fix decides each kind's state where there is one (D-985, D-1005), so the
     owner reads what is true of their agent (D-970), else the platform's fix does."""
     since = (now or datetime.now(UTC)) - timedelta(days=WINDOW_DAYS)
     rows = (
@@ -575,6 +602,7 @@ async def agent_mistakes(
         script_fixed_at = fix.live_at if fix is not None else None
         fixed_at = script_fixed_at if fix is not None else fixes.get(kind)
         last_call, last_seen = calls[0] if calls else (None, None)
+        holder, holder_name, waiting = await _fix_holder(session, fix)
         out.append(
             AgentMistake(
                 kind=kind,
@@ -600,6 +628,9 @@ async def agent_mistakes(
                     and current == (fix.version_after, fix.version_after)
                 ),
                 found_in_script=kind in early,
+                fix_holder=holder,
+                fix_holder_name=holder_name,
+                fix_waiting=waiting,
             )
         )
     return sorted(out, key=lambda m: (_AGENT_ORDER[m.state], -m.calls, m.kind))

@@ -57,7 +57,7 @@ from pydantic.config import JsonDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import lifecycle, roster, script_builder, script_proposals, starters
+from apps.api.agents import lifecycle, roster, script_builder, starters
 from apps.api.agents.business_fit import business_fit
 from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 
@@ -726,17 +726,9 @@ async def create_agent_route(
             created_by=principal.user_id,
             notes="Opening line written at creation",
         )
-    if payload.starter is not None:
-        # The job's steps are only a placeholder: the whole script, steps included, is
-        # written for this business by the proposal job and reviewed on the Script page.
-        # An opening typed above is kept as typed.
-        await script_proposals.request_written_script(
-            session,
-            tenant_id=principal.tenant_id,
-            agent_id=agent_id,
-            requested_by=principal.user_id,
-        )
-    else:
+    # A starter's ready-made script stays as written: a job's own script is written on its
+    # Inbound line or campaign, not rewritten on the agent (D-1005).
+    if payload.starter is None:
         # Staff with no script of its own (founder, 16 Nov 2026): it carries what the
         # business knows from the start, so it can be got ready and tried on "Just the
         # business" before any line or campaign uses it.
