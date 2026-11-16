@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { PhoneCall, UserMinus } from "lucide-react";
+import { PhoneCall } from "lucide-react";
 
 import { ChipGroup } from "@/components/arc/chip-group";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { FilterToolbar } from "@/components/arc/filter-toolbar";
-import { RowMenu } from "@/components/arc/menu";
 import { SearchField } from "@/components/arc/search-field";
 import { EmptyState } from "@/components/console/emptyState";
 import { TEXT_ACTION_SM } from "@/components/console/section";
@@ -23,7 +22,6 @@ import {
 import {
   useContactResults,
   useIncludeContacts,
-  useRemoveContacts,
   type ContactOutcome,
   type ContactResult,
 } from "@/lib/api/campaigns";
@@ -65,7 +63,6 @@ export function ContactResults({
   campaignId,
   maxAttempts,
   live,
-  editable,
   canWrite,
   refusal,
 }: {
@@ -73,8 +70,6 @@ export function ContactResults({
   campaignId: string;
   maxAttempts: number;
   live: boolean;
-  /** A draft or scheduled campaign: people not yet tried can be removed. */
-  editable: boolean;
   canWrite: boolean;
   refusal: string | undefined;
 }) {
@@ -85,14 +80,8 @@ export function ContactResults({
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const people = useContactResults(session, campaignId, { page, pageSize: PAGE_SIZE, outcome, search }, live);
-  const remove = useRemoveContacts(session, campaignId);
   const include = useIncludeContacts(session, campaignId);
   useActionFeedback(include, { errorTitle: "Could not change who is included" });
-  // The row leaves the list on success, so the toast is where the result is said.
-  const removeFeedback = useActionFeedback(remove, {
-    errorTitle: "Could not take this person off",
-    successToast: "Taken off this campaign",
-  });
   const data = people.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
   // A page that lost its rows (the last person taken off, everyone under "Calling" moving
@@ -144,26 +133,7 @@ export function ContactResults({
         <PhoneCall aria-hidden className="h-3.5 w-3.5" />
         <span className="max-sm:sr-only">Open call</span>
       </Link>
-    ) : editable && row.outcome === "not_called" ? (
-      // One quiet ⋯ per row rather than a bordered button on every line: taking someone
-      // off is occasional, and a column of identical buttons outweighs the names.
-      <RowMenu
-        label={who}
-        items={[
-          {
-            id: "remove",
-            label: "Take off this campaign",
-            tone: "danger",
-            icon: <UserMinus aria-hidden className="h-3.5 w-3.5" />,
-            disabled: !canWrite,
-            hint: refusal,
-            ariaLabel: `Take ${who} off this campaign`,
-            onSelect: () => removeFeedback.run([row.id]),
-          },
-        ]}
-      />
     ) : null;
-  const removing = (row: ContactResult) => remove.isPending && remove.variables?.[0] === row.id;
 
   return (
     <div className="space-y-4">
@@ -234,9 +204,7 @@ export function ContactResults({
                   <th scope="col" className={`${CELL} font-medium`}>
                     Status
                   </th>
-                  {/* `touch:w-17`: the ⋯ menu is 44px on a finger, and with the cell's 24px of padding a
-                      56px column pushed it past the card's clipped edge. */}
-                  <th scope="col" className={`${CELL} ${editable ? "w-14 touch:w-17" : "w-14 sm:w-32"}`}>
+                  <th scope="col" className={`${CELL} w-14 sm:w-32`}>
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -246,11 +214,7 @@ export function ContactResults({
                   const named = row.name?.trim();
                   const who = named || formatPhone(row.phone_e164);
                   return (
-                    <tr
-                      key={row.id}
-                      aria-busy={removing(row) || undefined}
-                      className={`align-middle transition-opacity duration-(--duration-fast) ${removing(row) ? "opacity-50" : ""}`}
-                    >
+                    <tr key={row.id} className="align-middle">
                       <td className={CELL}>
                         <input
                           type="checkbox"

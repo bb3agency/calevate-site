@@ -18773,6 +18773,10 @@ export interface components {
             business_line: string;
             /** End Call Extra Rules */
             end_call_extra_rules?: string[];
+            /** End Positions */
+            end_positions?: {
+                [key: string]: components["schemas"]["CanvasPosition"];
+            };
             /**
              * Ending
              * @default
@@ -21462,6 +21466,7 @@ export interface components {
              * @default
              */
             otherwise: string;
+            otherwise_via?: components["schemas"]["CanvasPosition"] | null;
             position?: components["schemas"]["CanvasPosition"] | null;
             /** Procedure */
             procedure?: components["schemas"]["ProcedureStep"][];
@@ -34842,6 +34847,7 @@ export interface components {
         StageBranch: {
             /** Target */
             target: string;
+            via?: components["schemas"]["CanvasPosition"] | null;
             /** When */
             when: string;
         };

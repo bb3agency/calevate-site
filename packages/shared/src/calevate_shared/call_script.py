@@ -620,6 +620,8 @@ class StageBranch(BaseModel):
 
     when: str = Field(min_length=1, max_length=300)
     target: str = Field(min_length=1, max_length=40)
+    #: Where the owner dragged this arrow's bend on the canvas. Layout only: never compiled.
+    via: CanvasPosition | None = None
 
 
 class ProcedureStep(BaseModel):
@@ -662,6 +664,8 @@ class ConversationStage(BaseModel):
     collect: list[str] = Field(default_factory=list, max_length=MAX_STAGE_COLLECT)
     procedure: list[ProcedureStep] = Field(default_factory=list, max_length=MAX_PROCEDURE_STEPS)
     position: CanvasPosition | None = None
+    #: The bend of the arrow to `otherwise` (or the next section). Layout only.
+    otherwise_via: CanvasPosition | None = None
 
     @field_validator("collect")
     @classmethod
@@ -756,6 +760,8 @@ class CallScript(BaseModel):
     outbound_purpose: str = Field(default="", max_length=300)
     style: SpeakingStyle = Field(default_factory=SpeakingStyle)
     stages: list[ConversationStage] = Field(default_factory=list, max_length=MAX_SCRIPT_STAGES)
+    #: Where each end point (`SPECIAL_TARGETS`) sits on the canvas. Layout only.
+    end_positions: dict[str, CanvasPosition] = Field(default_factory=dict)
     objections: list[Objection] = Field(default_factory=list, max_length=MAX_SCRIPT_OBJECTIONS)
     policies: ScriptPolicies = Field(default_factory=ScriptPolicies)
     ending: str = Field(default="", max_length=1000)
@@ -810,6 +816,9 @@ class CallScript(BaseModel):
                     raise ValueError(
                         f"section {stage.name!r} goes to {target!r}, which is not a section"
                     )
+        stray = set(self.end_positions) - SPECIAL_TARGETS
+        if stray:
+            raise ValueError(f"end_positions names {sorted(stray)!r}, which are not end points")
         if self.schema_version == 1 and self.has_v2_content:
             # A v1 script compiles without these sections, so accepting them would store
             # content the agent never receives.

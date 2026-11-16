@@ -12,6 +12,11 @@
  * dragging from a step's dot to another step adds a way out (`connect`). Every one of
  * those has a keyboard way too: Tab to a step, Enter to edit it, arrow keys to move it
  * (Shift for bigger moves), and the editor's "Add a way out" in place of the dot.
+ *
+ * Where the host passes the handlers, the end points can be dragged (`onEndPosition`), an
+ * arrow's label (or the dot on an unlabelled arrow) dragged to bend the line through that
+ * point (`onBend`), and a label clicked to rewrite its condition (`onRelabel`). Arrows are
+ * coloured by what they say: green for a yes, orange for a no, blue for any other condition.
  */
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
@@ -153,6 +158,30 @@ function curve(a: Point, b: Point): string {
   return `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
 }
 
+type Tone = "yes" | "no" | "branch" | "otherwise" | "next";
+
+const YES = /\b(yes|agrees?|accepts?|interested|okay|ok|sure|confirms?|ready|happy|installed)\b/i;
+const NO = /\b(no|not|don'?t|doesn'?t|refuses?|declines?|busy|later|can'?t|won'?t|never|wrong)\b/i;
+
+/** Yes or no by the condition's words; one that says both ("says yes or no") is neither. */
+function toneOf(kind: "branch" | "otherwise" | "next", label: string): Tone {
+  if (kind !== "branch") return kind;
+  const yes = YES.test(label);
+  const no = NO.test(label);
+  if (yes && !no) return "yes";
+  if (no && !yes) return "no";
+  return "branch";
+}
+
+/** The arrow colours: the chart series tokens, so both palettes keep their contrast. */
+const TONE_COLOR: Record<Tone, string> = {
+  yes: "var(--series-1)",
+  no: "var(--series-3)",
+  branch: "var(--series-2)",
+  otherwise: "var(--ink-muted)",
+  next: "var(--ink-faint)",
+};
+
 function short(text: string, n = 28): string {
   const t = text.trim() || "…";
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
@@ -167,6 +196,10 @@ export function FlowCanvas({
   onSelect,
   onPosition,
   onConnect,
+  endPositions,
+  onEndPosition,
+  onBend,
+  onRelabel,
 }: {
   sections: Section[];
   context: ScriptContext | null;
@@ -176,11 +209,27 @@ export function FlowCanvas({
   onSelect: (id: string) => void;
   onPosition: (id: string, at: Point) => void;
   onConnect: (from: string, to: string) => void;
+  /** Where each end point was dragged to; absent ones sit in their column. */
+  endPositions?: Record<string, Point>;
+  onEndPosition?: (target: string, at: Point) => void;
+  /** Bend an arrow through `via`; null straightens it. `branch` null is the default way on. */
+  onBend?: (from: string, branch: number | null, via: Point | null) => void;
+  onRelabel?: (from: string, branch: number, when: string) => void;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const plane = useRef<HTMLDivElement>(null);
   const [moving, setMoving] = useState<{ id: string; start: Point; origin: Point; at: Point; moved: boolean } | null>(null);
   const [linking, setLinking] = useState<{ from: string; to: Point } | null>(null);
+  // An end point or an arrow's bend being dragged: `key` is the end's target or the edge index.
+  const [dragging, setDragging] = useState<{
+    kind: "end" | "bend";
+    key: string;
+    start: Point;
+    origin: Point;
+    at: Point;
+    moved: boolean;
+  } | null>(null);
+  const [relabelling, setRelabelling] = useState<{ edge: number; text: string } | null>(null);
   const [announce, setAnnounce] = useState("");
   const [frameWidth, setFrameWidth] = useState(0);
 
@@ -226,9 +275,12 @@ export function FlowCanvas({
   const stepsBottom = Math.max(...stepBoxes.map((b) => b.y + b.h), 0);
   const corridorX = stepsRight + CORRIDOR / 2;
   usedEnds.forEach((t, i) => {
+    const placed = dragging?.kind === "end" && dragging.key === t ? dragging.at : endPositions?.[t];
     boxes.set(
       t,
-      endsBeside
+      placed
+        ? { x: Math.max(0, placed.x), y: Math.max(0, placed.y), w: END_W, h: END_H }
+        : endsBeside
         ? { x: corridorX + CORRIDOR / 2, y: MARGIN + i * (END_H + 24), w: END_W, h: END_H }
         : {
             x: MARGIN + (i % columns) * (NODE_W + GAP_X) + (NODE_W - END_W) / 2,
@@ -241,14 +293,31 @@ export function FlowCanvas({
   const allBoxes = [...boxes.values()];
   const width = Math.max(...allBoxes.map((b) => b.x + b.w), stepsRight) + MARGIN;
   const height = Math.max(...allBoxes.map((b) => b.y + b.h), 0) + PAD;
+  // Each arrow's bend: the one being dragged, else the one stored on its step.
+  const viaOf = (edge: (typeof edges)[number], i: number): Point | null => {
+    if (dragging?.kind === "bend" && dragging.key === String(i)) return dragging.at;
+    const source = sections.find((x) => x.id === edge.from);
+    if (!source) return null;
+    if (edge.kind === "branch") return source.branches[edge.branch ?? -1]?.via ?? null;
+    return source.otherwise_via ?? null;
+  };
+  const vias = edges.map(viaOf);
   const routes = edges.map((edge, i) => {
     const a = boxes.get(edge.from);
     const b = boxes.get(edge.to);
     if (!a || !b) return null;
+    const via = vias[i];
+    if (via) return [anchor(a, via), via, anchor(b, via)];
     const lane = ((i % 3) - 1) * 6;
     const toEnd = (SPECIAL_TARGETS as readonly string[]).includes(edge.to);
-    return route(a, b, toEnd && endsBeside, stepBoxes, corridorX, lane);
+    const endPlaced = toEnd && endPositions?.[edge.to] != null;
+    return route(a, b, toEnd && endsBeside && !endPlaced, stepBoxes, corridorX, lane);
   });
+  const tones = edges.map((edge) => toneOf(edge.kind, edge.label));
+  const labelAt = (i: number): Point | null => {
+    const points = routes[i];
+    return points ? (vias[i] ?? labelPoint(points)) : null;
+  };
 
   const local = (e: { clientX: number; clientY: number }): Point => {
     const box = plane.current?.getBoundingClientRect();
@@ -286,6 +355,41 @@ export function FlowCanvas({
     else onSelect(id);
   };
 
+  // Dragging an end point or a bend: a press that does not move is a click (`onClick`).
+  const startDrag = (e: ReactPointerEvent<HTMLElement>, kind: "end" | "bend", key: string, origin: Point) => {
+    if (readOnly || e.button !== 0) return;
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging({ kind, key, start: local(e), origin, at: origin, moved: false });
+  };
+  const doDrag = (e: ReactPointerEvent<HTMLElement>) => {
+    if (!dragging) return;
+    const p = local(e);
+    const dx = p.x - dragging.start.x;
+    const dy = p.y - dragging.start.y;
+    const moved = dragging.moved || Math.abs(dx) + Math.abs(dy) > 4;
+    setDragging({ ...dragging, moved, at: { x: Math.max(0, dragging.origin.x + dx), y: Math.max(0, dragging.origin.y + dy) } });
+  };
+  const endDrag = (onClick?: () => void) => {
+    if (!dragging) return;
+    const { kind, key, moved, at } = dragging;
+    setDragging(null);
+    if (!moved) {
+      onClick?.();
+      return;
+    }
+    if (kind === "end") {
+      onEndPosition?.(key, at);
+      return;
+    }
+    const edge = edges[Number(key)];
+    if (edge) onBend?.(edge.from, edge.kind === "branch" ? (edge.branch ?? null) : null, at);
+  };
+  const straighten = (i: number) => {
+    const edge = edges[i];
+    if (edge) onBend?.(edge.from, edge.kind === "branch" ? (edge.branch ?? null) : null, null);
+  };
+
   const nudge = (s: Section, i: number, dx: number, dy: number) => {
     const p = positionOf(s, i, columns);
     onPosition(s.id, { x: Math.max(0, p.x + dx), y: Math.max(0, p.y + dy) });
@@ -314,21 +418,34 @@ export function FlowCanvas({
       <div ref={plane} className="relative mx-auto" style={{ width, height, minHeight: "100%" }}>
         <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden>
           <defs>
-            <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-ink-muted" />
-            </marker>
+            {(Object.keys(TONE_COLOR) as Tone[]).map((tone) => (
+              <marker
+                key={tone}
+                id={`flow-arrow-${tone}`}
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" style={{ fill: TONE_COLOR[tone] }} />
+              </marker>
+            ))}
           </defs>
           {edges.map((edge, i) => {
             const points = routes[i];
             if (!points) return null;
+            const tone = tones[i];
             return (
               <path
                 key={`${edge.from}-${edge.kind}-${edge.branch ?? ""}-${i}`}
                 d={rounded(points)}
-                className={`fill-none ${edge.kind === "next" ? "stroke-ink-faint" : "stroke-ink-muted"}`}
-                strokeWidth={edge.kind === "next" ? 1.25 : 1.5}
+                className="fill-none"
+                style={{ stroke: TONE_COLOR[tone] }}
+                strokeWidth={edge.kind === "next" ? 1.25 : tone === "yes" || tone === "no" ? 2 : 1.5}
                 strokeDasharray={edge.kind === "next" ? "5 4" : undefined}
-                markerEnd="url(#flow-arrow)"
+                markerEnd={`url(#flow-arrow-${tone})`}
               />
             );
           })}
@@ -347,27 +464,125 @@ export function FlowCanvas({
           // "Otherwise" means something only beside a condition; alone it is just the way on.
           const plainWayOn =
             edge.kind === "otherwise" && !sections.find((s) => s.id === edge.from)?.branches.length;
-          if (edge.kind === "next" || plainWayOn || !points) return null;
-          const at = labelPoint(points);
+          const at = labelAt(i);
+          if (!points || !at) return null;
+          const tone = tones[i];
+          const bendable = !readOnly && onBend != null;
+          // An arrow with no words gets a small dot to drag its line by.
+          if (edge.kind === "next" || plainWayOn) {
+            if (!bendable) return null;
+            return (
+              <span
+                key={`bend-${i}`}
+                aria-hidden
+                title="Drag to move this line; double-click to straighten it"
+                className="absolute z-raised h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none rounded-full border-2 border-surface"
+                style={{ left: at.x, top: at.y, background: TONE_COLOR[tone] }}
+                onPointerDown={(e) => startDrag(e, "bend", String(i), at)}
+                onPointerMove={doDrag}
+                onPointerUp={() => endDrag()}
+                onPointerCancel={() => setDragging(null)}
+                onDoubleClick={() => straighten(i)}
+              />
+            );
+          }
+          if (relabelling?.edge === i && edge.kind === "branch") {
+            const done = (keep: boolean) => {
+              const text = relabelling.text.trim();
+              setRelabelling(null);
+              if (keep && text && text !== edge.label && edge.branch != null) onRelabel?.(edge.from, edge.branch, text);
+            };
+            return (
+              <span
+                key={`edit-${i}`}
+                className="absolute z-raised flex -translate-x-1/2 -translate-y-1/2 items-center gap-1 rounded-full border bg-surface px-1 py-0.5 shadow-overlay"
+                style={{ left: at.x, top: at.y, borderColor: TONE_COLOR[tone] }}
+              >
+                {/* Focused as it opens, from a click on the label, so the owner types at once. */}
+                <input
+                  ref={(el) => el?.focus()}
+                  aria-label="When the call goes this way"
+                  className="w-52 bg-transparent px-1 text-[12px] text-ink outline-none"
+                  value={relabelling.text}
+                  maxLength={300}
+                  onChange={(e) => setRelabelling({ edge: i, text: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      done(true);
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      done(false);
+                    }
+                  }}
+                  onBlur={() => done(true)}
+                />
+                {vias[i] && (
+                  <button
+                    type="button"
+                    className="rounded-full px-1.5 text-[11px] text-ink-muted hover:text-ink"
+                    onPointerDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setRelabelling(null);
+                      straighten(i);
+                    }}
+                  >
+                    Straighten
+                  </button>
+                )}
+              </span>
+            );
+          }
+          const words = edge.kind === "otherwise" ? "Otherwise" : short(edge.label);
+          const style = { left: at.x, top: at.y, borderColor: TONE_COLOR[tone], color: tone === "otherwise" ? undefined : TONE_COLOR[tone] };
+          const pill =
+            "absolute max-w-44 -translate-x-1/2 -translate-y-1/2 truncate rounded-full border bg-surface px-2 py-0.5 text-[11px] font-medium text-ink-muted";
+          if (!bendable) {
+            return (
+              <span key={`label-${i}`} aria-hidden className={`pointer-events-none ${pill}`} style={style}>
+                {words}
+              </span>
+            );
+          }
           return (
-            <span
+            <button
               key={`label-${i}`}
-              aria-hidden
-              className="pointer-events-none absolute max-w-44 -translate-x-1/2 -translate-y-1/2 truncate rounded-full border border-line bg-surface px-2 py-0.5 text-[11px] text-ink-muted"
-              style={{ left: at.x, top: at.y }}
+              type="button"
+              title={edge.kind === "branch" ? "Click to change the words; drag to move the line" : "Drag to move the line; double-click to straighten it"}
+              aria-label={edge.kind === "branch" ? `Change "${edge.label}"` : "Otherwise"}
+              className={`${pill} z-raised cursor-move touch-none hover:shadow-card ${dragging?.key === String(i) ? "shadow-overlay" : ""}`}
+              style={style}
+              onPointerDown={(e) => startDrag(e, "bend", String(i), at)}
+              onPointerMove={doDrag}
+              onPointerUp={() =>
+                endDrag(() => {
+                  if (edge.kind === "branch" && onRelabel) setRelabelling({ edge: i, text: edge.label });
+                })
+              }
+              onPointerCancel={() => setDragging(null)}
+              onDoubleClick={() => edge.kind !== "branch" && straighten(i)}
             >
-              {edge.kind === "otherwise" ? "Otherwise" : short(edge.label)}
-            </span>
+              {words}
+            </button>
           );
         })}
 
         {usedEnds.map((t) => {
           const b = boxes.get(t) as Box;
+          const movable = !readOnly && onEndPosition != null;
           return (
             <span
               key={t}
-              className="absolute flex items-center justify-center rounded-full border border-dashed border-ink-faint bg-surface px-3 text-meta text-ink-muted"
+              title={movable ? "Drag to move" : undefined}
+              className={`absolute flex select-none items-center justify-center rounded-full border border-dashed border-ink-faint bg-surface px-3 text-meta text-ink-muted ${
+                movable ? "cursor-grab touch-none active:cursor-grabbing" : ""
+              } ${dragging?.kind === "end" && dragging.key === t ? "z-raised shadow-overlay" : ""}`}
               style={{ left: b.x, top: b.y, width: b.w, height: b.h }}
+              onPointerDown={movable ? (e) => startDrag(e, "end", t, { x: b.x, y: b.y }) : undefined}
+              onPointerMove={movable ? doDrag : undefined}
+              onPointerUp={movable ? () => endDrag() : undefined}
+              onPointerCancel={movable ? () => setDragging(null) : undefined}
             >
               {endLabel[t]}
             </span>

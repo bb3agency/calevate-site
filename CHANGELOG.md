@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.57 — 16-Nov-2026
+
+- Call flow: Undo and Redo (also Ctrl+Z and Ctrl+Y) step through your changes until Save.
+- Call flow: arrows are coloured by what they say: green for a yes, orange for a no, blue for
+  any other condition. Click an arrow's words to change them. Drag the words (or the dot on
+  an unlabelled arrow) to move the line; Straighten puts it back. The End the call, Hand to
+  a person and Offer a call back boxes can be dragged anywhere. All of it is kept on Save.
+- Campaign people: the tick box replaces the ⋯ "Take off this campaign" menu.
+
 ## 0.4.56 — 16-Nov-2026
 
 - Campaign people: a tick box per person decides who is included in the campaign, and the

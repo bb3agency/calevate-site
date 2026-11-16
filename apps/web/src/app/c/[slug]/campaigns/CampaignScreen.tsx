@@ -181,7 +181,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
       campaignId={campaignId}
       maxAttempts={data.retry_policy.max_attempts}
       live={live}
-      editable={false}
       canWrite={write.allowed}
       refusal={refusal}
     />

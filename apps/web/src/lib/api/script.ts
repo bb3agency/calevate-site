@@ -79,7 +79,7 @@ export interface ConversationStage {
   /** One line in the call's language showing how the section sounds. */
   sounds_like?: string;
   /** `target` is a section id, or "end" | "hand_over" | "call_back". */
-  branches?: { when: string; target: string }[];
+  branches?: { when: string; target: string; via?: { x: number; y: number } | null }[];
   /** Where to go when no branch holds; empty = the next section. */
   otherwise?: string;
   collect?: string[];
@@ -88,6 +88,8 @@ export interface ConversationStage {
   procedure?: { action: string; wait_for: string }[];
   /** Canvas layout only; never compiled. */
   position?: { x: number; y: number } | null;
+  /** The bend of the arrow to `otherwise` (or the next section). Layout only. */
+  otherwise_via?: { x: number; y: number } | null;
 }
 
 /** Mirrors `Objection`. */
@@ -150,6 +152,8 @@ export interface CallScript {
   outbound_purpose: string;
   style: SpeakingStyle;
   stages: ConversationStage[];
+  /** Where each end point sits on the canvas, by target. Layout only. */
+  end_positions?: Record<string, { x: number; y: number }>;
   objections: Objection[];
   policies: ScriptPolicies;
   ending: string;

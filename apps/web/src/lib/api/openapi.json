@@ -11482,6 +11482,13 @@
             "title": "End Call Extra Rules",
             "type": "array"
           },
+          "end_positions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CanvasPosition"
+            },
+            "title": "End Positions",
+            "type": "object"
+          },
           "ending": {
             "default": "",
             "maxLength": 1000,
@@ -18920,6 +18927,16 @@
             "maxLength": 40,
             "title": "Otherwise",
             "type": "string"
+          },
+          "otherwise_via": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CanvasPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "position": {
             "anyOf": [
@@ -55015,6 +55032,16 @@
             "minLength": 1,
             "title": "Target",
             "type": "string"
+          },
+          "via": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CanvasPosition"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "when": {
             "maxLength": 300,

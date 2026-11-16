@@ -12,7 +12,7 @@
  * above, like any script Pip writes.
  */
 
-import { ChevronDown, GitBranch, Maximize2, Plus, Workflow, X } from "lucide-react";
+import { ChevronDown, GitBranch, Maximize2, Plus, Redo2, Undo2, Workflow, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -32,8 +32,11 @@ import {
   connect,
   limitsFrom,
   moveSection,
+  relabel,
   removeSection,
   sectionsOf,
+  setBend,
+  setEndPosition,
   setPosition,
   updateSection,
   validate,
@@ -45,6 +48,10 @@ const FlowCanvas = dynamic(() => import("../agents/[agentId]/script/FlowCanvas")
 });
 
 const FOLD_KEY = "calevate:fold:call-flow";
+/** How many changes Undo can step back through. */
+const HISTORY = 100;
+/** Changes closer together than this (typing a sentence) undo as one. */
+const MERGE_MS = 800;
 
 /** The part name the server recognises for "map the call's scenarios as steps". */
 export const FLOW_PART = "flow";
@@ -93,14 +100,59 @@ export function CampaignFlow({
       // Not remembered without storage.
     }
   };
-  // A save, or a script Pip wrote and the owner kept, replaces what is drawn.
-  useEffect(() => setDraft(script), [script]);
+  // Undo and Redo (founder, 16 Nov 2026): the drafts before and after this one, until Save.
+  const [past, setPast] = useState<CallScript[]>([]);
+  const [future, setFuture] = useState<CallScript[]>([]);
+  const lastChange = useRef(0);
+  // A save, or a script Pip wrote and the owner kept, replaces what is drawn and its history.
+  useEffect(() => {
+    setDraft(script);
+    setPast([]);
+    setFuture([]);
+  }, [script]);
+  const commit = (next: CallScript) => {
+    if (next === draft) return;
+    const now = Date.now();
+    if (now - lastChange.current > MERGE_MS || past.length === 0) setPast((p) => [...p, draft].slice(-HISTORY));
+    lastChange.current = now;
+    setFuture([]);
+    setDraft(next);
+  };
+  const undo = () => {
+    const before = past[past.length - 1];
+    if (!before) return;
+    lastChange.current = 0;
+    setPast((p) => p.slice(0, -1));
+    setFuture((f) => [draft, ...f]);
+    setDraft(before);
+  };
+  const redo = () => {
+    const after = future[0];
+    if (!after) return;
+    lastChange.current = 0;
+    setFuture((f) => f.slice(1));
+    setPast((p) => [...p, draft]);
+    setDraft(after);
+  };
+  // Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y over the flow; a text box keeps its own undo.
+  const onKeys = (e: React.KeyboardEvent) => {
+    const t = e.target as HTMLElement;
+    if (!(e.ctrlKey || e.metaKey) || t.closest("input, textarea, select, [contenteditable]")) return;
+    const key = e.key.toLowerCase();
+    if (key === "z" && !e.shiftKey) {
+      e.preventDefault();
+      undo();
+    } else if (key === "y" || (key === "z" && e.shiftKey)) {
+      e.preventDefault();
+      redo();
+    }
+  };
 
   const sections = sectionsOf(draft);
   const issues = useMemo(() => validate(draft, limits), [draft, limits]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(script);
   const readOnly = !canWrite;
-  const edit = (change: (s: CallScript) => CallScript) => setDraft((s) => change(s));
+  const edit = (change: (s: CallScript) => CallScript) => commit(change(draft));
 
   const selectedIndex = sections.findIndex((s) => s.id === selected);
   const selectedSection = selectedIndex >= 0 ? sections[selectedIndex] : null;
@@ -127,7 +179,7 @@ export function CampaignFlow({
   // in between, and "if yes, do this; if no, do this").
   const insertAfter = () => {
     const made = addSection(draft, {}, selectedIndex + 1);
-    setDraft(made.script);
+    commit(made.script);
     setSelected(made.id);
   };
   const addYesNo = () => {
@@ -184,12 +236,36 @@ export function CampaignFlow({
   );
   const addStep = () => {
     const made = addSection(draft);
-    setDraft(made.script);
+    commit(made.script);
     setSelected(made.id);
   };
 
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
+      {!readOnly && (
+        <>
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            disabled={past.length === 0}
+            title="Undo (Ctrl+Z)"
+            onClick={undo}
+          >
+            <Undo2 aria-hidden className="h-3.5 w-3.5" />
+            Undo
+          </button>
+          <button
+            type="button"
+            className={SECONDARY_BUTTON_SM}
+            disabled={future.length === 0}
+            title="Redo (Ctrl+Y)"
+            onClick={redo}
+          >
+            <Redo2 aria-hidden className="h-3.5 w-3.5" />
+            Redo
+          </button>
+        </>
+      )}
       {onMapScenarios && (
         <button
           type="button"
@@ -238,6 +314,10 @@ export function CampaignFlow({
               edit((s) => connect(s, from, to, limits.maxBranches).script);
               setSelected(from);
             }}
+            endPositions={draft.end_positions ?? undefined}
+            onEndPosition={(target, at) => edit((s) => setEndPosition(s, target, at))}
+            onBend={(from, branch, via) => edit((s) => setBend(s, from, branch, via))}
+            onRelabel={(from, branch, when) => edit((s) => relabel(s, from, branch, when))}
           />
         </div>
         <aside aria-label="Edit the chosen step" className="min-w-0 self-start rounded-card border border-line bg-surface">
@@ -284,7 +364,15 @@ export function CampaignFlow({
             >
               {saving ? "Saving…" : "Save flow"}
             </button>
-            <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setDraft(script)}>
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              onClick={() => {
+                setDraft(script);
+                setPast([]);
+                setFuture([]);
+              }}
+            >
               Discard changes
             </button>
             {issues.length > 0 && <span className="text-meta text-danger">{issues[0].message}</span>}
@@ -299,7 +387,8 @@ export function CampaignFlow({
     ) : null;
 
   return (
-    <div className="mt-6 border-t border-line pt-5">
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Ctrl+Z / Ctrl+Y for the buttons in it
+    <div className="mt-6 border-t border-line pt-5" onKeyDown={onKeys}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-body font-semibold text-ink">
@@ -325,7 +414,8 @@ export function CampaignFlow({
           {!folded && (
             <p className="mt-0.5 text-meta text-ink-muted">
               Each step and where the call goes next, by what the person says. Click a step to edit it; drag
-              its dot to another step to add a way out.
+              its dot to another step to add a way out. Click an arrow&apos;s words to change them; drag them, or an
+              end point, to move it.
             </p>
           )}
         </div>
@@ -351,7 +441,8 @@ export function CampaignFlow({
         <FullScreen title="Call flow" onClose={() => setFull(false)}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="text-meta text-ink-muted">
-              Click a step to edit it on the right; drag its dot to another step to add a way out. Save keeps the changes.
+              Click a step to edit it on the right; drag its dot to another step to add a way out. Click an
+              arrow&apos;s words to change them; drag them, or an end point, to move it. Save keeps the changes.
             </p>
             {toolbar}
           </div>

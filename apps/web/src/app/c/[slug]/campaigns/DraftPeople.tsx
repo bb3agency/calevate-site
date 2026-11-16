@@ -59,7 +59,6 @@ export function DraftPeople({
               campaignId={campaignId}
               maxAttempts={maxAttempts}
               live={false}
-              editable
               canWrite={canWrite}
               refusal={refusal}
             />
