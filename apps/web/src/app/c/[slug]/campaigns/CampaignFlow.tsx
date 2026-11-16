@@ -399,7 +399,7 @@ export function CampaignFlow({
                 keepInView(e.currentTarget);
                 setFolded(!folded);
               }}
-              className="inline-flex items-center gap-1.5"
+              className="inline-flex items-center gap-1.5 touch:min-h-11"
             >
               <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${folded ? "-rotate-90" : ""}`} />
               <Workflow aria-hidden className="h-4 w-4 text-series-2" />

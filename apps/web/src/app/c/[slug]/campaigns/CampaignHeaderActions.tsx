@@ -69,7 +69,6 @@ export function CampaignHeaderActions({
   });
   const [confirming, setConfirming] = useState<Confirming>(null);
   const status = progress.status;
-  const finished = status === "completed" || status === "cancelled";
   const ownerOnly = canWrite ? undefined : (refusal ?? "Only the account owner can do this.");
 
   const statusFor = (action: "pause" | "resume") =>

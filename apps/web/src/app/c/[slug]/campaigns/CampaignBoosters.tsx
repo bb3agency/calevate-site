@@ -174,7 +174,7 @@ export function TestCallForm({
                   <button
                     type="button"
                     aria-pressed={chosen}
-                    className="py-1 pl-3 pr-2 font-medium tabular-nums"
+                    className="py-1 pl-3 pr-2 font-medium tabular-nums touch:min-h-11"
                     onClick={() => setNumber(n)}
                   >
                     {formatPhone(n)}
@@ -185,7 +185,7 @@ export function TestCallForm({
                       aria-label={`Remove ${formatPhone(n)} from saved numbers`}
                       title="Remove"
                       disabled={!canWrite || !loaded || saveNumbers.isPending}
-                      className="rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100"
+                      className="inline-flex items-center justify-center rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100 touch:min-h-11 touch:min-w-11"
                       onClick={() => saveNumbers.mutate(numbers.filter((x) => x !== n))}
                     >
                       <X aria-hidden className="h-3.5 w-3.5" />
@@ -232,8 +232,13 @@ export function TestCallForm({
         </button>
       </div>
       <p className="mt-1 text-meta text-ink-muted">A number you call is saved for next time. Up to 10.</p>
-      <label className="mt-2 flex items-center gap-2 text-meta text-ink-muted">
-        <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+      <label className="mt-2 flex w-fit items-center gap-2 text-meta text-ink-muted touch:min-h-11">
+        <input
+          type="checkbox"
+          className="h-4 w-4 accent-brand-strong touch:h-5 touch:w-5"
+          checked={mine}
+          onChange={(e) => setMine(e.target.checked)}
+        />
         This number is mine
       </label>
       {saveNumbers?.error != null && (
@@ -250,7 +255,10 @@ export function TestCallForm({
         <p role="status" className="mt-2 text-meta text-ink">
           Calling you now.{" "}
           {result.call_id && (
-            <Link className="text-brand-strong underline" href={href(`/c/${slug}/calls/${result.call_id}`)}>
+            <Link
+              className="inline-flex items-center text-brand-strong underline touch:min-h-11"
+              href={href(`/c/${slug}/calls/${result.call_id}`)}
+            >
               Open the call
             </Link>
           )}
