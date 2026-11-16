@@ -4,7 +4,7 @@
  * HOW THEY SPEAK (D-996): the one training every agent of the account is given (founder, 16 Nov
  * 2026), the way a company trains everyone it hires before assigning them work. A tab of What
  * your agents know: the other tabs hold the facts agents look up, this one how they behave.
- * Each agent, campaign and inbound line keeps its own script on top of it.
+ * Each campaign and inbound line keeps its own script on top of it.
  *
  * Built like a campaign's set-up (D-992), with the same coloured folds:
  *  1. About the business: the owner's own words, many lines.
@@ -43,7 +43,7 @@ import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
 
-export const TAB_LEAD = "Every agent learns this before its own script.";
+export const TAB_LEAD = "Every agent learns this before any line or campaign script.";
 export const OVERVIEW_HINT = "What is your business, and how should agents talk?";
 export const OVERVIEW_PLACEHOLDER = "For example: we bake cakes to order in Kukatpally.";
 export const TRAINING_HINT = "What every agent is given.";

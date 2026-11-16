@@ -65,7 +65,6 @@ from calevate_shared.document_ingest import (
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.script_proposals import queue_document_suggestions
 from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -441,20 +440,6 @@ async def ingest_kb_source(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         raise
 
 
-#: Was this upload's exact file already published as an earlier version of the same name?
-#: A re-reading of a file we hold copies its digest onto the new version's row.
-_SAME_FILE_WAS_LIVE_SQL = """
-SELECT 1
-FROM kb_uploads cu
-JOIN kb_sources cs ON cs.id = cu.source_id
-JOIN kb_sources s ON s.tenant_id = cs.tenant_id AND s.name = cs.name
-  AND s.version < cs.version AND s.published_at IS NOT NULL
-JOIN kb_uploads u ON u.source_id = s.id AND u.original_sha256 = cu.original_sha256
-WHERE cu.id = :uid
-LIMIT 1
-"""
-
-
 #: The waits between attempts of an approving ingest, by attempt (`ladder_delay_s`).
 INGEST_RETRY_BACKOFF_S: Final[tuple[float, ...]] = (30.0, 120.0)
 
@@ -625,16 +610,9 @@ async def _ingest_kb_source(payload: dict[str, Any]) -> str:
 
     await _clear_failures(upload_id)
     async with tenant_session(tenant_id) as session:
+        # No script suggestion is queued from it (D-923 retired): an agent has no script of
+        # its own, and a line or campaign reads the file when it is picked as a source.
         await _mark(session, upload_id, UPLOAD_PROCESSED)
-        # Its words shape every agent's script as an onboarding document shapes the first
-        # one's, as a suggestion (D-923) — unless this is the same file an earlier live
-        # version already was (`reparse_kb_upload`'s new reading), which the agents had.
-        if (
-            version is not None
-            and (await session.execute(text(_SAME_FILE_WAS_LIVE_SQL), {"uid": upload_id})).first()
-            is None
-        ):
-            await queue_document_suggestions(session, tenant_id=tenant_id, upload_id=upload_id)
     if version is None:
         # A later approved version of this name got there first (a re-read of a changed
         # page racing the client's own edit); this one is archived, not published over it.

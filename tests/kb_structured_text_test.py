@@ -13,7 +13,6 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from apps.api.agents import script_proposals
 from apps.api.agents.hot_facts import candidates_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.first_run.documents import INSTRUCTIONS_LEAD, document_words
@@ -29,7 +28,7 @@ from apps.api.kb.structured_text import (
 )
 from apps.workers import kb_ingest
 from sqlalchemy import text
-from tests.conftest import FakeS3, create_org_with_receptionist
+from tests.conftest import FakeS3
 from tests.first_run_test import _tenant
 
 GUIDE = (Path(__file__).parent / "fixtures" / "voice_agent_guide.md").read_text(encoding="utf-8")
@@ -310,30 +309,3 @@ async def test_a_plain_text_upload_is_stamped_and_left_alone(s3: FakeS3) -> None
         await kb_ingest.reparse_kb_upload(tenant_id=tenant_id, upload_id=uuid.UUID(str(made["id"])))
         == "unchanged"
     )
-
-
-async def test_using_the_instructions_queues_a_script_suggestion_from_the_file(
-    s3: FakeS3,
-) -> None:
-    created = await create_org_with_receptionist(
-        name="Ledger Shop",
-        slug=f"guide-{uuid.uuid4().hex[:8]}",
-        vertical_template="retail",
-        billing_email=None,
-        language="en-IN",
-        created_by=None,
-    )
-    tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
-    upload_id, source_id = await _md_upload(tenant_id, GUIDE.encode())
-    async with tenant_session(tenant_id) as session:
-        await kb_service.store_document_text(
-            session, tenant_id=tenant_id, source_id=source_id, body=GUIDE, structured=True
-        )
-        asked = await uploads.use_call_instructions(
-            session, tenant_id=tenant_id, upload_id=upload_id, name="guide.md", agent_id=agent_id
-        )
-        proposal = await script_proposals.read_proposal(session, agent_id)
-    assert (asked.agents, asked.skipped) == (1, 0)
-    assert proposal is not None and proposal.mode == script_proposals.KNOWLEDGE_MODE
-    assert proposal.documents == [upload_id], "written from this file, for the owner to review"
-    assert proposal.status == "drafting", "a suggestion only: nothing is applied to the agent"

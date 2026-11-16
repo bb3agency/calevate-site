@@ -657,6 +657,13 @@ the source name. Letters, digits and vowel signs of a script the font lacks are 
 refused, because leaving them out would lose words. The client is never asked to edit
 their own file for a symbol.
 
+**Retired with the agent's own script (D-997, 16 Nov 2026).** Nothing queues the suggestion
+below any more, and the Knowledge page's "Use in call scripts" is gone: an agent has no
+Script tab to review a suggestion on, so each one spent AI help on words nobody could see. A
+file reaches a script when an Inbound line or campaign picks it as a source; its writer reads
+the file's call instructions too (`first_run/documents.document_words`). The worker still
+drains a `knowledge` proposal written before the change. The paragraph is kept as history.
+
 **A file added after onboarding suggests a script change for every agent (D-923).** Once
 an upload is live, `ingest_kb_source` queues `suggest_scripts_from_document` once per upload
 (`agents/script_proposals.SUGGEST_JOB`, deduped on the upload id). The job skips an

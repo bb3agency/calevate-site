@@ -1,34 +1,29 @@
 "use client";
 
-import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
-import { Disclosure, formatCountOf } from "@/components/ui";
-import { useWriteAccess } from "@/lib/api/hooks";
-import { useUseCallInstructions, type KbUpload, type UseInstructionsResult } from "@/lib/api/kb";
-import { useClientSession } from "@/lib/api/session";
+import Link from "next/link";
+
+import { Disclosure, SECONDARY_BUTTON_SM, formatCountOf } from "@/components/ui";
+import type { KbUpload } from "@/lib/api/kb";
+import { useClientRealm } from "@/lib/api/session";
 
 /**
  * WHAT A FILE TELLS THE AGENT TO DO ON A CALL ("ask whether now is a good time"). These are
  * kept out of what the agents look up, because an instruction that is only found when a
- * caller's question happens to match it is not followed; they belong in the call script.
- * One button hands them to the script as a suggestion the owner reviews on the Script page,
- * so nothing reaches a live agent from here.
+ * caller's question happens to match it is not followed; they belong in a call script.
  *
- * `agent` names the one agent whose script it goes to (the agent's Training tab); without
- * it, every agent gets the suggestion (the Knowledge page).
+ * An agent has no script of its own (D-997): an Inbound line or a campaign does, and Pip
+ * reads a picked file's call instructions when it writes that script
+ * (`first_run/documents.document_words`). So this lists them and points to where a file is
+ * picked, rather than sending them anywhere.
  */
 export function CallInstructions({
   upload,
-  agent,
   expanded = false,
 }: {
   upload: KbUpload;
-  agent?: { id: string; name: string };
-  /** Opened from the file's row, which already said how many: the list, then the button. */
+  /** Opened from the file's row, which already said how many: the list, then the way on. */
   expanded?: boolean;
 }) {
-  const session = useClientSession();
-  // A script change is the owner's (`org:manage`, as on the Script page).
-  const write = useWriteAccess(session, "org:manage", "change call scripts");
   const items = upload.call_instructions ?? [];
   if (items.length === 0) return null;
   const count = formatCountOf(items.length, "call instruction");
@@ -45,9 +40,8 @@ export function CallInstructions({
   if (expanded) {
     return (
       <div className="mt-3 space-y-3">
-        <p className="text-meta text-ink-muted">Not said on calls until they are in a script.</p>
         <div className="border-y border-line">{list}</div>
-        {write.allowed ? <UseButton upload={upload} agent={agent} /> : null}
+        <WhereTheyAreUsed />
       </div>
     );
   }
@@ -59,44 +53,28 @@ export function CallInstructions({
       <Disclosure variant="inline" headingLevel={4} title="See them">
         {list}
       </Disclosure>
-      {write.allowed ? <UseButton upload={upload} agent={agent} /> : null}
+      <WhereTheyAreUsed />
     </div>
   );
 }
 
-/**
- * What was sent, as the server counted it (A-11). An agent with a suggestion the owner asked
- * for still waiting, or a script written as one text, is skipped
- * (`script_proposals.request_knowledge_proposal`); nothing sent is never said as sent.
- */
-export function sentLine(result: UseInstructionsResult, agentName?: string): string {
-  const { agents, skipped } = result;
-  if (agents === 0) {
-    return agentName ? `Not sent to ${agentName}. See its Script page.` : "Not sent to any agent. See their Script pages.";
-  }
-  const sent = agentName
-    ? `Suggestion on ${agentName}'s Script page soon`
-    : `Sent to ${formatCountOf(agents, "agent")}. Suggestion soon.`;
-  return skipped > 0 ? `${sent} ${skipped} not sent.` : sent;
-}
+/** Pick the file on a line or a campaign, and Pip follows them when it writes that script. */
+export const USED_WHERE = "Pick this file on an Inbound line or campaign to use them.";
 
-function UseButton({ upload, agent }: { upload: KbUpload; agent?: { id: string; name: string } }) {
-  const session = useClientSession();
-  const send = useUseCallInstructions(session);
-  const feedback = useActionFeedback(send, {
-    errorDisplay: "toast",
-    successToast: (result) => sentLine(result, agent?.name),
-  });
-  const nothingSent = send.data?.agents === 0;
+function WhereTheyAreUsed() {
+  const { session, href } = useClientRealm();
+  const slug = session.orgSlug;
   return (
-    <ActionButton
-      variant="secondary-sm"
-      status={feedback.status}
-      pendingLabel="Sending…"
-      successLabel={nothingSent ? "Not sent" : "Sent"}
-      onClick={() => feedback.run({ uploadId: upload.id, agentId: agent?.id })}
-    >
-      {agent ? `Use in ${agent.name}'s script` : "Use in call scripts"}
-    </ActionButton>
+    <div className="space-y-2">
+      <p className="text-meta text-ink-muted">{USED_WHERE}</p>
+      <div className="flex flex-wrap gap-2">
+        <Link href={href(`/c/${slug}/inbound`)} className={SECONDARY_BUTTON_SM}>
+          Open Inbound
+        </Link>
+        <Link href={href(`/c/${slug}/campaigns`)} className={SECONDARY_BUTTON_SM}>
+          Open Campaigns
+        </Link>
+      </div>
+    </div>
   );
 }

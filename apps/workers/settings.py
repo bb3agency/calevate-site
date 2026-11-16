@@ -354,7 +354,7 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.retired_line_strip import strip_retired_example_lines
-from apps.workers.script_proposal import draft_script_proposal, suggest_scripts_from_document
+from apps.workers.script_proposal import draft_script_proposal
 from apps.workers.starter_steps import write_starter_steps
 from apps.workers.studio_voice_key import (
     push_studio_voice_key,
@@ -474,9 +474,6 @@ FUNCTIONS: list[Any] = [
         # An opening line written again to say the notices switched on in its own words
         # (D-971), from the outbox (`agents/opening_notices.queue_opening_notices`).
         weave_opening_notices,
-        # A file added to the knowledge after onboarding suggests a script change to every
-        # agent (D-923), from the outbox (`kb_ingest.ingest_kb_source`).
-        suggest_scripts_from_document,
         # The teach box (founder decision 9) and saved test cases made from real calls
         # (founder decision 11), both from the outbox (`apps/api/teach/`).
         run_kb_teaching,

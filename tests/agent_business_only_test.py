@@ -387,6 +387,37 @@ async def test_a_new_agent_carries_what_the_business_knows_and_asks_no_one_for_a
     assert all(str(sentence).strip() for sentence in notices), "both notice sentences are on file"
 
 
+async def test_a_new_agent_with_no_script_is_published_inside_every_platform_layer() -> None:
+    """Name, voice, done: the agent goes on the platform with the business's facts and the
+    company training inside every platform layer."""
+    from apps.api.agents.service import publish_agent
+    from tests.conftest import accept_agreements
+
+    tenant_id, slug, token = await _make_tenant()
+    await accept_agreements(tenant_id)
+    await _with_training(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO business_profiles (id, tenant_id, services) VALUES (:id, :tid, "
+                "CAST(:s AS jsonb)) ON CONFLICT (tenant_id) DO UPDATE SET services = "
+                "EXCLUDED.services"
+            ),
+            {
+                "id": uuid7(),
+                "tid": tenant_id,
+                "s": '[{"name": "Haircut", "price_inr": "150", "notes": null}]',
+            },
+        )
+    agent_id = await _create(token, slug, "Front desk")
+    async with tenant_session(tenant_id) as session:
+        ref = await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False)
+    composed = compose_engine_prompt(_engine()._agents[ref])
+    assert "Haircut" in composed and TRAINING in composed
+    assert CONFIDENTIALITY_MARKER in composed and TRUTHFUL_ANSWER_MARKER in composed
+    assert "--- HOW TO SPEAK ---" in composed
+
+
 # --- the copy under a live test call, and copies of accounts with no workspace -------------
 
 

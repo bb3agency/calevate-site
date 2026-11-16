@@ -20,7 +20,7 @@ from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_ba
 from calevate_shared.spoken_style import style_for
 
 from apps.api.copilot import actions as actions_module
-from apps.api.copilot import navigation, script_actions, service, write_tools
+from apps.api.copilot import navigation, service, write_tools
 from apps.api.copilot import tools as tools_module
 from apps.api.copilot.sanitize import has_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
@@ -1843,6 +1843,9 @@ async def test_the_admin_realm_opens_only_its_own_screens(
 # --- a proposal is checked against what the person wrote (D-833) -------------------------
 
 
+_ASK_FIRST = "ask the person which failed tests they mean first"
+
+
 async def test_a_proposal_is_planned_against_the_persons_own_messages(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1850,8 +1853,8 @@ async def test_a_proposal_is_planned_against_the_persons_own_messages(
     grounding refusal goes back to the model rather than to a card."""
     payload = CopilotAskIn.model_validate(
         {
-            "screen": {"route": "/c/x/agents/a/script", "title": "Script", "realm": "client"},
-            "question": "Draft the whole script for this agent",
+            "screen": {"route": "/c/x/agents/a", "title": "Agent", "realm": "client"},
+            "question": "Fix the tests it failed",
             "history": [
                 {"role": "user", "content": "hello"},
                 {"role": "assistant", "content": "Hi, how can I help?"},
@@ -1862,19 +1865,19 @@ async def test_a_proposal_is_planned_against_the_persons_own_messages(
 
     async def _plan(name: str, arguments: str, **kwargs: Any) -> Any:
         said.append(kwargs["said"])
-        raise write_tools.WriteRefusedError(script_actions.NO_ANSWERS_REASON)
+        raise write_tools.WriteRefusedError(_ASK_FIRST)
 
     monkeypatch.setattr(write_tools, "plan_write", _plan)
     sent = _scripted(
         monkeypatch,
         [
-            _tool_turn(("agent_script_suggest", '{"mode": "whole"}')),
-            _turn(content="What do you sell?"),
+            _tool_turn(("agent_tests_fix", "{}")),
+            _turn(content="Which tests do you mean?"),
         ],
     )
     events = [event async for event in service.run_copilot(payload, tool_context=TOOL_CONTEXT)]
-    assert said == [("hello", "Draft the whole script for this agent")]
-    assert script_actions.NO_ANSWERS_REASON in json.dumps(sent[1][-1])
+    assert said == [("hello", "Fix the tests it failed")]
+    assert _ASK_FIRST in json.dumps(sent[1][-1])
     assert not [event for event in events if event.proposal is not None]
 
 

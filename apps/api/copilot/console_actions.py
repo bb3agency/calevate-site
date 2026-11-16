@@ -1994,13 +1994,13 @@ async def _invert_agent_edit(session: AsyncSession, actor: ToolActor, record: Un
         )
     if "opening_line" in changed and not prior["opening_line"]:
         raise UndoRefusedError(
-            "the agent had no opening line before, so there is none to put back — change it "
-            "on the Script screen"
+            "the agent had no opening line before, so there is none to put back — ask the "
+            "person for the line they want instead"
         )
     if "outbound_opening_line" in changed and not prior["outbound_opening_line"]:
         raise UndoRefusedError(
             "the agent had no opening line of its own for the calls it places, so there is "
-            "none to put back — change it on the Script screen"
+            "none to put back — ask the person for the line they want instead"
         )
     await _apply_agent_settings(
         session,

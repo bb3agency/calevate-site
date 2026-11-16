@@ -264,19 +264,6 @@ class UploadOut(Strict):
     facts_count: int = 0
 
 
-class UseInstructionsIn(Strict):
-    #: One agent's script, or every agent's when omitted.
-    agent_id: UUID | None = None
-
-
-class UseInstructionsOut(Strict):
-    #: Agents a script suggestion is now being written for.
-    agents: int
-    #: Agents skipped because a suggestion the owner asked Pip for is waiting, or their
-    #: script is written as one piece.
-    skipped: int
-
-
 class TextSectionOut(Strict):
     #: "Page 7", "Part 2", or "" when the item is one part.
     label: str
@@ -607,52 +594,6 @@ async def read_upload_text(
         sections=[TextSectionOut(label=label, content=body) for label, body in found.sections],
         note=found.note,
     )
-
-
-@router.post(
-    "/uploads/{upload_id}/call-instructions/use",
-    response_model=UseInstructionsOut,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Write a file's call instructions into agents' call scripts, as a suggestion",
-    description=(
-        "Queues a script suggestion written from this file, its call instructions included, "
-        "for one agent or every agent. Nothing changes on a live agent: the owner keeps or "
-        "discards the suggestion on the agent's Script page."
-    ),
-)
-async def use_call_instructions(
-    upload_id: UUID,
-    payload: UseInstructionsIn,
-    session: Session,
-    request: Request,
-    principal: Principal = Depends(requires("org:manage")),
-) -> UseInstructionsOut:
-    assert principal.tenant_id is not None
-    found = await uploads.get_upload(session, upload_id)
-    if not found["call_instructions"]:
-        raise ProblemError.conflict(
-            "kb_no_call_instructions",
-            "That file has no instructions for the call.",
-            remediation="Open the file to see what it holds.",
-        )
-    asked = await uploads.use_call_instructions(
-        session,
-        tenant_id=principal.tenant_id,
-        upload_id=upload_id,
-        name=str(found["name"]),
-        agent_id=payload.agent_id,
-    )
-    await write_audit(
-        session,
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        action="kb.call_instructions_used",
-        object_type="kb_upload",
-        object_id=str(upload_id),
-        ip=client_request_ip(request),
-        summary={"agents": asked.agents, "skipped": asked.skipped},
-    )
-    return UseInstructionsOut(agents=asked.agents, skipped=asked.skipped)
 
 
 @router.patch(

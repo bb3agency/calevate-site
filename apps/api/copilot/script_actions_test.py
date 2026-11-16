@@ -1,8 +1,8 @@
-"""D-820: Pip's script suggestion, held to `docs/COPILOT-CONTRACT.md` §5.
+"""An agent's script suggestion job (D-820) and Pip's fixes for failed tests, held to
+`docs/COPILOT-CONTRACT.md` §5.
 
-The planner's canonical arguments and refusals, the confirm that records the request and
-queues the writer with its audit row, the job that writes, meters and stores the proposal
-once, the Script page's read and clear, and the neighbour's agent refused at every door.
+The job that writes, meters and stores a suggestion once, its read and clear routes, and
+the neighbour's agent refused at every door; then `agent_tests_fix`'s planner and confirm.
 The model is replaced at `script_proposal.draft_script`; no credential, no network.
 """
 
@@ -31,9 +31,7 @@ from apps.api.db.session import tenant_session
 from apps.api.main import app
 from apps.workers import script_proposal as worker
 from apps.workers.extraction import AssistCapability
-from apps.workers.script_assist import CONVERT_INSTRUCTION, OWNER_QUESTIONS, ScriptDraft
-
-TOOL = "agent_script_suggest"
+from apps.workers.script_assist import CONVERT_INSTRUCTION, ScriptDraft
 
 
 def _client() -> AsyncClient:
@@ -73,14 +71,19 @@ def _args(agent_id: UUID, **overrides: Any) -> dict[str, Any]:
     } | overrides
 
 
-async def _propose(
-    tenant_id: UUID, token: str, args: dict[str, Any], *, role: str = "owner"
-) -> CopilotProposalEvent:
-    return await write_tools.plan_write(
-        TOOL,
-        json.dumps(args),
-        actor=write_tools.actor_for(_principal(tenant_id, _user_of(token), role=role)),
-    )
+async def _requested(tenant_id: UUID, token: str, args: dict[str, Any]) -> UUID:
+    """A suggestion asked for, as the script check's fix and the mistake healer ask."""
+    async with tenant_session(tenant_id) as session:
+        proposal = await script_proposals.request_proposal(
+            session,
+            tenant_id=tenant_id,
+            agent_id=UUID(args["agent_id"]),
+            mode=args["mode"],
+            change=args["change"],
+            answers=args["answers"] or {},
+            requested_by=_user_of(token),
+        )
+    return proposal.id
 
 
 @pytest.fixture(autouse=True)
@@ -93,205 +96,7 @@ def _allowance_open(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(script_actions, "require_ai_assist", _open)
 
 
-# --- the registry ----------------------------------------------------------------------
-
-
-def test_it_is_a_confirm_action_on_the_script_pages_permission() -> None:
-    tool = write_tools.tool_named(TOOL)
-    assert tool is not None
-    assert tool.tier == "confirm"
-    assert tool.permission == "org:manage"
-    names = [t.name for t in write_tools.WRITE_TOOLS]
-    at = names.index("agent_script_suggest")
-    assert write_tools.WRITE_TOOLS[at : at + 2] == script_actions.SCRIPT_ACTIONS
-
-
-def test_the_answers_are_the_five_owner_questions() -> None:
-    assert list(script_actions._Answers.model_fields) == list(OWNER_QUESTIONS)
-    schema = script_actions.AGENT_SCRIPT_SUGGEST.schema["function"]["parameters"]
-    answers = schema["properties"]["answers"]["anyOf"][0]
-    assert answers["required"] == list(OWNER_QUESTIONS)
-
-
-# --- the planner -----------------------------------------------------------------------
-
-
-async def test_a_change_is_planned_with_canonical_arguments_and_its_cost() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    await _set_draft(tenant_id, agent_id, _stepped())
-    proposal = await _propose(
-        tenant_id,
-        token,
-        _args(agent_id, change="  Handle callers who say the price is too high  "),
-    )
-    assert proposal.tool == TOOL
-    assert proposal.proposed == "Handle callers who say the price is too high"
-    assert proposal.cost is not None and "AI help allowance" in proposal.cost
-    assert "Nothing in the script changes" in proposal.reversal
-
-
-async def test_whole_keeps_only_the_answers_given() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    answers = dict.fromkeys(OWNER_QUESTIONS) | {
-        "what_you_offer": "Home-cooked tiffin delivered daily",
-        "customers": "  ",
-    }
-    proposal = await _propose(
-        tenant_id, token, _args(agent_id, mode="whole", change="ignored", answers=answers)
-    )
-    assert "Home-cooked tiffin delivered daily" in proposal.proposed
-    assert OWNER_QUESTIONS["customers"] not in proposal.proposed
-
-
-@pytest.mark.parametrize(
-    ("mode", "change", "answers", "hand_written", "reason"),
-    [
-        ("change", "short", None, False, "too short"),
-        ("whole", None, None, False, "six questions"),
-        ("steps", None, None, False, "already in steps"),
-        ("change", "Make the greeting warmer please", None, True, "written by hand"),
-    ],
-)
-async def test_the_refusals_the_model_can_act_on(
-    mode: str, change: str | None, answers: Any, hand_written: bool, reason: str
-) -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    if hand_written:
-        await _set_draft(tenant_id, agent_id, CallScript(raw_override="Greet them warmly."))
-    with pytest.raises(WriteRefusedError) as refused:
-        await _propose(tenant_id, token, _args(agent_id, mode=mode, change=change, answers=answers))
-    assert reason in refused.value.reason
-    # The owner reads `plain`, never the model's reason with its modes and backticks (PIP-03).
-    assert refused.value.plain != refused.value.reason
-    assert "`" not in refused.value.plain and "mode" not in refused.value.plain
-
-
-async def test_a_role_without_the_script_permission_is_refused() -> None:
-    tenant_id, _slug, token = await _make_tenant(role="staff")
-    agent_id = await _agent_of(tenant_id)
-    with pytest.raises(WriteRefusedError):
-        await _propose(tenant_id, token, _args(agent_id), role="staff")
-
-
-async def test_a_neighbours_agent_is_not_found() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    neighbour, _, _ = await _make_tenant()
-    with pytest.raises(ProblemError) as missing:
-        await _propose(tenant_id, token, _args(await _agent_of(neighbour)))
-    assert missing.value.status == 404
-
-
-async def test_an_archived_agent_is_refused_back_to_the_model() -> None:
-    """`copilot.actions.agent_name`, the one lookup every agent action uses: an archived
-    agent is still visible to `assert_visible`, so the archive is refused by name."""
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET deleted_at = now() WHERE id = :aid"), {"aid": agent_id}
-        )
-    with pytest.raises(WriteRefusedError) as refused:
-        await _propose(tenant_id, token, _args(agent_id))
-    assert "has been deleted" in refused.value.reason
-
-
-async def test_the_allowance_refusal_reaches_the_person_before_the_card(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def _used_up(*_: Any, **__: Any) -> None:
-        raise ProblemError.business_rule("ai_quota_exceeded", "This month's AI help is used up.")
-
-    monkeypatch.setattr(script_actions, "require_ai_assist", _used_up)
-    tenant_id, _slug, token = await _make_tenant()
-    with pytest.raises(ProblemError) as refused:
-        await _propose(tenant_id, token, _args(await _agent_of(tenant_id)))
-    assert refused.value.code == "ai_quota_exceeded"
-
-
-# --- a whole script rests on the owner's own answers (D-833) ----------------------------
-
-#: The production eval's case `c-script-whole-asks-first`: nothing answered yet.
-ASKED_ONLY = ("Draft the whole script for this agent",)
-ANSWERED = (
-    "Draft the whole script for this agent. Ask me the six questions first.",
-    "Organic groceries. Home cooks call to order. Never promise same-day delivery.",
-)
-
-
-async def _propose_in_conversation(
-    tenant_id: UUID, token: str, args: dict[str, Any], said: tuple[str, ...]
-) -> CopilotProposalEvent:
-    return await write_tools.plan_write(
-        TOOL,
-        json.dumps(args),
-        actor=write_tools.actor_for(_principal(tenant_id, _user_of(token))),
-        said=said,
-    )
-
-
-@pytest.mark.parametrize(
-    ("answers", "reason"),
-    [
-        (None, "six questions first"),
-        ({"what_you_offer": "Organic groceries", "customers": "Home cooks"}, "`what_you_offer`"),
-    ],
-    ids=["no-answers", "invented-answers"],
-)
-async def test_a_whole_script_before_the_owner_answered_is_refused(
-    answers: dict[str, str] | None, reason: str
-) -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    with pytest.raises(WriteRefusedError) as refused:
-        await _propose_in_conversation(
-            tenant_id, token, _args(agent_id, mode="whole", answers=answers), ASKED_ONLY
-        )
-    assert reason in refused.value.reason
-    # A fix to a script that already has steps is a `change`; the refusal says so, so the
-    # model switches mode instead of asking the person to retype the script.
-    assert "mode `change`" in refused.value.reason
-
-
-async def test_a_whole_script_from_answers_the_owner_typed_is_proposed() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    answers = dict.fromkeys(OWNER_QUESTIONS) | {
-        "what_you_offer": "Organic groceries.",
-        "customers": "home cooks call to order",
-        "never_say": "Never promise same-day delivery",
-    }
-    proposal = await _propose_in_conversation(
-        tenant_id, token, _args(agent_id, mode="whole", answers=answers), ANSWERED
-    )
-    assert "Organic groceries" in proposal.proposed
-
-
-async def test_a_change_is_not_held_to_the_owners_exact_words() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    await _set_draft(tenant_id, agent_id, _stepped())
-    proposal = await _propose_in_conversation(
-        tenant_id, token, _args(agent_id, change="Make the greeting friendlier"), ("be nicer",)
-    )
-    assert proposal.proposed == "Make the greeting friendlier"
-
-
-# --- confirm, the job, the Script page --------------------------------------------------
-
-
-async def _requested(tenant_id: UUID, token: str, args: dict[str, Any]) -> UUID:
-    proposal = await _propose(tenant_id, token, args)
-    outcome = await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert outcome.applied
-    # Queued, not done: the writer may still fail, so the card must not say "Done" (A-06).
-    assert outcome.queued is True
-    async with tenant_session(tenant_id) as session:
-        pending = await script_proposals.read_proposal(session, UUID(args["agent_id"]))
-    assert pending is not None
-    return pending.id
+# --- the job and the proposal routes ----------------------------------------------------
 
 
 def _drafting_with(
@@ -330,32 +135,6 @@ def _payload(tenant_id: UUID, agent_id: UUID, proposal_id: UUID) -> dict[str, st
         "agent_id": str(agent_id),
         "proposal_id": str(proposal_id),
     }
-
-
-async def test_confirm_records_the_request_queues_the_writer_and_audits(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id, slug, token = await _make_tenant()
-    agent_id = await _agent_of(tenant_id)
-    await _set_draft(tenant_id, agent_id, _stepped())
-    proposal_id = await _requested(tenant_id, token, _args(agent_id))
-
-    assert script_proposals.PROPOSAL_JOB in await _outbox_jobs(tenant_id)
-    assert ("agent.script_assist", "agent", str(agent_id)) in await _audit(tenant_id)
-    async with _client() as client:
-        shown = (
-            await client.get(
-                f"/v1/agents/{agent_id}/script/proposal", headers=_headers(token, slug)
-            )
-        ).json()["proposal"]
-    assert shown["id"] == str(proposal_id)
-    assert shown["status"] == "drafting"
-    assert shown["request"] == "Make the opening line warmer and shorter"
-    assert shown["base_script"]["opening_line"] == "Namaste, Sunrise here."
-
-    # A second request while this one is written is refused, so two cannot race.
-    with pytest.raises(WriteRefusedError):
-        await _propose(tenant_id, token, _args(agent_id))
 
 
 async def test_the_job_writes_meters_and_stores_the_proposal_once(

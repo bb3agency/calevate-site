@@ -4,7 +4,6 @@ import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
 import { ScriptBuilder } from "@/app/c/[slug]/agents/[agentId]/script/ScriptBuilder";
-import { MainTask } from "@/app/c/[slug]/agents/[agentId]/sections/mainTask";
 import type { Section } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import type { Me } from "@/lib/api/client";
 import { EMPTY_SCRIPT, type CallScript, type ScriptOut } from "@/lib/api/script";
@@ -225,19 +224,6 @@ describe("deleting one step from its card while another is open (Y1-08)", () => 
     fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Delete step" }));
     await waitFor(() => expect(cards()).toHaveLength(2));
     expect(greet().getAttribute("aria-expanded")).toBe("true");
-  });
-});
-
-describe("adding a main task, then cancelling (Y1-05)", () => {
-  it("puts the focus back on the button that opened the field", async () => {
-    await renderClientPage(
-      <MainTask agentId="agent-1" out={scriptOut({ ...BASE, goal: "" })} canWrite openScript={() => undefined} />,
-      {},
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Add its main task" }));
-    await waitFor(() => expect(document.activeElement?.tagName).toBe("TEXTAREA"));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add its main task" })));
   });
 });
 

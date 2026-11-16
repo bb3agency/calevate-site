@@ -7,8 +7,7 @@ from typing import Any
 
 import pytest
 from apps.api.core.errors import ProblemError
-from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.kb import service as kb_service
+from apps.api.db.session import tenant_session
 from apps.api.kb import uploads
 from apps.api.teach import facts as fact_store
 from apps.api.teach.facts import FACTS_SOURCE_NAME
@@ -18,7 +17,6 @@ from sqlalchemy import text
 from tests.conftest import FakeS3, create_org_with_receptionist
 from tests.kb_read_copy_test import _slug
 from tests.kb_staff_curation_test import _client, _h, _member
-from tests.kb_structured_text_test import GUIDE
 
 pytestmark = [pytest.mark.rls]
 
@@ -158,64 +156,3 @@ async def test_the_last_attempt_raises_the_fault_itself(
             {"job_try": 3},
             {"tenant_id": str(tenant_id), "source_id": str(source_id), "may_self_approve": True},
         )
-
-
-# Z8-03 ---------------------------------------------------------------------------------
-
-
-async def _suggested(tenant_id: uuid.UUID) -> set[str]:
-    async with untenanted_session() as session:
-        rows = await session.execute(
-            text(
-                "SELECT payload->>'upload_id' FROM outbox_messages "
-                "WHERE job = 'suggest_scripts_from_document' AND payload->>'tenant_id' = :t"
-            ),
-            {"t": str(tenant_id)},
-        )
-        return {str(r[0]) for r in rows}
-
-
-async def test_a_file_read_again_is_not_suggested_to_the_scripts_a_second_time(
-    s3: FakeS3,
-) -> None:
-    del s3
-    tenant_id = await _tenant()
-    upload_id, source_id = await _text_upload(tenant_id, GUIDE.encode(), "guide.md")
-    async with tenant_session(tenant_id) as session:
-        # As the file was held before the current reading: raw text, live.
-        await kb_service.store_extracted_text(
-            session, tenant_id=tenant_id, source_id=source_id, body=GUIDE
-        )
-        await session.execute(
-            text(
-                "UPDATE kb_sources SET status = 'approved', approved_at = now(), "
-                "published_at = now(), is_active = true WHERE id = :s"
-            ),
-            {"s": source_id},
-        )
-    assert await kb_ingest.reparse_kb_upload(tenant_id=tenant_id, upload_id=upload_id) == (
-        "new_version"
-    )
-    async with tenant_session(tenant_id) as session:
-        new_upload, new_source = (
-            await session.execute(
-                text(
-                    "SELECT u.id, s.id FROM kb_sources s JOIN kb_uploads u ON u.source_id = s.id "
-                    "WHERE s.name = 'guide.md' AND s.version = 2"
-                )
-            )
-        ).one()
-    outcome = await kb_ingest.ingest_kb_source(
-        {}, {"tenant_id": str(tenant_id), "source_id": str(new_source), "may_self_approve": True}
-    )
-    assert outcome == "published:v2", outcome
-    assert str(new_upload) not in await _suggested(tenant_id)
-
-    # A different file is still suggested.
-    _other, other_source = await _text_upload(
-        tenant_id, b"Delivery is free above Rs 500 in Guntur town.", "delivery.txt"
-    )
-    await kb_ingest.ingest_kb_source(
-        {}, {"tenant_id": str(tenant_id), "source_id": str(other_source), "may_self_approve": True}
-    )
-    assert str(_other) in await _suggested(tenant_id)
