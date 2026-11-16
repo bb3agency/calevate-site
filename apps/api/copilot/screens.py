@@ -552,8 +552,8 @@ AGENT_PAGE_TABS: Final[tuple[AgentTab, ...]] = (
     AgentTab("Actions", "what it does during a call"),
     AgentTab(
         "Settings",
-        "its voice, details it writes down, call handling, hand-over, caller memory, alerts, "
-        "AI model, hours",
+        "its voice, details it writes down, call handling, hand-over, caller memory, alerts "
+        "(on its campaigns' and lines' own details too), AI model, hours",
     ),
     AgentTab("Training", "questions to answer, mistakes, try it, what it knows, tests"),
 )

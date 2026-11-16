@@ -28134,6 +28134,30 @@
       "FieldTriggerIO": {
         "additionalProperties": false,
         "properties": {
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Line Id"
+          },
           "key": {
             "maxLength": 40,
             "minLength": 1,
@@ -57382,6 +57406,44 @@
         "title": "TeamAlertChoiceOut",
         "type": "object"
       },
+      "TeamAlertHolderOut": {
+        "additionalProperties": false,
+        "description": "A campaign or inbound line of this agent with its own \"What it notes\" list.",
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TeamAlertChoiceOut"
+            },
+            "title": "Fields",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "campaign",
+              "line"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "fields"
+        ],
+        "title": "TeamAlertHolderOut",
+        "type": "object"
+      },
       "TeamAlertRuleIn": {
         "additionalProperties": false,
         "properties": {
@@ -57419,6 +57481,13 @@
               "$ref": "#/components/schemas/TeamAlertChoiceOut"
             },
             "title": "Fields",
+            "type": "array"
+          },
+          "holders": {
+            "items": {
+              "$ref": "#/components/schemas/TeamAlertHolderOut"
+            },
+            "title": "Holders",
             "type": "array"
           },
           "in_call": {
@@ -57467,7 +57536,8 @@
           "team_addresses",
           "in_call_live",
           "outcomes",
-          "fields"
+          "fields",
+          "holders"
         ],
         "title": "TeamAlertRuleOut",
         "type": "object"

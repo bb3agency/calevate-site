@@ -24926,6 +24926,10 @@ export interface components {
         };
         /** FieldTriggerIO */
         FieldTriggerIO: {
+            /** Campaign Id */
+            campaign_id?: string | null;
+            /** Inbound Line Id */
+            inbound_line_id?: string | null;
             /** Key */
             key: string;
             /** Values */
@@ -35532,6 +35536,26 @@ export interface components {
             /** Values */
             values: string[];
         };
+        /**
+         * TeamAlertHolderOut
+         * @description A campaign or inbound line of this agent with its own "What it notes" list.
+         */
+        TeamAlertHolderOut: {
+            /** Fields */
+            fields: components["schemas"]["TeamAlertChoiceOut"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "campaign" | "line";
+            /** Name */
+            name: string;
+        };
         /** TeamAlertRuleIn */
         TeamAlertRuleIn: {
             /**
@@ -35548,6 +35572,8 @@ export interface components {
         TeamAlertRuleOut: {
             /** Fields */
             fields: components["schemas"]["TeamAlertChoiceOut"][];
+            /** Holders */
+            holders: components["schemas"]["TeamAlertHolderOut"][];
             /** In Call */
             in_call: boolean;
             /** In Call Live */

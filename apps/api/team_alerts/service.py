@@ -21,6 +21,13 @@ and each person once per channel per call, whatever told them first. Three ways 
 The rule is per agent because what it watches is: each agent has its own outcomes and its own
 answers. Who hears is per account.
 
+A campaign or inbound line with its own "What it notes" list (D-1003) captures its calls under
+that list, so its answers are watchable too (D-1007). They sit in the same agent rule, each
+trigger naming its campaign or line, rather than in a rule of their own: the outcomes, the
+in-call action and the alert rows are all the agent's, a campaign's calls are the agent's calls,
+and the owner already sets alerts in one place. Such a trigger matches only calls captured
+under that holder's list; an agent answer still matches by key on any of the agent's calls.
+
 An address is an email (always offered) or a WhatsApp number, which is offered only when the
 client has its own WhatsApp account or provider connected and is sent only through it, with
 the client's own approved template (founder, 27 Oct 2026; `team_alerts/whatsapp.py`). Either
@@ -138,10 +145,26 @@ class WhatsAppSetup:
     number_id: str | None = None
 
 
+HolderKind = Literal["campaign", "line"]
+
+
+@dataclass(frozen=True, slots=True)
+class HolderRef:
+    """A campaign or inbound line of this agent whose own "What it notes" list a trigger
+    watches (D-1007)."""
+
+    kind: HolderKind
+    id: UUID
+
+
 @dataclass(frozen=True, slots=True)
 class FieldTrigger:
     key: str
     values: tuple[str, ...]
+    #: None: one of the agent's own answers, matched by key on any of its calls (so a
+    #: campaign list copied from the agent's keeps alerting). Set: an answer on that
+    #: campaign's or line's own list, matched only on the calls captured under that list.
+    holder: HolderRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,12 +188,22 @@ class Choice:
 
 
 @dataclass(frozen=True, slots=True)
+class HolderChoices:
+    """A campaign or line of this agent with a list of its own, and the choice fields on it."""
+
+    ref: HolderRef
+    name: str
+    fields: list[Choice] = field(default_factory=list)
+
+
+@dataclass(frozen=True, slots=True)
 class RuleView:
     rule: Rule
     #: Whether the owner has saved this agent's rule; until then `rule` is `default_rule`.
     saved: bool = False
     outcomes: list[Choice] = field(default_factory=list)
     fields: list[Choice] = field(default_factory=list)
+    holders: list[HolderChoices] = field(default_factory=list)
     #: Confirmed team addresses that hear now (the owner is told besides).
     team_addresses: int = 0
     in_call_live: bool = False
@@ -512,7 +545,7 @@ async def load_rule(session: AsyncSession, agent_id: UUID) -> Rule | None:
     if row is None:
         return None
     fields = tuple(
-        FieldTrigger(str(f["key"]), tuple(str(v) for v in f.get("values") or ()))
+        FieldTrigger(str(f["key"]), tuple(str(v) for v in f.get("values") or ()), _stored_holder(f))
         for f in (row[1] or [])
         if isinstance(f, dict) and f.get("key")
     )
@@ -549,16 +582,69 @@ async def _agent_choices(
     from apps.api.crm.lead_definition import LEAD_BAND
 
     outcomes, _starting = call_outcomes.outcomes_in_use(row[0])
-    fields = [
-        Choice(f.key, f.label, tuple(f.enum_values or ()))
-        for f in with_core(row[1], await core_labels(session))
-        if f.type == "enum" and f.enum_values
-    ]
+    fields = _enum_choices(with_core(row[1], await core_labels(session)))
     choices = [
         Choice(o.key, o.label, positive=o.lead_status in LEAD_BAND, goal=o.lead_status == "hot")
         for o in outcomes
     ]
     return choices, fields
+
+
+#: How many of an agent's campaigns and lines the rule offers answers from, newest first.
+MAX_HOLDERS: Final = 30
+
+#: This agent's campaigns and lines that note a list of their own (D-1003). RLS scopes both
+#: branches to the tenant. An archived one places no calls, so its answers are not offered.
+_HOLDERS_SQL: Final = (
+    "SELECT kind, id, name, fields FROM ("
+    "SELECT 'campaign' AS kind, id, name, extraction_fields AS fields, created_at "
+    "FROM campaigns WHERE agent_id = :aid AND archived_at IS NULL "
+    "AND jsonb_array_length(extraction_fields) > 0 "
+    "UNION ALL SELECT 'line', id, name, extraction_fields, created_at FROM inbound_lines "
+    "WHERE agent_id = :aid AND archived_at IS NULL "
+    "AND jsonb_array_length(extraction_fields) > 0) holders "
+    "ORDER BY kind, created_at DESC LIMIT :n"
+)
+
+
+def _enum_choices(fields: list[Any]) -> list[Choice]:
+    return [
+        Choice(f.key, f.label, tuple(f.enum_values or ()))
+        for f in fields
+        if f.type == "enum" and f.enum_values
+    ]
+
+
+async def _holder_choices(session: AsyncSession, agent_id: UUID) -> list[HolderChoices]:
+    """The agent's campaigns and lines whose own list has a choice field, as the owner may
+    pick their answers. Only the holder's own fields: the core every lead carries is already
+    offered among the agent's, and matches by key on every call."""
+    from calevate_shared.lead_fields import business_only
+
+    rows = (await session.execute(text(_HOLDERS_SQL), {"aid": agent_id, "n": MAX_HOLDERS})).all()
+    out: list[HolderChoices] = []
+    for kind, holder_id, name, raw in rows:
+        fields = _enum_choices(business_only(raw))
+        if fields:
+            ref = HolderRef("campaign" if kind == "campaign" else "line", UUID(str(holder_id)))
+            out.append(HolderChoices(ref=ref, name=str(name), fields=fields))
+    return out
+
+
+def _stored_holder(stored: dict[str, Any]) -> HolderRef | None:
+    if stored.get("campaign_id"):
+        return HolderRef("campaign", UUID(str(stored["campaign_id"])))
+    if stored.get("inbound_line_id"):
+        return HolderRef("line", UUID(str(stored["inbound_line_id"])))
+    return None
+
+
+def _stored_trigger(trigger: FieldTrigger) -> dict[str, Any]:
+    out: dict[str, Any] = {"key": trigger.key, "values": list(trigger.values)}
+    if trigger.holder is not None:
+        column = "campaign_id" if trigger.holder.kind == "campaign" else "inbound_line_id"
+        out[column] = str(trigger.holder.id)
+    return out
 
 
 def default_rule(outcomes: list[Choice]) -> Rule:
@@ -583,14 +669,25 @@ async def effective_rule(session: AsyncSession, agent_id: UUID) -> Rule:
 
 async def read_rule(session: AsyncSession, *, agent_id: UUID) -> RuleView:
     outcomes, fields = await _agent_choices(session, agent_id)
+    holders = await _holder_choices(session, agent_id)
     saved = await load_rule(session, agent_id)
     rule = saved or default_rule(outcomes)
+    # A trigger on a campaign or line that is archived, moved to another agent or no longer
+    # has a list of its own can never match this agent's calls; it is left out of the view so
+    # the screen does not send it back and have the save refused.
+    offered = {h.ref for h in holders}
+    rule = Rule(
+        on_outcomes=rule.on_outcomes,
+        on_fields=tuple(t for t in rule.on_fields if t.holder is None or t.holder in offered),
+        in_call=rule.in_call,
+    )
     heard_by = len(await live_contacts(session))
     return RuleView(
         rule=rule,
         saved=saved is not None,
         outcomes=outcomes,
         fields=fields,
+        holders=holders,
         team_addresses=heard_by,
         in_call_live=rule.in_call and heard_by > 0,
     )
@@ -615,17 +712,24 @@ async def save_rule(
     unknown = [k for k in rule.on_outcomes if k not in outcome_keys]
     if unknown:
         raise _refuse_choice("One of the chosen outcomes is no longer one of this agent's.")
-    by_key = {f.key: f for f in fields}
+    by_key: dict[tuple[HolderRef | None, str], Choice] = {(None, f.key): f for f in fields}
+    for holder in await _holder_choices(session, agent_id):
+        by_key.update({(holder.ref, f.key): f for f in holder.fields})
     if len(rule.on_fields) > MAX_FIELD_TRIGGERS:
         raise _refuse_choice(f"Choose at most {MAX_FIELD_TRIGGERS} answers to watch.")
+    if len({(t.holder, t.key) for t in rule.on_fields}) != len(rule.on_fields):
+        raise _refuse_choice("Each answer is chosen once.")
     for trigger in rule.on_fields:
-        choice = by_key.get(trigger.key)
+        choice = by_key.get((trigger.holder, trigger.key))
         if (
             choice is None
             or not trigger.values
             or any(v not in choice.values for v in trigger.values)
         ):
-            raise _refuse_choice("One of the chosen answers is no longer one this agent records.")
+            raise _refuse_choice(
+                "One of the chosen answers is no longer one this agent, or one of its "
+                "campaigns or lines, records."
+            )
     if rule.in_call:
         await _assert_room_for_action(session, agent_id)
     await session.execute(
@@ -642,7 +746,7 @@ async def save_rule(
             "tid": tenant_id,
             "aid": agent_id,
             "outcomes": _json(list(dict.fromkeys(rule.on_outcomes))),
-            "fields": _json([{"key": t.key, "values": list(t.values)} for t in rule.on_fields]),
+            "fields": _json([_stored_trigger(t) for t in rule.on_fields]),
             "in_call": rule.in_call,
         },
     )
@@ -690,12 +794,19 @@ def after_call_reasons(
     outcome_label: str | None,
     data: dict[str, Any],
     labels: dict[str, str],
+    holder: HolderRef | None = None,
 ) -> list[dict[str, Any]]:
-    """What in this call matched the owner's rule; empty when nothing did."""
+    """What in this call matched the owner's rule; empty when nothing did.
+
+    `holder` is the campaign or line whose own list captured the call (`crm/captured.
+    call_holders`); a trigger on such a list matches only that holder's calls, because
+    another campaign's field of the same key can mean something else."""
     reasons: list[dict[str, Any]] = []
     if outcome_key and outcome_key in rule.on_outcomes:
         reasons.append({"kind": "outcome", "key": outcome_key, "label": outcome_label or ""})
     for trigger in rule.on_fields:
+        if trigger.holder is not None and trigger.holder != holder:
+            continue
         matched = [v for v in _field_values(data.get(trigger.key)) if v in trigger.values]
         if matched:
             reasons.append(
@@ -870,9 +981,18 @@ async def queue_after_call(
     `hot` decides nothing here: a Hot outcome alerts only when it is ticked, like any other.
     It stays in the signature for the pipeline's call."""
     del hot
+    # Local: `crm.captured` reaches this module through `agents.service`, a cycle at import.
+    from apps.api.crm.captured import call_holders
+
     rule = await effective_rule(session, agent_id)
+    held = (await call_holders(session, [call_id])).get(call_id)
     reasons = after_call_reasons(
-        rule, outcome_key=outcome_key, outcome_label=outcome_label, data=data, labels=labels
+        rule,
+        outcome_key=outcome_key,
+        outcome_label=outcome_label,
+        data=data,
+        labels=labels,
+        holder=HolderRef(held.kind, held.id) if held else None,
     )
     if not reasons and await _told_in_call(session, call_id):
         reasons = [{"kind": "in_call"}]
@@ -967,6 +1087,8 @@ __all__ = [
     "Choice",
     "Contact",
     "FieldTrigger",
+    "HolderChoices",
+    "HolderRef",
     "Rule",
     "RuleView",
     "add_contact",

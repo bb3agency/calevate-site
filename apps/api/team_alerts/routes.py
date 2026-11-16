@@ -132,6 +132,33 @@ class FieldTriggerIO(BaseModel):
 
     key: str = Field(min_length=1, max_length=40)
     values: list[str] = Field(min_length=1, max_length=_VALUES_MAX)
+    #: Set when the answer is on that campaign's own "What it notes" list (D-1007).
+    campaign_id: UUID | None = None
+    #: Set when the answer is on that inbound line's own list (D-1007).
+    inbound_line_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _one_holder(self) -> FieldTriggerIO:
+        if self.campaign_id is not None and self.inbound_line_id is not None:
+            raise ValueError("an answer is on one campaign's or one line's list, not both")
+        return self
+
+    def holder(self) -> service.HolderRef | None:
+        if self.campaign_id is not None:
+            return service.HolderRef("campaign", self.campaign_id)
+        if self.inbound_line_id is not None:
+            return service.HolderRef("line", self.inbound_line_id)
+        return None
+
+
+def _trigger_io(trigger: FieldTrigger) -> FieldTriggerIO:
+    holder = trigger.holder
+    return FieldTriggerIO(
+        key=trigger.key,
+        values=list(trigger.values),
+        campaign_id=holder.id if holder and holder.kind == "campaign" else None,
+        inbound_line_id=holder.id if holder and holder.kind == "line" else None,
+    )
 
 
 class TeamAlertChoiceOut(BaseModel):
@@ -144,6 +171,17 @@ class TeamAlertChoiceOut(BaseModel):
     positive: bool
     #: Outcomes only: it moves the lead to Hot, the business's goal.
     goal: bool
+
+
+class TeamAlertHolderOut(BaseModel):
+    """A campaign or inbound line of this agent with its own "What it notes" list."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["campaign", "line"]
+    id: UUID
+    name: str
+    fields: list[TeamAlertChoiceOut]
 
 
 class TeamAlertRuleOut(BaseModel):
@@ -160,6 +198,8 @@ class TeamAlertRuleOut(BaseModel):
     in_call_live: bool
     outcomes: list[TeamAlertChoiceOut]
     fields: list[TeamAlertChoiceOut]
+    #: This agent's campaigns and lines whose own list has answers to watch, newest first.
+    holders: list[TeamAlertHolderOut]
 
 
 class TeamAlertRuleIn(BaseModel):
@@ -182,10 +222,16 @@ def _contact_out(contact: service.Contact) -> TeamContactOut:
     )
 
 
+def _field_out(choice: service.Choice) -> TeamAlertChoiceOut:
+    return TeamAlertChoiceOut(
+        key=choice.key, label=choice.label, values=list(choice.values), positive=False, goal=False
+    )
+
+
 def _rule_out(view: RuleView) -> TeamAlertRuleOut:
     return TeamAlertRuleOut(
         on_outcomes=list(view.rule.on_outcomes),
-        on_fields=[FieldTriggerIO(key=f.key, values=list(f.values)) for f in view.rule.on_fields],
+        on_fields=[_trigger_io(f) for f in view.rule.on_fields],
         in_call=view.rule.in_call,
         saved=view.saved,
         team_addresses=view.team_addresses,
@@ -196,11 +242,15 @@ def _rule_out(view: RuleView) -> TeamAlertRuleOut:
             )
             for o in view.outcomes
         ],
-        fields=[
-            TeamAlertChoiceOut(
-                key=f.key, label=f.label, values=list(f.values), positive=False, goal=False
+        fields=[_field_out(f) for f in view.fields],
+        holders=[
+            TeamAlertHolderOut(
+                kind=h.ref.kind,
+                id=h.ref.id,
+                name=h.name,
+                fields=[_field_out(f) for f in h.fields],
             )
-            for f in view.fields
+            for h in view.holders
         ],
     )
 
@@ -348,7 +398,9 @@ async def set_team_alert_rule(
     assert principal.tenant_id is not None
     rule = Rule(
         on_outcomes=tuple(payload.on_outcomes),
-        on_fields=tuple(FieldTrigger(f.key, tuple(f.values)) for f in payload.on_fields),
+        on_fields=tuple(
+            FieldTrigger(f.key, tuple(f.values), f.holder()) for f in payload.on_fields
+        ),
         in_call=payload.in_call,
     )
     view = await service.save_rule(

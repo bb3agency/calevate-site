@@ -450,6 +450,7 @@ async def _handover_part(session: AsyncSession, agent_id: UUID) -> list[str]:
 async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
     """Which calls this agent alerts about (D-904): the agent's rule and the keys and ids
     `agent_team_alert_set` and `team_alert_contact` take."""
+    from apps.api.copilot.coverage_actions import answer_prefix
     from apps.api.team_alerts import service as team_alerts
 
     view = await team_alerts.read_rule(session, agent_id=agent_id)
@@ -461,7 +462,10 @@ async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
         + (", ".join(rule.on_outcomes) or "none")
         + ("" if view.saved else " (not saved by the owner yet: every positive outcome)")
         + "; answers "
-        + ("; ".join(f"{t.key}={'|'.join(t.values)}" for t in rule.on_fields) or "none")
+        + (
+            "; ".join(f"{answer_prefix(t)}{t.key}={'|'.join(t.values)}" for t in rule.on_fields)
+            or "none"
+        )
         + f"; during the call {_on(rule.in_call)}"
         + ("." if view.in_call_live or not rule.in_call else ", once a team address is confirmed."),
         "Outcomes it can watch: "
@@ -474,6 +478,12 @@ async def _team_alert_lines(session: AsyncSession, agent_id: UUID) -> list[str]:
         ),
         "Answers it can watch: "
         + ("; ".join(f"{f.label} ({f.key}): {', '.join(f.values)}" for f in view.fields) or "none"),
+        *(
+            f'Answers on {h.ref.kind} "{h.name}"\'s own list (on_answers '
+            f"`{h.ref.kind}:{h.ref.id}:key=value`, its calls only): "
+            + "; ".join(f"{f.label} ({f.key}): {', '.join(f.values)}" for f in h.fields)
+            for h in view.holders
+        ),
         "Team addresses on the list: "
         + (
             "; ".join(

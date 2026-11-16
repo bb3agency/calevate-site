@@ -131,7 +131,8 @@ class TeamAlertRule(PKMixin, TimestampMixin, Base):
     on_outcomes: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
-    #: `[{key, values: [...]}]` over the agent's choice (enum) fields.
+    #: `[{key, values: [...]}]` over the agent's choice (enum) fields; an entry with
+    #: `campaign_id` or `inbound_line_id` watches that holder's own list instead (D-1007).
     on_fields: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
