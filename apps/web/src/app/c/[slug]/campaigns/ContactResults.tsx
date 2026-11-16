@@ -31,7 +31,7 @@ import { GOAL_WORDS } from "@/lib/callReview";
 
 import { OUTCOME_ORDER, OUTCOME_WORDS } from "./CampaignResults";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 10;
 
 const CELL = "px-3 py-3 first:pl-0 last:pr-0";
 

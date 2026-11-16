@@ -80,8 +80,8 @@ _JSON_COLUMNS = frozenset({"calling_hours", "retry_policy"})
 
 #: What may change after a campaign has started (founder, 16 Nov 2026). Who it calls for,
 #: from which number and as which kind of call stay as launched: the compliance gate passed
-#: on those, and the dial-time check re-reads the agent, the hours and the tries each time.
-STARTED_EDITABLE = frozenset({"name", "agent_id", "calling_hours", "retry_policy"})
+#: on those, and the dispatcher re-reads the agent, the hours, the tries and the pace each tick.
+STARTED_EDITABLE = frozenset({"name", "agent_id", "calling_hours", "retry_policy", "concurrency"})
 STARTED_STATUSES = ("scheduled", "running", "paused")
 
 #: Contact statuses that mean "this person was never reached": still waiting, or the tries
@@ -122,9 +122,9 @@ async def update_draft(
     """Change a campaign's settings. Returns the names of the columns written.
 
     A draft takes every setting. Once started (scheduled, running, paused) only
-    `STARTED_EDITABLE`: the agent, the calling hours and the retries. A new agent on a started
-    campaign must also be given the campaign's script, which the route does
-    (`routes.update_campaign`). Every id is resolved under the caller's own RLS before it is stored
+    `STARTED_EDITABLE`: the agent, the calling hours, the retries and calls at once. A new
+    agent on a started campaign must also be given the campaign's script, which the route
+    does (`routes.update_campaign`). Every id is resolved under the caller's own RLS before it is stored
     (`db/ownership.py`), and the agent must still be assignable (D-440), exactly as at create.
     A name changed on its own is a rename and goes through in any status (`rename_campaign`).
     """
@@ -178,8 +178,8 @@ async def update_draft(
         if status in STARTED_STATUSES:
             raise ProblemError.business_rule(
                 "campaign_started",
-                "Once it has started, only the agent, the calling hours and the retries "
-                "can change.",
+                "Once it has started, only the agent, the calling hours, the retries and "
+                "calls at once can change.",
                 remediation="Duplicate it to change anything else.",
             )
         raise _not_a_draft(status, "edited")

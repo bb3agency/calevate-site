@@ -388,6 +388,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               />
               <OtherCallSettings
                 campaignId={campaignId}
+                progress={data}
+                numberEditable={status === "draft"}
                 editable={changeable}
                 callingHours={data.calling_hours}
                 retryPolicy={data.retry_policy}

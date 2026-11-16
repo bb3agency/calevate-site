@@ -13,6 +13,9 @@ import { FoldSection } from "./FoldSection";
 import { ContactResults } from "./ContactResults";
 import { useCampaignForm } from "./campaignForm";
 
+const STOPPED =
+  "It has stopped, so nobody new is called. To call more people, use Duplicate or Call the unreached again.";
+
 /** The people section's element id, so "Add people" in the launch checklist can go to it. */
 export function peopleSectionId(campaignId: string): string {
   return `people-${campaignId}`;
@@ -44,17 +47,18 @@ export function DraftPeople({
 }) {
   return (
     <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
-        {adding ? (
-          <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
-        ) : (
-          <p className="text-meta text-ink-muted">
-            It has stopped, so nobody new is called. To call more people, use Duplicate or Call the unreached again.
-          </p>
-        )}
+        {/* The same panel in every state (founder, 16 Nov 2026); a stopped campaign cannot call
+            again, so there it is shown with its Add switched off and the reason said. */}
+        {!adding && <p className="mb-3 text-meta text-ink-muted">{STOPPED}</p>}
+        <AddPeoplePanel
+          campaignId={campaignId}
+          canWrite={canWrite && adding}
+          refusal={adding ? refusal : STOPPED}
+        />
         {/* The people already added, under the ways to add more: one section, not two
             (founder, 16 Nov 2026: "I don't see the point of having both"). */}
         {total > 0 && (
-          <div className={adding ? "mt-8 border-t border-line pt-6" : "mt-4"}>
+          <div className="mt-8 border-t border-line pt-6">
             <ContactResults
               slug={slug}
               campaignId={campaignId}

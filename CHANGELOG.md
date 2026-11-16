@@ -3,6 +3,14 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.37 — 16-Nov-2026
+
+- Other call settings adds calls at once (changeable while the campaign runs), the number it
+  calls from (changeable on a draft) and the kind of call, with how long permission lasts.
+- Add people always shows the file upload, paste and add-one controls. On a stopped campaign
+  they are shown switched off, with the reason.
+- The contacts table shows 10 people a page, with page buttons.
+
 ## 0.4.36 — 16-Nov-2026
 
 - Once a campaign has started, the compliance section shows the same question and choices as

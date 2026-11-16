@@ -1430,7 +1430,7 @@ async def _update_settings(
     openapi_extra=permission_meta("leads:dispatch"),
     summary=(
         "Rename a campaign in any status, change a draft's settings, or a started campaign's "
-        "agent, hours and retries"
+        "agent, hours, retries and calls at once"
     ),
 )
 async def update_campaign(
@@ -1440,7 +1440,7 @@ async def update_campaign(
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> None:
-    """Every setting on a draft; the agent, hours and retries once started
+    """Every setting on a draft; the agent, hours, retries and calls at once once started
     (`controls.update_draft`); a name alone in any status. Audited with the
     names of the fields changed, not their values: who changed which setting is the question
     an audit answers."""

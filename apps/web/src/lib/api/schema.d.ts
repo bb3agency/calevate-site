@@ -7289,8 +7289,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename a campaign in any status, change a draft's settings, or a started campaign's agent, hours and retries
-         * @description Every setting on a draft; the agent, hours and retries once started
+         * Rename a campaign in any status, change a draft's settings, or a started campaign's agent, hours, retries and calls at once
+         * @description Every setting on a draft; the agent, hours, retries and calls at once once started
          *     (`controls.update_draft`); a name alone in any status. Audited with the
          *     names of the fields changed, not their values: who changed which setting is the question
          *     an audit answers.
