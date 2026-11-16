@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.36 — 16-Nov-2026
+
+- Once a campaign has started, the compliance section shows the same question and choices as
+  during set-up, with the original answer and date selected and fixed.
+
 ## 0.4.35 — 16-Nov-2026
 
 - A campaign's agent, calling hours and retries can be changed while it runs or is paused.

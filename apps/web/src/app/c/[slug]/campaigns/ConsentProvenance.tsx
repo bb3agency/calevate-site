@@ -59,6 +59,7 @@ export function ConsentProvenanceFields({
   sourceError,
   dateError,
   mandatory = false,
+  disabled = false,
 }: {
   idPrefix: string;
   source: ConsentSource | "";
@@ -69,6 +70,8 @@ export function ConsentProvenanceFields({
   dateError?: string | null;
   /** Says beside the question that the law requires it (the launch gate's copy). */
   mandatory?: boolean;
+  /** Shown as answered, unchangeable: a started campaign's record. */
+  disabled?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -101,6 +104,7 @@ export function ConsentProvenanceFields({
           options={CONSENT_SOURCES}
           onChange={onSource}
           columns="sm:grid-cols-2"
+          disabled={disabled}
         />
         {sourceError ? <FieldMessage id={`${idPrefix}-source-error`}>{sourceError}</FieldMessage> : null}
       </div>
@@ -113,6 +117,7 @@ export function ConsentProvenanceFields({
         onChange={(day) => onCollectedAt(day ?? "")}
         max={todayIST()}
         error={dateError}
+        disabled={disabled}
       />
     </div>
   );

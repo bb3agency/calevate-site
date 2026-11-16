@@ -21,7 +21,7 @@ import { type CampaignProgress, type useCampaignProgress, type useLaunchCheck } 
 import { useClientRealm } from "@/lib/api/session";
 import { usePeRegistration } from "@/lib/api/dltRegistration";
 
-import { ConsentProvenanceAnswer, MANDATORY_NOTE } from "./ConsentProvenance";
+import { ConsentProvenanceAnswer, ConsentProvenanceFields } from "./ConsentProvenance";
 import { FoldSection } from "./FoldSection";
 import { complianceCardId } from "./StartCampaign";
 import { LaunchConfirm } from "./LaunchConfirm";
@@ -208,7 +208,11 @@ export function LaunchGate({
   );
 }
 
-/** The checks as answered before a started campaign went out; nothing here can change them. */
+/**
+ * A started campaign's checks, shown exactly as they were answered during set-up (founder,
+ * 16 Nov 2026: "nothing changes here even after the campaign has started"). The server
+ * refuses a new answer once it has dialled, so the question is shown answered and fixed.
+ */
 function ComplianceRecord({
   campaignId,
   progress,
@@ -216,34 +220,28 @@ function ComplianceRecord({
   campaignId: string;
   progress: CampaignProgress | undefined;
 }) {
-  const source = CONSENT_SOURCES.find((choice) => choice.value === progress?.consent_source)?.label;
-  const collected = progress?.consent_collected_at
-    ? new Date(progress.consent_collected_at)
-        .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Kolkata" })
-        .replace(/ /g, "-")
-    : null;
+  const source = CONSENT_SOURCES.find((choice) => choice.value === progress?.consent_source)?.value ?? "";
+  const collectedAt = progress?.consent_collected_at
+    ? new Date(progress.consent_collected_at).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+    : "";
   return (
     <FoldSection
       id={complianceCardId(campaignId)}
       title="Mandatory Regulatory Compliance Checks"
       tone="compliance"
-      aside={<span className="font-medium text-brand-strong">Answered before it started</span>}
+      aside={<span className="font-medium text-brand-strong">All checks done</span>}
     >
-      <div>
-        <div className="min-w-0 space-y-3">
-          <p className="text-meta text-ink-muted">{MANDATORY_NOTE}</p>
-          <div>
-            <p className="text-body font-semibold text-ink">Where did this list come from?</p>
-            <p className="mt-1 text-body text-ink">
-              {source ?? "Not recorded"}
-              {collected ? ` · collected ${collected}` : ""}
-            </p>
-          </div>
-          <p className="flex items-center gap-2 text-body text-ink">
-            <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand-strong" />
-            Every check passed before the first call.
-          </p>
-        </div>
+      <p className="text-meta text-ink-muted">Required by law before any call goes out.</p>
+      <div className="mt-3">
+        <ConsentProvenanceFields
+          idPrefix={`record-${campaignId}`}
+          source={source}
+          collectedAt={collectedAt}
+          onSource={() => undefined}
+          onCollectedAt={() => undefined}
+          mandatory
+          disabled
+        />
       </div>
     </FoldSection>
   );
