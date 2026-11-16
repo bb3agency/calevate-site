@@ -873,6 +873,22 @@ describe("the operator's half", () => {
     expect(text).toContain("Free trial");
   });
 
+  it("prints minutes through the display rule, never the wire's four decimals", async () => {
+    const { container } = await renderAdminRoute(tenantPage, {
+      ...TENANT_PAGE_READS,
+      [TENANT_ROUTE]: {
+        ...TRIAL_SPEND,
+        trial_minutes: "1234.5000",
+        unattributed: { minutes: "0.0000", cost_inr: "120.00" },
+      },
+    });
+    await screen.findByText("Trial calls we cover");
+    const text = container.textContent ?? "";
+    expect(text).toContain("1,234.5 minutes");
+    expect(text).toContain("(0 minutes)");
+    expect(text).not.toContain(".0000");
+  });
+
   it("shows a month mixing trial and paid calls with both figures", async () => {
     const { container } = await renderAdminRoute(tenantPage, {
       ...TENANT_PAGE_READS,
