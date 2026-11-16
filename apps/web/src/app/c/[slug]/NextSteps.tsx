@@ -143,8 +143,8 @@ function fixShape(fix: ReadinessFix, agentId: string | undefined): { problem?: s
       return training
         ? { problem: "unanswered", label: HOME.readinessAction.answerQuestions }
         : { problem: "knowledge", label: HOME.readinessAction.addKnowledge };
-    case "opening":
-      return { problem: `opening:${agentId ?? fix.href}`, label: HOME.readinessAction.opening };
+    case "job":
+      return { problem: `job:${agentId ?? fix.href}`, label: HOME.readinessAction.job };
     case "live":
       return { problem: `live:${agentId ?? fix.href}`, label: HOME.readinessAction.live };
   }

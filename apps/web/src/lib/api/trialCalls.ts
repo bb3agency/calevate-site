@@ -112,29 +112,38 @@ export function useRecentTestCalls(session: Session, enabled = true): UseQueryRe
 export function usePlaceTrialCall(session: Session) {
   const client = useQueryClient();
   const held = useRef(new Map<string, string>());
-  const attemptOf = (agentId: string, number: string) => JSON.stringify([agentId, number]);
+  const attemptOf = (agentId: string, number: string, business = false) =>
+    JSON.stringify([agentId, number, business]);
   return useMutation({
     mutationFn: ({
       agentId,
       number,
       numberIsMine = false,
+      business = false,
     }: {
       agentId: string;
       number: string;
       /** The owner ticked "this number is mine" (D-855); recorded by the server. */
       numberIsMine?: boolean;
+      /** The agent page's "Just the business": the agent with no job's script. */
+      business?: boolean;
     }) => {
-      const attempt = attemptOf(agentId, number);
+      const attempt = attemptOf(agentId, number, business);
       const key = held.current.get(attempt) ?? crypto.randomUUID();
       held.current.set(attempt, key);
       return apiRequest<TrialCallResult>(session, "/v1/trial/calls", {
         method: "POST",
-        body: numberIsMine ? { agent_id: agentId, number, number_is_mine: true } : { agent_id: agentId, number },
+        body: {
+          agent_id: agentId,
+          number,
+          ...(numberIsMine ? { number_is_mine: true } : {}),
+          ...(business ? { business: true } : {}),
+        },
         idempotencyKey: key,
       });
     },
-    onSuccess: (_result, { agentId, number }) => {
-      held.current.delete(attemptOf(agentId, number));
+    onSuccess: (_result, { agentId, number, business }) => {
+      held.current.delete(attemptOf(agentId, number, business));
       void client.invalidateQueries({ queryKey: trialPanelKey(session.orgSlug) });
       // The dashboard's trial card reads the trial from the dashboard read (D-786).
       void client.invalidateQueries({ queryKey: queryKeys.dashboard(session.orgSlug) });

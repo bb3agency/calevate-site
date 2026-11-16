@@ -491,8 +491,7 @@ def test_advice_is_passed_through_and_never_scored() -> None:
         agent_name="A",
         knowledge_items=9,
         open_gaps=0,
-        opening_chars=40,
-        opening_room=100,
+        jobs=1,
         published=True,
         live=True,
         draft_waiting=False,
@@ -544,16 +543,10 @@ async def test_the_account_is_read_for_the_manifest_the_facts_and_the_advice(
         advice = await readiness.advice_for(session, agent)
         monkeypatch.setattr(readiness, "calendar_configured", lambda: False)
         without = await readiness.advice_for(session, agent)
-    # The outbound agent's opening is also missing the person's name (`placed_opening_problem`).
-    # Lines that could cause mistakes on calls are their own advice (D-989), after these.
-    advice = [a for a in advice if a.kind != "script_mistake"]
-    without = [a for a in without if a.kind != "script_mistake"]
-    assert [a.kind for a in advice] == ["calendar", "script", "script"]
+    # The script lint's findings are each line's and campaign's own now, not the agent's.
+    assert [a.kind for a in advice] == ["calendar"]
     assert advice[0].href == f"/agents/{agent_id}?section=actions"
-    assert advice[1].detail is not None and advice[1].detail.startswith("The opening line: ")
-    assert "limited offer" in advice[1].detail.lower()
-    assert advice[2].detail is not None and "{{lead_name}}" in advice[2].detail
-    assert [a.kind for a in without] == ["script", "script"]
+    assert without == ()
 
     headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:

@@ -372,24 +372,6 @@ def test_the_published_script_shows_the_shape_problems() -> None:
 # --- 5. the opening's count ------------------------------------------------------------------
 
 
-def test_an_opening_the_engine_speaks_in_full_is_not_called_cut() -> None:
-    from dataclasses import replace
-    from datetime import UTC, datetime
-
-    from apps.api.agents import readiness
-    from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
-    from tests.agent_readiness_test import FULL
-
-    now = datetime(2026, 11, 6, tzinfo=UTC)
-    long = replace(FULL, opening_chars=176, opening_room=200)
-    detail = next(c.detail for c in readiness.score(long, now=now).components if c.key == "opening")
-    assert "too long to be spoken in full" not in detail
-    assert f"Keep it to {OPENING_LINE_MAX_CHARS}" in detail
-    cut = replace(FULL, opening_chars=210, opening_room=200)
-    detail = next(c.detail for c in readiness.score(cut, now=now).components if c.key == "opening")
-    assert "too long to be spoken in full" in detail
-
-
 def test_the_budget_carries_the_platforms_own_ceiling() -> None:
     from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
     from apps.api.agents.engine_limits import greeting_budget

@@ -25,17 +25,17 @@ import { asText, noFill } from "@/lib/copilot/types";
 import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
 import { CallCapField, ComplianceFloor, callCapProblem } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
+import { NameStep, type CreatedAgent } from "./NameStep";
 import { NewAgentSteps } from "./NewAgentSteps";
 import { NewAgentRail } from "./setupStep";
-import { StartFromJob, type CreatedAgent } from "./StartFromJob";
 import { NEW_AGENT } from "../../_ui/copy";
 
 /**
- * NEW AGENT IN FOUR STEPS (founder, 3 Nov 2026): Job, Voice, Script, Notes, then a finish
- * screen. Step 1 (`StartFromJob`) creates the agent, so the steps after it edit an existing
- * draft and each can be skipped (`NewAgentSteps`). Starting from nothing is one quiet link
- * away and is the flow below, unchanged, because it is the only way to make an agent that
- * does both jobs or to set a call limit up front.
+ * NEW AGENT: NAME, VOICE, DONE (founder, 16 Nov 2026). An agent is staff with no script of its
+ * own, so no step writes one: step 1 (`NameStep`) creates it, the voice step edits that draft
+ * and can be skipped, and the finish gives it a job, an Inbound line or a campaign
+ * (`NewAgentSteps`). Choosing which way it calls, or a call limit up front, is one quiet link
+ * away and is the flow below.
  */
 export function BuildAgent({ slug }: { slug: string }) {
   const [blank, setBlank] = useState(false);
@@ -45,7 +45,7 @@ export function BuildAgent({ slug }: { slug: string }) {
   return (
     <div className="space-y-6">
       <NewAgentRail current={0} />
-      <StartFromJob slug={slug} onBlank={() => setBlank(true)} onCreated={setCreated} />
+      <NameStep slug={slug} onMore={() => setBlank(true)} onCreated={setCreated} />
     </div>
   );
 }
@@ -63,9 +63,9 @@ export function BuildAgent({ slug }: { slug: string }) {
  * - **No disclosure wording.** `create_agent` writes both sentences from the language
  *   templates with both toggles OFF (D-669), and nothing here can produce an agent with no AI
  *   disclosure on file. The review step states what the agent will be born saying.
- * - **No script.** A new agent is a draft with nothing to say; `publish_agent` refuses it by
- *   name (`agent_has_no_script`) until the builder writes one, which is why "Write its
- *   script" is the primary action once it exists.
+ * - **No script.** An agent has none of its own (founder, 16 Nov 2026); what it says is
+ *   written on the Inbound line or campaign it is given, which is why "Give it a job" is the
+ *   next step once it exists.
  *
  * Direction gets a step of its own because it is the one choice that changes what the agent
  * is; name and language share a step because the language default is right for most
@@ -230,7 +230,7 @@ export function BlankAgentFlow({ slug, onBack }: { slug: string; onBack?: () => 
       <StepFlow
         label="New agent"
         onCancel={() => (onBack ? onBack() : router.push(href(`/c/${slug}/agents`)))}
-        cancelLabel={onBack ? "Back to the two jobs" : "Cancel and go back to your agents"}
+        cancelLabel={onBack ? "Back" : "Cancel and go back to your agents"}
         submitLabel="Build this agent"
         status={createFeedback.status}
         error={create.error ? <ProblemNotice error={create.error} /> : undefined}

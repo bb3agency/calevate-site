@@ -1132,6 +1132,9 @@ class TryChatIn(Strict):
     message: str = Field(min_length=1, max_length=try_chat.MAX_MESSAGE_CHARS)
     #: The `session` a previous reply answered with, to continue the same conversation.
     session: str | None = Field(default=None, max_length=200)
+    #: Chat with "Just the business": the agent with the company training and knowledge and
+    #: no job's script (`agents/business_only`), rather than the agent as callers hear it.
+    business: bool = False
 
 
 class TryChatOut(Strict):
@@ -1163,6 +1166,7 @@ async def try_chat_send(
         agent_id=agent_id,
         message=payload.message,
         chat_session=payload.session,
+        business=payload.business,
     )
     return TryChatOut(
         session=reply.session,

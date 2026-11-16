@@ -1439,9 +1439,11 @@ async def _publish_config(
     agent_id: UUID,
     variant_id: UUID | None = None,
     inbound_line_id: UUID | None = None,
+    *,
+    test_copy: bool = False,
 ) -> AgentConfig:
-    """The configuration of the agent, of its experiment arm `variant_id`, or of its inbound
-    line `inbound_line_id`, exactly as a publish would send it.
+    """The configuration of the agent, of its experiment arm `variant_id`, of its inbound
+    line `inbound_line_id`, or of its test copy, exactly as a publish would send it.
 
     WHY THIS FUNCTION EXISTS (D-488). On an engine that keeps the knowledge linkage as
     AGENT state, attaching a document is a WRITE to the agent — and on the engine this
@@ -1465,14 +1467,30 @@ async def _publish_config(
         return await _line_config(session, tenant_id, inbound_line_id)
     # Deferred, exactly as `agents/publishing.py` does it: `agents/service` sits inside an
     # import cycle with the publish chain, and a module-level import here closes it.
+    from apps.api.agents.business_only import business_row
     from apps.api.agents.service import _load_agent, _to_config, _variant_config
 
     agent = await _load_agent(session, tenant_id, agent_id)
+    if test_copy and await _copy_is_business_only(session, agent_id):
+        # An attach sent with the agent's own config would put its script on the copy.
+        agent = await business_row(session, tenant_id=tenant_id, agent=agent)
     if variant_id is None:
         return _to_config(tenant_id, agent, engine=get_engine())
     arm = (await session.execute(text(_ARM_SQL), {"vid": variant_id, "aid": agent_id})).one()
     return _variant_config(
         tenant_id, agent, variant_id, str(arm[0]), str(arm[2]), str(arm[1]), engine=get_engine()
+    )
+
+
+async def _copy_is_business_only(session: AsyncSession, agent_id: UUID) -> bool:
+    """Was the agent's test copy last published as "Just the business"?"""
+    return bool(
+        (
+            await session.execute(
+                text("SELECT business_only FROM agent_test_copies WHERE agent_id = :aid"),
+                {"aid": agent_id},
+            )
+        ).scalar()
     )
 
 
@@ -2342,7 +2360,7 @@ async def _attach_to_agent(
     """
     agent_id, variant_id, copy = target.agent_id, target.variant_id, target.test_copy
     line = target.inbound_line_id
-    config = await _publish_config(session, tenant_id, agent_id, variant_id, line)
+    config = await _publish_config(session, tenant_id, agent_id, variant_id, line, test_copy=copy)
     attached_now = await _reconcile_engine_state(
         engine,
         target.engine_ref,
@@ -3025,7 +3043,9 @@ async def converge_agent_knowledge(
         log.warning("kb_catch_up_skipped_unaccounted", extra={"agent_id": str(agent_id)})
         return CatchUp(skipped_unaccounted=True)
 
-    config = await _publish_config(session, tenant_id, agent_id, variant_id, inbound_line_id)
+    config = await _publish_config(
+        session, tenant_id, agent_id, variant_id, inbound_line_id, test_copy=test_copy
+    )
     minted: list[tuple[UUID, str, str]] = []
     try:
         for source_id, name in [*missing, *replace]:

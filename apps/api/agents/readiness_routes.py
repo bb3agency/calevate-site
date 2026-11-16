@@ -1,4 +1,4 @@
-"""The readiness gauge's two reads (D-870): one agent, and the account.
+"""The readiness gauge's two reads (D-870), one agent and the account, and an agent's jobs.
 
 `agents:read`, the permission the agent screens already require: the score is a reading of
 the agent's own settings, tests and knowledge, so whoever may open the agent may see it.
@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.jobs import AgentJobsOut, agent_jobs
 from apps.api.agents.readiness import (
     AccountReadinessOut,
     AgentReadinessOut,
@@ -38,6 +39,16 @@ Reader = Annotated[Principal, Depends(requires("agents:read"))]
 )
 async def get_agent_readiness(agent_id: UUID, session: Session, _: Reader) -> AgentReadinessOut:
     return await agent_readiness(session, agent_id)
+
+
+@router.get(
+    "/agents/{agent_id}/jobs",
+    response_model=AgentJobsOut,
+    openapi_extra=permission_meta("agents:read"),
+    summary="The inbound lines and open campaigns that speak in this agent's voice",
+)
+async def get_agent_jobs(agent_id: UUID, session: Session, _: Reader) -> AgentJobsOut:
+    return await agent_jobs(session, agent_id)
 
 
 @router.get(

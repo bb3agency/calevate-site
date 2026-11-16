@@ -23,10 +23,8 @@ import { StepRail } from "../first/shell";
  */
 
 export const NEW_AGENT_STEPS = [
-  { id: "job", label: "Job" },
+  { id: "name", label: "Name" },
   { id: "voice", label: "Voice" },
-  { id: "script", label: "Script" },
-  { id: "notes", label: "Notes" },
 ] as const;
 
 /** The rail. Step 1 created the agent, so it is shown done and is never gone back to. */

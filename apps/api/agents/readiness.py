@@ -13,9 +13,8 @@ THE FORMULA (four components, 100 points; `score()` is the whole of it and is pu
 |            |     | profile's offerings and common questions, D-968: 0 → 0, 1-4 → 5,       |
 |            |     | 5+ → 10) plus max(0, 10 - 2 * this agent's open knowledge              |
 |            |     | gaps); the sum is scaled once, so the rounding happens once           |
-| opening    |  20 | 20 when the opening line is set, at most `OPENING_LINE_MAX_CHARS` and  |
-|            |     | fits the greeting budget with the notices as they are; 7 when set but  |
-|            |     | too long; 0 when empty                                                 |
+| job        |  20 | 20 when it speaks for at least one inbound line or open campaign       |
+|            |     | (`agents/jobs`), 0 when it has no job yet                              |
 | live       |  25 | 25 when not live (D-916); live: 13, and 12 more when no draft is       |
 |            |     | waiting and the calling system's copy is not out of sync              |
 |            |     | (`DRIFT_STATES_OUT_OF_SYNC`)                                           |
@@ -23,9 +22,11 @@ THE FORMULA (four components, 100 points; `score()` is the whole of it and is pu
 
 Practice tests are not scored (founder, 4 Nov 2026): running them is optional, and a score
 that asked for them added work before a client could start calling. Knowledge and missed
-questions are the two halves of "does it know the business"; the opening line is what every
-caller hears first; a live agent whose callers hear an out-of-date version is not ready, while
-one not live yet is not marked down for it (D-916).
+questions are the two halves of "does it know the business". An agent is staff with no
+script of its own (founder, 16 Nov 2026): what a call says is written on an inbound line or a
+campaign, so the score asks that it has a job rather than for an opening line of its own. A
+live agent whose callers hear an out-of-date version is not ready, while one not live yet is
+not marked down for it (D-916).
 
 The opening notices (D-163) are not a component: whether an agent volunteers "I am an AI"
 or "this call is recorded" is the owner's choice and does not make it more or less ready
@@ -39,8 +40,8 @@ first, and ties by the table order above, so the list is deterministic.
 
 ADVICE IS NOT SCORED (D-945). `advice` carries what the owner should still do but no point
 measures: a calendar for an agent that places calls and books visits (founder, 30 Oct 2026:
-only where it matters, never for an agent that mostly answers calls), and what the script
-lint finds in the draft (`agents/script_lint`). One short line and a button each.
+only where it matters, never for an agent that mostly answers calls). The script lint's
+findings are each script's own, on its line or campaign, not the agent's.
 """
 
 from __future__ import annotations
@@ -51,7 +52,6 @@ from typing import Final, Literal
 from uuid import UUID
 
 from calevate_shared.call_script import upgrade_to_v2
-from calevate_shared.opening_notices import opening_max_chars
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,35 +59,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.actions.calendar import calendar_configured
 from apps.api.agents import script_builder
 from apps.api.agents.business_fit import business_fit
-from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 from apps.api.agents.capability_manifest import books_visits, lint_context_for
-from apps.api.agents.mistake_lints import script_mistakes
+from apps.api.agents.jobs import job_count
 from apps.api.agents.reconciliation import DRIFT_STATES_OUT_OF_SYNC
 from apps.api.agents.roster import agent_by_id
 from apps.api.agents.schemas import AgentOut
-from apps.api.agents.script_lint import plain, script_problems
 from apps.api.core.errors import ProblemError
 
-ComponentKey = Literal["knowledge", "opening", "live", "missed"]
+ComponentKey = Literal["knowledge", "job", "live", "missed"]
 ComponentState = Literal["full", "partial", "none"]
 
 MAX_POINTS: Final[dict[ComponentKey, int]] = {
     "knowledge": 40,
-    "opening": 20,
+    "job": 20,
     "live": 25,
     "missed": 15,
 }
-#: An opening line that is set but too long to be spoken in full.
-OPENING_TOO_LONG_POINTS: Final = 7
 #: Points lost per question it could not answer in the last 7 days.
 MISSED_POINTS_EACH: Final = 3
 COMPONENT_ORDER: Final[tuple[ComponentKey, ...]] = tuple(MAX_POINTS)
 COMPONENT_LABELS: Final[dict[ComponentKey, str]] = {
     "knowledge": "What it knows",
-    "opening": "Opening line",
+    "job": "Has a job",
     "live": "Callers hear the latest version",
     "missed": "Questions it missed this week",
 }
+#: The one step that gives an agent work: a line it answers for, or a campaign it calls for.
+JOB_FIX: Final = "Give it a job: an Inbound line or a campaign."
 MISSED_WINDOW: Final = timedelta(days=7)
 #: How many knowledge items count as "plenty" for the first half of the knowledge points.
 KNOWLEDGE_PLENTY: Final = 5
@@ -103,13 +101,13 @@ class ReadinessFixOut(BaseModel):
     component: ComponentKey
     #: One plain sentence naming the next step.
     action: str
-    #: Realm-relative link to the screen where it is fixed ("/agents/{id}?section=script").
+    #: Realm-relative link to the screen where it is fixed ("/agents/{id}?section=training").
     href: str
     #: The points this fix would add, at most.
     points: int
 
 
-AdviceKind = Literal["calendar", "script", "script_mistake"]
+AdviceKind = Literal["calendar"]
 
 
 class ReadinessAdviceOut(BaseModel):
@@ -167,14 +165,6 @@ class AccountReadinessOut(BaseModel):
 MAX_ACCOUNT_FIXES: Final = 5
 
 
-#: What a too-long opening line is cut down to, by who hears it first.
-ANSWERED_OPENING_FIX: Final = "Shorten the opening line to a greeting and one question."
-PLACED_OPENING_FIX: Final = (
-    "Shorten the opening line to their name, who is calling and why, and asking if they can "
-    "talk now."
-)
-
-
 @dataclass(frozen=True, slots=True)
 class ReadinessInputs:
     """Everything the score reads, gathered by `gather()`; `score()` is pure over it."""
@@ -183,10 +173,8 @@ class ReadinessInputs:
     agent_name: str
     knowledge_items: int
     open_gaps: int
-    opening_chars: int
-    #: Room the greeting leaves for the opening line with the notices as they are; None when
-    #: the calling system sets no ceiling.
-    opening_room: int | None
+    #: Inbound lines and open campaigns that speak in its voice (`agents/jobs`).
+    jobs: int
     published: bool
     live: bool
     draft_waiting: bool
@@ -194,12 +182,8 @@ class ReadinessInputs:
     missed_7d: int
     #: Not scored (D-945): passed through to `AgentReadinessOut.advice`.
     advice: tuple[ReadinessAdviceOut, ...] = ()
-    #: An outbound agent's opening line is said on calls it places, so its fix names what a
-    #: placed call's opening holds (`call_rules.OPENING_LINE_RULE`).
+    #: Its job is calling, so the job fix opens Campaigns rather than Inbound.
     places_calls: bool = False
-    #: The longest the opening line may be: more when it says a notice in its own words
-    #: (`opening_notices.opening_max_chars`, D-971).
-    opening_max_chars: int = OPENING_LINE_MAX_CHARS
 
 
 def _state(points: int, maximum: int) -> ComponentState:
@@ -256,36 +240,19 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
         knowledge_fix,
     )
 
-    # opening line
-    fits = i.opening_room is None or i.opening_chars <= i.opening_room
-    if i.opening_chars == 0:
+    # job
+    if i.jobs == 0:
         add(
-            "opening",
+            "job",
             0,
-            "No opening line yet.",
-            ("Write the opening line callers hear first.", f"{base}?section=script"),
-        )
-    elif i.opening_chars > i.opening_max_chars or not fits:
-        # Over the engine's room it is cut; over only the platform's ceiling it is spoken in
-        # full but keeps the caller waiting (the 176-character opening of 6 Nov 2026 ran
-        # 18 seconds before the caller could answer).
-        add(
-            "opening",
-            OPENING_TOO_LONG_POINTS,
-            f"The opening line is {i.opening_chars} characters, too long to be spoken in full."
-            if not fits
-            else f"The opening line is {i.opening_chars} characters. Keep it to "
-            f"{i.opening_max_chars}, so callers can answer within seconds.",
-            (
-                PLACED_OPENING_FIX if i.places_calls else ANSWERED_OPENING_FIX,
-                f"{base}?section=script",
-            ),
+            "No Inbound line or campaign uses it yet.",
+            (JOB_FIX, "/campaigns" if i.places_calls else "/inbound"),
         )
     else:
         add(
-            "opening",
-            MAX_POINTS["opening"],
-            f"The opening line is {i.opening_chars} characters.",
+            "job",
+            MAX_POINTS["job"],
+            f"Used by {_plural(i.jobs, 'line or campaign', 'lines and campaigns')}.",
             None,
         )
 
@@ -294,12 +261,22 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
         # Readiness is whether it is ready to put live, so not being live yet costs nothing
         # (D-916); only a live agent's callers can hear an out-of-date version.
         add("live", MAX_POINTS["live"], "Not live yet.", None)
-    elif i.draft_waiting or i.out_of_sync:
+    elif i.draft_waiting:
+        # The page header's Put it live applies it, so the fix opens the page.
         add(
             "live",
             LIVE_POINTS_PUBLISHED,
             "Live, with changes callers do not hear yet.",
-            ("Apply your saved changes to live calls.", f"{base}?section=script"),
+            ("Put your saved changes live.", base),
+        )
+    elif i.out_of_sync:
+        # Nothing for the owner to press: the drift sweep records it and alerts an operator,
+        # who decides (`agents/reconciliation`).
+        add(
+            "live",
+            LIVE_POINTS_PUBLISHED,
+            "Live, but the calling system holds a different copy. We have been told.",
+            None,
         )
     else:
         add("live", MAX_POINTS["live"], "Live, and callers hear the latest version.", None)
@@ -325,12 +302,10 @@ def score(i: ReadinessInputs, *, now: datetime) -> AgentReadinessOut:
     )
 
 
-#: Lint findings shown at most; the script page shows where each is.
-MAX_SCRIPT_ADVICE: Final = 2
-
-
 async def advice_for(session: AsyncSession, agent: AgentOut) -> tuple[ReadinessAdviceOut, ...]:
-    """The calendar reminder and the script lint's findings for one agent (D-945)."""
+    """The calendar reminder for one agent (D-945). Whether it books visits is still read from
+    the script it holds, which is what its own calls say until its lines and campaigns carry
+    every script."""
     base = f"/agents/{agent.id}"
     tenant_id = (
         await session.execute(
@@ -355,28 +330,6 @@ async def advice_for(session: AsyncSession, agent: AgentOut) -> tuple[ReadinessA
                 detail="Your agent then offers times you are really free.",
             )
         )
-    found = script_problems(script, context)
-    out += [
-        ReadinessAdviceOut(
-            kind="script",
-            action="Fix a line in the script",
-            href=f"{base}?section=script",
-            detail=plain(problem),
-        )
-        for problem in found[:MAX_SCRIPT_ADVICE]
-    ]
-    # Lines that can cause a known mistake on calls (D-989): their own group, never part of
-    # the score, so the card shows them without holding anything back.
-    mistakes = script_mistakes(script, context, beside=found)
-    out += [
-        ReadinessAdviceOut(
-            kind="script_mistake",
-            action="Fix a line before callers hear it",
-            href=f"{base}?section=script",
-            detail=plain(problem),
-        )
-        for problem in mistakes[:MAX_SCRIPT_ADVICE]
-    ]
     return tuple(out)
 
 
@@ -433,14 +386,12 @@ async def gather(
             },
         )
     ).one()
-    budget = agent.greeting_budget
     return ReadinessInputs(
         agent_id=agent.id,
         agent_name=agent.name,
         knowledge_items=await knowledge_items(session) if knowledge is None else knowledge,
         open_gaps=int(facts.open_gaps),
-        opening_chars=len(agent.script_opening_line.strip()),
-        opening_room=None if budget is None else budget.opening_room,
+        jobs=await job_count(session, agent.id),
         published=agent.published,
         live=bool(facts.live),
         draft_waiting=bool(facts.draft_waiting),
@@ -448,7 +399,6 @@ async def gather(
         missed_7d=int(facts.missed),
         places_calls=agent.direction == "outbound",
         advice=await advice_for(session, agent),
-        opening_max_chars=opening_max_chars(OPENING_LINE_MAX_CHARS, agent.script_opening_line),
     )
 
 

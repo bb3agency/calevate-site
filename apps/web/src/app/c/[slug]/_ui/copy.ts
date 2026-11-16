@@ -69,8 +69,8 @@ export const HOME = {
   readinessAction: {
     addKnowledge: "Add details",
     answerQuestions: "Answer questions",
-    opening: "Edit opening line",
-    live: "Apply changes",
+    job: "Give it a job",
+    live: "Put changes live",
     missed: "Teach answers",
   },
   readinessFailed: "Couldn't check how ready your agents are",
@@ -216,7 +216,8 @@ export const NEW_AGENT = {
     "AI and recording notices: off until you switch them on.",
     "Always answers honestly if asked: AI? Recorded?",
   ] as const,
-  createdHint: "Switched off. Next: write what it says.",
-  jobsHint: "Pick one. You check everything first.",
-  jobUnavailable: "Not available yet. Start blank instead.",
+  createdHint: "Switched off. Next: give it a job.",
+  nameStepHint: "Name it and pick its language. Its voice is next.",
+  jobHint: "What it says is written on its job.",
+  moreChoices: "Set which way it calls and its longest call",
 } as const;

@@ -9,7 +9,16 @@ from datetime import datetime
 from typing import Final, Literal, get_args
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
@@ -69,8 +78,10 @@ class GoLiveGuide(PKMixin, TimestampMixin, Base):
 
 
 class AgentTestCopy(PKMixin, TimestampMixin, Base):
-    """A moved agent's developer-workspace engine agent, kept for test calls on the shared
-    trial line while its client has no number of its own (founder option A, D-859)."""
+    """An agent's developer-workspace engine agent for the owner's own tests: kept by a move
+    for test calls on the shared trial line while its client has no number of its own
+    (founder option A, D-859), and the "Just the business" holder of the agent page's chat
+    and test calls (`agents/business_only`)."""
 
     __tablename__ = "agent_test_copies"
     __table_args__ = (
@@ -88,6 +99,9 @@ class AgentTestCopy(PKMixin, TimestampMixin, Base):
     engine_agent_ref: Mapped[str] = mapped_column(Text, nullable=False)
     #: The last test call placed through it; the idle retirement counts from here.
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: It was last published as "Just the business" (`agents/business_only`) rather than as
+    #: the agent, so a knowledge attach re-sends that config.
+    business_only: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
 
 __all__ = ["MOVE_STATES", "AgentTestCopy", "AgentWorkspaceMove", "GoLiveGuide", "MoveState"]

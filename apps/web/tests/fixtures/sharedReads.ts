@@ -21,6 +21,7 @@ import type { Wallet } from "@/lib/api/wallet";
 import type { AlertOptIn } from "@/lib/api/whatsappAlerts";
 import type { ClientVoiceTuning } from "@/lib/api/voiceTuning";
 import type { TeamAlertRule, TeamContacts } from "@/lib/api/teamAlerts";
+import type { AgentJobs } from "@/lib/api/agentJobs";
 import type { AccountReadiness, AgentReadiness } from "@/lib/api/readiness";
 
 /**
@@ -877,6 +878,11 @@ export const NO_ACCOUNT_READINESS = {
   computed_at: "2026-10-24T05:00:00Z",
 } satisfies AccountReadiness;
 
+/** `GET /v1/agents/{id}/jobs`: the Inbound lines and campaigns in its voice, none by default. */
+export function agentJobs(agentId = "agent-1", jobs: AgentJobs["jobs"] = []): AgentJobs {
+  return { agent_id: agentId, jobs, total: jobs.length };
+}
+
 /** `GET /v1/agents/{id}/readiness` for an agent with one thing left to do. */
 export function agentReadiness(agentId = "agent-1", name = "Reception"): AgentReadiness {
   return {
@@ -886,13 +892,13 @@ export function agentReadiness(agentId = "agent-1", name = "Reception"): AgentRe
     max_score: 100,
     components: [
       { key: "knowledge", label: "What it knows", points: 40, max_points: 40, state: "full", detail: "8 things added for your agents; 0 open questions to answer." },
-      { key: "opening", label: "Opening line", points: 0, max_points: 20, state: "none", detail: "No opening line yet." },
+      { key: "job", label: "Has a job", points: 0, max_points: 20, state: "none", detail: "No Inbound line or campaign uses it yet." },
     ],
     fixes: [
       {
-        component: "opening",
-        action: "Write the opening line callers hear first.",
-        href: `/agents/${agentId}?section=script`,
+        component: "job",
+        action: "Give it a job: an Inbound line or a campaign.",
+        href: "/inbound",
         points: 20,
       },
     ],

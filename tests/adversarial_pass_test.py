@@ -991,6 +991,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {"Idempotency-Key": "idor-sweep-whatsapp"},
     ),
     ("GET", "/v1/agents/{agent_id}/readiness", {}, {}),
+    ("GET", "/v1/agents/{agent_id}/jobs", {}, {}),
     ("DELETE", "/v1/members/{user_id}", {}, {}),
     # Added by the route sweep (D-301): the ONE `{id}` route in the client path space the
     # list above never addressed, and the one with the most to lose — it answers with the

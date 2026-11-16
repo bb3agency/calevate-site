@@ -417,7 +417,7 @@ function ScriptSuggestionProgress({ session, agentId }: { session: Session; agen
   if (suggestion.isError) {
     return (
       <p className="text-meta font-semibold text-ink-muted">
-        Started. Check the Script tab for the suggestion.
+        Started. The suggestion is on its way.
       </p>
     );
   }
@@ -450,7 +450,7 @@ function ScriptSuggestionProgress({ session, agentId }: { session: Session; agen
     <div role="status">
       <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
         <Check aria-hidden className="h-3.5 w-3.5" />
-        {status === "ready" ? "Ready to review on the Script tab" : "Nothing is waiting on the Script tab"}
+        {status === "ready" ? "Ready to review" : "Nothing is waiting"}
       </p>
       {kept > 0 ? (
         <p className="mt-1 text-xs text-ink">

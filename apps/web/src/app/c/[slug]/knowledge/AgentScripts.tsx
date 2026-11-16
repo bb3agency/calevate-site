@@ -2,60 +2,46 @@
 
 import Link from "next/link";
 
-import { ProblemNotice, Skeleton } from "@/components/ui";
-import { useAgents } from "@/lib/api/agents";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 
 import { Group } from "./KnowledgeGroup";
 
 /**
- * WHAT ONE AGENT KNOWS THAT THE OTHERS DO NOT: its own script (its job, its steps, what it
- * says), and, when it remembers callers, what each caller said before. Everything else on
- * this page is shared by every agent (D-689), so these are named here and opened on the
- * agent's own page rather than copied in. Archived agents take no calls and are left out.
+ * WHAT ONE JOB KNOWS THAT THE OTHERS DO NOT: its own script. An agent has no script of its
+ * own (founder, 16 Nov 2026); each Inbound line and each campaign has one, and only its calls
+ * use it. Everything else on this page is shared by every agent (D-689), so the scripts are
+ * named here and opened where they are written rather than copied in.
  */
+const PLACES = [
+  { id: "inbound", name: "Inbound lines", line: "What each of your numbers says when called.", path: "inbound", open: "Open Inbound" },
+  { id: "campaigns", name: "Campaigns", line: "What each campaign says on the calls it makes.", path: "campaigns", open: "Open Campaigns" },
+] as const;
+
 export function AgentScripts({ query }: { query: string }) {
   const session = useClientSession();
   const { href } = useClientRealm();
-  const agents = useAgents(session);
   const q = query.trim().toLocaleLowerCase();
-
-  if (agents.isLoading) return <Skeleton rows={2} label="Loading your agents" />;
-  if (agents.error || !agents.data) {
-    return (
-      <ProblemNotice
-        error={agents.error ?? new Error("We could not load your agents.")}
-        onRetry={() => void agents.refetch()}
-      />
-    );
-  }
-  const current = agents.data.filter((a) => a.status !== "archived");
-  const shown = current.filter((a) => !q || a.name.toLocaleLowerCase().includes(q));
-  if (current.length === 0) return null;
+  const shown = PLACES.filter((place) => !q || place.name.toLocaleLowerCase().includes(q) || "script".includes(q));
 
   return (
     <Group
-      title="Each agent's own script"
-      count={current.length}
+      title="Scripts"
+      count={PLACES.length}
       hidden={q !== "" && shown.length === 0}
-      info={<p>Only that agent uses its script. Everything above is shared.</p>}
+      info={<p>Each Inbound line and campaign has its own script. Everything above is shared.</p>}
     >
-      <ul className="divide-y divide-line border-y border-line" aria-label="Agents">
-        {shown.map((agent) => (
-          <li key={agent.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5">
+      <ul className="divide-y divide-line border-y border-line" aria-label="Where scripts are written">
+        {shown.map((place) => (
+          <li key={place.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-ink [overflow-wrap:anywhere]">{agent.name}</p>
-              <p className="text-meta text-ink-muted">
-                {agent.caller_memory_enabled && !agent.caller_memory_paused
-                  ? "Its script. Also remembers each caller."
-                  : "Its job and what it says."}
-              </p>
+              <p className="text-sm font-medium text-ink">{place.name}</p>
+              <p className="text-meta text-ink-muted">{place.line}</p>
             </div>
             <Link
-              href={href(`/c/${session.orgSlug}/${agent.direction === "outbound" ? "campaigns" : "inbound"}`)}
+              href={href(`/c/${session.orgSlug}/${place.path}`)}
               className="text-meta text-ink underline underline-offset-2 touch:inline-flex touch:min-h-11 touch:items-center"
             >
-              Open its script
+              {place.open}
             </Link>
           </li>
         ))}

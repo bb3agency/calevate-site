@@ -333,15 +333,26 @@ async def test_a_direction_that_contradicts_the_job_is_refused_and_creates_nothi
 
 
 @pytest.mark.rls
-async def test_without_a_starter_the_create_is_unchanged() -> None:
+async def test_without_a_starter_no_script_is_written_or_asked_for() -> None:
+    """An agent is staff with no script of its own (founder, 16 Nov 2026): created without a
+    job it carries only what the business profile says, and Pip is asked for nothing."""
     tenant_id, token = await _tenant("clinic", "Sunrise Care")
     code, body = await _create(token, {"name": "Blank", "direction": "outbound"})
     assert code == 201, body
     assert body["direction"] == "outbound"
     row = await _agent_rows(tenant_id, uuid.UUID(body["id"]))
     assert row is not None
-    assert row[2] is None, "an agent created without a starter came with a script"
+    if row[2] is not None:
+        assert str(row[4]).startswith("[IDENTITY] Blank.") and "[T0 FACTS]" in str(row[4])
+        assert row[5] is None, "no structured script was written"
     assert row[7] is None
+    async with tenant_session(tenant_id) as session:
+        proposal = (
+            await session.execute(
+                text("SELECT script_proposal FROM agents WHERE id = :a"), {"a": body["id"]}
+            )
+        ).scalar()
+    assert proposal is None
 
 
 @pytest.mark.rls

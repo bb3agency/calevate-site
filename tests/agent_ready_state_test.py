@@ -317,7 +317,7 @@ async def test_an_agent_with_a_staged_edit_is_named_until_it_is_put_live() -> No
         await pinned_store.recompile_agent(session, tenant_id=tenant_id, agent_id=agent_id)
         waiting = await pinned_store.not_yet_on(session)
     assert [(n.agent_id, n.reason) for n in waiting] == [(agent_id, "waiting_put_live")]
-    assert "Script tab" in waiting[0].sentence
+    assert "Put it live" in waiting[0].sentence
 
     await publishing.apply_to_live(tenant_id=tenant_id, agent_id=agent_id)
     async with tenant_session(tenant_id) as session:

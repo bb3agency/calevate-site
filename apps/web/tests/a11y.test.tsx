@@ -203,6 +203,7 @@ import {
   VOICE_OWN_NONE,
   VOICE_SOURCES_PLATFORM,
   clientVoiceTuning,
+  agentJobs,
   agentReadiness,
   NO_ACCOUNT_READINESS,
   ROSTER_READINESS_PATH,
@@ -2402,7 +2403,7 @@ const CLIENT_SCREENS: Screen[] = [
         // One scored agent, so the readiness meter and its ⓘ in "Next steps" are swept too.
         agents: [{ agent_id: "agent-1", agent_name: "Reception", score: 62, components: [], fixes: [] }],
         top_fixes: [
-          { component: "opening", action: "Write the opening line callers hear first.", href: "/agents/agent-1?section=script", points: 20 },
+          { component: "job", action: "Give it a job: an Inbound line or a campaign.", href: "/inbound", points: 20 },
           { component: "knowledge", action: "Add what your business does to Knowledge.", href: "/knowledge", points: 10 },
         ],
         computed_at: "2026-10-24T05:00:00Z",
@@ -2670,6 +2671,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/organization/llm-defaults": clientLlmTiers(),
       "/v1/agents/lanes": LANES,
       "/v1/agents/agent-1/readiness": agentReadiness(),
+      "/v1/agents/agent-1/jobs": agentJobs(),
       // The header's "₹X this month" line, with this agent charged, so its markup is swept.
       [AGENT_SPEND_PATH]: SPEND,
       "/v1/me": ME,

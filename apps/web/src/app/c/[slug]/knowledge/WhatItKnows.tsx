@@ -411,7 +411,7 @@ function PinnedFacts({
                     href={href(`/c/${session.orgSlug}/agents/${entry.agent_id}`)}
                     className="underline underline-offset-2 touch:inline-flex touch:min-h-11 touch:items-center"
                   >
-                    Open {entry.agent_name}&rsquo;s script
+                    Open {entry.agent_name}
                   </Link>
                 </>
               ) : null}

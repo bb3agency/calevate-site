@@ -46,6 +46,10 @@ class TrialCallIn(Strict):
     #: The caller ticked "this number is mine" (D-855). Recorded in the audit log by keyed
     #: reference, never the number itself.
     number_is_mine: bool = False
+    #: The agent page's "Just the business": the agent with the company training and
+    #: knowledge and no job's script, rung from the shared trial number
+    #: (`agents/business_only`).
+    business: bool = False
 
 
 class TrialCallOut(Strict):
@@ -103,6 +107,7 @@ async def create_trial_call(
         idempotency_key=idem_key,
         ip=client_request_ip(request),
         own_number_attested=payload.number_is_mine,
+        business=payload.business,
     )
     return TrialCallOut(
         status=result.status,

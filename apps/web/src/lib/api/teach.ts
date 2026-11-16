@@ -295,12 +295,13 @@ export function useDiscardPreparedTest(session: Session, callId: string) {
   });
 }
 
-export function useTryChat(session: Session, agentId: string) {
+/** `business`: chat with "Just the business", the agent with no job's script. */
+export function useTryChat(session: Session, agentId: string, business = false) {
   return useMutation({
     mutationFn: ({ message, chatSession }: { message: string; chatSession: string | null }) =>
       apiRequest<TryChatReply>(session, `/v1/agents/${agentId}/try-chat`, {
         method: "POST",
-        body: { message, session: chatSession },
+        body: business ? { message, session: chatSession, business: true } : { message, session: chatSession },
       }),
   });
 }

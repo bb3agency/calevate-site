@@ -4,17 +4,12 @@ The outbound agent opened with the business's question to a person it had not na
 for a minute, explained several app steps in one breath and then asked "did you understand?",
 and never asked two of the business's own questions (how satisfied, what to add). The writer
 is told the rules (`call_rules.OPENING_LINE_RULE`, `SCRIPT_FLOW_RULE`); the lint
-(`script_lint`) checks what can be checked mechanically, so the writer's repair round, the
-readiness card and "Fix them first" all see the same findings.
+(`script_lint`) checks what can be checked mechanically, so the writer's repair round and
+"Fix them first" see the same findings.
 """
 
 from __future__ import annotations
 
-import uuid
-from dataclasses import replace
-from datetime import UTC, datetime
-
-from apps.api.agents import readiness
 from apps.api.agents.call_rules import (
     OPENING_LINE_RULE,
     SCRIPT_FLOW_RULE,
@@ -38,20 +33,6 @@ from apps.workers.script_assist import _SYSTEM_INSTRUCTION, EDIT_INSTRUCTION, la
 from calevate_shared.call_script import CallScript, ConversationStage, ProcedureStep
 from calevate_shared.spoken_guard import latin_words
 
-_NOW = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
-_LONG_OPENING = readiness.ReadinessInputs(
-    agent_id=uuid.UUID("01890000-0000-7000-8000-000000000002"),
-    agent_name="Varsha",
-    knowledge_items=8,
-    open_gaps=0,
-    opening_chars=300,
-    opening_room=None,
-    published=True,
-    live=True,
-    draft_waiting=False,
-    out_of_sync=False,
-    missed_7d=0,
-)
 OUTBOUND = LintContext(manifest=CapabilityManifest(direction="outbound"))
 INBOUND = LintContext(manifest=CapabilityManifest(direction="inbound"))
 
@@ -217,16 +198,6 @@ def test_details_are_not_judged_where_nothing_can_compare_them() -> None:
     # A label with no English-letter word cannot be compared with English instructions.
     one = CallScript(schema_version=2, stages=[_stage("s1", "Ask", "Ask their name.")])
     assert unasked_details(one, ("?", "")) == []
-
-
-def test_a_long_placed_call_opening_is_told_what_a_placed_opening_holds() -> None:
-    placed = replace(_LONG_OPENING, places_calls=True)
-    fix = next(f for f in readiness.score(placed, now=_NOW).fixes if f.component == "opening")
-    assert fix.action == readiness.PLACED_OPENING_FIX
-    fix = next(
-        f for f in readiness.score(_LONG_OPENING, now=_NOW).fixes if f.component == "opening"
-    )
-    assert fix.action == readiness.ANSWERED_OPENING_FIX
 
 
 def test_every_writer_of_an_outbound_opening_is_told_it_in_the_brief() -> None:

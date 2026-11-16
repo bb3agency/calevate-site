@@ -164,16 +164,22 @@ async def read_paid_test_access(
     )
 
 
-async def refresh_test_copy(*, tenant_id: UUID, agent_id: UUID) -> str:
+async def refresh_test_copy(*, tenant_id: UUID, agent_id: UUID, business: bool = False) -> str:
     """Republish the agent's current config onto its developer-workspace test copy (made again
-    if it is gone) and mark it used, in its own committed transaction, before the call that
-    rings through it. Returns the copy's handle."""
+    if it is gone) and mark it used, in its own committed transaction, before the call or chat
+    that goes through it. `business` publishes it as "Just the business"
+    (`agents/business_only`). Returns the copy's handle."""
     from apps.api.agents.service import publish_agent
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
         ref = await publish_agent(
-            session, tenant_id=tenant_id, agent_id=agent_id, take_calls=False, onto_test_copy=True
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            take_calls=False,
+            onto_test_copy=True,
+            business_only=business,
         )
         await session.execute(
             text(

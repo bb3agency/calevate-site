@@ -17,6 +17,7 @@ import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { InfoTip } from "@/components/console/infoTip";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import { isAssignable } from "@/lib/agentState";
+import { CAMPAIGN_TEST_ANCHOR } from "@/lib/api/agentJobs";
 import { useAgents } from "@/lib/api/agents";
 import { useDuplicateCampaign, useUpdateCampaign } from "@/lib/api/campaigns";
 import {
@@ -474,6 +475,7 @@ export function AgentSection({
 export function TestCallSection(props: Common) {
   return (
     <FoldSection
+      id={CAMPAIGN_TEST_ANCHOR}
       title="Test call"
       tone="test"
       hint="The chosen agent rings your phone."

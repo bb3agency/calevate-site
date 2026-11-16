@@ -3,7 +3,7 @@
 
 1. When Pip writes or changes a script, every kind's check reads the draft and the writer's
    repair round rewrites the lines it finds; what is still found is told to the owner.
-2. Put it live and the readiness card show them as their own group, never a block, and
+2. Put it live shows them as their own group, never a block, and
    "Fix them first" fixes them.
 3. A sweep of live scripts opens the healer's fix (D-985) for each kind it finds, once per
    live version, under the healer's switches and the console's caps.
@@ -242,7 +242,7 @@ async def test_an_owners_own_finding_in_an_edit_is_not_pips_to_rewrite(
     assert stored.left_out == []
 
 
-# --- 2. on save: the readiness card, Put it live and "Fix them first" -----------------------------
+# --- 2. on save: Put it live and "Fix them first" -------------------------------------------------
 
 
 async def _agent(prefix: str, script: CallScript, *, status: str = "live") -> tuple[UUID, UUID]:
@@ -273,18 +273,12 @@ async def test_the_card_and_put_it_live_show_the_lines_without_blocking() -> Non
             json={"script": _script(THIRD_PERSON).model_dump(mode="json")},
             headers=headers,
         )
-        readiness = await http.get(f"/v1/agents/{agent_id}/readiness", headers=headers)
     assert checked.status_code == 200, checked.text
     body = checked.json()
     # The agent's own lint context finds other things in this bare test script; the
     # mistake line is its own group and is not among them.
     assert [m.split(": ")[0] for m in body["mistakes"]] == ["Step 1"]
     assert all(not w.startswith("Step 1:") for w in body["warnings"])
-    assert readiness.status_code == 200, readiness.text
-    advice = [a for a in readiness.json()["advice"] if a["kind"] == "script_mistake"]
-    assert len(advice) == 1 and advice[0]["href"].endswith("?section=script")
-    # Shown, never counted: nothing about the score or the blockers names it.
-    assert "script_mistake" not in str(readiness.json()["fixes"])
 
 
 @pytest.mark.rls

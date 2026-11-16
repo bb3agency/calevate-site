@@ -275,10 +275,11 @@ describe("what the form promises about the agent it is about to build", () => {
     await buildNamed("Front desk");
 
     await screen.findByText("Front desk is created");
-    expect(container.textContent).toContain("Switched off. Next: write what it says.");
-    // What it says is written on the inbound line it answers (D-997), not on the agent.
-    const write = screen.getByRole("link", { name: /Write what it says/ });
-    expect(write.getAttribute("href")).toBe("/c/acme/inbound");
+    expect(container.textContent).toContain("Switched off. Next: give it a job.");
+    // What it says is written on its job, an Inbound line or a campaign, not on the agent.
+    expect(screen.getByRole("button", { name: /New Inbound line/ })).toBeTruthy();
+    const campaign = screen.getByRole("link", { name: /New campaign/ });
+    expect(campaign.getAttribute("href")).toBe("/c/acme/campaigns/new?agent=agent-9");
     const open = screen.getByRole("link", { name: /Open Front desk/ });
     expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-9");
     // The flow is gone: a second press would build a second agent nobody asked for.
