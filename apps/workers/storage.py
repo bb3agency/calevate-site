@@ -97,6 +97,25 @@ RECORDING_FETCH_DEADLINE_S = 120.0
 # but no promise either, so a retry should be soon enough to beat a link going away and
 # far enough out to let a storage blip finish.
 RECORDING_RETRY_DEFER_S = 30.0
+#: The upload of a fetched recording, as one deadline. botocore's own default is 60s to
+#: connect and 60s per read, retried three times, which alone outlasts `job_timeout`; arq
+#: never retries a job it timed out, so a stalled store would lose the copy instead of
+#: deferring it. This frees the job; `STORE_CONNECT_TIMEOUT_S` and `STORE_READ_TIMEOUT_S`
+#: end the thread it leaves behind.
+RECORDING_UPLOAD_DEADLINE_S = 60.0
+STORE_CONNECT_TIMEOUT_S = 10.0
+STORE_READ_TIMEOUT_S = 30.0
+#: botocore counts these as retries after the first attempt.
+STORE_RETRIES = 3
+
+
+def _store_config() -> Config:
+    return Config(
+        signature_version="s3v4",
+        retries={"max_attempts": STORE_RETRIES},
+        connect_timeout=STORE_CONNECT_TIMEOUT_S,
+        read_timeout=STORE_READ_TIMEOUT_S,
+    )
 
 
 class StorageUnavailableError(Retry):
@@ -216,7 +235,7 @@ def _client() -> Any:
             "s3",
             endpoint_url=endpoint,
             region_name=region,
-            config=Config(signature_version="s3v4", retries={"max_attempts": 3}),
+            config=_store_config(),
         )
         _cached_client = (fingerprint, client)
         return client
@@ -579,7 +598,14 @@ async def copy_recording(
         # OFF THE EVENT LOOP. The fetch above is async and the upload was not, so the
         # cheap half of this function yielded and the expensive half — a whole recording,
         # over the network — stalled every other job in the worker for its duration.
-        await asyncio.to_thread(_put)
+        # A thread the deadline leaves running can only finish the same PUT to the same
+        # key (a pure function of tenant and call), so the retry that follows is safe.
+        async with asyncio.timeout(RECORDING_UPLOAD_DEADLINE_S):
+            await asyncio.to_thread(_put)
+    except TimeoutError as exc:
+        raise StorageUnavailableError(
+            f"recording upload exceeded {RECORDING_UPLOAD_DEADLINE_S:.0f}s"
+        ) from exc
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"recording upload failed: {type(exc).__name__}") from exc
     # Key only — never the URL, and never the phone number in the log line. `leg` is ours
@@ -1426,7 +1452,7 @@ def _upload_client() -> tuple[Any, str]:
             "s3",
             endpoint_url=endpoint,
             region_name=region,
-            config=Config(signature_version="s3v4", retries={"max_attempts": 3}),
+            config=_store_config(),
         )
         _cached_upload_client = (fingerprint, client)
         return client, bucket
@@ -1673,6 +1699,7 @@ __all__ = [
     "RECORDING_FETCH_DEADLINE_S",
     "RECORDING_REDIRECT_LIMIT",
     "RECORDING_RETRY_DEFER_S",
+    "RECORDING_UPLOAD_DEADLINE_S",
     "UPLOAD_PART_BYTES",
     "RecordingLeg",
     "StorageUnavailableError",

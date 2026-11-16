@@ -1,6 +1,6 @@
 """Campaign engine agents kept honest, hourly (D-1003).
 
-Two jobs, one walk over the accounts that have a campaign engine agent routed:
+Two jobs, one walk over the accounts that have an engine agent routed:
 
 * **Retire what a campaign no longer needs.** Stop, completion, Unschedule and Archive give a
   campaign's engine agent back as they happen (`campaigns/engine_agent.end_campaign_agent`);
@@ -34,6 +34,7 @@ from apps.api.agents.opening_notices import WEAVE_NOTE
 from apps.api.agents.prompts import rollback_prompt
 from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, retire_campaign_agent
 from apps.api.compliance.audit import write_audit
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session, untenanted_session
@@ -52,11 +53,13 @@ CAMPAIGN_VERSION_PREFIX: Final = "Campaign: "
 #: script it is: the woven notices (D-971) and a change to what the agent collects.
 _AUTOMATIC_NOTES: Final = (WEAVE_NOTE, "Lead details changed: what the agent collects was updated")
 
-#: Accounts with a campaign engine agent routed: the only ones either job can have work in,
-#: since a held agent is restored only once its campaign has its own engine agent.
+#: Accounts with any engine agent routed, read untenanted (`campaigns` is invisible here).
+#: Not only those with a campaign route: a campaign that held its agent and ended before
+#: D-1003 never gets an engine agent of its own, and its agent, which has a route of its
+#: own, still has to be given its script back.
 _TENANTS_SQL: Final = (
     "SELECT DISTINCT tenant_id FROM engine_agent_routes "
-    "WHERE active AND campaign_id IS NOT NULL ORDER BY tenant_id"
+    "WHERE active AND tenant_id IS NOT NULL ORDER BY tenant_id"
 )
 
 #: A campaign's engine agent it no longer needs: archived, ended, or a test holder unused.
@@ -201,6 +204,12 @@ async def sweep_campaign_engine_agents(ctx: dict[str, Any]) -> str:
                 "campaign_engine_agent_sweep_failed",
                 extra={"tenant_id": str(tenant_id), "error": type(exc).__name__},
             )
+    if failed:
+        alert(
+            "WORKER_DELIVERY",
+            "campaign_engine_agent_sweep_failed",
+            detail=f"{failed} account(s) of {len(tenants)}",
+        )
     log.info(
         "campaign_engine_agent_sweep",
         extra={
