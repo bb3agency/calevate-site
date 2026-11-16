@@ -164,6 +164,33 @@ async def test_a_full_refund_empties_the_lot_it_reverses() -> None:
     ]
 
 
+async def test_a_full_refund_of_a_newer_purchase_empties_that_purchase_not_the_oldest() -> None:
+    """The whole purchase back comes off ITS OWN lot first, not off the head of the queue.
+
+    Taken FIFO, a full refund of the newer pack drained the older top-up and left the
+    refunded pack open: the balance was right, but it sat on the refunded pack's rates and
+    expiry, and the older payment read as spent, so refunding IT was refused.
+    """
+    tenant_id = await _tenant()
+    older = await _fund(tenant_id, amount_inr="500.00")
+    newer = await _fund(tenant_id, amount_inr="2000.00", pack_id="growth")
+
+    await _refund(tenant_id, payment_id=newer, amount_inr="2000.00")
+
+    rows = await lot_rows(tenant_id)
+    assert [row["credits_remaining"] for row in rows] == [Decimal("500.0000"), Decimal("0.0000")]
+    assert rows[0]["closed_at"] is None
+    assert rows[1]["closed_at"] is not None
+    assert await _balance(tenant_id) == Decimal("500.0000")
+    async with tenant_session(tenant_id) as session:
+        topup = await payments.find_topup(session, tenant_id=tenant_id, ref=older)
+        assert topup is not None
+        unspent = await payments.unspent_credit_of_payment(
+            session, tenant_id=tenant_id, payment_id=older, entry_id=topup.entry_id
+        )
+    assert unspent == Decimal("500.00")
+
+
 async def test_the_runway_stops_quoting_minutes_the_client_was_refunded_for() -> None:
     """`wallet.read_runway` sums `lots.runway()` and the low-balance email quotes it, so a
     phantom lot is a promise of talk time made to a client who has their money back."""

@@ -112,6 +112,7 @@ from apps.api.billing.payments import (
     PROVIDER,
     REFUND_FAILED_EVENT,
     REFUND_MAY_HAVE_MOVED_CODES,
+    REFUND_REJECTED_CODE,
     REFUND_PROCESSED_EVENT,
     REFUND_PROCESSING_DAYS,
     SIGNATURE_HEADER,
@@ -1380,14 +1381,19 @@ async def issue_tenant_refund(
     except ProblemError as failed:
         # A definitive refusal fails the attempt: it stops counting against the ceiling and
         # the next attempt derives a new key, because the provider may answer this one
-        # with the failure. Whether this request took the claim or replayed it does not
-        # matter: both sent this key and both got the same answer. An outcome that may
-        # have moved money (`REFUND_MAY_HAVE_MOVED_CODES`) keeps the claim and its key,
-        # the documented safe retry.
-        if failed.code not in REFUND_MAY_HAVE_MOVED_CODES:
+        # with the failure. A replay is released only on the provider's own refusal of the
+        # key (`refund_rejected`): a refusal raised before the request left us (no
+        # connection, payments not configured) says nothing about the request that took
+        # the claim, which may have created a refund. A claim already bound to a refund
+        # is never released here. An outcome that may have moved money
+        # (`REFUND_MAY_HAVE_MOVED_CODES`) keeps the claim and its key, the documented
+        # safe retry.
+        if failed.code not in REFUND_MAY_HAVE_MOVED_CODES and (
+            claim.claimed or failed.code == REFUND_REJECTED_CODE
+        ):
             async with tenant_session(tenant_id) as session:
                 await release_refund_claim(
-                    session, tenant_id=tenant_id, refund_key=claim.refund_key
+                    session, tenant_id=tenant_id, refund_key=claim.refund_key, only_unbound=True
                 )
         raise
     async with tenant_session(tenant_id) as session:

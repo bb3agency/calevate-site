@@ -259,9 +259,12 @@ async def read_trial_access(
 
 TRIAL_STUDIO_MINUTES_USED_RULE: Final = "trial_studio_minutes_used"
 
-#: Is this agent's live vendor agent on a Studio voice (our own voice key)?
+#: Is the vendor agent this test call dials on a Studio voice (our own voice key)? Asked of
+#: that one route: the agent's other routes (its test copy, a line's, a campaign's, an
+#: experiment arm's) can still carry the voice it had before a switch.
 _AGENT_ON_STUDIO_SQL: Final = (
-    "SELECT EXISTS (SELECT 1 FROM engine_agent_routes WHERE agent_id = :aid AND active "
+    "SELECT EXISTS (SELECT 1 FROM engine_agent_routes WHERE agent_id = :aid "
+    "AND (engine_agent_ref = CAST(:ref AS text) OR (CAST(:ref AS text) IS NULL AND active)) "
     "AND engine = :engine AND engine_rate_key = ANY(:studio_keys))"
 )
 
@@ -276,7 +279,8 @@ _TRIAL_STUDIO_SECONDS_SQL: Final = (
     "+ COALESCE((SELECT SUM(COALESCE(c.duration_s, 0)) FROM calls c WHERE c.tenant_id = :tid "
     "AND c.trial_call AND c.created_at >= :since AND NOT EXISTS (SELECT 1 FROM usage_events u "
     "WHERE u.tenant_id = c.tenant_id AND u.call_id = c.id AND u.unit_type = 'platform_min') "
-    "AND EXISTS (SELECT 1 FROM engine_agent_routes r WHERE r.agent_id = c.agent_id AND r.active "
+    "AND EXISTS (SELECT 1 FROM engine_agent_routes r WHERE r.agent_id = c.agent_id "
+    "AND (r.engine_agent_ref = c.engine_agent_ref OR (c.engine_agent_ref IS NULL AND r.active)) "
     "AND r.engine = :engine AND r.engine_rate_key = ANY(:studio_keys))), 0)"
 )
 
@@ -301,7 +305,11 @@ async def trial_studio_seconds_used(
 
 
 async def refuse_trial_studio_over_cap(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    engine_agent_ref: str | None = None,
 ) -> int | None:
     """Refuse a trial test call on a Studio voice once the trial's Studio minutes reach
     `trial_studio_minutes`, and otherwise answer how many Studio seconds are left, which the
@@ -309,7 +317,10 @@ async def refuse_trial_studio_over_cap(
 
     Called by `agents.service.dispatch_call` inside the intent transaction, after
     `_hold_trial_line` took the platform's trial-line lock: the count and the new call's row
-    are serialised with every other test call, so two dials cannot both pass it."""
+    are serialised with every other test call, so two dials cannot both pass it.
+
+    `engine_agent_ref` is the vendor agent the call dials; without it, any active route of
+    the agent on a Studio voice counts."""
     trial = await restricting_trial(session, tenant_id=tenant_id)
     if trial is None:
         return None
@@ -319,6 +330,7 @@ async def refuse_trial_studio_over_cap(
             text(_AGENT_ON_STUDIO_SQL),
             {
                 "aid": agent_id,
+                "ref": engine_agent_ref,
                 "engine": settings.engine,
                 "studio_keys": sorted(OWN_VOICE_RATE_KEYS),
             },

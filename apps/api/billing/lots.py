@@ -573,6 +573,19 @@ async def consume(session: AsyncSession, *, tenant_id: UUID, demand: LotDemand) 
     return await _consume_ai_assist(session, lots=lots, demand=demand)
 
 
+async def consume_lot_first(
+    session: AsyncSession, *, tenant_id: UUID, lot_id: UUID, demand: AiAssistDemand
+) -> list[LotSplit]:
+    """`consume`, drawing from `lot_id` before the rest of the queue: a reversal of a whole
+    purchase takes the credit that purchase opened, not the oldest lot's. Taken FIFO, a
+    refunded newer pack would stay open on its own rates and expiry while an older
+    purchase it never touched was drained."""
+    await credit_service.lock_tenant_credits(session, tenant_id)
+    lots = await read_open_lots(session, tenant_id=tenant_id)
+    lots.sort(key=lambda lot: lot.lot_id != lot_id)
+    return await _consume_ai_assist(session, lots=lots, demand=demand)
+
+
 async def _consume_call(
     session: AsyncSession, *, lots: list[OpenLot], demand: CallDemand
 ) -> list[LotSplit]:

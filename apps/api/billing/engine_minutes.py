@@ -481,7 +481,8 @@ async def _on_brought_number(session: AsyncSession, *, tenant_id: UUID, call_id:
             text(
                 "SELECT CASE WHEN c.to_e164 IS NOT NULL THEN ("
                 "  SELECT NOT n.engine_owned FROM phone_numbers n "
-                "  WHERE n.tenant_id = c.tenant_id AND n.e164 = c.to_e164"
+                "  WHERE n.tenant_id = c.tenant_id AND n.e164 = c.to_e164 "
+                "  ORDER BY n.released_at IS NULL DESC, n.released_at DESC LIMIT 1"
                 ") WHEN c.direction = 'inbound' THEN ("
                 "  SELECT bool_and(NOT n.engine_owned) FROM phone_numbers n "
                 "  WHERE n.tenant_id = c.tenant_id AND n.agent_id = c.agent_id "
