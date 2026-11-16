@@ -156,6 +156,29 @@ async def test_an_old_charge_found_captured_is_credited_once_and_counts_against_
     assert spent == Decimal("2000")
 
 
+async def test_a_payment_refunded_without_ever_being_captured_credits_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An authorized payment never captured is auto-refunded (capture-settings): `refunded`
+    with `captured: false` took no money, so the wallet is not credited for it."""
+    from dataclasses import replace
+
+    tenant_id, fake = await _recharging_tenant(monkeypatch)
+    charge_id, order_id = await _pending_charge(
+        tenant_id, age=auto_recharge.CHARGE_ANSWER_WINDOW + timedelta(hours=2)
+    )
+    returned = replace(
+        _payment(order_id, "refunded", age=timedelta(days=3, hours=1)), captured=False
+    )
+    fake.by_order[order_id] = [returned]
+
+    await auto_recharge.expire_unanswered(tenant_id)
+
+    assert await _topups(tenant_id, returned.payment_id) == []
+    status, _ = await _status(tenant_id, charge_id)
+    assert status != "captured"
+
+
 async def test_an_old_charge_whose_payments_all_failed_past_late_authorisation_is_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

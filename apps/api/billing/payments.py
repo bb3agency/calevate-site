@@ -914,7 +914,7 @@ class RazorpayOrders:
             )
             raise ProblemError(
                 kind="dependency",
-                code="refund_rejected",
+                code=REFUND_REJECTED_CODE,
                 title="The payment provider refused this refund",
                 detail="We could not refund that payment.",
                 remediation="Check the payment is refundable, or reconcile with the provider.",
@@ -962,6 +962,10 @@ class RazorpayOrders:
 #: `create_refund`'s refusals that follow a 2xx from the provider: a refund exists
 #: (`refund_amount_mismatch`) or may (`refund_unreadable`). Its claim on the refund ceiling
 #: must survive them, where a refusal that proves nothing was refunded releases it.
+#: The provider's own 4xx refusal of a refund request: the one answer to an idempotency key
+#: that proves no refund was made under it.
+REFUND_REJECTED_CODE: Final = "refund_rejected"
+
 REFUND_MAY_HAVE_MOVED_CODES: Final[frozenset[str]] = frozenset(
     {"refund_unreadable", "refund_amount_mismatch", "refund_in_progress", "refund_outcome_unknown"}
 )
@@ -1785,7 +1789,12 @@ async def claim_refund(
 
 
 async def release_refund_claim(
-    session: AsyncSession, *, tenant_id: UUID, refund_key: str, refund_id: str | None = None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    refund_key: str,
+    refund_id: str | None = None,
+    only_unbound: bool = False,
 ) -> None:
     """Fail a claim whose refund definitively did not happen.
 
@@ -1798,17 +1807,17 @@ async def release_refund_claim(
     It is marked `failed_at` rather than deleted, so the next attempt of the same amount
     counts it and derives a new idempotency key (`refund_idempotency_key`'s `attempt`).
 
-    Called ONLY for a claim this request actually took (`RefundClaim.claimed`), or for the
-    claim a `refund.failed` event names. Failing a replay's claim would withdraw a
-    reservation that belongs to the refund that already exists at the provider.
+    `only_unbound` leaves a claim the provider already answered with a refund id alone: a
+    refusal of a later request under the same key cannot un-make that refund.
     """
     await session.execute(
         text(
             "UPDATE refund_intents SET failed_at = now(), "
             "refund_ref = COALESCE(refund_ref, CAST(:rid AS text)) "
-            "WHERE tenant_id = :tid AND refund_key = :key AND failed_at IS NULL"
+            "WHERE tenant_id = :tid AND refund_key = :key AND failed_at IS NULL "
+            "AND (NOT :only_unbound OR refund_ref IS NULL)"
         ),
-        {"tid": tenant_id, "key": refund_key, "rid": refund_id},
+        {"tid": tenant_id, "key": refund_key, "rid": refund_id, "only_unbound": only_unbound},
     )
     log.info(
         "razorpay_refund_claim_released",
@@ -2326,6 +2335,7 @@ __all__ = [
     "REFUND_PATH_SUFFIX",
     "REFUND_PROCESSED_EVENT",
     "REFUND_PROCESSING_DAYS",
+    "REFUND_REJECTED_CODE",
     "SIGNATURE_HEADER",
     "SUBSCRIBED_EVENTS",
     "SUPPORTED_CURRENCY",

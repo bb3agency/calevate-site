@@ -824,6 +824,65 @@ async def _refusal(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str | None:
     return None
 
 
+async def test_a_clear_test_call_is_not_counted_against_studio_by_another_route_of_the_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Studio question is asked of the vendor agent the call dials. Another route of the
+    same agent (a test copy, a line's, a campaign's) still on the Studio voice it had before
+    a switch to Clear neither refuses the Clear dial nor makes its seconds Studio seconds."""
+    from apps.api.compliance.trial_access import (
+        refuse_trial_studio_over_cap,
+        restricting_trial,
+        trial_studio_seconds_used,
+    )
+
+    monkeypatch.setattr(get_settings(), "trial_studio_minutes", 1)
+    tenant_id, agent_id = await _trial_tenant()
+    await _on_studio(tenant_id, agent_id, studio=False)
+    async with tenant_session(tenant_id) as session:
+        main_ref = (
+            await session.execute(
+                text(
+                    "SELECT engine_agent_ref FROM engine_agent_routes "
+                    "WHERE agent_id = :aid AND active LIMIT 1"
+                ),
+                {"aid": agent_id},
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
+                "active, engine_rate_key, created_at, updated_at) VALUES (:e, :r, :t, :a, true, "
+                "'byok_voice', now(), now())"
+            ),
+            {
+                "e": get_settings().engine,
+                "r": f"copy_{uuid.uuid4().hex}",
+                "t": tenant_id,
+                "a": agent_id,
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+                "trial_call, engine_agent_ref, status, duration_s, created_at, updated_at) "
+                "VALUES (:id, :t, :a, :e, 'outbound', '+919876543210', true, :ref, 'completed', "
+                "120, now(), now())"
+            ),
+            {"id": uuid7(), "t": tenant_id, "a": agent_id, "e": uuid.uuid4().hex, "ref": main_ref},
+        )
+    async with tenant_session(tenant_id) as session:
+        trial = await restricting_trial(session, tenant_id=tenant_id)
+        assert trial is not None
+        assert await trial_studio_seconds_used(session, tenant_id=tenant_id, trial=trial) == 0
+        assert (
+            await refuse_trial_studio_over_cap(
+                session, tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=main_ref
+            )
+            is None
+        )
+
+
 @pytest.mark.parametrize("key", ["byok_voice", "byok_llm_voice"])
 async def test_studio_test_calls_stop_at_the_trials_studio_minutes(
     monkeypatch: pytest.MonkeyPatch, key: str

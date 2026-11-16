@@ -1621,9 +1621,9 @@ async def remove_credit_from_lots(
     * **anything else** — the entry opened no lot at all (a credit that predates lots, or
       one entirely absorbed by an overdraft), or the correction takes back the WHOLE
       purchase, which a restatement cannot express because `credits_total > 0` is a CHECK
-      and a lot of nothing is not a correction. Then the credit is spent off the FIFO
-      queue at face value, exactly as a dashboard-AI debit is, and the splits say which
-      lots it came out of.
+      and a lot of nothing is not a correction. Then the credit is spent at face value,
+      exactly as a dashboard-AI debit is, from the reversed purchase's own lot first and
+      then the FIFO queue, and the splits say which lots it came out of.
 
     **THE SHORTFALL IS CONSUMED, NOT DISCARDED, AND THAT IS INVARIANT §2.3.1.** A
     restatement floors the corrected lot at zero and hands back what it could not absorb.
@@ -1690,8 +1690,13 @@ async def remove_credit_from_lots(
             demand=credit_lots.AiAssistDemand(credits=restated.shortfall),
         )
         return CreditRemoval(splits=shortfall_splits, overdraft_inr=_overdraft_of(shortfall_splits))
-    splits = await credit_lots.consume(
-        session, tenant_id=tenant_id, demand=credit_lots.AiAssistDemand(credits=amount_inr)
+    demand = credit_lots.AiAssistDemand(credits=amount_inr)
+    splits = (
+        await credit_lots.consume(session, tenant_id=tenant_id, demand=demand)
+        if lot is None
+        else await credit_lots.consume_lot_first(
+            session, tenant_id=tenant_id, lot_id=lot.lot_id, demand=demand
+        )
     )
     return CreditRemoval(splits=splits, overdraft_inr=_overdraft_of(splits))
 

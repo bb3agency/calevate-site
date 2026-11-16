@@ -27,8 +27,10 @@ from typing import ClassVar
 
 import pytest
 from apps.api.billing import payments, wallet
+from apps.api.core.errors import ProblemError
 from apps.api.core.stepup import StepUp
 from apps.api.db.session import tenant_session
+from sqlalchemy import text
 from tests.conftest import create_org_with_receptionist
 
 pytestmark = [pytest.mark.rls]
@@ -131,7 +133,6 @@ async def test_a_receipt_for_an_unknown_organisation_is_a_404_not_a_crash() -> N
     """
     from apps.api.billing.wallet_routes import read_payment_receipt
     from apps.api.core.context import Principal
-    from apps.api.core.errors import ProblemError
 
     absent = uuid.uuid4()
     principal = Principal(
@@ -255,8 +256,19 @@ async def test_a_second_clawback_for_the_same_refund_moves_nothing() -> None:
 # --- a replay's claim belongs to the refund that already exists -------------------------
 
 
+@pytest.mark.parametrize(
+    ("code", "released_expected"),
+    [
+        # Raised before the request left us: proves nothing about the request that took
+        # the claim, which may have created a refund.
+        ("payment_provider_unreachable", False),
+        ("payments_not_configured", False),
+        # The provider's own refusal of this key: no refund exists under it.
+        ("refund_rejected", True),
+    ],
+)
 async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, code: str, released_expected: bool
 ) -> None:
     """FAILS IF: the release stops asking whether THIS request took the claim.
 
@@ -302,9 +314,10 @@ async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
         return RefundClaim(refund_key="rfk_replay", claimed=False)
 
     async def _provider_dies(**_: object) -> object:
-        raise RuntimeError("the provider timed out")
+        raise ProblemError(kind="dependency", code=code, title="t", detail="d")
 
     async def _record_release(*_: object, **kwargs: object) -> None:
+        assert kwargs.get("only_unbound") is True, "a bound claim is never released here"
         released.append(str(kwargs.get("refund_key")))
 
     monkeypatch.setattr(payment_routes, "claim_refund", _replay_claim)
@@ -323,7 +336,7 @@ async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
         client = None
         headers: ClassVar[dict[str, str]] = {}
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises(ProblemError):
         await payment_routes.issue_tenant_refund(
             tenant_id,
             payment_routes.RefundIn(
@@ -337,10 +350,52 @@ async def test_a_failed_replay_does_not_release_the_original_refunds_claim(
             payment_routes.refund_confirmation(tenant_id, payment_id),
         )
 
-    assert released == [], (
-        "a replay's claim was released; the ceiling it holds belongs to the refund that "
-        "already exists, and freeing it lets a second refund through"
+    assert released == (["rfk_replay"] if released_expected else []), (
+        f"a replay that failed with {code}: the claim belongs to the request that took it, "
+        "which may have created a refund; freeing it lets a second refund through"
     )
+
+
+async def test_a_claim_bound_to_a_refund_is_not_released_by_a_later_refusal() -> None:
+    """FAILS IF: a refusal under a claim's key fails a claim the provider already answered
+    with a refund id — that refund exists and must go on counting against the ceiling."""
+    from apps.api.billing.service import record_entry
+
+    created = await create_org_with_receptionist(
+        name="Bound Claim Clinic",
+        slug=f"bnd-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email="owner@example.test",
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = uuid.UUID(str(created["id"]))
+    payment_id = f"pay_{uuid.uuid4().hex[:12]}"
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("1000.0000"), reason="topup", ref=payment_id
+        )
+        await session.execute(
+            text(
+                "INSERT INTO refund_intents (id, tenant_id, payment_ref, refund_key, amount_inr, "
+                "refund_ref, created_at) VALUES (:id, :tid, :pid, 'rfk_bound', 500, 'rfnd_r0', "
+                "now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "pid": payment_id},
+        )
+        await session.commit()
+
+    async with tenant_session(tenant_id) as session:
+        await payments.release_refund_claim(
+            session, tenant_id=tenant_id, refund_key="rfk_bound", only_unbound=True
+        )
+        await session.commit()
+
+    async with tenant_session(tenant_id) as session:
+        claimed = await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=payment_id
+        )
+    assert claimed == Decimal("500"), "the bound refund dropped out of the refund ceiling"
 
 
 @pytest.mark.parametrize("code", ["refund_unreadable", "refund_amount_mismatch"])
@@ -358,7 +413,6 @@ async def test_a_refund_the_provider_accepted_keeps_its_claim_when_its_answer_is
     from apps.api.billing.payments import RefundClaim
     from apps.api.billing.service import record_entry
     from apps.api.core.context import Principal
-    from apps.api.core.errors import ProblemError
 
     created = await create_org_with_receptionist(
         name="Accepted Refund Clinic",

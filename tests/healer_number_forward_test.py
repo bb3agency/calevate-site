@@ -326,6 +326,30 @@ async def test_a_forward_on_a_brought_number_costs_nothing() -> None:
     assert priced.billed_minutes == Decimal("1.5") and priced.client_rate_key == "premium"
 
 
+async def test_a_forward_on_a_number_held_before_is_priced_by_the_live_holding() -> None:
+    """A number released and held again keeps its old row beside the live one (`e164` is
+    unique among live numbers only). The forward is priced by the live row; reading both
+    raised on every metering retry, so the call was never metered."""
+    at = datetime(2002, 1, 6, tzinfo=UTC) + timedelta(
+        microseconds=uuid.uuid4().int % 86_400_000_000
+    )
+    await _attest(at, {"premium": "2.50"})
+    tenant_id, agent_id = await _seed_tenant(f"fwdheld_{uuid.uuid4().hex[:10]}")
+    call_id = await _forwarded_call(tenant_id, agent_id, rate_key="premium", owned=False)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, engine_owned, "
+                "released_at, created_at, updated_at) SELECT :id, :t, :a, c.to_e164, true, "
+                "now() - interval '30 days', now() - interval '60 days', now() FROM calls c "
+                "WHERE c.id = :cid"
+            ),
+            {"id": uuid7(), "t": tenant_id, "a": agent_id, "cid": call_id},
+        )
+    priced = await _cost(tenant_id, call_id, at, 90)
+    assert priced.priced and priced.cost.total_inr == Decimal(0)
+
+
 @pytest.mark.parametrize(("rate_key", "inr"), [("byok_voice", "1.50"), ("byok_llm_voice", "1.00")])
 async def test_a_forward_on_an_own_key_agent_costs_its_key_sets_flat_price(
     rate_key: str, inr: str
