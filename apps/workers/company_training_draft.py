@@ -11,7 +11,8 @@ documents (`first_run.documents_block`: redacted, fenced, one word budget).
 
 What Pip writes is a proposal: the owner reviews it on the page and saves it, and only a save
 reaches the agents. The one exception is the first run's (founder, 16 Nov 2026): asked for
-with `auto_save`, it is saved at once as version 1 (`_save_if_asked`). Every write back is a compare-and-set on the proposal id, so a draft the
+with `auto_save`, it is saved at once as version 1 (`_save_if_asked`).
+Every write back is a compare-and-set on the proposal id, so a draft the
 owner stopped or replaced is never resurrected. Metered as a script draft, which it is.
 """
 

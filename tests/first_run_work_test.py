@@ -54,8 +54,7 @@ async def _outbox(job: str, tenant_id: uuid.UUID) -> list[dict[str, Any]]:
     async with untenanted_session() as session:
         rows = await session.execute(
             text(
-                "SELECT payload FROM outbox_messages WHERE job = :j "
-                "AND payload->>'tenant_id' = :t"
+                "SELECT payload FROM outbox_messages WHERE job = :j AND payload->>'tenant_id' = :t"
             ),
             {"j": job, "t": str(tenant_id)},
         )
@@ -141,7 +140,9 @@ async def test_what_first_drafts_a_line_with_no_number_and_pip_writes_it() -> No
     headers = await _owner(tenant_id)
     body = await _made(tenant_id, headers)
     async with _client() as http:
-        drafted = await http.post("/v1/first-run/work", headers=headers, json={"job": "answer_calls"})
+        drafted = await http.post(
+            "/v1/first-run/work", headers=headers, json={"job": "answer_calls"}
+        )
         again = await http.post("/v1/first-run/work", headers=headers, json={"job": "answer_calls"})
     assert drafted.status_code == 200, drafted.text
     line_id = drafted.json()["line_id"]
@@ -195,7 +196,9 @@ async def test_what_first_before_a_name_is_refused() -> None:
 async def _drafted_line(tenant_id: uuid.UUID, headers: dict[str, str]) -> uuid.UUID:
     await _made(tenant_id, headers)
     async with _client() as http:
-        drafted = await http.post("/v1/first-run/work", headers=headers, json={"job": "answer_calls"})
+        drafted = await http.post(
+            "/v1/first-run/work", headers=headers, json={"job": "answer_calls"}
+        )
     return uuid.UUID(drafted.json()["line_id"])
 
 

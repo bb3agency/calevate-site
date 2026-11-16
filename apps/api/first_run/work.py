@@ -133,7 +133,10 @@ async def save_agent(
                         engine_voice_id=voice_id,
                         set_engine_voice_id=True,
                     )
-                voice_state = {"state": "done", **{k: v for k, v in voice.items() if k != "voice_id"}}
+                voice_state = {
+                    "state": "done",
+                    **{k: v for k, v in voice.items() if k != "voice_id"},
+                }
             except ProblemError as refused:
                 log.info("first_run_voice_refused", extra={"reason": refused.code})
         await enqueue_outbox(
@@ -291,7 +294,10 @@ async def start_work(
             {"cid": campaign_id, "id": row.id},
         )
     await session.execute(
-        text("UPDATE first_runs SET jobs = ARRAY[CAST(:job AS text)], updated_at = now() WHERE id = :id"),
+        text(
+            "UPDATE first_runs SET jobs = ARRAY[CAST(:job AS text)], updated_at = now() "
+            "WHERE id = :id"
+        ),
         {"job": job, "id": row.id},
     )
     return await read_state(session, tenant_id=tenant_id)

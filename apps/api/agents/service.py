@@ -4155,11 +4155,14 @@ async def caller_lines(
     ).all()
     agent_scope: str | None = None
     if carrier is not None:
-        agent_ref = dial_ref or (
-            await session.execute(
-                text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
-            )
-        ).scalar()
+        agent_ref = (
+            dial_ref
+            or (
+                await session.execute(
+                    text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
+                )
+            ).scalar()
+        )
         agent_scope = scope_of(str(agent_ref)) if agent_ref else None
     return [
         CallerLine(

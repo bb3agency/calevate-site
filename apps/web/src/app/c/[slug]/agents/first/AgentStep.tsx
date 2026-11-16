@@ -75,6 +75,8 @@ export function AgentStep({
 
   return (
     <StepScreen
+      // The voice picker is a form of its own, so with it on screen the step is not one.
+      asForm={agent === null}
       title="Name your agent and pick its voice"
       hint={FIRST.agentHint}
       onBack={onBack}

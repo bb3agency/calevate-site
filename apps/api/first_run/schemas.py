@@ -148,7 +148,7 @@ class FirstRunOut(Strict):
 
 
 class AgentIn(Strict):
-    """"Name and voice": the agent made, or renamed before its first call."""
+    """ "Name and voice": the agent made, or renamed before its first call."""
 
     name: str = Field(min_length=1, max_length=60)
     language_primary: OfferedLanguage
@@ -156,7 +156,7 @@ class AgentIn(Strict):
 
 
 class WorkIn(Strict):
-    """"What first?": `answer_calls` drafts an inbound line, `call_leads` a campaign."""
+    """ "What first?": `answer_calls` drafts an inbound line, `call_leads` a campaign."""
 
     job: Literal["answer_calls", "call_leads"]
 
@@ -227,11 +227,10 @@ __all__ = [
     "AgentIn",
     "AnswerIn",
     "AnswersIn",
-    "DefaultAgentOut",
-    "WorkIn",
     "BriefIn",
     "BuildOut",
     "BuildStepOut",
+    "DefaultAgentOut",
     "DocumentIn",
     "DocumentOut",
     "FirstRunOut",
@@ -242,4 +241,5 @@ __all__ = [
     "QuestionOut",
     "QuestionsOut",
     "RecordingOut",
+    "WorkIn",
 ]

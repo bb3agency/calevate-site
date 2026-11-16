@@ -289,9 +289,8 @@ async def place_trial_call(
 
         try:
             line_test = await line_test_dial(tenant_id=tenant_id, line_id=line_id)
-            no_number = (
-                paid is not None
-                and not await caller_lines(session, agent_id=agent_id, dial_ref=line_test.ref)
+            no_number = paid is not None and not await caller_lines(
+                session, agent_id=agent_id, dial_ref=line_test.ref
             )
         except Exception:
             await release()
