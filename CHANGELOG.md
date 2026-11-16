@@ -3,6 +3,24 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.56 — 16-Nov-2026
+
+- **Each campaign speaks through its own calling agent**, in the voice you chose. Your
+  agent's own script and the numbers it answers stay exactly as they are, and several
+  campaigns can use the same agent at once. A campaign's Test call rings that campaign.
+- Each campaign keeps its own **What it notes** list, on its Set up page.
+- If your account has no room for another campaign's calling agent, Start tells you
+  plainly and says what to do.
+- **Pip writes to the kind of call you are making** (a booking, a reminder, a payment,
+  feedback and more), using only what your main task and sources say. Pick a tone and add a
+  note before you press Generate; press **Why?** on any part to see where it came from; to
+  change one part of a kept script, press **Ask Pip to change it**. Pip marks any line your
+  sources do not back, and keeps the script short enough for your agent.
+- When an agent makes a mistake on real calls, the fix is written as a draft on the line or
+  campaign the call was on. Review it there before it goes live.
+- Changing an agent's main language points you to each line and campaign to change its
+  opening.
+
 ## 0.4.55 — 16-Nov-2026
 
 - **Inbound lines behave like agents on every safeguard.** A line you put live answers its
