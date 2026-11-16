@@ -89,6 +89,7 @@ from calevate_shared.lead_fields import with_core
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.crm.captured import holder_fields
 from apps.api.crm.lead_projection import LEAD_SUBJECT_KIND, project_lead
 from apps.api.retrieval.caller_projections import (
     CallerProjection,
@@ -115,7 +116,7 @@ _CANDIDATE_FANOUT: Final = 4
 #: expired must NOT come back as "stale", which is what would happen if the predicate only
 #: compared clocks.
 _CANDIDATE_SQL: Final = f"""
-SELECT l.id, l.agent_id, l.phone_e164, l.data, l.updated_at, l.schema_version
+SELECT l.id, l.agent_id, l.phone_e164, l.data, l.updated_at, l.schema_version, l.last_call_id
 FROM leads l
 WHERE l.deleted_at IS NULL
   AND l.data IS NOT NULL AND l.data <> '{{}}'::jsonb
@@ -166,16 +167,26 @@ async def _fields_for(
 async def _project(
     session: AsyncSession, rows: Sequence[Any]
 ) -> dict[UUID, tuple[Any, list[tuple[int, str, tuple[str, ...]]]]]:
-    """Every candidate lead's chunks, keyed by lead id. One schema read per (agent, version)."""
+    """Every candidate lead's chunks, keyed by lead id. One schema read per (agent, version).
+
+    A lead whose latest call's campaign or line has its own What it notes is projected
+    under that list (D-1003): its details were captured under it, and the agent's list
+    would leave them out of the projection.
+    """
     schemas: dict[tuple[UUID, int | None], list[ExtractionField]] = {}
+    held = await holder_fields(session, [UUID(str(r[6])) for r in rows if r[6] is not None])
+    named = await core_labels(session) if held else None
     out: dict[UUID, tuple[Any, list[tuple[int, str, tuple[str, ...]]]]] = {}
     for row in rows:
-        agent_id = UUID(str(row[1]))
-        version = None if row[5] is None else int(row[5])
-        key = (agent_id, version)
-        if key not in schemas:
-            schemas[key] = await _fields_for(session, agent_id, version)
-        projection = project_lead(schemas[key], row[3])
+        holder = held.get(UUID(str(row[6]))) if row[6] is not None else None
+        if holder:
+            fields = with_core(holder, named)
+        else:
+            key = (UUID(str(row[1])), None if row[5] is None else int(row[5]))
+            if key not in schemas:
+                schemas[key] = await _fields_for(session, *key)
+            fields = schemas[key]
+        projection = project_lead(fields, row[3])
         out[UUID(str(row[0]))] = (
             row,
             [(chunk.idx, chunk.text, chunk.keys) for chunk in projection.chunks],
@@ -250,7 +261,8 @@ async def lead_chunk_content(
     rows = (
         await session.execute(
             text(
-                "SELECT l.id, l.agent_id, l.phone_e164, l.data, l.updated_at, l.schema_version "
+                "SELECT l.id, l.agent_id, l.phone_e164, l.data, l.updated_at, l.schema_version, "
+                "l.last_call_id "
                 "FROM leads l WHERE l.id = ANY(:ids) AND l.deleted_at IS NULL "
                 "AND l.data IS NOT NULL AND l.data <> '{}'::jsonb"
             ),

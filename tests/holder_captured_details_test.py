@@ -151,3 +151,15 @@ async def test_reading_a_campaign_call_again_asks_for_the_campaigns_own_list() -
     keys = {f.key for f in source.spec.fields}
     assert "visit_day" in keys
     assert "insurance_plan" not in keys
+
+
+async def test_a_campaign_leads_details_are_searchable_under_the_campaigns_list() -> None:
+    from apps.api.crm.lead_chunks import discover_lead_chunks, lead_chunk_content
+
+    tenant_id, _call_id, lead_id = await _campaign_call()
+    async with tenant_session(tenant_id) as session:
+        chunks = [c for c in await discover_lead_chunks(session, 10) if c.subject_id == lead_id]
+        content = await lead_chunk_content(session, [(lead_id, c.idx) for c in chunks])
+    assert any("Visit day" in c.text and "Monday" in c.text for c in chunks)
+    # The claimed re-read projects the same way, so the stored digest matches.
+    assert sorted(content.values()) == sorted(c.text for c in chunks)
