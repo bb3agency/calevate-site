@@ -7,31 +7,29 @@
  *
  * Three sections, each with its own colour so the eye keeps them apart:
  *  1. Main task — a green rule: the owner's words, many lines.
- *  2. Sources (D-996; the API still says materials) — a blue ground: documents, links and notes, including notes learned from
- *     the campaign's own calls (the Questions tab adds them).
+ *  2. Sources — a blue ground: what the campaign picked from What your agents know, plus
+ *     "Add a file or note", which adds to What your agents know and picks it (founder,
+ *     16 Nov 2026: one place holds them). An answer on the Questions tab is added the same way.
  *  3. Script — a dark green rule: Pip writes it from 1 and 2, the owner reviews it part by
  *     part with the same Review / Update / Edit the agent Script page uses, and edits it any
  *     time. A rule rather than a green ground: a tinted card reads as a notice
  *     (`tests/noticeStyle.test.tsx`).
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
-import { SearchField } from "@/components/arc/search-field";
-import { TEXT_ACTION_DANGER } from "@/components/console/section";
 import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton } from "@/components/ui";
 import {
-  useAddMaterial,
-  useArchiveMaterial,
+  useAddCampaignSource,
   useCampaignSettings,
   useCampaignWorkspace,
   useClearCampaignProposal,
   useRequestCampaignScript,
   useSaveCampaignScript,
   useSaveMainTask,
-  useUploadMaterial,
+  useSetCampaignSources,
   type CampaignWorkspace as Workspace,
 } from "@/lib/api/campaignWorkspace";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
@@ -40,11 +38,11 @@ import { useClientRealm } from "@/lib/api/session";
 import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
 import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 
-import { KIND_LABEL, MATERIALS_HINT, MATERIALS_INFO, MaterialForm } from "./MaterialsDraft";
-import { matchesWords } from "./matchWords";
+import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
+import { SourcePicker } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
 import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 
@@ -79,7 +77,7 @@ export function CampaignWorkspace({
   return (
     <div className="space-y-10">
       <MainTask campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
-      <Materials campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
+      <Sources campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
       <ScriptSection campaignId={campaignId} space={space.data} canWrite={canWrite} refusal={refusal} />
     </div>
   );
@@ -87,7 +85,7 @@ export function CampaignWorkspace({
 
 type Props = { campaignId: string; space: Workspace; canWrite: boolean; refusal?: string };
 
-/** Generate: Pip writes (or rewrites) the script from the main task and materials. */
+/** Generate: Pip writes (or rewrites) the script from the main task and sources. */
 function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const ask = useRequestCampaignScript(session, campaignId);
@@ -215,90 +213,46 @@ function MainTask({ campaignId, space, canWrite, refusal }: Props) {
   );
 }
 
-function Materials({ campaignId, space, canWrite, refusal }: Props) {
+function Sources({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
-  const add = useAddMaterial(session, campaignId);
-  const uploadFile = useUploadMaterial(session, campaignId);
-  const archive = useArchiveMaterial(session, campaignId);
-  useActionFeedback(add, { errorDisplay: "inline" });
-  useActionFeedback(uploadFile, { errorDisplay: "inline" });
-  const archiveFeedback = useActionFeedback(archive, { errorTitle: "Could not remove it", successToast: "Removed" });
-  const [query, setQuery] = useState("");
-
-  const shown = useMemo(
-    () =>
-      space.materials.filter((m) =>
-        matchesWords(query, [m.title, m.url, m.note, KIND_LABEL[m.kind], m.source === "call" ? "learned from calls" : ""]),
-      ),
-    [space.materials, query],
-  );
+  const save = useSetCampaignSources(session, campaignId);
+  const add = useAddCampaignSource(session, campaignId);
+  useActionFeedback(save, { errorDisplay: "inline", successToast: "Sources saved" });
+  useActionFeedback(add, { errorDisplay: "inline", successToast: "Added and picked" });
+  const count = space.source_ids.length;
 
   return (
-    <FoldSection id="campaign-materials" title="Sources" tone="materials" hint={MATERIALS_HINT} info={MATERIALS_INFO}>
-
-      <MaterialForm
-        canWrite={canWrite}
-        refusal={refusal}
-        onAdd={({ file, ...item }) => {
-          add.reset();
-          uploadFile.reset();
-          return file ? uploadFile.mutateAsync({ file, title: item.title }) : add.mutateAsync(item);
-        }}
-        adding={add.isPending || uploadFile.isPending}
-        addError={uploadFile.error ?? add.error}
-      />
-
-      {space.materials.length > 0 && (
-        <div className="mt-4 space-y-3">
-          {space.materials.length > 3 && (
-            <SearchField label="Search sources" hideLabel value={query} onValueChange={setQuery} placeholder="Search sources" />
-          )}
-          <ul className="max-w-4xl divide-y divide-line border-y border-line">
-            {shown.map((m) => (
-              <li key={m.id} className="flex items-start gap-3 py-3.5">
-                <span className="mt-0.5 w-12 shrink-0 text-meta text-ink-muted">
-                  {KIND_LABEL[m.kind]}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">
-                    {m.title}
-                    {m.source === "call" && (
-                      <span className="ml-2 text-meta font-normal text-brand-strong">Learned from calls</span>
-                    )}
-                  </p>
-                  {m.url && (
-                    <a href={m.url} target="_blank" rel="noreferrer noopener" className="text-meta text-ink-muted underline decoration-line underline-offset-2 hover:text-ink [overflow-wrap:anywhere]">
-                      {m.url}
-                    </a>
-                  )}
-                  {m.note && (
-                    <ExpandableText
-                      lines={3}
-                      moreLabel="Show more"
-                      lessLabel="Show less"
-                      className="mt-0.5 text-meta text-ink-muted"
-                      textClassName="whitespace-pre-wrap [overflow-wrap:anywhere]"
-                    >
-                      {m.note}
-                    </ExpandableText>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  className={TEXT_ACTION_DANGER}
-                  disabled={!canWrite || archive.isPending}
-                  title={refusal}
-                  aria-label={`Remove ${m.title}`}
-                  onClick={() => archiveFeedback.run(m.id)}
-                >
-                  Remove
-                </button>
-              </li>
-            ))}
-            {shown.length === 0 && <li className="py-3.5 text-meta text-ink-muted">Nothing matches “{query}”.</li>}
-          </ul>
-        </div>
-      )}
+    <FoldSection
+      id="campaign-materials"
+      title="Sources"
+      tone="materials"
+      hint={SOURCES_HINT}
+      info={SOURCES_INFO}
+      aside={count > 0 ? `${count} chosen` : undefined}
+    >
+      <div className="space-y-4">
+        {/* Keyed on what is saved, so an item added below shows ticked rather than being
+            dropped by ticks still waiting to be saved. */}
+        <SourcePicker
+          key={space.source_ids.join()}
+          saved={space.source_ids}
+          legend="Sources for this campaign"
+          canWrite={canWrite}
+          refusal={refusal}
+          save={save}
+          emptyAction={false}
+        />
+        <AddSourceForm
+          canWrite={canWrite}
+          refusal={refusal}
+          onAdd={(item) => {
+            add.reset();
+            return add.mutateAsync(item);
+          }}
+          adding={add.isPending}
+          addError={add.error}
+        />
+      </div>
     </FoldSection>
   );
 }

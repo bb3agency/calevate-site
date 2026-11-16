@@ -7517,62 +7517,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/campaigns/{campaign_id}/materials": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Add a document, link or note for the campaign to work from */
-        post: operations["add_material_v1_campaigns__campaign_id__materials_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/campaigns/{campaign_id}/materials/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload a file for the campaign; a file already in the knowledge is reused
-         * @description The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
-         *     unless these exact bytes are already live there: then that upload is attached instead of
-         *     being refused as a duplicate, because the campaign only needs to point at it (D-992).
-         */
-        post: operations["upload_material_v1_campaigns__campaign_id__materials_upload_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/campaigns/{campaign_id}/materials/{material_id}/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Remove a material from the campaign (archived, not deleted) */
-        post: operations["archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/campaigns/{campaign_id}/opening-b": {
         parameters: {
             query?: never;
@@ -7658,9 +7602,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Answer a question the agent could not: kept as a note learned from the calls
-         * @description The answer joins the campaign's materials as a note learned from its calls, so the next
-         *     script Pip writes works it in; the owner updates the script to put it on calls.
+         * Answer a question the agent could not: a note in What your agents know, picked
+         * @description The answer goes into What your agents know, so every agent can give it, and the
+         *     campaign picks it, so the next script Pip writes works it in; the owner updates the
+         *     script to put it on calls.
          */
         post: operations["answer_question_v1_campaigns__campaign_id__questions_answer_post"];
         delete?: never;
@@ -7831,7 +7776,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask Pip to write the campaign's script from its main task and materials */
+        /** Ask Pip to write the campaign's script from its main task and sources */
         post: operations["request_proposal_v1_campaigns__campaign_id__script_proposal_post"];
         delete?: never;
         options?: never;
@@ -7872,6 +7817,82 @@ export interface paths {
          */
         put: operations["save_campaign_settings_v1_campaigns__campaign_id__settings_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Choose the sources from What your agents know that Pip writes the campaign from */
+        put: operations["set_sources_v1_campaigns__campaign_id__sources_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/sources/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a web page to What your agents know and pick it for the campaign
+         * @description The link goes into the client's knowledge exactly as `POST /v1/kb/links` puts it.
+         */
+        post: operations["add_link_v1_campaigns__campaign_id__sources_link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/sources/note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Write a note into What your agents know and pick it for the campaign */
+        post: operations["add_note_v1_campaigns__campaign_id__sources_note_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/campaigns/{campaign_id}/sources/upload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a file into What your agents know and pick it; a copy there is reused
+         * @description The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
+         *     unless these exact bytes are already live there: then that upload is attached instead of
+         *     being refused as a duplicate, because the campaign only needs to pick it.
+         */
+        post: operations["upload_source_v1_campaigns__campaign_id__sources_upload_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7999,7 +8020,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The campaign's main task, materials, script and Pip's pending draft */
+        /** The campaign's main task, sources, script and Pip's pending draft */
         get: operations["read_workspace_v1_campaigns__campaign_id__workspace_get"];
         put?: never;
         post?: never;
@@ -17358,19 +17379,17 @@ export interface components {
             /** Name */
             name?: string | null;
         };
-        /** Body_upload_material_v1_campaigns__campaign_id__materials_upload_post */
-        Body_upload_material_v1_campaigns__campaign_id__materials_upload_post: {
-            /** File */
-            file: string;
-            /** Title */
-            title?: string | null;
-        };
         /** Body_upload_preview_v1_ops_voices_hosted_preview_post */
         Body_upload_preview_v1_ops_voices_hosted_preview_post: {
             /** Sample */
             sample: string;
             /** Voice Id */
             voice_id: string;
+        };
+        /** Body_upload_source_v1_campaigns__campaign_id__sources_upload_post */
+        Body_upload_source_v1_campaigns__campaign_id__sources_upload_post: {
+            /** File */
+            file: string;
         };
         /** BootstrapConfirmIn */
         BootstrapConfirmIn: {
@@ -19379,6 +19398,20 @@ export interface components {
             /** Unfixed */
             unfixed: boolean;
         };
+        /** CampaignLinkIn */
+        CampaignLinkIn: {
+            /** Name */
+            name?: string | null;
+            /** Url */
+            url: string;
+        };
+        /** CampaignNoteIn */
+        CampaignNoteIn: {
+            /** Note */
+            note: string;
+            /** Title */
+            title?: string | null;
+        };
         /** CampaignPageOut */
         CampaignPageOut: {
             /**
@@ -19620,6 +19653,11 @@ export interface components {
             reask_after_ms?: number | null;
             /** Speaking Speed */
             speaking_speed?: string | null;
+        };
+        /** CampaignSourcesIn */
+        CampaignSourcesIn: {
+            /** Source Ids */
+            source_ids: string[];
         };
         /**
          * CampaignSummaryOut
@@ -29067,53 +29105,6 @@ export interface components {
         MasterSwitchIn: {
             /** Enabled */
             enabled: boolean;
-        };
-        /** MaterialIn */
-        MaterialIn: {
-            /** Kb Upload Id */
-            kb_upload_id?: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "file" | "link" | "note";
-            /** Note */
-            note?: string | null;
-            /** Title */
-            title: string;
-            /** Url */
-            url?: string | null;
-        };
-        /** MaterialOut */
-        MaterialOut: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Kb Upload Id */
-            kb_upload_id: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "file" | "link" | "note";
-            /** Note */
-            note: string | null;
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "owner" | "call";
-            /** Title */
-            title: string;
-            /** Url */
-            url: string | null;
         };
         /** MeOut */
         MeOut: {
@@ -39533,12 +39524,12 @@ export interface components {
             campaign_id: string;
             /** Main Task */
             main_task: string;
-            /** Materials */
-            materials: components["schemas"]["MaterialOut"][];
             proposal: components["schemas"]["CampaignProposalOut"] | null;
             script: components["schemas"]["CallScript"] | null;
             /** Script Live Version */
             script_live_version: number | null;
+            /** Source Ids */
+            source_ids: string[];
             /** Status */
             status: string;
         };
@@ -53375,106 +53366,6 @@ export interface operations {
             };
         };
     };
-    add_material_v1_campaigns__campaign_id__materials_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                campaign_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["MaterialIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MaterialOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    upload_material_v1_campaigns__campaign_id__materials_upload_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                campaign_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_upload_material_v1_campaigns__campaign_id__materials_upload_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MaterialOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                campaign_id: string;
-                material_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     save_opening_b_v1_campaigns__campaign_id__opening_b_put: {
         parameters: {
             query?: never;
@@ -53622,7 +53513,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MaterialOut"];
+                    "application/json": components["schemas"]["WorkspaceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -53981,6 +53872,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CampaignSettingsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_sources_v1_campaigns__campaign_id__sources_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignSourcesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_link_v1_campaigns__campaign_id__sources_link_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignLinkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_note_v1_campaigns__campaign_id__sources_note_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignNoteIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    upload_source_v1_campaigns__campaign_id__sources_upload_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_source_v1_campaigns__campaign_id__sources_upload_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

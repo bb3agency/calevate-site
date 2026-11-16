@@ -35,6 +35,7 @@ from apps.api.campaigns.workspace import (
 )
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
+from apps.api.kb.picks import LINE_PICKS, read_picks, replace_picks
 from apps.api.reliability.service import enqueue_outbox
 
 NAME_MAX: Final = 80
@@ -117,23 +118,7 @@ async def _lines(session: AsyncSession, line_id: UUID | None = None) -> list[Lin
         )
     ).all():
         numbers[lid].append(LineNumber(id=nid, e164=str(e164)))
-    sources: dict[UUID, list[UUID]] = defaultdict(list)
-    # A typed note gets a new `kb_sources` row on every edit, so a picked note is read as its
-    # newest version (by name); a file or link keeps its row, so its id stands.
-    for lid, sid in (
-        await session.execute(
-            text(
-                "SELECT ls.inbound_line_id, COALESCE((SELECT n.id FROM kb_sources n "
-                "WHERE n.name = s.name AND n.kind = 'text' AND NOT EXISTS "
-                "(SELECT 1 FROM kb_uploads u WHERE u.source_id = n.id) "
-                "ORDER BY n.version DESC, n.id DESC LIMIT 1), ls.kb_source_id) "
-                "FROM inbound_line_sources ls JOIN kb_sources s ON s.id = ls.kb_source_id "
-                "WHERE ls.inbound_line_id = ANY(:ids) ORDER BY ls.created_at, ls.id"
-            ),
-            {"ids": ids},
-        )
-    ).all():
-        sources[lid].append(sid)
+    sources = await read_picks(session, LINE_PICKS, ids)
     now = datetime.now(UTC)
     return [
         Line(
@@ -294,28 +279,14 @@ async def set_sources(
     """The sources from What your agents know that Pip writes this line from, replacing the
     last choice. A source of another account is invisible under RLS and refused as missing."""
     await _lock(session, line_id)
-    wanted = list(dict.fromkeys(kb_source_ids))
-    if wanted:
-        found = set(
-            (
-                await session.execute(
-                    text("SELECT id FROM kb_sources WHERE id = ANY(:ids)"), {"ids": wanted}
-                )
-            ).scalars()
-        )
-        if found != set(wanted):
-            raise ProblemError.not_found("Source")
-    await session.execute(
-        text("DELETE FROM inbound_line_sources WHERE inbound_line_id = :lid"), {"lid": line_id}
+    await replace_picks(
+        session,
+        LINE_PICKS,
+        tenant_id=tenant_id,
+        holder_id=line_id,
+        kb_source_ids=kb_source_ids,
+        created_by=created_by,
     )
-    for source_id in wanted:
-        await session.execute(
-            text(
-                "INSERT INTO inbound_line_sources (id, tenant_id, inbound_line_id, kb_source_id, "
-                "created_by) VALUES (:id, :t, :lid, :s, :by)"
-            ),
-            {"id": uuid7(), "t": tenant_id, "lid": line_id, "s": source_id, "by": created_by},
-        )
 
 
 async def set_actions_off(session: AsyncSession, line_id: UUID, slugs: list[str]) -> None:

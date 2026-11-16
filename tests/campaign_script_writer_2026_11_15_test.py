@@ -1,6 +1,7 @@
 """Pip's campaign script goes through what every Pip script does (D-992 with D-989, D-957).
 
-1. A campaign's first script is written whole from the main task and materials, not as an
+1. A campaign's first script is written whole from the main task and the sources it picked
+   from What your agents know (and no other), not as an
    edit of an empty script; a campaign that has a script gets an edit of the one the
    request was made from.
 2. The call-mistake checks read the draft and their repair rewrites what they find, metered.
@@ -78,15 +79,33 @@ async def _campaign(script: CallScript | None = None) -> tuple[UUID, UUID]:
             },
         )
         await workspace.save_main_task(session, campaign_id, MAIN_TASK)
-        await workspace.add_material(
+        # A live note in What your agents know, picked by the campaign, and one it did not
+        # pick, which the writer must not read.
+        picked, other = uuid7(), uuid7()
+        for source_id, name, words in (
+            (picked, "Offer", "Tell them the first month is free."),
+            (other, "Old offer", "Tell them the first year is free."),
+        ):
+            await session.execute(
+                text(
+                    "INSERT INTO kb_sources (id, tenant_id, kind, name, status, version, "
+                    "is_active, created_at, updated_at) VALUES (:i, :t, 'text', :n, "
+                    "'approved', 1, true, now(), now())"
+                ),
+                {"i": source_id, "t": tenant_id, "n": name},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO kb_documents (id, tenant_id, source_id, idx, content, "
+                    "created_at, updated_at) VALUES (:id, :t, :s, 0, :w, now(), now())"
+                ),
+                {"id": uuid7(), "t": tenant_id, "s": source_id, "w": words},
+            )
+        await workspace.set_sources(
             session,
             tenant_id=tenant_id,
             campaign_id=campaign_id,
-            kind="note",
-            title="Offer",
-            url=None,
-            note="Tell them the first month is free.",
-            kb_upload_id=None,
+            kb_source_ids=[picked],
             created_by=None,
         )
     return tenant_id, campaign_id
@@ -164,6 +183,7 @@ async def test_a_first_script_is_written_whole_from_the_main_task_and_notes(
     assert "edit_of" not in first
     assert MAIN_TASK in first["brief"].description
     assert "first month is free" in first["brief"].description
+    assert "first year is free" not in first["brief"].description
     assert proposal.base_script is None and proposal.script is not None
 
 

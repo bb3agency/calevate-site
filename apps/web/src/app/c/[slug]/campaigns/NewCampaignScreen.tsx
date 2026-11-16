@@ -3,7 +3,7 @@
 /**
  * `/c/{slug}/campaigns/new`: makes a draft at once and opens it (founder, 15 Nov 2026: empty
  * sections on a separate New page "don't make sense"). The draft page is the one place a
- * campaign is set up, so every section (main task, materials, script, agent, test call,
+ * campaign is set up, so every section (main task, sources, script, agent, test call,
  * people, the compliance checks, other settings) has its controls from the first moment.
  *
  * The draft starts with the first agent that can call, as Service calls held to the account's

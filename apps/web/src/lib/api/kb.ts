@@ -305,6 +305,9 @@ function invalidateNotes(client: ReturnType<typeof useQueryClient>, session: Ses
   invalidateKnowledge(client, session);
 }
 
+/** After something was added to What your agents know from another page (a campaign's). */
+export const invalidateKnowledgeLists = invalidateNotes;
+
 /** Rename a typed note: every version, so its history stays one item. */
 export function useRenameNote(session: Session) {
   const client = useQueryClient();

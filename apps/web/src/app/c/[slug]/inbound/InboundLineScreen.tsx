@@ -13,12 +13,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { InlineEdit } from "@/components/arc/inline-edit";
-import { SearchField } from "@/components/arc/search-field";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
 import {
@@ -55,7 +54,6 @@ import {
   useUpdateInboundLine,
   type InboundLine,
 } from "@/lib/api/inboundLines";
-import { useKbNotes, useKbUploads } from "@/lib/api/kb";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useClientRealm } from "@/lib/api/session";
 import { endingLabel } from "@/lib/callReview";
@@ -64,9 +62,9 @@ import { LeftOutNotice } from "../agents/[agentId]/script/PipProposal";
 import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 import { ScriptSummary } from "../campaigns/CampaignWorkspace";
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
-import { matchesWords } from "../campaigns/matchWords";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
+import { SourcePicker } from "../campaigns/SourcePicker";
 
 import { LineStatusPill, lineState } from "./lineStatus";
 
@@ -282,51 +280,11 @@ function MainTaskSection({ line, canWrite, refusal }: Props) {
   );
 }
 
-type SourceChoice = { id: string; name: string; kind: string };
-
-/** The account's knowledge as a pick list: typed notes and uploads, each by its source id. */
-function useSourceChoices() {
-  const { session } = useClientRealm();
-  const notes = useKbNotes(session);
-  const uploads = useKbUploads(session);
-  const choices = useMemo<SourceChoice[]>(() => {
-    const fromNotes = (notes.data?.notes ?? [])
-      .filter((note) => note.state !== "removed")
-      .map((note) => ({ id: note.id, name: note.name, kind: "Note" }));
-    const fromUploads = (uploads.data ?? []).map((upload) => ({
-      id: upload.source_id,
-      name: upload.name,
-      kind: upload.source_kind === "url" ? "Link" : "File",
-    }));
-    return [...fromUploads, ...fromNotes];
-  }, [notes.data, uploads.data]);
-  return {
-    choices,
-    isLoading: notes.isLoading || uploads.isLoading,
-    error: notes.error ?? uploads.error,
-    ready: notes.data !== undefined && uploads.data !== undefined,
-    refetch: () => {
-      void notes.refetch();
-      void uploads.refetch();
-    },
-  };
-}
-
 function SourcesSection({ line, canWrite, refusal }: Props) {
-  const { session, href } = useClientRealm();
-  const sources = useSourceChoices();
+  const { session } = useClientRealm();
   const save = useSetLineSources(session, line.id);
   useActionFeedback(save, { errorDisplay: "inline", successToast: "Sources saved" });
-  const [picked, setPicked] = useState<string[] | null>(null);
-  const [query, setQuery] = useState("");
-  const chosen = picked ?? line.source_ids;
-  const dirty = picked !== null && [...picked].sort().join() !== [...line.source_ids].sort().join();
-  const shown = sources.choices.filter((choice) => matchesWords(query, [choice.name, choice.kind]));
-  const toggle = (id: string) =>
-    setPicked((current) => {
-      const base = current ?? line.source_ids;
-      return base.includes(id) ? base.filter((x) => x !== id) : [...base, id];
-    });
+  const count = line.source_ids.length;
 
   return (
     <FoldSection
@@ -335,66 +293,15 @@ function SourcesSection({ line, canWrite, refusal }: Props) {
       tone="materials"
       hint="What Pip reads to write this line's script."
       info={SOURCES_INFO}
-      aside={chosen.length > 0 ? `${chosen.length} chosen` : undefined}
+      aside={count > 0 ? `${count} chosen` : undefined}
     >
-      {sources.isLoading ? (
-        <Skeleton rows={2} label="Loading what your agents know" />
-      ) : !sources.ready ? (
-        <ProblemNotice error={sources.error ?? new Error("Your sources did not load.")} onRetry={sources.refetch} />
-      ) : sources.choices.length === 0 ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-body text-ink-muted">Nothing added to What your agents know yet.</p>
-          <Link href={href(`/c/${session.orgSlug}/knowledge`)} className={SECONDARY_BUTTON_SM}>
-            Add knowledge
-          </Link>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {sources.choices.length > 6 && (
-            <SearchField label="Search sources" hideLabel value={query} onValueChange={setQuery} placeholder="Search sources" />
-          )}
-          <fieldset>
-            <legend className="sr-only">Sources for this line</legend>
-            <ul className="max-w-3xl divide-y divide-line border-y border-line">
-              {shown.map((choice) => (
-                <li key={choice.id}>
-                  <label className="flex cursor-pointer items-start gap-3 py-3 touch:min-h-11">
-                    <input
-                      type="checkbox"
-                      className="mt-1 h-4 w-4 shrink-0 accent-brand"
-                      checked={chosen.includes(choice.id)}
-                      disabled={!canWrite || save.isPending}
-                      onChange={() => toggle(choice.id)}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-body text-ink [overflow-wrap:anywhere]">{choice.name}</span>
-                      <span className="block text-meta text-ink-muted">{choice.kind}</span>
-                    </span>
-                  </label>
-                </li>
-              ))}
-              {shown.length === 0 && <li className="py-3 text-meta text-ink-muted">Nothing matches “{query}”.</li>}
-            </ul>
-          </fieldset>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className={PRIMARY_BUTTON_SM}
-              disabled={!canWrite || !dirty || save.isPending}
-              title={refusal}
-              onClick={() => save.mutate(chosen, { onSuccess: () => setPicked(null) })}
-            >
-              {save.isPending ? "Saving…" : "Save sources"}
-            </button>
-            {dirty && (
-              <button type="button" className={SECONDARY_BUTTON_SM} disabled={save.isPending} onClick={() => setPicked(null)}>
-                Cancel
-              </button>
-            )}
-          </div>
-          {save.error != null && <ProblemNotice error={save.error} />}
-        </div>
-      )}
+      <SourcePicker
+        saved={line.source_ids}
+        legend="Sources for this line"
+        canWrite={canWrite}
+        refusal={refusal}
+        save={save}
+      />
     </FoldSection>
   );
 }

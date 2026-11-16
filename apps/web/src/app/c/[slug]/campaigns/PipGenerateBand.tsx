@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The one move between the materials and the script (D-992): Pip writes the script from the
- * main task and the materials, and the owner reviews it below, part by part.
+ * The one move between the sources and the script (D-992): Pip writes the script from the
+ * main task and the picked sources, and the owner reviews it below, part by part.
  */
 
 import type { ReactNode } from "react";

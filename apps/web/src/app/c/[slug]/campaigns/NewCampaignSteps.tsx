@@ -355,8 +355,8 @@ function ShortChoice<T extends string>({
  */
 /**
  * THE MAIN TASK, FIRST (D-992): what the campaign should achieve, in the owner's own words and
- * as many lines as it takes. Pip writes the campaign's script from it and the materials the
- * campaign page collects next; the agent only speaks that script.
+ * as many lines as it takes. Pip writes the campaign's script from it and the sources the
+ * campaign page picks next; the agent only speaks that script.
  */
 function MainTaskField({ form }: { form: CampaignFormState }) {
   const id = "new-campaign-main-task";
