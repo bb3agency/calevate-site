@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 
 import { useActionFeedback } from "@/components/arc/feedback";
 import { useFollowUpActions } from "@/components/calls/followUpActions";
-import { FIELD, FilterChip, LEAD_STAGE_DOT, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
+import { FIELD_INLINE, FilterChip, LEAD_STAGE_DOT, ProblemNotice, RestrictionNote, Skeleton, formatCount } from "@/components/ui";
 import { InfoTip } from "@/components/console/infoTip";
 import { TEXT_ACTION } from "@/components/console/section";
 import { AskAssistant } from "@/components/copilot/AskAssistant";
@@ -299,7 +299,7 @@ export function LeadsScreen() {
           <select
             value={f.status ?? ""}
             onChange={(e) => f.setStatus(e.target.value === "" ? undefined : e.target.value)}
-            className={`${FIELD} w-auto min-w-0`}
+            className={FIELD_INLINE}
           >
             <option value="">All</option>
             {STATUSES.map((s) => (
