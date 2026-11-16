@@ -3689,9 +3689,19 @@
             "title": "Clean Calls",
             "type": "integer"
           },
-          "clean_calls_needed": {
-            "title": "Clean Calls Needed",
-            "type": "integer"
+          "fix_holder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FixHolderOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fix_waiting": {
+            "title": "Fix Waiting",
+            "type": "boolean"
           },
           "fixed_at": {
             "anyOf": [
@@ -3751,6 +3761,8 @@
               "fixed",
               "back",
               "script_fixing",
+              "script_proposed",
+              "no_job",
               "script_live",
               "script_fixed",
               "script_rolled_back",
@@ -3772,9 +3784,10 @@
           "fixed_at",
           "state",
           "clean_calls",
-          "clean_calls_needed",
           "can_undo",
-          "found_in_script"
+          "found_in_script",
+          "fix_holder",
+          "fix_waiting"
         ],
         "title": "AgentMistakeOut",
         "type": "object"
@@ -13857,6 +13870,17 @@
             ],
             "title": "Disclosure"
           },
+          "fixes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixes"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -13933,7 +13957,8 @@
           "disclosure",
           "left_out",
           "reason",
-          "why"
+          "why",
+          "fixes"
         ],
         "title": "CampaignProposalOut",
         "type": "object"
@@ -16536,7 +16561,8 @@
               "script_fixed",
               "script_fix_waiting",
               "script_check_fixed",
-              "script_check_waiting"
+              "script_check_waiting",
+              "script_fix_proposed"
             ],
             "title": "Kind",
             "type": "string"
@@ -28320,155 +28346,34 @@
         "title": "FirstRunOut",
         "type": "object"
       },
-      "FixLinesIn": {
+      "FixHolderOut": {
         "additionalProperties": false,
+        "description": "Where a fix's draft waits: an Inbound line or a campaign, by id and name.",
         "properties": {
-          "base_saved_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Base Saved At"
-          },
-          "script": {
-            "$ref": "#/components/schemas/CallScript"
-          }
-        },
-        "required": [
-          "script"
-        ],
-        "title": "FixLinesIn",
-        "type": "object"
-      },
-      "FixLinesOut": {
-        "additionalProperties": false,
-        "properties": {
-          "base_script": {
-            "$ref": "#/components/schemas/CallScript"
-          },
-          "disclosure": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Disclosure"
-          },
-          "documents": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Documents",
-            "type": "array"
-          },
-          "draft_saved_at": {
-            "format": "date-time",
-            "title": "Draft Saved At",
-            "type": "string"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
           },
-          "left_out": {
-            "items": {
-              "$ref": "#/components/schemas/LeftOutPartOut"
-            },
-            "title": "Left Out",
-            "type": "array"
-          },
-          "mode": {
+          "kind": {
             "enum": [
-              "change",
-              "whole",
-              "steps",
-              "knowledge",
-              "opening",
-              "written",
-              "starter"
+              "inbound_line",
+              "campaign"
             ],
-            "title": "Mode",
+            "title": "Kind",
             "type": "string"
           },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "request": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Request"
-          },
-          "requested_at": {
-            "format": "date-time",
-            "title": "Requested At",
+          "name": {
+            "title": "Name",
             "type": "string"
-          },
-          "script": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CallScript"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "status": {
-            "enum": [
-              "drafting",
-              "ready",
-              "failed"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "unplaced": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Unplaced",
-            "type": "array"
           }
         },
         "required": [
+          "kind",
           "id",
-          "mode",
-          "documents",
-          "status",
-          "request",
-          "base_script",
-          "script",
-          "unplaced",
-          "disclosure",
-          "note",
-          "left_out",
-          "requested_at",
-          "draft_saved_at"
+          "name"
         ],
-        "title": "FixLinesOut",
+        "title": "FixHolderOut",
         "type": "object"
       },
       "FlagStateOut": {
@@ -28581,7 +28486,8 @@
               "live",
               "fixed",
               "rolled_back",
-              "needs_person"
+              "needs_person",
+              "proposed"
             ],
             "title": "State",
             "type": "string"
@@ -37841,41 +37747,6 @@
         "title": "LeftOutOut",
         "type": "object"
       },
-      "LeftOutPartOut": {
-        "additionalProperties": false,
-        "description": "A part of the script Pip's suggestion leaves as the owner had it (ready), or could not\nwrite (failed), and why.",
-        "properties": {
-          "added": {
-            "title": "Added",
-            "type": "boolean"
-          },
-          "label": {
-            "title": "Label",
-            "type": "string"
-          },
-          "part": {
-            "title": "Part",
-            "type": "string"
-          },
-          "rule": {
-            "title": "Rule",
-            "type": "string"
-          },
-          "unfixed": {
-            "title": "Unfixed",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "part",
-          "label",
-          "rule",
-          "added",
-          "unfixed"
-        ],
-        "title": "LeftOutPartOut",
-        "type": "object"
-      },
       "LegalDocumentOut": {
         "additionalProperties": false,
         "description": "One published document and where this organisation stands with it.",
@@ -44180,26 +44051,6 @@
           "precedence_rule"
         ],
         "title": "PendingOut",
-        "type": "object"
-      },
-      "PendingProposalOut": {
-        "additionalProperties": false,
-        "properties": {
-          "proposal": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ScriptProposalOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          }
-        },
-        "required": [
-          "proposal"
-        ],
-        "title": "PendingProposalOut",
         "type": "object"
       },
       "PendingWorkspaceOut": {
@@ -52926,127 +52777,6 @@
           }
         },
         "title": "ScriptPolicies",
-        "type": "object"
-      },
-      "ScriptProposalOut": {
-        "additionalProperties": false,
-        "description": "A script suggestion Pip was asked for, reviewed part by part on the Script page.",
-        "properties": {
-          "base_script": {
-            "$ref": "#/components/schemas/CallScript"
-          },
-          "disclosure": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Disclosure"
-          },
-          "documents": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Documents",
-            "type": "array"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "left_out": {
-            "items": {
-              "$ref": "#/components/schemas/LeftOutPartOut"
-            },
-            "title": "Left Out",
-            "type": "array"
-          },
-          "mode": {
-            "enum": [
-              "change",
-              "whole",
-              "steps",
-              "knowledge",
-              "opening",
-              "written",
-              "starter"
-            ],
-            "title": "Mode",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "request": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Request"
-          },
-          "requested_at": {
-            "format": "date-time",
-            "title": "Requested At",
-            "type": "string"
-          },
-          "script": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CallScript"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "status": {
-            "enum": [
-              "drafting",
-              "ready",
-              "failed"
-            ],
-            "title": "Status",
-            "type": "string"
-          },
-          "unplaced": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Unplaced",
-            "type": "array"
-          }
-        },
-        "required": [
-          "id",
-          "mode",
-          "documents",
-          "status",
-          "request",
-          "base_script",
-          "script",
-          "unplaced",
-          "disclosure",
-          "note",
-          "left_out",
-          "requested_at"
-        ],
-        "title": "ScriptProposalOut",
         "type": "object"
       },
       "ScriptStep": {
@@ -82159,57 +81889,6 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/agents/{agent_id}/script/fix-lines": {
-      "post": {
-        "description": "\"Fix them first\" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it (its `warnings` and `mistakes`) and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.",
-        "operationId": "fix_script_lines_v1_agents__agent_id__script_fix_lines_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FixLinesIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FixLinesOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Fix the lines the script check found, before putting it live",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
     "/v1/agents/{agent_id}/script/opening-line": {
       "put": {
         "description": "For shortening the opening line where a notice switch was refused for want of room (D-846), and for setting the line an agent that answers and places calls opens the calls it places with (`when: calls`, D-920). The rest of the script is kept. Refused while other script changes are waiting to go live, and when the line would not fit after the notices switched on.",
@@ -82255,88 +81934,6 @@
           }
         },
         "summary": "Replace an opening line in the script callers hear, and put it live",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/opening-line/after-introduction": {
-      "post": {
-        "description": "The repair offered when switching the AI notice on is refused with `opening_introduces_agent` (D-865): the notice says who is calling, so the opening line must not. Queues a suggestion that writes the opening line again without a greeting or the agent's or business's name; poll `GET .../proposal` until it is `ready`. Nothing reaches a caller until the line is put live.",
-        "operationId": "request_opening_after_introduction_v1_agents__agent_id__script_opening_line_after_introduction_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScriptProposalOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Ask for the opening line written to follow the agent's own introduction",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/opening-line/in-language": {
-      "post": {
-        "description": "Offered after the agent's main language changes (D-838, D-965). Queues a `written` suggestion with the opening lines written for this business in that language; poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches a caller until the line is put live.",
-        "operationId": "rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScriptProposalOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Ask for the opening lines written for this business in the agent's main language",
         "tags": [
           "agents"
         ],
@@ -82442,171 +82039,6 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
-      }
-    },
-    "/v1/agents/{agent_id}/script/proposal": {
-      "get": {
-        "operationId": "get_script_proposal_v1_agents__agent_id__script_proposal_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PendingProposalOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "The script suggestion Pip prepared and the owner has not yet reviewed",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "agents:read"
-      }
-    },
-    "/v1/agents/{agent_id}/script/proposal/main-task": {
-      "post": {
-        "description": "\"Re-adjust script\" on the agent page. Queues a `change` suggestion that brings the working script (the draft, else the saved script) into line with its own main task (`goal`); poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches the draft until it is kept, nor a caller until it is put live. Refused with `script_main_task_missing` when there is no main task, `script_main_task_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.",
-        "operationId": "readjust_script_to_main_task_v1_agents__agent_id__script_proposal_main_task_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScriptProposalOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Ask Pip to re-adjust the script to the agent's main task",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/proposal/starter": {
-      "post": {
-        "description": "The new-agent flow's \"Try again\" after the script written at creation failed. Queues the same whole-script suggestion `POST /v1/agents` with a `starter` does; poll `GET .../proposal`. A draft agent still on its untouched starter takes it at once, as at creation.",
-        "operationId": "rewrite_starter_script_v1_agents__agent_id__script_proposal_starter_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScriptProposalOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Write the agent's whole script for this business again",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/agents/{agent_id}/script/proposal/{proposal_id}": {
-      "delete": {
-        "operationId": "discard_script_proposal_v1_agents__agent_id__script_proposal__proposal_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Agent Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "proposal_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Proposal Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Clear the suggestion once its kept parts are in the draft, or to discard it",
-        "tags": [
-          "agents"
-        ],
-        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/script/proposed-rules": {
