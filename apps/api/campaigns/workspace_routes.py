@@ -588,6 +588,14 @@ async def campaign_test_call(
     )
 
 
+async def _campaign_visible(session: AsyncSession, campaign_id: UUID) -> None:
+    """For reads an archived campaign still shows (its test calls, the saved numbers), where
+    `read_workspace` refuses an archived one."""
+    found = await session.execute(text("SELECT 1 FROM campaigns WHERE id = :c"), {"c": campaign_id})
+    if found.first() is None:
+        raise ProblemError.not_found("Campaign")
+
+
 #: Enough for a team's phones; a longer list is a call list, which is what campaigns are for.
 MAX_TEST_NUMBERS = 10
 
@@ -608,7 +616,7 @@ class TestNumbersOut(_Out):
     summary="The account's saved test numbers, offered under this campaign's Test call",
 )
 async def campaign_test_numbers(campaign_id: UUID, session: Session, _: Reader) -> TestNumbersOut:
-    await workspace.read_workspace(session, campaign_id)
+    await _campaign_visible(session, campaign_id)
     row = (await session.execute(text("SELECT test_numbers FROM organizations"))).first()
     return TestNumbersOut(numbers=list(row[0]) if row is not None else [])
 
@@ -667,7 +675,7 @@ class CampaignTestCallItem(_Out):
 async def campaign_test_calls(
     campaign_id: UUID, session: Session, _: Reader
 ) -> list[CampaignTestCallItem]:
-    await workspace.read_workspace(session, campaign_id)
+    await _campaign_visible(session, campaign_id)
     rows = await session.execute(
         text(
             "SELECT k.id, k.created_at, k.status, k.duration_s, k.recording_url IS NOT NULL "

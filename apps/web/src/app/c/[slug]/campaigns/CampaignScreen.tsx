@@ -277,7 +277,17 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
         panelClassName="pt-5"
         renderPanel={(current) =>
           current === "calls" ? (
-            <CampaignCalls slug={slug} campaignId={campaignId} />
+            // Who was called and how sits with the calls themselves (founder, 16 Nov 2026).
+            <div className="space-y-8">
+              {status !== "draft" && (
+                <FoldGroup>
+                  <FoldSection title="People" tone="people" id={peopleSectionId(campaignId)}>
+                    {people}
+                  </FoldSection>
+                </FoldGroup>
+              )}
+              <CampaignCalls slug={slug} campaignId={campaignId} />
+            </div>
           ) : current === "questions" ? (
             <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
           ) : current === "improve" ? (
@@ -337,7 +347,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 refusal={refusal}
               />
               <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
-              {status === "draft" ? (
+              {status === "draft" && (
                 // People to call: an Excel or CSV file, pasted rows, or one name and number at a time.
                 <DraftPeople
                   slug={slug}
@@ -347,11 +357,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                   refusal={refusal}
                   total={data.total}
                 />
-              ) : (
-                // Once it has started, nobody is added; the list shows who was called and how.
-                <FoldSection title="People" tone="people" id={peopleSectionId(campaignId)}>
-                  {people}
-                </FoldSection>
               )}
               <ScheduleCards {...scheduleCardProps} />
               <LaunchGate
