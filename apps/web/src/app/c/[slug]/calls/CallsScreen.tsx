@@ -436,7 +436,7 @@ export function CallsScreen({ slug }: { slug: string }) {
         options: [{ value: "", label: "Any" }, ...FOLLOW_UP.map((f) => ({ value: f.value, label: f.label }))],
       },
       {
-        id: "calls-from",
+        id: "calls-source",
         label: "From (campaign or Inbound line)",
         type: "select",
         value: sourceValue({ campaignId, inboundLineId }),
@@ -487,7 +487,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           setOutcome(OUTCOMES.find((o) => o.value === wanted)?.value);
         } else if (item.field_id === "calls-follow-up") {
           setFollowUpFilter(FOLLOW_UP.find((f) => f.value === wanted)?.value);
-        } else if (item.field_id === "calls-from") {
+        } else if (item.field_id === "calls-source") {
           const offered =
             wanted === "" ||
             lineChoices.some((l) => `line:${l.id}` === wanted) ||

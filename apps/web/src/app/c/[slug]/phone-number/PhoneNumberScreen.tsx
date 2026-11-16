@@ -165,8 +165,11 @@ function NumberCard({
           : answers && number.supplied_by_us && !number.answerable
             ? { text: "Setting up", tone: "neutral" as const }
             : { text: "Ready", tone: "ok" as const };
-  const doing =
-    agent === undefined
+  // A number on an Inbound line answers with the line (`NumberAssignment` says which), so
+  // naming its agent here would describe the agent-centred model the line replaced.
+  const doing = number.inbound_line_id
+    ? null
+    : agent === undefined
       ? "Pick an agent to use this number."
       : agent.direction === "inbound"
         ? `${agent.name} answers calls to this number.`
@@ -180,17 +183,19 @@ function NumberCard({
         <p className="font-mono text-heading tabular-nums text-ink">{formatPhone(number.e164)}</p>
         <StatusPill tone={status.tone}>{status.text}</StatusPill>
       </div>
-      <p className="text-body text-ink-muted">
-        {doing}
-        {agent !== undefined && agent.status !== "live" && (
-          <>
-            {" "}
-            <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}`)} className="underline">
-              Switch {agent.name} on
-            </Link>
-          </>
-        )}
-      </p>
+      {(doing !== null || (agent !== undefined && agent.status !== "live")) && (
+        <p className="text-body text-ink-muted">
+          {doing}
+          {agent !== undefined && agent.status !== "live" && (
+            <>
+              {doing !== null && " "}
+              <Link href={href(`/c/${session.orgSlug}/agents/${agent.id}`)} className="underline">
+                Switch {agent.name} on
+              </Link>
+            </>
+          )}
+        </p>
+      )}
       <HeldNumberLine number={number} topUpHref={href(`/c/${session.orgSlug}/billing?tab=credits`)} />
       <NumberAssignment
         numberId={number.id}

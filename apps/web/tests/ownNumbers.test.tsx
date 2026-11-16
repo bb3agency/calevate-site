@@ -727,10 +727,22 @@ describe("a number on an Inbound line (D-1008)", () => {
     const change = screen.getByRole("link", { name: "Change in Inbound" });
     expect(change.getAttribute("href")).toBe("/c/acme/inbound/line-1");
     expect(screen.queryByLabelText("Agent")).toBeNull();
+    // The line decides who answers, so the card does not also say the agent does.
+    expect(screen.queryByText(/Reception answers calls/)).toBeNull();
+  });
+
+  it("names no line it cannot name", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), {
+        "/v1/campaigns/numbers": [{ ...free, inbound_line_id: "line-1", inbound_line_name: null }],
+      }),
+    );
+    expect(await screen.findByText("Answers with one of your Inbound lines.")).toBeTruthy();
   });
 
   it("sends a refused change to Inbound, for a number put on a line since the page loaded", async () => {
-    await renderClientPage(
+    const { calls } = await renderClientPage(
       <PhoneNumberPage />,
       routes(status(), {
         "/v1/campaigns/numbers": [free],
@@ -747,6 +759,10 @@ describe("a number on an Inbound line (D-1008)", () => {
     expect(await screen.findByText(/answers with your Inbound line “Front desk”/)).toBeTruthy();
     const open = await screen.findByRole("link", { name: "Open Inbound" });
     expect(open.getAttribute("href")).toBe("/c/acme/inbound");
+    // The list is read again, so the card shows the line the number is on now.
+    await waitFor(() =>
+      expect(calls.filter((call) => call.path === "/v1/campaigns/numbers").length).toBeGreaterThan(1),
+    );
   });
 });
 

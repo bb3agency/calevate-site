@@ -56,7 +56,7 @@ export function CallHeader({
       )}
       {/* Chips rather than a dotted sentence: each fact wraps whole, and a phone scans
           them without parsing separators. */}
-      <ul aria-label="About this call" className="mt-1.5 flex flex-wrap gap-1.5">
+      <ul aria-label="About this call" className="mt-1.5 flex flex-wrap items-center gap-1.5">
         {facts.map((fact) => (
           <li key={fact} className="rounded-md bg-surface-muted px-2 py-0.5 text-meta tabular-nums text-ink-muted">
             {fact}

@@ -14,7 +14,8 @@
  *
  * A number on an Inbound line answers with that line, and the server refuses to move it
  * from here (`number_on_inbound_line`, D-1008), so the picker is replaced by a button to
- * the line. The refusal still gets a button for a number put on a line since this loaded.
+ * the line. A number put on a line since the list loaded is refused with a button to
+ * Inbound, and the list is read again, which turns the card into the line's.
  */
 
 import Link from "next/link";
@@ -71,7 +72,9 @@ export function NumberAssignment({
   if (line !== null) {
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <p className="text-body text-ink-muted">Answers with your Inbound line “{line.name}”.</p>
+        <p className="text-body text-ink-muted">
+          {line.name ? `Answers with your Inbound line “${line.name}”.` : "Answers with one of your Inbound lines."}
+        </p>
         <Link href={href(`/c/${session.orgSlug}/inbound/${line.id}`)} className={SECONDARY_BUTTON_SM}>
           Change in Inbound
         </Link>

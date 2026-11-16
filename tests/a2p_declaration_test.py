@@ -591,6 +591,48 @@ async def test_numbers_are_kept_once_in_the_order_given_and_cover_readiness(
         assert await a2p_readiness_row(session, tenant_id=tenant_id) is None
 
 
+async def test_readiness_and_the_screen_ask_the_numbers_the_dials_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An agent with no number of its own borrows its client's, and a campaign may call from
+    a client number its agent does not hold. Readiness and the confirmation screen ask about
+    those, as the dial gate does: asking only the agents' own numbers told an account whose
+    every presented number is confirmed to confirm again, and left the campaign's number off
+    the list to confirm."""
+    _today(monkeypatch, ENFORCED)
+    tenant_id, agent_id = await _tenant("a2p-presented")
+    borrowed = await _agent_numbers(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET agent_id = NULL WHERE agent_id = :a"), {"a": agent_id}
+        )
+    await _declare(tenant_id, borrowed)
+    headers = await _org_headers(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        assert await a2p_readiness_row(session, tenant_id=tenant_id) is None
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        covered = (await http.get(PATH, headers=headers)).json()
+    assert covered["blocker"] is None
+    assert covered["undeclared_clis"] == []
+
+    chosen_id, chosen = await _second_number(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, number_id, classification, "
+                "created_at, updated_at) VALUES (:id, :t, :a, 'Presented number', :n, "
+                "'service', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "t": tenant_id, "a": agent_id, "n": chosen_id},
+        )
+        due = await a2p_readiness_row(session, tenant_id=tenant_id)
+    assert due is not None and due[0].rule == A2P_NUMBER_UNDECLARED_RULE
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        missing = (await http.get(PATH, headers=headers)).json()
+    assert missing["blocker"]["rule"] == A2P_NUMBER_UNDECLARED_RULE
+    assert missing["undeclared_clis"] == [chosen]
+
+
 async def test_the_health_board_warns_before_the_date_and_stops_after(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

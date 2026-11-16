@@ -34,8 +34,8 @@ from apps.api.compliance.autodialer import (
     a2p_declaration_blocker,
     enforced_from,
     enforcement_active,
-    outbound_agent_numbers,
     outbound_in_use,
+    outbound_presented_numbers,
     read_declaration,
     record_declaration,
     tenant_rented_numbers,
@@ -82,8 +82,9 @@ class CallingNumberDeclarationOut(BaseModel):
     effective: bool
     #: Every number rented for this account, to prefill the form.
     rented_numbers: list[str]
-    #: Numbers bound to agents that place calls and not covered by a current confirmation: a
-    #: call from one is refused once the rule is in force.
+    #: Numbers the account's outbound calls present (an agent's own, one lent to an agent with
+    #: none, a campaign's chosen one) not covered by a current confirmation: a call from one is
+    #: refused once the rule is in force.
     undeclared_clis: list[str]
     #: Whether this account has an agent that places calls. An answering-only account has
     #: nothing to confirm.
@@ -114,11 +115,11 @@ class CallingNumberDeclarationIn(BaseModel):
 
 async def _out(session: AsyncSession, *, tenant_id: UUID) -> CallingNumberDeclarationOut:
     declaration = await read_declaration(session, tenant_id=tenant_id)
-    agent_numbers = await outbound_agent_numbers(session)
+    presented = await outbound_presented_numbers(session)
     applies = await outbound_in_use(session)
     # The readiness row's question (`legal.readiness.a2p_readiness_row`), asked the same way.
     blocker = (
-        await a2p_declaration_blocker(session, tenant_id=tenant_id, caller_ids=agent_numbers)
+        await a2p_declaration_blocker(session, tenant_id=tenant_id, caller_ids=presented)
         if applies
         else None
     )
@@ -132,7 +133,7 @@ async def _out(session: AsyncSession, *, tenant_id: UUID) -> CallingNumberDeclar
         attested_version=declaration.attested_version,
         effective=declaration.is_effective(),
         rented_numbers=await tenant_rented_numbers(session),
-        undeclared_clis=[n for n in agent_numbers if n not in covered],
+        undeclared_clis=[n for n in presented if n not in covered],
         applies=applies,
         enforced_from=enforced_from(),
         enforced=enforcement_active(),

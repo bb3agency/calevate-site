@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import CallsPage from "@/app/c/[slug]/calls/page";
 import type { CallSummary, Me } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
+import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
 import { dltRegistrationRoute } from "./campaignFixtures";
 import { agentRow } from "./fixtures/sharedReads";
@@ -562,6 +563,43 @@ describe("where each call came from (D-1006)", () => {
     await waitFor(() => expect(calls.some((c) => c.path === "/v1/calls?inbound_line_id=line-1&limit=100")).toBe(true));
     expect(screen.getByRole("button", { name: "Remove the filter: Inbound line: Front desk" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Remove the filter: Campaign/ })).toBeNull();
+  });
+});
+
+describe("Pip filling the call log's filters", () => {
+  const seen: { holder: SurfaceHolder | null } = { holder: null };
+  function SurfaceProbe() {
+    seen.holder = useCopilotSurfaceHolder();
+    return null;
+  }
+
+  it("keeps the date and the From control apart, so each reaches its own filter", async () => {
+    const LINE = { id: "line-1", name: "Front desk" };
+    const { calls } = await renderClientPage(
+      <>
+        {page}
+        <SurfaceProbe />
+      </>,
+      routes([call()], {
+        "/v1/inbound-lines": { lines: [LINE] },
+        "/v1/calls?inbound_line_id=line-1&since=2026-11-01T00%3A00%3A00%2B05%3A30&until=2026-11-02T00%3A00%3A00%2B05%3A30&limit=100":
+          [call({ inbound_line: LINE })],
+      }),
+    );
+    await screen.findAllByText("+91 98765 43210");
+    await waitFor(() => expect(seen.holder?.read().fields.some((f) => f.label.startsWith("From (campaign"))).toBe(true));
+    const ids = seen.holder!.read().fields.map((field) => field.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    const source = seen.holder!.read().fields.find((f) => f.label.startsWith("From (campaign"))!;
+    await act(async () => {
+      seen.holder?.read().apply([
+        { field_id: "calls-from", value: "2026-11-01" },
+        { field_id: source.id, value: "line:line-1" },
+      ]);
+    });
+    await waitFor(() =>
+      expect(calls.some((c) => c.path.includes("inbound_line_id=line-1") && c.path.includes("since="))).toBe(true),
+    );
   });
 });
 

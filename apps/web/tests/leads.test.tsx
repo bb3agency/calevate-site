@@ -373,6 +373,15 @@ describe("a lead's Call button (D-21, founder 5 Nov 2026)", () => {
   });
 });
 
+describe("the phone's Stage picker", () => {
+  it("sits level with its label: no stacked-field top margin in the row", async () => {
+    await renderClientPage(<LeadsPage />, routes());
+    const picker = await screen.findByLabelText("Stage");
+    expect(picker.tagName).toBe("SELECT");
+    expect(picker.className.split(/\s+/)).not.toContain("mt-1");
+  });
+});
+
 describe("the counts come from the server or are not shown", () => {
   /** Twenty-two leads in the account, two of them hot — numbers `items` cannot produce. */
   const HOT_PAGE = leadList(

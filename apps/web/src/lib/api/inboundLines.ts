@@ -76,7 +76,12 @@ export function useCreateInboundLine(session: Session) {
  * that answers nothing refetches it. The list is refetched either way, since it shows the
  * same line's name, voice, numbers and state.
  */
-function useLineMutation<TIn>(session: Session, lineId: string, call: (input: TIn) => Promise<unknown>) {
+function useLineMutation<TIn>(
+  session: Session,
+  lineId: string,
+  call: (input: TIn) => Promise<unknown>,
+  alsoShownBy: readonly (readonly unknown[])[] = [],
+) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: call,
@@ -87,6 +92,7 @@ function useLineMutation<TIn>(session: Session, lineId: string, call: (input: TI
         void client.invalidateQueries({ queryKey: inboundLineKeys.one(session.orgSlug, lineId) });
       }
       void client.invalidateQueries({ queryKey: inboundLineKeys.all(session.orgSlug), exact: true });
+      for (const queryKey of alsoShownBy) void client.invalidateQueries({ queryKey });
     },
     // A refusal titled "Saved, but not live yet" kept the edit, so the page must show it.
     onError: () => void client.invalidateQueries({ queryKey: inboundLineKeys.one(session.orgSlug, lineId) }),
@@ -96,8 +102,13 @@ function useLineMutation<TIn>(session: Session, lineId: string, call: (input: TI
 export type LinePatch = { name?: string; agent_id?: string; main_task?: string };
 
 export function useUpdateInboundLine(session: Session, lineId: string) {
-  return useLineMutation(session, lineId, (patch: LinePatch) =>
-    apiRequest<InboundLine>(session, linePath(lineId), { method: "PATCH", body: patch }),
+  return useLineMutation(
+    session,
+    lineId,
+    (patch: LinePatch) => apiRequest<InboundLine>(session, linePath(lineId), { method: "PATCH", body: patch }),
+    // Phone numbers names each number's line, and the live topic a rename announces does not
+    // reach that list.
+    [["campaign-numbers", session.orgSlug]],
   );
 }
 
