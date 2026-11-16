@@ -429,10 +429,18 @@ async def oauth_connect(
 
 def _exchange_refused(kind: oauth.OAuthKind, label: str) -> ProblemError:
     """The vendor did not turn the code into a connection."""
-    if kind in ("google_calendar", "google_sheets"):
+    if kind == "google_calendar":
         return ProblemError(
             kind="dependency",
-            code="calendar_oauth_failed" if kind == "google_calendar" else "sheets_oauth_failed",
+            code="calendar_oauth_failed",
+            title=f"{label} did not accept the connection",
+            detail=f"The {label} authorization could not be completed.",
+            remediation="Try connecting again.",
+        )
+    if kind == "google_sheets":
+        return ProblemError(
+            kind="dependency",
+            code="sheets_oauth_failed",
             title=f"{label} did not accept the connection",
             detail=f"The {label} authorization could not be completed.",
             remediation="Try connecting again.",
