@@ -922,6 +922,7 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "trial_erasure_blocked": "attention",
     "trial_sweep_truncated": "attention",
     "trial_sweep_failed": "attention",
+    "campaign_engine_agent_sweep_failed": "attention",
     "trial_notice_no_billing_email": "attention",
     "trial_ending_sweep_truncated": "attention",
     "trial_ending_notice_failed": "attention",

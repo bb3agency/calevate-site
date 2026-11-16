@@ -406,6 +406,66 @@ async def test_an_agent_a_campaign_held_before_d1003_gets_its_own_script_back() 
         assert await _restore_held(session, tenant_id=tenant_id) == (0, 0)
 
 
+async def test_the_hourly_sweep_reaches_an_account_whose_held_campaign_ended_before_d1003() -> None:
+    """A campaign that held its agent and completed before D-1003 never gets an engine agent
+    of its own, so its account has no campaign route; the sweep must still give the agent
+    its own script back."""
+    from apps.api.agents.prompts import insert_prompt_version
+    from apps.workers.campaign_engine_agents import sweep_campaign_engine_agents
+
+    _fresh_engine()
+    tenant_id, agent_id = await _live_agent()
+    own = await _live_body(tenant_id, agent_id)
+    campaign_id = await _campaign(tenant_id, agent_id, status="completed")
+    async with tenant_session(tenant_id) as session:
+        await insert_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="[IDENTITY]\nYou call people about their check-up.\n",
+            notes="Campaign: Check-ups",
+            created_by=None,
+            apply_live=True,
+        )
+        await session.execute(
+            text("UPDATE campaigns SET agent_held_at = now() WHERE id = :c"), {"c": campaign_id}
+        )
+        routes = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM engine_agent_routes "
+                    "WHERE tenant_id = :t AND campaign_id IS NOT NULL"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+    assert routes == 0
+
+    await sweep_campaign_engine_agents({})
+
+    assert await _live_body(tenant_id, agent_id) == own, "the campaign's script stayed live"
+
+
+async def test_an_account_the_sweep_could_not_handle_raises_an_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.workers import campaign_engine_agents
+
+    await _live_agent()
+    raised: list[str] = []
+
+    async def broken(*_: object, **__: object) -> int:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(campaign_engine_agents, "_retire_unneeded", broken)
+    monkeypatch.setattr(
+        campaign_engine_agents, "alert", lambda _stage, code, **_kw: raised.append(code)
+    )
+    result = await campaign_engine_agents.sweep_campaign_engine_agents({})
+    assert "failed=0" not in result
+    assert raised == ["campaign_engine_agent_sweep_failed"]
+
+
 async def test_an_unused_test_holder_of_a_draft_is_retired_and_a_running_one_kept() -> None:
     from apps.workers.campaign_engine_agents import _retire_unneeded
 

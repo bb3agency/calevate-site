@@ -239,3 +239,42 @@ def test_the_recording_stage_leaves_the_rest_of_the_pipeline_room() -> None:
     assert storage.DOWNLOAD_TIMEOUT_S <= storage.RECORDING_FETCH_DEADLINE_S, (
         "a per-operation timeout longer than the total deadline is a number that never fires"
     )
+    spent = storage.RECORDING_FETCH_DEADLINE_S + storage.RECORDING_UPLOAD_DEADLINE_S
+    assert spent <= budget * 2 / 3, "the fetch and the upload together outspend the pipeline"
+
+
+async def test_an_object_store_that_never_answers_the_upload_is_cut_off_by_its_deadline(
+    transport,  # type: ignore[no-untyped-def]
+    monkeypatch: pytest.MonkeyPatch,
+    s3,  # type: ignore[no-untyped-def]
+) -> None:
+    """The fetch has a whole deadline; the upload of what it fetched needs one too. botocore
+    retries a stalled PUT on its own 60s connect and read timeouts, which alone outlasts the
+    pipeline's `job_timeout`, and a job arq times out is never retried."""
+    monkeypatch.setattr(storage, "RECORDING_UPLOAD_DEADLINE_S", 0.25)
+    transport(httpx.Response(200, content=b"RIFF" + b"\0" * 64))
+
+    def stall(**_: object) -> dict[str, object]:
+        time.sleep(1.5)
+        return {}
+
+    monkeypatch.setattr(s3, "put_object", stall)
+    started = time.perf_counter()
+    with pytest.raises(StorageUnavailableError) as caught:
+        await copy_recording(source_url=PUBLIC, tenant_id=TENANT, call_id=CALL)
+    assert "upload exceeded" in str(caught.value)
+    assert time.perf_counter() - started < 1.2, "the upload deadline fired, not the store"
+
+
+def test_the_object_store_client_ends_a_stalled_call_inside_the_upload_deadline() -> None:
+    """The deadline frees the job; the client's own timeouts end the thread it leaves, so
+    one attempt fits the deadline and every retry together ends inside the job's budget.
+    Read from the built client, where botocore has normalised the retries to a total."""
+    from apps.workers import settings as worker_settings
+
+    config = storage._client().meta.config
+    one = config.connect_timeout + config.read_timeout
+    worst = config.retries["total_max_attempts"] * one
+    assert one <= storage.RECORDING_UPLOAD_DEADLINE_S, one
+    budget = float(worker_settings.WorkerSettings.job_timeout)
+    assert worst <= budget - storage.RECORDING_FETCH_DEADLINE_S, worst
