@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.26 — 16-Nov-2026
+
+- Campaign pages: section titles, the tabs and the chosen script languages read in white on
+  their colours.
+
 ## 0.4.25 — 16-Nov-2026
 
 - Every page you open inside the app checks for a newer version and, if there is one, opens

@@ -36,20 +36,20 @@ export type FoldTone =
 
 /** One colour per section, none of them a status colour except compliance's amber warning. */
 const TONE: Record<FoldTone, { pill: string; card: string }> = {
-  task: { pill: "bg-brand-strong text-surface", card: "border-success-line border-l-brand-strong bg-brand-soft/30" },
-  materials: { pill: "bg-info text-surface", card: "border-info-line border-l-info bg-info-soft/40" },
-  generate: { pill: "bg-series-5 text-ink", card: "border-series-5/30 border-l-series-5 bg-series-5/5" },
-  script: { pill: "bg-series-2 text-ink", card: "border-series-2/30 border-l-series-2 bg-series-2/5" },
-  agent: { pill: "bg-series-3 text-ink", card: "border-series-3/30 border-l-series-3 bg-series-3/5" },
-  test: { pill: "bg-series-6 text-ink", card: "border-series-6/30 border-l-series-6 bg-series-6/5" },
-  compliance: { pill: "bg-warn text-surface", card: "border-warn-line border-l-warn bg-warn-soft/40" },
-  add: { pill: "bg-series-1 text-ink", card: "border-series-1/30 border-l-series-1 bg-series-1/5" },
-  people: { pill: "bg-series-4 text-surface", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
+  task: { pill: "bg-brand-strong text-white", card: "border-success-line border-l-brand-strong bg-brand-soft/30" },
+  materials: { pill: "bg-info text-white", card: "border-info-line border-l-info bg-info-soft/40" },
+  generate: { pill: "bg-series-5 text-white", card: "border-series-5/30 border-l-series-5 bg-series-5/5" },
+  script: { pill: "bg-series-2 text-white", card: "border-series-2/30 border-l-series-2 bg-series-2/5" },
+  agent: { pill: "bg-series-3 text-white", card: "border-series-3/30 border-l-series-3 bg-series-3/5" },
+  test: { pill: "bg-series-6 text-white", card: "border-series-6/30 border-l-series-6 bg-series-6/5" },
+  compliance: { pill: "bg-warn text-white", card: "border-warn-line border-l-warn bg-warn-soft/40" },
+  add: { pill: "bg-series-1 text-white", card: "border-series-1/30 border-l-series-1 bg-series-1/5" },
+  people: { pill: "bg-series-4 text-white", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
   settings: { pill: "bg-ink text-surface", card: "border-line border-l-ink bg-surface-muted/60" },
   // A running campaign's page.
-  progress: { pill: "bg-brand-deep text-surface", card: "border-success-line border-l-brand-deep bg-brand-soft/30" },
-  results: { pill: "bg-series-2 text-ink", card: "border-series-2/30 border-l-series-2 bg-series-2/5" },
-  details: { pill: "bg-series-4 text-surface", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
+  progress: { pill: "bg-brand-deep text-white", card: "border-success-line border-l-brand-deep bg-brand-soft/30" },
+  results: { pill: "bg-series-2 text-white", card: "border-series-2/30 border-l-series-2 bg-series-2/5" },
+  details: { pill: "bg-series-4 text-white", card: "border-series-4/30 border-l-series-4 bg-series-4/5" },
 };
 
 export function FoldGroup({

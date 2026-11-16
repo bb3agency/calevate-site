@@ -76,13 +76,13 @@ export function ScriptLanguages({
               onClick={() => toggle(tag)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-meta font-medium transition-colors ${
                 on
-                  ? "border-series-2 bg-series-2 text-ink"
+                  ? "border-series-2 bg-series-2 text-white"
                   : "border-line bg-surface text-ink-muted hover:border-series-2 hover:text-ink"
               }`}
             >
               {on && <Check aria-hidden className="h-3.5 w-3.5" />}
               {name(tag)}
-              {isMain && <span className="rounded-full bg-surface/70 px-1.5 text-[11px]">main</span>}
+              {isMain && <span className="rounded-full bg-white/25 px-1.5 text-[11px]">main</span>}
             </button>
           );
         })}
