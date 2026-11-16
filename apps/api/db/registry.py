@@ -531,8 +531,8 @@ TENANT_TABLES = [
     # What a campaign works from (D-992): its documents, links and notes, including notes
     # learned from its own calls. FORCE-RLS'd; archived, never deleted.
     "campaign_materials",
-    # The company training every agent of a client is given and what it is written from
-    # (founder, 16 Nov 2026). FORCE-RLS'd; materials archived, never deleted.
+    # The company training every agent of a client is given (founder, 16 Nov 2026), and its
+    # retired materials table (D-996), kept until a later release drops it. FORCE-RLS'd.
     "company_trainings",
     "company_training_materials",
     # A client's existing number forwarded to its Calevate number (D-746, migration

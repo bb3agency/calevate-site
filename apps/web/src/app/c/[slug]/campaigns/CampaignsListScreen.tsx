@@ -613,7 +613,7 @@ function DeleteDraftButton({
           <span className="block">
             {campaign.status === "draft"
               ? "The draft and its list are removed. This cannot be undone."
-              : "Its list of people and materials are removed for good. Its calls and charges stay in your call logs and bills."}
+              : "Its list of people and sources are removed for good. Its calls and charges stay in your call logs and bills."}
           </span>
         </ConfirmDialog>
       )}

@@ -7,7 +7,7 @@
  *
  * Three sections, each with its own colour so the eye keeps them apart:
  *  1. Main task — a green rule: the owner's words, many lines.
- *  2. Materials — a blue ground: documents, links and notes, including notes learned from
+ *  2. Sources (D-996; the API still says materials) — a blue ground: documents, links and notes, including notes learned from
  *     the campaign's own calls (the Questions tab adds them).
  *  3. Script — a dark green rule: Pip writes it from 1 and 2, the owner reviews it part by
  *     part with the same Review / Update / Edit the agent Script page uses, and edits it any
@@ -54,7 +54,7 @@ export const MAIN_TASK_PLACEHOLDER =
   "For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone.";
 export const SCRIPT_HINT = "What the agent says on each call.";
 export const SCRIPT_INFO =
-  "Pip writes it from your main task and materials; change anything, any time. Start puts only this script on the agent.";
+  "Pip writes it from your main task and sources; change anything, any time. Start puts only this script on the agent.";
 
 export function CampaignWorkspace({
   campaignId,
@@ -234,7 +234,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
   );
 
   return (
-    <FoldSection id="campaign-materials" title="Materials" tone="materials" hint={MATERIALS_HINT} info={MATERIALS_INFO}>
+    <FoldSection id="campaign-materials" title="Sources" tone="materials" hint={MATERIALS_HINT} info={MATERIALS_INFO}>
 
       <MaterialForm
         canWrite={canWrite}
@@ -251,7 +251,7 @@ function Materials({ campaignId, space, canWrite, refusal }: Props) {
       {space.materials.length > 0 && (
         <div className="mt-4 space-y-3">
           {space.materials.length > 3 && (
-            <SearchField label="Search materials" hideLabel value={query} onValueChange={setQuery} placeholder="Search materials" />
+            <SearchField label="Search sources" hideLabel value={query} onValueChange={setQuery} placeholder="Search sources" />
           )}
           <ul className="max-w-4xl divide-y divide-line border-y border-line">
             {shown.map((m) => (

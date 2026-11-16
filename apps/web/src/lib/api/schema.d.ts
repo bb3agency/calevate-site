@@ -7996,66 +7996,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The company training every agent is given, its materials and Pip's draft */
+        /** The company training every agent is given and Pip's draft */
         get: operations["read_company_training_v1_company_training_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/company-training/materials": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Add a document, link or note for the training to be written from */
-        post: operations["add_material_v1_company_training_materials_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/company-training/materials/upload": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload a file for the training; a file already in the knowledge is reused
-         * @description The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
-         *     unless these exact bytes are already live there: then that upload is attached instead of
-         *     being refused as a duplicate, as a campaign's materials are (D-992).
-         */
-        post: operations["upload_material_v1_company_training_materials_upload_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/company-training/materials/{training_material_id}/archive": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Remove a material from the training (archived, not deleted) */
-        post: operations["archive_material_v1_company_training_materials__training_material_id__archive_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8088,7 +8032,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask Pip to write the training from the overview and materials */
+        /** Ask Pip to write the training from the overview and the knowledge */
         post: operations["request_proposal_v1_company_training_proposal_post"];
         delete?: never;
         options?: never;
@@ -17212,13 +17156,6 @@ export interface components {
             /** Title */
             title?: string | null;
         };
-        /** Body_upload_material_v1_company_training_materials_upload_post */
-        Body_upload_material_v1_company_training_materials_upload_post: {
-            /** File */
-            file: string;
-            /** Title */
-            title?: string | null;
-        };
         /** Body_upload_preview_v1_ops_voices_hosted_preview_post */
         Body_upload_preview_v1_ops_voices_hosted_preview_post: {
             /** Sample */
@@ -20716,8 +20653,6 @@ export interface components {
         };
         /** CompanyTrainingOut */
         CompanyTrainingOut: {
-            /** Materials */
-            materials: components["schemas"]["TrainingMaterialOut"][];
             /** Overview */
             overview: string;
             /** Overview Max */
@@ -36958,48 +36893,6 @@ export interface components {
             proposal_id?: string | null;
             /** Training */
             training: string;
-        };
-        /** TrainingMaterialIn */
-        TrainingMaterialIn: {
-            /** Kb Upload Id */
-            kb_upload_id?: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "file" | "link" | "note";
-            /** Note */
-            note?: string | null;
-            /** Title */
-            title: string;
-            /** Url */
-            url?: string | null;
-        };
-        /** TrainingMaterialOut */
-        TrainingMaterialOut: {
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Kb Upload Id */
-            kb_upload_id: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "file" | "link" | "note";
-            /** Note */
-            note: string | null;
-            /** Title */
-            title: string;
-            /** Url */
-            url: string | null;
         };
         /** TrainingProposalOut */
         TrainingProposalOut: {
@@ -54010,101 +53903,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CompanyTrainingOut"];
                 };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    add_material_v1_company_training_materials_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TrainingMaterialIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrainingMaterialOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    upload_material_v1_company_training_materials_upload_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_upload_material_v1_company_training_materials_upload_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TrainingMaterialOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    archive_material_v1_company_training_materials__training_material_id__archive_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                training_material_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

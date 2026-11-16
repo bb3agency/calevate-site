@@ -1,11 +1,13 @@
-"""Pip writes the company training from the owner's overview and materials (founder, 16 Nov
-2026: the same general overview and training for every employee a company hires).
+"""Pip writes the company training from the owner's overview and what the agents already know
+(founder, 16 Nov 2026: the same general overview and training for every employee a company
+hires, written from the knowledge rather than from a second list of sources).
 
 Queued by `agents/company_training.request_proposal`. One answer on the dashboard AI ladder
 (`script_assist.ask_json`), written from what is known about the business
-(`lead_fields_draft.business_context`, already redacted), the owner's overview and notes
-(redacted here, D-127 G-1), the links by name and address, and the documents read the way
-onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
+(`lead_fields_draft.business_context`, already redacted), the owner's overview (redacted here,
+D-127 G-1), and every source the agents use (`knowledge_words`: files, links' read copies and
+typed notes, with the call instructions read out of files), read the way onboarding reads
+documents (`first_run.documents_block`: redacted, fenced, one word budget).
 
 What Pip writes is a proposal: the owner reviews it on the page and saves it, and only a save
 reaches the agents. Every write back is a compare-and-set on the proposal id, so a draft the
@@ -19,6 +21,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import company_training
 from apps.api.agents.assist_leg import account_assist_leg
@@ -27,7 +30,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
-from apps.api.first_run.documents import document_words, read_documents
+from apps.api.first_run.documents import document_words
+from apps.api.teach.facts import FACTS_SOURCE_NAME
 from apps.workers.first_run import documents_block
 from apps.workers.lead_fields_draft import business_context
 from apps.workers.redaction import redact
@@ -47,8 +51,8 @@ TRAINING_ASK: Final = (
     "offers; who its customers are; how the agents speak to callers (tone, how to address "
     "people, phrases the owner uses); names and how to say them; policies (prices, hours, "
     "delivery, payment, returns); the questions callers ask, each with a short spoken "
-    "answer; objections and how to answer them. Use ONLY what the owner's words, notes and "
-    "documents below say: never add a price, place, offer, time, product or promise they do "
+    "answer; objections and how to answer them. Use ONLY what the owner's words and the "
+    "sources below say: never add a price, place, offer, time, product or promise they do "
     "not state, and leave a part out rather than guess it. Write plain sentences under short "
     "plain headings in English, keeping names and the owner's own phrases exactly as they "
     "wrote them. No markdown, no bullets or asterisks, no emoji: agents read it before they "
@@ -83,25 +87,44 @@ def _parsed(raw: dict[str, Any]) -> str | None:
     return cleaned
 
 
-def material_lines(materials: list[company_training.Material]) -> str:
-    """Notes and links as plain lines, redacted; documents are read separately, in full."""
-    lines: list[str] = []
-    for item in materials:
-        if item.kind == "note" and item.note:
-            lines.append(f"Note ({item.title}): {item.note}")
-        elif item.kind == "link" and item.url:
-            lines.append(f"Link ({item.title}): {item.url}")
-    return redact("\n".join(lines)).text
+#: The newest sources Pip reads; `documents_block` shares one word budget among them, so more
+#: would only shorten each.
+KNOWLEDGE_SOURCES_READ: Final = 20
+
+#: Every source the agents use, newest first: an upload (file or link) or a typed note. The
+#: taught facts are left out: they reach every agent already, as known facts.
+_KNOWLEDGE_SQL: Final = text(
+    "SELECT s.id, s.name, u.id AS upload_id FROM kb_sources s "
+    "LEFT JOIN kb_uploads u ON u.source_id = s.id "
+    "WHERE s.is_active AND s.name <> :facts "
+    "ORDER BY s.updated_at DESC, s.id DESC LIMIT :n"
+)
+_NOTE_WORDS_SQL: Final = text("SELECT content FROM kb_documents WHERE source_id = :s ORDER BY idx")
 
 
-def request_text(
-    *, business: str, overview: str, notes: str, documents: str, current: str | None
-) -> str:
+async def knowledge_words(session: AsyncSession) -> list[tuple[str, str]]:
+    """(name, words) of each source the agents use, unredacted: `documents_block` redacts."""
+    rows = (
+        await session.execute(
+            _KNOWLEDGE_SQL, {"facts": FACTS_SOURCE_NAME, "n": KNOWLEDGE_SOURCES_READ}
+        )
+    ).all()
+    found: list[tuple[str, str]] = []
+    for source_id, name, upload_id in rows:
+        if upload_id is not None:
+            words = await document_words(session, upload_id)
+        else:
+            chunks = (await session.execute(_NOTE_WORDS_SQL, {"s": source_id})).scalars()
+            words = "\n\n".join(str(c) for c in chunks)
+        if words.strip():
+            found.append((str(name), words))
+    return found
+
+
+def request_text(*, business: str, overview: str, documents: str, current: str | None) -> str:
     """What the training is written from, in the order the ask names it."""
     parts = [f"WHAT IS KNOWN ABOUT THE BUSINESS:\n{business}"]
     parts.append(f"THE OWNER'S OVERVIEW, IN THEIR WORDS:\n{redact(overview.strip()).text}")
-    if notes:
-        parts.append(f"THE OWNER'S NOTES AND LINKS:\n{notes}")
     if current:
         parts.append(f"CURRENT TRAINING:\n{redact(current).text}")
     if documents:
@@ -147,13 +170,7 @@ async def draft_company_training(ctx: dict[str, Any], payload: dict[str, Any]) -
         business, _vertical = await business_context(tenant_id)
         async with tenant_session(tenant_id) as session:
             current = await company_training.read_training(session, tenant_id)
-            uploads = [m.kb_upload_id for m in current.materials if m.kb_upload_id is not None]
-            found = await read_documents(session, uploads)
-            words = [
-                (doc.name, await document_words(session, doc.upload_id))
-                for doc in found
-                if doc.state == "read"
-            ]
+            words = await knowledge_words(session)
             tenant_leg = await account_assist_leg(session)
             quota = await read_ai_quota(session, tenant_id=tenant_id)
         # Written from the training the request was made from, which the review compares
@@ -162,7 +179,6 @@ async def draft_company_training(ctx: dict[str, Any], payload: dict[str, Any]) -
         request = request_text(
             business=business,
             overview=current.overview,
-            notes=material_lines(current.materials),
             documents=documents_block(words),
             current=base,
         )
@@ -230,4 +246,11 @@ async def draft_company_training(ctx: dict[str, Any], payload: dict[str, Any]) -
     return "ready" if stored is not None else "not_pending"
 
 
-__all__ = ["JOB_NAME", "TRAINING_ASK", "draft_company_training", "material_lines", "request_text"]
+__all__ = [
+    "JOB_NAME",
+    "KNOWLEDGE_SOURCES_READ",
+    "TRAINING_ASK",
+    "draft_company_training",
+    "knowledge_words",
+    "request_text",
+]

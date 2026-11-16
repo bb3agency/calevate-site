@@ -18,7 +18,7 @@ export function PipGenerateBand({
   label = "Generate",
   inline = false,
   heading = "Let Pip, our AI agent, generate the script",
-  from = "Pip writes it from your main task and materials.",
+  from = "Pip writes it from your main task and sources.",
   beside,
 }: {
   /** Shown before the button, such as the language Pip writes in. */

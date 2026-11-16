@@ -367,7 +367,7 @@ function MainTaskField({ form }: { form: CampaignFormState }) {
       </label>
       <p className="mt-1 text-meta text-ink-muted">
         What should this campaign achieve? Write it in your own words, as much as you like. Next, on the campaign
-        page, you add your materials and Pip writes the script from both.
+        page, you add your sources and Pip writes the script from both.
       </p>
       <textarea
         id={id}

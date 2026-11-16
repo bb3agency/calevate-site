@@ -2,9 +2,11 @@
 
 A real calling company gives every person it hires the same overview of the business before
 assigning them to work. Calevate does the same: the owner describes the business in their own
-words and adds documents, links and notes; Pip writes the training from them
-(`workers/company_training_draft.py`); the owner reviews it and saves it; every agent of the
-client is then given it, ahead of its own script.
+words; Pip writes the training from them, the business profile and what the agents already
+know (`workers/company_training_draft.py`); the owner reviews it and saves it; every agent of
+the client is then given it, ahead of its own script. It is shown as the "How they speak" tab
+of What your agents know (founder, 16 Nov 2026): the knowledge holds the facts agents look up,
+the training holds how they behave, and there is one place to add material for both.
 
 WHERE IT SITS IN THE PROMPT. Inside the client fence, as the first section of the script
 (`with_training`), not as a platform layer beside it: the business wrote it, so it is fenced
@@ -42,8 +44,6 @@ OVERVIEW_MAX: Final = 4_000
 #: The training shares the engine's 20,000-character box with the agent's script and our
 #: rules; this keeps room for both.
 TRAINING_MAX: Final = 6_000
-NOTE_MAX: Final = 4_000
-TITLE_MAX: Final = 200
 #: The job that writes the training (`workers/company_training_draft.py`).
 TRAINING_DRAFT_JOB: Final = "draft_company_training"
 #: A draft still "drafting" after this long is shown as failed: the job died without writing.
@@ -58,18 +58,6 @@ TRAINING_LEAD: Final = (
 )
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
-MaterialKind = Literal["file", "link", "note"]
-
-
-@dataclass(frozen=True)
-class Material:
-    id: UUID
-    kind: str
-    title: str
-    url: str | None
-    note: str | None
-    kb_upload_id: UUID | None
-    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -94,7 +82,6 @@ class Training:
     version: int
     updated_at: datetime | None
     proposal: TrainingProposal | None
-    materials: list[Material]
 
 
 # --- composing it into an agent ------------------------------------------------------------
@@ -179,19 +166,6 @@ async def _row(session: AsyncSession, tenant_id: UUID, *, lock: bool = False) ->
     ).one()
 
 
-async def list_materials(session: AsyncSession) -> list[Material]:
-    rows = (
-        await session.execute(
-            text(
-                "SELECT id, kind, title, url, note, kb_upload_id, created_at "
-                "FROM company_training_materials WHERE archived_at IS NULL "
-                "ORDER BY created_at, id"
-            )
-        )
-    ).all()
-    return [Material(*row) for row in rows]
-
-
 async def read_training(session: AsyncSession, tenant_id: UUID) -> Training:
     row = await _row(session, tenant_id)
     return Training(
@@ -200,7 +174,6 @@ async def read_training(session: AsyncSession, tenant_id: UUID) -> Training:
         version=int(row.version),
         updated_at=row.updated_at if row.version else None,
         proposal=_proposal(row.proposal, now=datetime.now(UTC)),
-        materials=await list_materials(session),
     )
 
 
@@ -297,70 +270,6 @@ async def save_training(
     return int(version)
 
 
-async def add_material(
-    session: AsyncSession,
-    *,
-    tenant_id: UUID,
-    kind: MaterialKind,
-    title: str,
-    url: str | None,
-    note: str | None,
-    kb_upload_id: UUID | None,
-    created_by: UUID | None,
-) -> Material:
-    title = _clean(title, limit=TITLE_MAX, field="title")
-    if not title:
-        raise _invalid("title_required", "Name this material", "Give it a short name.")
-    if kind == "note" and not (note or "").strip():
-        raise _invalid("note_required", "The note is empty", "Write the note.")
-    if kind == "file" and kb_upload_id is None:
-        raise _invalid("file_required", "No file uploaded yet", "Upload the file first.")
-    if kb_upload_id is not None:
-        # RLS scopes this read to the caller's account, so another account's upload is absent.
-        found = (
-            await session.execute(
-                text("SELECT 1 FROM kb_uploads WHERE id = :u"), {"u": kb_upload_id}
-            )
-        ).first()
-        if found is None:
-            raise ProblemError.not_found("Upload")
-    row = (
-        await session.execute(
-            text(
-                "INSERT INTO company_training_materials (id, tenant_id, kind, title, url, note, "
-                "kb_upload_id, created_by) VALUES (:id, :t, :k, :ti, :u, :n, :kb, :by) "
-                "RETURNING id, kind, title, url, note, kb_upload_id, created_at"
-            ),
-            {
-                "id": uuid7(),
-                "t": tenant_id,
-                "k": kind,
-                "ti": title,
-                "u": (url or "").strip() or None,
-                "n": _clean(note or "", limit=NOTE_MAX, field="note") or None,
-                "kb": kb_upload_id,
-                "by": created_by,
-            },
-        )
-    ).one()
-    return Material(*row)
-
-
-async def archive_material(session: AsyncSession, material_id: UUID) -> None:
-    """Removing a material archives it (business data is never deleted in code)."""
-    done = (
-        await session.execute(
-            text(
-                "UPDATE company_training_materials SET archived_at = now(), updated_at = now() "
-                "WHERE id = :m AND archived_at IS NULL RETURNING id"
-            ),
-            {"m": material_id},
-        )
-    ).first()
-    if done is None:
-        raise ProblemError.not_found("Material")
-
-
 async def request_proposal(
     session: AsyncSession, *, tenant_id: UUID, requested_by: UUID | None
 ) -> TrainingProposal:
@@ -426,13 +335,9 @@ __all__ = [
     "TRAINING_DRAFT_JOB",
     "TRAINING_HEADER",
     "TRAINING_MAX",
-    "Material",
     "Training",
     "TrainingProposal",
-    "add_material",
-    "archive_material",
     "clear_proposal",
-    "list_materials",
     "live_text",
     "read_training",
     "request_proposal",

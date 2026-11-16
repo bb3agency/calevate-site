@@ -35,7 +35,6 @@ import {
   ClipboardList,
   FileSignature,
   GitMerge,
-  GraduationCap,
   LayoutDashboard,
   LifeBuoy,
   Megaphone,
@@ -106,9 +105,6 @@ export function clientNavigation(slug: string): NavGroup[] {
         // "Make a call" over "Dialer" (a campaign word in this trade) and "Quick call".
         { href: `/c/${slug}/make-a-call`, label: "Make a call", icon: PhoneForwarded },
         { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
-        // The one training every agent is given (founder, 16 Nov 2026), above the agents it
-        // trains, as a company trains everyone it hires before assigning them work.
-        { href: `/c/${slug}/company-training`, label: "Company training", icon: GraduationCap },
         { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },

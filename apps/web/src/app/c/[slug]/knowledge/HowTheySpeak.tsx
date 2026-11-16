@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * THE COMPANY TRAINING (founder, 16 Nov 2026): the one training every agent of the account is
- * given, the way a company trains everyone it hires before assigning them work. Each agent,
- * campaign and inbound line keeps its own script on top of it.
+ * HOW THEY SPEAK (D-996): the one training every agent of the account is given (founder, 16 Nov
+ * 2026), the way a company trains everyone it hires before assigning them work. A tab of What
+ * your agents know: the other tabs hold the facts agents look up, this one how they behave.
+ * Each agent, campaign and inbound line keeps its own script on top of it.
  *
  * Built like a campaign's set-up (D-992), with the same coloured folds:
  *  1. About the business: the owner's own words, many lines.
- *  2. Materials: documents, links and notes; files and links also go into the knowledge.
- *  3. Training: Pip writes it from 1 and 2, the owner reads it, keeps it or edits it, and a
- *     save brings every agent onto it.
+ *  2. The training: Pip writes it from 1, the business profile and every source on this page,
+ *     the owner reads it, keeps it or edits it, and a save brings every agent onto it.
+ *
+ * It has no sources of its own: what Pip reads is added with the page's Add area, once.
  */
 
 import { useState } from "react";
@@ -17,7 +19,6 @@ import { useState } from "react";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { TEXT_ACTION_DANGER } from "@/components/console/section";
-import { PageHeader } from "@/components/console/pageHeader";
 import {
   FIELD,
   PRIMARY_BUTTON_SM,
@@ -28,38 +29,26 @@ import {
   formatIST,
 } from "@/components/ui";
 import {
-  useAddTrainingMaterial,
-  useArchiveTrainingMaterial,
   useClearTrainingProposal,
   useCompanyTraining,
   useRequestTraining,
   useSaveOverview,
   useSaveTraining,
-  useUploadTrainingMaterial,
   type CompanyTraining,
 } from "@/lib/api/companyTraining";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 
 import { FoldGroup, FoldSection } from "../campaigns/FoldSection";
-import { KIND_LABEL, MaterialForm } from "../campaigns/MaterialsDraft";
 import { PipGenerateBand } from "../campaigns/PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "../campaigns/PipScriptStatus";
 
-export const PAGE_DESCRIPTION = "Every agent learns this before its own script.";
-export const OVERVIEW_HINT = "What is your business, and how should your agents talk about it?";
-export const OVERVIEW_INFO =
-  "Write it in your own words, as much as you like: what you sell, who your customers are, prices, hours, how you talk to people. Pip writes the training from it.";
-export const OVERVIEW_PLACEHOLDER =
-  "For example: we are a family bakery in Kukatpally. We make cakes to order and deliver within 5 km. Call customers sir or madam.";
-export const MATERIALS_HINT = "What Pip should read first.";
-export const MATERIALS_INFO =
-  "Price lists, brochures, your website, notes. Files and links also go into your knowledge, so agents can look things up on a call.";
+export const TAB_LEAD = "Every agent learns this before its own script.";
+export const OVERVIEW_HINT = "What is your business, and how should agents talk?";
+export const OVERVIEW_PLACEHOLDER = "For example: we bake cakes to order in Kukatpally.";
 export const TRAINING_HINT = "What every agent is given.";
-export const TRAINING_INFO =
-  "Each agent, campaign and phone line keeps its own script on top of this. Where a script says something different, the script wins on its own calls.";
 
-export function CompanyTrainingScreen() {
+export function HowTheySpeak() {
   const { session } = useClientRealm();
   const training = useCompanyTraining(session);
   const write = useWriteAccess(session, "org:manage", "change the company training");
@@ -67,8 +56,8 @@ export function CompanyTrainingScreen() {
   const refusal = write.reason ?? undefined;
 
   return (
-    <div className="max-w-6xl space-y-6 pb-12">
-      <PageHeader description={PAGE_DESCRIPTION} />
+    <div className="space-y-6">
+      <p className="text-body text-ink-muted">{TAB_LEAD}</p>
       <RestrictionNote reason={write.reason} />
       {training.isLoading ? (
         <Skeleton rows={4} label="Loading the company training" />
@@ -80,7 +69,6 @@ export function CompanyTrainingScreen() {
       ) : (
         <FoldGroup className="space-y-8">
           <Overview data={training.data} canWrite={canWrite} refusal={refusal} />
-          <Materials data={training.data} canWrite={canWrite} refusal={refusal} />
           <Training data={training.data} canWrite={canWrite} refusal={refusal} />
         </FoldGroup>
       )}
@@ -105,7 +93,9 @@ function Overview({ data, canWrite, refusal }: Props) {
   };
 
   return (
-    <FoldSection id="training-overview" title="About the business" tone="task" hint={OVERVIEW_HINT} info={OVERVIEW_INFO}>
+    <FoldSection id="training-overview" title="About the business" tone="task" hint={OVERVIEW_HINT}
+      info="Write it in your own words, as much as you like: what you sell, who your customers are, how you talk to people. Pip writes the training from it and from everything on this page."
+    >
       {editing ? (
         <>
           <label htmlFor="training-overview-text" className="sr-only">
@@ -176,75 +166,6 @@ function Overview({ data, canWrite, refusal }: Props) {
   );
 }
 
-function Materials({ data, canWrite, refusal }: Props) {
-  const { session } = useClientRealm();
-  const add = useAddTrainingMaterial(session);
-  const upload = useUploadTrainingMaterial(session);
-  const archive = useArchiveTrainingMaterial(session);
-  useActionFeedback(add, { errorDisplay: "inline" });
-  useActionFeedback(upload, { errorDisplay: "inline" });
-  const archiveFeedback = useActionFeedback(archive, { errorTitle: "Could not remove it", successToast: "Removed" });
-
-  return (
-    <FoldSection id="training-materials" title="Materials" tone="materials" hint={MATERIALS_HINT} info={MATERIALS_INFO}>
-      <MaterialForm
-        canWrite={canWrite}
-        refusal={refusal}
-        onAdd={({ file, ...item }) => {
-          add.reset();
-          upload.reset();
-          return file ? upload.mutateAsync({ file, title: item.title }) : add.mutateAsync(item);
-        }}
-        adding={add.isPending || upload.isPending}
-        addError={upload.error ?? add.error}
-      />
-      {data.materials.length > 0 && (
-        <ul className="mt-4 max-w-4xl divide-y divide-line border-y border-line">
-          {data.materials.map((m) => (
-            <li key={m.id} className="flex items-start gap-3 py-3.5">
-              <span className="mt-0.5 w-12 shrink-0 text-meta text-ink-muted">{KIND_LABEL[m.kind]}</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{m.title}</p>
-                {m.url && (
-                  <a
-                    href={m.url}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="text-meta text-ink-muted underline decoration-line underline-offset-2 hover:text-ink [overflow-wrap:anywhere]"
-                  >
-                    {m.url}
-                  </a>
-                )}
-                {m.note && (
-                  <ExpandableText
-                    lines={3}
-                    moreLabel="Show more"
-                    lessLabel="Show less"
-                    className="mt-0.5 text-meta text-ink-muted"
-                    textClassName="whitespace-pre-wrap [overflow-wrap:anywhere]"
-                  >
-                    {m.note}
-                  </ExpandableText>
-                )}
-              </div>
-              <button
-                type="button"
-                className={TEXT_ACTION_DANGER}
-                disabled={!canWrite || archive.isPending}
-                title={refusal}
-                aria-label={`Remove ${m.title}`}
-                onClick={() => archiveFeedback.run(m.id)}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </FoldSection>
-  );
-}
-
 function Training({ data, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const ask = useRequestTraining(session);
@@ -275,13 +196,13 @@ function Training({ data, canWrite, refusal }: Props) {
       title="Training"
       tone="script"
       hint={TRAINING_HINT}
-      info={TRAINING_INFO}
+      info="Each agent, campaign and phone line keeps its own script on top of this. Where a script says something different, the script wins on its own calls."
       aside={data.version > 0 ? `Version ${data.version}` : undefined}
     >
       <div className="mb-4">
         <PipGenerateBand
           heading="Let Pip, our AI agent, write the training"
-          from="Pip writes it from About the business and your materials."
+          from="Pip writes it from your words and this page."
           onGenerate={() => askFeedback.run(undefined)}
           busy={ask.isPending || proposal?.status === "drafting"}
           disabled={!canWrite || !hasOverview || (proposal != null && !(failed && retryable(proposal.reason)))}

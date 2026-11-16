@@ -1,12 +1,13 @@
 """The company training every agent of a client is given (founder, 16 Nov 2026).
 
-1. Both tables are invisible across tenants (hard rule 1), through the service and raw.
+1. The training is invisible across tenants (hard rule 1), through the service and raw.
 2. The training is the first section INSIDE the client fence, so the platform rules and the
    truthful answers still come after it; an account with none composes exactly as before.
 3. A save moves the version and queues the live agents onto it; one that would push an
    agent past the engine's box is refused before anything is stored.
-4. Pip needs an overview first, writes one draft at a time, and its draft is redacted on the
-   way in and stored by compare-and-set.
+4. Pip needs an overview first, writes one draft at a time, reads what the agents know
+   rather than a list of its own, and its draft is redacted on the way in and stored by
+   compare-and-set.
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here and every assertion is scoped
 to its own ids. The model is never called: the ladder is replaced.
@@ -24,6 +25,7 @@ from apps.api.agents import company_training, prompts
 from apps.api.agents.prompt_size import publish_config
 from apps.api.core.errors import ProblemError
 from apps.api.crm import assist as crm_assist
+from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers import company_training_draft
@@ -78,29 +80,16 @@ def _cfg(script: str) -> AgentConfig:
 # --- 1. isolation ------------------------------------------------------------------------
 
 
-async def test_a_tenant_cannot_see_another_tenants_training_or_materials() -> None:
+async def test_a_tenant_cannot_see_another_tenants_training() -> None:
     tenant_a, _ = await _org()
     tenant_b, _ = await _org()
     async with tenant_session(tenant_a) as session:
         await company_training.save_overview(session, tenant_a, "We build flats.")
-        await company_training.add_material(
-            session,
-            tenant_id=tenant_a,
-            kind="note",
-            title="Price",
-            url=None,
-            note="Flats from 60 lakh.",
-            kb_upload_id=None,
-            created_by=None,
-        )
+        await company_training.save_training(session, tenant_a, TRAINING, saved_by=None)
     async with tenant_session(tenant_b) as session:
-        assert await company_training.list_materials(session) == []
         assert await company_training.live_text(session) == ""
         trainings = (await session.execute(text("SELECT count(*) FROM company_trainings"))).scalar()
-        materials = (
-            await session.execute(text("SELECT count(*) FROM company_training_materials"))
-        ).scalar()
-    assert (trainings, materials) == (0, 0)
+    assert trainings == 0
 
 
 # --- 2. composition ----------------------------------------------------------------------
@@ -188,32 +177,6 @@ async def test_a_training_that_would_overflow_an_agent_is_refused_unsaved(
         assert await company_training.live_text(session) == ""
 
 
-async def test_a_removed_material_is_archived_not_deleted() -> None:
-    tenant, _ = await _org()
-    async with tenant_session(tenant) as session:
-        material = await company_training.add_material(
-            session,
-            tenant_id=tenant,
-            kind="link",
-            title="Website",
-            url="https://example.com",
-            note=None,
-            kb_upload_id=None,
-            created_by=None,
-        )
-        await company_training.archive_material(session, material.id)
-        assert await company_training.list_materials(session) == []
-        kept = (
-            await session.execute(
-                text(
-                    "SELECT archived_at IS NOT NULL FROM company_training_materials WHERE id = :m"
-                ),
-                {"m": material.id},
-            )
-        ).scalar()
-    assert kept is True
-
-
 # --- 4. Pip ------------------------------------------------------------------------------
 
 
@@ -242,7 +205,6 @@ def test_the_owners_words_are_redacted_before_any_model_reads_them() -> None:
     request = company_training_draft.request_text(
         business="Business name: Sunrise Homes",
         overview="Call me on 9876543210 for site visits.",
-        notes="",
         documents="",
         current=None,
     )
@@ -289,3 +251,35 @@ async def test_pips_draft_is_stored_for_review_and_metered(monkeypatch: pytest.M
     # Nothing reaches an agent until the owner saves it.
     assert read.training == ""
     assert "Kompally" in asked[0] and metered == ["gemini-2.5-flash-lite"]
+
+
+async def _knowledge(tenant: UUID, name: str, words: str, *, active: bool = True) -> None:
+    """A typed note in What your agents know, as the knowledge pipeline stores one."""
+    source_id = uuid7()
+    async with tenant_session(tenant) as session:
+        await session.execute(
+            text(
+                "INSERT INTO kb_sources (id, tenant_id, kind, name, status, version, is_active, "
+                "created_at, updated_at) VALUES (:i, :t, 'text', :n, 'approved', 1, :a, now(), "
+                "now())"
+            ),
+            {"i": source_id, "t": tenant, "n": name, "a": active},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO kb_documents (id, tenant_id, source_id, idx, content, created_at, "
+                "updated_at) VALUES (:id, :t, :s, 0, :w, now(), now())"
+            ),
+            {"id": uuid7(), "t": tenant, "s": source_id, "w": words},
+        )
+
+
+async def test_pip_reads_what_the_agents_know_and_nothing_they_do_not() -> None:
+    tenant, _ = await _org()
+    other, _ = await _org()
+    await _knowledge(tenant, "Prices", "A 2BHK starts at 60 lakh.")
+    await _knowledge(tenant, "Old prices", "A 2BHK starts at 40 lakh.", active=False)
+    await _knowledge(other, "Their prices", "A villa starts at 2 crore.")
+    async with tenant_session(tenant) as session:
+        read = dict(await company_training_draft.knowledge_words(session))
+    assert read == {"Prices": "A 2BHK starts at 60 lakh."}

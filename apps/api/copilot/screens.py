@@ -175,16 +175,6 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         aliases=("outbound", "calling list", "dialer", "broadcast"),
     ),
     Screen(
-        route="/c/{slug}/company-training",
-        name="Company training",
-        group=None,
-        summary=(
-            "Describe the business and add materials; Pip writes the training every agent "
-            "is given before its own script."
-        ),
-        aliases=("company overview", "train my agents", "about my business", "agent training"),
-    ),
-    Screen(
         route="/c/{slug}/agents",
         name="Agents",
         group=None,
@@ -251,7 +241,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         group=None,
         summary=(
             "Everything the agents can tell callers: facts and answers, files and links, and "
-            "the questions they could not answer."
+            "the questions they could not answer, and how they speak."
         ),
         aliases=(
             "knowledge",
@@ -259,7 +249,7 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
             "faq",
             "training",
             "documents",
-            "what the agent knows",
+            "sources",
         ),
     ),
     Screen(

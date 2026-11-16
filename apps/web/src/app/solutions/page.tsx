@@ -144,7 +144,7 @@ const SOLUTIONS: readonly Solution[] = [
       // The agent DOES draw on the business's knowledge during a call
       // (`THINNEST_CAPABILITIES.knowledge_base` is True, apps/api/engine/thinnest.py), so the
       // constraint that holds is about WHAT it may draw on, and that is what this line says.
-      "It does not answer from anything but the material your business added. It is not a search engine and it does not learn from your documents.",
+      "It does not answer from anything but the sources your business added. It is not a search engine and it does not learn from your documents.",
       // The hand-over phone is the one we publish; `built_in_tools_body` clears any number
       // typed elsewhere, so a caller cannot be put through to anybody off the list.
       "It does not put a caller through to anyone who is not on your handover list.",

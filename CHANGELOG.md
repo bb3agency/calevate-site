@@ -5,6 +5,13 @@ page (`apps/web/package.json` holds the version). Dates are IST.
 
 ## 0.4.43 — 16-Nov-2026
 
+- **How they speak.** The company training is now a tab of What your agents know, not a page of
+  its own: write a few lines about your business and Pip writes how every agent speaks, from
+  your words and everything already on that page. There is one place to add files, links and
+  notes.
+- **Sources.** What a campaign works from is called Sources everywhere you see it.
+- The archived campaign row's Restore button no longer spills out of its box.
+
 - Script: a Call flow chart under the script shows each step and where the call goes next,
   by what the person says. Click a step to edit it, drag between steps to add a way out, or
   add steps; Save flow keeps the changes. "Let Pip map the scenarios" writes the likely ways

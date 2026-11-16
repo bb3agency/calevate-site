@@ -2157,7 +2157,7 @@ class AgentMistakeFix(PKMixin, TimestampMixin, Base):
     undone_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
 
 
-#: What a company training material can be; `company_training.MaterialKind` spells the same.
+#: What a company training material could be (the table is retired, D-996).
 TRAINING_MATERIAL_KINDS: Final = ("file", "link", "note")
 
 
@@ -2180,8 +2180,9 @@ class CompanyTraining(PKMixin, TimestampMixin, Base):
 
 
 class CompanyTrainingMaterial(PKMixin, TimestampMixin, Base):
-    """A document, link or note the company training is written from. A file is a knowledge
-    upload, so agents can also look it up on a call. Removed by archiving, never deleted."""
+    """RETIRED (D-996): nothing reads or writes it. The training is written from What your
+    agents know instead of a list of its own. The table shipped in 0.4.24 and is dropped in a
+    later release, never in the one that stopped writing it (hard rule 8)."""
 
     __tablename__ = "company_training_materials"
     __table_args__ = (

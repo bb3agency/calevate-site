@@ -13,6 +13,7 @@ import { useKbNotes } from "@/lib/api/kb";
 import { QUESTION_PARAM, useTeachQuestions } from "@/lib/api/teachQuestions";
 
 import { AddArea } from "./AddArea";
+import { HowTheySpeak } from "./HowTheySpeak";
 import { WhatItKnows } from "./WhatItKnows";
 import { StaffCurationSwitch } from "./permissions";
 
@@ -21,10 +22,12 @@ import { StaffCurationSwitch } from "./permissions";
  * agent of the business (D-689). The route keeps its old path, `/c/{slug}/knowledge`, so
  * every link, bookmark and copilot route that names it still lands here.
  *
- * One Add area at the top (write it, send a file, save a link), then two views: everything
- * the agents were given, grouped by kind with each item's plain status, and the questions
- * they need answered (D-893), the same list as an agent's Training tab, account-wide. A link
- * with `?question=pricing` opens that view on that question.
+ * One Add area at the top (write it, send a file, save a link), then three views: everything
+ * the agents were given, grouped by kind with each item's plain status; the questions they
+ * need answered (D-893), the same list as an agent's Training tab, account-wide; and How they
+ * speak (D-996), the training every agent is given, which Pip writes from the owner's words
+ * and everything on this page. A link with `?question=pricing` opens the questions on that
+ * question; `?tab=speak` opens How they speak.
  *
  * The screen renders no `<h1>`: the shell prints the page title from the nav list.
  *
@@ -32,6 +35,9 @@ import { StaffCurationSwitch } from "./permissions";
  * (`apps/api/kb/curation.py`; `/v1/me` reports the effective set), and a view-as operator,
  * whose additions wait for review. Anyone else gets the reason beside the disabled control.
  */
+/** `?tab=speak`: How they speak, the training every agent is given (D-996). */
+export const SPEAK_TAB = "speak";
+
 export function KnowledgeScreen() {
   const session = useClientSession();
   const notes = useKbNotes(session);
@@ -54,7 +60,11 @@ export function KnowledgeScreen() {
   const curationWrite = useWriteAccess(session, "org:manage", "change who may add things here");
 
   const [tab, setTab] = useState(
-    focus !== null || params.get("tab") === "questions" ? "questions" : "knows",
+    focus !== null || params.get("tab") === "questions"
+      ? "questions"
+      : params.get("tab") === SPEAK_TAB
+        ? SPEAK_TAB
+        : "knows",
   );
 
   // A count only from a read that answered: while it is out or after it failed, the tab
@@ -78,6 +88,7 @@ export function KnowledgeScreen() {
             value: "questions",
             label: open ? `Questions to answer · ${formatCount(open)}` : "Questions to answer",
           },
+          { value: SPEAK_TAB, label: "How they speak" },
         ]}
         value={tab}
         onValueChange={setTab}
@@ -85,6 +96,8 @@ export function KnowledgeScreen() {
         renderPanel={(current) =>
           current === "questions" ? (
             <QuestionsToAnswer focus={focus} />
+          ) : current === SPEAK_TAB ? (
+            <HowTheySpeak />
           ) : (
             <WhatItKnows
               canWrite={write.allowed}

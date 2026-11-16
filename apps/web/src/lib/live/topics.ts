@@ -216,7 +216,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
   agents: [
     ...SUMMARY,
     "agent",
-    // The company training every agent is given (`company_trainings`, its materials).
+    // How they speak, the training every agent is given (`company_trainings`, D-996).
     "company-training",
     // A campaign's settings page shows the agent's own values beside its overrides (D-994).
     "campaign-settings",

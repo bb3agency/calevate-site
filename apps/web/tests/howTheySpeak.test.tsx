@@ -1,16 +1,17 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CompanyTrainingScreen, PAGE_DESCRIPTION } from "@/app/c/[slug]/company-training/CompanyTrainingScreen";
+import { HowTheySpeak, TAB_LEAD } from "@/app/c/[slug]/knowledge/HowTheySpeak";
+import { KnowledgeScreen } from "@/app/c/[slug]/knowledge/KnowledgeScreen";
 import type { CompanyTraining } from "@/lib/api/companyTraining";
 
-import { renderClientPage } from "./harness";
+import { noReply, renderClientPage } from "./harness";
 
 /*
- * THE COMPANY TRAINING (founder, 16 Nov 2026): one training every agent is given. The owner
- * describes the business, Pip writes the training, and the owner keeps it, edits it first or
- * discards it. Keeping Pip's draft saves it together with the draft's id, so the draft is
- * settled in the same save.
+ * HOW THEY SPEAK (D-996): the one training every agent is given, a tab of What your agents
+ * know. The owner describes the business, Pip writes the training from it and the page's
+ * sources, and the owner keeps it, edits it first or discards it. Keeping Pip's draft saves it
+ * together with the draft's id, so the draft is settled in the same save.
  */
 
 const PATH = "/v1/company-training";
@@ -29,7 +30,6 @@ function training(over: Partial<CompanyTraining> = {}): CompanyTraining {
     version: 0,
     updated_at: null,
     proposal: null,
-    materials: [],
     overview_max: 4000,
     training_max: 6000,
     ...over,
@@ -47,17 +47,36 @@ const READY: CompanyTraining["proposal"] = {
   reason: null,
 };
 
-describe("the company training page", () => {
+describe("How they speak", () => {
+  it("is a tab of What your agents know, opened by ?tab=speak", async () => {
+    window.history.replaceState(null, "", "/c/acme/knowledge?tab=speak");
+    try {
+      await renderClientPage(<KnowledgeScreen />, {
+        "/v1/me": OWNER,
+        [PATH]: training(),
+        "/v1/kb/notes": { notes: [] },
+        "/v1/teach/questions": { items: [], open_count: 0 },
+        "/v1/kb/teach/open": { teaching: null },
+        "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
+        "/v1/business-profile": noReply(),
+      });
+      expect(await screen.findByRole("tab", { name: "How they speak", selected: true })).toBeTruthy();
+      expect(await screen.findByText(TAB_LEAD)).toBeTruthy();
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
   it("asks for the business first, with Generate held back until it is saved", async () => {
-    await renderClientPage(<CompanyTrainingScreen />, { "/v1/me": OWNER, [PATH]: training() });
-    expect(await screen.findByText(PAGE_DESCRIPTION)).toBeTruthy();
+    await renderClientPage(<HowTheySpeak />, { "/v1/me": OWNER, [PATH]: training() });
+    expect(await screen.findByText(TAB_LEAD)).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "About the business" })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Generate" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Save About the business first.")).toBeTruthy();
   });
 
   it("saves the owner's words about the business", async () => {
-    const page = await renderClientPage(<CompanyTrainingScreen />, {
+    const page = await renderClientPage(<HowTheySpeak />, {
       "/v1/me": OWNER,
       [PATH]: training(),
       [`PUT ${PATH}/overview`]: training({ overview: "We build flats in Kompally." }),
@@ -72,7 +91,7 @@ describe("the company training page", () => {
   });
 
   it("keeps Pip's draft with its id, so the draft is settled by the same save", async () => {
-    const page = await renderClientPage(<CompanyTrainingScreen />, {
+    const page = await renderClientPage(<HowTheySpeak />, {
       "/v1/me": OWNER,
       [PATH]: training({ overview: "We build flats.", proposal: READY }),
       [`PUT ${PATH}/training`]: training({ overview: "We build flats.", training: READY?.training ?? "", version: 1 }),
@@ -85,7 +104,7 @@ describe("the company training page", () => {
   });
 
   it("shows the saved training with its version and an Edit", async () => {
-    await renderClientPage(<CompanyTrainingScreen />, {
+    await renderClientPage(<HowTheySpeak />, {
       "/v1/me": OWNER,
       [PATH]: training({
         overview: "We build flats.",
