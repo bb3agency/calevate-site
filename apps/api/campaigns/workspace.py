@@ -7,15 +7,9 @@ script from the main task and the sources the campaign picked from What your age
 (founder, 16 Nov 2026: one place to add things; `kb/picks.py`), through
 `workers/campaign_script.py` and the one script writer `workers/script_assist.draft_script`;
 the owner reviews it with the same
-review the Script page uses, and Start puts it live on the agent through the agent's own
-publish (`agents/script_publish.put_draft_live`): version history, the compliance read-back
-and the audit all apply exactly as they do to an agent script.
-
-Why put live at Start rather than send the script with every call: a per-call override
-(`overrides.callInstructions`) holds 4,000 characters (place-call.md, 6 Oct 2026 mirror), and
-the bare built-in starter scripts already compile to 2,100-3,500 before any FAQ or document
-is worked in. The agent's own instructions hold 20,000 (`engine/thinnest.INSTRUCTIONS_MAX_CHARS`).
-The cost is that a voice speaks one campaign's script at a time, which Start enforces.
+review the Script page uses, and Start puts it live on the campaign's own engine agent, in its
+agent's voice (`campaigns/engine_agent.put_campaign_live`, D-1003): the agent's own script and
+the numbers it answers are never touched, and any number of campaigns may share one voice.
 
 The pending Pip draft lives on the campaign row (`campaigns.script_proposal`), one at a time,
 the same shape and compare-and-set discipline as `agents.script_proposal`.
@@ -362,13 +356,14 @@ async def copy_workspace(
     session: AsyncSession, *, tenant_id: UUID, source_id: UUID, target_id: UUID
 ) -> None:
     """A copied campaign keeps what it says and how: the main task, the script, the second
-    opening, the setting overrides and the sources it picked. Pip's unreviewed proposal and the
-    agent hold are not copied: the first belongs to the old draft's review, the second to
-    whichever campaign last started."""
+    opening, the setting overrides, what it notes and the sources it picked. Pip's unreviewed
+    proposal and the engine agent are not copied: the first belongs to the old draft's review,
+    the second is made by the copy's own Start or test call."""
     await session.execute(
         text(
             "UPDATE campaigns AS t SET main_task = s.main_task, script = s.script, "
             "opening_b = s.opening_b, settings_overrides = s.settings_overrides, "
+            "extraction_fields = s.extraction_fields, "
             "updated_at = now() FROM campaigns AS s WHERE t.id = :t AND s.id = :s"
         ),
         {"t": target_id, "s": source_id},
@@ -384,77 +379,6 @@ async def copy_workspace(
         )
 
 
-async def put_script_live(
-    *, tenant_id: UUID, campaign_id: UUID, campaign_name: str, user_id: UUID | None
-) -> int | None:
-    """Start's first step: the campaign's script becomes the agent's live script.
-
-    Refused while another running or scheduled campaign has put its own script on the same
-    agent, because a voice speaks one script at a time. A campaign with no script of its own
-    leaves the agent's script as it is (campaigns made before D-992)."""
-    from apps.api.agents import script_publish
-    from apps.api.db.session import tenant_session
-
-    async with tenant_session(tenant_id) as session:
-        row = await _campaign_row(session, campaign_id)
-        script = _script(row.script)
-        if script is None:
-            return None
-        clash = (
-            await session.execute(
-                text(
-                    "SELECT name FROM campaigns WHERE agent_id = :a AND id <> :c "
-                    "AND archived_at IS NULL AND script IS NOT NULL "
-                    "AND status IN ('running', 'scheduled') LIMIT 1"
-                ),
-                {"a": row.agent_id, "c": campaign_id},
-            )
-        ).first()
-        if clash is not None:
-            raise ProblemError.conflict(
-                "agent_busy_with_campaign",
-                f"This agent is already speaking the campaign “{clash.name}”.",
-                remediation="Pause that campaign first, or choose another agent for this one.",
-            )
-    # This campaign holds the agent from now: its settings overrides are what the publish
-    # below, and every later drift repair, lay over the agent's defaults (D-994). Marked first
-    # so the publish reads them; put back if the publish fails.
-    async with tenant_session(tenant_id) as session:
-        held_before = (
-            await session.execute(
-                text(
-                    "UPDATE campaigns c SET agent_held_at = now() FROM "
-                    "(SELECT agent_held_at AS before FROM campaigns WHERE id = :cid) old "
-                    "WHERE c.id = :cid RETURNING old.before"
-                ),
-                {"cid": campaign_id},
-            )
-        ).scalar_one_or_none()
-    try:
-        done = await script_publish.put_draft_live(
-            tenant_id=tenant_id,
-            agent_id=row.agent_id,
-            summary=f"Campaign: {campaign_name}"[:200],
-            created_by=user_id,
-            script=script,
-            check_version=False,
-            expected_version=None,
-        )
-    except BaseException:
-        async with tenant_session(tenant_id) as session:
-            await session.execute(
-                text("UPDATE campaigns SET agent_held_at = :b WHERE id = :cid"),
-                {"b": held_before, "cid": campaign_id},
-            )
-        raise
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE campaigns SET script_live_version = :v WHERE id = :cid"),
-            {"v": done.version, "cid": campaign_id},
-        )
-    return done.version
-
-
 __all__ = [
     "CAMPAIGN_SCRIPT_JOB",
     "MAIN_TASK_MAX",
@@ -463,7 +387,6 @@ __all__ = [
     "add_note",
     "clear_proposal",
     "pick_source",
-    "put_script_live",
     "read_call_script",
     "read_script_proposal",
     "read_workspace",

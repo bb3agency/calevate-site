@@ -195,6 +195,10 @@ UNAVAILABLE_SAY: Final = (
 class ActionRoute:
     tenant_id: UUID
     agent_id: UUID
+    #: The holder the route names besides the agent (D-997, D-1003): the call a live action
+    #: acts on is stamped with it, as intake stamps it after the call.
+    inbound_line_id: UUID | None = None
+    campaign_id: UUID | None = None
 
 
 class _CallNotMatchedError(Exception):
@@ -213,7 +217,8 @@ async def _route_if_authentic(
                     text(
                         "SELECT tenant_id, agent_id, action_secret_ciphertext, "
                         "action_secret_nonce, action_secret_dek_wrapped, "
-                        "action_secret_dek_nonce, action_secret_kek_version "
+                        "action_secret_dek_nonce, action_secret_kek_version, "
+                        "inbound_line_id, campaign_id "
                         "FROM engine_agent_routes "
                         "WHERE engine = :engine AND engine_agent_ref = :ref AND active"
                     ),
@@ -232,7 +237,12 @@ async def _route_if_authentic(
     )
     if not matched or expected is None or row is None:
         return None
-    return ActionRoute(tenant_id=UUID(str(row[0])), agent_id=UUID(str(row[1])))
+    return ActionRoute(
+        tenant_id=UUID(str(row[0])),
+        agent_id=UUID(str(row[1])),
+        inbound_line_id=UUID(str(row[7])) if row[7] is not None else None,
+        campaign_id=UUID(str(row[8])) if row[8] is not None else None,
+    )
 
 
 def _arguments(raw: bytes) -> dict[str, str] | None:
@@ -421,14 +431,15 @@ def call_locator(route: ActionRoute, live: LiveCall, phone_e164: str) -> CallLoc
             await session.execute(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                    "from_e164, status, created_at, updated_at) VALUES (:id, :tid, :aid, "
-                    ":ecid, 'inbound', :from_e, 'in_progress', now(), now()) "
+                    "from_e164, inbound_line_id, status, created_at, updated_at) VALUES (:id, "
+                    ":tid, :aid, :ecid, 'inbound', :from_e, :line, 'in_progress', now(), now()) "
                     "ON CONFLICT (engine_call_id) DO NOTHING"
                 ),
                 {
                     "id": uuid7(),
                     "tid": route.tenant_id,
                     "aid": route.agent_id,
+                    "line": route.inbound_line_id,
                     "ecid": live.engine_call_id,
                     "from_e": phone_e164,
                 },
@@ -443,6 +454,16 @@ def call_locator(route: ActionRoute, live: LiveCall, phone_e164: str) -> CallLoc
         # or one agent's secret could act on another agent's call in the same account.
         if row is None or UUID(str(row[1])) != route.agent_id:
             raise _CallNotMatchedError
+        if route.campaign_id is not None:
+            # A call its campaign's own engine agent placed belongs to that campaign (D-1003),
+            # unless it is a test call, which is kept out of its results.
+            await session.execute(
+                text(
+                    "UPDATE calls SET campaign_id = :camp WHERE id = :id "
+                    "AND campaign_id IS NULL AND NOT trial_call AND NOT paid_test_call"
+                ),
+                {"camp": route.campaign_id, "id": row[0]},
+            )
         return await _tool_call(session, row)
 
     return locate

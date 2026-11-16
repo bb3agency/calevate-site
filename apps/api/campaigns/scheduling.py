@@ -138,6 +138,7 @@ from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.campaigns.engine_agent import end_campaign_agent
 from apps.api.campaigns.service import launch_campaign
 from apps.api.compliance.service import DEFAULT_WINDOW
 from apps.api.core.alerting import alert, record_compliance_block
@@ -630,6 +631,7 @@ async def unschedule_campaign(
     ).first()
     if row is None:
         raise await _why_not_schedulable(session, campaign_id, unscheduling=True)
+    await end_campaign_agent(session, campaign_id=campaign_id)
     return CancelledSchedule(kind=str(row[1] or ONE_TIME), status=str(row[0]))
 
 

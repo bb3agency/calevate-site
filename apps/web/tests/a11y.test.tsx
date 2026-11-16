@@ -18,6 +18,7 @@ import {
   dltRegistrationRoute,
   progressFixture,
   resultsFixture,
+  notesFixture,
   settingsFixture,
   workspaceFixture,
 } from "./campaignFixtures";
@@ -3206,6 +3207,7 @@ const CLIENT_SCREENS: Screen[] = [
       // The Set up tab, which opens first whatever the status.
       [`/v1/campaigns/${CAMPAIGN.id}/workspace`]: workspaceFixture({ campaign_id: CAMPAIGN.id, status: "running" }),
       [`/v1/campaigns/${CAMPAIGN.id}/settings`]: settingsFixture(),
+      [`/v1/campaigns/${CAMPAIGN.id}/notes`]: notesFixture(),
       [`/v1/campaigns/${CAMPAIGN.id}/test-calls`]: [
         { call_id: "call-2", placed_at: "2026-11-16T04:00:00Z", status: "completed", duration_s: 40, has_recording: false },
       ],

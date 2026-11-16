@@ -72,7 +72,7 @@ Every new tenant table ships with its RLS policy and a cross-tenant zero-rows te
 - Pip writes the training from the overview, the business profile, knowledge and the first-run answers.
 - Composition: the training is the first section, `[COMPANY TRAINING]`, inside the client fence of every agent and A/B arm (`agents/company_training.with_training`). It sits inside the fence rather than as a platform layer because the business wrote it. An account with no training composes byte for byte as before.
 
-### Phase 2: Campaign engine agents
+### Phase 2: Campaign engine agents (built, D-1003)
 Hazards to fix first:
 - `thinnest._name_tag` includes the holder id. Today a second holder with the same agent id would overwrite the agent's engine agent.
 - Drift and settings repair become holder-aware: `publishing.engine_drift_for`, `engine_reconciliation:431`.

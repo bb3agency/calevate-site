@@ -37,6 +37,7 @@ from apps.api.campaigns import (
     scheduling,
     service,
 )
+from apps.api.campaigns import engine_agent as campaign_engine_agent
 from apps.api.campaigns import workspace as campaign_workspace
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
@@ -1068,21 +1069,26 @@ async def launch_check(
 
 
 async def _put_campaign_script_live(
-    session: AsyncSession, principal: Principal, campaign_id: UUID
+    session: AsyncSession, principal: Principal, campaign_id: UUID, *, gated: bool = False
 ) -> None:
-    """The campaign's own script becomes its agent's live script before it can dial (D-992):
-    the campaign says what its calls say, the agent is the voice."""
+    """The campaign's own engine agent is made or brought up to date and read back before it
+    can dial (D-1003): the campaign says what its calls say, in its agent's voice, and the
+    agent's own script is untouched.
+
+    `gated` (Start): nothing is made while the launch gate would refuse, so a refused Start
+    leaves no engine agent holding the workspace's allowance; the gate's own refusal follows."""
     assert principal.tenant_id is not None
-    name = (
-        await session.execute(text("SELECT name FROM campaigns WHERE id = :c"), {"c": campaign_id})
+    found = (
+        await session.execute(text("SELECT 1 FROM campaigns WHERE id = :c"), {"c": campaign_id})
     ).scalar_one_or_none()
-    if name is None:
+    if found is None:
         raise ProblemError.not_found("Campaign")
-    await campaign_workspace.put_script_live(
-        tenant_id=principal.tenant_id,
-        campaign_id=campaign_id,
-        campaign_name=str(name),
-        user_id=principal.user_id,
+    if gated and await service.launch_blockers(
+        session, tenant_id=principal.tenant_id, campaign_id=campaign_id
+    ):
+        return
+    await campaign_engine_agent.put_campaign_live(
+        tenant_id=principal.tenant_id, campaign_id=campaign_id
     )
 
 
@@ -1099,7 +1105,7 @@ async def launch(
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> LaunchOut:
     assert principal.tenant_id is not None
-    await _put_campaign_script_live(session, principal, campaign_id)
+    await _put_campaign_script_live(session, principal, campaign_id, gated=True)
     result = await service.launch_campaign(
         session, tenant_id=principal.tenant_id, campaign_id=campaign_id
     )
@@ -1397,10 +1403,10 @@ async def resume(
 async def _update_settings(
     session: AsyncSession, principal: Principal, campaign_id: UUID, changes: dict[str, Any]
 ) -> list[str]:
-    """A new agent on a started campaign takes the campaign's script at once, so its next call
-    says what the campaign says. The change is committed in its own transaction first, because
-    `put_script_live` reads the campaign in another session; if the new agent cannot take the
-    script (another campaign holds it) the old agent is put back and the refusal stands."""
+    """A new voice on a started campaign reaches its engine agent at once, so its next call
+    speaks in it. The change is committed in its own transaction first, because the publish
+    reads the campaign in another session; if the engine agent cannot take the new voice the
+    old agent is put back and the refusal stands."""
     assert principal.tenant_id is not None
     row = (
         await session.execute(

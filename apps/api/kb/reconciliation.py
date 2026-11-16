@@ -282,6 +282,16 @@ async def handles_if_no_publish_in_flight(
         return frozenset(
             await recorded_handles_of_agent(session, agent_id, inbound_line_id=UUID(str(line_id)))
         )
+    campaign_id = (
+        await session.execute(
+            text("SELECT id FROM campaigns WHERE agent_id = :aid AND engine_agent_ref = :ref"),
+            {"aid": agent_id, "ref": engine_agent_ref},
+        )
+    ).scalar()
+    if campaign_id is not None:
+        return frozenset(
+            await recorded_handles_of_agent(session, agent_id, campaign_id=UUID(str(campaign_id)))
+        )
     return frozenset()
 
 

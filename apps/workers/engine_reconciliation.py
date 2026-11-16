@@ -272,12 +272,13 @@ async def _reconcile_settings(engine_name: str, candidate: DriftCandidate) -> No
         )
 
 
-async def _is_line_route(session: AsyncSession, ref: str) -> bool:
-    """Whether `ref` is an inbound line's engine agent (D-997)."""
+async def _is_holder_route(session: AsyncSession, ref: str) -> bool:
+    """Whether `ref` is the engine agent of one of the agent's holders, not its own: an
+    inbound line's (D-997) or a campaign's (D-1003)."""
     found = await session.execute(
         text(
             "SELECT 1 FROM engine_agent_routes WHERE engine_agent_ref = :ref "
-            "AND inbound_line_id IS NOT NULL"
+            "AND (inbound_line_id IS NOT NULL OR campaign_id IS NOT NULL)"
         ),
         {"ref": ref},
     )
@@ -363,10 +364,10 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
     # own session is untenanted, and only `engine_agent_routes` carries that exemption.
     async with tenant_session(candidate.tenant_id) as session:
         truthful = drift.truthful_answer_applied
-        if truthful and await _is_line_route(session, candidate.engine_agent_ref):
-            # A line's engine agent (D-997) proven sound says nothing about the agent's own,
-            # so it may silence the voice and never lift a silence: the agent's own route's
-            # verdict does that.
+        if truthful and await _is_holder_route(session, candidate.engine_agent_ref):
+            # A line's or a campaign's engine agent (D-997, D-1003) proven sound says nothing
+            # about the agent's own, so it may silence the voice and never lift a silence:
+            # the agent's own route's verdict does that.
             truthful = None
         silence = await reconcile_inbound_truthful_answer(
             session,

@@ -30,9 +30,16 @@ _VERSIONS_SQL: Final = (
 )
 
 
-#: Every agent's schema versions in the account, newest first (RLS scopes it to the tenant).
+#: Every agent's schema versions in the account, newest first, then the campaigns' and the
+#: lines' own lists (D-1003), so a value one of them noted is labelled as it named it. RLS
+#: scopes every branch to the tenant.
 _ACCOUNT_VERSIONS_SQL: Final = (
-    "SELECT fields FROM extraction_schemas ORDER BY created_at DESC, version DESC LIMIT 500"
+    "SELECT fields FROM (SELECT fields, created_at AS at, 0 AS holder FROM extraction_schemas "
+    "UNION ALL SELECT extraction_fields, updated_at, 1 FROM campaigns "
+    "WHERE jsonb_array_length(extraction_fields) > 0 "
+    "UNION ALL SELECT extraction_fields, updated_at, 2 FROM inbound_lines "
+    "WHERE jsonb_array_length(extraction_fields) > 0) lists "
+    "ORDER BY holder, at DESC LIMIT 500"
 )
 
 

@@ -56,12 +56,13 @@ consent-clean property D-38 leads with.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
 from typing import Any, Final
 from uuid import UUID
 
-from calevate_shared.call_script import opening_line_of
+from calevate_shared.call_script import CallScript, compile_call_script, opening_line_of
 from calevate_shared.calling_window import CALLING_HOURS_RULE as _CALLING_HOURS_RULE
 from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
 from calevate_shared.calling_window import IST
@@ -656,7 +657,12 @@ TRUTHFUL_ANSWER_DRIFT_REASON = (
 
 
 async def truthful_answer_drift_blocker(
-    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    campaign_id: UUID | None = None,
+    every_holder: bool = False,
 ) -> tuple[str, str] | None:
     """DETECTION BECAME ENFORCEMENT HERE (D-562). Has the drift sweep PROVEN, recently,
     that this agent is running a prompt with no truthful-answer directive in it?
@@ -714,7 +720,21 @@ async def truthful_answer_drift_blocker(
     a separate row with its own script and its own live callers (D-380), and an arm that
     has lost the directive is answering real people. The freshest such verdict decides —
     if that one has expired then every one of them has.
+
+    SCOPED PER HOLDER for campaigns (D-1003). A campaign dials through its own engine agent,
+    so `campaign_id` asks that engine agent's verdict alone: one campaign that lost the rule
+    stops its own calls, not its voice's other campaigns. Without it the campaigns' routes
+    are left out, so a campaign's verdict never stops its agent's own dials; the agent's own
+    route, its arms, its lines and its test copy are asked as before. `every_holder` asks
+    all of them, for a test call through a line's holder.
     """
+    holder = (
+        "AND campaign_id = :cid "
+        if campaign_id is not None
+        else ""
+        if every_holder
+        else "AND campaign_id IS NULL "
+    )
     row = (
         await session.execute(
             text(
@@ -722,12 +742,13 @@ async def truthful_answer_drift_blocker(
                 "drift_checked_at > now() - make_interval(secs => :ttl) AS fresh "
                 "FROM engine_agent_routes "
                 "WHERE tenant_id = :tid AND agent_id = :aid AND active "
-                "AND drift_state = :missing "
-                "ORDER BY drift_checked_at DESC NULLS LAST LIMIT 1"
+                "AND drift_state = :missing " + holder + "ORDER BY drift_checked_at DESC "
+                "NULLS LAST LIMIT 1"
             ),
             {
                 "tid": tenant_id,
                 "aid": agent_id,
+                "cid": campaign_id,
                 "missing": TRUTHFUL_ANSWER_MISSING,
                 "ttl": TRUTHFUL_ANSWER_VERDICT_TTL_S,
             },
@@ -974,7 +995,7 @@ async def person_level_refusal(
 DISCLOSURE_NOT_SAID_RULE: Final = "disclosure_not_said"
 
 
-def _first_words_disclose(agent: Row[Any]) -> bool:
+def _first_words_disclose(agent: Sequence[Any]) -> bool:
     """Do the first words this agent's dial would carry say each notice switched on (D-971)?
 
     Composed with `join_first_words`, the one composer every dial goes through: the opening
@@ -1011,6 +1032,24 @@ def _first_words_disclose(agent: Row[Any]) -> bool:
     )
 
 
+async def _campaign_opening_body(
+    session: AsyncSession, *, campaign_id: UUID, agent_id: UUID
+) -> str | None:
+    """The campaign's compiled script, whose opening its engine agent speaks (D-1003), or
+    None for a campaign with no script of its own, which speaks its agent's."""
+    from apps.api.agents.script_builder import campaign_collect_fields
+
+    raw = (
+        await session.execute(
+            text("SELECT script FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar_one_or_none()
+    if not raw:
+        return None
+    collect = await campaign_collect_fields(session, campaign_id=campaign_id, agent_id=agent_id)
+    return compile_call_script(CallScript.model_validate(raw), collect=collect)
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -1022,6 +1061,7 @@ async def check_dispatch(
     halt_read_by_caller: bool = False,
     places_call: bool = True,
     through_line: bool = False,
+    campaign_id: UUID | None = None,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
@@ -1049,7 +1089,11 @@ async def check_dispatch(
     `inbound/publish.line_test_dial`), not the agent's: the agent is only the line's voice and
     need not be ready or published itself, because the engine agent dialled is the line's,
     published and read back before the dial or not dialled at all. Only with `trial_call`;
-    every other check is asked as for any test call.
+    every other check is asked as for any test call. A campaign's test call passes it too.
+
+    `campaign_id` is a call rung through that campaign's own engine agent (D-1003): the
+    first words checked are the campaign's own opening (`_campaign_opening_body`), and the
+    truthful-answer verdict read is that engine agent's (`truthful_answer_drift_blocker`).
 
     The big red switch is read FRESH, past the process memo and the Redis copy, unless
     `halt_read_by_caller`: a click-to-dial is one read per click, and a halt set in another
@@ -1136,7 +1180,12 @@ async def check_dispatch(
             rule="disclosure_missing",
             reason="This agent has no AI disclosure line and may not place calls.",
         )
-    if not _first_words_disclose(agent):
+    spoken: Sequence[Any] = agent
+    if campaign_id is not None:
+        body = await _campaign_opening_body(session, campaign_id=campaign_id, agent_id=agent_id)
+        if body is not None:
+            spoken = (*agent[:8], body, *agent[9:])
+    if not _first_words_disclose(spoken):
         return DispatchDecision(
             allowed=False,
             rule=DISCLOSURE_NOT_SAID_RULE,
@@ -1171,7 +1220,13 @@ async def check_dispatch(
     # for the reason they are ordered as they are; before the account's paperwork and money
     # because "your agent has stopped telling callers it is an AI" outranks "your wallet is
     # empty" — an operator who tops up must not then discover the real refusal.
-    truthful = await truthful_answer_drift_blocker(session, tenant_id=tenant_id, agent_id=agent_id)
+    truthful = await truthful_answer_drift_blocker(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        campaign_id=campaign_id,
+        every_holder=through_line and campaign_id is None,
+    )
     if truthful is not None:
         rule, reason = truthful
         return DispatchDecision(allowed=False, rule=rule, reason=reason)

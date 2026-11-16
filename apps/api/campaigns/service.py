@@ -59,6 +59,7 @@ from apps.api.agents.service import (
     NUMBER_INBOUND_ONLY_RULE,
     NUMBER_NOT_ON_CARRIER_REASON,
     NUMBER_NOT_ON_CARRIER_RULE,
+    engine_agent_allowance_blocker,
     outbound_number_provider,
 )
 from apps.api.billing.dispute_hold import DISPUTE_HOLD_REASON, dispute_hold_active
@@ -1326,11 +1327,22 @@ async def launch_blockers(
     #
     # It is NOT in `dispatch_blockers`, under that function's own rule: `check_dispatch`
     # already asks it per contact, and asking twice is how two gates start disagreeing.
-    drifted = await truthful_answer_drift_blocker(
-        session, tenant_id=tenant_id, agent_id=facts.agent_id
+    # Its own engine agent's verdict and its voice's (D-1003): the campaign dials through the
+    # first, and Start republishes it from the second.
+    for scope in (None, campaign_id):
+        drifted = await truthful_answer_drift_blocker(
+            session, tenant_id=tenant_id, agent_id=facts.agent_id, campaign_id=scope
+        )
+        if drifted is not None:
+            blockers.append(LaunchBlocker(*drifted))
+            break
+    # Room in the client's workspace for the campaign's own engine agent, when it has none
+    # yet (D-1003): Start refuses the same way, with the same words.
+    full = await engine_agent_allowance_blocker(
+        session, tenant_id=tenant_id, campaign_id=campaign_id
     )
-    if drifted is not None:
-        blockers.append(LaunchBlocker(*drifted))
+    if full is not None:
+        blockers.append(LaunchBlocker(*full))
 
     # On what consent (SEC-COMP §3, fourth bullet). WHO may dial is KYC and the pledge,
     # below (D-692).

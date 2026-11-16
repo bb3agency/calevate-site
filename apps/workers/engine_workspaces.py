@@ -730,6 +730,18 @@ async def offboard_engine_workspace(ctx: dict[str, Any], payload: dict[str, Any]
 # --- a recreated agent's old vendor agent -----------------------------------------------
 
 
+#: Any of our holders recording the vendor agent owed a deletion: the agent's own, an arm's,
+#: its test copy's, a line's or a campaign's. Read under the tenant's RLS.
+_HELD_AGAIN_SQL: Final = (
+    "SELECT 1 FROM agents WHERE engine_agent_ref = :ref "
+    "UNION ALL SELECT 1 FROM campaigns WHERE engine_agent_ref = :ref "
+    "UNION ALL SELECT 1 FROM inbound_lines WHERE engine_agent_ref = :ref "
+    "UNION ALL SELECT 1 FROM agent_test_copies WHERE engine_agent_ref = :ref "
+    "UNION ALL SELECT 1 FROM prompt_experiment_variants WHERE engine_agent_ref = :ref "
+    "LIMIT 1"
+)
+
+
 async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Delete the vendor agent an agent was recreated FROM (D-693). Queued by the publish
     that recreated it, so it runs only once the new agent is verified and committed. Waits
@@ -739,6 +751,13 @@ async def retire_moved_engine_agent(ctx: dict[str, Any], payload: dict[str, Any]
     old_ref = str(payload["old_ref"])
     engine = get_engine()
     attempt = job_try(ctx)
+    async with tenant_session(tenant_id) as session:
+        held = (await session.execute(text(_HELD_AGAIN_SQL), {"ref": old_ref})).first()
+    if held is not None:
+        # A holder publishing again before this ran found the same vendor agent by its tag
+        # and took it back (a campaign restarted, D-1003): it is in use, so it stays.
+        log.info("engine_agent_retire_skipped_held_again", extra={"agent_id": str(agent_id)})
+        return "held_again"
     try:
         if await thinnest_actions().has_live_call(old_ref):
             if attempt < WORKER_MAX_TRIES:

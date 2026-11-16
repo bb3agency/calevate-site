@@ -629,6 +629,18 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "allows.",
         _THINNEST,
     ),
+    "thinnest_agents_per_workspace": _m(
+        "voice-engine",
+        "thinnest",
+        "Calling agents per client workspace",
+        "How many engine agents one client's workspace may hold: agents, inbound lines and "
+        "running campaigns.",
+        _THINNEST,
+        details=(
+            "ThinnestAI allows 2 on pay-as-you-go and raises it per workspace on request. Raise "
+            "this only once they confirm. A campaign is refused Start when it is full."
+        ),
+    ),
     "thinnest_developer_workspace_id": _m(
         "voice-engine",
         "thinnest",
@@ -1799,6 +1811,7 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "razorpay_reconciliation_days": ControlHint(unit="days"),
     "trial_daily_call_cap": ControlHint(unit="calls a day"),
     "trial_studio_minutes": ControlHint(unit="minutes"),
+    "thinnest_agents_per_workspace": ControlHint(unit="agents"),
     "call_mistake_fix_clean_calls": ControlHint(unit="calls"),
     "call_mistake_fix_max_attempts": ControlHint(unit="fixes"),
     "call_mistake_fix_wait_minutes": ControlHint(unit="minutes"),

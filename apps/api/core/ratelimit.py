@@ -340,6 +340,12 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/inbound-lines/*/numbers", "costly", _m("POST")),
     Rule("/v1/inbound-lines/*/proposal", "costly", _m("POST")),
     Rule("/v1/campaigns/*/script/proposal", "costly", _m("POST")),
+    # A campaign's own engine agent (D-1003): Start and Schedule publish it with its
+    # read-back, and a change to its settings or what it notes republishes it while it runs.
+    Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
+    Rule("/v1/campaigns/*/schedule", "costly", _m("POST")),
+    Rule("/v1/campaigns/*/settings", "costly", _m("PUT")),
+    Rule("/v1/campaigns/*/notes", "costly", _m("PUT")),
     # A campaign's sources go into What your agents know: a link is resolved and fetched as
     # `/v1/kb/links` is, and a file is stored as `/v1/kb/uploads` is.
     Rule("/v1/campaigns/*/sources/link", "costly", _m("POST")),

@@ -186,6 +186,7 @@ async def place_trial_call(
     own_number_attested: bool = False,
     business: bool = False,
     line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> TrialCallResult:
     """Gate, then place, one test call. `blocked` is an answer, not an exception.
 
@@ -203,9 +204,16 @@ async def place_trial_call(
     line's voice (Phase 3b): put on the platform as a test holder first, so a draft line can
     be heard (`inbound/publish.line_test_dial`). Every gate is the same: the dial gate on the
     agent, the trial's limits, its Studio minutes, a paid account's daily cap. On a trial it
-    rings from the shared trial line; after payment from the client's own number."""
-    if business and line_id is not None:
-        raise ValueError("a test call rings the business copy or a line, not both")
+    rings from the shared trial line; after payment from the client's own number.
+
+    `campaign_id` rings through that campaign's own engine agent (D-1003), `agent_id` being its
+    voice: published as a test holder first (`campaigns/engine_agent.campaign_test_dial`), so
+    a draft campaign is heard as it would call and the agent is never touched. On a trial, or
+    a paying account with no number of its own yet, it is made in our developer workspace and
+    rings from the shared trial line, as the agent's test copy did (D-859, option A); with a
+    number, from that number, lent to it for the call."""
+    if sum((business, line_id is not None, campaign_id is not None)) > 1:
+        raise ValueError("a test call rings the business copy, a line or a campaign, one of them")
     tenant_id = tenant_id or principal.tenant_id
     assert tenant_id is not None
     phone = normalize_phone(number)
@@ -235,6 +243,7 @@ async def place_trial_call(
                     "number": phone,
                     **({"business": business} if business else {}),
                     **({"line_id": str(line_id)} if line_id is not None else {}),
+                    **({"campaign_id": str(campaign_id)} if campaign_id is not None else {}),
                 }
             ),
         )
@@ -253,7 +262,8 @@ async def place_trial_call(
             phone_e164=phone,
             trial_call=True,
             own_number_attested=own_number_attested,
-            through_line=line_id is not None,
+            through_line=line_id is not None or campaign_id is not None,
+            campaign_id=campaign_id,
         )
         access = await read_trial_access(session, tenant_id=tenant_id)
         # After the first payment: the owner's test call from the account's own number (D-859).
@@ -289,6 +299,7 @@ async def place_trial_call(
         return await blocked(NOT_READY_RULE, NOT_READY_REASON)
 
     from apps.api.agents.service import (
+        CampaignDial,
         DialUnconfirmedError,
         LineTestDial,
         OwnerTestDial,
@@ -312,6 +323,20 @@ async def place_trial_call(
             raise
         if no_number:
             return await blocked(LINE_TEST_NO_NUMBER_RULE, LINE_TEST_NO_NUMBER_REASON)
+
+    campaign_test: CampaignDial | None = None
+    if campaign_id is not None:
+        from apps.api.campaigns.engine_agent import campaign_test_dial
+
+        try:
+            campaign_test = await campaign_test_dial(
+                tenant_id=tenant_id,
+                campaign_id=campaign_id,
+                developer=paid is None or paid.line != "own_number",
+            )
+        except Exception:
+            await release()
+            raise
 
     trial: TrialDial | None = None
     owner_test: OwnerTestDial | None = None
@@ -346,7 +371,17 @@ async def place_trial_call(
         owner_test = OwnerTestDial(
             max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start
         )
-        if line_test is None and paid.line in ("trial_line_own", "trial_line_copy"):
+        if campaign_test is not None and paid.line != "own_number":
+            # No number of its own yet: the shared trial line, through the campaign's test
+            # holder made in our developer workspace above.
+            caller_number = get_settings().trial_caller_number
+            assert caller_number is not None  # `read_paid_test_access` refused otherwise
+            trial = TrialDial(
+                from_e164=caller_number,
+                max_call_seconds=call_seconds,
+                agent_ref=campaign_test.ref,
+            )
+        elif line_test is None and paid.line in ("trial_line_own", "trial_line_copy"):
             # Before the client has a number of its own: the shared trial line, through the
             # agent's developer-workspace engine agent, republished first when it is the test
             # copy so it never lags the agent (D-859, option A).
@@ -369,7 +404,11 @@ async def place_trial_call(
         caller_number = get_settings().trial_caller_number
         assert caller_number is not None  # `trial_calling_ready` above
         call_seconds = access.call_seconds
-        trial = TrialDial(from_e164=caller_number, max_call_seconds=call_seconds)
+        trial = TrialDial(
+            from_e164=caller_number,
+            max_call_seconds=call_seconds,
+            agent_ref=campaign_test.ref if campaign_test is not None else None,
+        )
     reserved: list[UUID] = []
 
     async def note_call_id(_intent: AsyncSession, call_id: UUID) -> None:
@@ -392,6 +431,7 @@ async def place_trial_call(
             # The gate let this one ring outside the window, so the engine must too (D-866).
             rings_at_any_hour=own_number_attested,
             line_test=line_test,
+            campaign=campaign_test,
         )
     except DialUnconfirmedError as unconfirmed:
         raise ProblemError(
@@ -432,6 +472,7 @@ async def place_trial_call(
                 "max_call_seconds": str(call_seconds),
                 "paid": str(paid is not None),
                 **({"line_id": str(line_id)} if line_id is not None else {}),
+                **({"campaign_id": str(campaign_id)} if campaign_id is not None else {}),
             },
         )
         await complete_idempotency(

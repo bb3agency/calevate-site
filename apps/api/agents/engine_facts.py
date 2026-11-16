@@ -82,6 +82,7 @@ async def sync_business_facts(
     variant_id: UUID | None = None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> None:
     """Make the vendor agent `ref` hold what our tables say it should know.
 
@@ -93,8 +94,9 @@ async def sync_business_facts(
     * on an engine with a knowledge base, the tenant's published knowledge
       (`kb/service.converge_agent_knowledge`), on the agent's own vendor agent, on the
       running experiment arm `variant_id` names, on its test copy (`test_copy`), or on the
-      inbound line `inbound_line_id` names: an arm, a copy and a line carry the client's
-      knowledge like every other agent of the client (D-689, D-806, D-964, D-997).
+      inbound line `inbound_line_id` names, or on the campaign `campaign_id` names: an arm, a
+      copy, a line and a campaign carry the client's knowledge like every other agent of the
+      client (D-689, D-806, D-964, D-997, D-1003).
 
     A no-op on an engine with neither.
     """
@@ -119,7 +121,11 @@ async def sync_business_facts(
             session, engine, agent_id=agent_id, ref=ref, facts=facts_without_knowledge(facts)
         )
     if holds_kb and (
-        variant_id is not None or test_copy or inbound_line_id is not None or owner[1] == ref
+        variant_id is not None
+        or test_copy
+        or inbound_line_id is not None
+        or campaign_id is not None
+        or owner[1] == ref
     ):
         await converge_agent_knowledge(
             session,
@@ -130,6 +136,7 @@ async def sync_business_facts(
             variant_id=variant_id,
             test_copy=test_copy,
             inbound_line_id=inbound_line_id,
+            campaign_id=campaign_id,
         )
 
 
@@ -208,6 +215,7 @@ async def recorded_facts_handles(
     variant_id: UUID | None = None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> set[str]:
     """The facts document recorded for the agent's own vendor agent, for its experiment
     arm `variant_id`, for its test copy, or for its inbound line `inbound_line_id`, for the
@@ -223,6 +231,11 @@ async def recorded_facts_handles(
         holder = (
             "JOIN inbound_lines l ON l.engine_agent_ref = r.engine_agent_ref "
             "AND l.agent_id = r.agent_id WHERE r.agent_id = :aid AND l.id = :lid"
+        )
+    elif campaign_id is not None:
+        holder = (
+            "JOIN campaigns g ON g.engine_agent_ref = r.engine_agent_ref "
+            "AND g.agent_id = r.agent_id WHERE r.agent_id = :aid AND g.id = :camp"
         )
     elif variant_id is None:
         holder = (
@@ -240,7 +253,7 @@ async def recorded_facts_handles(
                 f"SELECT r.facts_kb_ref FROM engine_agent_routes r {holder} "
                 "AND r.facts_kb_ref IS NOT NULL"
             ),
-            {"aid": agent_id, "vid": variant_id, "lid": inbound_line_id},
+            {"aid": agent_id, "vid": variant_id, "lid": inbound_line_id, "camp": campaign_id},
         )
     ).scalars()
     return {str(row) for row in rows}

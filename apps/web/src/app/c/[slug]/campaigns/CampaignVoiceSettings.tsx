@@ -3,8 +3,9 @@
 /**
  * VOICE & CALL SETTINGS FOR THIS CAMPAIGN (D-994). The agent holds the defaults; each row shows
  * the agent's value and lets this campaign use its own instead. Blank means "same as the
- * agent". Start and Test call put them on the agent with the script; while this campaign
- * holds the agent, a save reaches its calls at once.
+ * agent". Start and Test call put them on the campaign's own engine agent with its script
+ * (D-1003); while the campaign is going, a save reaches its calls at once. The agent's own
+ * settings never change.
  */
 
 import { useEffect, useState } from "react";
@@ -224,8 +225,8 @@ export function CampaignVoiceSettings({
           <p>{data.agent_name}&apos;s own settings, and what this campaign uses instead.</p>
           <p>
             {data.applied_now
-              ? "Saving puts them on the agent's calls at once."
-              : "They go on the agent at Start or a test call."}
+              ? "Saving puts them on this campaign's calls at once."
+              : "They reach this campaign's calls at Start or a test call."}
           </p>
         </InfoTip>
       </p>

@@ -159,7 +159,10 @@ async def collect_fields(session: AsyncSession, agent_id: UUID) -> list[CollectF
             {"aid": agent_id},
         )
     ).first()
-    fields = list(row[0] or []) if row is not None else []
+    return _collect_of(list(row[0] or []) if row is not None else [])
+
+
+def _collect_of(fields: list[Any]) -> list[CollectField]:
     return [
         CollectField(
             label=str(f.get("label") or f.get("key") or ""),
@@ -169,6 +172,22 @@ async def collect_fields(session: AsyncSession, agent_id: UUID) -> list[CollectF
         for f in fields
         if isinstance(f, dict)
     ]
+
+
+async def campaign_collect_fields(
+    session: AsyncSession, *, campaign_id: UUID, agent_id: UUID
+) -> list[CollectField]:
+    """The details a campaign's calls ask for (D-1003): its own "What it notes" when it has
+    one (`campaigns.extraction_fields`), else its agent's, so what the call asks and what
+    the post-call pipeline notes are the same list."""
+    own = (
+        await session.execute(
+            text("SELECT extraction_fields FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar_one_or_none()
+    if own:
+        return _collect_of(list(own))
+    return await collect_fields(session, agent_id)
 
 
 async def call_backs_available(session: AsyncSession, tenant_id: UUID) -> bool:

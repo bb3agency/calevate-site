@@ -28,6 +28,7 @@ import { useClientRealm } from "@/lib/api/session";
 import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
 import { AgentSection, ImproveTab, TestCallSection } from "./CampaignBoosters";
+import { CampaignNotes } from "./CampaignNotes";
 import { CampaignCalls } from "./CampaignCalls";
 import { campaignRun } from "./campaignProgress";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
@@ -366,6 +367,13 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 agentId={data.agent_id}
                 editable={changeable}
                 canWrite={write.allowed}
+                refusal={refusal}
+              />
+              <CampaignNotes
+                slug={slug}
+                campaignId={campaignId}
+                agentId={data.agent_id}
+                canWrite={write.allowed && changeable}
                 refusal={refusal}
               />
               <TestCallSection slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />

@@ -7194,23 +7194,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/campaigns/agents/{agent_id}/holder": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The campaign whose script this agent speaks now (the last one to put it live) */
-        get: operations["agent_holder_v1_campaigns_agents__agent_id__holder_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/campaigns/contacts/from-excel": {
         parameters: {
             query?: never;
@@ -7534,6 +7517,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this campaign's calls note, and its agent's list it follows while empty */
+        get: operations["campaign_notes_read_v1_campaigns__campaign_id__notes_get"];
+        /**
+         * Set what this campaign's calls note; an empty list follows its agent's
+         * @description Stored in its own transaction, then, when the campaign has its own engine agent, put
+         *     live on it so its calls ask for the new details (D-1003); otherwise they reach its calls
+         *     at the next Start or test call. The agent's own list is never changed.
+         */
+        put: operations["campaign_notes_save_v1_campaigns__campaign_id__notes_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/opening-b": {
         parameters: {
             query?: never;
@@ -7829,8 +7835,9 @@ export interface paths {
         get: operations["campaign_settings_v1_campaigns__campaign_id__settings_get"];
         /**
          * Set this campaign's own settings over its agent's defaults; null follows the agent
-         * @description Stored, then, when this campaign currently holds its agent, put live at once through the
-         *     same publish Start uses; otherwise they reach the agent at the next Start or Test call.
+         * @description Stored, then, when the campaign has its own engine agent, put live on it at once through
+         *     the same publish Start uses; otherwise they reach its calls at the next Start or test
+         *     call. The agent's own settings are never changed (D-1003).
          */
         put: operations["save_campaign_settings_v1_campaigns__campaign_id__settings_put"];
         post?: never;
@@ -7947,9 +7954,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Put the campaign's script on its agent and ring your own phone to hear it
+         * Ring your own phone through the campaign's own engine agent to hear it
          * @description The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),
-         *     after the campaign's script is put live on the agent exactly as Start would put it.
+         *     rung through the campaign's own engine agent, published as a test holder first, so it says
+         *     what the campaign says now in its agent's voice and never touches the agent (D-1003).
          */
         post: operations["campaign_test_call_v1_campaigns__campaign_id__test_call_post"];
         delete?: never;
@@ -16053,13 +16061,6 @@ export interface components {
             /** Calls Inr */
             calls_inr: string;
         };
-        /** AgentHolderOut */
-        AgentHolderOut: {
-            /** Campaign Id */
-            campaign_id: string | null;
-            /** Campaign Name */
-            campaign_name: string | null;
-        };
         /**
          * AgentIn
          * @description "Name and voice": the agent made, or renamed before its first call.
@@ -19506,6 +19507,33 @@ export interface components {
             note: string;
             /** Title */
             title?: string | null;
+        };
+        /** CampaignNotesIn */
+        CampaignNotesIn: {
+            /** Expected Digest */
+            expected_digest?: string | null;
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
+        };
+        /** CampaignNotesOut */
+        CampaignNotesOut: {
+            /** Agent Fields */
+            agent_fields: components["schemas"]["ExtractionField"][];
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Applied Now */
+            applied_now: boolean;
+            /** Core Fields */
+            core_fields: components["schemas"]["ExtractionField"][];
+            /** Digest */
+            digest: string;
+            /** Fields */
+            fields: components["schemas"]["ExtractionField"][];
         };
         /** CampaignPageOut */
         CampaignPageOut: {
@@ -52850,37 +52878,6 @@ export interface operations {
             };
         };
     };
-    agent_holder_v1_campaigns_agents__agent_id__holder_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentHolderOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     contacts_from_excel_v1_campaigns_contacts_from_excel_post: {
         parameters: {
             query?: never;
@@ -53494,6 +53491,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_notes_read_v1_campaigns__campaign_id__notes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignNotesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_notes_save_v1_campaigns__campaign_id__notes_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignNotesIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignNotesOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

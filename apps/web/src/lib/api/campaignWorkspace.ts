@@ -5,8 +5,8 @@
  * know, its own call script and Pip's draft of it, and the questions its calls could not
  * answer. `/v1/campaigns/{id}/...`.
  *
- * The campaign owns what its calls say. Start puts only the script live on the campaign's
- * agent, which is the voice; everything else stays here.
+ * The campaign owns what its calls say. Start puts it live on the campaign's own engine
+ * agent, in its agent's voice (D-1003); the agent's own script is never touched.
  */
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
@@ -311,12 +311,24 @@ export function useSaveCampaignSettings(session: Session, campaignId: string) {
   });
 }
 
-/** The campaign whose script and settings an agent carries now, if any. */
-export function useAgentHolder(session: Session, agentId: string) {
+export type CampaignNotes = Schemas["CampaignNotesOut"];
+export type CampaignNotesInput = Schemas["CampaignNotesIn"];
+export const notesKey = (org: string, campaignId: string) => ["campaign-notes", org, campaignId] as const;
+
+/** What this campaign's calls note, and its agent's list it follows while empty (D-1003). */
+export function useCampaignNotes(session: Session, campaignId: string, agentId: string) {
   return useQuery({
-    queryKey: ["agent-holder", session.orgSlug, agentId],
-    queryFn: () =>
-      apiRequest<Schemas["AgentHolderOut"]>(session, `/v1/campaigns/agents/${encodeURIComponent(agentId)}/holder`),
+    queryKey: [...notesKey(session.orgSlug, campaignId), agentId],
+    queryFn: () => apiRequest<CampaignNotes>(session, `${base(campaignId)}/notes`),
+  });
+}
+
+export function useSaveCampaignNotes(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CampaignNotesInput) =>
+      apiRequest<CampaignNotes>(session, `${base(campaignId)}/notes`, { method: "PUT", body: input }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: notesKey(session.orgSlug, campaignId) }),
   });
 }
 

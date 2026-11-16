@@ -303,6 +303,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # The same money-and-service failure on one inbound line (D-997) put live while its
     # agent is held: the line takes calls nobody is paying for.
     "inbound_line_hold_failed": "page",
+    # A running campaign whose own engine agent cannot be made places no calls (D-1003): a
+    # client's outbound work has stopped while its screen says running.
+    "campaign_engine_agent_unavailable": "page",
     # A standing statement about this deployment's engine rather than an event. It is the
     # same sentence every time and it will never stop being true until the engine changes.
     "inbound_cutover_unsupported": "record",

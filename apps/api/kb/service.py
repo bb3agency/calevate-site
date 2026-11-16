@@ -1121,7 +1121,8 @@ _ROUTE_JOIN = "FROM engine_kb_routes r JOIN kb_sources s ON s.id = r.source_id W
 #: write spells it this way, with its parameters from `_holder`.
 _HOLDER = (
     "r.agent_id = :aid AND r.variant_id IS NOT DISTINCT FROM CAST(:vid AS uuid) "
-    "AND r.test_copy = :copy AND r.inbound_line_id IS NOT DISTINCT FROM CAST(:lid AS uuid)"
+    "AND r.test_copy = :copy AND r.inbound_line_id IS NOT DISTINCT FROM CAST(:lid AS uuid) "
+    "AND r.campaign_id IS NOT DISTINCT FROM CAST(:camp AS uuid)"
 )
 
 
@@ -1130,10 +1131,17 @@ def _holder(
     variant_id: UUID | None = None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> dict[str, Any]:
     """The bind parameters of `_HOLDER`, built in one place so a holder column added later is
     bound at every call site at once."""
-    return {"aid": agent_id, "vid": variant_id, "copy": test_copy, "lid": inbound_line_id}
+    return {
+        "aid": agent_id,
+        "vid": variant_id,
+        "copy": test_copy,
+        "lid": inbound_line_id,
+        "camp": campaign_id,
+    }
 
 
 async def _engine_kb_ref(
@@ -1144,13 +1152,17 @@ async def _engine_kb_ref(
     *,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> str | None:
     """The engine's handle for this source's copy on ONE holder, or None if nothing of ours
     is attached there. See `_remember_engine_kb_ref` for why it lives where it lives."""
     value = (
         await session.execute(
             text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} r.source_id = :sid AND {_HOLDER}"),
-            {"sid": source_id, **_holder(agent_id, variant_id, test_copy, inbound_line_id)},
+            {
+                "sid": source_id,
+                **_holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id),
+            },
         )
     ).scalar()
     return str(value) if value else None
@@ -1168,6 +1180,8 @@ class KbRoute:
     test_copy: bool = False
     #: The inbound line whose engine agent holds it (D-997).
     inbound_line_id: UUID | None = None
+    #: The campaign whose engine agent holds it (D-1003).
+    campaign_id: UUID | None = None
 
 
 async def _routes_of_source(session: AsyncSession, source_id: UUID) -> list[KbRoute]:
@@ -1176,8 +1190,9 @@ async def _routes_of_source(session: AsyncSession, source_id: UUID) -> list[KbRo
         await session.execute(
             text(
                 "SELECT r.agent_id, r.variant_id, r.engine_kb_ref, r.test_copy, "
-                f"r.inbound_line_id {_ROUTE_JOIN} r.source_id = :sid ORDER BY r.agent_id, "
-                "r.variant_id NULLS FIRST, r.test_copy, r.inbound_line_id NULLS FIRST"
+                f"r.inbound_line_id, r.campaign_id {_ROUTE_JOIN} r.source_id = :sid "
+                "ORDER BY r.agent_id, r.variant_id NULLS FIRST, r.test_copy, "
+                "r.inbound_line_id NULLS FIRST, r.campaign_id NULLS FIRST"
             ),
             {"sid": source_id},
         )
@@ -1189,6 +1204,7 @@ async def _routes_of_source(session: AsyncSession, source_id: UUID) -> list[KbRo
             handle=str(row[2]),
             test_copy=bool(row[3]),
             inbound_line_id=UUID(str(row[4])) if row[4] is not None else None,
+            campaign_id=UUID(str(row[5])) if row[5] is not None else None,
         )
         for row in rows
     ]
@@ -1202,6 +1218,7 @@ async def _engine_kb_digest(
     *,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> str | None:
     """The content digest of the document we last uploaded for this source to ONE agent.
 
@@ -1221,7 +1238,10 @@ async def _engine_kb_digest(
     value = (
         await session.execute(
             text(f"SELECT r.digest {_ROUTE_JOIN} r.source_id = :sid AND {_HOLDER}"),
-            {"sid": source_id, **_holder(agent_id, variant_id, test_copy, inbound_line_id)},
+            {
+                "sid": source_id,
+                **_holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id),
+            },
         )
     ).scalar()
     return str(value) if value else None
@@ -1237,6 +1257,7 @@ async def _remember_engine_kb_ref(
     variant_id: UUID | None = None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> None:
     """Record (or clear) the engine's handle for a source's copy on one holder.
 
@@ -1286,16 +1307,19 @@ async def _remember_engine_kb_ref(
     if engine_kb_ref is None:
         await session.execute(
             text(f"DELETE FROM engine_kb_routes r WHERE r.source_id = :sid AND {_HOLDER}"),
-            {"sid": source_id, **_holder(agent_id, variant_id, test_copy, inbound_line_id)},
+            {
+                "sid": source_id,
+                **_holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id),
+            },
         )
         return
     await session.execute(
         text(
             "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, agent_id, "
-            "variant_id, test_copy, inbound_line_id, source_id, digest, created_at, "
-            "updated_at) "
+            "variant_id, test_copy, inbound_line_id, campaign_id, source_id, digest, "
+            "created_at, updated_at) "
             "SELECT :engine, :ref, s.tenant_id, a.id, CAST(:vid AS uuid), :copy, "
-            "CAST(:lid AS uuid), s.id, :digest, now(), now() "
+            "CAST(:lid AS uuid), CAST(:camp AS uuid), s.id, :digest, now(), now() "
             "FROM kb_sources s JOIN agents a ON a.id = :aid AND a.tenant_id = s.tenant_id "
             "WHERE s.id = :sid AND (CAST(:vid AS uuid) IS NULL OR EXISTS ("
             "  SELECT 1 FROM prompt_experiment_variants v "
@@ -1306,18 +1330,22 @@ async def _remember_engine_kb_ref(
             "AND (CAST(:lid AS uuid) IS NULL OR EXISTS ("
             "  SELECT 1 FROM inbound_lines l WHERE l.id = CAST(:lid AS uuid) "
             "  AND l.agent_id = a.id AND l.tenant_id = a.tenant_id)) "
+            "AND (CAST(:camp AS uuid) IS NULL OR EXISTS ("
+            "  SELECT 1 FROM campaigns g WHERE g.id = CAST(:camp AS uuid) "
+            "  AND g.agent_id = a.id AND g.tenant_id = a.tenant_id)) "
             # The (source, holder) pair keeps its claim and re-points it: a republish mints a
             # new vendor object, and the row that named the old one must now name the new
             # one. A DIFFERENT pair claiming a handle this one already holds violates the
             # primary key and raises, which is the point of the constraint.
-            "ON CONFLICT (source_id, agent_id, variant_id, test_copy, inbound_line_id) "
+            "ON CONFLICT (source_id, agent_id, variant_id, test_copy, inbound_line_id, "
+            "campaign_id) "
             "DO UPDATE SET "
             "engine = EXCLUDED.engine, engine_kb_ref = EXCLUDED.engine_kb_ref, "
             "digest = EXCLUDED.digest, updated_at = now()"
         ),
         {
             "sid": source_id,
-            **_holder(agent_id, variant_id, test_copy, inbound_line_id),
+            **_holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id),
             "ref": engine_kb_ref,
             "digest": digest,
             "engine": _engine_name(),
@@ -1439,6 +1467,7 @@ async def _publish_config(
     agent_id: UUID,
     variant_id: UUID | None = None,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
     *,
     test_copy: bool = False,
 ) -> AgentConfig:
@@ -1465,6 +1494,8 @@ async def _publish_config(
     """
     if inbound_line_id is not None:
         return await _line_config(session, tenant_id, inbound_line_id)
+    if campaign_id is not None:
+        return await _campaign_config(session, tenant_id, campaign_id)
     # Deferred, exactly as `agents/publishing.py` does it: `agents/service` sits inside an
     # import cycle with the publish chain, and a module-level import here closes it.
     from apps.api.agents.business_only import business_row
@@ -1500,6 +1531,17 @@ async def _line_config(session: AsyncSession, tenant_id: UUID, line_id: UUID) ->
     from apps.api.agents.service import line_config
 
     return await line_config(session, tenant_id=tenant_id, line_id=line_id)
+
+
+async def _campaign_config(
+    session: AsyncSession, tenant_id: UUID, campaign_id: UUID
+) -> AgentConfig:
+    """The campaign's config as its publish sends it (`agents/service.campaign_config`), so
+    an attach on its engine agent never replaces its script with the agent's (D-1003).
+    Deferred for `_publish_config`'s import-cycle reason."""
+    from apps.api.agents.service import campaign_config
+
+    return await campaign_config(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
 
 def publish_lock_key(tenant_id: UUID) -> str:
@@ -1592,6 +1634,8 @@ class KbTarget:
     variant_id: UUID | None = None
     test_copy: bool = False
     inbound_line_id: UUID | None = None
+    #: The campaign whose engine agent holds it (D-1003).
+    campaign_id: UUID | None = None
 
 
 #: The vendor agents a source is fanned out to: every agent of the tenant that has a vendor
@@ -1607,25 +1651,32 @@ class KbTarget:
 #: reproducible.
 _VENDOR_TARGETS_SQL = """
 SELECT id, engine_agent_ref, NULL::uuid AS variant_id, false AS test_copy,
-       NULL::uuid AS inbound_line_id FROM agents
+       NULL::uuid AS inbound_line_id, NULL::uuid AS campaign_id FROM agents
 WHERE tenant_id = :tid AND deleted_at IS NULL AND status <> 'archived'
   AND engine_agent_ref IS NOT NULL
 UNION ALL
-SELECT a.id, v.engine_agent_ref, v.id, false, NULL::uuid FROM prompt_experiment_variants v
+SELECT a.id, v.engine_agent_ref, v.id, false, NULL::uuid, NULL::uuid
+FROM prompt_experiment_variants v
 JOIN prompt_experiments e ON e.id = v.experiment_id AND e.status = 'running'
 JOIN agents a ON a.id = e.agent_id
 WHERE a.tenant_id = :tid AND a.deleted_at IS NULL AND a.status <> 'archived'
   AND v.engine_agent_ref IS NOT NULL
 UNION ALL
-SELECT a.id, c.engine_agent_ref, NULL::uuid, true, NULL::uuid FROM agent_test_copies c
+SELECT a.id, c.engine_agent_ref, NULL::uuid, true, NULL::uuid, NULL::uuid
+FROM agent_test_copies c
 JOIN agents a ON a.id = c.agent_id
 WHERE a.tenant_id = :tid AND a.deleted_at IS NULL AND a.status <> 'archived'
 UNION ALL
-SELECT a.id, l.engine_agent_ref, NULL::uuid, false, l.id FROM inbound_lines l
+SELECT a.id, l.engine_agent_ref, NULL::uuid, false, l.id, NULL::uuid FROM inbound_lines l
 JOIN agents a ON a.id = l.agent_id AND a.tenant_id = l.tenant_id
 WHERE l.tenant_id = :tid AND l.archived_at IS NULL AND l.engine_agent_ref IS NOT NULL
   AND a.deleted_at IS NULL AND a.status <> 'archived'
-ORDER BY 1, 3 NULLS FIRST, 4, 5 NULLS FIRST
+UNION ALL
+SELECT a.id, g.engine_agent_ref, NULL::uuid, false, NULL::uuid, g.id FROM campaigns g
+JOIN agents a ON a.id = g.agent_id AND a.tenant_id = g.tenant_id
+WHERE g.tenant_id = :tid AND g.archived_at IS NULL AND g.engine_agent_ref IS NOT NULL
+  AND a.deleted_at IS NULL AND a.status <> 'archived'
+ORDER BY 1, 3 NULLS FIRST, 4, 5 NULLS FIRST, 6 NULLS FIRST
 """
 
 #: The published arms of the script test running on one agent, as knowledge holders.
@@ -1641,6 +1692,14 @@ _RUNNING_LINES_SQL = """
 SELECT l.id, l.engine_agent_ref FROM inbound_lines l
 WHERE l.agent_id = :aid AND l.archived_at IS NULL AND l.engine_agent_ref IS NOT NULL
 ORDER BY l.id
+"""
+
+#: The campaigns in one agent's voice that hold an engine agent of their own (D-1003), as
+#: knowledge holders: a running campaign's, and a test holder not yet retired.
+_RUNNING_CAMPAIGNS_SQL = """
+SELECT g.id, g.engine_agent_ref FROM campaigns g
+WHERE g.agent_id = :aid AND g.archived_at IS NULL AND g.engine_agent_ref IS NOT NULL
+ORDER BY g.id
 """
 
 #: The agents whose T0 block carries the tenant's knowledge: every agent of
@@ -1663,6 +1722,7 @@ async def vendor_targets(session: AsyncSession, *, tenant_id: UUID) -> list[KbTa
             variant_id=UUID(str(row[2])) if row[2] is not None else None,
             test_copy=bool(row[3]),
             inbound_line_id=UUID(str(row[4])) if row[4] is not None else None,
+            campaign_id=UUID(str(row[5])) if row[5] is not None else None,
         )
         for row in rows
     ]
@@ -1682,6 +1742,15 @@ async def running_lines(session: AsyncSession, *, agent_id: UUID) -> list[KbTarg
     rows = (await session.execute(text(_RUNNING_LINES_SQL), {"aid": agent_id})).all()
     return [
         KbTarget(agent_id=agent_id, engine_ref=str(row[1]), inbound_line_id=UUID(str(row[0])))
+        for row in rows
+    ]
+
+
+async def running_campaigns(session: AsyncSession, *, agent_id: UUID) -> list[KbTarget]:
+    """See `_RUNNING_CAMPAIGNS_SQL`."""
+    rows = (await session.execute(text(_RUNNING_CAMPAIGNS_SQL), {"aid": agent_id})).all()
+    return [
+        KbTarget(agent_id=agent_id, engine_ref=str(row[1]), campaign_id=UUID(str(row[0])))
         for row in rows
     ]
 
@@ -1711,7 +1780,11 @@ async def _same_name_copies_on(
             ),
             {
                 **_holder(
-                    target.agent_id, target.variant_id, target.test_copy, target.inbound_line_id
+                    target.agent_id,
+                    target.variant_id,
+                    target.test_copy,
+                    target.inbound_line_id,
+                    target.campaign_id,
                 ),
                 "name": name,
                 "sid": keep,
@@ -1728,6 +1801,7 @@ async def recorded_handles_of_agent(
     *,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> set[str]:
     """Every engine handle we believe is attached to this agent's own vendor agent, to
     its experiment arm `variant_id`, to its test copy, or to its inbound line
@@ -1751,7 +1825,7 @@ async def recorded_handles_of_agent(
     rows = (
         await session.execute(
             text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} {_HOLDER}"),
-            _holder(agent_id, variant_id, test_copy, inbound_line_id),
+            _holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id),
         )
     ).scalars()
     # The business-facts document an engine that keeps facts out of the prompt holds for
@@ -1762,6 +1836,7 @@ async def recorded_handles_of_agent(
         variant_id=variant_id,
         test_copy=test_copy,
         inbound_line_id=inbound_line_id,
+        campaign_id=campaign_id,
     )
 
 
@@ -1848,6 +1923,7 @@ async def _detach_superseded(
     variant_id: UUID | None = None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
     agent: AgentConfig | None,
     attached: list[str] | None,
 ) -> None:
@@ -1895,6 +1971,7 @@ async def _detach_superseded(
             variant_id=variant_id,
             test_copy=test_copy,
             inbound_line_id=inbound_line_id,
+            campaign_id=campaign_id,
         )
         return
     try:
@@ -1929,6 +2006,7 @@ async def _detach_superseded(
         variant_id=variant_id,
         test_copy=test_copy,
         inbound_line_id=inbound_line_id,
+        campaign_id=campaign_id,
     )
 
 
@@ -2359,24 +2437,38 @@ async def _attach_to_agent(
     same document, withdrawing "the old copy" would delete the new one.
     """
     agent_id, variant_id, copy = target.agent_id, target.variant_id, target.test_copy
-    line = target.inbound_line_id
-    config = await _publish_config(session, tenant_id, agent_id, variant_id, line, test_copy=copy)
+    line, camp = target.inbound_line_id, target.campaign_id
+    config = await _publish_config(
+        session, tenant_id, agent_id, variant_id, line, camp, test_copy=copy
+    )
     attached_now = await _reconcile_engine_state(
         engine,
         target.engine_ref,
         agent_id=agent_id,
         accounted=await recorded_handles_of_agent(
-            session, agent_id, variant_id, test_copy=copy, inbound_line_id=line
+            session, agent_id, variant_id, test_copy=copy, inbound_line_id=line, campaign_id=camp
         ),
     )
     withdraw = await _same_name_copies_on(session, target=target, name=name, keep=source_id)
     own_handle = await _engine_kb_ref(
-        session, source_id, agent_id, variant_id, test_copy=copy, inbound_line_id=line
+        session,
+        source_id,
+        agent_id,
+        variant_id,
+        test_copy=copy,
+        inbound_line_id=line,
+        campaign_id=camp,
     )
     unchanged = (
         own_handle is not None
         and await _engine_kb_digest(
-            session, source_id, agent_id, variant_id, test_copy=copy, inbound_line_id=line
+            session,
+            source_id,
+            agent_id,
+            variant_id,
+            test_copy=copy,
+            inbound_line_id=line,
+            campaign_id=camp,
         )
         == payload.digest
         and (attached_now is None or own_handle in attached_now)
@@ -2443,6 +2535,7 @@ async def _complete_on_agent(
                 variant_id=variant_id,
                 test_copy=copy,
                 inbound_line_id=rollover.target.inbound_line_id,
+                campaign_id=rollover.target.campaign_id,
                 agent=rollover.config,
                 attached=rollover.attached_now,
             )
@@ -2464,6 +2557,7 @@ async def _complete_on_agent(
         variant_id=variant_id,
         test_copy=copy,
         inbound_line_id=rollover.target.inbound_line_id,
+        campaign_id=rollover.target.campaign_id,
     )
 
 
@@ -2799,6 +2893,7 @@ async def _holder_ref(
     *,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> str | None:
     """The vendor agent a claim's holder is now: the agent's own, its arm's, its test copy's
     or its inbound line's."""
@@ -2806,13 +2901,16 @@ async def _holder_ref(
         sql = "SELECT engine_agent_ref FROM agent_test_copies WHERE agent_id = :aid"
     elif inbound_line_id is not None:
         sql = "SELECT engine_agent_ref FROM inbound_lines WHERE id = :lid AND agent_id = :aid"
+    elif campaign_id is not None:
+        sql = "SELECT engine_agent_ref FROM campaigns WHERE id = :camp AND agent_id = :aid"
     elif variant_id is None:
         sql = "SELECT engine_agent_ref FROM agents WHERE id = :aid"
     else:
         sql = "SELECT engine_agent_ref FROM prompt_experiment_variants WHERE id = :vid"
     value = (
         await session.execute(
-            text(sql), {"aid": agent_id, "vid": variant_id, "lid": inbound_line_id}
+            text(sql),
+            {"aid": agent_id, "vid": variant_id, "lid": inbound_line_id, "camp": campaign_id},
         )
     ).scalar()
     return str(value) if value else None
@@ -2851,6 +2949,7 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
             route.variant_id,
             test_copy=route.test_copy,
             inbound_line_id=route.inbound_line_id,
+            campaign_id=route.campaign_id,
         )
         if engine is None or not ref:
             # No vendor agent any more: its knowledge went with it at the vendor.
@@ -2862,6 +2961,7 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
                 variant_id=route.variant_id,
                 test_copy=route.test_copy,
                 inbound_line_id=route.inbound_line_id,
+                campaign_id=route.campaign_id,
             )
             continue
         require_capability("knowledge_base", engine=engine)
@@ -2876,6 +2976,7 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
                 variant_id=route.variant_id,
                 test_copy=route.test_copy,
                 inbound_line_id=route.inbound_line_id,
+                campaign_id=route.campaign_id,
                 agent=None,
                 attached=await _listing_or_none(engine, ref, agent_id=route.agent_id),
             )
@@ -2948,6 +3049,7 @@ async def converge_agent_knowledge(
     variant_id: UUID | None = None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> CatchUp:
     """Make one vendor agent hold every live source of its tenant, and nothing archived:
     the agent's own `ref`, that of its running experiment arm `variant_id` (D-806), its
@@ -2990,7 +3092,7 @@ async def converge_agent_knowledge(
                 "   ORDER BY o.updated_at DESC, o.agent_id LIMIT 1) "
                 f"{_ROUTE_JOIN} {_HOLDER}"
             ),
-            _holder(agent_id, variant_id, test_copy, inbound_line_id),
+            _holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id),
         )
     ).all()
     held_ids = {UUID(str(row[0])) for row in held}
@@ -3037,14 +3139,25 @@ async def converge_agent_knowledge(
         return CatchUp()
     attached_now = await _listing_or_none(engine, ref, agent_id=agent_id)
     accounted = await recorded_handles_of_agent(
-        session, agent_id, variant_id, test_copy=test_copy, inbound_line_id=inbound_line_id
+        session,
+        agent_id,
+        variant_id,
+        test_copy=test_copy,
+        inbound_line_id=inbound_line_id,
+        campaign_id=campaign_id,
     )
     if attached_now is not None and any(handle not in accounted for handle in attached_now):
         log.warning("kb_catch_up_skipped_unaccounted", extra={"agent_id": str(agent_id)})
         return CatchUp(skipped_unaccounted=True)
 
     config = await _publish_config(
-        session, tenant_id, agent_id, variant_id, inbound_line_id, test_copy=test_copy
+        session,
+        tenant_id,
+        agent_id,
+        variant_id,
+        inbound_line_id,
+        campaign_id,
+        test_copy=test_copy,
     )
     minted: list[tuple[UUID, str, str]] = []
     try:
@@ -3078,6 +3191,7 @@ async def converge_agent_knowledge(
                     variant_id=variant_id,
                     test_copy=test_copy,
                     inbound_line_id=inbound_line_id,
+                    campaign_id=campaign_id,
                 )
     except Exception:
         for source_id, handle, _ in minted:
@@ -3100,6 +3214,7 @@ async def converge_agent_knowledge(
                 variant_id=variant_id,
                 test_copy=test_copy,
                 inbound_line_id=inbound_line_id,
+                campaign_id=campaign_id,
                 agent=config,
                 attached=attached_now,
             )
@@ -3117,6 +3232,7 @@ async def converge_agent_knowledge(
             variant_id=variant_id,
             test_copy=test_copy,
             inbound_line_id=inbound_line_id,
+            campaign_id=campaign_id,
         )
         replaced += 1
 
@@ -3133,6 +3249,7 @@ async def converge_agent_knowledge(
                 variant_id=variant_id,
                 test_copy=test_copy,
                 inbound_line_id=inbound_line_id,
+                campaign_id=campaign_id,
                 agent=config,
                 attached=attached_now,
             )
@@ -3175,15 +3292,16 @@ async def withdraw_agent_knowledge(
     holders = (
         await session.execute(
             text(
-                "SELECT DISTINCT variant_id, test_copy, inbound_line_id FROM engine_kb_routes "
-                "WHERE agent_id = :aid AND tenant_id = :tid "
-                "ORDER BY variant_id NULLS FIRST, test_copy, inbound_line_id NULLS FIRST"
+                "SELECT DISTINCT variant_id, test_copy, inbound_line_id, campaign_id "
+                "FROM engine_kb_routes WHERE agent_id = :aid AND tenant_id = :tid "
+                "ORDER BY variant_id NULLS FIRST, test_copy, inbound_line_id NULLS FIRST, "
+                "campaign_id NULLS FIRST"
             ),
             {"aid": agent_id, "tid": tenant_id},
         )
     ).all()
     withdrawn = 0
-    for variant, copy, line in holders:
+    for variant, copy, line, camp in holders:
         withdrawn += await _withdraw_held(
             session,
             tenant_id=tenant_id,
@@ -3191,6 +3309,7 @@ async def withdraw_agent_knowledge(
             variant_id=UUID(str(variant)) if variant is not None else None,
             test_copy=bool(copy),
             inbound_line_id=UUID(str(line)) if line is not None else None,
+            campaign_id=UUID(str(camp)) if camp is not None else None,
         )
     log.info(
         "kb_retired_agent_withdrawn", extra={"agent_id": str(agent_id), "withdrawn": withdrawn}
@@ -3256,6 +3375,7 @@ async def _withdraw_held(
     variant_id: UUID | None,
     test_copy: bool = False,
     inbound_line_id: UUID | None = None,
+    campaign_id: UUID | None = None,
 ) -> int:
     """Detach every recorded copy one holder has; a refusal keeps its claim and alerts."""
     routes = (
@@ -3264,13 +3384,21 @@ async def _withdraw_held(
                 f"SELECT r.source_id, r.engine_kb_ref FROM engine_kb_routes r WHERE {_HOLDER} "
                 "AND r.tenant_id = :tid ORDER BY r.source_id"
             ),
-            {**_holder(agent_id, variant_id, test_copy, inbound_line_id), "tid": tenant_id},
+            {
+                **_holder(agent_id, variant_id, test_copy, inbound_line_id, campaign_id),
+                "tid": tenant_id,
+            },
         )
     ).all()
     if not routes:
         return 0
     ref = await _holder_ref(
-        session, agent_id, variant_id, test_copy=test_copy, inbound_line_id=inbound_line_id
+        session,
+        agent_id,
+        variant_id,
+        test_copy=test_copy,
+        inbound_line_id=inbound_line_id,
+        campaign_id=campaign_id,
     )
     engine = get_engine()
     if not ref or not engine.capabilities.has("knowledge_base"):
@@ -3289,6 +3417,7 @@ async def _withdraw_held(
                 variant_id=variant_id,
                 test_copy=test_copy,
                 inbound_line_id=inbound_line_id,
+                campaign_id=campaign_id,
                 agent=None,
                 attached=attached,
             )
@@ -3356,6 +3485,7 @@ async def catch_up_agent(
     if copy_ref:
         targets.append(KbTarget(agent_id=agent_id, engine_ref=copy_ref, test_copy=True))
     targets.extend(await running_lines(session, agent_id=agent_id))
+    targets.extend(await running_campaigns(session, agent_id=agent_id))
     engine = get_engine()
     total = CatchUp()
     for target in targets:
@@ -3368,6 +3498,7 @@ async def catch_up_agent(
             variant_id=target.variant_id,
             test_copy=target.test_copy,
             inbound_line_id=target.inbound_line_id,
+            campaign_id=target.campaign_id,
         )
         total = CatchUp(
             attached=total.attached + done.attached,
@@ -3678,6 +3809,7 @@ __all__ = [
     "reject_source",
     "release_test_copy_claims",
     "running_arms",
+    "running_campaigns",
     "running_lines",
     "store_read_copy",
     "submit_source",

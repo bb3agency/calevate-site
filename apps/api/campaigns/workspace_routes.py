@@ -15,6 +15,8 @@ from uuid import UUID
 
 import openpyxl
 from calevate_shared.call_script import CallScript
+from calevate_shared.extraction import ExtractionField
+from calevate_shared.lead_fields import core_fields
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
@@ -22,20 +24,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.call_handling import read_agent_call_handling
+from apps.api.agents.extraction_routes import MAX_EXTRACTION_FIELDS
 from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
-from apps.api.agents.service import effective_call_cap
+from apps.api.agents.service import CAMPAIGN_HOLDING_STATUSES, effective_call_cap
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.voice_tuning import read_voice_tuning
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import learning, workspace
+from apps.api.campaigns import notes as campaign_notes
 from apps.api.campaigns import settings as campaign_settings_rules
+from apps.api.campaigns.engine_agent import put_campaign_live, speaks_its_own
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import permission_meta, role_has
-from apps.api.db.ownership import assert_visible
+from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.engine.hang_up import HangsUpCalls
@@ -46,6 +50,7 @@ from apps.api.kb.picks import MAX_PICKS
 from apps.api.reliability.service import require_idempotency_key
 from apps.api.teach.routes import read_bounded_upload
 from apps.api.teach.struggles import list_struggles
+from apps.api.tenancy.core_labels import core_labels
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
 Session = Annotated[AsyncSession, Depends(db)]
@@ -618,7 +623,7 @@ class CampaignTestCallOut(_Out):
     "/{campaign_id}/test-call",
     response_model=CampaignTestCallOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Put the campaign's script on its agent and ring your own phone to hear it",
+    summary="Ring your own phone through the campaign's own engine agent to hear it",
 )
 async def campaign_test_call(
     campaign_id: UUID,
@@ -628,7 +633,8 @@ async def campaign_test_call(
     principal: Dispatcher,
 ) -> CampaignTestCallOut:
     """The same gated, capped, idempotent test call as the agent's Try it (`agents/trial_calls`),
-    after the campaign's script is put live on the agent exactly as Start would put it."""
+    rung through the campaign's own engine agent, published as a test holder first, so it says
+    what the campaign says now in its agent's voice and never touches the agent (D-1003)."""
     assert principal.tenant_id is not None
     idem_key = require_idempotency_key(
         request.headers.get("Idempotency-Key"),
@@ -636,16 +642,6 @@ async def campaign_test_call(
         detail="Each test call rings a real phone, so every attempt names itself.",
     )
     space = await workspace.read_workspace(session, campaign_id)
-    name = (
-        await session.execute(text("SELECT name FROM campaigns WHERE id = :c"), {"c": campaign_id})
-    ).scalar_one()
-    await workspace.put_script_live(
-        tenant_id=principal.tenant_id,
-        campaign_id=campaign_id,
-        campaign_name=str(name),
-        user_id=principal.user_id,
-    )
-    await _ready_unpublished_agent(session, principal, space.agent_id)
     if payload.number_is_mine:
         await attest_own_number(
             principal=principal, number=payload.number, ip=client_request_ip(request)
@@ -658,6 +654,8 @@ async def campaign_test_call(
         idempotency_key=idem_key,
         ip=client_request_ip(request),
         own_number_attested=payload.number_is_mine,
+        # A campaign that says only what its agent says is heard through the agent itself.
+        campaign_id=campaign_id if await speaks_its_own(session, campaign_id) else None,
     )
     if result.call_id is not None:
         await remember_test_number(session, payload.number)
@@ -675,26 +673,6 @@ async def campaign_test_call(
         blocked_rule=result.blocked_rule,
         call_id=result.call_id,
     )
-
-
-async def _ready_unpublished_agent(
-    session: AsyncSession, principal: Principal, agent_id: UUID
-) -> None:
-    """An agent never published has no engine agent to ring through: a first run's new
-    agent, whose only script is this campaign's. The owner gets it ready here, as the agent's
-    own Ready step would (`lifecycle.prepare_agent`, not taking calls); anyone else meets the
-    dial's own `agent_not_published`, since getting an agent ready is the owner's act."""
-    ref = (
-        await session.execute(
-            text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
-        )
-    ).scalar_one_or_none()
-    if ref or principal.role is None or not role_has(principal.role, "org:manage"):
-        return
-    from apps.api.agents import lifecycle
-
-    assert principal.tenant_id is not None
-    await lifecycle.prepare_agent(session, tenant_id=principal.tenant_id, agent_id=agent_id)
 
 
 async def remember_test_number(session: AsyncSession, number: str) -> None:
@@ -993,7 +971,8 @@ class CampaignSettingsOut(_Out):
     defaults: CampaignSettingsValues
     #: What this campaign sets instead; a null key follows the agent.
     overrides: CampaignSettingsValues
-    #: This campaign currently holds the agent, so a save reaches its calls at once.
+    #: The campaign has its own engine agent now (started, scheduled or paused), so a save
+    #: reaches its calls at once; otherwise at its next Start or test call.
     applied_now: bool
     #: The languages this account may choose, in picker order.
     offered_languages: list[str]
@@ -1016,11 +995,10 @@ async def _settings_out(session: AsyncSession, campaign_id: UUID) -> CampaignSet
     raw = (
         await session.execute(
             text(
-                "SELECT settings_overrides, agent_held_at IS NOT NULL AND agent_held_at = "
-                "(SELECT max(agent_held_at) FROM campaigns c2 WHERE c2.agent_id = c.agent_id "
-                "AND c2.archived_at IS NULL) FROM campaigns c WHERE id = :c"
+                "SELECT settings_overrides, engine_agent_ref IS NOT NULL "
+                "AND status = ANY(:holding) FROM campaigns WHERE id = :c"
             ),
-            {"c": campaign_id},
+            {"c": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
         )
     ).one()
     return CampaignSettingsOut(
@@ -1063,8 +1041,9 @@ async def campaign_settings(campaign_id: UUID, session: Session, _: Reader) -> C
 async def save_campaign_settings(
     campaign_id: UUID, payload: CampaignSettingsValues, session: Session, principal: Dispatcher
 ) -> CampaignSettingsOut:
-    """Stored, then, when this campaign currently holds its agent, put live at once through the
-    same publish Start uses; otherwise they reach the agent at the next Start or Test call."""
+    """Stored, then, when the campaign has its own engine agent, put live on it at once through
+    the same publish Start uses; otherwise they reach its calls at the next Start or test
+    call. The agent's own settings are never changed (D-1003)."""
     assert principal.tenant_id is not None
     cleaned = campaign_settings_rules.clean_overrides(payload.model_dump(exclude_none=True))
     await workspace.read_workspace(session, campaign_id)
@@ -1080,46 +1059,105 @@ async def save_campaign_settings(
         )
     out = await _settings_out(session, campaign_id)
     if out.applied_now:
-        name = (
-            await session.execute(
-                text("SELECT name FROM campaigns WHERE id = :c"), {"c": campaign_id}
-            )
-        ).scalar_one()
-        await workspace.put_script_live(
-            tenant_id=principal.tenant_id,
-            campaign_id=campaign_id,
-            campaign_name=str(name),
-            user_id=principal.user_id,
-        )
+        await put_campaign_live(tenant_id=principal.tenant_id, campaign_id=campaign_id)
     return out
 
 
-class AgentHolderOut(_Out):
-    #: The campaign whose script and settings this agent carries now, or null.
-    campaign_id: UUID | None
-    campaign_name: str | None
+# --- What it notes ----------------------------------------------------------------------------
+
+
+class CampaignNotesIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    #: The campaign's whole list; empty follows its agent's.
+    fields: list[ExtractionField] = Field(max_length=MAX_EXTRACTION_FIELDS)
+    #: The `digest` of the list the editor was showing. Sent, a save over a list changed since
+    #: is refused rather than dropping the other change, because the body is the whole list.
+    expected_digest: str | None = Field(default=None, max_length=64)
+
+
+class CampaignNotesOut(_Out):
+    agent_id: UUID
+    agent_name: str
+    #: The campaign's own list, in order; empty means its calls note what its agent notes.
+    fields: list[ExtractionField]
+    #: Its agent's list, which its calls note while `fields` is empty.
+    agent_fields: list[ExtractionField]
+    #: The details every call notes whatever the list (name, number, summary...).
+    core_fields: list[ExtractionField]
+    digest: str
+    #: The campaign has its own engine agent now, so a save reaches its calls at once.
+    applied_now: bool
+
+
+async def _notes_out(session: AsyncSession, campaign_id: UUID) -> CampaignNotesOut:
+    held = await campaign_notes.read_notes(session, campaign_id)
+    live = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref IS NOT NULL AND status = ANY(:holding) "
+                "FROM campaigns WHERE id = :c"
+            ),
+            {"c": campaign_id, "holding": list(CAMPAIGN_HOLDING_STATUSES)},
+        )
+    ).scalar_one()
+    return CampaignNotesOut(
+        agent_id=held.agent_id,
+        agent_name=held.agent_name,
+        fields=list(held.fields),
+        agent_fields=list(held.agent_fields),
+        core_fields=core_fields(await core_labels(session)),
+        digest=held.digest,
+        applied_now=bool(live),
+    )
 
 
 @router.get(
-    "/agents/{agent_id}/holder",
-    response_model=AgentHolderOut,
+    "/{campaign_id}/notes",
+    response_model=CampaignNotesOut,
     openapi_extra=permission_meta("leads:read"),
-    summary="The campaign whose script this agent speaks now (the last one to put it live)",
+    summary="What this campaign's calls note, and its agent's list it follows while empty",
 )
-async def agent_holder(agent_id: UUID, session: Session, _: Reader) -> AgentHolderOut:
-    await assert_visible(session, "agent", agent_id)
-    row = (
-        await session.execute(
-            text(
-                "SELECT id, name FROM campaigns WHERE agent_id = :a AND archived_at IS NULL "
-                "AND agent_held_at IS NOT NULL ORDER BY agent_held_at DESC LIMIT 1"
-            ),
-            {"a": agent_id},
+async def campaign_notes_read(campaign_id: UUID, session: Session, _: Reader) -> CampaignNotesOut:
+    return await _notes_out(session, campaign_id)
+
+
+@router.put(
+    "/{campaign_id}/notes",
+    response_model=CampaignNotesOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Set what this campaign's calls note; an empty list follows its agent's",
+)
+async def campaign_notes_save(
+    campaign_id: UUID,
+    payload: CampaignNotesIn,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> CampaignNotesOut:
+    """Stored in its own transaction, then, when the campaign has its own engine agent, put
+    live on it so its calls ask for the new details (D-1003); otherwise they reach its calls
+    at the next Start or test call. The agent's own list is never changed."""
+    assert principal.tenant_id is not None
+    async with tenant_session(principal.tenant_id) as own:
+        changed = await campaign_notes.save_notes(
+            own, campaign_id, payload.fields, expected_digest=payload.expected_digest
         )
-    ).first()
-    return AgentHolderOut(
-        campaign_id=row.id if row else None, campaign_name=str(row.name) if row else None
-    )
+        if changed:
+            await write_audit(
+                own,
+                action="campaign.notes_saved",
+                actor=principal,
+                tenant_id=principal.tenant_id,
+                object_type="campaign",
+                object_id=str(campaign_id),
+                ip=client_request_ip(request),
+                # The keys, never a value: who changed which details is what is audited.
+                summary={"fields": [field.key for field in payload.fields]},
+            )
+    out = await _notes_out(session, campaign_id)
+    if changed and out.applied_now:
+        await put_campaign_live(tenant_id=principal.tenant_id, campaign_id=campaign_id)
+    return out
 
 
 # --- A contact list from an Excel sheet --------------------------------------------------------

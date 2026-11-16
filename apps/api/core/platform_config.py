@@ -704,6 +704,8 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     ),
     # Read by the ops dashboard and the provisioning alarm each time (D-693).
     "thinnest_customer_plan": AppliesRule(LIVE),
+    # Counted before each campaign makes its own engine agent (D-1003).
+    "thinnest_agents_per_workspace": AppliesRule(LIVE),
     "thinnest_action_source_ips": AppliesRule(LIVE),
     # Compared on every workspace header and every own-workspace check (D-693).
     "thinnest_developer_workspace_id": AppliesRule(LIVE),
