@@ -385,3 +385,140 @@ async def test_a_new_agent_carries_what_the_business_knows_and_asks_no_one_for_a
     assert body is not None and "[T0 FACTS]" in str(body) and "Haircut" in str(body)
     assert proposal is None, "no script is asked of Pip"
     assert all(str(sentence).strip() for sentence in notices), "both notice sentences are on file"
+
+
+# --- the copy under a live test call, and copies of accounts with no workspace -------------
+
+
+async def _live_test_call(tenant_id: UUID, agent_id: UUID) -> None:
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "to_e164, trial_call, status, created_at, updated_at) VALUES (:id, :t, :a, "
+                ":e, 'outbound', '+919876543210', true, 'in_progress', now(), now())"
+            ),
+            {"id": uuid7(), "t": tenant_id, "a": agent_id, "e": f"live-{uuid.uuid4().hex}"},
+        )
+
+
+async def test_the_copy_is_never_republished_under_a_live_test_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    ref = await paid_test_calls.refresh_test_copy(
+        tenant_id=tenant_id, agent_id=agent_id, business=True
+    )
+    await _live_test_call(tenant_id, agent_id)
+
+    # A campaign's test call would put the agent, with that campaign's script, on the copy.
+    with pytest.raises(ProblemError) as refused:
+        await paid_test_calls.refresh_test_copy(tenant_id=tenant_id, agent_id=agent_id)
+    assert refused.value.code == "trial_line_busy"
+    assert await _copy(tenant_id) == (ref, True), "the copy under the call is left as it is"
+
+    # A new business chat talks to the copy as it is rather than republishing it.
+    published: list[str] = []
+
+    async def _nothing(*_a: Any, **_k: Any) -> None:
+        return None
+
+    async def _refresh(**_kwargs: Any) -> str:
+        published.append("again")
+        return ref
+
+    async def _send(_engine: Any, *, engine_agent_ref: str, **_k: Any) -> Any:
+        assert engine_agent_ref == ref
+        return type(
+            "Turn", (), {"session": "s-2", "reply": "Hello.", "tools": (), "failed_part_way": False}
+        )()
+
+    monkeypatch.setattr(try_chat, "RunsTestChat", object)
+    monkeypatch.setattr(try_chat, "require_ai_assist", _nothing)
+    monkeypatch.setattr(try_chat, "send_test_message", _send)
+    monkeypatch.setattr(try_chat, "refresh_test_copy", _refresh)
+    async with tenant_session(tenant_id) as session:
+        await try_chat.send(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            message="When are you open?",
+            chat_session=None,
+            business=True,
+        )
+    assert published == []
+    # The one shared trial line is platform-wide: end the call so no other test meets it.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET status = 'completed' WHERE agent_id = :a"), {"a": agent_id}
+        )
+
+
+async def test_the_business_copy_says_every_notice_switched_on_in_its_first_words() -> None:
+    from calevate_shared.engine import compose_first_utterance, said_notices
+    from calevate_shared.opening_notices import first_words_disclose
+
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET ai_disclosure_enabled = true, recording_notice_enabled = true "
+                "WHERE id = :a"
+            ),
+            {"a": agent_id},
+        )
+    # The publish's own read-back refuses a copy that drops a notice.
+    ref = await paid_test_calls.refresh_test_copy(
+        tenant_id=tenant_id, agent_id=agent_id, business=True
+    )
+    cfg = _engine()._agents[ref]
+    ai_notice = cfg.ai_notice.strip()
+    assert ai_notice
+    assert first_words_disclose(
+        compose_first_utterance(cfg),
+        ai_notice=ai_notice,
+        recording_notice=cfg.opening_line.strip().removeprefix(ai_notice).strip(),
+        said=said_notices(cfg.system_prompt, business=cfg.business),
+    )
+    assert "--- HOW TO SPEAK ---" in compose_engine_prompt(cfg)
+
+
+async def test_an_idle_copy_of_an_account_with_no_workspace_is_retired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, _slug, _token = await _make_tenant()
+    idle, fresh = f"ref_idle_{uuid.uuid4().hex}", f"ref_fresh_{uuid.uuid4().hex}"
+    async with tenant_session(tenant_id) as session:
+        first = UUID(str((await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()))
+        second = await _second_agent(session, tenant_id)
+        for agent_id, ref, days in ((first, idle, 60), (second, fresh, 0)):
+            await session.execute(
+                text(
+                    "INSERT INTO agent_test_copies (id, tenant_id, agent_id, engine_agent_ref, "
+                    "business_only, last_used_at) VALUES (:i, :t, :a, :r, true, "
+                    "now() - make_interval(days => :d))"
+                ),
+                {"i": uuid7(), "t": tenant_id, "a": agent_id, "r": ref, "d": days},
+            )
+            await session.execute(
+                text(
+                    "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                    "agent_id, active, created_at, updated_at) VALUES (:e, :r, :t, :a, true, "
+                    "now(), now())"
+                ),
+                {"e": get_engine().name, "r": ref, "t": tenant_id, "a": agent_id},
+            )
+    retired: list[str] = []
+
+    async def _retire(_session: Any, *, ref: str, **_k: Any) -> None:
+        retired.append(ref)
+
+    import apps.api.agents.service as agents_service
+
+    monkeypatch.setattr(agents_service, "retire_engine_agent", _retire)
+    monkeypatch.setattr(agent_moves, "engine_has_workspaces", lambda: True)
+    await agent_moves.sweep_agent_moves({})
+    assert idle in retired
+    assert fresh not in retired

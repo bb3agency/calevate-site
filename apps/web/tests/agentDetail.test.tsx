@@ -3201,7 +3201,7 @@ describe("Try it on the business or on one of its jobs (founder, 16 Nov 2026)", 
     await renderClientPage(page, routes({ ...TRAINING_READS, "/v1/agents/agent-1/jobs": JOBS }));
     fireEvent.click(await screen.findByRole("radio", { name: /Main number/ }));
     expect(screen.getByRole("link", { name: "Open its test call" }).getAttribute("href")).toBe(
-      "/c/acme/inbound/line-1#line-test",
+      "/c/acme/inbound/line-1#line-test-call",
     );
     // The chat and the call are the business's only; a job is tried where it is written.
     expect(screen.queryByLabelText("What the caller says")).toBeNull();

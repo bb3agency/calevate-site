@@ -35,6 +35,7 @@ import {
   formatPhone,
 } from "@/components/ui";
 import { useAgentActions } from "@/lib/api/actions";
+import { LINE_TEST_ANCHOR } from "@/lib/api/agentJobs";
 import { useAgents } from "@/lib/api/agents";
 import { DAYS, DAY_LABELS, useBusinessProfile } from "@/lib/api/businessProfile";
 import { useCampaignNumbers } from "@/lib/api/campaigns";
@@ -681,7 +682,7 @@ function TestCallSection({
   const saved = useLineTestNumbers(session, line.id);
   const calls = useLineTestCalls(session, line.id);
   return (
-    <FoldSection id="line-test-call" title="Test call" tone="test" hint="This line rings your phone." info={TEST_CALL_INFO}>
+    <FoldSection id={LINE_TEST_ANCHOR} title="Test call" tone="test" hint="This line rings your phone." info={TEST_CALL_INFO}>
       {line.script ? (
         <TestCallForm slug={slug} call={call} saved={saved.data?.numbers} canWrite={canWrite} refusal={refusal} />
       ) : (
