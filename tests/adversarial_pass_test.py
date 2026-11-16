@@ -857,6 +857,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/campaigns/{campaign_id}/sources/upload", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/test-calls", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/test-calls/{call_id}", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/test-calls/{call_id}/end", {}, {}),
     ("DELETE", "/v1/company-training/proposal/{training_proposal_id}", {}, {}),
     ("PUT", "/v1/campaigns/{campaign_id}/test-numbers", {"numbers": []}, {}),
     ("GET", "/v1/inbound-lines/{line_id}", {}, {}),
