@@ -7,8 +7,9 @@
   It WARNS and never blocks: an agent's script also answers inbound calls, which the
   caller started and which are not commercial communication we send, and an inbound-only
   agent places no calls at all.
-* The CAMPAIGN check reads the LIVE script (`applied=True`), because that is what every
-  call the campaign places will say. A service campaign whose live script is promotional
+* The CAMPAIGN check reads what its calls speak: the campaign's own script, or for a
+  campaign without one its agent's LIVE script (`applied=True`). A service campaign whose
+  spoken script is promotional
   is refused at launch (`SCRIPT_PROMOTIONAL_RULE`): the call would be promotional in law
   whatever the campaign was filed as, and Calevate does not place promotional calls.
 """
@@ -31,6 +32,7 @@ from apps.api.compliance.call_purpose import (
     script_parts,
 )
 from apps.api.core.errors import ProblemError
+from calevate_shared.call_script import CallScript
 
 #: The launch blocker's rule name, shared by the launch screen, the dispatch refusal list
 #: and Pip so all three say the same thing.
@@ -111,6 +113,21 @@ class CampaignPurposeCheck:
         return self.purpose.purpose != "promotional" and self.report.blocks_launch
 
 
+async def campaign_script_report(
+    session: AsyncSession, *, campaign_id: UUID, agent_id: UUID
+) -> PromoReport:
+    """What every call this campaign places says: its own script when it has one, which its
+    own engine agent speaks (D-1003, `agents/service.campaign_agent_row`), else its agent's
+    live script (a campaign made before D-992). Reading the agent's script for a campaign
+    with its own would pass an offer the calls speak and refuse one they never say."""
+    own = (
+        await session.execute(text("SELECT script FROM campaigns WHERE id = :cid"), {"cid": campaign_id})
+    ).scalar_one_or_none()
+    if own:
+        return lint(script_parts(CallScript.model_validate(own), outbound=True))
+    return await live_script_report(session, agent_id)
+
+
 async def campaign_check(session: AsyncSession, campaign_id: UUID) -> CampaignPurposeCheck:
     row = (
         await session.execute(
@@ -128,21 +145,21 @@ async def campaign_check(session: AsyncSession, campaign_id: UUID) -> CampaignPu
         campaign_id=campaign_id,
         agent_id=agent_id,
         purpose=campaign_purpose(str(row[1]), row[2]),
-        report=await live_script_report(session, agent_id),
+        report=await campaign_script_report(session, campaign_id=campaign_id, agent_id=agent_id),
     )
 
 
 async def script_promotional_blocker(
-    session: AsyncSession, *, agent_id: UUID, classification: str
+    session: AsyncSession, *, campaign_id: UUID, agent_id: UUID, classification: str
 ) -> tuple[str, str] | None:
-    """The launch refusal for a NON-promotional campaign whose live script is promotional.
+    """The launch refusal for a NON-promotional campaign whose spoken script is promotional.
 
     A campaign filed as promotional is not asked: it is already refused by the national
     preference scrub until one is recorded, and the lint would only repeat the obvious.
     """
     if classification == "promotional":
         return None
-    report = await live_script_report(session, agent_id)
+    report = await campaign_script_report(session, campaign_id=campaign_id, agent_id=agent_id)
     if report.blocks_launch:
         return SCRIPT_PROMOTIONAL_RULE, SCRIPT_PROMOTIONAL_REASON
     return None
@@ -155,6 +172,7 @@ __all__ = [
     "CampaignPurposeCheck",
     "agent_check",
     "campaign_check",
+    "campaign_script_report",
     "live_script_report",
     "script_promotional_blocker",
     "wording_report",

@@ -28,6 +28,7 @@ from apps.api.crm.attention import attention_queue
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.ingest.service import _record_dial_consent_granted
+from calevate_shared.call_script import CallScript
 from sqlalchemy import text
 from tests.outbound_consent_policy_test import _fresh_phone, _tenant
 
@@ -614,6 +615,46 @@ async def test_a_service_campaign_with_an_offer_in_its_live_script_cannot_launch
         check = await agent_check(session, agent_id)
     assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in after}
     assert check.report.verdict == "promotional"
+
+
+async def test_a_campaign_is_judged_on_the_script_it_speaks_not_its_agents() -> None:
+    """Since D-1003 a campaign with a script of its own speaks that script on its own engine
+    agent, so the offer that matters is in the campaign's script, not in its agent's."""
+    from tests.campaigns_test import _ready_campaign
+
+    tenant_id, agent_id, campaign_id = await _ready_campaign(classification="service", series="160")
+    offer = CallScript(opening_line="Hello! We have a special Diwali offer, 20% off, today only.")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET script = CAST(:s AS jsonb) WHERE id = :c"),
+            {"s": offer.model_dump_json(), "c": campaign_id},
+        )
+    async with tenant_session(tenant_id) as session:
+        own_offer = await campaigns_service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+        own_offer_tick = await campaigns_service.dispatch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in own_offer}
+    assert SCRIPT_PROMOTIONAL_RULE in {b.rule for b in own_offer_tick}
+
+    clean = CallScript(opening_line="Hello, this is about the service visit you asked us for.")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET script = CAST(:s AS jsonb) WHERE id = :c"),
+            {"s": clean.model_dump_json(), "c": campaign_id},
+        )
+    await _put_live(
+        tenant_id,
+        agent_id,
+        {"opening_line": "Hello! We have a special Diwali offer, 20% off, today only."},
+    )
+    async with tenant_session(tenant_id) as session:
+        agents_offer = await campaigns_service.launch_blockers(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
+    assert SCRIPT_PROMOTIONAL_RULE not in {b.rule for b in agents_offer}
 
 
 async def test_an_offer_put_live_after_launch_stops_the_running_campaign() -> None:
