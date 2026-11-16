@@ -10,12 +10,32 @@ here is repaired there.
 
 from __future__ import annotations
 
+from typing import Final
 from uuid import UUID
 
+from sqlalchemy import text
+
 from apps.api.agents import service as agents_service
-from apps.api.agents.service import InboundRouting, LineTestDial
+from apps.api.agents.models import number_on_hold_sql
+from apps.api.agents.service import (
+    INBOUND_SILENCE_TRUTHFUL_ANSWER,
+    InboundRouting,
+    LineTestDial,
+)
 from apps.api.db.session import tenant_session
 from apps.api.inbound import lines
+
+#: A live line's numbers its engine agent answers right now, as `route_line_numbers` and the
+#: platform's attachment decide it: not while its voice is switched off, deleted or under the
+#: compliance silence, nor a number on hold. A test call rings from one of these unlent; any
+#: other number is lent to the line's engine agent for the call.
+_ANSWERED_NUMBERS_SQL: Final = (
+    "SELECT n.id FROM phone_numbers n JOIN inbound_lines l ON l.id = n.inbound_line_id "
+    "JOIN agents a ON a.id = l.agent_id WHERE l.id = :lid AND n.released_at IS NULL "
+    "AND a.status = 'live' AND a.deleted_at IS NULL "
+    "AND a.inbound_silence_reason IS DISTINCT FROM :truthful "
+    f"AND NOT {number_on_hold_sql('n')}"
+)
 
 
 async def put_line_live(*, tenant_id: UUID, line_id: UUID) -> str:
@@ -36,7 +56,11 @@ async def line_test_dial(*, tenant_id: UUID, line_id: UUID) -> LineTestDial:
     if live:
         ref = await put_line_live(tenant_id=tenant_id, line_id=line_id)
         async with tenant_session(tenant_id) as session:
-            routed = frozenset(n.id for n in (await lines.read_line(session, line_id)).numbers)
+            answered = await session.execute(
+                text(_ANSWERED_NUMBERS_SQL),
+                {"lid": line_id, "truthful": INBOUND_SILENCE_TRUTHFUL_ANSWER},
+            )
+            routed = frozenset(UUID(str(number_id)) for number_id in answered.scalars())
         return LineTestDial(ref=ref, line_id=line_id, routed_number_ids=routed)
     async with tenant_session(tenant_id) as session:
         ref = await agents_service.publish_line(
@@ -47,7 +71,7 @@ async def line_test_dial(*, tenant_id: UUID, line_id: UUID) -> LineTestDial:
 
 async def route_numbers(*, tenant_id: UUID, line_id: UUID) -> InboundRouting:
     """Point the line's numbers at its engine agent, or release them while its voice is off,
-    deleted or silenced. A line not yet live leaves its numbers as they were."""
+    deleted or silenced. A draft line's numbers go to its voice agent's own engine agent."""
     async with tenant_session(tenant_id) as session:
         return await agents_service.route_line_numbers(session, line_id=line_id)
 
