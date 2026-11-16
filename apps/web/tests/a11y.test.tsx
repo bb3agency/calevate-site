@@ -3010,7 +3010,11 @@ const CLIENT_SCREENS: Screen[] = [
         recordings_left: 3,
         finished_at: null,
         dismissed_at: null,
+        line_id: INBOUND_LINE.id,
+        campaign_id: null,
+        default_agent: { name: "Anjali", voice_id: null, gender: "female" },
       },
+      [`/v1/inbound-lines/${INBOUND_LINE.id}`]: INBOUND_LINE,
       "/v1/agents": [{ ...AGENT, status: "draft", published: false, script_opening_line: "Namaskaram! How can I help you today?" }],
       "/v1/business-profile": businessProfileFixture(),
       "/v1/copilot/consent": { status: "accepted", can_accept: true, can_withdraw: true, text: "", text_sha256: "a", version: 1, accepted_at: null, withdrawn_at: null },
@@ -3246,6 +3250,10 @@ const CLIENT_SCREENS: Screen[] = [
       [`/v1/inbound-lines/${INBOUND_LINE.id}/calls`]: {
         calls: [{ id: "call-1", started_at: "2026-11-16T05:00:00Z", duration_s: 95, status: "completed", outcome_tag: "answered" }],
       },
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/test-numbers`]: { numbers: ["+919876543210"] },
+      [`/v1/inbound-lines/${INBOUND_LINE.id}/test-calls`]: [
+        { call_id: "call-2", placed_at: "2026-11-16T04:00:00Z", status: "completed", duration_s: 40, has_recording: false },
+      ],
       "/v1/agents": [AGENT],
       "/v1/kb/notes": {
         notes: [

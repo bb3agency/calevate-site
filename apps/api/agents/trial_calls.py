@@ -31,10 +31,12 @@ from dataclasses import dataclass
 from typing import Any, Final, Literal
 from uuid import UUID
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.paid_test_calls import (
     DAILY_CAP_RULE,
+    own_number_call_seconds,
     read_paid_test_access,
     refresh_test_copy,
 )
@@ -183,6 +185,7 @@ async def place_trial_call(
     ip: str | None = None,
     own_number_attested: bool = False,
     business: bool = False,
+    line_id: UUID | None = None,
 ) -> TrialCallResult:
     """Gate, then place, one test call. `blocked` is an answer, not an exception.
 
@@ -194,7 +197,15 @@ async def place_trial_call(
     `business`: the agent page's "Just the business" call. It rings through the agent's
     business-only test copy (`agents/business_only`), which lives in our developer
     workspace, so it always takes the shared trial line, on a paying account too, under the
-    shared line's per-call limit; the gate, the caps and the billing are the same."""
+    shared line's per-call limit; the gate, the caps and the billing are the same.
+
+    `line_id` rings through that inbound line's own engine agent, `agent_id` being the
+    line's voice (Phase 3b): put on the platform as a test holder first, so a draft line can
+    be heard (`inbound/publish.line_test_dial`). Every gate is the same: the dial gate on the
+    agent, the trial's limits, its Studio minutes, a paid account's daily cap. On a trial it
+    rings from the shared trial line; after payment from the client's own number."""
+    if business and line_id is not None:
+        raise ValueError("a test call rings the business copy or a line, not both")
     tenant_id = tenant_id or principal.tenant_id
     assert tenant_id is not None
     phone = normalize_phone(number)
@@ -219,9 +230,12 @@ async def place_trial_call(
             method="POST",
             key=idempotency_key,
             request_hash=body_hash(
-                {"agent_id": str(agent_id), "number": phone, "business": business}
-                if business
-                else {"agent_id": str(agent_id), "number": phone}
+                {
+                    "agent_id": str(agent_id),
+                    "number": phone,
+                    **({"business": business} if business else {}),
+                    **({"line_id": str(line_id)} if line_id is not None else {}),
+                }
             ),
         )
     if claim.state == "replay" and claim.response_payload:
@@ -239,11 +253,15 @@ async def place_trial_call(
             phone_e164=phone,
             trial_call=True,
             own_number_attested=own_number_attested,
+            through_line=line_id is not None,
         )
         access = await read_trial_access(session, tenant_id=tenant_id)
         # After the first payment: the owner's test call from the account's own number (D-859).
+        # A line's test call never takes the agent's own line, so the agent's is not asked.
         paid = (
-            await read_paid_test_access(session, tenant_id=tenant_id, agent_id=agent_id)
+            await read_paid_test_access(
+                session, tenant_id=tenant_id, agent_id=agent_id if line_id is None else None
+            )
             if access is None
             else None
         )
@@ -272,11 +290,28 @@ async def place_trial_call(
 
     from apps.api.agents.service import (
         DialUnconfirmedError,
+        LineTestDial,
         OwnerTestDial,
         TrialDial,
+        caller_lines,
         dial_was_not_placed,
         dispatch_call,
     )
+
+    line_test: LineTestDial | None = None
+    if line_id is not None:
+        from apps.api.inbound.publish import line_test_dial
+
+        try:
+            line_test = await line_test_dial(tenant_id=tenant_id, line_id=line_id)
+            no_number = paid is not None and not await caller_lines(
+                session, agent_id=agent_id, dial_ref=line_test.ref
+            )
+        except Exception:
+            await release()
+            raise
+        if no_number:
+            return await blocked(LINE_TEST_NO_NUMBER_RULE, LINE_TEST_NO_NUMBER_REASON)
 
     trial: TrialDial | None = None
     owner_test: OwnerTestDial | None = None
@@ -303,11 +338,15 @@ async def place_trial_call(
             from_e164=caller_number, max_call_seconds=call_seconds, agent_ref=copy_ref
         )
     elif paid is not None:
-        call_seconds = paid.max_call_seconds
+        call_seconds = (
+            paid.max_call_seconds
+            if line_test is None
+            else own_number_call_seconds(await _agent_call_cap(session, agent_id))
+        )
         owner_test = OwnerTestDial(
             max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start
         )
-        if paid.line in ("trial_line_own", "trial_line_copy"):
+        if line_test is None and paid.line in ("trial_line_own", "trial_line_copy"):
             # Before the client has a number of its own: the shared trial line, through the
             # agent's developer-workspace engine agent, republished first when it is the test
             # copy so it never lags the agent (D-859, option A).
@@ -352,6 +391,7 @@ async def place_trial_call(
             owner_test=owner_test,
             # The gate let this one ring outside the window, so the engine must too (D-866).
             rings_at_any_hour=own_number_attested,
+            line_test=line_test,
         )
     except DialUnconfirmedError as unconfirmed:
         raise ProblemError(
@@ -391,6 +431,7 @@ async def place_trial_call(
                 "engine": get_engine().name,
                 "max_call_seconds": str(call_seconds),
                 "paid": str(paid is not None),
+                **({"line_id": str(line_id)} if line_id is not None else {}),
             },
         )
         await complete_idempotency(
@@ -404,6 +445,20 @@ async def place_trial_call(
 
 
 TRIAL_CALL_NOT_PLACED: Final = "trial_call_not_placed"
+
+#: A paid account's line test rings from one of its own numbers; with none in the line's
+#: workspace there is nothing it can ring from yet.
+LINE_TEST_NO_NUMBER_RULE: Final = "line_test_no_number"
+LINE_TEST_NO_NUMBER_REASON: Final = "Get a number first. Test calls ring from your own number."
+
+
+async def _agent_call_cap(session: AsyncSession, agent_id: UUID) -> int | None:
+    value = (
+        await session.execute(
+            text("SELECT max_call_duration_s FROM agents WHERE id = :aid"), {"aid": agent_id}
+        )
+    ).scalar()
+    return None if value is None else int(value)
 
 
 def _not_placed_on_our_side() -> ProblemError:
@@ -432,6 +487,8 @@ def _payload(result: TrialCallResult) -> dict[str, str | None]:
 
 
 __all__ = [
+    "LINE_TEST_NO_NUMBER_REASON",
+    "LINE_TEST_NO_NUMBER_RULE",
     "NOT_READY_REASON",
     "NOT_READY_RULE",
     "TRIAL_CALL_ENGINES",

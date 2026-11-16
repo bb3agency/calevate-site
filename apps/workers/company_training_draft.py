@@ -10,7 +10,9 @@ typed notes, with the call instructions read out of files), read the way onboard
 documents (`first_run.documents_block`: redacted, fenced, one word budget).
 
 What Pip writes is a proposal: the owner reviews it on the page and saves it, and only a save
-reaches the agents. Every write back is a compare-and-set on the proposal id, so a draft the
+reaches the agents. The one exception is the first run's (founder, 16 Nov 2026): asked for
+with `auto_save`, it is saved at once as version 1 (`_save_if_asked`).
+Every write back is a compare-and-set on the proposal id, so a draft the
 owner stopped or replaced is never resurrected. Metered as a script draft, which it is.
 """
 
@@ -169,6 +171,32 @@ async def _store(tenant_id: UUID, proposal_id: UUID, update: dict[str, Any]) -> 
     return stored is not None
 
 
+async def _save_if_asked(
+    session: AsyncSession, tenant_id: UUID, proposal_id: UUID, training: str
+) -> None:
+    """A draft asked for with `auto_save` (the first run's) is saved as the training at once,
+    while none has been saved yet (version 0): a training the owner saved is never replaced.
+    Through `save_training`, so the box is measured and live agents are brought onto it; a
+    draft refused there stays for the owner to review."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT version, proposal->>'auto_save' AS auto FROM company_trainings "
+                "WHERE tenant_id = :t AND proposal->>'id' = :pid"
+            ),
+            {"t": tenant_id, "pid": str(proposal_id)},
+        )
+    ).first()
+    if row is None or row.auto != "true" or int(row.version) != 0:
+        return
+    try:
+        async with session.begin_nested():
+            await company_training.save_training(session, tenant_id, training, saved_by=None)
+            await company_training.clear_proposal(session, tenant_id, proposal_id)
+    except ProblemError as refused:
+        log.info("company_training_kept_for_review", extra={"reason": refused.code})
+
+
 async def draft_company_training(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
@@ -252,6 +280,8 @@ async def draft_company_training(ctx: dict[str, Any], payload: dict[str, Any]) -
             model=answer.model,
             feature=feature,
         )
+        if stored is not None:
+            await _save_if_asked(session, tenant_id, proposal_id, answer.value)
     log.info("company_training_written", extra={"stored": stored is not None})
     return "ready" if stored is not None else "not_pending"
 

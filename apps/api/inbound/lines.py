@@ -321,10 +321,18 @@ async def save_script(session: AsyncSession, line_id: UUID, script: CallScript) 
 
 
 async def request_proposal(
-    session: AsyncSession, *, tenant_id: UUID, line_id: UUID, requested_by: UUID | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    line_id: UUID,
+    requested_by: UUID | None,
+    auto_save: bool = False,
 ) -> ScriptProposal:
     """Ask Pip for the line's script. Needs a main task; replaces a ready draft; refused
-    while one is still being written, so a second click does not spend twice."""
+    while one is still being written, so a second click does not spend twice.
+
+    `auto_save`: the draft becomes the line's script as soon as it is written, with no
+    review, while the line has none (the first run's line, Phase 3b)."""
     row = await _lock(session, line_id)
     if not (row.main_task or "").strip():
         raise _invalid(
@@ -348,6 +356,8 @@ async def request_proposal(
         "requested_by": None if requested_by is None else str(requested_by),
         "base_script": row.script,
     }
+    if auto_save:
+        record["auto_save"] = True
     await session.execute(
         text("UPDATE inbound_lines SET script_proposal = CAST(:p AS jsonb) WHERE id = :lid"),
         {"p": json.dumps(record), "lid": line_id},

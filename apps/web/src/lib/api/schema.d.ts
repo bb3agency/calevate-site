@@ -9700,6 +9700,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/first-run/agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Name and voice: make the first agent, or rename it before its first call
+         * @description The first time, the agent is made with this name and languages and the default agent's voice (a woman's voice for its language when the default names none); it has no script of its own. Pip then drafts the company training from the owner's words and saves it as version 1, within the account's AI allowance. Later, the same agent is renamed and its languages changed, until it is set up for calls (`first_run_rename_after_ready`). Its voice is changed with the voice picker.
+         */
+        put: operations["put_agent_v1_first_run_agent_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/first-run/answers": {
         parameters: {
             query?: never;
@@ -9902,6 +9922,26 @@ export interface paths {
         get: operations["read_recording_v1_first_run_recordings__recording_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/first-run/work": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What first: draft an inbound line or a campaign for the agent; Pip writes it
+         * @description `answer_calls` drafts an inbound line in the agent's voice (no number needed); `call_leads` drafts a campaign. Its main task is the owner's own words, its sources the files they added, and Pip's script is saved to it as soon as it is written (poll the line or the campaign). Pressing the same card again returns the same draft. Refused with `first_run_no_agent` before the agent has a name.
+         */
+        post: operations["post_work_v1_first_run_work_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10573,6 +10613,60 @@ export interface paths {
         get?: never;
         /** Choose the sources from What your agents know that Pip writes this line from */
         put: operations["set_sources_v1_inbound_lines__line_id__sources_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/test-call": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ring your own phone with this line, as a caller would hear it
+         * @description Puts the line's script on its own engine agent first: a live line is put live again, and a draft is readied as a test holder, so a line with no number can be heard while it stays a draft. Then the same gated, capped, idempotent test call as an agent's (`POST /v1/trial/calls`): the dial gate, the trial's minutes and Studio minutes, a paid account's daily cap. Needs an `Idempotency-Key` header.
+         */
+        post: operations["line_test_call_v1_inbound_lines__line_id__test_call_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/test-calls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The test calls rung through this line, newest first */
+        get: operations["line_test_calls_v1_inbound_lines__line_id__test_calls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/inbound-lines/{line_id}/test-numbers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The account's saved test numbers, offered under this line's Test call */
+        get: operations["line_test_numbers_v1_inbound_lines__line_id__test_numbers_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -16026,6 +16120,21 @@ export interface components {
             /** Campaign Name */
             campaign_name: string | null;
         };
+        /**
+         * AgentIn
+         * @description "Name and voice": the agent made, or renamed before its first call.
+         */
+        AgentIn: {
+            /**
+             * Language Primary
+             * @enum {string}
+             */
+            language_primary: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
+            /** Languages Extra */
+            languages_extra?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[];
+            /** Name */
+            name: string;
+        };
         /** AgentJobOut */
         AgentJobOut: {
             /**
@@ -19786,6 +19895,8 @@ export interface components {
         CampaignTestCallOut: {
             /** Blocked Reason */
             blocked_reason?: string | null;
+            /** Blocked Rule */
+            blocked_rule?: string | null;
             /** Call Id */
             call_id?: string | null;
             /**
@@ -23175,6 +23286,15 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** DefaultAgentOut */
+        DefaultAgentOut: {
+            /** Gender */
+            gender: string;
+            /** Name */
+            name: string;
+            /** Voice Id */
+            voice_id: string | null;
+        };
         /**
          * DeleteCampaignOut
          * @description `deleted`: the draft is gone. A campaign that already made calls is never deleted
@@ -24967,6 +25087,9 @@ export interface components {
             /** Brief */
             brief: string | null;
             build: components["schemas"]["BuildOut"];
+            /** Campaign Id */
+            campaign_id?: string | null;
+            default_agent: components["schemas"]["DefaultAgentOut"];
             /** Dismissed At */
             dismissed_at: string | null;
             /** Documents */
@@ -24983,6 +25106,8 @@ export interface components {
             language_primary: string | null;
             /** Languages Extra */
             languages_extra: string[];
+            /** Line Id */
+            line_id?: string | null;
             questions: components["schemas"]["QuestionsOut"];
             /** Recordings Left */
             recordings_left: number;
@@ -39551,6 +39676,17 @@ export interface components {
             where: string;
             /** Wording */
             wording: string;
+        };
+        /**
+         * WorkIn
+         * @description "What first?": `answer_calls` drafts an inbound line, `call_leads` a campaign.
+         */
+        WorkIn: {
+            /**
+             * Job
+             * @enum {string}
+             */
+            job: "answer_calls" | "call_leads";
         };
         /** WorkspaceFailureOut */
         WorkspaceFailureOut: {
@@ -57177,6 +57313,39 @@ export interface operations {
             };
         };
     };
+    put_agent_v1_first_run_agent_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     post_answers_v1_first_run_answers_post: {
         parameters: {
             query?: never;
@@ -57511,6 +57680,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    post_work_v1_first_run_work_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FirstRunOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -59044,6 +59246,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InboundLineOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_test_call_v1_inbound_lines__line_id__test_call_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CampaignTestCallIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTestCallOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_test_calls_v1_inbound_lines__line_id__test_calls_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignTestCallItem"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    line_test_numbers_v1_inbound_lines__line_id__test_numbers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestNumbersOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

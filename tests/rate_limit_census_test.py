@@ -143,6 +143,7 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/calls/{call_id}/callback", "POST", "costly"),
         ("/v1/trial/calls", "POST", "costly"),
         ("/v1/admin/tenants/{tenant_id}/trial/test-call", "POST", "costly"),
+        ("/v1/inbound-lines/{line_id}/test-call", "POST", "costly"),
         ("/v1/integrations/credentials/{credential_id}/test", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/publish", "POST", "costly"),
         ("/v1/agents/{agent_id}/script/apply", "POST", "costly"),

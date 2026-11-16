@@ -1021,6 +1021,7 @@ async def check_dispatch(
     own_number_attested: bool = False,
     halt_read_by_caller: bool = False,
     places_call: bool = True,
+    through_line: bool = False,
 ) -> DispatchDecision:
     """Returns a decision rather than raising, so callers can render *why* a button is
     disabled — SURFACES §2b asks for blocked features to be visibly explained instead
@@ -1043,6 +1044,12 @@ async def check_dispatch(
     the India-only destination, the do-not-call list and consent, and calling hours unless
     the owner attested the number as their own (`own_number_attested`, founder 23 Oct
     2026).
+
+    `through_line` is a test call rung through an inbound line's own engine agent (Phase 3b,
+    `inbound/publish.line_test_dial`), not the agent's: the agent is only the line's voice and
+    need not be ready or published itself, because the engine agent dialled is the line's,
+    published and read back before the dial or not dialled at all. Only with `trial_call`;
+    every other check is asked as for any test call.
 
     The big red switch is read FRESH, past the process memo and the Redis copy, unless
     `halt_read_by_caller`: a click-to-dial is one read per click, and a halt set in another
@@ -1138,8 +1145,11 @@ async def check_dispatch(
                 "place calls. Put its script live again; if this stays, contact support."
             ),
         )
-    refusal = dial_refusal_for_agent_status(str(status), trial_call=trial_call)
-    if refusal is None and trial_call and not engine_ref:
+    line_test = trial_call and through_line and str(status) != "archived"
+    refusal = (
+        None if line_test else dial_refusal_for_agent_status(str(status), trial_call=trial_call)
+    )
+    if refusal is None and trial_call and not engine_ref and not line_test:
         # Ready means published: a test call is placed by the engine's agent, and a `paused`
         # agent that was never published has none.
         refusal = (AGENT_NOT_READY_RULE, AGENT_NOT_READY_REASON)

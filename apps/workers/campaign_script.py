@@ -220,6 +220,38 @@ async def _store(session: AsyncSession, holder: _Holder, update: dict[str, Any])
     return stored is not None
 
 
+async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScript) -> None:
+    """A draft asked for with `auto_save` (the first run's, Phase 3b) becomes the holder's
+    script at once, with no review, while the holder still has none: a script the owner
+    saved meanwhile is never replaced. Saved through the holder's own save, so its length is
+    held to the agent's limits; a draft refused there stays for the owner to review."""
+    from apps.api.inbound import lines
+
+    row = (
+        await session.execute(
+            text(
+                f"SELECT script IS NULL AS empty, script_proposal->>'auto_save' AS auto "
+                f"FROM {holder.table} WHERE id = :hid AND script_proposal->>'id' = :pid"
+            ),
+            {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
+        )
+    ).first()
+    if row is None or row.auto != "true" or not row.empty:
+        return
+    try:
+        async with session.begin_nested():
+            if holder.table == "inbound_lines":
+                await lines.save_script(session, holder.holder_id, script)
+            else:
+                await workspace.save_script(session, holder.holder_id, script)
+            await session.execute(
+                text(f"UPDATE {holder.table} SET script_proposal = NULL WHERE id = :hid"),
+                {"hid": holder.holder_id},
+            )
+    except ProblemError as refused:
+        log.info("holder_script_kept_for_review", extra={"reason": refused.code})
+
+
 async def _fail(
     holder: _Holder,
     note: str,
@@ -424,6 +456,8 @@ async def _write(
     # A completed run is money spent: metered in the same transaction that stores the draft.
     async with tenant_session(tenant_id) as session:
         stored = await _store(session, holder, update)
+        if stored:
+            await _save_if_asked(session, holder, finished.script)
         for spent in spends:
             if isinstance(spent, ProblemError):
                 await crm_assist.meter_refusal(

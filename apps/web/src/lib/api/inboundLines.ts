@@ -10,6 +10,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import { useRef } from "react";
 
 import { PIP_POLL_MS, type CampaignProposal } from "./campaignWorkspace";
 import { apiRequest, type Session } from "./client";
@@ -41,10 +42,11 @@ export function useInboundLines(session: Session): UseQueryResult<InboundLine[]>
   });
 }
 
-export function useInboundLine(session: Session, lineId: string): UseQueryResult<InboundLine> {
+export function useInboundLine(session: Session, lineId: string, enabled = true): UseQueryResult<InboundLine> {
   return useQuery({
     queryKey: inboundLineKeys.one(session.orgSlug, lineId),
     queryFn: () => apiRequest<InboundLine>(session, linePath(lineId)),
+    enabled,
     refetchInterval: untilRefused((query) => (query.state.data?.proposal?.status === "drafting" ? PIP_POLL_MS : false)),
   });
 }
@@ -153,6 +155,61 @@ export function useAssignLineNumber(session: Session, lineId: string) {
       void client.invalidateQueries({ queryKey: ["inbound-lines", session.orgSlug] });
       void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });
     },
+  });
+}
+
+export type LineTestCall = Schemas["CampaignTestCallOut"];
+export type LineTestCallItem = Schemas["CampaignTestCallItem"];
+
+const lineTestCallsKey = (org: string, lineId: string) => ["inbound-line-test-calls", org, lineId] as const;
+/** The account's saved test numbers: the campaigns' family, one list per account. */
+const testNumbersKey = (org: string) => ["test-numbers", org];
+
+/**
+ * Ring the owner's own phone with this line (`POST /v1/inbound-lines/{id}/test-call`). Each
+ * number keeps its Idempotency-Key until the call is placed, so a retried press is the same
+ * call, never a second ring.
+ */
+export function useLineTestCall(session: Session, lineId: string) {
+  const held = useRef(new Map<string, string>());
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ number, numberIsMine }: { number: string; numberIsMine: boolean }) => {
+      const key = held.current.get(number) ?? crypto.randomUUID();
+      held.current.set(number, key);
+      return apiRequest<LineTestCall>(session, `${linePath(lineId)}/test-call`, {
+        method: "POST",
+        body: { number, number_is_mine: numberIsMine },
+        idempotencyKey: key,
+      });
+    },
+    onSuccess: (_out, { number }) => {
+      held.current.delete(number);
+      void client.invalidateQueries({ queryKey: inboundLineKeys.one(session.orgSlug, lineId) });
+      void client.invalidateQueries({ queryKey: lineTestCallsKey(session.orgSlug, lineId) });
+      void client.invalidateQueries({ queryKey: testNumbersKey(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
+    },
+  });
+}
+
+const LIVE_STATUSES = new Set(["queued", "ringing", "in_progress"]);
+
+/** The test calls rung through this line, re-read every 10 s while one is still going. */
+export function useLineTestCalls(session: Session, lineId: string): UseQueryResult<LineTestCallItem[]> {
+  return useQuery({
+    queryKey: lineTestCallsKey(session.orgSlug, lineId),
+    queryFn: () => apiRequest<LineTestCallItem[]>(session, `${linePath(lineId)}/test-calls`),
+    refetchInterval: untilRefused((query: { state: { data?: LineTestCallItem[] } }) =>
+      (query.state.data ?? []).some((call) => LIVE_STATUSES.has(call.status)) ? 10_000 : false,
+    ),
+  });
+}
+
+export function useLineTestNumbers(session: Session, lineId: string) {
+  return useQuery({
+    queryKey: testNumbersKey(session.orgSlug),
+    queryFn: () => apiRequest<Schemas["TestNumbersOut"]>(session, `${linePath(lineId)}/test-numbers`),
   });
 }
 

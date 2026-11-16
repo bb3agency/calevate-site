@@ -16,6 +16,33 @@ import { useClientSession } from "@/lib/api/session";
 import { RoomCounter, roomLabel, spokenLength } from "../panels/openingLineFix";
 import { OUTBOUND_PURPOSE_MAX } from "../[agentId]/script/ScriptSections";
 
+/**
+ * What the first work says first (Phase 3b): the opening of the line's or the campaign's own
+ * script, quoted. Read only here: the words belong to the work, and are changed on its page.
+ */
+export function WorkOpening({
+  work,
+  lang,
+  label = "It says first",
+}: {
+  work: { opening: string | null } | null;
+  lang: string;
+  label?: string;
+}) {
+  return (
+    <figure className="min-w-0">
+      <figcaption className="text-meta text-ink-muted">{label}</figcaption>
+      {work?.opening ? (
+        <blockquote lang={lang} className="mt-1 break-words text-body text-ink">
+          “{work.opening}”
+        </blockquote>
+      ) : (
+        <p className="mt-1 text-meta text-ink-faint">Written when Pip writes its script.</p>
+      )}
+    </figure>
+  );
+}
+
 /** The server's refusal as one short line, and its full sentence behind a tap. */
 export function refusalLine(error: unknown): { line: string; detail: string | null } {
   if (error instanceof ApiProblem) {

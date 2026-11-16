@@ -72,8 +72,8 @@ MAIN_BRANCH_LABEL: Final = "Main branch"
 MAX_ADDRESS_CHARS: Final = 400
 
 _COLUMNS: Final = (
-    "id, jobs, language_primary, languages_extra, brief, document_ids, agent_id, "
-    "questions_status, "
+    "id, jobs, language_primary, languages_extra, brief, document_ids, agent_id, line_id, "
+    "campaign_id, questions_status, "
     "questions, answers, questions_disclosure, question_runs, build_status, build_steps, "
     "build_disclosure, build_runs, build_requested_at, finished_at, dismissed_at, updated_at"
 )
@@ -102,6 +102,9 @@ class RunState:
     due: bool = False
     #: The documents added on the brief step that are still knowledge uploads (D-918).
     documents: tuple[Document, ...] = ()
+    #: The first work "What first?" drafted (`first_run/work.start_work`).
+    line_id: UUID | None = None
+    campaign_id: UUID | None = None
 
 
 def brief_hash(brief: str, document_ids: Sequence[UUID] = ()) -> str:
@@ -171,6 +174,8 @@ def _state(
         recordings_used=recordings_used,
         due=due,
         documents=tuple(documents),
+        line_id=row.line_id,
+        campaign_id=row.campaign_id,
     )
 
 
@@ -189,6 +194,10 @@ async def _ensure(session: AsyncSession, *, tenant_id: UUID) -> Any:
         {"id": uuid7(), "tid": tenant_id},
     )
     return await _row(session, lock=True)
+
+
+#: For the steps `first_run/work.py` holds.
+ensure_run = _ensure
 
 
 async def _working_agents(session: AsyncSession) -> list[UUID]:
@@ -336,6 +345,7 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
         text("UPDATE first_runs SET brief = :brief, updated_at = now() WHERE id = :id"),
         {"id": row.id, "brief": cleaned or None},
     )
+    await _brief_as_overview(session, tenant_id=tenant_id, brief=cleaned)
     # The owner's own words describe the business as well as a list of what it sells does:
     # each is enough to name its details, write its job steps (`starter_plans`) and word its
     # business profile (`profile_wording`).
@@ -387,6 +397,21 @@ async def save_brief(session: AsyncSession, *, tenant_id: UUID, brief: str) -> R
             writing=False,
         )
     return await read_state(session, tenant_id=tenant_id)
+
+
+async def _brief_as_overview(session: AsyncSession, *, tenant_id: UUID, brief: str) -> None:
+    """The owner's words about the business are the company training's overview (founder,
+    16 Nov 2026), the words Pip writes the training from. Only while no training is saved:
+    after that the overview is edited under How they speak, never from here."""
+    from apps.api.agents import company_training
+
+    if not brief:
+        return
+    training = await company_training.read_training(session, tenant_id)
+    if training.version == 0:
+        await company_training.save_overview(
+            session, tenant_id, brief[: company_training.OVERVIEW_MAX]
+        )
 
 
 async def store_questions(
@@ -917,6 +942,7 @@ __all__ = [
     "answers_for_script",
     "brief_hash",
     "due_for",
+    "ensure_run",
     "mark",
     "read_recording",
     "read_state",

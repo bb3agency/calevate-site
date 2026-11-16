@@ -8,7 +8,12 @@
     POST /v1/first-run/recordings            one spoken piece of the brief (under 30 s)
     GET  /v1/first-run/recordings/{id}       what was heard
     POST /v1/first-run/answers               the follow-up answers, into the business profile
-    POST /v1/first-run/build                 build the agent (a worker; the screen polls)
+    PUT  /v1/first-run/agent                 name and voice: make the agent (no script), and
+                                             have Pip save the company training as version 1
+    POST /v1/first-run/work                  what first: draft a line or a campaign; Pip
+                                             writes and saves its script (Phase 3b)
+    POST /v1/first-run/build                 the agent built from a written script (before
+                                             Phase 3b; the screen no longer calls it)
     PUT  /v1/first-run/name                  rename the agent before its first call
     POST /v1/first-run/finish | /dismiss     done, or put aside for now
 
@@ -28,16 +33,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.default_agent import read_default_agent
 from apps.api.agents.languages import OfferedLanguage
 from apps.api.agents.starters import StarterJob
+from apps.api.agents.voice_pick import gender_of, pick_voice
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.base import uuid7
-from apps.api.first_run import service
+from apps.api.db.session import tenant_session
+from apps.api.first_run import service, work
 from apps.api.first_run.models import (
     BUILD_STEPS,
     MAX_BUILD_RUNS,
@@ -46,10 +54,12 @@ from apps.api.first_run.models import (
     BuildStep,
 )
 from apps.api.first_run.schemas import (
+    AgentIn,
     AnswersIn,
     BriefIn,
     BuildOut,
     BuildStepOut,
+    DefaultAgentOut,
     DocumentIn,
     DocumentOut,
     FirstRunOut,
@@ -59,6 +69,7 @@ from apps.api.first_run.schemas import (
     QuestionOut,
     QuestionsOut,
     RecordingOut,
+    WorkIn,
 )
 from apps.api.teach.routes import read_bounded_upload
 from apps.api.teach.teaching import MAX_VOICE_BYTES, VOICE_CONTENT_TYPES
@@ -87,6 +98,7 @@ def _step_out(step: BuildStep, found: dict[str, Any]) -> BuildStepOut:
 
 async def _out(session: AsyncSession, tenant_id: UUID) -> FirstRunOut:
     state = await service.read_state(session, tenant_id=tenant_id)
+    default = await read_default_agent(session)
     items = [
         QuestionOut(
             id=question.id,
@@ -130,7 +142,22 @@ async def _out(session: AsyncSession, tenant_id: UUID) -> FirstRunOut:
         recordings_left=max(0, MAX_RECORDINGS - state.recordings_used),
         finished_at=state.finished_at,
         dismissed_at=state.dismissed_at,
+        line_id=state.line_id,
+        campaign_id=state.campaign_id,
+        default_agent=DefaultAgentOut(
+            name=default.name, voice_id=default.voice_id, gender=default.gender
+        ),
     )
+
+
+def _may_spend_ai(principal: Principal) -> bool:
+    """Pip's drafts here spend the account's dashboard AI allowance, which a view-as session
+    may not (`billing.ai_assist`); the step itself still goes ahead without them."""
+    try:
+        assert_view_as_may(principal, "billing.ai_assist")
+    except ProblemError:
+        return False
+    return True
 
 
 async def _audit(
@@ -404,6 +431,94 @@ async def post_build(request: Request, session: Session, principal: Owner) -> Fi
         session, tenant_id=principal.tenant_id, user_id=principal.client_user_id
     )
     await _audit(session, principal, request, "first_run.build", {})
+    return await _out(session, principal.tenant_id)
+
+
+@router.put(
+    "/agent",
+    response_model=FirstRunOut,
+    openapi_extra=_MANAGE,
+    summary="Name and voice: make the first agent, or rename it before its first call",
+    description=(
+        "The first time, the agent is made with this name and languages and the default "
+        "agent's voice (a woman's voice for its language when the default names none); it has "
+        "no script of its own. Pip then drafts the company training from the owner's words "
+        "and saves it as version 1, within the account's AI allowance. Later, the same agent "
+        "is renamed and its languages changed, until it is set up for calls "
+        "(`first_run_rename_after_ready`). Its voice is changed with the voice picker."
+    ),
+)
+async def put_agent(payload: AgentIn, request: Request, principal: Owner) -> FirstRunOut:
+    assert principal.tenant_id is not None
+    tenant_id = principal.tenant_id
+    async with tenant_session(tenant_id) as session:
+        held = await service.read_state(session, tenant_id=tenant_id)
+        made = await work.agent_status(session, held.agent_id) is not None
+        default = await read_default_agent(session)
+    voice: dict[str, object] | None = None
+    if not made:
+        # The admin's voice where this account can use it (Studio open, the language
+        # spoken); otherwise the usual ranking, by that voice's gender.
+        picked = await pick_voice(
+            tenant_id,
+            payload.language_primary,
+            preferred=default.voice_id,
+            gender=gender_of(default.gender) or "female",
+        )
+        if picked is not None:
+            voice = {
+                "voice_id": picked.row.voice_id,
+                "label": picked.row.label,
+                "rung": picked.rung,
+                "fallback": picked.fallback,
+                "not_female": picked.not_female,
+            }
+    async with tenant_session(tenant_id) as session:
+        await work.save_agent(
+            session,
+            tenant_id=tenant_id,
+            name=payload.name,
+            language_primary=payload.language_primary,
+            languages_extra=list(payload.languages_extra),
+            voice=voice,
+            user_id=principal.client_user_id,
+            may_spend_ai=_may_spend_ai(principal),
+        )
+        await _audit(
+            session,
+            principal,
+            request,
+            "first_run.agent",
+            {"made": not made, "language": payload.language_primary},
+        )
+        return await _out(session, tenant_id)
+
+
+@router.post(
+    "/work",
+    response_model=FirstRunOut,
+    openapi_extra=_MANAGE,
+    summary="What first: draft an inbound line or a campaign for the agent; Pip writes it",
+    description=(
+        "`answer_calls` drafts an inbound line in the agent's voice (no number needed); "
+        "`call_leads` drafts a campaign. Its main task is the owner's own words, its sources "
+        "the files they added, and Pip's script is saved to it as soon as it is written "
+        "(poll the line or the campaign). Pressing the same card again returns the same "
+        "draft. Refused with `first_run_no_agent` before the agent has a name."
+    ),
+)
+async def post_work(
+    payload: WorkIn, request: Request, session: Session, principal: Owner
+) -> FirstRunOut:
+    assert principal.tenant_id is not None
+    await work.start_work(
+        session,
+        tenant_id=principal.tenant_id,
+        job=payload.job,
+        user_id=principal.client_user_id,
+        may_spend_ai=_may_spend_ai(principal),
+    )
+    await _audit(session, principal, request, "first_run.work", {"job": payload.job})
     return await _out(session, principal.tenant_id)
 
 

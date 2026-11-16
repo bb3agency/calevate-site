@@ -17,7 +17,6 @@ import {
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import {
-  useBuildAgent,
   useSaveAnswers,
   useSaveBrief,
   type FirstRun,
@@ -50,25 +49,22 @@ import { FIRST } from "../../_ui/copy";
  * a box for anything else.
  *
  * While a worker reads the description, the stage shows the owner's own words being read;
- * the owner can skip ahead and build at any point. The answers go into the business profile,
- * which every agent reads, and into the script (D-863).
+ * the owner can skip ahead at any point. The answers go into the business profile, which
+ * every agent reads and Pip writes the company training and the first work's script from.
  */
 export function QuestionsStep({
   run,
   onBack,
-  onBuilding,
+  onDone,
 }: {
   run: FirstRun;
   onBack: () => void;
-  onBuilding: () => void;
+  onDone: () => void;
 }) {
   const session = useClientSession();
   const answer = useSaveAnswers(session);
-  const build = useBuildAgent(session);
-  // Saving the answers then starting the build is one press; its refusal is the notice under
-  // the step (`Errors`), and the button carries the pair's state.
+  // Saving the answers is the press; its refusal is the notice under the step (`Errors`).
   const answerFeedback = useActionFeedback(answer, { errorDisplay: "inline" });
-  const buildFeedback = useActionFeedback(build, { errorDisplay: "inline" });
   const questions = run.questions.items;
   const [at, setAt] = useState(0);
   const [answers, setAnswers] = useState<Record<string, DraftAnswer>>({});
@@ -78,12 +74,8 @@ export function QuestionsStep({
   const writing = run.questions.status === "writing";
   const failed = run.questions.status === "failed";
   const question = questions[at] ?? null;
-  const pending = answer.isPending || build.isPending || retry.isPending;
-  const status: FeedbackStatus = pending
-    ? "pending"
-    : answerFeedback.status === "error" || buildFeedback.status === "error"
-      ? "error"
-      : "idle";
+  const pending = answer.isPending || retry.isPending;
+  const status: FeedbackStatus = pending ? "pending" : answerFeedback.status === "error" ? "error" : "idle";
 
   const finish = async (keep: ReadonlySet<string>, drafts: Readonly<Record<string, DraftAnswer>> = answers) => {
     const sent = answersBody(
@@ -91,8 +83,7 @@ export function QuestionsStep({
       drafts,
     );
     if ((sent.answers ?? []).length > 0) await answer.mutateAsync(sent);
-    await build.mutateAsync(null);
-    onBuilding();
+    onDone();
   };
   const go = (keep: ReadonlySet<string>, drafts?: Readonly<Record<string, DraftAnswer>>) =>
     void finish(keep, drafts).catch(() => undefined);
@@ -105,7 +96,7 @@ export function QuestionsStep({
         title={FIRST.questionsFailed}
         hint={FIRST.questionsFailedHint}
         onBack={onBack}
-        primary="Build my agent"
+        primary="Continue"
         status={status}
         onSubmit={() => go(kept)}
         aside={
@@ -122,7 +113,7 @@ export function QuestionsStep({
           </ActionButton>
         }
       >
-        <Errors errors={[retry.error, answer.error, build.error]} />
+        <Errors errors={[retry.error, answer.error]} />
       </StepScreen>
     );
   }
@@ -134,23 +125,23 @@ export function QuestionsStep({
         hint={
           writing
             ? FIRST.readingBrief
-            : "Nothing else is needed before your agent is built."
+            : "Nothing else is needed. Next, name your agent."
         }
         onBack={onBack}
-        primary={writing ? undefined : "Build my agent"}
+        primary={writing ? undefined : "Continue"}
         status={status}
         onSubmit={() => go(kept)}
         aside={
           writing ? (
             <ActionButton variant="text" status={status} pendingLabel="Starting…" onClick={() => go(kept)}>
               <SkipForward aria-hidden className="h-4 w-4" />
-              Skip the questions and build
+              Skip the questions
             </ActionButton>
           ) : null
         }
       >
         {writing ? <ReadingStage brief={run.brief ?? ""} lang={run.language_primary ?? "en-IN"} /> : null}
-        <Errors errors={[answer.error, build.error]} />
+        <Errors errors={[answer.error]} />
       </StepScreen>
     );
   }
@@ -179,7 +170,7 @@ export function QuestionsStep({
       onBack={at === 0 ? onBack : () => setAt(at - 1)}
       primary={
         <>
-          {last ? "Build my agent" : "Next"}
+          {last ? "Continue" : "Next"}
           {last ? (
             <Sparkles aria-hidden className="h-4 w-4" />
           ) : (
@@ -197,7 +188,7 @@ export function QuestionsStep({
           </button>
           {last ? null : (
             <button type="button" className={TEXT_ACTION} disabled={pending} onClick={() => go(kept)}>
-              Skip the rest and build
+              Skip the rest
             </button>
           )}
         </>
@@ -209,7 +200,7 @@ export function QuestionsStep({
         onChange={(changed) => setAnswers((all) => ({ ...all, [question.id]: changed }))}
       />
       {run.questions.disclosure ? <p className="text-meta text-ink-faint">{run.questions.disclosure}</p> : null}
-      <Errors errors={[answer.error, build.error]} />
+      <Errors errors={[answer.error]} />
     </StepScreen>
   );
 }

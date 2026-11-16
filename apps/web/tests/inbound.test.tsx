@@ -22,7 +22,7 @@ import { SHORT_LINE, defaultCopyUnder, longLines } from "./shortCopy";
 const ME: Me = {
   impersonating: false,
   withheld_acts: [],
-  permissions: ["agents:read", "org:read", "org:manage"],
+  permissions: ["agents:read", "org:read", "org:manage", "leads:read", "leads:dispatch"],
   realm: "client",
   role: "owner",
   user_id: "user_1",
@@ -138,6 +138,8 @@ const lineRoutes = (current: InboundLine, extra: Routes = {}): Routes => ({
     lines: [current, line({ id: OTHER_LINE_ID, name: "Evening line", numbers: [{ id: "num-1", e164: NUMBER.e164 }] })],
   },
   [`/v1/inbound-lines/${LINE_ID}/calls`]: { calls: [] },
+  [`/v1/inbound-lines/${LINE_ID}/test-calls`]: [],
+  [`/v1/inbound-lines/${LINE_ID}/test-numbers`]: { numbers: [] },
   "/v1/agents": AGENTS,
   "/v1/kb/notes": { notes: [] },
   "/v1/kb/uploads": [],
@@ -268,6 +270,46 @@ describe("one inbound line", () => {
     fireEvent.click(screen.getByRole("button", { name: "Move it here" }));
     await waitFor(() => expect(writes(rendered.calls)).toHaveLength(1));
     expect(bodyOf(rendered.calls, "POST", `/v1/inbound-lines/${LINE_ID}/numbers`)).toEqual({ number_id: "num-1" });
+  });
+
+  it("rings the owner's phone with a draft line, a saved number one tap away, and lists the call", async () => {
+    const CALL_ID = "0192f0aa-5555-7000-8000-000000000001";
+    const rendered = await renderClientPage(
+      linePage(),
+      lineRoutes(line({ main_task: "Book visits.", script: SCRIPT }), {
+        [`/v1/inbound-lines/${LINE_ID}/test-numbers`]: { numbers: ["+919876543210"] },
+        [`/v1/inbound-lines/${LINE_ID}/test-calls`]: [
+          { call_id: CALL_ID, placed_at: "2026-11-16T05:00:00Z", status: "completed", duration_s: 64, has_recording: false },
+        ],
+        [`POST /v1/inbound-lines/${LINE_ID}/test-call`]: { status: "queued", blocked_reason: null, blocked_rule: null, call_id: CALL_ID },
+      }),
+    );
+    const fold = (await screen.findByRole("heading", { name: "Test call" })).closest("section") as HTMLElement;
+    // Before Calls taken, as on a campaign's page.
+    const headings = screen.getAllByRole("heading").map((h) => h.textContent);
+    expect(headings.indexOf("Test call")).toBeLessThan(headings.indexOf("Calls taken"));
+    const box = (await within(fold).findByRole("textbox", { name: /Number to call/ })) as HTMLInputElement;
+    await waitFor(() => expect(box.value).toBe("+919876543210"));
+    // The saved numbers are the account's, kept by the campaigns; a line only uses them.
+    expect(within(fold).queryByRole("button", { name: /Remove/ })).toBeNull();
+    fireEvent.click(within(fold).getByRole("button", { name: "Call me" }));
+    await waitFor(() => expect(writes(rendered.calls)).toHaveLength(1));
+    expect(bodyOf(rendered.calls, "POST", `/v1/inbound-lines/${LINE_ID}/test-call`)).toEqual({
+      number: "+919876543210",
+      number_is_mine: true,
+    });
+    expect(await within(fold).findByText(/Calling you now/)).toBeTruthy();
+    expect(within(fold).getByText("Your test calls")).toBeTruthy();
+    for (const link of within(fold).getAllByRole("link", { name: "Open the call" })) {
+      expect(link.getAttribute("href")).toBe(`/c/acme/calls/${CALL_ID}`);
+    }
+  });
+
+  it("asks for the script before a line can be heard", async () => {
+    await renderClientPage(linePage(), lineRoutes(line()));
+    const fold = (await screen.findByRole("heading", { name: "Test call" })).closest("section") as HTMLElement;
+    expect(within(fold).getByText("Write the script first, then hear it here.")).toBeTruthy();
+    expect(within(fold).queryByRole("button", { name: "Call me" })).toBeNull();
   });
 
   it("offers Put it live for a saved script that is not live yet", async () => {

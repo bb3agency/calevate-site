@@ -2,8 +2,9 @@
  * "MEET YOUR AGENT" (D-855), PIECE BY PIECE — what the first-run screen counts and where an
  * owner resumes.
  *
- * Every piece is RECOMPUTED from rows the server already holds: the first run (job, brief,
- * build), the agent itself and its calls. There is no stored game state, so an owner who
+ * Every piece is RECOMPUTED from rows the server already holds: the first run (brief, its
+ * first work), the agent itself, the line or campaign it was given and its calls (Phase 3b:
+ * the agent is staff, the work holds the script). There is no stored game state, so an owner who
  * leaves half way, changes a piece on the agent's own page, or comes back next week lands
  * on a card that says where they really are.
  *
@@ -30,16 +31,11 @@ import { formatCallCap } from "@/components/ui";
 import { LANGUAGE_CHOICES } from "@/lib/agentState";
 import type { Agent } from "@/lib/api/agents";
 import type { CallSummary } from "@/lib/api/client";
-import type { FirstRun, FirstRunBuildStep, FirstRunDocument, FirstRunJob } from "@/lib/api/firstRun";
+import type { FirstRun, FirstRunDocument, FirstRunJob } from "@/lib/api/firstRun";
 import { founderLine } from "@/lib/founderLines";
 import { lookup } from "@/lib/lookup";
 
-/** The greeting the card counts as done: short, and ending on a question that hands the turn
- *  to the caller. Pinned to `apps/api/copilot/screen_guides.FIRST_GREETING_MAX_CHARS` and to
- *  `apps/workers/first_run.GREETING_MAX_CHARS`. */
-export const GREETING_MAX_CHARS = 120;
-
-export type PieceId = "account" | "job" | "about" | "name" | "voice" | "greeting" | "notes" | "ready" | "call";
+export type PieceId = "account" | "about" | "name" | "voice" | "work" | "script" | "call";
 
 export interface Piece {
   id: PieceId;
@@ -47,34 +43,61 @@ export interface Piece {
   done: boolean;
 }
 
+/**
+ * The first work "What first?" drafted (Phase 3b): an inbound line or a campaign, and whether
+ * Pip has written its script yet. Read from the line or the campaign itself.
+ */
+export interface FirstWork {
+  kind: "line" | "campaign";
+  id: string;
+  /** Its script is saved, so a test call has something to say. */
+  ready: boolean;
+  /** Pip is writing it now. */
+  writing: boolean;
+  /** Pip's last try did not finish; the owner writes it on the work's own page. */
+  failed: boolean;
+  /** What it says first, from its script, or null before it has one. */
+  opening: string | null;
+}
+
 export interface FirstAgentState {
   run: FirstRun | undefined;
   agent: Agent | null;
   /** This agent's calls, newest first, or undefined while unread. */
   calls: readonly CallSummary[] | undefined;
+  /** The work it was given, or null before "What first?". */
+  work?: FirstWork | null;
 }
 
-/** The four steps on the rail, in order. */
+/** The four steps on the rail, in order (founder, 16 Nov 2026). */
 export const STEPS = [
-  { id: "job", label: "Its job" },
-  { id: "about", label: "Tell it about you" },
+  { id: "about", label: "About your business" },
+  { id: "agent", label: "Name and voice" },
+  { id: "work", label: "What first?" },
   { id: "hear", label: "Hear it" },
-  { id: "yours", label: "Make it yours" },
 ] as const;
 export type StepId = (typeof STEPS)[number]["id"];
 
-/** Where the owner is inside the steps. */
-export type Stage = "job" | "brief" | "questions" | "build" | "hear" | "result" | "team";
+/** Where the owner is inside the steps. `team` is past the rail: going live. */
+export type Stage = "brief" | "questions" | "agent" | "work" | "hear" | "result" | "team";
 
-export const STEP_OF_STAGE: Readonly<Record<Stage, StepId>> = {
-  job: "job",
+export const STEP_OF_STAGE: Readonly<Record<Exclude<Stage, "team">, StepId>> = {
   brief: "about",
   questions: "about",
-  build: "about",
+  agent: "agent",
+  work: "work",
   hear: "hear",
   result: "hear",
-  team: "yours",
 };
+
+/** The rail's index for a stage; going live is past every step, so all four are ticked. */
+export function stepIndexOf(stage: Stage): number {
+  return stage === "team" ? STEPS.length : STEPS.findIndex((entry) => entry.id === STEP_OF_STAGE[stage]);
+}
+
+/** The two works "What first?" offers, as `POST /v1/first-run/work` names them. */
+export const FIRST_WORKS = ["answer_calls", "call_leads"] as const;
+export type FirstWorkJob = (typeof FIRST_WORKS)[number];
 
 /** One link of a job's three-link flow: what happens, with the icon that names it. */
 export interface JobLink {
@@ -122,8 +145,8 @@ export const JOBS: readonly JobCard[] = [
   {
     // `call_leads` is bulk calling: the agent works through a whole list as a campaign.
     job: "call_leads",
-    title: "Run calling campaigns",
-    line: "Calls a whole list for you, one person after another.",
+    title: "Call people",
+    line: "Calls the people who asked to hear from you, one after another.",
     icon: Megaphone,
     flow: [
       { icon: ListChecks, label: "Your contact list" },
@@ -141,12 +164,6 @@ export function jobCard(job: FirstRunJob | null | undefined): JobCard | null {
 /** Jobs in the cards' order, so the first is the one the test call plays (answering first). */
 export function sortJobs(jobs: readonly FirstRunJob[]): FirstRunJob[] {
   return JOBS.map((card) => card.job).filter((job) => jobs.includes(job));
-}
-
-/** `PUT /v1/first-run/job`: every job chosen (one agent does them all, D-863), in the cards'
- *  order, which the server keeps. */
-export function jobPayload(jobs: readonly FirstRunJob[], languagePrimary: string, languagesExtra: string[]) {
-  return { jobs: sortJobs(jobs), language_primary: languagePrimary, languages_extra: languagesExtra };
 }
 
 /** The agent's jobs as one line for its card: "Answer my calls + 1 more". */
@@ -199,16 +216,6 @@ export function defaultLanguage(profileLanguages: readonly string[] | undefined)
   return profileLanguages?.find((tag) => LANGUAGES.some((language) => language.tag === tag)) ?? "te-IN";
 }
 
-/** Characters as a person counts them: Telugu and emoji are not two units each. */
-export function charCount(text: string): number {
-  return Array.from(text).length;
-}
-
-export function greetingFits(line: string | null | undefined): boolean {
-  const trimmed = (line ?? "").trim();
-  return trimmed !== "" && charCount(trimmed) <= GREETING_MAX_CHARS && /[?？]$/.test(trimmed);
-}
-
 /** The agent this screen is building: the first run's own, else none. */
 export function firstAgentOf(agents: readonly Agent[] | undefined, run: FirstRun | undefined): Agent | null {
   const id = run?.agent_id ?? null;
@@ -216,48 +223,66 @@ export function firstAgentOf(agents: readonly Agent[] | undefined, run: FirstRun
   return (agents ?? []).find((agent) => agent.id === id && agent.status !== "archived") ?? null;
 }
 
-export function piecesOf({ run, agent, calls }: FirstAgentState): Piece[] {
+export function piecesOf({ run, agent, calls, work = null }: FirstAgentState): Piece[] {
   const has = agent !== null;
   return [
     { id: "account", label: "Account created", done: true },
-    { id: "job", label: "Its job", done: (run?.jobs.length ?? 0) > 0 },
     {
       id: "about",
       label: "What it knows about you",
       done: Boolean(run?.brief?.trim()) || (run?.documents ?? []).some((document) => document.state === "read"),
     },
     { id: "name", label: "Its name", done: has && agent.name.trim() !== "" },
-    {
-      id: "voice",
-      label: "Its voice",
-      done: has && Boolean(agent.engine_voice_id),
-    },
-    {
-      id: "greeting",
-      label: "Its opening line",
-      done: has && greetingFits(agent.script_opening_line),
-    },
-    {
-      id: "notes",
-      label: "What it notes down",
-      done: has && agent.extraction_fields.length > 0,
-    },
-    { id: "ready", label: "Ready to try", done: has && agent.published },
-    {
-      id: "call",
-      label: "Its first call",
-      done: has && (calls?.length ?? 0) > 0,
-    },
+    { id: "voice", label: "Its voice", done: has && Boolean(agent.engine_voice_id) },
+    { id: "work", label: "Its first work", done: work !== null },
+    { id: "script", label: "What it says", done: work?.ready === true },
+    { id: "call", label: "Its first call", done: has && (calls?.length ?? 0) > 0 },
   ];
 }
 
 /** Where an owner resumes, from what the server holds. */
-export function resumeStage({ run, agent, calls }: FirstAgentState): Stage {
-  if (!run || run.jobs.length === 0) return "job";
+export function resumeStage({ run, agent, calls, work = null }: FirstAgentState): Stage {
+  if (!run) return "brief";
   if (run.finished_at) return "team";
-  if (run.build.status === "building" || run.build.status === "failed") return "build";
+  // A saved brief, even an empty one, is the brief step done; files alone are not.
   if (agent === null) return run.brief === null ? "brief" : "questions";
+  if (work === null || !work.ready) return run.line_id || run.campaign_id ? "work" : "agent";
   return (calls?.length ?? 0) > 0 ? "result" : "hear";
+}
+
+/** What the line or campaign read says about its script. */
+type WorkRead = { script: { opening_line?: string | null } | null; proposal: { status: string } | null };
+
+/** The first work the run drafted, from the line or campaign read; null before one exists. */
+export function firstWorkOf(
+  run: FirstRun | undefined,
+  read: { line?: WorkRead | null; campaign?: WorkRead | null },
+): FirstWork | null {
+  const job = run?.jobs[0];
+  const holder =
+    job === "call_leads" && run?.campaign_id
+      ? { kind: "campaign" as const, id: run.campaign_id, data: read.campaign }
+      : run?.line_id
+        ? { kind: "line" as const, id: run.line_id, data: read.line }
+        : run?.campaign_id
+          ? { kind: "campaign" as const, id: run.campaign_id, data: read.campaign }
+          : null;
+  if (holder === null) return null;
+  const script = holder.data?.script ?? null;
+  const status = holder.data?.proposal?.status ?? null;
+  return {
+    kind: holder.kind,
+    id: holder.id,
+    ready: script !== null,
+    writing: status === "drafting",
+    failed: status === "failed",
+    opening: script?.opening_line?.trim() || null,
+  };
+}
+
+/** The work's own page, where the owner changes what it says. */
+export function workHref(slug: string, work: FirstWork): string {
+  return work.kind === "line" ? `/c/${slug}/inbound/${work.id}` : `/c/${slug}/campaigns/${work.id}`;
 }
 
 /** The job, in the owner's words, from the agent's direction (for an agent made elsewhere). */
@@ -370,24 +395,14 @@ export function briefWaitingFor({
   return null;
 }
 
-/** The documents the build went on without, each in one short line by name. */
-export function leftOutLines(step: FirstRunBuildStep | undefined, documents: readonly FirstRunDocument[]): string[] {
-  return (step?.left_out ?? []).map((item) => {
-    const name = documents.find((document) => document.upload_id === item.upload_id)?.name ?? "A file";
-    return item.why === "reading" ? `Built without ${name}: still reading it.` : `Built without ${name}: couldn't read it.`;
-  });
-}
-
 /** Pip's first line in an empty chat on this screen. */
 export function introFor(agentName: string | null): string {
   return agentName
-    ? `Tell me what to change about ${agentName}, in your own words.`
-    : "Tell me about your business and what your agent should do. I'll build it with you.";
+    ? `Tell me what ${agentName} should do first, or ask me about its voice.`
+    : "Tell me about your business in your own words. I'll set up your first agent with you.";
 }
 
 /** One-tap answers for Pip on this screen. They are the person's words, sent as their message. */
 export function quickRepliesFor(hasAgent: boolean): readonly string[] {
-  return hasAgent
-    ? ["Make the greeting warmer", "What does it note down?"]
-    : ["Answer my calls", "Call new leads instantly", "Run calling campaigns"];
+  return hasAgent ? ["Offer me two voices", "What should it do first?"] : ["Here's what we do", "What do you need from me?"];
 }

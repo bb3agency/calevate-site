@@ -120,6 +120,14 @@ class FirstRun(PKMixin, TimestampMixin, Base):
     agent_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
+    #: The first work "What first?" drafted for the agent (Phase 3b): an inbound line for
+    #: "Answer my calls", a campaign for "Call people". At most one is set.
+    line_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("inbound_lines.id", ondelete="SET NULL"), nullable=True
+    )
+    campaign_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True
+    )
     questions_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="idle")
     #: The questions as asked, in order (`questions.Question.stored`); a row from before
     #: D-863 holds `[{"key": <ProfileTopic>}]` (`questions.legacy_questions`).

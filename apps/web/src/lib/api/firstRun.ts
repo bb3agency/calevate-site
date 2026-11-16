@@ -78,12 +78,28 @@ function useFirstRunWrite<Body>(
   });
 }
 
-export function useSaveJob(session: Session) {
-  return useFirstRunWrite<{ jobs: FirstRunJob[]; language_primary: string; languages_extra: string[] }>(
+/** "Name and voice": the agent made with the default agent's voice, or renamed. */
+export function useSaveFirstAgent(session: Session) {
+  const client = useQueryClient();
+  return useFirstRunWrite<{ name: string; language_primary: string; languages_extra: string[] }>(
     session,
-    "/job",
+    "/agent",
     "PUT",
+    () => {
+      void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+      void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
+    },
   );
+}
+
+/** "What first?": an inbound line or a campaign drafted for the agent, written by Pip. */
+export function useStartFirstWork(session: Session) {
+  const client = useQueryClient();
+  return useFirstRunWrite<{ job: "answer_calls" | "call_leads" }>(session, "/work", "POST", () => {
+    void client.invalidateQueries({ queryKey: ["inbound-lines", session.orgSlug] });
+    void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
+    void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+  });
 }
 
 export function useSaveBrief(session: Session) {
@@ -94,22 +110,6 @@ export function useSaveAnswers(session: Session) {
   const client = useQueryClient();
   return useFirstRunWrite<FirstRunAnswers>(session, "/answers", "POST", () => {
     void client.invalidateQueries({ queryKey: businessProfileKeys.mine(session.orgSlug) });
-  });
-}
-
-export function useBuildAgent(session: Session) {
-  const client = useQueryClient();
-  return useFirstRunWrite<null>(session, "/build", "POST", () => {
-    void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
-  });
-}
-
-export function useRenameAgent(session: Session) {
-  const client = useQueryClient();
-  return useFirstRunWrite<{ name: string }>(session, "/name", "PUT", () => {
-    void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
-    // The agent's own page caches its name under the detail key, a different family.
-    void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
   });
 }
 

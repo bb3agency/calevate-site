@@ -34,7 +34,7 @@ from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import permission_meta
+from apps.api.core.rbac import permission_meta, role_has
 from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
@@ -609,6 +609,8 @@ class CampaignTestCallIn(BaseModel):
 class CampaignTestCallOut(_Out):
     status: Literal["queued", "blocked"]
     blocked_reason: str | None = None
+    #: The rule that refused it, so a screen can tell a trial limit from a fault.
+    blocked_rule: str | None = None
     call_id: UUID | None = None
 
 
@@ -643,6 +645,7 @@ async def campaign_test_call(
         campaign_name=str(name),
         user_id=principal.user_id,
     )
+    await _ready_unpublished_agent(session, principal, space.agent_id)
     if payload.number_is_mine:
         await attest_own_number(
             principal=principal, number=payload.number, ip=client_request_ip(request)
@@ -657,17 +660,7 @@ async def campaign_test_call(
         own_number_attested=payload.number_is_mine,
     )
     if result.call_id is not None:
-        # The number joins the account's saved test numbers, so the next test offers it.
-        phone = normalize_phone(payload.number)
-        if phone is not None:
-            await session.execute(
-                text(
-                    "UPDATE organizations SET test_numbers = array_append(test_numbers, :n), "
-                    "updated_at = now() WHERE NOT (:n = ANY (test_numbers)) "
-                    "AND cardinality(test_numbers) < :cap"
-                ),
-                {"n": phone, "cap": MAX_TEST_NUMBERS},
-            )
+        await remember_test_number(session, payload.number)
         # Listed in the Test call section with its recording; once, whatever the retries.
         await session.execute(
             text(
@@ -677,8 +670,53 @@ async def campaign_test_call(
             {"c": campaign_id, "call": result.call_id},
         )
     return CampaignTestCallOut(
-        status=result.status, blocked_reason=result.blocked_reason, call_id=result.call_id
+        status=result.status,
+        blocked_reason=result.blocked_reason,
+        blocked_rule=result.blocked_rule,
+        call_id=result.call_id,
     )
+
+
+async def _ready_unpublished_agent(
+    session: AsyncSession, principal: Principal, agent_id: UUID
+) -> None:
+    """An agent never published has no engine agent to ring through: a first run's new
+    agent, whose only script is this campaign's. The owner gets it ready here, as the agent's
+    own Ready step would (`lifecycle.prepare_agent`, not taking calls); anyone else meets the
+    dial's own `agent_not_published`, since getting an agent ready is the owner's act."""
+    ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM agents WHERE id = :a"), {"a": agent_id}
+        )
+    ).scalar_one_or_none()
+    if ref or principal.role is None or not role_has(principal.role, "org:manage"):
+        return
+    from apps.api.agents import lifecycle
+
+    assert principal.tenant_id is not None
+    await lifecycle.prepare_agent(session, tenant_id=principal.tenant_id, agent_id=agent_id)
+
+
+async def remember_test_number(session: AsyncSession, number: str) -> None:
+    """The number a test call rang joins the account's saved test numbers, so the next test
+    on a campaign or an inbound line offers it."""
+    phone = normalize_phone(number)
+    if phone is None:
+        return
+    await session.execute(
+        text(
+            "UPDATE organizations SET test_numbers = array_append(test_numbers, :n), "
+            "updated_at = now() WHERE NOT (:n = ANY (test_numbers)) "
+            "AND cardinality(test_numbers) < :cap"
+        ),
+        {"n": phone, "cap": MAX_TEST_NUMBERS},
+    )
+
+
+async def saved_test_numbers(session: AsyncSession) -> list[str]:
+    """The account's saved test numbers. RLS scopes the read to the caller's account."""
+    row = (await session.execute(text("SELECT test_numbers FROM organizations"))).first()
+    return list(row[0]) if row is not None else []
 
 
 async def _campaign_visible(session: AsyncSession, campaign_id: UUID) -> None:
@@ -710,8 +748,7 @@ class TestNumbersOut(_Out):
 )
 async def campaign_test_numbers(campaign_id: UUID, session: Session, _: Reader) -> TestNumbersOut:
     await _campaign_visible(session, campaign_id)
-    row = (await session.execute(text("SELECT test_numbers FROM organizations"))).first()
-    return TestNumbersOut(numbers=list(row[0]) if row is not None else [])
+    return TestNumbersOut(numbers=await saved_test_numbers(session))
 
 
 @router.put(

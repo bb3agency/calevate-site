@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { ArrowRight, Check, FileText, Link2, PencilLine, PhoneCall } from "lucide-react";
+import { ArrowRight, Check, FileText, Link2, MessagesSquare, PencilLine, PhoneCall } from "lucide-react";
 
 import type { CallAudioPlayerHandle } from "@/components/callAudioPlayer";
 import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
@@ -26,7 +26,7 @@ import { useGoLive, type GoLive } from "@/lib/api/goLive";
 import { useCall } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
 import { useTrialPanel } from "@/lib/api/trialCalls";
-import { callsLeft, jobOf, jobsTitle } from "@/lib/firstAgent";
+import { callsLeft, jobOf, jobsTitle, workHref, type FirstWork } from "@/lib/firstAgent";
 import { lookup } from "@/lib/lookup";
 
 import { CapturedDetails } from "../../calls/[callId]/CapturedDetails";
@@ -35,10 +35,9 @@ import { useRecordingLink } from "../../calls/[callId]/transcriptAccess";
 import { TestCallTranscript } from "../../TestCallTranscript";
 import { Monogram, VoiceLine } from "./AgentTakingShape";
 import { CallStage } from "./LiveStage";
-import { OpeningLine } from "./OpeningLine";
+import { WorkOpening } from "./OpeningLine";
 import { StepScreen } from "./shell";
 import { FIRST } from "../../_ui/copy";
-import { scriptsHome } from "../[agentId]/sections/agentSections";
 import { Why } from "@/components/why";
 
 /** A call that did not connect has nothing to show; it gets "Try again" instead. */
@@ -61,18 +60,20 @@ const NOT_CONNECTED: Record<string, string> = {
  */
 export function ResultStep({
   agent,
+  work,
   call,
   onCallAgain,
   onNext,
 }: {
   agent: Agent;
+  work: FirstWork;
   call: CallSummary;
   onCallAgain: () => void;
   onNext: () => void;
 }) {
   const { session, href } = useClientRealm();
   const detail = useCall(session, call.id);
-  const scriptHref = href(scriptsHome(session.orgSlug, agent.direction));
+  const scriptHref = href(workHref(session.orgSlug, work));
   const missed = lookup(NOT_CONNECTED, call.status);
 
   if (missed) {
@@ -151,7 +152,11 @@ export function ResultStep({
           ) : (
             transcript
           )}
-          <ChangeIt scriptHref={scriptHref} callHref={href(`/c/${session.orgSlug}/calls/${call.id}`)} />
+          <ChangeIt
+            scriptHref={scriptHref}
+            speakHref={href(`/c/${session.orgSlug}/knowledge?tab=speak`)}
+            callHref={href(`/c/${session.orgSlug}/calls/${call.id}`)}
+          />
         </>
       )}
     </StepScreen>
@@ -184,22 +189,26 @@ function Recording({
 }
 
 /**
- * The quiet way to change it, after the reward and before the next step: the script, or this
- * call kept as a practice test. A suggested fix needs the call read against the script as a
- * practice test (D-844), which is a run of its own, so it is offered on the call's page
- * rather than invented here. Plain links, not buttons: "Make it yours" is the one action.
+ * The quiet ways to change it, after the reward and before the next step (Phase 3b): what this
+ * work says, on the line's or the campaign's own page; how every agent speaks, the company
+ * training under How they speak; or this call, kept as a practice test. Plain links, not
+ * buttons: "Make it yours" is the one action.
  */
-function ChangeIt({ scriptHref, callHref }: { scriptHref: string; callHref: string }) {
+function ChangeIt({ scriptHref, speakHref, callHref }: { scriptHref: string; speakHref: string; callHref: string }) {
   return (
     <section aria-labelledby="first-call-change" className="pt-2">
       <h3 id="first-call-change" className="text-heading text-ink">
         Want it to say something different?
       </h3>
-      <Why>Open this call to save it as a practice test. Each new version is tried against it.</Why>
+      <Why>What it says belongs to this work. How every agent speaks is your company training.</Why>
       <div className="mt-2 flex flex-wrap gap-2">
         <Link href={scriptHref} className={SECONDARY_BUTTON}>
           <PencilLine aria-hidden className="h-4 w-4" />
           Change what it says
+        </Link>
+        <Link href={speakHref} className={SECONDARY_BUTTON}>
+          <MessagesSquare aria-hidden className="h-4 w-4" />
+          How they speak
         </Link>
         <Link href={callHref} className={SECONDARY_BUTTON}>
           <FileText aria-hidden className="h-4 w-4" />
@@ -217,7 +226,17 @@ function ChangeIt({ scriptHref, callHref }: { scriptHref: string; callHref: stri
  * next step: add credit to go live. No go-live reward: that is recorded as a possible feature
  * only (onboarding-vs-outpero §7).
  */
-export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; onBack: () => void }) {
+export function TeamStep({
+  agent,
+  run,
+  work,
+  onBack,
+}: {
+  agent: Agent;
+  run: FirstRun;
+  work: FirstWork | null;
+  onBack: () => void;
+}) {
   const { session, href } = useClientRealm();
   const panel = useTrialPanel(session);
   const finish = useFinishFirstRun(session);
@@ -265,7 +284,7 @@ export function TeamStep({ agent, run, onBack }: { agent: Agent; run: FirstRun; 
           </div>
           <div className="mt-3 space-y-3 border-t border-line pt-3 sm:mt-4 sm:space-y-4 sm:pt-4">
             <VoiceLine agent={agent} note={null} />
-            <OpeningLine agent={agent} lang={agent.language_primary} />
+            <WorkOpening work={work} lang={agent.language_primary} />
           </div>
           {/* Beside the agent from `lg`; on a phone they follow Go live, so its button stays
               on the first screen. */}

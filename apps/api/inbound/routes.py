@@ -23,10 +23,19 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import service as agents_service
+from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import number_catalog
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
-from apps.api.campaigns.workspace_routes import CampaignProposalOut
+from apps.api.campaigns.workspace_routes import (
+    CampaignProposalOut,
+    CampaignTestCallIn,
+    CampaignTestCallItem,
+    CampaignTestCallOut,
+    TestNumbersOut,
+    remember_test_number,
+    saved_test_numbers,
+)
 from apps.api.campaigns.workspace_routes import _proposal as proposal_out
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -37,11 +46,15 @@ from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 from apps.api.inbound import lines
 from apps.api.inbound.publish import put_line_live, route_numbers
+from apps.api.reliability.service import require_idempotency_key
 
 router = APIRouter(prefix="/v1/inbound-lines", tags=["inbound"])
 Session = Annotated[AsyncSession, Depends(db)]
 Reader = Annotated[Principal, Depends(requires("agents:read"))]
 Writer = Annotated[Principal, Depends(requires("org:manage"))]
+#: A test call rings a phone, as a campaign's does: the same permissions as its routes.
+Dispatcher = Annotated[Principal, Depends(requires("leads:dispatch"))]
+TestReader = Annotated[Principal, Depends(requires("leads:read"))]
 
 #: Calls listed on a line's page; the call logs hold the rest.
 CALLS_SHOWN = 50
@@ -461,9 +474,10 @@ async def line_calls(line_id: UUID, session: Session, _: Reader) -> LineCallsOut
     rows = (
         await session.execute(
             text(
+                # The owner's own test calls are listed under Test call, not as calls taken.
                 "SELECT id, started_at, duration_s, status, outcome_tag FROM calls "
-                "WHERE inbound_line_id = :lid ORDER BY started_at DESC NULLS LAST, id DESC "
-                "LIMIT :n"
+                "WHERE inbound_line_id = :lid AND NOT trial_call AND NOT paid_test_call "
+                "ORDER BY started_at DESC NULLS LAST, id DESC LIMIT :n"
             ),
             {"lid": line_id, "n": CALLS_SHOWN},
         )
@@ -480,3 +494,98 @@ async def line_calls(line_id: UUID, session: Session, _: Reader) -> LineCallsOut
             for r in rows
         ]
     )
+
+
+@router.post(
+    "/{line_id}/test-call",
+    response_model=CampaignTestCallOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Ring your own phone with this line, as a caller would hear it",
+    description=(
+        "Puts the line's script on its own engine agent first: a live line is put live again, "
+        "and a draft is readied as a test holder, so a line with no number can be heard while "
+        "it stays a draft. Then the same gated, capped, idempotent test call as an agent's "
+        "(`POST /v1/trial/calls`): the dial gate, the trial's minutes and Studio minutes, a "
+        "paid account's daily cap. Needs an `Idempotency-Key` header."
+    ),
+)
+async def line_test_call(
+    line_id: UUID,
+    payload: CampaignTestCallIn,
+    request: Request,
+    session: Session,
+    principal: Dispatcher,
+) -> CampaignTestCallOut:
+    idem_key = require_idempotency_key(
+        request.headers.get("Idempotency-Key"),
+        title="A test call needs an Idempotency-Key header",
+        detail="Each test call rings a real phone, so every attempt names itself.",
+    )
+    line = await lines.read_line(session, line_id)
+    if payload.number_is_mine:
+        await attest_own_number(
+            principal=principal, number=payload.number, ip=client_request_ip(request)
+        )
+    result = await place_trial_call(
+        session,
+        principal=principal,
+        agent_id=line.agent_id,
+        number=payload.number,
+        idempotency_key=idem_key,
+        ip=client_request_ip(request),
+        own_number_attested=payload.number_is_mine,
+        line_id=line_id,
+    )
+    if result.call_id is not None:
+        await remember_test_number(session, payload.number)
+    return CampaignTestCallOut(
+        status=result.status,
+        blocked_reason=result.blocked_reason,
+        blocked_rule=result.blocked_rule,
+        call_id=result.call_id,
+    )
+
+
+#: Test calls listed under a line's Test call; older ones stay in the call logs.
+TEST_CALLS_SHOWN = 20
+
+
+@router.get(
+    "/{line_id}/test-calls",
+    response_model=list[CampaignTestCallItem],
+    openapi_extra=permission_meta("leads:read"),
+    summary="The test calls rung through this line, newest first",
+)
+async def line_test_calls(
+    line_id: UUID, session: Session, _: TestReader
+) -> list[CampaignTestCallItem]:
+    await lines.read_line(session, line_id)
+    rows = await session.execute(
+        text(
+            "SELECT id, created_at, status, duration_s, recording_url IS NOT NULL FROM calls "
+            "WHERE inbound_line_id = :lid AND (trial_call OR paid_test_call) "
+            "ORDER BY created_at DESC, id DESC LIMIT :n"
+        ),
+        {"lid": line_id, "n": TEST_CALLS_SHOWN},
+    )
+    return [
+        CampaignTestCallItem(
+            call_id=r[0],
+            placed_at=r[1],
+            status=str(r[2]),
+            duration_s=r[3],
+            has_recording=bool(r[4]),
+        )
+        for r in rows
+    ]
+
+
+@router.get(
+    "/{line_id}/test-numbers",
+    response_model=TestNumbersOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="The account's saved test numbers, offered under this line's Test call",
+)
+async def line_test_numbers(line_id: UUID, session: Session, _: TestReader) -> TestNumbersOut:
+    await lines.read_line(session, line_id)
+    return TestNumbersOut(numbers=await saved_test_numbers(session))

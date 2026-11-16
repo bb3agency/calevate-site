@@ -24,43 +24,53 @@ import { fallbackSurface } from "@/lib/copilot/fallback";
 import { resolveDestination } from "@/lib/copilot/navigate";
 import { useCopilotSurface, useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { useCampaignWorkspace } from "@/lib/api/campaignWorkspace";
+import { useInboundLine } from "@/lib/api/inboundLines";
 import {
   STEPS,
-  STEP_OF_STAGE,
-  charCount,
   defaultLanguage,
   documentLine,
   firstAgentOf,
+  firstWorkOf,
   introFor,
   piecesOf,
   quickRepliesFor,
   resumeStage,
+  stepIndexOf,
   voicePickNote,
+  type FirstWork,
   type Piece,
   type Stage,
 } from "@/lib/firstAgent";
 
+import { AgentStep } from "./AgentStep";
 import { AgentTakingShape } from "./AgentTakingShape";
 import { BriefStep } from "./BriefStep";
-import { BuildStep } from "./BuildStep";
 import { HearItStep } from "./HearItStep";
-import { JobStep } from "./JobStep";
 import { QuestionsStep } from "./QuestionsStep";
 import { ResultStep, TeamStep } from "./ResultStep";
 import { StepRail } from "./shell";
+import { WorkStep } from "./WorkStep";
 
 /** The route this screen declares to Pip; the server's first-agent guide is keyed on it. */
 export const FIRST_AGENT_ROUTE = "/c/{slug}/agents/first";
 
+/** Where a finished step on the rail goes back to, by its index in `STEPS`. */
+const RAIL_STAGES: readonly Stage[] = ["brief", "agent", "work", "hear"];
+
 /**
  * "MEET YOUR AGENT" (D-855, founder 23 Oct 2026): a new owner's first run.
  *
- * Four steps on a rail, Its job → Tell it about you → Hear it → Make it yours, with the agent
- * taking shape beside them. It replaces the business setup wizard as the first thing after
- * sign-up; the wizard stays on the dashboard checklist and in Settings.
+ * Four steps on a rail (Phase 3b, founder 16 Nov 2026): About your business → Name and voice
+ * → What first? → Hear it, then the result and going live, with the agent taking shape beside
+ * them. The agent is staff, a name and a voice; what it says belongs to the first work it is
+ * given, a draft inbound line or a draft campaign, which Pip writes. It replaces the business
+ * setup wizard as the first thing after sign-up; the wizard stays on the dashboard checklist
+ * and in Settings.
  *
- * WHERE THE OWNER IS COMES FROM THE SERVER (`GET /v1/first-run`, the agents, the agent's
- * calls), so a reload, another device or a return next week lands on the same step. Moving
+ * WHERE THE OWNER IS COMES FROM THE SERVER (`GET /v1/first-run`, the agents, the line or
+ * campaign it drafted, the agent's calls), so a reload, another device or a return next week
+ * lands on the same step. Moving
  * between steps on the screen is local; the server only learns what the owner decided.
  *
  * Phone first: the rail is a row of four, the card a single line that opens, and each step's
@@ -87,6 +97,13 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const dismissFeedback = useActionFeedback(dismiss, { errorTitle: "Could not put this away" });
   const agent = firstAgentOf(agents.data, run.data);
   const calls = useCalls(session, { agent_id: agent?.id, limit: 1 }, agent !== null);
+  // The first work's own read, for its script and Pip's progress on it; each polls while
+  // Pip is writing.
+  const lineId = run.data?.line_id ?? null;
+  const campaignId = run.data?.campaign_id ?? null;
+  const line = useInboundLine(session, lineId ?? "", lineId !== null);
+  const campaign = useCampaignWorkspace(session, campaignId ?? "", campaignId !== null);
+  const work = firstWorkOf(run.data, { line: line.data, campaign: campaign.data });
   const [stage, setStage] = useState<Stage | null>(null);
   const [pip, setPip] = useState(false);
   const [lastCall, setLastCall] = useState<CallSummary | null>(null);
@@ -94,20 +111,21 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   // Back and on "Talk it through with Pip", and each spoken piece used a recording.
   const [briefDraft, setBriefDraft] = useState<string | null>(null);
 
-  const loaded = run.data !== undefined && agents.data !== undefined && (agent === null || calls.data !== undefined);
-  const pieces = piecesOf({ run: run.data, agent, calls: calls.data });
-  if (stage === null && loaded) setStage(resumeStage({ run: run.data, agent, calls: calls.data }));
+  const workLoaded = (lineId === null || line.data !== undefined) && (campaignId === null || campaign.data !== undefined);
+  const loaded =
+    run.data !== undefined &&
+    agents.data !== undefined &&
+    (agent === null || calls.data !== undefined) &&
+    (workLoaded || line.isError || campaign.isError);
+  const pieces = piecesOf({ run: run.data, agent, calls: calls.data, work });
+  if (stage === null && loaded) setStage(resumeStage({ run: run.data, agent, calls: calls.data, work }));
 
-  // The roster read learns of the agent when the build makes it, and again as each step
-  // changes it, so the card fills in while the steps tick.
-  const buildStatus = run.data?.build.status;
-  const ticked = run.data?.build.steps.filter((entry) => entry.state !== "waiting").length ?? 0;
+  // The agent's row learns its AI notice from a job after "Name and voice", and its voice
+  // from the picker; reading the roster again when the work's script lands keeps the card true.
+  const workReady = work?.ready === true;
   useEffect(() => {
-    if (ticked > 0)
-      void queries.invalidateQueries({
-        queryKey: agentKeys.all(session.orgSlug),
-      });
-  }, [ticked, buildStatus, queries, session.orgSlug]);
+    if (workReady) void queries.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
+  }, [workReady, queries, session.orgSlug]);
 
   const pipOff = session.impersonateOrg
     ? `${ASSISTANT_NAME} isn't available while you view this account.`
@@ -117,13 +135,13 @@ export function MeetYourAgent({ slug }: { slug: string }) {
 
   const skip = () => dismiss.mutate(null, { onSettled: () => router.push(href(`/c/${slug}`)) });
 
-  const step = stage === null ? 0 : STEPS.findIndex((entry) => entry.id === STEP_OF_STAGE[stage]);
+  const step = stage === null ? 0 : stepIndexOf(stage);
   const call = lastCall ?? calls.data?.[0] ?? null;
 
-  // The job step seeds its language from the profile once, on mount; drawn before the
+  // The name step seeds its language from the profile once, on mount; drawn before the
   // profile arrives it would keep Telugu for an account that chose another language. A
   // failed profile read falls back to Telugu rather than holding the step.
-  const jobWaitsForProfile = stage === "job" && profile.isPending;
+  const agentWaitsForProfile = stage === "agent" && profile.isPending;
 
   let body: React.ReactNode;
   if (!write.unknown && !write.allowed) body = <RestrictionNote reason={write.reason} />;
@@ -132,7 +150,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   // `loaded` waits on the agent's calls, so a failed read would otherwise hold the skeleton for good.
   else if (agent !== null && calls.isError)
     body = <ProblemNotice error={calls.error} onRetry={() => void calls.refetch()} />;
-  else if (!loaded || stage === null || write.unknown || jobWaitsForProfile)
+  else if (!loaded || stage === null || write.unknown || agentWaitsForProfile)
     body = <Skeleton rows={6} label="Getting your agent ready…" />;
   else if (pip)
     body = (
@@ -141,28 +159,22 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         agent={agent}
         pieces={pieces}
         documents={run.data?.documents ?? []}
+        defaultName={run.data?.default_agent.name ?? ""}
+        work={work}
         onClose={() => setPip(false)}
       />
     );
   else {
     const data = run.data!;
+    // A step that needs what an earlier one makes goes back to that one when it is missing.
+    const lost = (label: string) => <Skeleton rows={4} label={label} />;
     switch (stage) {
-      case "job":
-        body = (
-          <JobStep
-            run={data}
-            defaultLanguage={defaultLanguage(profile.data?.languages)}
-            onDone={() => setStage("brief")}
-          />
-        );
-        break;
       case "brief":
         body = (
           <BriefStep
             run={data}
             draft={briefDraft}
             onDraft={setBriefDraft}
-            onBack={() => setStage("job")}
             onDone={() => setStage("questions")}
             onPip={() => setPip(true)}
             pipOff={pipOff}
@@ -170,42 +182,68 @@ export function MeetYourAgent({ slug }: { slug: string }) {
         );
         break;
       case "questions":
-        body = <QuestionsStep run={data} onBack={() => setStage("brief")} onBuilding={() => setStage("build")} />;
+        body = <QuestionsStep run={data} onBack={() => setStage("brief")} onDone={() => setStage("agent")} />;
         break;
-      case "build":
-        body = <BuildStep run={data} agent={agent} onBack={() => setStage("brief")} onDone={() => setStage("hear")} />;
-        break;
-      case "hear":
-        body = agent ? (
-          <HearItStep
+      case "agent":
+        body = (
+          <AgentStep
+            run={data}
             agent={agent}
-            jobs={data.jobs}
-            calls={calls.data}
-            onBack={() => setStage("build")}
-            onEnded={(ended) => {
-              setLastCall(ended);
-              setStage("result");
-            }}
+            defaultLanguage={defaultLanguage(profile.data?.languages)}
+            onBack={() => setStage("questions")}
+            onDone={() => setStage(work?.ready ? "hear" : "work")}
+          />
+        );
+        break;
+      case "work":
+        body = agent ? (
+          <WorkStep
+            run={data}
+            agent={agent}
+            work={work}
+            onBack={() => setStage("agent")}
+            onDone={() => setStage("hear")}
           />
         ) : (
-          <Skeleton rows={4} label="Getting your agent ready…" />
+          lost("Getting your agent ready…")
         );
+        break;
+      case "hear":
+        body =
+          agent && work?.ready ? (
+            <HearItStep
+              agent={agent}
+              work={work}
+              jobs={data.jobs}
+              calls={calls.data}
+              onBack={() => setStage("work")}
+              onEnded={(ended) => {
+                setLastCall(ended);
+                setStage("result");
+              }}
+            />
+          ) : (
+            lost("Getting its work ready…")
+          );
         break;
       case "result":
         body =
-          agent && call ? (
+          agent && call && work ? (
             <ResultStep
               agent={agent}
+              work={work}
               call={call}
               onCallAgain={() => setStage("hear")}
               onNext={() => setStage("team")}
             />
           ) : (
-            <Skeleton rows={4} label="Getting your call" />
+            lost("Getting your call")
           );
         break;
       default:
-        body = agent ? <TeamStep agent={agent} run={data} onBack={() => setStage(call ? "result" : "hear")} /> : null;
+        body = agent ? (
+          <TeamStep agent={agent} run={data} work={work} onBack={() => setStage(call ? "result" : "hear")} />
+        ) : null;
     }
   }
 
@@ -214,7 +252,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
   const card = (compact: boolean) => (
     <AgentTakingShape
       agent={agent}
-      jobs={run.data?.jobs ?? []}
+      jobs={work ? (run.data?.jobs ?? []) : []}
       language={run.data?.language_primary ?? null}
       brief={run.data?.brief ?? null}
       pieces={pieces}
@@ -222,7 +260,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
       compact={compact}
       voiceNote={voiceNote}
       documents={run.data?.documents ?? []}
-      openingEditable={!(stage === "hear" || (stage === "build" && run.data?.build.status === "built"))}
+      work={work}
     />
   );
 
@@ -241,7 +279,7 @@ export function MeetYourAgent({ slug }: { slug: string }) {
             steps={STEPS}
             current={step}
             layout="row"
-            onGo={(to) => to < step && setStage(to === 0 ? "job" : to === 1 ? "brief" : "hear")}
+            onGo={(to) => to < step && setStage(RAIL_STAGES[to] ?? "brief")}
           />
         </div>
         {write.allowed && (
@@ -308,12 +346,16 @@ function PipPanel({
   agent,
   pieces,
   documents,
+  defaultName,
+  work,
   onClose,
 }: {
   slug: string;
   agent: Agent | null;
   pieces: readonly Piece[];
   documents: readonly FirstRunDocument[];
+  defaultName: string;
+  work: FirstWork | null;
   onClose: () => void;
 }) {
   const { session, href } = useClientRealm();
@@ -324,7 +366,7 @@ function PipPanel({
     title: "Meet your agent",
     realm: "client",
     fields: [],
-    facts: surfaceFacts(agent, pieces, documents),
+    facts: surfaceFacts(agent, pieces, documents, defaultName, work),
     apply: noFill,
   });
   const declared = useCopilotSurfaceHolder();
@@ -365,9 +407,22 @@ function PipPanel({
 }
 
 /** What Pip is told about this screen: the pieces and the agent's current values, by name
- *  (the screen guide skips any piece marked done). */
-function surfaceFacts(agent: Agent | null, pieces: readonly Piece[], documents: readonly FirstRunDocument[]) {
+ *  (the screen guide skips any piece marked done). The agent has no script of its own, so
+ *  what it says is the work's (Phase 3b). */
+function surfaceFacts(
+  agent: Agent | null,
+  pieces: readonly Piece[],
+  documents: readonly FirstRunDocument[],
+  defaultName: string,
+  work: FirstWork | null,
+) {
   const facts = [
+    { key: "default_name", label: "The default agent's name", value: defaultName },
+    {
+      key: "first_work",
+      label: "Its first work",
+      value: work ? (work.kind === "line" ? "Answering the business's calls" : "Calling people") : "not chosen yet",
+    },
     {
       key: "pieces",
       label: "Pieces of the first agent (done or to do)",
@@ -379,8 +434,7 @@ function surfaceFacts(agent: Agent | null, pieces: readonly Piece[], documents: 
       value: documents.map((document) => `${document.name}: ${documentLine(document)}`).join("; ") || "none",
     },
   ];
-  if (agent === null) return [...facts, { key: "agent", label: "The agent being built", value: "none yet" }];
-  const opening = agent.script_opening_line.trim();
+  if (agent === null) return [...facts, { key: "agent", label: "The agent being set up", value: "none yet" }];
   return [
     ...facts,
     { key: "agent_id", label: "The agent's id", value: agent.id },
@@ -394,16 +448,6 @@ function surfaceFacts(agent: Agent | null, pieces: readonly Piece[], documents: 
       key: "agent_voice",
       label: "Its voice id",
       value: agent.engine_voice_id ?? "none chosen yet",
-    },
-    {
-      key: "opening_line",
-      label: `Its opening line (${charCount(opening)} characters)`,
-      value: opening || "none written yet",
-    },
-    {
-      key: "notes_down",
-      label: "What it notes down",
-      value: agent.extraction_fields.map((field) => field.label).join(", ") || "nothing yet",
     },
   ];
 }

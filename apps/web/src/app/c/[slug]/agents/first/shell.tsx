@@ -38,6 +38,7 @@ export function StepScreen({
   onBack,
   aside,
   eyebrow,
+  asForm = true,
 }: {
   title: string;
   hint?: ReactNode;
@@ -57,6 +58,9 @@ export function StepScreen({
   aside?: ReactNode;
   /** Where the step is within itself, above the question ("Question 2 of 3"). */
   eyebrow?: ReactNode;
+  /** False when the step holds a form of its own (the voice picker), which may not sit in
+   *  another: the step is then a plain block and its action a button, not a submit. */
+  asForm?: boolean;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -64,13 +68,20 @@ export function StepScreen({
   }, [title]);
 
   const shown: FeedbackStatus = status ?? (pending ? "pending" : "idle");
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
+  const go = () => {
     if (shown !== "pending" && !disabled && waitingFor === null) onSubmit?.();
   };
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    go();
+  };
+  const Root = asForm ? "form" : "div";
 
   return (
-    <form noValidate onSubmit={submit} className={`min-w-0 lg:pb-0 ${primary || aside ? "pb-36" : "pb-4"}`}>
+    <Root
+      {...(asForm ? { noValidate: true, onSubmit: submit } : {})}
+      className={`min-w-0 lg:pb-0 ${primary || aside ? "pb-36" : "pb-4"}`}
+    >
       {onBack ? (
         <button
           type="button"
@@ -92,7 +103,8 @@ export function StepScreen({
           <div className="mx-auto flex max-w-xl flex-col gap-1.5 lg:mx-0 lg:flex-row lg:items-center lg:gap-4">
             {primary ? (
               <ActionButton
-                type="submit"
+                type={asForm ? "submit" : "button"}
+                onClick={asForm ? undefined : go}
                 variant="primary-lg"
                 status={shown}
                 successLabel={successLabel}
@@ -109,7 +121,7 @@ export function StepScreen({
           </div>
         </div>
       ) : null}
-    </form>
+    </Root>
   );
 }
 
