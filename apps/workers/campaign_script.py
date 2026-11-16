@@ -10,10 +10,13 @@ exists gets an edit of it, so the owner's own wording survives wherever the sour
 change it. Documents are read
 the way onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
 
-What Pip wrote then goes through what every Pip script does before an owner reviews it
-(`script_proposal.finish_written`): the call-mistake checks and their repair (D-989), then the
-opening rule and its repair (D-957). Every write back is a compare-and-set on the proposal id,
-so a draft the owner stopped or replaced is never resurrected.
+What Pip wrote is shortened once when it would not fit the engine's box, then goes through
+what every Pip script does before an owner reviews it (`script_proposal.finish_written`): the
+call-mistake checks and their repair (D-989), then the opening rule and its repair (D-957).
+A last review pass writes a "why" note per part and flags lines the sources do not back
+(D-1004). Every pass is metered with the draft. Every write back is a compare-and-set on the
+proposal id, so a draft the owner stopped or replaced is never resurrected. What Pip is told
+lives in `workers/campaign_script_ask`.
 """
 
 from __future__ import annotations
@@ -33,13 +36,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.languages import LANGUAGE_LABELS
+from apps.api.agents.prompt_size import PromptSize
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import workspace
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
+from apps.workers.campaign_script_ask import (
+    CAMPAIGN_ASK,
+    FLOW_ASK,
+    FLOW_PART,
+    LINE_ASK,
+    PART_ASK,
+    REVIEW_FORMAT,
+    REVIEW_INSTRUCTION,
+    REVIEW_MAX_TOKENS,
+    SHORTEN_ASK,
+    TONES,
+    TOO_LONG_RULE,
+    UNSOURCED_RULE,
+    Review,
+    budget_of,
+    campaign_change,
+    owners_words,
+    parsed_review,
+    review_request,
+    reviewed_parts,
+)
+from apps.workers.extraction import ASSIST_LADDER_LEGS
 from apps.workers.first_run import documents_block
 from apps.workers.opening_line import WrittenOpening
 from apps.workers.script_assist import (
@@ -47,7 +74,9 @@ from apps.workers.script_assist import (
     AskTrace,
     JsonAnswer,
     LeftOut,
+    ScriptBrief,
     ScriptDraft,
+    ask_json,
     draft_script,
 )
 from apps.workers.script_proposal import (
@@ -59,86 +88,18 @@ from apps.workers.script_proposal import (
 
 log = get_logger(__name__)
 
-#: The last step's name (founder, 16 Nov 2026): a booking is one scenario of many, so the step
-#: that reads back and closes is the call's own, never "the booking".
-CLOSING_STEP: Final = (
-    ' Name the last step "Finalise the call": it reads back what was agreed and closes. A '
-    "booking, where one fits, is a step of its own before it."
-)
-
-#: The ask, shared by a first script and an edit; each adds its own last sentence.
-CAMPAIGN_ASK: Final = (
-    "Write this campaign's call script. Every call this agent places for the campaign follows "
-    "it. The campaign's main task, in the owner's words, says what the calls must achieve; the "
-    "owner's notes, links and documents below say what to tell people and how. Write the "
-    "opening line for the call it places, the steps that get to the main task one at a time, "
-    "quick facts (the faqs list: a question people ask and a short spoken answer, at most "
-    "eight), the objections people raise with how to answer, and how the call ends. Where a "
-    "note or document says how the agent should handle the call, follow it."
-) + CLOSING_STEP
-#: An inbound line's ask (D-997): the calls are answered, not placed.
-LINE_ASK: Final = (
-    "Write this phone line's call script. Every call to this number is answered with it. "
-    "The main task, in the owner's words, says what callers need; the sources below say "
-    "what to tell them and how. Write the greeting the agent says when it answers, the steps "
-    "that get to the main task one at a time, quick facts (the faqs list: a question callers "
-    "ask and a short spoken answer, at most eight), the objections callers raise with how to "
-    "answer, and how the call ends. Where a source says how the agent should handle the "
-    "call, follow it."
-) + CLOSING_STEP
 UNUSABLE_NOTE: Final = (
     "Pip's script still broke a call rule after its repairs. Press Generate to try again, or "
     "add a note saying what the calls should say."
 )
-EDIT_TAIL: Final = (
-    " Keep anything already in the script that the main task and sources do not change."
-)
+#: The review pass and the shortening pass run only with this much of the job left, so a job
+#: killed by the queue's timeout never leaves a paid answer unmetered.
+_LATE_PASS_MIN_S: Final = 20.0
+_JOB_MARGIN_S: Final = 30.0
 
 
-def owners_words(main_task: str, notes: str) -> str:
-    """The campaign in the owner's own words: a line Pip took from them word for word is
-    theirs, and is not judged by the opening rule (`finish_written`)."""
-    return "\n".join(part for part in (main_task.strip(), notes) if part)
-
-
-#: One part rewritten in a chosen language (founder, 16 Nov 2026); the rest stays word for word.
-PART_ASK: Final = (
-    "Rewrite only this part of the campaign's call script: {part}. Write it in {language}, as "
-    "it should be spoken on the call. Leave every other part of the script exactly as it is. "
-    "The main task and the owner's notes below say what the part must cover."
-)
-
-
-#: The part name the Script section's "Let Pip map the scenarios" sends (`CampaignFlow`).
-FLOW_PART: Final = "flow"
-#: The call's steps rewritten as the ways it is likely to go, each with its way out.
-FLOW_ASK: Final = (
-    "Rewrite only the steps of the campaign's call script as a flow of scenarios. Predict the "
-    "ways a call is likely to go: for example the person recognises the business, does not "
-    "remember it, is busy, is not interested, or has already done what the call asks. Make a "
-    "step for each scenario worth handling, and give each step its ways out (branches): when "
-    "the person says or does this, go to the step that handles it, to a call back, or to the "
-    "end of the call. Write each step's instruction in plain English and its sounds-like line "
-    "in {language}. Leave every other part of the script exactly as it is."
-) + CLOSING_STEP
-
-
-def campaign_change(
-    main_task: str,
-    notes: str,
-    documents: str,
-    *,
-    edit: bool,
-    ask: str = CAMPAIGN_ASK,
-    part_ask: str | None = None,
-) -> str:
-    """What the script is written from: the ask, the main task, the notes and the documents.
-    A one-part rewrite replaces the whole ask, edit tail included."""
-    lead = part_ask if part_ask is not None else f"{ask}{EDIT_TAIL if edit else ''}"
-    change = f"{lead}\nMAIN TASK:\n{main_task.strip()}\n"
-    if notes:
-        change += f"OWNER'S NOTES AND LINKS:\n{notes}\n"
-    return change + documents
+def _left_s(started: float) -> float:
+    return WORKER_JOB_TIMEOUT_S - _JOB_MARGIN_S - (time.monotonic() - started)
 
 
 def _proposal(
@@ -330,9 +291,49 @@ class _Inputs:
     base: CallScript | None
     notes: str
     words: list[tuple[str, str]]
-    context: Any
+    context: ScriptBrief
     tenant_leg: Any
     quota_exhausted: bool
+    #: The owner's choices for this draft (D-1004): a tone from `TONES`, and what they typed.
+    tone: str | None = None
+    instruction: str = ""
+    #: The characters the script may take in the engine's box, or None when unmeasured.
+    budget: int | None = None
+
+
+def _asked(raw: Any) -> tuple[str | None, str]:
+    """The tone and instruction a request stored (`workspace.request_proposal`'s `ask`)."""
+    if not isinstance(raw, dict):
+        return None, ""
+    tone = raw.get("tone")
+    instruction = raw.get("instruction")
+    return (
+        tone if isinstance(tone, str) and tone in TONES else None,
+        instruction if isinstance(instruction, str) else "",
+    )
+
+
+async def _size(tenant_id: UUID, agent_id: UUID, script: CallScript) -> PromptSize | None:
+    """The engine instructions `script` would make on the agent, measured as a save measures
+    them (`script_builder.refuse_if_too_long`), in a session of its own so a failure here
+    never touches the draft's. None when it cannot be measured: the save still refuses."""
+    from apps.api.agents import script_builder
+
+    try:
+        async with tenant_session(tenant_id) as session:
+            return (await script_builder.compiled_preview(session, agent_id, script)).size
+    except Exception:
+        log.exception("holder_script_unmeasured", extra={"agent_id": str(agent_id)})
+        return None
+
+
+async def _budget(tenant_id: UUID, agent_id: UUID, base: CallScript | None) -> int | None:
+    """What the script may take: the box less what is composed around the script."""
+    size = await _size(tenant_id, agent_id, base or CallScript(schema_version=2))
+    if size is None:
+        return None
+    script_chars = next((p.chars for p in size.layers if p.key == "client_script"), 0)
+    return budget_of(size.limit, size.total, script_chars)
 
 
 async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -351,11 +352,11 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         space = await workspace.read_workspace(session, campaign_id)
         words = await knowledge_words(session, only=space.sources) if space.sources else []
         # Written in the campaign's main language when it sets one over the agent's.
-        main_language, focus = (
+        main_language, focus, asked = (
             await session.execute(
                 text(
-                    "SELECT settings_overrides->>'language_primary', script_proposal->'focus' "
-                    "FROM campaigns WHERE id = :c"
+                    "SELECT settings_overrides->>'language_primary', script_proposal->'focus', "
+                    "script_proposal->'ask' FROM campaigns WHERE id = :c"
                 ),
                 {"c": campaign_id},
             )
@@ -368,15 +369,20 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         quota = await read_ai_quota(session, tenant_id=tenant_id)
     # Written from the script the request was made from, as the review lists its changes
     # against it: a script saved since would otherwise be shown as Pip's change.
+    base = space.proposal.base_script if space.proposal is not None else space.script
+    tone, instruction = _asked(asked)
     inputs = _Inputs(
         agent_id=space.agent_id,
         main_task=space.main_task,
-        base=space.proposal.base_script if space.proposal is not None else space.script,
+        base=base,
         notes="",
         words=words,
         context=context,
         tenant_leg=tenant_leg,
         quota_exhausted=quota.at_ceiling or quota.platform_paused,
+        tone=tone,
+        instruction=instruction,
+        budget=await _budget(tenant_id, space.agent_id, base),
     )
     language_name = LANGUAGE_LABELS.get(str(part_language), str(part_language))
     is_flow = isinstance(focus, dict) and focus.get("part") == FLOW_PART
@@ -412,17 +418,127 @@ async def draft_line_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str
         context = await script_proposals.brief_for(session, tenant_id, line.agent_id)
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
+    base = line.proposal.base_script if line.proposal is not None else line.script
     inputs = _Inputs(
         agent_id=line.agent_id,
         main_task=line.main_task,
-        base=line.proposal.base_script if line.proposal is not None else line.script,
+        base=base,
         notes="",
         words=words,
         context=context,
         tenant_leg=tenant_leg,
         quota_exhausted=quota.at_ceiling or quota.platform_paused,
+        budget=await _budget(tenant_id, line.agent_id, base),
     )
     return await _write(holder, inputs, LINE_ASK, started)
+
+
+def _late_timeout(started: float) -> float | None:
+    """One request's budget for a pass after the draft, or None when the job is too short of
+    time for one (each ladder may spend `ASSIST_LADDER_LEGS` of them)."""
+    per_request = min(PROPOSAL_REQUEST_TIMEOUT_S, _left_s(started) / ASSIST_LADDER_LEGS)
+    return per_request if per_request >= _LATE_PASS_MIN_S else None
+
+
+def _openings_of(script: CallScript, kept_from: CallScript) -> CallScript:
+    """`script` with the opening lines and their notice records exactly as `kept_from` has
+    them: a pass that only shortens never touches what the call opens with (hard rule 5)."""
+    return script.model_copy(
+        update={
+            "opening_line": kept_from.opening_line,
+            "outbound_opening_line": kept_from.outbound_opening_line,
+            "opening_notices": kept_from.opening_notices,
+            "outbound_opening_notices": kept_from.outbound_opening_notices,
+        }
+    )
+
+
+async def _shortened(
+    tenant_id: UUID,
+    inputs: _Inputs,
+    context: ScriptBrief,
+    script: CallScript,
+    started: float,
+    owners: str,
+) -> tuple[CallScript, list[ScriptDraft | ProblemError]]:
+    """`script`, shortened once when it would not fit the engine's box, and what that cost.
+    A draft that does not fit would be refused when the owner keeps it, after they reviewed
+    every part of it."""
+    size = await _size(tenant_id, inputs.agent_id, script)
+    timeout_s = _late_timeout(started)
+    if size is None or size.fits or timeout_s is None:
+        return script, []
+    parts = ", ".join(part.label for part in size.longest_script_parts()) or "the steps"
+    try:
+        draft = await draft_script(
+            context,
+            tenant_leg=inputs.tenant_leg,
+            quota_exhausted=inputs.quota_exhausted,
+            edit_of=script,
+            change=SHORTEN_ASK.format(over=size.over, parts=parts),
+            timeout_s=timeout_s,
+            max_tokens=PROPOSAL_MAX_TOKENS,
+            repair_rounds=1,
+            standby_after_answer=False,
+            owners_words=owners,
+        )
+    except ProblemError as refused:
+        log.info("holder_script_shorten_refused", extra={"reason": refused.code})
+        return script, [refused]
+    log.info("holder_script_shortened", extra={"over": size.over})
+    return _openings_of(draft.script, script), [draft]
+
+
+async def _reviewed(
+    inputs: _Inputs, tenant_id: UUID, script: CallScript, documents: str, started: float
+) -> tuple[Review, JsonAnswer[Review] | ProblemError | None]:
+    """The "why" notes and the unsourced claims for the parts Pip wrote (D-1004), and what
+    the pass cost. Its failure only leaves the notes out: the script is already paid for."""
+    parts = reviewed_parts(script, inputs.base)
+    timeout_s = _late_timeout(started)
+    if not parts or timeout_s is None:
+        return Review(), None
+    owners = owners_words(inputs.main_task, inputs.notes, inputs.instruction)
+    try:
+        answer = await ask_json(
+            review_request(parts, inputs.main_task, documents, inputs.context.facts),
+            REVIEW_INSTRUCTION,
+            parse=partial(parsed_review, keys=[part.key for part in parts], allowed=owners),
+            azure_format=REVIEW_FORMAT,
+            tenant_leg=inputs.tenant_leg,
+            quota_exhausted=inputs.quota_exhausted,
+            max_tokens=REVIEW_MAX_TOKENS,
+            temperature=0.2,
+            timeout_s=timeout_s,
+        )
+    except ProblemError as refused:
+        log.info("holder_script_review_refused", extra={"reason": refused.code})
+        return Review(), refused
+    except Exception:
+        # Notes are an aid to the review, never a reason to lose a paid draft.
+        log.exception("holder_script_review_crashed", extra={"tenant_id": str(tenant_id)})
+        return Review(), None
+    return answer.value, answer
+
+
+def unsourced_left(review: Review, script: CallScript) -> list[LeftOut]:
+    """Each claim the review found no source for, as a warning on its part."""
+    names = {f"stages.{stage.id}": stage.name for stage in script.stages}
+    return [
+        LeftOut(key, names.get(key, ""), UNSOURCED_RULE.format(claim=claim), unfixed=True)
+        for key, claim in review.unsourced.items()
+    ]
+
+
+def too_long_left(size: PromptSize | None) -> list[LeftOut]:
+    """The warning for a script still too long once its shortening pass is spent."""
+    if size is None or size.fits:
+        return []
+    parts = ", ".join(part.label for part in size.longest_script_parts(2)) or "the steps"
+    return [LeftOut("script", "", TOO_LONG_RULE.format(over=size.over, parts=parts), unfixed=True)]
+
+
+Spent = ScriptDraft | JsonAnswer[WrittenOpening] | JsonAnswer[Review] | ProblemError
 
 
 async def _write(
@@ -432,17 +548,24 @@ async def _write(
     tenant_id = holder.tenant_id
     base = inputs.base
     notes = inputs.notes
+    documents = documents_block(inputs.words)
     change = campaign_change(
         inputs.main_task,
         notes,
-        documents_block(inputs.words),
+        documents,
         edit=base is not None,
         ask=ask,
         part_ask=part_ask,
+        tone=inputs.tone,
+        instruction=inputs.instruction,
+        budget=inputs.budget,
     )
-    proposal = _proposal(holder.proposal_id, base, owners_words(inputs.main_task, notes))
+    owners = owners_words(inputs.main_task, notes, inputs.instruction)
+    proposal = _proposal(holder.proposal_id, base, owners)
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     trace = AskTrace()
+    # The holder's own words are what a spoken figure may come from, an edit's included.
+    context = replace(inputs.context, grounding=change)
     write = partial(
         draft_script,
         tenant_leg=inputs.tenant_leg,
@@ -454,16 +577,16 @@ async def _write(
         # The standby's 4,096-token ceiling cuts a whole Telugu script off, so an answer that
         # broke a rule is repaired by the account's model, never handed to it.
         standby_after_answer=False,
-        owners_words=owners_words(inputs.main_task, notes),
+        owners_words=owners,
     )
     log_ids = {holder.log_key: str(holder.holder_id)}
     try:
         if base is None:
             # A first script: written whole from the trade's step plan, the holder's words as
             # the owner's description, so every figure in them may be spoken.
-            draft: ScriptDraft = await write(replace(inputs.context, description=change))
+            draft: ScriptDraft = await write(replace(context, description=change))
         else:
-            draft = await write(inputs.context, edit_of=base, change=change)
+            draft = await write(context, edit_of=base, change=change)
     except ProblemError as refused:
         log.info(
             "holder_script_refused",
@@ -487,25 +610,39 @@ async def _write(
         await _ready_made_if_asked(holder)
         return "failed"
 
-    finished = await finish_written(tenant_id, inputs.agent_id, proposal, draft.script, started)
-    spends: list[ScriptDraft | JsonAnswer[WrittenOpening] | ProblemError] = [
+    # Shortened before the checks, so the mistake and opening repairs read what is offered.
+    written, shortening = await _shortened(
+        tenant_id, inputs, context, draft.script, started, owners
+    )
+    finished = await finish_written(tenant_id, inputs.agent_id, proposal, written, started)
+    review, reviewing = await _reviewed(inputs, tenant_id, finished.script, documents, started)
+    spends: list[Spent] = [
         draft,
+        *shortening,
         *finished.repairs,
         *finished.opening_spends,
+        *([reviewing] if reviewing is not None else []),
+    ]
+    left_out = [
+        *trace.left_out,
+        *finished.left_out,
+        *too_long_left(await _size(tenant_id, inputs.agent_id, finished.script)),
+        *unsourced_left(review, finished.script),
     ]
     update = {
         "status": "ready",
         "script": finished.script.model_dump(mode="json"),
-        # A draft or repair the standby answered is disclosed with it (D-127 G-6).
+        # A draft, repair or note the standby answered is disclosed with it (D-127 G-6).
         "disclosure": next(
             (
                 spent.capability.disclosure
-                for spent in (draft, *finished.repairs)
+                for spent in spends
                 if not isinstance(spent, ProblemError) and spent.capability.disclosure
             ),
             None,
         ),
-        "left_out": script_proposals.left_out_record([*trace.left_out, *finished.left_out]),
+        "left_out": script_proposals.left_out_record(left_out),
+        "why": review.notes,
     }
     # A completed run is money spent: metered in the same transaction that stores the draft.
     async with tenant_session(tenant_id) as session:
@@ -536,15 +673,22 @@ async def _write(
             "stored": stored,
             "repairs": trace.repairs,
             "checked_repairs": len(finished.repairs),
+            "shortened": bool(shortening),
+            "notes": len(review.notes),
+            "unsourced": len(review.unsourced),
         },
     )
     return "ready" if stored else "not_pending"
 
 
 __all__ = [
+    "CAMPAIGN_ASK",
     "LINE_ASK",
+    "UNUSABLE_NOTE",
     "campaign_change",
     "draft_campaign_script",
     "draft_line_script",
     "owners_words",
+    "too_long_left",
+    "unsourced_left",
 ]

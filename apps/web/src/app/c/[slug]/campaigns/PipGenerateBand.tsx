@@ -44,11 +44,12 @@ export function PipGenerateBand({
       aria-labelledby="pip-generate"
       className={
         inline
-          ? "flex flex-col gap-3 rounded-card border border-line p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4"
-          : "flex flex-col gap-3 border-y border-line py-5 sm:flex-row sm:items-center sm:justify-between"
+          ? "flex flex-col gap-3 rounded-card border border-line p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:p-4"
+          : "flex flex-col gap-3 border-y border-line py-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
       }
     >
-      <div className="min-w-0">
+      {/* The heading keeps a readable width; the choices beside Generate wrap under it first. */}
+      <div className="min-w-0 sm:min-w-[14rem] sm:flex-1">
         {inline ? (
           <h3 id="pip-generate" className="text-body font-semibold text-ink">
             {heading}

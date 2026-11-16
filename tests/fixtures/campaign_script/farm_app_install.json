@@ -1,0 +1,16 @@
+{
+  "business_type": "custom",
+  "business_name": "Rytu Khata",
+  "main_task": "Help farmers who registered but never opened the Rytu Khata app to add it to their home screen, step by step.",
+  "sources": [["Install steps", "Open the link we sent on WhatsApp, tap Add to home screen, then open the app once."]],
+  "tone": "brief",
+  "instruction": null,
+  "answer": {
+    "opening_line": "Hello {{lead_name}}, I am calling from Rytu Khata about the app you registered for. Can you talk now?",
+    "stages": [
+      {"name": "Open the link", "instruction": "Ask them to open the link they got.", "sounds_like": "Please open the link we sent you."},
+      {"name": "Finalise the call", "instruction": "Check the app opened and thank them.", "sounds_like": "Thank you, the app is ready now."}
+    ]
+  },
+  "findings": []
+}

@@ -31,6 +31,7 @@ import {
   useSaveMainTask,
   useSetCampaignSources,
   type CampaignWorkspace as Workspace,
+  type ScriptAsk,
 } from "@/lib/api/campaignWorkspace";
 import { EMPTY_SCRIPT, type CallScript } from "@/lib/api/script";
 import { useClientRealm } from "@/lib/api/session";
@@ -40,7 +41,8 @@ import { ProposalReview } from "../agents/[agentId]/script/ProposalReview";
 
 import { AddSourceForm, SOURCES_HINT, SOURCES_INFO } from "./AddSource";
 import { PipGenerateBand } from "./PipGenerateBand";
-import { PipFailed, PipWriting, retryable } from "./PipScriptStatus";
+import { NoSourcesHint, PipNote, TonePick, type Tone } from "./PipScriptAsk";
+import { PipAskRefused, PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
 import { SourcePicker } from "./SourcePicker";
 import { CampaignFlow, FLOW_PART } from "./CampaignFlow";
@@ -85,8 +87,26 @@ export function CampaignWorkspace({
 
 type Props = { campaignId: string; space: Workspace; canWrite: boolean; refusal?: string };
 
+/** What the owner chose for the next draft: a tone and a note (D-1004). */
+type Asking = { tone: Tone | ""; note: string };
+
+/** The request body for a whole-script draft with the owner's choices, or none. */
+export function scriptAsk(asking: Asking): ScriptAsk | undefined {
+  const body: ScriptAsk = {};
+  if (asking.tone) body.tone = asking.tone;
+  if (asking.note.trim()) body.instruction = asking.note.trim();
+  return Object.keys(body).length > 0 ? body : undefined;
+}
+
 /** Generate: Pip writes (or rewrites) the script from the main task and sources. */
-function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
+function GenerateScript({
+  campaignId,
+  space,
+  canWrite,
+  refusal,
+  asking,
+  onAsking,
+}: Props & { asking: Asking; onAsking: (next: Asking) => void }) {
   const { session } = useClientRealm();
   const ask = useRequestCampaignScript(session, campaignId);
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
@@ -102,19 +122,28 @@ function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
       : failed
         ? "Pip's last try did not finish. See why below."
         : undefined;
+  const held = !canWrite || drafting || ask.isPending;
   return (
     <div className="space-y-2">
       <PipGenerateBand
-        onGenerate={() => askFeedback.run(undefined)}
+        onGenerate={() => askFeedback.run(scriptAsk(asking))}
         busy={ask.isPending || drafting}
         beside={
-          <ScriptLanguagePick
-            campaignId={campaignId}
-            agentId={space.agent_id}
-            canWrite={canWrite}
-            refusal={refusal}
-            onSaving={setSavingLanguage}
-          />
+          <>
+            <ScriptLanguagePick
+              campaignId={campaignId}
+              agentId={space.agent_id}
+              canWrite={canWrite}
+              refusal={refusal}
+              onSaving={setSavingLanguage}
+            />
+            <TonePick
+              value={asking.tone}
+              disabled={held}
+              title={refusal}
+              onChange={(tone) => onAsking({ ...asking, tone })}
+            />
+          </>
         }
         disabled={!canWrite || savingLanguage || !hasTask || (space.proposal != null && !(failed && retryable(space.proposal.reason)))}
         reason={reason}
@@ -122,7 +151,9 @@ function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
         label={failed ? "Try again" : "Generate"}
         inline
       />
-      {ask.error != null && <ProblemNotice error={ask.error} />}
+      {hasTask && <PipNote value={asking.note} disabled={held} onChange={(note) => onAsking({ ...asking, note })} />}
+      {hasTask && space.source_ids.length === 0 && <NoSourcesHint />}
+      {ask.error != null && <PipAskRefused error={ask.error} onRetry={() => askFeedback.run(scriptAsk(asking))} />}
     </div>
   );
 }
@@ -266,6 +297,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const ask = useRequestCampaignScript(session, campaignId);
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
   const [editing, setEditing] = useState(false);
+  const [asking, setAsking] = useState<Asking>({ tone: "", note: "" });
   const proposal = space.proposal;
   const script = space.script;
   const hasTask = space.main_task.trim() !== "";
@@ -277,9 +309,14 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
         languages: settings.offered_languages.map((tag) => ({ tag, name: languageName(tag) })),
         initial: main ?? settings.offered_languages[0] ?? "",
         reason: !canWrite ? refusal : ask.isPending ? "Pip is writing." : undefined,
-        onGenerate: (part: string, language: string) => {
+        onGenerate: (part: string, language: string, instruction?: string) => {
           setEditing(false);
-          askFeedback.run({ part, language });
+          askFeedback.run({
+            part,
+            language,
+            ...(asking.tone ? { tone: asking.tone } : {}),
+            ...(instruction ? { instruction } : {}),
+          });
         },
       }
     : undefined;
@@ -313,7 +350,14 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     <FoldSection id="campaign-script" title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO}>
       {/* Generate sits in the Script section (founder, 15 Nov 2026): one place to get a script and read it. */}
       <div className="mb-4">
-        <GenerateScript campaignId={campaignId} space={space} canWrite={canWrite} refusal={refusal} />
+        <GenerateScript
+          campaignId={campaignId}
+          space={space}
+          canWrite={canWrite}
+          refusal={refusal}
+          asking={asking}
+          onAsking={setAsking}
+        />
       </div>
 
       {save.error != null && (
@@ -333,12 +377,12 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             canWrite={canWrite}
             retrying={ask.isPending}
             dismissing={clear.isPending}
-            onRetry={() => askFeedback.run(undefined)}
+            onRetry={() => askFeedback.run(scriptAsk(asking))}
             onDismiss={() => stopFeedback.run(proposal.id)}
           />
           {ask.error != null && (
             <div className="mt-3">
-              <ProblemNotice error={ask.error} />
+              <PipAskRefused error={ask.error} onRetry={() => askFeedback.run(scriptAsk(asking))} />
             </div>
           )}
         </>
@@ -351,6 +395,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
             current={script ?? EMPTY_SCRIPT}
             base={proposal.base_script ?? EMPTY_SCRIPT}
             proposal={proposal.script}
+            notes={proposal.why}
             pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
             onApply={(next) => void keep(next)}
             onDiscard={() => stopFeedback.run(proposal.id)}

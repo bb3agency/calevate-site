@@ -13,7 +13,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { NoticeBox, PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { NoticeBox, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { ApiProblem } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
@@ -39,6 +40,26 @@ export function failedTitle(reason: string | null | undefined, what = "the scrip
 
 export function retryable(reason: string | null | undefined): boolean {
   return !reason || !ALLOWANCE_REASONS.has(reason);
+}
+
+/**
+ * Generate refused before Pip started. An allowance that is used up or paused gets its own
+ * title and the page that can change it, as a failed draft does; anything else is the
+ * server's own words with Try again.
+ */
+export function PipAskRefused({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  const { session, href } = useClientRealm();
+  if (error instanceof ApiProblem && ALLOWANCE_REASONS.has(error.code)) {
+    return (
+      <NoticeBox tone="warn" role="alert" title={failedTitle(error.code)}>
+        <p className="mt-1 max-w-prose text-meta text-ink">Pip needs AI allowance to write the script.</p>
+        <Link className={`${PRIMARY_BUTTON_SM} mt-3`} href={href(`/c/${session.orgSlug}/ai-assist`)}>
+          See AI allowance
+        </Link>
+      </NoticeBox>
+    );
+  }
+  return <ProblemNotice error={error} onRetry={onRetry} />;
 }
 
 /** "0:42": minutes and seconds since `since`, never negative. */

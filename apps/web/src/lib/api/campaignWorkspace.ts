@@ -133,11 +133,15 @@ export function useAddCampaignSource(session: Session, campaignId: string) {
 }
 
 /** The whole script, or with `part` and `language` that one part rewritten in that language. */
+/** How the owner wants Pip to write it (D-1004): a part and its language for a one-part
+ * rewrite, a tone, and what they typed. Empty for the whole script as Pip sees fit. */
+export type ScriptAsk = Schemas["CampaignProposalIn"];
+
 export function useRequestCampaignScript(session: Session, campaignId: string) {
-  return useWorkspaceMutation(session, campaignId, (only?: { part: string; language: string }) =>
+  return useWorkspaceMutation(session, campaignId, (asked?: ScriptAsk) =>
     apiRequest<CampaignProposal>(session, `${base(campaignId)}/script/proposal`, {
       method: "POST",
-      ...(only ? { body: only } : {}),
+      ...(asked && Object.keys(asked).length > 0 ? { body: asked } : {}),
     }),
   );
 }

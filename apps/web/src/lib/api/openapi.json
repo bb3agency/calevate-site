@@ -13723,8 +13723,20 @@
       },
       "CampaignProposalIn": {
         "additionalProperties": false,
-        "description": "Empty for the whole script. With both fields: that one part, in that language.",
+        "description": "Empty for the whole script. With `part` and `language`: that one part, in that\nlanguage. `tone` and `instruction` say how either is written (D-1004).",
         "properties": {
+          "instruction": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
           "language": {
             "anyOf": [
               {
@@ -13750,6 +13762,22 @@
               }
             ],
             "title": "Part"
+          },
+          "tone": {
+            "anyOf": [
+              {
+                "enum": [
+                  "warm",
+                  "respectful",
+                  "brief"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tone"
           }
         },
         "title": "CampaignProposalIn",
@@ -13836,6 +13864,13 @@
             ],
             "title": "Status",
             "type": "string"
+          },
+          "why": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Why",
+            "type": "object"
           }
         },
         "required": [
@@ -13847,7 +13882,8 @@
           "note",
           "disclosure",
           "left_out",
-          "reason"
+          "reason",
+          "why"
         ],
         "title": "CampaignProposalOut",
         "type": "object"

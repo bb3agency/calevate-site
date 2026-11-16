@@ -1,0 +1,18 @@
+{
+  "business_type": "real_estate",
+  "business_name": "Green Meadows",
+  "main_task": "Call people who asked about Green Meadows plots and book a site visit this weekend.",
+  "sources": [["Plot prices", "Plots start at Rs 12,50,000. Site visits are on Saturday and Sunday from 10 am to 5 pm."]],
+  "tone": "respectful",
+  "instruction": "Keep the opening short.",
+  "answer": {
+    "opening_line": "Hello {{lead_name}}, I am calling from Green Meadows about the plots you asked about. Can you talk for a minute?",
+    "stages": [
+      {"name": "Right person", "instruction": "Confirm you are speaking to the person who asked.", "sounds_like": "Am I speaking with {{lead_name}}?"},
+      {"name": "Price", "instruction": "Answer the price question from the sources.", "sounds_like": "Plots start at 12,50,000 rupees."},
+      {"name": "Book a visit", "instruction": "Ask which weekend day suits them.", "sounds_like": "Would Saturday or Sunday suit you?"},
+      {"name": "Finalise the call", "instruction": "Read back the day and thank them.", "sounds_like": "Thank you, we will see you then."}
+    ]
+  },
+  "findings": []
+}

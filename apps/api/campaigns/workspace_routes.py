@@ -46,6 +46,7 @@ from apps.api.kb.picks import MAX_PICKS
 from apps.api.reliability.service import require_idempotency_key
 from apps.api.teach.routes import read_bounded_upload
 from apps.api.teach.struggles import list_struggles
+from apps.workers.campaign_script_ask import INSTRUCTION_MAX, Tone
 
 router = APIRouter(prefix="/v1/campaigns", tags=["campaigns"])
 Session = Annotated[AsyncSession, Depends(db)]
@@ -82,6 +83,9 @@ class CampaignProposalOut(_Out):
     left_out: list[CampaignLeftOutOut]
     #: Failed: why (a refusal code, `crashed` or `stale`), so the screen can say what to do.
     reason: str | None
+    #: Ready: Pip's one-sentence reason for each part it wrote, by the part's key
+    #: (`opening_line`, `faqs`, `stages.<id>`, ...), shown beside the part in the review.
+    why: dict[str, str]
 
 
 class WorkspaceOut(_Out):
@@ -109,6 +113,7 @@ def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | Non
         note=p.note,
         disclosure=p.disclosure,
         reason=p.reason,
+        why=p.why,
         left_out=[
             CampaignLeftOutOut(
                 part=part.part,
@@ -349,12 +354,16 @@ async def add_link(
 
 
 class CampaignProposalIn(BaseModel):
-    """Empty for the whole script. With both fields: that one part, in that language."""
+    """Empty for the whole script. With `part` and `language`: that one part, in that
+    language. `tone` and `instruction` say how either is written (D-1004)."""
 
     model_config = ConfigDict(extra="forbid")
     #: The part's name as the script editor shows it ("Quick facts", "Opening line when it calls").
     part: str | None = Field(default=None, min_length=1, max_length=80)
     language: str | None = Field(default=None, min_length=2, max_length=16)
+    tone: Tone | None = None
+    #: What the owner wants changed, in their words ("make the opening warmer").
+    instruction: str | None = Field(default=None, max_length=INSTRUCTION_MAX)
 
 
 @router.post(
@@ -383,6 +392,11 @@ async def request_proposal(
                 detail="Name the part to rewrite and one of the offered languages.",
             )
         focus = {"part": payload.part, "language": payload.language}
+    ask: dict[str, str] = {}
+    if payload is not None and payload.tone:
+        ask["tone"] = payload.tone
+    if payload is not None and payload.instruction and payload.instruction.strip():
+        ask["instruction"] = " ".join(payload.instruction.split())
     # Writing the script spends the account's dashboard AI allowance, as the agent Script
     # page's Pip does: refused at the ceiling or under view-as, before anything is queued.
     assert_view_as_may(principal, "billing.ai_assist")
@@ -393,7 +407,12 @@ async def request_proposal(
         campaign_id=campaign_id,
         requested_by=principal.user_id,
         focus=focus,
+        ask=ask or None,
     )
+    # The owner's typed instruction stays out of the audit row: it is free text.
+    asked: dict[str, str | bool] = {"tone": ask["tone"]} if "tone" in ask else {}
+    if "instruction" in ask:
+        asked["instructed"] = True
     await write_audit(
         session,
         action="campaign.script_requested",
@@ -402,7 +421,7 @@ async def request_proposal(
         object_type="campaign",
         object_id=str(campaign_id),
         ip=client_request_ip(request),
-        summary={"proposal_id": str(proposal.id), **(focus or {})},
+        summary={"proposal_id": str(proposal.id), **(focus or {}), **asked},
     )
     out = _proposal(proposal)
     assert out is not None

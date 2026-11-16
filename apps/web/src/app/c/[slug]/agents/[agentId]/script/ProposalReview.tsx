@@ -23,7 +23,7 @@
  * owner made since is never offered back, and the kept ones are applied to `current`.
  */
 
-import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ExpandableText } from "@/components/arc/expandable-text";
 import { TEXT_ACTION } from "@/components/console/section";
@@ -71,6 +71,13 @@ function suggestedId(change: Change): string | null {
   return change.kind === "section-added" || change.kind === "section-changed" ? change.after.id : null;
 }
 
+/** A row's key in Pip's "why" notes: the part's name, or `stages.<id>` for a step (D-1004). */
+export function whyKey(change: Change): string | null {
+  if (change.kind === "part") return change.part;
+  const id = suggestedId(change);
+  return id ? `stages.${id}` : null;
+}
+
 /** Parts a person adds entries to (founder, 16 Nov 2026: "allow user to add further Q&As").
  * While editing, each has its row even when it holds nothing yet, placed after the parts that
  * come before it. */
@@ -96,12 +103,20 @@ export type GeneratePartProps = {
   /** The languages Pip may write in, the first chosen to start. */
   languages: { tag: string; name: string }[];
   initial: string;
-  onGenerate: (part: string, language: string) => void;
+  /** `instruction`: what the owner asked Pip to change in it, when they typed one. */
+  onGenerate: (part: string, language: string, instruction?: string) => void;
   /** Why Generate waits (a draft being written), or nothing. */
   reason?: string;
 };
 
-/** "Generate in [language]" beside a part's Edit: Pip rewrites that part only, for review. */
+/** The longest instruction the server takes (`campaign_script_ask.INSTRUCTION_MAX`). */
+export const INSTRUCTION_MAX = 300;
+
+/**
+ * "Generate in [language]" beside a part's Edit: Pip rewrites that part only, for review.
+ * "Ask Pip to change it" opens one short box for what to change ("make it warmer"), sent
+ * with the same rewrite (D-1004).
+ */
 function GeneratePart({
   languages,
   initial,
@@ -111,32 +126,106 @@ function GeneratePart({
   held,
 }: GeneratePartProps & { what: string; held?: string }) {
   const [language, setLanguage] = useState(initial);
+  const [asking, setAsking] = useState(false);
+  const [instruction, setInstruction] = useState("");
+  // The box takes the focus when it opens, so the owner types straight away.
+  const box = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (asking) box.current?.focus();
+  }, [asking]);
   const waits = held ?? reason;
+  const languageName = languages.find((l) => l.tag === language)?.name ?? language;
+  const boxId = `change-${what.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   return (
-    <span className="inline-flex items-center gap-1.5 text-meta">
+    <span className="inline-flex flex-wrap items-center gap-x-4 gap-y-2 text-meta">
+      <span className="inline-flex items-center gap-1.5">
+        <button
+          type="button"
+          className={`${TEXT_ACTION} text-meta disabled:opacity-50`}
+          disabled={Boolean(waits)}
+          title={waits}
+          aria-label={`Generate ${what} in ${languageName}`}
+          onClick={() => onGenerate(what, language)}
+        >
+          Generate in
+        </button>
+        <select
+          aria-label={`Language for ${what}`}
+          className="rounded border border-line bg-surface px-1.5 py-0.5 text-meta text-ink"
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+        >
+          {languages.map((l) => (
+            <option key={l.tag} value={l.tag}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </span>
+      {!asking ? (
+        <button
+          type="button"
+          className={`${TEXT_ACTION} text-meta disabled:opacity-50`}
+          disabled={Boolean(waits)}
+          title={waits}
+          aria-label={`Ask Pip to change ${what}`}
+          onClick={() => setAsking(true)}
+        >
+          Ask Pip to change it
+        </button>
+      ) : (
+        <span className="flex w-full flex-wrap items-center gap-2">
+          <label htmlFor={boxId} className="sr-only">
+            What should Pip change in {what}?
+          </label>
+          <input
+            id={boxId}
+            ref={box}
+            type="text"
+            maxLength={INSTRUCTION_MAX}
+            placeholder="For example: make it warmer"
+            className="min-w-0 flex-1 basis-full rounded border border-line bg-surface px-2 py-1 text-meta text-ink sm:basis-0"
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && instruction.trim() && !waits) onGenerate(what, language, instruction.trim());
+              if (e.key === "Escape") setAsking(false);
+            }}
+          />
+          <button
+            type="button"
+            className={PRIMARY_BUTTON_SM}
+            disabled={Boolean(waits) || !instruction.trim()}
+            title={waits}
+            onClick={() => onGenerate(what, language, instruction.trim())}
+          >
+            Rewrite
+          </button>
+          <button type="button" className={SECONDARY_BUTTON_SM} onClick={() => setAsking(false)}>
+            Cancel
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Pip's reason for a part, behind a tap so the list stays short (D-1004). */
+function WhyNote({ what, note }: { what: string; note: string }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <>
       <button
         type="button"
-        className={`${TEXT_ACTION} text-meta disabled:opacity-50`}
-        disabled={Boolean(waits)}
-        title={waits}
-        aria-label={`Generate ${what} in ${languages.find((l) => l.tag === language)?.name ?? language}`}
-        onClick={() => onGenerate(what, language)}
+        className={`${TEXT_ACTION} text-meta`}
+        aria-expanded={shown}
+        aria-label={`Why Pip wrote ${what}`}
+        onClick={() => setShown((was) => !was)}
       >
-        Generate in
+        Why?
       </button>
-      <select
-        aria-label={`Language for ${what}`}
-        className="rounded border border-line bg-surface px-1.5 py-0.5 text-meta text-ink"
-        value={language}
-        onChange={(e) => setLanguage(e.target.value)}
-      >
-        {languages.map((l) => (
-          <option key={l.tag} value={l.tag}>
-            {l.name}
-          </option>
-        ))}
-      </select>
-    </span>
+      {shown && <p className="basis-full pt-1 text-meta text-ink-muted [overflow-wrap:anywhere]">{note}</p>}
+    </>
   );
 }
 
@@ -157,10 +246,13 @@ export function ProposalReview({
   language = "your callers' language",
   editing = false,
   generatePart,
+  notes,
   children,
 }: {
   /** While editing: Pip rewrites one part in a chosen language (a campaign's script). */
   generatePart?: GeneratePartProps;
+  /** Pip's reason for each part it wrote, by `whyKey`, shown behind "Why?" on its row. */
+  notes?: Record<string, string>;
   /** Editing a script already kept, not reviewing a suggestion: every part starts as final
    * wording with an Edit button, nothing is ticked or labelled "Added", and the button saves. */
   editing?: boolean;
@@ -359,9 +451,11 @@ export function ProposalReview({
             const shownIssues = tried || touched.has(change.id) || checked.has(change.id) ? rowIssues : [];
             const isOpen = open.has(change.id);
             const isSettled = settled.has(change.id);
+            const key = whyKey(change);
             return (
               <Row
                 key={change.id}
+                why={key ? notes?.[key] : undefined}
                 change={change}
                 kept={on}
                 edited={touched.has(change.id)}
@@ -467,9 +561,12 @@ function Row({
   onCancel,
   onReset,
   generate,
+  why,
   children,
 }: {
   generate?: ReactNode;
+  /** Pip's reason for this part, when it wrote one. */
+  why?: string;
   change: Change;
   kept: boolean;
   edited: boolean;
@@ -575,6 +672,7 @@ function Row({
                 {/* Reviewed once, a row is final: further changes are edits, not a review. */}
                 {settled ? "Edit" : "Review"}
               </button>
+              {why && <WhyNote what={headline(change)} note={why} />}
               {generate}
               {edited && !settled && (
                 <button type="button" className={`${TEXT_ACTION} text-meta`} onClick={onReset}>
