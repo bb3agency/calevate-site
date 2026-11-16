@@ -71,6 +71,27 @@ function suggestedId(change: Change): string | null {
   return change.kind === "section-added" || change.kind === "section-changed" ? change.after.id : null;
 }
 
+/** Parts a person adds entries to (founder, 16 Nov 2026: "allow user to add further Q&As").
+ * While editing, each has its row even when it holds nothing yet, placed after the parts that
+ * come before it. */
+const ADDABLE: { part: PartKey; label: string; after: PartKey[] }[] = [
+  { part: "faqs", label: "Quick facts", after: ["business_line", "identity", "goal", "outbound_purpose", "opening_line", "outbound_opening_line"] },
+  { part: "objections", label: "When callers push back", after: ["faqs", "style"] },
+];
+
+function withAddableParts(changes: Change[]): Change[] {
+  const out = [...changes];
+  for (const { part, label, after } of ADDABLE) {
+    if (out.some((c) => c.kind === "part" && c.part === part)) continue;
+    let at = 0;
+    out.forEach((c, i) => {
+      if (c.kind === "part" && (after.includes(c.part) || ADDABLE.some((a) => a.part === c.part && after.includes(a.part)))) at = i + 1;
+    });
+    out.splice(at, 0, { id: `part:${part}`, kind: "part", part, label, before: "", after: "" });
+  }
+  return out;
+}
+
 /** A row's id as an element id: the change ids carry ":". */
 function domId(change: Change): string {
   return `proposal-${change.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -110,7 +131,10 @@ export function ProposalReview({
   /** Shown above the changes: the server's account of how it was written, unplaced lines. */
   children?: ReactNode;
 }) {
-  const changes = useMemo(() => diffScripts(base ?? current, proposal), [base, current, proposal]);
+  const changes = useMemo(() => {
+    const listed = diffScripts(base ?? current, proposal);
+    return editing ? withAddableParts(listed) : listed;
+  }, [base, current, proposal, editing]);
   // What the owner did to the draft since Pip wrote this: a change to a step they deleted
   // has nothing left to apply to, and one to a step or part they edited replaces their edit.
   const since = useMemo(() => sinceWritten(changes, base, current), [changes, base, current]);

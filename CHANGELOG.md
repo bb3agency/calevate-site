@@ -3,6 +3,13 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.41 — 16-Nov-2026
+
+- Script: a Language dropdown beside Generate picks the language Pip writes the script in. It
+  replaces the language chips.
+- Editing a script: add more questions and answers, and more push-back answers. Both parts
+  show even when empty.
+
 ## 0.4.40 — 16-Nov-2026
 
 - Campaigns list: every campaign has a Duplicate button, which makes a copy as a new draft

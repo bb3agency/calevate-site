@@ -13,7 +13,8 @@
  * fields are on the same page.
  */
 
-import { Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
+import { TEXT_ACTION } from "@/components/console/section";
 
 import { FIELD, FIELD_HINT, FIELD_LABEL, QUIET_ICON_BUTTON } from "@/components/ui";
 import type { CallScript, CodeMix, ExampleLine, SpeakingStyle } from "@/lib/api/script";
@@ -113,6 +114,15 @@ function RemoveButton({ what, onClick }: { what: string; onClick: () => void }) 
   );
 }
 
+function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button type="button" className={`${TEXT_ACTION} inline-flex items-center gap-1`} onClick={onClick}>
+      <Plus aria-hidden className="h-3.5 w-3.5" />
+      {label}
+    </button>
+  );
+}
+
 const CODE_MIX: { value: CodeMix; label: string }[] = [
   { value: "light", label: "Mostly local" },
   { value: "natural", label: "Everyday mix" },
@@ -187,6 +197,8 @@ export function PartEditor({
                 onClick={() => set("objections", script.objections.filter((_, j) => j !== i))} />
             </div>
           ))}
+          <AddButton label="Add a push-back"
+            onClick={() => set("objections", [...script.objections, { objection: "", response: "" }])} />
         </div>
       );
     case "faqs":
@@ -206,6 +218,8 @@ export function PartEditor({
                 onClick={() => set("faqs", script.faqs.filter((_, j) => j !== i))} />
             </div>
           ))}
+          <AddButton label="Add a question and answer"
+            onClick={() => set("faqs", [...script.faqs, { question: "", answer: "" }])} />
         </div>
       );
     case "example_exchange":

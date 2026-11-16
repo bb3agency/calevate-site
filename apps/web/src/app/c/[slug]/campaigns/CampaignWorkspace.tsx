@@ -44,7 +44,7 @@ import { matchesWords } from "./matchWords";
 import { PipGenerateBand } from "./PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
-import { ScriptLanguages } from "./ScriptLanguages";
+import { ScriptLanguagePick } from "./ScriptLanguages";
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
@@ -90,6 +90,7 @@ function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
   const { session } = useClientRealm();
   const ask = useRequestCampaignScript(session, campaignId);
   const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
+  const [savingLanguage, setSavingLanguage] = useState(false);
   const hasTask = space.main_task.trim() !== "";
   const drafting = space.proposal?.status === "drafting";
   // A failed draft is replaced by the next request, so Generate is Try again, not a wait.
@@ -106,7 +107,16 @@ function GenerateScript({ campaignId, space, canWrite, refusal }: Props) {
       <PipGenerateBand
         onGenerate={() => askFeedback.run(undefined)}
         busy={ask.isPending || drafting}
-        disabled={!canWrite || !hasTask || (space.proposal != null && !(failed && retryable(space.proposal.reason)))}
+        beside={
+          <ScriptLanguagePick
+            campaignId={campaignId}
+            agentId={space.agent_id}
+            canWrite={canWrite}
+            refusal={refusal}
+            onSaving={setSavingLanguage}
+          />
+        }
+        disabled={!canWrite || savingLanguage || !hasTask || (space.proposal != null && !(failed && retryable(space.proposal.reason)))}
         reason={reason}
         refusal={refusal}
         label={failed ? "Try again" : "Generate"}
@@ -333,7 +343,6 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
     <FoldSection id="campaign-script" title="Script" tone="script" hint={SCRIPT_HINT} info={SCRIPT_INFO}>
       {/* Generate sits in the Script section (founder, 15 Nov 2026): one place to get a script and read it. */}
       <div className="mb-4">
-        <ScriptLanguages campaignId={campaignId} agentId={space.agent_id} canWrite={canWrite} refusal={refusal} />
         <GenerateScript campaignId={campaignId} space={space} canWrite={canWrite} refusal={refusal} />
       </div>
 

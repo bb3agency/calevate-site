@@ -5,6 +5,8 @@
  * main task and the materials, and the owner reviews it below, part by part.
  */
 
+import type { ReactNode } from "react";
+
 import { PRIMARY_BUTTON } from "@/components/ui";
 
 export function PipGenerateBand({
@@ -17,7 +19,10 @@ export function PipGenerateBand({
   inline = false,
   heading = "Let Pip, our AI agent, generate the script",
   from = "Pip writes it from your main task and materials.",
+  beside,
 }: {
+  /** Shown before the button, such as the language Pip writes in. */
+  beside?: ReactNode;
   /** The band's heading: what Pip will write. */
   heading?: string;
   /** What Pip writes it from, shown while nothing holds Generate back. */
@@ -57,6 +62,8 @@ export function PipGenerateBand({
           {reason ?? from}
         </p>
       </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
+      {beside}
       <button
         type="button"
         className={`${PRIMARY_BUTTON} shrink-0`}
@@ -66,6 +73,7 @@ export function PipGenerateBand({
       >
         {busy ? "Generating…" : label}
       </button>
+      </div>
     </section>
   );
 }
