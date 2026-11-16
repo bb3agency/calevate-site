@@ -9,15 +9,38 @@
  * `FoldGroup` adds Collapse all / Expand all for every section inside it. A command is a
  * counter rather than a boolean so pressing the same one twice still reaches sections a
  * person has opened or closed by hand since.
+ *
+ * Each section remembers whether it was last folded, per page and per browser (founder,
+ * 16 Nov 2026), until its own pill or Collapse all / Expand all changes it. Browser storage
+ * is right for this: it is one person's view, not shared data, and losing it only reopens
+ * the section.
  */
 
 import { ChevronDown } from "lucide-react";
 import { InfoTip } from "@/components/console/infoTip";
 import { keepInView } from "@/lib/keepInView";
-import { createContext, useContext, useEffect, useId, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 type Command = { open: boolean; seq: number };
 const FoldCommand = createContext<Command | null>(null);
+
+function readFold(key: string): boolean | null {
+  try {
+    const value = window.localStorage.getItem(key);
+    return value === "open" ? true : value === "closed" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeFold(key: string, open: boolean): void {
+  try {
+    window.localStorage.setItem(key, open ? "open" : "closed");
+  } catch {
+    // No storage (a private window): the section still folds, it just is not remembered.
+  }
+}
 
 export type FoldTone =
   | "task"
@@ -125,12 +148,27 @@ export function FoldSection({
   id?: string;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpenState] = useState(defaultOpen);
   const command = useContext(FoldCommand);
   const bodyId = useId();
+  const storageKey = `calevate:fold:${usePathname()}:${id ?? title}`;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next);
+      writeFold(storageKey, next);
+    },
+    [storageKey],
+  );
+  // Read after mount, not in useState: the server render has no storage to read.
   useEffect(() => {
-    if (command) setOpen(command.open);
-  }, [command]);
+    const saved = readFold(storageKey);
+    if (saved != null) setOpenState(saved);
+  }, [storageKey]);
+  const lastCommand = useRef<Command | null>(command);
+  useEffect(() => {
+    if (command && command !== lastCommand.current) setOpen(command.open);
+    lastCommand.current = command;
+  }, [command, setOpen]);
   const look = TONE[tone];
   return (
     <section id={id} className="relative scroll-mt-24 pt-4">
