@@ -7953,6 +7953,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/test-numbers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The account's saved test numbers, offered under this campaign's Test call */
+        get: operations["campaign_test_numbers_v1_campaigns__campaign_id__test_numbers_get"];
+        /** Replace the account's saved test numbers */
+        put: operations["save_campaign_test_numbers_v1_campaigns__campaign_id__test_numbers_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/workspace": {
         parameters: {
             query?: never;
@@ -36229,6 +36247,16 @@ export interface components {
             /** Set Version */
             set_version?: number | null;
         };
+        /** TestNumbersIn */
+        TestNumbersIn: {
+            /** Numbers */
+            numbers: string[];
+        };
+        /** TestNumbersOut */
+        TestNumbersOut: {
+            /** Numbers */
+            numbers: string[];
+        };
         /** TestResultOut */
         TestResultOut: {
             /** Category */
@@ -53841,6 +53869,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    campaign_test_numbers_v1_campaigns__campaign_id__test_numbers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestNumbersOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    save_campaign_test_numbers_v1_campaigns__campaign_id__test_numbers_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestNumbersIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestNumbersOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

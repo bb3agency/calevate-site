@@ -329,6 +329,10 @@ class Organization(PKMixin, TimestampMixin, Base):
     save_number_message_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=false()
     )
+    #: E.164 numbers the account rings for test calls; cleared when the account closes.
+    test_numbers: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
     #: THE GRACE WINDOW BETWEEN "CLOSED" AND "ERASED" (D-538, migration e6c1a49d2f70).

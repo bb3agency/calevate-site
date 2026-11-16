@@ -8,6 +8,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
+import { X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -22,6 +23,8 @@ import {
   useCampaignInsights,
   useCampaignTestCall,
   useSaveOpeningB,
+  useSaveTestNumbers,
+  useTestNumbers,
   workspaceKey,
   type CampaignInsights,
 } from "@/lib/api/campaignWorkspace";
@@ -87,14 +90,63 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
   const { session, href } = useClientRealm();
   const call = useCampaignTestCall(session, campaignId);
   useActionFeedback(call, { errorDisplay: "inline" });
+  const saved = useTestNumbers(session, campaignId);
+  const saveNumbers = useSaveTestNumbers(session, campaignId);
+  const numbers = saved.data?.numbers ?? [];
   const [number, setNumber] = useState("");
   const [mine, setMine] = useState(true);
   const result = call.data;
+  const digits = number.replace(/\D/g, "");
+  const typed = digits.length >= 10;
+  const isSaved = numbers.some((n) => n.replace(/\D/g, "").endsWith(digits.slice(-10)) && typed);
+  // The first saved number is ready to call, so a test is one press.
+  useEffect(() => {
+    if (number === "" && numbers.length > 0) setNumber(numbers[0]);
+    // Only when the list first arrives; a cleared box stays cleared.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved.data]);
   return (
     <div>
+      {numbers.length > 0 && (
+        <div className="mb-3">
+          <p className="text-meta font-medium text-ink">Saved numbers</p>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {numbers.map((n) => {
+              const chosen = n.replace(/\D/g, "").endsWith(digits.slice(-10)) && typed;
+              return (
+                <span
+                  key={n}
+                  className={`inline-flex items-center rounded-full border text-meta ${
+                    chosen ? "border-series-6 bg-series-6 text-white" : "border-line bg-surface text-ink"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={chosen}
+                    className="py-1 pl-3 pr-2 font-medium tabular-nums"
+                    onClick={() => setNumber(n)}
+                  >
+                    {formatPhone(n)}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${formatPhone(n)} from saved numbers`}
+                    title="Remove"
+                    disabled={!canWrite || saveNumbers.isPending}
+                    className="rounded-full py-1 pl-1 pr-2.5 opacity-70 hover:opacity-100"
+                    onClick={() => saveNumbers.mutate(numbers.filter((x) => x !== n))}
+                  >
+                    <X aria-hidden className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-end gap-2">
         <label className="min-w-48 flex-1 text-meta font-medium text-ink">
-          Your number
+          {numbers.length > 0 ? "Number to call" : "Your number"}
           <input
             type="tel"
             inputMode="tel"
@@ -108,17 +160,32 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
         <button
           type="button"
           className={SECONDARY_BUTTON_SM}
-          disabled={!canWrite || number.replace(/\D/g, "").length < 10 || call.isPending}
+          disabled={!canWrite || !typed || isSaved || numbers.length >= 10 || saveNumbers.isPending}
+          title={isSaved ? "Already saved" : numbers.length >= 10 ? "Up to 10 saved numbers" : refusal}
+          onClick={() => saveNumbers.mutate([...numbers, number])}
+        >
+          {isSaved ? "Saved" : saveNumbers.isPending ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          className={SECONDARY_BUTTON_SM}
+          disabled={!canWrite || !typed || call.isPending}
           title={refusal}
           onClick={() => call.mutate({ number, numberIsMine: mine })}
         >
           {call.isPending ? "Calling…" : "Call me"}
         </button>
       </div>
+      <p className="mt-1 text-meta text-ink-muted">A number you call is saved for next time. Up to 10.</p>
       <label className="mt-2 flex items-center gap-2 text-meta text-ink-muted">
         <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} />
         This number is mine
       </label>
+      {saveNumbers.error != null && (
+        <p role="alert" className="mt-2 text-meta text-danger">
+          {errorText(saveNumbers.error, "The number did not save")}
+        </p>
+      )}
       {call.error != null && (
         <p role="alert" className="mt-2 text-meta text-danger">
           {errorText(call.error, "The test call did not start")}
@@ -141,6 +208,12 @@ function HearItFirst({ slug, campaignId, canWrite, refusal }: Common) {
       )}
     </div>
   );
+}
+
+/** +919876543210 as +91 98765 43210; anything else as stored. */
+function formatPhone(e164: string): string {
+  const m = /^\+91(\d{5})(\d{5})$/.exec(e164);
+  return m ? `+91 ${m[1]} ${m[2]}` : e164;
 }
 
 function OpeningTest({ campaignId, canWrite, refusal, insights }: Common & { insights?: CampaignInsights }) {

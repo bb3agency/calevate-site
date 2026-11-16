@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.30 — 16-Nov-2026
+
+- Test call: save up to 10 test numbers for your account and pick one to call. A number you
+  call is saved for next time; remove one with its ×. The same list shows on every campaign.
+
 ## 0.4.29 — 16-Nov-2026
 
 - A mistyped or old account address takes you to the same page in your own account instead

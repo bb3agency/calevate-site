@@ -355,7 +355,8 @@ async def close_account(
                 "UPDATE organizations SET status = :closed, closed_at = now(), "
                 "erase_after = now() + make_interval(days => :grace), "
                 "closure_reason = :reason, closed_by = :by, updated_at = now(), "
-                "erasure_sweep_attempted_at = NULL, erasure_sweep_failures = 0 "
+                "erasure_sweep_attempted_at = NULL, erasure_sweep_failures = 0, "
+                "test_numbers = '{}' "
                 "WHERE id = :tid AND deleted_at IS NULL AND status = ANY(:from) "
                 "RETURNING status, closed_at, erase_after, closure_reason, closed_by, deleted_at"
             ),

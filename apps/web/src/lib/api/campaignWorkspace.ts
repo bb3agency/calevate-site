@@ -178,7 +178,30 @@ export function useCampaignTestCall(session: Session, campaignId: string) {
       held.current.delete(number);
       void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
       void client.invalidateQueries({ queryKey: testCallsKey(session.orgSlug, campaignId) });
+      void client.invalidateQueries({ queryKey: testNumbersKey(session.orgSlug) });
     },
+  });
+}
+
+/** The account's saved test numbers: one list for every campaign, so keyed by account. */
+const testNumbersKey = (org: string) => ["test-numbers", org];
+
+export function useTestNumbers(session: Session, campaignId: string) {
+  return useQuery({
+    queryKey: testNumbersKey(session.orgSlug),
+    queryFn: () => apiRequest<Schemas["TestNumbersOut"]>(session, `${base(campaignId)}/test-numbers`),
+  });
+}
+
+export function useSaveTestNumbers(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (numbers: string[]) =>
+      apiRequest<Schemas["TestNumbersOut"]>(session, `${base(campaignId)}/test-numbers`, {
+        method: "PUT",
+        body: { numbers },
+      }),
+    onSuccess: (out) => client.setQueryData(testNumbersKey(session.orgSlug), out),
   });
 }
 

@@ -37,6 +37,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
+from apps.api.ingest.service import normalize_phone
 from apps.api.kb import uploads as kb_uploads
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
 from apps.api.reliability.service import require_idempotency_key
@@ -563,6 +564,17 @@ async def campaign_test_call(
         own_number_attested=payload.number_is_mine,
     )
     if result.call_id is not None:
+        # The number joins the account's saved test numbers, so the next test offers it.
+        phone = normalize_phone(payload.number)
+        if phone is not None:
+            await session.execute(
+                text(
+                    "UPDATE organizations SET test_numbers = array_append(test_numbers, :n), "
+                    "updated_at = now() WHERE NOT (:n = ANY (test_numbers)) "
+                    "AND cardinality(test_numbers) < :cap"
+                ),
+                {"n": phone, "cap": MAX_TEST_NUMBERS},
+            )
         # Listed in the Test call section with its recording; once, whatever the retries.
         await session.execute(
             text(
@@ -574,6 +586,67 @@ async def campaign_test_call(
     return CampaignTestCallOut(
         status=result.status, blocked_reason=result.blocked_reason, call_id=result.call_id
     )
+
+
+#: Enough for a team's phones; a longer list is a call list, which is what campaigns are for.
+MAX_TEST_NUMBERS = 10
+
+
+class TestNumbersIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    numbers: list[str] = Field(max_length=MAX_TEST_NUMBERS)
+
+
+class TestNumbersOut(_Out):
+    numbers: list[str]
+
+
+@router.get(
+    "/{campaign_id}/test-numbers",
+    response_model=TestNumbersOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="The account's saved test numbers, offered under this campaign's Test call",
+)
+async def campaign_test_numbers(campaign_id: UUID, session: Session, _: Reader) -> TestNumbersOut:
+    await workspace.read_workspace(session, campaign_id)
+    row = (await session.execute(text("SELECT test_numbers FROM organizations"))).first()
+    return TestNumbersOut(numbers=list(row[0]) if row is not None else [])
+
+
+@router.put(
+    "/{campaign_id}/test-numbers",
+    response_model=TestNumbersOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Replace the account's saved test numbers",
+)
+async def save_campaign_test_numbers(
+    campaign_id: UUID, payload: TestNumbersIn, session: Session, _: Dispatcher
+) -> TestNumbersOut:
+    await workspace.read_workspace(session, campaign_id)
+    numbers: list[str] = []
+    for raw in payload.numbers:
+        phone = normalize_phone(raw)
+        if phone is None:
+            raise ProblemError(
+                kind="validation",
+                code="test_number_invalid",
+                title="That is not a phone number we can ring",
+                detail="Use a 10-digit Indian mobile, or a number starting with +.",
+            )
+        if phone not in numbers:
+            numbers.append(phone)
+    row = (
+        await session.execute(
+            text(
+                "UPDATE organizations SET test_numbers = :n, updated_at = now() "
+                "RETURNING test_numbers"
+            ),
+            {"n": numbers},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Organization")
+    return TestNumbersOut(numbers=list(row[0]))
 
 
 class CampaignTestCallItem(_Out):
