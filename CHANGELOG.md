@@ -3,6 +3,28 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.59 — 17-Nov-2026
+
+- A script you save on a running or paused campaign reaches its very next call; before, it
+  waited until the campaign was stopped. Clearing a campaign's own call settings while it
+  runs puts its calls back on the agent's settings.
+- When a campaign finishes, its calling agent slot is freed at once, so the next campaign
+  can start straight away.
+- If a change is saved but cannot reach calls yet, the campaign screen says your change is
+  kept and to save again.
+- Giving an Inbound line another agent's voice moves its numbers to that voice straight
+  away, even while the line is a draft. A line's test call works while its agent is
+  switched off, and an action you switched off for a line never runs on its calls.
+- You cannot delete an agent while one of its Inbound lines is live; choose another agent
+  for the line, or delete the line, first.
+- A call made by a campaign or answered by an Inbound line shows the details that campaign
+  or line notes, in the call list and on the call and lead pages. A campaign's "All its
+  leads" shows its own details as columns and exports them, and lead search finds them.
+- Saving "How they speak" is refused, naming the line or campaign, when it would make that
+  line's or campaign's script too long for calls.
+- Pip explains a mistake whose fix is waiting for you on a line or campaign, instead of
+  failing to read the agent's mistakes.
+
 ## 0.4.58 — 16-Nov-2026
 
 - **Each campaign speaks through its own calling agent**, in the voice you chose. Your
