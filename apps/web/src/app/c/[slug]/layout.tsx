@@ -16,6 +16,7 @@ import { ClientSidebar } from "./ClientSidebar";
 import { ClientTopHeader, CreditStrip } from "./ClientTopHeader";
 import { TrialBanner } from "./TrialBanner";
 import { ViewAsBanner } from "./ViewAsBanner";
+import { WrongAccountRedirect } from "./WrongAccountRedirect";
 
 /**
  * The client console's app shell.
@@ -72,6 +73,7 @@ export default function ClientRealmLayout({
             {/* Every feed on every screen refetches when the change stream says it moved
                 (D-774). Inside the realm provider, so it uses this tab's session. */}
             <ClientLiveUpdates />
+            <WrongAccountRedirect slug={slug} />
             <ClientSidebar slug={slug} isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
             <div className="flex flex-1 flex-col overflow-hidden">
               {/* ABOVE the view-as banner and the header, because it is a statement about

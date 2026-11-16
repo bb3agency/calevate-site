@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.29 — 16-Nov-2026
+
+- A mistyped or old account address takes you to the same page in your own account instead
+  of "You do not have access".
+
 ## 0.4.28 — 16-Nov-2026
 
 - Campaign pages remember which sections you folded, in this browser, until you open or fold
