@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.39 — 16-Nov-2026
+
+- Campaign page: Duplicate sits beside the campaign's name; Call the unreached again sits in
+  Where it stands; Archive is left to the campaigns list.
+
 ## 0.4.38 — 16-Nov-2026
 
 - Add people: the contacts file box is one compact row, leaving more room for the table.

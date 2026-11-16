@@ -191,19 +191,18 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
   const changeable = status === "draft" || status === "scheduled" || status === "running" || status === "paused";
 
   // In the row beside Collapse all / Expand all, after Start (founder, 16 Nov 2026).
-  const campaignActions = (
-    <CampaignHeaderActions
-      slug={slug}
-      campaignId={campaignId}
-      progress={data}
-      setStatus={setStatus}
-      setStatusFeedback={setStatusFeedback}
-      canWrite={write.allowed}
-      refusal={refusal}
-      onGone={() => router.push(back.href)}
-      onCopied={(id) => router.push(href(`/c/${slug}/campaigns/${id}`))}
-    />
-  );
+  const actionProps = {
+    slug,
+    campaignId,
+    progress: data,
+    setStatus,
+    setStatusFeedback,
+    canWrite: write.allowed,
+    refusal,
+    onGone: () => router.push(back.href),
+    onCopied: (id: string) => router.push(href(`/c/${slug}/campaigns/${id}`)),
+  };
+  const campaignActions = <CampaignHeaderActions {...actionProps} />;
 
   return (
     <div className="max-w-6xl space-y-8 pb-12">
@@ -238,6 +237,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             </>
           }
           meta={data.goal ? <span className="text-ink-muted">Goal: {data.goal}</span> : undefined}
+          actions={<CampaignHeaderActions {...actionProps} show="duplicate" />}
         />
         <RestrictionNote reason={write.reason} />
 
@@ -308,6 +308,9 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             launched ? (
               <FoldGroup className="space-y-8" actions={campaignActions}>
                 <FoldSection title="Where it stands" tone="progress">
+                  <div className="mb-2 flex justify-end empty:hidden">
+                    <CampaignHeaderActions {...actionProps} show="again" />
+                  </div>
                   <CampaignRun progress={data} campaignId={campaignId} />
                 </FoldSection>
                 <FoldSection title="Results" tone="results">

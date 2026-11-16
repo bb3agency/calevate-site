@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, ArchiveRestore, Pause, Pencil, Play, RotateCcw } from "lucide-react";
+import { ArchiveRestore, Pause, Pencil, Play, RotateCcw } from "lucide-react";
 
 import { ButtonGroup, type GroupAction } from "@/components/arc/button-group";
 import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
@@ -17,7 +17,7 @@ import {
 } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
-type Confirming = "stop" | "delete" | "archive" | null;
+type Confirming = "stop" | "delete" | null;
 
 /** A pause whose cause must be cleared before Resume works: the notice above says how. */
 const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
@@ -43,6 +43,7 @@ export function CampaignHeaderActions({
   refusal,
   onGone,
   onCopied,
+  show = "controls",
 }: {
   slug: string;
   campaignId: string;
@@ -53,6 +54,10 @@ export function CampaignHeaderActions({
   refusal: string | undefined;
   onGone: () => void;
   onCopied: (id: string) => void;
+  /** Which buttons this copy carries (founder, 16 Nov 2026): the controls beside Collapse
+   * all, Duplicate beside the campaign's name, Call the unreached again in Where it stands.
+   * Archive is the campaigns list's own button. */
+  show?: "controls" | "duplicate" | "again";
 }) {
   const { session, href } = useClientRealm();
   const stop = useStopCampaign(session, campaignId);
@@ -180,16 +185,6 @@ export function CampaignHeaderActions({
     hint: ownerOnly,
     onSelect: () => copy(false),
   });
-  if (!archived) {
-    actions.push({
-      id: "archive",
-      label: "Archive…",
-      icon: <Archive className="h-3.5 w-3.5" />,
-      disabled: !canWrite,
-      hint: ownerOnly,
-      onSelect: () => setConfirming("archive"),
-    });
-  }
   // Delete only a draft that never started: one that ran has calls and charges to keep, so
   // it is archived instead (the server refuses with `campaign_has_history` either way).
   if (status === "draft" && !archived && progress.launched_at == null) {
@@ -203,12 +198,18 @@ export function CampaignHeaderActions({
     });
   }
 
+  const shown = actions.filter((action) =>
+    show === "duplicate" ? action.id === "duplicate" : show === "again" ? action.id === "again" : action.id !== "duplicate" && action.id !== "again",
+  );
+  if (shown.length === 0) return null;
+
   return (
     <>
       <ButtonGroup
-        label="Campaign actions"
+        label={show === "controls" ? "Campaign actions" : show === "duplicate" ? "Copy this campaign" : "Call again"}
         moreLabel={`More actions for ${progress.name}`}
-        actions={actions}
+        actions={shown}
+        primaryFirst={show !== "duplicate"}
         phoneVisible={1}
         desktopVisible={2}
         className="flex-wrap sm:justify-end"
@@ -249,26 +250,6 @@ export function CampaignHeaderActions({
         >
           <span className="block">The draft and its list are removed.</span>
           <span className="block">A campaign that already called anyone is archived instead.</span>
-        </ConfirmDialog>
-      )}
-      {confirming === "archive" && (
-        <ConfirmDialog
-          title="Archive this campaign?"
-          confirmLabel="Archive"
-          pendingLabel="Archiving"
-          cancelLabel="Keep it"
-          status={shelve.variables === "archive" ? shelveFeedback.status : "idle"}
-          error={shelveFeedback.error ?? null}
-          onCancel={() => {
-            shelveFeedback.reset();
-            setConfirming(null);
-          }}
-          onConfirm={() => shelve.mutate("archive", { onSuccess: () => setConfirming(null) })}
-        >
-          <span className="block">
-            {status === "running" ? "It is paused and calls nobody new." : "It calls nobody while archived."}
-          </span>
-          <span className="block">Its calls and results are kept. You can restore it.</span>
         </ConfirmDialog>
       )}
     </>
