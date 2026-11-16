@@ -121,7 +121,9 @@ async def campaign_script_report(
     live script (a campaign made before D-992). Reading the agent's script for a campaign
     with its own would pass an offer the calls speak and refuse one they never say."""
     own = (
-        await session.execute(text("SELECT script FROM campaigns WHERE id = :cid"), {"cid": campaign_id})
+        await session.execute(
+            text("SELECT script FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
     ).scalar_one_or_none()
     if own:
         return lint(script_parts(CallScript.model_validate(own), outbound=True))
