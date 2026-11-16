@@ -160,7 +160,6 @@ SIBLINGS = (
     ("call_place", "agent_test_call"),
     ("lead_set_status", "leads_bulk_update"),
     ("platform_tenants", "admin_client_standing"),
-    ("agent_script_suggest", "agent_tests_fix"),
     ("propose_knowledge", "knowledge_teach"),
     ("agent_script_put_live", "agent_changes_apply"),
     ("agent_script_discard", "agent_changes_apply"),
@@ -258,7 +257,6 @@ def test_a_case_replays_its_history_before_the_screen_that_shows_the_present() -
     ("calls", "failures"),
     [
         (("set_fields",), {"wrong_fill", "forbidden", "unwanted"}),
-        (("agents_do:agent_script_suggest",), {"forbidden", "unwanted"}),
         ((), set()),
     ],
 )
@@ -356,35 +354,6 @@ def test_an_answer_to_pips_own_question_is_a_fill_the_server_accepts() -> None:
     assert not harness.server_refuses(case, call)
 
 
-def _whole(answers: dict[str, str | None]) -> dict[str, Any]:
-    return {
-        "agent_id": "0192f3a4-0000-7000-8000-0000000a9e01",
-        "mode": "whole",
-        "change": None,
-        "answers": answers,
-    }
-
-
-def test_a_whole_script_before_the_five_answers_is_refused_by_the_server() -> None:
-    case = _case("c-script-whole-asks-first")
-    invented = _whole({"what_you_offer": "Organic groceries", "customers": "Home cooks"})
-    assert harness.server_refuses(case, _call("agent_script_suggest", invented))
-    assert harness.server_refuses(case, _call("agent_script_suggest", _whole({})))
-
-
-def test_a_whole_script_from_the_owners_typed_answers_is_accepted() -> None:
-    case = _case("c-script-whole-answered")
-    answers = _whole(
-        {
-            "what_you_offer": "Organic groceries",
-            "customers": "Home cooks call to order",
-            "good_outcome": "Take their name and area.",
-            "never_say": "Never promise same-day delivery",
-        }
-    )
-    assert not harness.server_refuses(case, _call("agent_script_suggest", answers))
-
-
 def test_the_report_counts_wrong_calls_the_server_refuses(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -450,14 +419,14 @@ def test_the_report_counts_what_the_person_sees_after_a_refusal(
     record = tmp_path / "run.json"
     calls = {case.id: list(harness.oracle(case)) for case in harness.load_cases()}
     calls["c-script-after-kept"] = ["set_fields"]
-    calls["c-script-whole-asks-first"] = ["agent_script_suggest"]
+    calls["c-tests-fix"] = ["set_fields"]
     body = {
         "calls": calls,
         "refused": {
             "c-script-after-kept": ["set_fields"],
-            "c-script-whole-asks-first": ["agent_script_suggest"],
+            "c-tests-fix": ["set_fields"],
         },
-        "then": {"c-script-after-kept": [], "c-script-whole-asks-first": ["agent_script_suggest"]},
+        "then": {"c-script-after-kept": [], "c-tests-fix": ["set_fields"]},
     }
     record.write_text(json.dumps(body), "utf-8")
     assert harness.main([f"--replay={record}"]) == 0
@@ -466,7 +435,7 @@ def test_the_report_counts_what_the_person_sees_after_a_refusal(
     assert "right on the turn after the refusal: 1/2" in out
     assert f"right in what the person sees: {total - 1}/{total}" in out
     assert "then=[] (recovered)" in out
-    assert "then=['agent_script_suggest']\n" in out + "\n"
+    assert "then=['set_fields']\n" in out + "\n"
 
 
 def test_a_second_wrong_turn_the_server_refuses_again_is_reported_as_held(

@@ -160,10 +160,18 @@ export function FoldSection({
     [storageKey],
   );
   // Read after mount, not in useState: the server render has no storage to read.
+  // A link that names this section (`#line-test-call`, from the agent's Try it) opens it over
+  // a remembered fold. The page drew it only after its data loaded, so the browser's own
+  // jump found no target: scroll to it here.
+  const sectionRef = useRef<HTMLElement>(null);
   useEffect(() => {
+    const named = id != null && window.location.hash.slice(1) === id;
     const saved = readFold(storageKey);
-    if (saved != null) setOpenState(saved);
-  }, [storageKey]);
+    if (named) {
+      setOpenState(true);
+      sectionRef.current?.scrollIntoView?.({ block: "start" });
+    } else if (saved != null) setOpenState(saved);
+  }, [storageKey, id]);
   const lastCommand = useRef<Command | null>(command);
   useEffect(() => {
     if (command && command !== lastCommand.current) setOpen(command.open);
@@ -171,7 +179,7 @@ export function FoldSection({
   }, [command, setOpen]);
   const look = TONE[tone];
   return (
-    <section id={id} className="relative scroll-mt-24 pt-4">
+    <section ref={sectionRef} id={id} className="relative scroll-mt-24 pt-4">
       <div className="absolute left-4 top-0 z-raised flex items-center gap-3">
         <h2 className="text-body font-semibold">
           <button

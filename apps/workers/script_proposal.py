@@ -46,7 +46,6 @@ from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
 from apps.api.first_run.documents import document_words, read_documents
-from apps.api.kb.service import knowledge_agents
 from apps.workers import mistake_fix
 from apps.workers.extraction import ASSIST_LADDER_LEGS, ASSIST_TIMEOUT_S, TenantModelLeg
 from apps.workers.first_run import documents_block
@@ -870,52 +869,6 @@ async def draft_script_proposal(ctx: dict[str, Any], payload: dict[str, Any]) ->
     return "ready" if stored else "not_pending"
 
 
-async def suggest_scripts_from_document(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
-    """A file added to the knowledge after onboarding, live: a `knowledge` proposal for every
-    agent of the client (D-923), so it shapes their scripts as an onboarding document shapes
-    the first agent's, for the owner to keep or dismiss. Queued once per upload by
-    `kb_ingest.ingest_kb_source` once it is published.
-
-    Not for an onboarding document (`first_runs.document_ids`): its words already wrote the
-    first script. Not for a web page: onboarding takes files only."""
-    del ctx
-    tenant_id = UUID(str(payload["tenant_id"]))
-    upload_id = UUID(str(payload["upload_id"]))
-    async with tenant_session(tenant_id) as session:
-        onboarding = (
-            await session.execute(
-                text("SELECT 1 FROM first_runs WHERE :uid = ANY(document_ids)"),
-                {"uid": upload_id},
-            )
-        ).first()
-        if onboarding is not None:
-            return "onboarding_document"
-        found = await read_documents(session, [upload_id])
-        agents = await knowledge_agents(session, tenant_id=tenant_id)
-    if not found or found[0].source_kind == "url":
-        return "not_a_file"
-    document = found[0]
-    if document.state != "read":
-        return "no_words"
-    suggested = 0
-    for agent_id in agents:
-        # One transaction per agent, so one agent's refusal never costs the others theirs.
-        async with tenant_session(tenant_id) as session:
-            made = await script_proposals.request_knowledge_proposal(
-                session,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                upload_ids=[upload_id],
-                names=[document.name],
-            )
-        suggested += made is not None
-    log.info(
-        "knowledge_script_suggestions_queued",
-        extra={"upload_id": str(upload_id), "agents": len(agents), "suggested": suggested},
-    )
-    return f"suggested:{suggested}"
-
-
 __all__ = [
     "JOB_NAME",
     "KNOWLEDGE_CHANGE",
@@ -923,5 +876,4 @@ __all__ = [
     "draft_script_proposal",
     "finish_written",
     "knowledge_change",
-    "suggest_scripts_from_document",
 ]

@@ -259,16 +259,9 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "replace WHOLE profile sections",
     ),
     AreaEntry(
-        "agent_script_suggest",
-        "agents",
-        "any script change, incl. add, delete, rename or reorder steps (change); whole "
-        "script from the six answers (whole); hand-written into steps (steps); failed "
-        "tests: agent_tests_fix; a dictated value: set_fields",
-    ),
-    AreaEntry(
         "agent_tests_fix",
         "agents",
-        "fixes for failed tests; a change they describe: agent_script_suggest",
+        "fixes for failed tests; what calls say is on its Inbound line or campaign",
     ),
     AreaEntry(
         "knowledge_teach",

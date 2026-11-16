@@ -331,7 +331,7 @@ async def _plan_put_live(session: AsyncSession, actor: ToolActor, args: Mapping[
         object_id=str(parsed.agent_id),
         title="Put the script changes live",
         summary=(
-            f"Save the draft of {name}'s script, as it is in its script now, as a new "
+            f"Save the draft of {name}'s script, as it is now, as a new "
             f"version (“{summary}”)"
             + (
                 " and put it in front of callers from their next call."
@@ -532,7 +532,7 @@ async def _execute_version_restore(
     return Executed(
         applied=True,
         detail=(
-            f"Version {parsed.version} is in the draft. Review it in its script, then put "
+            f"Version {parsed.version} is in the draft, waiting on the agent's Overview. Put "
             "it live when it is right."
         ),
         audit_summary={"version": parsed.version},

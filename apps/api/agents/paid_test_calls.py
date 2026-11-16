@@ -164,15 +164,54 @@ async def read_paid_test_access(
     )
 
 
+#: A test call of this agent on the shared trial line that has not ended. Every call through
+#: the agent's test copy takes that line, so this is the copy's "a call may be on it".
+_COPY_CALL_LIVE_SQL: Final = (
+    "SELECT EXISTS (SELECT 1 FROM calls WHERE agent_id = :aid AND trial_call "
+    "AND inbound_line_id IS NULL AND status IN ('queued', 'ringing', 'in_progress') "
+    "AND created_at > now() - make_interval(secs => :horizon))"
+)
+
+
+async def copy_call_live(session: AsyncSession, agent_id: UUID) -> bool:
+    """Might a test call be on the agent's test copy right now?
+
+    One copy holds either "Just the business" or the agent with a campaign's script, and what
+    re-publishing a vendor agent does to a call in progress is not documented (OPERATIONS
+    T-28), so the copy is never re-published under a live call: the business chat and call
+    and a campaign's test call take turns on it, as they already do on the one trial line.
+    Reads `calls` rather than the vendor's connected list, which misses a call still ringing."""
+    from apps.api.compliance.trial_access import trial_line_horizon
+
+    return bool(
+        (
+            await session.execute(
+                text(_COPY_CALL_LIVE_SQL),
+                {"aid": agent_id, "horizon": trial_line_horizon().total_seconds()},
+            )
+        ).scalar()
+    )
+
+
 async def refresh_test_copy(*, tenant_id: UUID, agent_id: UUID, business: bool = False) -> str:
     """Republish the agent's current config onto its developer-workspace test copy (made again
     if it is gone) and mark it used, in its own committed transaction, before the call or chat
     that goes through it. `business` publishes it as "Just the business"
-    (`agents/business_only`). Returns the copy's handle."""
-    from apps.api.agents.service import publish_agent
+    (`agents/business_only`). Returns the copy's handle.
+
+    Refused as `trial_line_busy` while a test call may be on the copy (`copy_call_live`);
+    that call would hold the shared line anyway, so the dial behind this could not ring."""
+    from apps.api.agents.service import TRIAL_LINE_BUSY_RULE, publish_agent
+    from apps.api.core.errors import ProblemError
     from apps.api.db.session import tenant_session
 
     async with tenant_session(tenant_id) as session:
+        if await copy_call_live(session, agent_id):
+            raise ProblemError.conflict(
+                TRIAL_LINE_BUSY_RULE,
+                "Another test call is in progress.",
+                remediation="Try again in a minute.",
+            )
         ref = await publish_agent(
             session,
             tenant_id=tenant_id,
@@ -196,6 +235,7 @@ __all__ = [
     "PLACED_TODAY_SQL",
     "PaidLine",
     "PaidTestAccess",
+    "copy_call_live",
     "line_of",
     "paid_daily_cap_reason",
     "read_paid_test_access",

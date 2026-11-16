@@ -26,7 +26,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.paid_test_calls import refresh_test_copy
+from apps.api.agents.paid_test_calls import copy_call_live, refresh_test_copy
 from apps.api.agents.test_conversations import readiness
 from apps.api.agents.test_window import send_test_message
 from apps.api.billing.ai_quota import require_ai_assist
@@ -118,7 +118,9 @@ async def _business_copy(
     A new chat republishes the copy first, so it holds the agent and the training as they
     are now. A chat already running keeps the copy as it is, unless it no longer holds
     "Just the business" (a campaign's test call puts the agent, with that campaign's script,
-    on the same copy): then it is republished and the chat starts again on it."""
+    on the same copy): then it is republished and the chat starts again on it. While a test
+    call may be on the copy it is never republished (`copy_call_live`): a copy already holding
+    "Just the business" is chatted with as it is, and any other waits for that call."""
     row = (
         await session.execute(
             text(
@@ -128,8 +130,11 @@ async def _business_copy(
             {"aid": agent_id},
         )
     ).first()
-    if chat_session and row is not None and row.business_only:
-        return str(row.engine_agent_ref), chat_session
+    if row is not None and row.business_only:
+        if chat_session:
+            return str(row.engine_agent_ref), chat_session
+        if await copy_call_live(session, agent_id):
+            return str(row.engine_agent_ref), None
     ref = await refresh_test_copy(tenant_id=tenant_id, agent_id=agent_id, business=True)
     return ref, None
 

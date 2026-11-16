@@ -3,7 +3,7 @@
 import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, CircleAlert, Download, Loader2, ShieldAlert } from "lucide-react";
+import { ArrowRight, Check, Download, ShieldAlert } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { NOTICE_BAR, ProblemNotice, SECONDARY_BUTTON, SECONDARY_BUTTON_SM } from "@/components/ui";
@@ -11,7 +11,6 @@ import { handoffFor } from "@/lib/copilot/handoff";
 import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { useDownloadPreparedExport } from "@/lib/api/exports";
-import { useScriptProposal } from "@/lib/api/script";
 import { lookup } from "@/lib/lookup";
 import type { CopilotProposal } from "@/lib/copilot/types";
 
@@ -362,23 +361,14 @@ function Outcome({
   const handoff =
     realm === "client" && outcome.applied ? handoffFor(outcome.tool, session.orgSlug, outcome.object_id) : null;
   const download = outcome.download_ticket ?? null;
-  // A QUEUED request is started, not done: a job writes the result later and can fail
-  // (A-06). The script suggestion is followed to its end; anything else queued says Started.
-  const followed =
-    realm === "client" && outcome.queued && outcome.tool === SCRIPT_SUGGEST_TOOL && outcome.object_id !== "";
+  // A QUEUED request is started, not done: a job writes the result later and can fail (A-06).
   return (
     <>
-      {followed ? (
-        <ScriptSuggestionProgress session={session} agentId={outcome.object_id} />
-      ) : (
-        <>
-          <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
-            <Check aria-hidden className="h-3.5 w-3.5" />
-            {outcome.queued ? "Started" : outcome.applied ? "Done" : "Nothing to change"}
-          </p>
-          <p className="mt-1 whitespace-pre-line break-words text-xs text-ink [overflow-wrap:anywhere]">{outcome.detail}</p>
-        </>
-      )}
+      <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
+        <Check aria-hidden className="h-3.5 w-3.5" />
+        {outcome.queued ? "Started" : outcome.applied ? "Done" : "Nothing to change"}
+      </p>
+      <p className="mt-1 whitespace-pre-line break-words text-xs text-ink [overflow-wrap:anywhere]">{outcome.detail}</p>
       {(handoff || download) && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {download && (
@@ -397,67 +387,6 @@ function Outcome({
         </div>
       )}
     </>
-  );
-}
-
-/** The tool whose queued result the card follows to its end (`script_proposals`). */
-const SCRIPT_SUGGEST_TOOL = "agent_script_suggest";
-
-/**
- * A script suggestion Pip asked for, followed until it is written or fails (A-06, A-07).
- *
- * The confirm only queued the writer, so the card reads the agent's suggestion — the same
- * query the Script tab polls while it is being written — and says what really happened:
- * still writing, ready to review, or the failure note in the owner's words. No suggestion
- * at all means it was already kept or discarded on the Script tab, which the link covers.
- */
-function ScriptSuggestionProgress({ session, agentId }: { session: Session; agentId: string }) {
-  const suggestion = useScriptProposal(session, agentId);
-  const status = suggestion.data?.status;
-  if (suggestion.isError) {
-    return (
-      <p className="text-meta font-semibold text-ink-muted">
-        Started. The suggestion is on its way.
-      </p>
-    );
-  }
-  // Until this card's own first read lands, a cached suggestion is the PREVIOUS request's
-  // (the Script tab beside the drawer holds it), and its failure is not this one's.
-  if (suggestion.isPending || !suggestion.isFetchedAfterMount || status === "drafting") {
-    return (
-      <p role="status" className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
-        <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" />
-        Writing the suggestion…
-      </p>
-    );
-  }
-  if (status === "failed") {
-    return (
-      <div role="status">
-        <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
-          <CircleAlert aria-hidden className="h-3.5 w-3.5" />
-          Could not write the suggestion
-        </p>
-        {suggestion.data?.note ? (
-          <p className="mt-1 break-words text-xs text-ink [overflow-wrap:anywhere]">{suggestion.data.note}</p>
-        ) : null}
-      </div>
-    );
-  }
-  // A suggestion that kept some parts as they were says so here too, not only on the tab.
-  const kept = status === "ready" ? (suggestion.data?.left_out?.length ?? 0) : 0;
-  return (
-    <div role="status">
-      <p className="flex items-center gap-1.5 text-meta font-semibold text-ink-muted">
-        <Check aria-hidden className="h-3.5 w-3.5" />
-        {status === "ready" ? "Ready to review" : "Nothing is waiting"}
-      </p>
-      {kept > 0 ? (
-        <p className="mt-1 text-xs text-ink">
-          {kept === 1 ? "1 part is" : `${kept} parts are`} kept as you had {kept === 1 ? "it" : "them"}.
-        </p>
-      ) : null}
-    </div>
   );
 }
 

@@ -50,7 +50,6 @@ import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { asText } from "@/lib/copilot/types";
 
 import { AddArea } from "../../../knowledge/AddArea";
-import { CallInstructions } from "../../../knowledge/CallInstructions";
 import { knowledgeTally } from "../../../knowledge/WhatItKnows";
 import { countsOf, lastRunLine } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
@@ -223,7 +222,6 @@ function WhatItKnows({ slug, agent }: { slug: string; agent: Agent }) {
     <Disclosure variant="row" headingLevel={3} title="What it knows" subtitle={line}>
       <div className="space-y-6">
         {body}
-        <AgentCallInstructions agent={agent} />
         {/* The shared facts above, then which of them this agent answers at once (D-896). */}
         <KnownFactsPanel agentId={agentId} />
         <Link href={href(`/c/${slug}/knowledge`)} className={`${TEXT_ACTION} inline-flex items-center gap-1.5`}>
@@ -234,19 +232,6 @@ function WhatItKnows({ slug, agent }: { slug: string; agent: Agent }) {
       </div>
     </Disclosure>
   );
-}
-
-/** Each file's call instructions, offered to this agent's script (`CallInstructions`). */
-function AgentCallInstructions({ agent }: { agent: Agent }) {
-  const session = useClientSession();
-  const uploads = useKbUploads(session);
-  if (uploads.isPending) return null;
-  if (uploads.isError) {
-    return <ProblemNotice error={uploads.error} onRetry={() => void uploads.refetch()} />;
-  }
-  return uploads.data
-    .filter((u) => u.review_state !== "archived" && (u.call_instructions?.length ?? 0) > 0)
-    .map((u) => <CallInstructions key={u.id} upload={u} agent={{ id: agent.id, name: agent.name }} />);
 }
 
 /**

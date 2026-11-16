@@ -846,9 +846,10 @@ def _assert_has_a_script(agent: AgentRow) -> str:
             "on the phone. Putting it live now would answer your callers with a greeting "
             "that knows nothing about your business — no hours, no prices, no names."
         ),
+        # An agent has no script of its own (D-997): what it knows comes from the business,
+        # and a new agent's first body is written from it (`lifecycle.first_body_from_facts`).
         remediation=(
-            "Open this agent's script, write what it should say, and save it. Then put "
-            "it on the phone."
+            "Add what your business offers on What your agents know. Then put it on the phone."
         ),
     )
 

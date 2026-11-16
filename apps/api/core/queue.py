@@ -87,8 +87,6 @@ BULK_JOBS: Final[frozenset[str]] = frozenset(
         # Document reads: text extraction, OCR, then the vendor upload.
         "ingest_kb_source",
         "read_kb_upload",
-        # A model call per agent of the client after a document goes live.
-        "suggest_scripts_from_document",
         # Simulated test conversations and the improvement pass: many model turns each.
         "run_agent_test_conversations",
         "improve_agent_test_run",

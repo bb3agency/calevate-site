@@ -2548,26 +2548,6 @@ describe("Training shows what the agent knows (D-689: the business's knowledge, 
     expect(link.getAttribute("href")).toBe("/c/acme/knowledge");
   });
 
-  it("offers a file's call instructions to this agent's script, never as facts", async () => {
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        ...TRAINING_READS,
-        "POST /v1/kb/uploads/u-guide/call-instructions/use": { agents: 1, skipped: 0 },
-      }),
-    );
-
-    const heading = await screen.findByRole("heading", { level: 3, name: "What it knows" });
-    const panel = heading.closest("details") as HTMLElement;
-    await within(panel).findByText("2 call instructions in Calling guide.md. Not used as facts.");
-    fireEvent.click(within(panel).getByRole("button", { name: "Use in Reception's script" }));
-    await waitFor(() => {
-      const sent = calls.find((call) => call.path === "/v1/kb/uploads/u-guide/call-instructions/use");
-      expect(sent?.method).toBe("POST");
-      expect(JSON.parse(sent?.body ?? "{}")).toEqual({ agent_id: "agent-1" });
-    });
-  });
-
   it("says which facts this agent knows by heart and how many it looks up (D-896)", async () => {
     await renderClientPage(page, routes(TRAINING_READS));
 
@@ -3201,7 +3181,7 @@ describe("Try it on the business or on one of its jobs (founder, 16 Nov 2026)", 
     await renderClientPage(page, routes({ ...TRAINING_READS, "/v1/agents/agent-1/jobs": JOBS }));
     fireEvent.click(await screen.findByRole("radio", { name: /Main number/ }));
     expect(screen.getByRole("link", { name: "Open its test call" }).getAttribute("href")).toBe(
-      "/c/acme/inbound/line-1#line-test",
+      "/c/acme/inbound/line-1#line-test-call",
     );
     // The chat and the call are the business's only; a job is tried where it is written.
     expect(screen.queryByLabelText("What the caller says")).toBeNull();

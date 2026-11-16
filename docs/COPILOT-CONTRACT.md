@@ -465,6 +465,9 @@ one moved; `agent_script_suggest` is its tool.
   and `DELETE /v1/agents/{id}/script/proposal/{proposal_id}` (`org:manage`, after keeping or
   to discard). Tests: `apps/api/copilot/script_actions_test.py`; tool choice: the
   `c-script-*` cases in `tests/fixtures/copilot_tool_choice.json`.
+* **Retired (D-997, 16 Nov 2026):** `agent_script_suggest` and the new-file suggestion
+  below. An agent has no script of its own and no Script tab to keep a suggestion on; what a
+  call says is written on its Inbound line or campaign. `agent_tests_fix` stays.
 * **A suggestion nobody asked Pip for: a new file (D-923).** A fourth stored mode,
   `knowledge` (`script_proposals.KNOWLEDGE_MODE`), is never a `mode` Pip's tool takes. When a
   file added to the knowledge after onboarding goes live, `kb_ingest.ingest_kb_source` queues

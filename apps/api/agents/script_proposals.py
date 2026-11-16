@@ -63,7 +63,6 @@ from apps.api.agents.write_guard import archived_refusal
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.engine import engine_capabilities
-from apps.api.first_run.models import MAX_DOCUMENTS
 from apps.api.reliability.service import enqueue_outbox, enqueue_outbox_once
 from apps.workers.script_assist import (
     OWNER_QUESTIONS,
@@ -75,9 +74,6 @@ from apps.workers.script_assist import (
 
 #: The outbox job that writes a requested proposal (`workers/script_proposal.py`).
 PROPOSAL_JOB: Final = "draft_script_proposal"
-#: The outbox job that queues a `knowledge` proposal for every agent once a file added to the
-#: knowledge is live (`workers/script_proposal.suggest_scripts_from_document`, D-923).
-SUGGEST_JOB: Final = "suggest_scripts_from_document"
 
 #: `change`: one change in the person's words to the script in steps. `whole`: the whole
 #: script from the owner's answers to `OWNER_QUESTIONS`. `steps`: a hand-written script
@@ -542,95 +538,6 @@ async def _request(
     }
     if mistake_kind is not None:
         record["mistake_kind"] = mistake_kind
-    await session.execute(
-        text("UPDATE agents SET script_proposal = CAST(:p AS jsonb) WHERE id = :aid"),
-        {"aid": agent_id, "p": json.dumps(record)},
-    )
-    await enqueue_outbox(
-        session,
-        job=PROPOSAL_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "agent_id": str(agent_id),
-            "proposal_id": str(proposal_id),
-        },
-    )
-    return _parse(record, now=now)
-
-
-async def queue_document_suggestions(
-    session: AsyncSession, *, tenant_id: UUID, upload_id: UUID
-) -> None:
-    """Queue `SUGGEST_JOB` for a file now live in the knowledge, in the caller's transaction.
-    Once per upload, so a re-drive or a re-read of the same upload never suggests it twice."""
-    await enqueue_outbox_once(
-        session,
-        job=SUGGEST_JOB,
-        payload={"tenant_id": str(tenant_id), "upload_id": str(upload_id)},
-        dedupe_key=f"{SUGGEST_JOB}:{upload_id}",
-    )
-
-
-#: The most documents one `knowledge` proposal is written from, the newest kept: onboarding's
-#: limit, so their shared word budget (`first_run.models.DOCUMENT_CHARS`) is never split
-#: thinner than it is there.
-MAX_KNOWLEDGE_DOCUMENTS: Final = MAX_DOCUMENTS
-
-
-async def request_knowledge_proposal(
-    session: AsyncSession,
-    *,
-    tenant_id: UUID,
-    agent_id: UUID,
-    upload_ids: list[UUID],
-    names: list[str],
-) -> ScriptProposal | None:
-    """Queue a `knowledge` proposal for one agent (D-923), in the caller's transaction, or
-    None when the agent is gone or a suggestion the owner asked for is waiting.
-
-    A waiting `knowledge` proposal is replaced by one written from its documents and these,
-    so two uploads in a row give one suggestion carrying both. One the owner asked Pip for is
-    never replaced: their request is theirs, and a document can be suggested again by
-    dismissing it and re-adding the file."""
-    found = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM agents WHERE id = :aid AND deleted_at IS NULL "
-                "AND status <> 'archived' FOR UPDATE"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if found is None:
-        return None
-    pending = await read_proposal(session, agent_id)
-    earlier: dict[UUID, str] = {}
-    if pending is not None:
-        if pending.mode != KNOWLEDGE_MODE and pending.status != "failed":
-            return None
-        if pending.mode == KNOWLEDGE_MODE:
-            earlier = dict(zip(pending.documents, pending.document_names, strict=False))
-    chosen = list({**earlier, **dict(zip(upload_ids, names, strict=True))}.items())
-    chosen = chosen[-MAX_KNOWLEDGE_DOCUMENTS:]
-    base = await working_script(session, agent_id)
-    if base.raw_override:
-        # A script written as one piece has no parts to work a document into; turning it
-        # into steps is the owner's call (`steps`).
-        return None
-    proposal_id = uuid7()
-    now = datetime.now(UTC)
-    record = {
-        "id": str(proposal_id),
-        "mode": KNOWLEDGE_MODE,
-        "status": "drafting",
-        "request": None,
-        "answers": {},
-        "documents": [str(upload) for upload, _ in chosen],
-        "document_names": [name for _, name in chosen],
-        "base_script": base.model_dump(mode="json"),
-        "requested_by": None,
-        "requested_at": now.isoformat(),
-    }
     await session.execute(
         text("UPDATE agents SET script_proposal = CAST(:p AS jsonb) WHERE id = :aid"),
         {"aid": agent_id, "p": json.dumps(record)},
@@ -1118,7 +1025,6 @@ __all__ = [
     "KNOWLEDGE_MODE",
     "MAX_ANSWER_CHARS",
     "MAX_CHANGE_CHARS",
-    "MAX_KNOWLEDGE_DOCUMENTS",
     "MIN_REQUEST_CHARS",
     "OPENING_MODE",
     "PROPOSAL_JOB",
@@ -1126,7 +1032,6 @@ __all__ = [
     "STALE_NOTE",
     "STARTER_MODE",
     "SUGGESTION_WAITING",
-    "SUGGEST_JOB",
     "TOO_BIG_NOTE",
     "WRITTEN_MODE",
     "ProposalMode",
@@ -1143,9 +1048,7 @@ __all__ = [
     "left_out_record",
     "owner_rule",
     "part_label",
-    "queue_document_suggestions",
     "read_proposal",
-    "request_knowledge_proposal",
     "request_opening_proposal",
     "request_proposal",
     "request_text",

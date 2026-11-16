@@ -24,9 +24,14 @@ from sqlalchemy import text
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES, job_try
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.go_live.moves import agents_to_move, move_agent, queue_agent_move
-from apps.api.tenancy.engine_workspace import engine_has_workspaces, read_workspace_state
+from apps.api.tenancy.engine_workspace import (
+    active_workspaces,
+    engine_has_workspaces,
+    read_workspace_state,
+)
+from apps.workers.fleet_walk import WalkBudget, resumed_walk
 from apps.workers.workspace_walk import WalkReport, walk_workspaces
 
 log = get_logger(__name__)
@@ -83,12 +88,21 @@ _COPIES_SQL: Final = (
 )
 
 
-async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str) -> int:
+#: Accounts with an engine agent of ours, read untenanted (`engine_agent_routes`' read arm
+#: for a session with no tenant): every test copy has a route, and `agent_test_copies`
+#: itself is visible only inside its own account.
+_ROUTED_TENANTS_SQL: Final = (
+    "SELECT DISTINCT tenant_id FROM engine_agent_routes WHERE active AND tenant_id IS NOT NULL"
+)
+
+
+async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str | None) -> int:
     """Owe the retirement of the tenant's developer-workspace test copies (D-859, option A):
     those unused for `paid_test_copy_idle_days`, and once the client has a number of its own
     in its workspace every copy kept for its test calls. A "Just the business" copy
     (`agents/business_only`) is the agent page's chat and test calls whatever numbers the
-    client has, so only idleness retires it. The next use makes a copy again."""
+    client has, so only idleness retires it. With no `workspace` (an account still on its
+    free trial) only idleness retires any copy. The next use makes a copy again."""
     from apps.api.agents.service import retire_engine_agent
 
     copies = (
@@ -96,7 +110,7 @@ async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str) 
     ).all()
     if not copies:
         return 0
-    own = any(
+    own = workspace is not None and any(
         scope_of(str(ref)) == workspace
         for ref in (await session.execute(text(_OWN_NUMBERS_SQL))).scalars()
     )
@@ -107,6 +121,23 @@ async def _retire_test_copies(session: Any, *, tenant_id: UUID, workspace: str) 
                 session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), ref=str(ref)
             )
             retired += 1
+    return retired
+
+
+async def _retire_copies_outside_workspaces() -> int:
+    """Retire the idle test copies of accounts with no active workspace of their own.
+
+    A free-trial account's "Just the business" copy (`agents/business_only`) is made in our
+    developer workspace like every test copy, and that workspace's agents count against one
+    plan cap shared by every trial; the workspace walk above visits only client workspaces,
+    so without this pass those copies would never be retired."""
+    async with untenanted_session() as directory:
+        routed = {UUID(str(r[0])) for r in (await directory.execute(text(_ROUTED_TENANTS_SQL)))}
+    outside = sorted(routed - {row.tenant_id for row in await active_workspaces()})
+    retired = 0
+    async for tenant_id in resumed_walk("agent_test_copies_outside", outside, WalkBudget()):
+        async with tenant_session(tenant_id) as session:
+            retired += await _retire_test_copies(session, tenant_id=tenant_id, workspace=None)
     return retired
 
 
@@ -137,6 +168,7 @@ async def sweep_agent_moves(ctx: dict[str, Any]) -> str:
             queued += await queue_agent_move(
                 session, tenant_id=visit.tenant_id, workspace=visit.workspace, tick=tick
             )
+    copies_retired += await _retire_copies_outside_workspaces()
     log.info(
         "agent_move_sweep",
         extra={

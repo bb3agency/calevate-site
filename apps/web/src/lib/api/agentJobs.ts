@@ -15,7 +15,7 @@ export type AgentJobs = components["schemas"]["AgentJobsOut"];
 export type AgentJob = components["schemas"]["AgentJobOut"];
 
 /** The fold on an Inbound line's page that holds its test call. */
-export const LINE_TEST_ANCHOR = "line-test";
+export const LINE_TEST_ANCHOR = "line-test-call";
 /** The fold on a draft campaign's page that holds its test call. */
 export const CAMPAIGN_TEST_ANCHOR = "campaign-test";
 

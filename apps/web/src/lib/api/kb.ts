@@ -199,25 +199,6 @@ export function useKbUpload(session: Session, upload: KbUpload): UseQueryResult<
  * words a reader shows (`kbUploadTextKey`).
  */
 export type CallInstruction = Schemas["CallInstructionOut"];
-export type UseInstructionsResult = Schemas["UseInstructionsOut"];
-
-/**
- * Write a file's call instructions into one agent's script (or every agent's), as a
- * suggestion the owner reviews on the Script page. Nothing reaches a live agent here.
- */
-export function useUseCallInstructions(session: Session) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ uploadId, agentId }: { uploadId: string; agentId?: string }) =>
-      apiRequest<UseInstructionsResult>(session, `/v1/kb/uploads/${uploadId}/call-instructions/use`, {
-        method: "POST",
-        body: agentId ? { agent_id: agentId } : {},
-      }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["script-proposal", session.orgSlug] });
-    },
-  });
-}
 
 function invalidateKnowledge(client: ReturnType<typeof useQueryClient>, session: Session): void {
   void client.invalidateQueries({ queryKey: ["kb-uploads", session.orgSlug] });

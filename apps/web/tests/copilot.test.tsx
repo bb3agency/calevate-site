@@ -196,8 +196,6 @@ function stubCopilot(options: {
   conversation?: { turns: unknown[]; has_more: boolean };
   plan?: Record<string, unknown>;
   download?: string;
-  /** The agent's script suggestion, as `GET /v1/agents/{id}/script/proposal` answers. */
-  scriptProposal?: Record<string, unknown> | null;
 }) {
   const bodies: string[] = [];
   const confirms: string[] = [];
@@ -278,12 +276,6 @@ function stubCopilot(options: {
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
-      }
-      if (options.scriptProposal !== undefined && /^\/v1\/agents\/[^/]+\/script\/proposal$/.test(path)) {
-        return new Response(JSON.stringify({ proposal: options.scriptProposal }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
       }
       if (options.plan && path.startsWith("/v1/copilot/plans/")) {
         // D-893: a plan proposal's card reads the plan it names.
@@ -978,79 +970,6 @@ describe("a proposal", () => {
     expect(
       screen.queryAllByText("Suggestion — nothing has happened yet").length,
     ).toBe(0);
-  });
-
-  it("follows a QUEUED script suggestion to its end and never calls it Done (A-06, A-07)", async () => {
-    const agentId = "0192f0aa-0000-7000-8000-00000000a001";
-    stubCopilot({
-      chunks: proposalChunks({ ...PROPOSAL, tool: "agent_script_suggest", object_type: "agent", object_id: agentId }),
-      confirm: {
-        status: 200,
-        body: {
-          tool: "agent_script_suggest",
-          object_type: "agent",
-          object_id: agentId,
-          applied: true,
-          queued: true,
-          detail: "Writing it now. In about half a minute it is on Varsha's Script tab.",
-        },
-      },
-      scriptProposal: { id: "p1", status: "failed", note: "The suggestion could not be written. Try again." },
-    });
-    renderPanel();
-    await ask("rewrite the opening of my script");
-    await screen.findByRole("button", { name: /^Confirm — / });
-    await clickConfirm();
-
-    expect(await screen.findByText("Could not write the suggestion")).toBeTruthy();
-    expect(screen.getByText("The suggestion could not be written. Try again.")).toBeTruthy();
-    expect(screen.queryAllByText("Done").length).toBe(0);
-  });
-
-  it("never shows the LAST suggestion's failure as this one's while its first read is on the way (audit 10 Nov Y2-02)", async () => {
-    const agentId = "0192f0aa-0000-7000-8000-00000000a001";
-    stubCopilot({
-      chunks: proposalChunks({ ...PROPOSAL, tool: "agent_script_suggest", object_type: "agent", object_id: agentId }),
-      confirm: {
-        status: 200,
-        body: {
-          tool: "agent_script_suggest",
-          object_type: "agent",
-          object_id: agentId,
-          applied: true,
-          queued: true,
-          detail: "Writing it now. In about half a minute it is on Varsha's Script tab.",
-        },
-      },
-    });
-    // The suggestion read is slow to answer (it shares the moment with every other read
-    // the confirm refreshes), so the card has only what is already cached to go on.
-    const stubbed = globalThis.fetch;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
-        /\/script\/proposal$/.test(String(input)) ? new Promise<Response>(() => {}) : stubbed(input, init),
-      ),
-    );
-    // The Script tab beside the drawer already holds the previous request, which failed.
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    client.setQueryData(["script-proposal", SESSION.orgSlug, agentId], {
-      id: "older",
-      status: "failed",
-      note: "The last suggestion could not be written.",
-    });
-    render(
-      <QueryClientProvider client={client}>
-        <DraftScreen />
-        <PanelMount />
-      </QueryClientProvider>,
-    );
-    await ask("rewrite the opening of my script");
-    await clickConfirm();
-
-    expect(await screen.findByText("Writing the suggestion…")).toBeTruthy();
-    expect(screen.queryByText("Could not write the suggestion")).toBeNull();
-    expect(screen.queryByText("The last suggestion could not be written.")).toBeNull();
   });
 
   it("says STARTED, not Done, for any other queued change", async () => {
