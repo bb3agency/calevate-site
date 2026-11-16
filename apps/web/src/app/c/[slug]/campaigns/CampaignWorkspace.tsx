@@ -3,7 +3,7 @@
 /**
  * A CAMPAIGN'S OWN WORK (D-992): what it should achieve, what it works from, and the script
  * its calls follow. The campaign owns what is said; the agent is the voice, and Start puts
- * only this script live on it.
+ * this script on the campaign's own calling agent, never on the agent itself (D-1003).
  *
  * Three sections, each with its own colour so the eye keeps them apart:
  *  1. Main task — a green rule: the owner's words, many lines.
@@ -54,7 +54,7 @@ export const MAIN_TASK_PLACEHOLDER =
   "For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone.";
 export const SCRIPT_HINT = "What the agent says on each call.";
 export const SCRIPT_INFO =
-  "Pip writes it from your main task and sources; change anything, any time. Start puts only this script on the agent.";
+  "Pip writes it from your main task and sources; change anything, any time. Only this campaign's calls say it; your agent's own script stays as it is.";
 
 export function CampaignWorkspace({
   campaignId,
@@ -449,9 +449,6 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 >
                   Edit script
                 </button>
-                {space.script_live_version != null && (
-                  <span className="text-meta text-ink-muted">On the agent since the last Start (version {space.script_live_version}).</span>
-                )}
               </div>
               <CampaignFlow
                 agentId={space.agent_id}

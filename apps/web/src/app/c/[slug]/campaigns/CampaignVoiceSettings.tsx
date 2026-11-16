@@ -23,6 +23,8 @@ import {
 } from "@/lib/api/campaignWorkspace";
 import { useClientRealm } from "@/lib/api/session";
 
+import { notesTakeEffect } from "./CampaignNotes";
+
 type Key =
   | "language_primary"
   | "speaking_speed"
@@ -123,11 +125,14 @@ const ROWS: { key: Key; label: string; hint?: string }[] = [
 export function CampaignVoiceSettings({
   campaignId,
   agentId,
+  status,
   canWrite,
   refusal,
 }: {
   campaignId: string;
   agentId: string;
+  /** The campaign's status, which says when a save reaches its calls. */
+  status?: string | null;
   canWrite: boolean;
   refusal?: string;
 }) {
@@ -266,6 +271,13 @@ export function CampaignVoiceSettings({
           </button>
         )}
       </div>
+      {/* Said after the save, not only behind the (i): a running campaign that keeps its old
+          settings until its next call would otherwise read as ignoring them. */}
+      {save.isSuccess && !dirty && (
+        <p role="status" className="mt-2 text-meta text-ink-muted">
+          Saved. {data.applied_now ? "On its calls now." : notesTakeEffect(false, status)}
+        </p>
+      )}
     </section>
   );
 }

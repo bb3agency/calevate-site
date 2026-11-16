@@ -487,9 +487,10 @@ export function AgentSection({
   campaignId,
   agentId,
   editable,
+  status,
   canWrite,
   refusal,
-}: Omit<Common, "slug"> & { agentId: string; editable: boolean }) {
+}: Omit<Common, "slug"> & { agentId: string; editable: boolean; status?: string | null }) {
   const { session } = useClientRealm();
   const agents = useAgents(session);
   const update = useUpdateCampaign(session, campaignId);
@@ -526,7 +527,13 @@ export function AgentSection({
       )}
       {!editable && <p className="text-meta text-ink-muted">It is archived. Restore it to change the agent.</p>}
       {update.error != null && <ProblemNotice error={update.error} />}
-      <CampaignVoiceSettings campaignId={campaignId} agentId={agentId} canWrite={canWrite} refusal={refusal} />
+      <CampaignVoiceSettings
+        campaignId={campaignId}
+        agentId={agentId}
+        status={status}
+        canWrite={canWrite}
+        refusal={refusal}
+      />
     </div>
     </FoldSection>
   );
