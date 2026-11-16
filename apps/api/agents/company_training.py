@@ -271,10 +271,17 @@ async def save_training(
 
 
 async def request_proposal(
-    session: AsyncSession, *, tenant_id: UUID, requested_by: UUID | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    requested_by: UUID | None,
+    auto_save: bool = False,
 ) -> TrainingProposal:
     """Ask Pip for the training. Needs an overview; replaces a ready draft; refused while one
-    is still being written, so a second click does not spend twice."""
+    is still being written, so a second click does not spend twice.
+
+    `auto_save`: the draft is saved as the training as soon as it is written, with no review,
+    while no training has been saved yet (the first run's version 1, founder 16 Nov 2026)."""
     row = await _row(session, tenant_id, lock=True)
     if not (row.overview or "").strip():
         raise _invalid(
@@ -298,6 +305,8 @@ async def request_proposal(
         "requested_by": None if requested_by is None else str(requested_by),
         "base_training": row.training,
     }
+    if auto_save:
+        record["auto_save"] = True
     await session.execute(
         text("UPDATE company_trainings SET proposal = CAST(:p AS jsonb) WHERE tenant_id = :t"),
         {"p": json.dumps(record), "t": tenant_id},

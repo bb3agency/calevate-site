@@ -114,6 +114,13 @@ class BuildOut(Strict):
     builds_left: int
 
 
+class DefaultAgentOut(Strict):
+    name: str
+    #: A catalogue voice id, or null: a woman's voice is chosen for the agent's language.
+    voice_id: str | None
+    gender: str
+
+
 class FirstRunOut(Strict):
     #: Is this account's owner still on their first run? The sign-in junction sends them here
     #: while it is.
@@ -132,6 +139,26 @@ class FirstRunOut(Strict):
     recordings_left: int = Field(ge=0, le=MAX_RECORDINGS)
     finished_at: datetime | None
     dismissed_at: datetime | None
+    #: The inbound line "Answer my calls" drafted for the agent, or null.
+    line_id: UUID | None = None
+    #: The campaign "Call people" drafted for the agent, or null.
+    campaign_id: UUID | None = None
+    #: The name and voice a new agent starts with (the default agent), for "Name and voice".
+    default_agent: DefaultAgentOut
+
+
+class AgentIn(Strict):
+    """"Name and voice": the agent made, or renamed before its first call."""
+
+    name: str = Field(min_length=1, max_length=60)
+    language_primary: OfferedLanguage
+    languages_extra: list[OfferedLanguage] = Field(default_factory=list, max_length=3)
+
+
+class WorkIn(Strict):
+    """"What first?": `answer_calls` drafts an inbound line, `call_leads` a campaign."""
+
+    job: Literal["answer_calls", "call_leads"]
 
 
 class JobIn(Strict):
@@ -197,8 +224,11 @@ class RecordingOut(Strict):
 
 
 __all__ = [
+    "AgentIn",
     "AnswerIn",
     "AnswersIn",
+    "DefaultAgentOut",
+    "WorkIn",
     "BriefIn",
     "BuildOut",
     "BuildStepOut",

@@ -211,6 +211,7 @@ from apps.workers.field_suggestions import rebuild_collect, suggest_lead_details
 from apps.workers.first_run import (
     build_first_agent,
     hear_first_run_recording,
+    switch_on_first_notice,
     write_first_run_questions,
 )
 from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
@@ -489,6 +490,7 @@ FUNCTIONS: list[Any] = [
         hear_first_run_recording,
         write_first_run_questions,
         build_first_agent,
+        switch_on_first_notice,
         # An account's AI-written examples and suggestions (D-827), from the outbox
         # (`tenancy/business_copy.queue_generation` and `sweep_business_copies`).
         generate_business_copy,

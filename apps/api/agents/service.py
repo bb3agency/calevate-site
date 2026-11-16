@@ -3895,13 +3895,22 @@ async def line_config(
     )
 
 
-async def publish_line(session: AsyncSession, *, tenant_id: UUID, line_id: UUID) -> str:
+async def publish_line(
+    session: AsyncSession, *, tenant_id: UUID, line_id: UUID, test: bool = False
+) -> str:
     """Create or update an inbound line's own engine agent (D-997): its agent's config, voice,
     settings, notices and the company training, over the line's script, with the agent's
     actions the line switches off left out. Read back like every publish, routed for intake
     (`engine_agent_routes.inbound_line_id`), given its results webhook, the client's
     knowledge and the in-call actions. A vendor agent this publish created and could not
     finish is reclaimed.
+
+    `test=True` publishes it as a TEST HOLDER, for the owner's test call (Phase 3b): the same
+    engine agent, but `published_at` is left as it was, so a draft line stays a draft and no
+    number is routed to it (`route_line_numbers` routes live lines only). A free-trial
+    account has no workspace of its own, so its test holder is made in our developer
+    workspace, where the shared trial line rings (D-697); its first live publish after payment
+    recreates it in the client's workspace (`_moves_workspace`).
 
     The line's numbers are not touched here: `inbound/publish.put_line_live` attaches them
     after this commits, so a number never points at an agent the transaction rolled away."""
@@ -3923,15 +3932,19 @@ async def publish_line(session: AsyncSession, *, tenant_id: UUID, line_id: UUID)
     config = await line_config(session, tenant_id=tenant_id, line_id=line_id, agent=agent)
     refuse_over_engine_limits(engine, config)
     await refuse_unpriced_engine(session, engine)
+    if test:
+        # A test holder rings the owner, so the agreements are asked as for a test copy.
+        await assert_agreements_accepted(session, tenant_id=tenant_id)
+    in_developer = test and await restricting_trial(session, tenant_id=tenant_id) is not None
     voice_choice, model_choice = _engine_choice(agent, engine=engine)
     rate_key = await engine_rate_key_for(
         session, engine, voice_id=voice_choice, model_id=model_choice
     )
     config = await _in_client_workspace(
-        session, engine, tenant_id=tenant_id, agent=agent, config=config
+        session, engine, tenant_id=tenant_id, agent=agent, config=config, trial=in_developer
     )
     await _studio_in_client_workspace(
-        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=False
+        session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config, trial=in_developer
     )
     config, rate_key = await _own_model_in_workspace(
         session, engine, tenant_id=tenant_id, rate_key=rate_key, config=config
@@ -3943,6 +3956,9 @@ async def publish_line(session: AsyncSession, *, tenant_id: UUID, line_id: UUID)
     if existing_ref:
         await engine.update_agent(existing_ref, config)
         ref = existing_ref
+    elif in_developer:
+        with trial_agent_in_developer_workspace():
+            ref = await engine.create_agent(config)
     else:
         ref = await engine.create_agent(config)
     # A line answers real callers, so it gets the agent's read-back: the notices, the
@@ -3964,8 +3980,9 @@ async def publish_line(session: AsyncSession, *, tenant_id: UUID, line_id: UUID)
         )
     await session.execute(
         text(
-            "UPDATE inbound_lines SET engine_agent_ref = :ref, published_at = now(), "
-            "updated_at = now() WHERE id = :lid"
+            "UPDATE inbound_lines SET engine_agent_ref = :ref, "
+            + ("" if test else "published_at = now(), ")
+            + "updated_at = now() WHERE id = :lid"
         ),
         {"ref": ref, "lid": line_id},
     )
@@ -4020,12 +4037,15 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     """Bring every published line in `agent_id`'s voice onto the agent's current config: a
     voice, setting, notice, action or company-training change reaches the calls its lines
     answer, as `republish_running_variants` does for arms. Each line keeps its own script.
+    A draft's test holder is left alone: it answers no caller, and its test call republishes
+    it first (`inbound/publish.line_test_dial`), so an agent edit is never refused for it.
     Returns how many were republished."""
     rows = (
         await session.execute(
             text(
                 "SELECT id FROM inbound_lines WHERE agent_id = :aid AND archived_at IS NULL "
-                "AND engine_agent_ref IS NOT NULL AND script IS NOT NULL ORDER BY created_at, id"
+                "AND engine_agent_ref IS NOT NULL AND published_at IS NOT NULL "
+                "AND script IS NOT NULL ORDER BY created_at, id"
             ),
             {"aid": agent_id},
         )
@@ -4118,21 +4138,24 @@ class CallerLine:
     engine_number_ref: str | None
 
 
-async def caller_lines(session: AsyncSession, *, agent_id: UUID) -> list[CallerLine]:
+async def caller_lines(
+    session: AsyncSession, *, agent_id: UUID, dial_ref: str | None = None
+) -> list[CallerLine]:
     """Every number this agent can place calls from, its own first, then oldest first.
 
     On an engine that rings only from numbers it holds, a number in another workspace than
     the agent's is left out: the platform cannot lend it across workspaces
     (`engine_number_other_workspace`), so offering it only turns every dial into a refusal
     (a Calevate-held number recorded for a client before it is moved into the client's own
-    workspace is exactly that)."""
+    workspace is exactly that). `dial_ref` is the engine agent the call rings through when
+    it is not the agent's own (an inbound line's test holder), whose workspace decides."""
     carrier = outbound_number_provider()
     rows = (
         await session.execute(text(_AGENT_CALLER_ID_SQL), {"aid": agent_id, "carrier": carrier})
     ).all()
     agent_scope: str | None = None
     if carrier is not None:
-        agent_ref = (
+        agent_ref = dial_ref or (
             await session.execute(
                 text("SELECT engine_agent_ref FROM agents WHERE id = :aid"), {"aid": agent_id}
             )
@@ -4209,6 +4232,19 @@ async def choose_caller_line(
     return lines[0] if lines else None
 
 
+async def _line_test_caller(
+    session: AsyncSession, *, agent_id: UUID, test: LineTestDial
+) -> CallerLine | None:
+    """The number a line's test call rings from on the client's own line: one the engine
+    already routes to the line's holder needs no lend; otherwise the client's first number in
+    the holder's workspace is lent to it for the call, as for an agent with no number."""
+    lines = await caller_lines(session, agent_id=agent_id, dial_ref=test.ref)
+    routed = [line for line in lines if line.number_id in test.routed_number_ids]
+    if routed:
+        return replace(routed[0], own=True)
+    return replace(lines[0], own=False) if lines else None
+
+
 async def _assert_dialling_tenant_owns_the_session(
     session: AsyncSession, *, tenant_id: UUID
 ) -> None:
@@ -4255,6 +4291,19 @@ async def _assert_dialling_tenant_owns_the_session(
             "dispatch_call was given a tenant-scoped session for a different tenant "
             "than the dial it was asked to place"
         )
+
+
+@dataclass(frozen=True, slots=True)
+class LineTestDial:
+    """A test call rung through an inbound line's own engine agent (Phase 3b), not the
+    agent's: the line's test holder (`publish_line(test=True)`). Built only by
+    `inbound/publish.line_test_dial`, and only with a `TrialDial` or an `OwnerTestDial`."""
+
+    ref: str
+    line_id: UUID
+    #: The line's numbers the engine already routes to `ref` (a live line's): a dial from one
+    #: needs no lend. Any other number of the client is lent to `ref` for the call.
+    routed_number_ids: frozenset[UUID] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -4437,8 +4486,13 @@ async def dispatch_call(
     rings_at_any_hour: bool = False,
     contact_details: dict[str, str] | None = None,
     opening_line: str | None = None,
+    line_test: LineTestDial | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
+
+    `line_test` rings through an inbound line's test holder rather than the agent's own
+    engine agent (Phase 3b): the agent need not be published itself, the call row carries
+    the line, and it opens as an answering agent's test call does.
 
     `opening_line` is a campaign's own opening for this call (its A/B test, D-992). It goes
     through `campaign_first_words`, which puts the agent's switched-on notices beside any
@@ -4526,10 +4580,12 @@ async def dispatch_call(
         # Only a test call can be exempt from the window; a campaign, callback or lead dial
         # that asked for it would be a night call to the public.
         raise ValueError("rings_at_any_hour is for a test call only")
+    if line_test is not None and trial is None and owner_test is None:
+        raise ValueError("line_test is for a test call only")
     await _assert_dialling_tenant_owns_the_session(session, tenant_id=tenant_id)
 
     agent = await _load_agent(session, tenant_id, agent_id)
-    ref = agent["engine_agent_ref"]
+    ref = line_test.ref if line_test is not None else agent["engine_agent_ref"]
     if not isinstance(ref, str) or not ref:
         raise ProblemError.business_rule(
             "agent_not_published",
@@ -4544,6 +4600,8 @@ async def dispatch_call(
     line = (
         None
         if trial is not None
+        else await _line_test_caller(session, agent_id=agent_id, test=line_test)
+        if line_test is not None
         else await choose_caller_line(session, agent_id=agent_id, number_id=number_id)
     )
     from_e164 = trial.from_e164 if trial is not None else line.e164 if line else None
@@ -4611,14 +4669,15 @@ async def dispatch_call(
         await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, from_e164, "
-                "to_e164, trial_call, paid_test_call, status, created_at, updated_at) VALUES (:id, "
-                ":tid, :aid, :ecid, 'outbound', :from_e, :to_e, :trial, :owner_test, 'queued', "
-                "now(), now())"
+                "to_e164, trial_call, paid_test_call, inbound_line_id, status, created_at, "
+                "updated_at) VALUES (:id, :tid, :aid, :ecid, 'outbound', :from_e, :to_e, :trial, "
+                ":owner_test, :line, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
                 "tid": tenant_id,
                 "aid": agent_id,
+                "line": line_test.line_id if line_test is not None else None,
                 "ecid": intent_engine_call_id,
                 # Our number when we chose it, so a call still ringing can say where it rings
                 # from (D-885); null leaves it to the engine's report at the end.
@@ -4700,7 +4759,13 @@ async def dispatch_call(
                     else None
                 ),
                 opening=(
-                    campaign_first_words(
+                    # A line answers calls, so its test call opens as an answering agent's.
+                    trial_call_first_words(
+                        cast(AgentRow, {**agent, "direction": "inbound"}),
+                        call_is_recorded=engine.capabilities.records_audio,
+                    )
+                    if line_test is not None
+                    else campaign_first_words(
                         agent, opening_line, call_is_recorded=engine.capabilities.records_audio
                     )
                     if opening_line and opening_line.strip()

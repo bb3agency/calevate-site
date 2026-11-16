@@ -3367,6 +3367,54 @@
         "title": "AgentHolderOut",
         "type": "object"
       },
+      "AgentIn": {
+        "additionalProperties": false,
+        "description": "\"Name and voice\": the agent made, or renamed before its first call.",
+        "properties": {
+          "language_primary": {
+            "enum": [
+              "te-IN",
+              "hi-IN",
+              "en-IN",
+              "ta-IN",
+              "kn-IN",
+              "ml-IN",
+              "mr-IN"
+            ],
+            "title": "Language Primary",
+            "type": "string"
+          },
+          "languages_extra": {
+            "items": {
+              "enum": [
+                "te-IN",
+                "hi-IN",
+                "en-IN",
+                "ta-IN",
+                "kn-IN",
+                "ml-IN",
+                "mr-IN"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Languages Extra",
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "language_primary"
+        ],
+        "title": "AgentIn",
+        "type": "object"
+      },
       "AgentKnowledgeItemOut": {
         "additionalProperties": false,
         "properties": {
@@ -14513,6 +14561,17 @@
             ],
             "title": "Blocked Reason"
           },
+          "blocked_rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked Rule"
+          },
           "call_id": {
             "anyOf": [
               {
@@ -23341,6 +23400,37 @@
         "title": "DeclineIn",
         "type": "object"
       },
+      "DefaultAgentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "gender": {
+            "title": "Gender",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "voice_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voice Id"
+          }
+        },
+        "required": [
+          "name",
+          "voice_id",
+          "gender"
+        ],
+        "title": "DefaultAgentOut",
+        "type": "object"
+      },
       "DeleteCampaignOut": {
         "additionalProperties": false,
         "description": "`deleted`: the draft is gone. A campaign that already made calls is never deleted\n(409 `campaign_has_history`); it is archived instead (F-10).",
@@ -27892,6 +27982,21 @@
           "build": {
             "$ref": "#/components/schemas/BuildOut"
           },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "default_agent": {
+            "$ref": "#/components/schemas/DefaultAgentOut"
+          },
           "dismissed_at": {
             "anyOf": [
               {
@@ -27963,6 +28068,18 @@
             "title": "Languages Extra",
             "type": "array"
           },
+          "line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Id"
+          },
           "questions": {
             "$ref": "#/components/schemas/QuestionsOut"
           },
@@ -27986,7 +28103,8 @@
           "build",
           "recordings_left",
           "finished_at",
-          "dismissed_at"
+          "dismissed_at",
+          "default_agent"
         ],
         "title": "FirstRunOut",
         "type": "object"
@@ -68045,6 +68163,25 @@
         "title": "WordingIn",
         "type": "object"
       },
+      "WorkIn": {
+        "additionalProperties": false,
+        "description": "\"What first?\": `answer_calls` drafts an inbound line, `call_leads` a campaign.",
+        "properties": {
+          "job": {
+            "enum": [
+              "answer_calls",
+              "call_leads"
+            ],
+            "title": "Job",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "title": "WorkIn",
+        "type": "object"
+      },
       "WorkspaceFailureOut": {
         "additionalProperties": false,
         "properties": {
@@ -94166,6 +94303,45 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/first-run/agent": {
+      "put": {
+        "description": "The first time, the agent is made with this name and languages and the default agent's voice (a woman's voice for its language when the default names none); it has no script of its own. Pip then drafts the company training from the owner's words and saves it as version 1, within the account's AI allowance. Later, the same agent is renamed and its languages changed, until it is set up for calls (`first_run_rename_after_ready`). Its voice is changed with the voice picker.",
+        "operationId": "put_agent_v1_first_run_agent_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Name and voice: make the first agent, or rename it before its first call",
+        "tags": [
+          "first-run"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
     "/v1/first-run/answers": {
       "post": {
         "description": "Each answer names its question by `id` and uses the field its kind asks for (`choices` for `choices` and `single_choice`, which takes exactly one; `text` for `text` and `address`; `services`; `hours`), and is refused with `first_run_answer_mismatch` otherwise. Every answer is kept with its question and given to the script writer; one whose question has `maps_to` is also merged into that business-profile section (`PATCH /v1/business-profile`'s own save), so every agent of the business learns it. A skipped question is left out.",
@@ -94559,6 +94735,45 @@
           }
         },
         "summary": "One spoken piece of the brief, and what was heard",
+        "tags": [
+          "first-run"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/first-run/work": {
+      "post": {
+        "description": "`answer_calls` drafts an inbound line in the agent's voice (no number needed); `call_leads` drafts a campaign. Its main task is the owner's own words, its sources the files they added, and Pip's script is saved to it as soon as it is written (poll the line or the campaign). Pressing the same card again returns the same draft. Refused with `first_run_no_agent` before the agent has a name.",
+        "operationId": "post_work_v1_first_run_work_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FirstRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What first: draft an inbound line or a campaign for the agent; Pip writes it",
         "tags": [
           "first-run"
         ],
@@ -96601,6 +96816,141 @@
           "inbound"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/test-call": {
+      "post": {
+        "description": "Puts the line's script on its own engine agent first: a live line is put live again, and a draft is readied as a test holder, so a line with no number can be heard while it stays a draft. Then the same gated, capped, idempotent test call as an agent's (`POST /v1/trial/calls`): the dial gate, the trial's minutes and Studio minutes, a paid account's daily cap. Needs an `Idempotency-Key` header.",
+        "operationId": "line_test_call_v1_inbound_lines__line_id__test_call_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignTestCallIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CampaignTestCallOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ring your own phone with this line, as a caller would hear it",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/test-calls": {
+      "get": {
+        "operationId": "line_test_calls_v1_inbound_lines__line_id__test_calls_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CampaignTestCallItem"
+                  },
+                  "title": "Response Line Test Calls V1 Inbound Lines  Line Id  Test Calls Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The test calls rung through this line, newest first",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/inbound-lines/{line_id}/test-numbers": {
+      "get": {
+        "operationId": "line_test_numbers_v1_inbound_lines__line_id__test_numbers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "line_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Line Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestNumbersOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The account's saved test numbers, offered under this line's Test call",
+        "tags": [
+          "inbound"
+        ],
+        "x-calevate-permission": "leads:read"
       }
     },
     "/v1/integrations/connections/status": {

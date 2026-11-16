@@ -330,6 +330,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/leads/*/whatsapp", "costly", _m("POST")),
     Rule("/v1/trial/calls", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/trial/test-call", "costly", _m("POST")),
+    Rule("/v1/inbound-lines/*/test-call", "costly", _m("POST")),
     # Clients' WhatsApp (D-784): each makes several Graph calls on the client's own Meta
     # account, and Meta caps template creation at 100 an hour per account.
     Rule("/v1/whatsapp/connect", "costly", _m("POST")),

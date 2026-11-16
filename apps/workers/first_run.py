@@ -112,6 +112,7 @@ from apps.api.first_run.questions import (
 from apps.api.first_run.service import (
     BUILD_JOB,
     HEAR_JOB,
+    NOTICE_JOB,
     QUESTIONS_JOB,
     answers_for_script,
     store_questions,
@@ -1153,8 +1154,20 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
     return "built"
 
 
+async def switch_on_first_notice(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """The first agent made on "Name and voice" (Phase 3b) gets its AI notice switched on, as
+    the build's `notice` step did for an agent it made (D-864), so the new flow keeps what the
+    owner's callers are told. An owner who switched it off keeps that choice."""
+    del ctx
+    tenant_id = UUID(str(payload["tenant_id"]))
+    agent_id = UUID(str(payload["agent_id"]))
+    state = await _switch_on_ai_notice(tenant_id, agent_id)
+    log.info("first_run_notice", extra={"agent_id": str(agent_id), "state": state["state"]})
+    return str(state["state"])
+
+
 #: The outbox job names, as `first_run/service.py` queues them.
-JOB_NAMES: Final = (HEAR_JOB, QUESTIONS_JOB, BUILD_JOB)
+JOB_NAMES: Final = (HEAR_JOB, QUESTIONS_JOB, BUILD_JOB, NOTICE_JOB)
 
 __all__ = [
     "ASSIST_FEATURE_FIRST_RUN_VOICE",
@@ -1164,5 +1177,6 @@ __all__ = [
     "greeting_fits",
     "hear_first_run_recording",
     "owner_documents",
+    "switch_on_first_notice",
     "write_first_run_questions",
 ]

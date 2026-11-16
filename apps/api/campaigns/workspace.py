@@ -283,9 +283,13 @@ async def request_proposal(
     campaign_id: UUID,
     requested_by: UUID | None,
     focus: dict[str, str] | None = None,
+    auto_save: bool = False,
 ) -> CampaignProposal:
     """Ask Pip for the campaign's script. Needs a main task; replaces a ready draft; refused
     while one is still being written, so a second click does not spend twice.
+
+    `auto_save`: the draft becomes the campaign's script as soon as it is written, with no
+    review, while the campaign has none (the first run's campaign, Phase 3b).
 
     `focus` (`{"part": <the part's name as the editor shows it>, "language": <tag>}`) asks for
     that one part rewritten in that language, the rest kept (founder, 16 Nov 2026). It is an
@@ -321,6 +325,8 @@ async def request_proposal(
     }
     if focus is not None:
         record["focus"] = focus
+    if auto_save:
+        record["auto_save"] = True
     await session.execute(
         text("UPDATE campaigns SET script_proposal = CAST(:p AS jsonb) WHERE id = :cid"),
         {"p": json.dumps(record), "cid": campaign_id},
