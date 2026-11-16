@@ -4021,6 +4021,15 @@ async def publish_line(
         raise ProblemError.not_found("Inbound line")
     agent_id = UUID(str(line.agent_id))
     agent = await _load_agent(session, tenant_id, agent_id)
+    if agent["status"] == "archived":
+        # Deleting an agent is refused while a live line speaks for it
+        # (`lifecycle._assert_no_line_is_answering`); a draft line is let through there, so
+        # it is refused here, before it can answer in a deleted agent's voice.
+        raise ProblemError.conflict(
+            "line_agent_deleted",
+            "The agent this line speaks for was deleted.",
+            remediation="Choose another agent for this line, or bring that agent back.",
+        )
     engine = get_engine()
     refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
     config = await line_config(session, tenant_id=tenant_id, line_id=line_id, agent=agent)

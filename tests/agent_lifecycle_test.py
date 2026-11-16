@@ -32,7 +32,7 @@ from typing import Any
 import pytest
 from apps.api.agents import lifecycle, prompts
 from apps.api.agents.routes import router as agents_router
-from apps.api.agents.service import publish_agent
+from apps.api.agents.service import publish_agent, publish_line
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError, install_error_handlers
@@ -982,6 +982,68 @@ async def test_an_agent_a_campaign_is_still_dialling_cannot_be_archived() -> Non
     assert (await _status(tenant_id, agent_id))[0] == "paused", (
         "an agent a campaign is still dialling through was retired anyway"
     )
+
+
+async def test_an_agent_whose_line_is_answering_cannot_be_deleted() -> None:
+    """A published Inbound line answers on its number through its own engine agent while
+    the agent it speaks for stays a draft (D-997). Deleting that agent released nothing,
+    because the agent itself was never published, so the line went on answering in the
+    voice of an agent the owner had deleted."""
+    from apps.api.inbound import lines
+
+    engine = _fresh_engine()
+    tenant_id, agent_id, token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, created_by=None
+        )
+        await session.execute(
+            text(
+                "UPDATE inbound_lines SET published_at = now(), engine_agent_ref = 'ag_line_del' "
+                "WHERE id = :l"
+            ),
+            {"l": line_id},
+        )
+    number_id = await _number(tenant_id, agent_id, "num_line_del")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE phone_numbers SET inbound_line_id = :l WHERE id = :n"),
+            {"l": line_id, "n": number_id},
+        )
+    engine._inbound["num_line_del"] = "ag_line_del"
+
+    code, body = await _move(token, agent_id, "archive")
+    assert code == 409, body
+    assert _code(body) == "agent_has_live_lines", body
+    assert (await _status(tenant_id, agent_id))[0] != "archived"
+    assert engine.inbound_agent_for("num_line_del") == "ag_line_del"
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE inbound_lines SET archived_at = now() WHERE id = :l"), {"l": line_id}
+        )
+    assert (await _move(token, agent_id, "archive"))[0] == 200
+
+
+async def test_a_draft_line_of_a_deleted_agent_cannot_be_put_live() -> None:
+    from apps.api.inbound import lines
+    from calevate_shared.call_script import CallScript
+
+    _fresh_engine()
+    tenant_id, agent_id, token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            script=CallScript(opening_line="Hello, you have reached the clinic."),
+            created_by=None,
+        )
+    assert (await _move(token, agent_id, "archive"))[0] == 200, "a draft line answers nobody"
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ProblemError) as refused:
+            await publish_line(session, tenant_id=tenant_id, line_id=line_id)
+    assert refused.value.code == "line_agent_deleted"
 
 
 async def test_archiving_is_not_a_delete() -> None:
