@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.52 — 16-Nov-2026
+
+- Test call: a test call still ringing or on the line has an End call button, which hangs it
+  up.
+
 ## 0.4.51 — 16-Nov-2026
 
 - The step that reads back and closes a call is named "Finalise the call" in every script Pip

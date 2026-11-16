@@ -2930,9 +2930,14 @@ class ThinnestEngine:
         )
 
     async def hang_up_forwarding_leg(self, handle: str) -> None:
+        """A forwarding test leg ends like any call we hang up: nobody is talking on it."""
+        await self.hang_up_call(handle)
+
+    async def hang_up_call(self, handle: str) -> None:
         """`DELETE /calls/{id}` whatever its state: a ringing or connected call "is ended on
-        the line" (cancel-call.md:7, 384-385). Unlike `end_call` a connected leg IS ended:
-        nobody is talking on a test leg. A 409 is a call already over."""
+        the line" (cancel-call.md:7, 384-385). Unlike `end_call` a connected call IS ended,
+        so only callers that know who is on the line use it (`engine/hang_up.py`). A 409 is
+        a call already over."""
         raw_call, workspace = self._at(handle)
         try:
             await self._request(

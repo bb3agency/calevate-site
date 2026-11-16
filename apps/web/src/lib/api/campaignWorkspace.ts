@@ -242,6 +242,18 @@ export function useRemoveCampaignTestCall(session: Session, campaignId: string) 
   });
 }
 
+/** End a test call still ringing or connected; the list refetches to show it ended. */
+export function useEndCampaignTestCall(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (callId: string) =>
+      apiRequest<void>(session, `${base(campaignId)}/test-calls/${encodeURIComponent(callId)}/end`, {
+        method: "POST",
+      }),
+    onSettled: () => void client.invalidateQueries({ queryKey: testCallsKey(session.orgSlug, campaignId) }),
+  });
+}
+
 /** Upload a file for a campaign: into the knowledge, or the copy already there reused. */
 export function uploadMaterial(session: Session, campaignId: string, file: File, title?: string) {
   const form = new FormData();

@@ -10,7 +10,7 @@
  * (`/v1/calls/{id}/recording`), minted on the press rather than for every row.
  */
 
-import { Play, Trash2 } from "lucide-react";
+import { PhoneOff, Play, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -21,6 +21,7 @@ import { ProblemNotice, SECONDARY_BUTTON_SM, formatIST } from "@/components/ui";
 import { lookup } from "@/lib/lookup";
 import {
   useCampaignTestCalls,
+  useEndCampaignTestCall,
   useRemoveCampaignTestCall,
   type CampaignTestCallItem,
 } from "@/lib/api/campaignWorkspace";
@@ -38,6 +39,9 @@ const STATUS_WORDS: Record<string, string> = {
   voicemail: "Voicemail",
   failed: "Did not connect",
 };
+
+/** Still on the line: End call is offered. */
+const LIVE = ["queued", "ringing", "in_progress"];
 
 function length(seconds: number | null): string {
   if (seconds == null) return "";
@@ -102,6 +106,9 @@ function TestCallRow({
   const remove = useRemoveCampaignTestCall(session, campaignId);
   const removeFeedback = useActionFeedback(remove, { errorDisplay: "inline", successToast: "Test call removed" });
   const [confirming, setConfirming] = useState(false);
+  const end = useEndCampaignTestCall(session, campaignId);
+  useActionFeedback(end, { errorTitle: "Could not end the call", successToast: "Call ended" });
+  const live = LIVE.includes(call.status) && !end.isSuccess;
   const words = lookup(STATUS_WORDS, call.status) ?? call.status;
 
   return (
@@ -122,6 +129,19 @@ function TestCallRow({
             >
               <Play aria-hidden className="h-3.5 w-3.5" />
               {link.isPending ? "Opening…" : "Play recording"}
+            </button>
+          )}
+          {live && (
+            <button
+              type="button"
+              className={`${SECONDARY_BUTTON_SM} border-danger text-danger`}
+              disabled={!canWrite || end.isPending}
+              title={refusal}
+              onClick={() => end.mutate(call.call_id)}
+              aria-label={`End the test call of ${formatIST(call.placed_at)}`}
+            >
+              <PhoneOff aria-hidden className="h-3.5 w-3.5" />
+              {end.isPending ? "Ending…" : "End call"}
             </button>
           )}
           <Link href={href(`/c/${slug}/calls/${call.call_id}`)} className="text-meta text-brand-strong underline">

@@ -7954,6 +7954,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/test-calls/{call_id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End one of this campaign's test calls that is still ringing or connected
+         * @description Only a call on this campaign's own test-call list, which rings the owner's phone. A call already over is a no-op. `call_not_endable` when the engine cannot end calls.
+         */
+        post: operations["end_campaign_test_call_v1_campaigns__campaign_id__test_calls__call_id__end_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/test-numbers": {
         parameters: {
             query?: never;
@@ -54070,6 +54090,36 @@ export interface operations {
         };
     };
     remove_campaign_test_call_v1_campaigns__campaign_id__test_calls__call_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    end_campaign_test_call_v1_campaigns__campaign_id__test_calls__call_id__end_post: {
         parameters: {
             query?: never;
             header?: never;

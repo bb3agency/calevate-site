@@ -37,6 +37,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.ownership import assert_visible
 from apps.api.db.session import tenant_session
+from apps.api.engine import get_engine
+from apps.api.engine.hang_up import HangsUpCalls
 from apps.api.ingest.service import normalize_phone
 from apps.api.kb import uploads as kb_uploads
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
@@ -732,6 +734,60 @@ async def remove_campaign_test_call(
             "UPDATE campaigns SET test_call_ids = array_remove(test_call_ids, :call) WHERE id = :c"
         ),
         {"c": campaign_id, "call": call_id},
+    )
+
+
+#: A test call still on the line, by our call row's status.
+_LIVE_CALL_STATUSES: Final = ("queued", "ringing", "in_progress")
+
+
+@router.post(
+    "/{campaign_id}/test-calls/{call_id}/end",
+    status_code=204,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="End one of this campaign's test calls that is still ringing or connected",
+    description=(
+        "Only a call on this campaign's own test-call list, which rings the owner's phone. "
+        "A call already over is a no-op. `call_not_endable` when the engine cannot end calls."
+    ),
+)
+async def end_campaign_test_call(
+    campaign_id: UUID,
+    call_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Dispatcher,
+) -> None:
+    assert principal.tenant_id is not None
+    await _campaign_visible(session, campaign_id)
+    row = (
+        await session.execute(
+            text(
+                "SELECT k.engine_call_id, k.status FROM campaigns c "
+                "JOIN calls k ON k.id = :call AND k.id = ANY (c.test_call_ids) WHERE c.id = :c"
+            ),
+            {"c": campaign_id, "call": call_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Test call")
+    if str(row[1]) not in _LIVE_CALL_STATUSES:
+        return
+    engine = get_engine()
+    if not isinstance(engine, HangsUpCalls):
+        raise ProblemError.business_rule(
+            "call_not_endable", "This call can't be ended from here. Hang up on your phone."
+        )
+    await engine.hang_up_call(str(row[0]))
+    await write_audit(
+        session,
+        action="campaign.test_call_ended",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="call",
+        object_id=str(call_id),
+        ip=client_request_ip(request),
+        summary={"campaign_id": str(campaign_id)},
     )
 
 

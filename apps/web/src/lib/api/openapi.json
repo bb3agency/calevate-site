@@ -90454,6 +90454,50 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
+    "/v1/campaigns/{campaign_id}/test-calls/{call_id}/end": {
+      "post": {
+        "description": "Only a call on this campaign's own test-call list, which rings the owner's phone. A call already over is a no-op. `call_not_endable` when the engine cannot end calls.",
+        "operationId": "end_campaign_test_call_v1_campaigns__campaign_id__test_calls__call_id__end_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "call_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Call Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End one of this campaign's test calls that is still ringing or connected",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
     "/v1/campaigns/{campaign_id}/test-numbers": {
       "get": {
         "operationId": "campaign_test_numbers_v1_campaigns__campaign_id__test_numbers_get",
