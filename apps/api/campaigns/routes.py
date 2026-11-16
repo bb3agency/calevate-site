@@ -1103,22 +1103,26 @@ async def launch_check(
     )
 
 
-async def _put_campaign_script_live(
-    session: AsyncSession, principal: Principal, campaign_id: UUID, *, gated: bool = False
-) -> None:
-    """The campaign's own engine agent is made or brought up to date and read back before it
-    can dial (D-1003): the campaign says what its calls say, in its agent's voice, and the
-    agent's own script is untouched.
-
-    `gated` (Start): nothing is made while the launch gate would refuse, so a refused Start
-    leaves no engine agent holding the workspace's allowance; the gate's own refusal follows."""
-    assert principal.tenant_id is not None
+async def _campaign_exists(session: AsyncSession, campaign_id: UUID) -> None:
     found = (
         await session.execute(text("SELECT 1 FROM campaigns WHERE id = :c"), {"c": campaign_id})
     ).scalar_one_or_none()
     if found is None:
         raise ProblemError.not_found("Campaign")
-    if gated and await service.launch_blockers(
+
+
+async def _put_campaign_script_live(
+    session: AsyncSession, principal: Principal, campaign_id: UUID
+) -> None:
+    """Start's first step: the campaign's own engine agent is made or brought up to date and
+    read back before it can dial (D-1003): the campaign says what its calls say, in its agent's
+    voice, and the agent's own script is untouched.
+
+    Nothing is made while the launch gate would refuse, so a refused Start leaves no engine
+    agent holding the workspace's allowance; the gate's own refusal follows."""
+    assert principal.tenant_id is not None
+    await _campaign_exists(session, campaign_id)
+    if await service.launch_blockers(
         session, tenant_id=principal.tenant_id, campaign_id=campaign_id
     ):
         return
@@ -1140,7 +1144,7 @@ async def launch(
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> LaunchOut:
     assert principal.tenant_id is not None
-    await _put_campaign_script_live(session, principal, campaign_id, gated=True)
+    await _put_campaign_script_live(session, principal, campaign_id)
     result = await service.launch_campaign(
         session, tenant_id=principal.tenant_id, campaign_id=campaign_id
     )
@@ -1184,11 +1188,18 @@ async def schedule(
     matters. `GET /launch-check` remains available and answers "would it launch right
     now" for a scheduled campaign exactly as for a draft.
 
+    **No engine agent here either** (D-1010): it takes one of the workspace's few slots, so
+    it is made when the start fires (`scheduling.claim_slot_at_start`). What can be refused
+    without making it is refused now (`engine_agent.check_before_schedule`).
+
     Audited: "who told this campaign to start dialling, and when for" is the same
     question `campaign.launched` exists to answer.
     """
     assert principal.tenant_id is not None
-    await _put_campaign_script_live(session, principal, campaign_id)
+    await _campaign_exists(session, campaign_id)
+    await campaign_engine_agent.check_before_schedule(
+        session, tenant_id=principal.tenant_id, campaign_id=campaign_id
+    )
     result = await scheduling.schedule_campaign(
         session,
         tenant_id=principal.tenant_id,
@@ -1235,8 +1246,15 @@ async def set_recurrence(
     Audited: "who told this campaign to dial every Tuesday, and when" is precisely the
     question `audit_log` exists to answer, and a repeat nobody remembers creating is the
     version of that question that gets asked after a complaint.
+
+    Each run makes its engine agent when it fires and gives it back when it ends (D-1010);
+    what can be refused without making it is refused now, as on `POST /schedule`.
     """
     assert principal.tenant_id is not None
+    await _campaign_exists(session, campaign_id)
+    await campaign_engine_agent.check_before_schedule(
+        session, tenant_id=principal.tenant_id, campaign_id=campaign_id
+    )
     result = await scheduling.schedule_recurrence(
         session,
         tenant_id=principal.tenant_id,

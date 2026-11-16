@@ -9,7 +9,16 @@ import { lookup } from "@/lib/lookup";
 import type { useCampaignProgress } from "@/lib/api/campaigns";
 
 import { Why } from "@/components/why";
-import { FireTimeRefusal, SKIP_COPY, START_GIVES_UP, describeRepeat, formatOccurrence } from "./scheduleCopy";
+import {
+  FireTimeRefusal,
+  SKIP_COPY,
+  START_GIVES_UP,
+  START_NOT_READY,
+  START_NOT_READY_RULE,
+  START_RETRYING,
+  describeRepeat,
+  formatOccurrence,
+} from "./scheduleCopy";
 
 /**
  * WHEN THIS CAMPAIGN DIALS NEXT — the schedule already ON the campaign, and the way out of
@@ -42,7 +51,10 @@ export function ScheduleCards({
   className?: string;
 }) {
   const recurrence = progress.data?.recurrence ?? null;
-  const refused = (progress.data?.schedule_blocked_rules?.length ?? 0) > 0;
+  const blockedRules = progress.data?.schedule_blocked_rules ?? [];
+  const refused = blockedRules.length > 0;
+  // Its calling agent could not be made: nothing in the checklist below to fix.
+  const notReady = blockedRules.includes(START_NOT_READY_RULE);
 
   // A one-time start is spent the moment it fires, so its card is keyed on `scheduled`;
   // a repeat is not, so a campaign dialling today still shows next Tuesday's run and the
@@ -87,8 +99,10 @@ export function ScheduleCards({
         )}
         {refused && (
           <Warning>
-            <span className="block text-ink">Couldn&rsquo;t start. Fix the items below.</span>
-            <span className="block">Once fixed, it starts on the next attempt.</span>
+            <span className="block text-ink">
+              {notReady ? START_NOT_READY : <>Couldn&rsquo;t start. Fix the items below.</>}
+            </span>
+            <span className="block">{notReady ? START_RETRYING : "Once fixed, it starts on the next attempt."}</span>
           </Warning>
         )}
         {armedScheduleWouldRefuse && <FireTimeRefusal kind="repeat" when="armed" />}
@@ -126,7 +140,10 @@ export function ScheduleCards({
           <p className="text-body font-medium text-ink">Starts {formatIST(progress.data?.scheduled_start_at)} IST</p>
           {refused && (
             <Warning>
-              <span className="block text-ink">Couldn&rsquo;t start. Fix the items below.</span>
+              <span className="block text-ink">
+                {notReady ? START_NOT_READY : <>Couldn&rsquo;t start. Fix the items below.</>}
+              </span>
+              {notReady && <span className="block">{START_RETRYING}</span>}
               <span className="block">{START_GIVES_UP}</span>
             </Warning>
           )}

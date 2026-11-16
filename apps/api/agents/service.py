@@ -4215,9 +4215,11 @@ async def republish_lines(session: AsyncSession, *, tenant_id: UUID, agent_id: U
     return count
 
 
-#: The campaign statuses whose engine agent is kept: it is dialling, or will. A paused
-#: campaign keeps its engine agent so Resume dials at once; every other state retires it.
-CAMPAIGN_HOLDING_STATUSES: Final = ("scheduled", "running", "paused")
+#: The campaign statuses whose engine agent is kept: it is dialling, or paused so Resume
+#: dials at once; every other state retires it. A scheduled campaign holds none (D-1010):
+#: the engine agent takes one of the workspace's few slots, so it is made when the start
+#: fires, not when it is set, and a repeat gives it back between runs.
+CAMPAIGN_HOLDING_STATUSES: Final = ("running", "paused")
 
 #: The refusal when a client's workspace holds as many engine agents as its plan allows.
 ENGINE_AGENT_ALLOWANCE_FULL_RULE: Final = "engine_agent_allowance_full"
@@ -4430,6 +4432,38 @@ async def engine_agent_allowance_blocker(
     )
 
 
+async def _campaign_publishable(
+    session: AsyncSession, *, tenant_id: UUID, holder: _CampaignHolder
+) -> tuple[AgentRow, VoiceEngine, AgentConfig]:
+    """What a campaign's publish refuses before it reaches the platform: an archived campaign
+    or agent, a language not offered, a script or settings over the engine's limits, an
+    unpriced engine. Returns the agent, the engine and the composed config."""
+    if holder.archived:
+        raise ProblemError.not_found("Campaign")
+    agent = await _load_agent(session, tenant_id, holder.agent_id)
+    if agent["status"] == "archived":
+        raise archived_refusal("used for this campaign")
+    engine = get_engine()
+    require_capability("agent_hosting", engine=engine)
+    refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
+    config = await campaign_config(
+        session, tenant_id=tenant_id, campaign_id=holder.campaign_id, agent=agent
+    )
+    refuse_over_engine_limits(engine, config)
+    await refuse_unpriced_engine(session, engine)
+    return agent, engine, config
+
+
+async def check_campaign_publishable(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> None:
+    """Schedule's check (D-1010): every refusal `publish_campaign_agent` makes before the
+    platform, run now so a campaign that could never start is refused when it is scheduled,
+    while the engine agent itself is made only when the start fires."""
+    holder = await _campaign_holder(session, campaign_id)
+    await _campaign_publishable(session, tenant_id=tenant_id, holder=holder)
+
+
 async def publish_campaign_agent(
     session: AsyncSession,
     *,
@@ -4455,19 +4489,7 @@ async def publish_campaign_agent(
     if not test:
         await _refuse_during_maintenance(session)
     holder = await _campaign_holder(session, campaign_id, lock=True)
-    if holder.archived:
-        raise ProblemError.not_found("Campaign")
-    agent = await _load_agent(session, tenant_id, holder.agent_id)
-    if agent["status"] == "archived":
-        raise archived_refusal("used for this campaign")
-    engine = get_engine()
-    require_capability("agent_hosting", engine=engine)
-    refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
-    config = await campaign_config(
-        session, tenant_id=tenant_id, campaign_id=campaign_id, agent=agent
-    )
-    refuse_over_engine_limits(engine, config)
-    await refuse_unpriced_engine(session, engine)
+    agent, engine, config = await _campaign_publishable(session, tenant_id=tenant_id, holder=holder)
     if test:
         # A test holder rings the owner, so the agreements are asked as for a test copy.
         await assert_agreements_accepted(session, tenant_id=tenant_id)

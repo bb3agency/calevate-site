@@ -280,6 +280,28 @@ describe("a campaign waiting for its start", () => {
     expect(container.textContent).not.toContain("dlt_template_not_approved");
   });
 
+  it("says a start whose calling agent could not be made is being retried, not that items need fixing", async () => {
+    // D-1010: the calling agent is made when the start fires. A refusal then is not a
+    // checklist item, so pointing at "the items below" would send the owner to a list
+    // with nothing on it.
+    const { container } = await openCampaign(
+      {
+        [`/v1/campaigns/${CAMPAIGN_ID}`]: progress({
+          status: "scheduled",
+          launched_at: null,
+          scheduled_start_at: "2026-08-17T04:30:00+00:00",
+          schedule_blocked_rules: ["campaign_not_ready_to_call"],
+        }),
+      },
+      "Scheduled",
+    );
+    expect(container.textContent).toContain("Couldn’t get ready to call.");
+    expect(container.textContent).toContain("We’re trying again every few minutes.");
+    expect(container.textContent).toContain("goes back to draft");
+    expect(container.textContent).not.toContain("Fix the items below");
+    expect(container.textContent).not.toContain("campaign_not_ready_to_call");
+  });
+
   it("shows a skeleton while the start time is still loading, never a bare status", async () => {
     // The card is reached through the campaign LIST, which already carries the status;
     // the date comes from a second request. Rendering "Starts —" in the gap is a

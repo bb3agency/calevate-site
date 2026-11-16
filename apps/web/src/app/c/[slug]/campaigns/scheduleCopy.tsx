@@ -135,6 +135,15 @@ export function fireTimeLine(kind: "start" | "repeat", when: "arming" | "armed")
     : "Next run won't start until items below are fixed.";
 }
 
+/**
+ * The start's own calling agent could not be made when it came due (D-1010,
+ * `scheduling.START_NOT_READY_RULE`). Not a gate rule, so the checklist below has nothing
+ * to fix: the card says so itself, and that the server tries again (`PUT_LIVE_RETRY`).
+ */
+export const START_NOT_READY_RULE = "campaign_not_ready_to_call";
+export const START_NOT_READY = "Couldn’t get ready to call.";
+export const START_RETRYING = "We’re trying again every few minutes.";
+
 /** What the server does with a one-time start it cannot fire (`scheduling._expire`). */
 export const START_GIVES_UP = "After a day of trying, it goes back to draft.";
 /** …and with a repeat's occurrence (`scheduling._skip_occurrence`). */

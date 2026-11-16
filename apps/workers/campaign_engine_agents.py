@@ -6,7 +6,11 @@ Two jobs, one walk over the accounts that have an engine agent routed:
   campaign's engine agent back as they happen (`campaigns/engine_agent.end_campaign_agent`);
   this catches any status change that did not pass through them, and the test holder of a
   campaign that never started once it has sat unused for `TEST_HOLDER_IDLE`. Each one held
-  is one of the workspace's few agents (`thinnest_agents_per_workspace`).
+  is one of the workspace's few agents (`thinnest_agents_per_workspace`). A scheduled
+  campaign holds none (D-1010): one published when its start was set, before D-1010, or a
+  test holder made while it waits, is retired on the same idle rule, and the start makes
+  it again when it fires. `TEST_HOLDER_IDLE` is also what keeps this off a start firing
+  now, whose engine agent is minutes old when the campaign turns running.
 * **Give an agent its own script back.** Before D-1003, Start put the campaign's script ON
   the agent as a new prompt version noted "Campaign: <name>" and marked the campaign
   `agent_held_at`. Once every campaign going in that agent's voice dials through its own
