@@ -52,6 +52,7 @@ const PERSON = {
   outcome: "not_called" as const,
   attempts: 0,
   last_attempt_at: null,
+  included: true,
   will_retry: false,
   next_attempt_at: null,
   call_id: null,

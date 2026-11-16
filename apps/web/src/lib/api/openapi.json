@@ -18676,6 +18676,17 @@
             "title": "Attempts",
             "type": "integer"
           },
+          "business_outcome_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Outcome Label"
+          },
           "call_id": {
             "anyOf": [
               {
@@ -18719,6 +18730,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "included": {
+            "default": true,
+            "title": "Included",
+            "type": "boolean"
           },
           "last_attempt_at": {
             "anyOf": [
@@ -18801,6 +18817,16 @@
             },
             "title": "Counts",
             "type": "object"
+          },
+          "everyone": {
+            "default": 0,
+            "title": "Everyone",
+            "type": "integer"
+          },
+          "included": {
+            "default": 0,
+            "title": "Included",
+            "type": "integer"
           },
           "items": {
             "items": {
@@ -33212,6 +33238,57 @@
           "items"
         ],
         "title": "IncidentsOut",
+        "type": "object"
+      },
+      "IncludeContactsIn": {
+        "additionalProperties": false,
+        "description": "Switch people on or off for dialling: the ids given, or everyone when `all`.",
+        "properties": {
+          "all": {
+            "default": false,
+            "title": "All",
+            "type": "boolean"
+          },
+          "contact_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 1000,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Ids"
+          },
+          "included": {
+            "title": "Included",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "included"
+        ],
+        "title": "IncludeContactsIn",
+        "type": "object"
+      },
+      "IncludeContactsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "title": "IncludeContactsOut",
         "type": "object"
       },
       "IngestAckOut": {
@@ -89216,6 +89293,56 @@
           }
         },
         "summary": "Add your CRM leads to a campaign, picked by id or by the leads lens",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/contacts/include": {
+      "post": {
+        "operationId": "include_campaign_contacts_v1_campaigns__campaign_id__contacts_include_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncludeContactsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncludeContactsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch people on or off for dialling; each is still called by their own status",
         "tags": [
           "campaigns"
         ],

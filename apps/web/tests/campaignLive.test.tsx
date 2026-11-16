@@ -52,6 +52,7 @@ const ON_CALL_PERSON = {
   outcome: "calling" as const,
   attempts: 1,
   last_attempt_at: "2026-10-14T05:00:00Z",
+  included: true,
   will_retry: false,
   next_attempt_at: null,
   call_id: "call-77",
@@ -142,6 +143,7 @@ describe("the live panel of a running campaign", () => {
     const people = await screen.findByRole("table", { name: "People on this campaign" });
     expect(within(people).getByText("Lakshmi")).toBeTruthy();
     expect(within(people).getByRole("columnheader", { name: "Person" })).toBeTruthy();
+    expect(within(people).getByRole("columnheader", { name: "Status" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Set up" }).getAttribute("aria-selected")).toBe("true");
     await openTab("Progress & results");
     expect(await screen.findByText("Calling hours")).toBeTruthy();

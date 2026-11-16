@@ -3,6 +3,15 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.56 — 16-Nov-2026
+
+- Campaign people: a tick box per person decides who is included in the campaign, and the
+  box in the header includes (or leaves out) everyone. Included people are still called by
+  their own status, so people already reached, opted out or out of tries are not rung again.
+- A Status column after Phone shows each person's latest result: not called yet, spoke to
+  the agent and what it came to (for example the app installed), no answer or busy with
+  the next try, or not included. Name and Phone sit closer together.
+
 ## 0.4.55 — 16-Nov-2026
 
 - **Inbound lines behave like agents on every safeguard.** A line you put live answers its

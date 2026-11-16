@@ -64,7 +64,7 @@ MAX_OPTOUTS_LISTED = 100
 #: answered does not turn a person the campaign reached into "No answer" (D-913).
 _OUTCOME_SQL = """
     SELECT cc.id, cc.name, cc.phone_e164, cc.attempts, cc.last_attempt_at,
-           cc.next_attempt_at, cc.last_call_id, cc.status, cc.created_at,
+           cc.next_attempt_at, cc.last_call_id, cc.status, cc.created_at, cc.included,
            CASE
              WHEN cc.status IN ('connected', 'completed') THEN 'connected'
              WHEN cc.status = 'dnc_blocked' THEN 'do_not_call'
@@ -104,6 +104,8 @@ class ContactsPage:
     items: list[dict[str, Any]]
     total: int
     counts: dict[str, int]
+    included: int = 0
+    everyone: int = 0
 
 
 async def _campaign_status(session: AsyncSession, campaign_id: UUID) -> str:
@@ -166,7 +168,8 @@ async def contacts_page(
         await session.execute(
             text(
                 f"SELECT r.id, r.name, r.phone_e164, r.outcome, r.attempts, r.last_attempt_at, "
-                f"r.next_attempt_at, r.last_call_id, r.status, g.goal_reached, g.goal_reason "
+                f"r.next_attempt_at, r.last_call_id, r.status, g.goal_reached, g.goal_reason, "
+                f"r.included, g.business_outcome_label "
                 f"FROM ({_OUTCOME_SQL}) r "
                 # The person's verdict is their latest answered call's (D-913), call-backs
                 # included, as the summary counts it.
@@ -181,7 +184,7 @@ async def contacts_page(
     can_retry = status in ("running", "paused")
     items = []
     for r in rows:
-        will_retry = can_retry and r[8] == "pending" and int(r[4]) > 0
+        will_retry = can_retry and r[8] == "pending" and int(r[4]) > 0 and bool(r[11])
         items.append(
             {
                 "id": r[0],
@@ -195,9 +198,26 @@ async def contacts_page(
                 "call_id": r[7],
                 "goal_reached": r[9],
                 "goal_reason": r[10] if r[9] else None,
+                "included": bool(r[11]),
+                "business_outcome_label": r[12],
             }
         )
-    return ContactsPage(items=items, total=total, counts=counts)
+    switched = (
+        await session.execute(
+            text(
+                "SELECT count(*) FILTER (WHERE included), count(*) FROM campaign_contacts "
+                "WHERE campaign_id = :cid"
+            ),
+            {"cid": campaign_id},
+        )
+    ).one()
+    return ContactsPage(
+        items=items,
+        total=total,
+        counts=counts,
+        included=int(switched[0]),
+        everyone=int(switched[1]),
+    )
 
 
 #: The most values one field's breakdown lists: every declared value, then the most common

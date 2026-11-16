@@ -662,6 +662,20 @@ export function useRemoveContacts(session: Session, campaignId: string) {
   });
 }
 
+/** Switch people on or off for dialling: some by id, or everyone with `all`. */
+export function useIncludeContacts(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Schemas["IncludeContactsIn"]) =>
+      apiRequest<Schemas["IncludeContactsOut"]>(
+        session,
+        `/v1/campaigns/${campaignId}/contacts/include`,
+        { method: "POST", body },
+      ),
+    onSuccess: () => refreshCampaigns(client, session.orgSlug),
+  });
+}
+
 export function useComplaintReview(session: Session, campaignId: string) {
   const client = useQueryClient();
   return useMutation({

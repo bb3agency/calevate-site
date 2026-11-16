@@ -18,6 +18,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Index,
@@ -318,6 +319,8 @@ class CampaignContact(PKMixin, TimestampMixin, Base):
     last_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("calls.id", ondelete="SET NULL"))
     #: Which opening this person's calls used: `a` (the script's own) or `b` (D-992).
     opening_variant: Mapped[str | None] = mapped_column(String(1))
+    #: Switched off, the person stays on the list and is never dialled (founder, 16 Nov 2026).
+    included: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
 class DltTemplate(PKMixin, TimestampMixin, Base):
