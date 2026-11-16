@@ -3,7 +3,7 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
-## 0.4.44 — 16-Nov-2026
+## 0.4.45 — 16-Nov-2026
 
 - **Inbound.** A new section in the sidebar, after Campaigns: what each of your numbers says
   when someone calls, and in which agent's voice. Each line has a main task, the sources Pip
@@ -14,7 +14,7 @@ page (`apps/web/package.json` holds the version). Dates are IST.
 - **Agents have four tabs**: Overview, Actions, Settings and Training. Voice and What it notes
   are in Settings. Scripts now live in Inbound and Campaigns, and Overview links to both.
 
-## 0.4.43 — 16-Nov-2026
+## 0.4.44 — 16-Nov-2026
 
 - **How they speak.** The company training is now a tab of What your agents know, not a page of
   its own: write a few lines about your business and Pip writes how every agent speaks, from
@@ -22,6 +22,8 @@ page (`apps/web/package.json` holds the version). Dates are IST.
   notes.
 - **Sources.** What a campaign works from is called Sources everywhere you see it.
 - The archived campaign row's Restore button no longer spills out of its box.
+
+## 0.4.43 — 16-Nov-2026
 
 - Script: a Call flow chart under the script shows each step and where the call goes next,
   by what the person says. Click a step to edit it, drag between steps to add a way out, or
