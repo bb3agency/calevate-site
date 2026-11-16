@@ -37,13 +37,16 @@ from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.first_run.documents import read_documents
-from apps.api.first_run.service import NOTICE_JOB, RunState, ensure_run, read_state
+from apps.api.first_run.service import RunState, ensure_run, read_state
 from apps.api.reliability.service import enqueue_outbox
 
 log = get_logger(__name__)
 
 FirstWork = Literal["answer_calls", "call_leads"]
 FIRST_WORKS: Final[tuple[FirstWork, ...]] = ("answer_calls", "call_leads")
+
+#: The first agent's AI notice switched on (`workers/first_run.switch_on_first_notice`).
+NOTICE_JOB: Final = "switch_on_first_notice"
 
 #: What Pip writes from when the owner gave only files, not words: the work's own purpose.
 DEFAULT_TASK: Final[dict[FirstWork, str]] = {
@@ -318,6 +321,7 @@ __all__ = [
     "DEFAULT_TASK",
     "FIRST_CAMPAIGN_NAME",
     "FIRST_WORKS",
+    "NOTICE_JOB",
     "FirstWork",
     "save_agent",
     "start_work",

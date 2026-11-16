@@ -26,7 +26,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.first_run import routes as first_run_routes
 from apps.api.first_run import work
 from apps.api.first_run.names import FIRST_AGENT_NAME
-from apps.api.first_run.service import NOTICE_JOB
+from apps.api.first_run.work import NOTICE_JOB
 from apps.api.inbound import lines
 from apps.workers import campaign_script
 from apps.workers import company_training_draft as training_worker

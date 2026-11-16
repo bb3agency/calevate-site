@@ -112,11 +112,11 @@ from apps.api.first_run.questions import (
 from apps.api.first_run.service import (
     BUILD_JOB,
     HEAR_JOB,
-    NOTICE_JOB,
     QUESTIONS_JOB,
     answers_for_script,
     store_questions,
 )
+from apps.api.first_run.work import NOTICE_JOB
 from apps.api.tenancy.business_profile import Profile, load_profile
 from apps.workers.extraction import TenantModelLeg
 from apps.workers.opening_line import (

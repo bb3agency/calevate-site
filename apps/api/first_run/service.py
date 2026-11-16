@@ -65,8 +65,6 @@ from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 HEAR_JOB: Final = "hear_first_run_recording"
 QUESTIONS_JOB: Final = "write_first_run_questions"
 BUILD_JOB: Final = "build_first_agent"
-#: The first agent's AI notice switched on (`first_run/work.save_agent`).
-NOTICE_JOB: Final = "switch_on_first_notice"
 
 #: The label of the branch the "Where are you?" answer creates.
 MAIN_BRANCH_LABEL: Final = "Main branch"
@@ -932,7 +930,6 @@ __all__ = [
     "BUILD_JOB",
     "HEAR_JOB",
     "MAIN_BRANCH_LABEL",
-    "NOTICE_JOB",
     "QUESTIONS_JOB",
     "Answers",
     "GivenAnswer",
