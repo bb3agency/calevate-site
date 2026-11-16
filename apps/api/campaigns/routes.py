@@ -1409,7 +1409,7 @@ async def _update_settings(
     ).first()
     if (
         row is None
-        or str(row[0]) not in controls.STARTED_STATUSES
+        or str(row[0]) not in controls.LIVE_STATUSES
         or "agent_id" not in changes
         or changes["agent_id"] == row[1]
     ):

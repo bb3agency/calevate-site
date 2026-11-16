@@ -1,37 +1,27 @@
 "use client";
 
 import { useState } from "react";
-import { ArchiveRestore, Pause, Pencil, Play, RotateCcw } from "lucide-react";
+import { ArchiveRestore, Pencil } from "lucide-react";
 
 import { ButtonGroup, type GroupAction } from "@/components/arc/button-group";
 import { useActionFeedback, type ActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { formatCount } from "@/components/ui";
 import {
   useArchiveCampaign,
   useDeleteCampaign,
   useDuplicateCampaign,
-  useStopCampaign,
   type CampaignProgress,
   type usePauseCampaign,
 } from "@/lib/api/campaigns";
 import { useClientRealm } from "@/lib/api/session";
 
-type Confirming = "stop" | "delete" | null;
-
-/** A pause whose cause must be cleared before Resume works: the notice above says how. */
-const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
+type Confirming = "delete" | null;
 
 /**
- * The controls this state allows, and nothing the server would refuse, as one
- * `ButtonGroup`: the one move the state is about first (Edit a draft, Pause a running
- * campaign, Resume a paused one), then Stop for good while it can still call, then Call the
- * unreached again once it is over (founder, 16 Nov 2026: after Start and Stop), because a control that stops calls stays reachable however
- * seldom it is used (UX-DOCTRINE §3). Duplicate always, Delete on a draft. Stop and Delete
- * restate what they do in a `ConfirmDialog` before they act.
- *
- * A pause with a cause still outstanding keeps Resume disabled behind the review, and the
- * notice under the header carries the fix as its own action.
+ * The campaign's buttons, as one `ButtonGroup`, in the copy `show` names: Edit on a draft,
+ * Stop campaign (a pause, which Start undoes any time; founder, 16 Nov 2026), Duplicate,
+ * and Delete on a draft, which restates what it does in a `ConfirmDialog` first. Start is
+ * its own button (`StartCampaign`); Restore is the only move an archived campaign offers.
  */
 export function CampaignHeaderActions({
   slug,
@@ -57,10 +47,9 @@ export function CampaignHeaderActions({
   /** Which buttons this copy carries (founder, 16 Nov 2026): the controls beside Collapse
    * all, Duplicate beside the campaign's name, Call the unreached again in Where it stands.
    * Archive is the campaigns list's own button. */
-  show?: "controls" | "duplicate" | "again";
+  show?: "controls" | "duplicate";
 }) {
   const { session, href } = useClientRealm();
-  const stop = useStopCampaign(session, campaignId);
   const remove = useDeleteCampaign(session, campaignId);
   const duplicate = useDuplicateCampaign(session, campaignId);
   const shelve = useArchiveCampaign(session, campaignId);
@@ -69,11 +58,6 @@ export function CampaignHeaderActions({
     successToast: (_out, action) => (action === "archive" ? "Campaign archived" : "Campaign restored"),
   });
   const archived = progress.archived_at != null;
-  const stopFeedback = useActionFeedback(stop, {
-    errorDisplay: "inline",
-    successToast: "Campaign stopped",
-    successDescription: "Nobody else on the list will be called.",
-  });
   const removeFeedback = useActionFeedback(remove, {
     errorDisplay: "inline",
     successToast: "Draft deleted",
@@ -86,9 +70,6 @@ export function CampaignHeaderActions({
   const [confirming, setConfirming] = useState<Confirming>(null);
   const status = progress.status;
   const finished = status === "completed" || status === "cancelled";
-  const reviewOwed = progress.complaint_review_required;
-  const held = HELD_PAUSES.includes(progress.pause_reason ?? "");
-  const remaining = (progress.contacts.pending ?? 0) + (progress.contacts.dialing ?? 0);
   const ownerOnly = canWrite ? undefined : (refusal ?? "Only the account owner can do this.");
 
   const statusFor = (action: "pause" | "resume") =>
@@ -127,56 +108,26 @@ export function CampaignHeaderActions({
       href: href(`/c/${slug}/campaigns/${campaignId}/edit`),
     });
   }
-  if (status === "running" && !archived) {
-    actions.push({
-      id: "pause",
-      label: "Pause",
-      icon: <Pause className="h-3.5 w-3.5" />,
-      status: statusFor("pause"),
-      successLabel: "Paused",
-      disabled: !canWrite,
-      hint: ownerOnly,
-      onSelect: () => setStatusFeedback.run("pause"),
-    });
-  }
-  if (status === "paused" && !archived) {
-    actions.push({
-      id: "resume",
-      label: "Resume",
-      icon: <Play className="h-3.5 w-3.5" />,
-      status: statusFor("resume"),
-      successLabel: "Resumed",
-      disabled: !canWrite || reviewOwed,
-      hint: reviewOwed
-        ? "Review the opt-outs first."
-        : held
-          ? "Fix the reason above first."
-          : ownerOnly,
-      onSelect: () => setStatusFeedback.run("resume"),
-    });
-  }
   // Stop campaign is shown in every state beside Start (founder, 16 Nov 2026), switched off
   // where there is nothing to stop.
-  const stoppable = !archived && (status === "running" || status === "paused" || status === "scheduled");
+  // Stop pauses: it can always be started again, and picks up where it stopped (founder,
+  // 16 Nov 2026: "the campaign can be stopped and started anytime").
+  const stoppable = !archived && status === "running";
   actions.push({
     id: "stop",
-    label: "Stop campaign…",
+    label: "Stop campaign",
+    status: statusFor("pause"),
+    successLabel: "Stopped",
     disabled: !canWrite || !stoppable,
-    hint: stoppable ? ownerOnly : status === "draft" ? "It has not started." : "It has already stopped.",
-    onSelect: () => setConfirming("stop"),
+    hint: stoppable
+      ? ownerOnly
+      : status === "scheduled"
+        ? "Cancel its start time below."
+        : status === "draft"
+          ? "It has not started."
+          : "It is stopped.",
+    onSelect: () => setStatusFeedback.run("pause"),
   });
-  if (finished && !archived) {
-    actions.push({
-      id: "again",
-      label: "Call the unreached again",
-      icon: <RotateCcw className="h-3.5 w-3.5" />,
-      status: duplicateStatus(true),
-      successLabel: "Copied",
-      disabled: !canWrite || copyHeld(true),
-      hint: ownerOnly,
-      onSelect: () => copy(true),
-    });
-  }
   actions.push({
     id: "duplicate",
     label: "Duplicate",
@@ -200,14 +151,14 @@ export function CampaignHeaderActions({
   }
 
   const shown = actions.filter((action) =>
-    show === "duplicate" ? action.id === "duplicate" : show === "again" ? action.id === "again" : action.id !== "duplicate" && action.id !== "again",
+    show === "duplicate" ? action.id === "duplicate" : action.id !== "duplicate",
   );
   if (shown.length === 0) return null;
 
   return (
     <>
       <ButtonGroup
-        label={show === "controls" ? "Campaign actions" : show === "duplicate" ? "Copy this campaign" : "Call again"}
+        label={show === "controls" ? "Campaign actions" : "Copy this campaign"}
         moreLabel={`More actions for ${progress.name}`}
         actions={shown}
         primaryFirst={show !== "duplicate"}
@@ -215,26 +166,6 @@ export function CampaignHeaderActions({
         desktopVisible={2}
         className="flex-wrap sm:justify-end"
       />
-      {confirming === "stop" && (
-        <ConfirmDialog
-          title="Stop this campaign for good?"
-          confirmLabel="Stop for good"
-          pendingLabel="Stopping"
-          cancelLabel="Keep it"
-          status={stopFeedback.status}
-          error={stopFeedback.error ?? null}
-          onCancel={() => {
-            stopFeedback.reset();
-            setConfirming(null);
-          }}
-          onConfirm={() => stop.mutate(undefined, { onSuccess: () => setConfirming(null) })}
-        >
-          <span className="block">
-            Nobody else is called{remaining ? ` (${formatCount(remaining)} waiting)` : ""}.
-          </span>
-          <span className="block">Calls ringing now finish. It can&rsquo;t restart.</span>
-        </ConfirmDialog>
-      )}
       {confirming === "delete" && (
         <ConfirmDialog
           title="Delete this draft?"

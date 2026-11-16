@@ -82,7 +82,9 @@ _JSON_COLUMNS = frozenset({"calling_hours", "retry_policy"})
 #: from which number and as which kind of call stay as launched: the compliance gate passed
 #: on those, and the dispatcher re-reads the agent, the hours, the tries and the pace each tick.
 STARTED_EDITABLE = frozenset({"name", "agent_id", "calling_hours", "retry_policy", "concurrency"})
-STARTED_STATUSES = ("scheduled", "running", "paused")
+STARTED_STATUSES = ("scheduled", "running", "paused", "cancelled", "completed")
+#: Started and holding its agent: a new agent must take the script now, not at the next Start.
+LIVE_STATUSES = ("scheduled", "running", "paused")
 
 #: Contact statuses that mean "this person was never reached": still waiting, or the tries
 #: ran out. `connected` was reached and `dnc_blocked` asked not to be called; `dialing` is a

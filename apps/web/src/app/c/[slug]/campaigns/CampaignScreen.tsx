@@ -187,8 +187,10 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     />
   );
 
-  // People, the agent, hours and retries change until it stops (founder, 16 Nov 2026).
-  const changeable = status === "draft" || status === "scheduled" || status === "running" || status === "paused";
+  // People, the agent, hours and retries change in every state; a campaign can always be
+  // started again (founder, 16 Nov 2026).
+  const changeable = data.archived_at == null;
+  const stopped = status === "cancelled" || status === "completed";
 
   // In the row beside Collapse all / Expand all, after Start (founder, 16 Nov 2026).
   const actionProps = {
@@ -211,6 +213,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
       check={check}
       progress={progress}
       launch={launchFeedback}
+      resume={setStatusFeedback}
       canWrite={write.allowed}
       refusal={refusal}
     />
@@ -320,9 +323,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             launched ? (
               <FoldGroup className="space-y-8" actions={<>{startButton}{campaignActions}</>}>
                 <FoldSection title="Where it stands" tone="progress">
-                  <div className="mb-2 flex justify-end empty:hidden">
-                    <CampaignHeaderActions {...actionProps} show="again" />
-                  </div>
                   <CampaignRun progress={data} campaignId={campaignId} />
                 </FoldSection>
                 <FoldSection title="Results" tone="results">
@@ -372,7 +372,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
               {/* People to call: an Excel or CSV file, pasted rows, or one name and number at a
                   time, until it stops (founder, 16 Nov 2026: people may join mid-campaign). */}
               <DraftPeople
-                stopped={!changeable}
+                stopped={stopped}
                 slug={slug}
                 campaignId={campaignId}
                 maxAttempts={data.retry_policy.max_attempts}
@@ -424,6 +424,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                   check={check}
                   progress={progress}
                   launch={launchFeedback}
+                  resume={setStatusFeedback}
                   canWrite={write.allowed}
                   refusal={refusal}
                 />

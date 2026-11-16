@@ -1,7 +1,9 @@
 "use client";
 
 /**
- * START CAMPAIGN, at the top and the bottom of a draft's set-up (founder, 15 Nov 2026).
+ * START CAMPAIGN, at the top and the bottom of the set-up and on Progress (founder, 15-16 Nov
+ * 2026). A campaign starts and stops any time: Start resumes a stopped (paused) one, and
+ * launches a draft or a campaign stopped before Stop became a pause, through the same gate.
  *
  * Ready (the launch check passes and someone is on the list): one press launches, the same
  * call the compliance card's "Call N people" makes; the server's compliance gate runs again
@@ -16,6 +18,9 @@ import { ActionButton, type ActionFeedback } from "@/components/arc/feedback";
 import { PRIMARY_BUTTON_SM } from "@/components/ui";
 import type { useCampaignProgress, useLaunchCheck } from "@/lib/api/campaigns";
 
+/** A pause whose cause must be cleared first; the notice above the page says how. */
+const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
+
 /** The compliance card's element id, so Start can take the owner to what is left. */
 export function complianceCardId(campaignId: string): string {
   return `compliance-${campaignId}`;
@@ -27,6 +32,7 @@ export function StartCampaign({
   check,
   progress,
   launch,
+  resume,
   canWrite,
   refusal,
 }: {
@@ -35,22 +41,42 @@ export function StartCampaign({
   check: ReturnType<typeof useLaunchCheck>;
   progress: ReturnType<typeof useCampaignProgress>;
   launch: ActionFeedback<void>;
+  /** Resumes a stopped (paused) campaign. */
+  resume: ActionFeedback<"pause" | "resume">;
   canWrite: boolean;
   refusal: string | undefined;
 }) {
   const [told, setTold] = useState(false);
-  // Shown in every state (founder, 16 Nov 2026), switched off where it cannot start: one
-  // that is calling is already started, and a stopped one cannot start again.
-  if (status !== "draft" && status !== "scheduled") {
-    const why =
-      status === "running" || status === "paused"
-        ? "It has started. Use Pause or Stop campaign."
-        : "A stopped campaign can't start again. Use Duplicate or Call the unreached again.";
+  if (status === "running") {
+    const why = "It is calling now. Use Stop campaign to stop it.";
     return (
       <button type="button" className={PRIMARY_BUTTON_SM} disabled title={why} aria-label={`Start campaign: ${why}`}>
         <PhoneOutgoing aria-hidden className="h-3.5 w-3.5" />
         Start campaign
       </button>
+    );
+  }
+  if (status === "paused") {
+    const data = progress.data;
+    const held =
+      data?.complaint_review_required === true
+        ? "Review the opt-outs first."
+        : HELD_PAUSES.includes(data?.pause_reason ?? "")
+          ? "Fix the reason shown above first."
+          : undefined;
+    return (
+      <ActionButton
+        variant="primary-sm"
+        title={held ?? refusal}
+        disabled={!canWrite || Boolean(held)}
+        status={resume.status}
+        pendingLabel="Starting"
+        successLabel="Started"
+        onClick={() => resume.run("resume")}
+      >
+        <PhoneOutgoing aria-hidden className="h-3.5 w-3.5" />
+        Start campaign
+      </ActionButton>
     );
   }
   const total = progress.data?.total ?? 0;

@@ -883,6 +883,8 @@ async def create_campaign(
 
 #: A campaign that has not dialled anyone yet.
 PRE_LAUNCH = ("draft", "scheduled")
+#: What Start may move to `running` through the gate: not started yet, or stopped.
+STARTABLE = ("draft", "scheduled", "cancelled", "completed")
 
 
 async def add_contacts(
@@ -1275,7 +1277,7 @@ async def launch_blockers(
     blockers: list[LaunchBlocker] = []
     facts = await _campaign_facts(session, campaign_id)
 
-    if facts.status not in ("draft", "scheduled"):
+    if facts.status not in STARTABLE:
         blockers.append(LaunchBlocker("status", f"Campaign is {facts.status}, not draft."))
     # F-10: an archived campaign never starts; it is restored first (`campaigns/archive`).
     if (
@@ -1438,6 +1440,12 @@ async def launch_campaign(
 ) -> dict[str, Any]:
     """The gate, then the scrub, then the CAS to `running`.
 
+    A stopped campaign (`cancelled`, or `completed`) starts again through this same door
+    (founder, 16 Nov 2026: "any stopped campaign can be restarted"): the gate and the scrub
+    run again, `launched_at` keeps the first start, and the dispatcher calls only the people
+    whose record says so (still `pending`, or with tries left), so it picks up where it
+    stopped. A campaign stopped since then is paused, never cancelled (`Stop campaign`).
+
     Scrub-at-launch marks known-DNC contacts terminally, so the "N contacts will be
     dialled" number the client confirms is true. The per-dial re-check still runs —
     this is UX honesty, not the enforcement.
@@ -1500,11 +1508,11 @@ async def launch_campaign(
     # parties at different times and one column could only ever be honest about one.
     result = await session.execute(
         text(
-            "UPDATE campaigns SET status = 'running', launched_at = now(), "
+            "UPDATE campaigns SET status = 'running', launched_at = COALESCE(launched_at, now()), "
             "dnc_scrubbed_at = now(), updated_at = now() "
-            "WHERE id = :cid AND status IN ('draft', 'scheduled') AND archived_at IS NULL"
+            "WHERE id = :cid AND status = ANY(:startable) AND archived_at IS NULL"
         ),
-        {"cid": campaign_id},
+        {"cid": campaign_id, "startable": list(STARTABLE)},
     )
     if rowcount_of(result) == 0:
         raise await _why_not_launchable(session, campaign_id)

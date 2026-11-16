@@ -105,7 +105,7 @@ export function OtherCallSettings({
   return (
     <FoldSection title="Other call settings" tone="settings">
       {!editable && (
-        <p className="mb-3 text-meta text-ink-muted">It has stopped, so these no longer change anything.</p>
+        <p className="mb-3 text-meta text-ink-muted">It is archived. Restore it to change these.</p>
       )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">

@@ -13,8 +13,7 @@ import { FoldSection } from "./FoldSection";
 import { ContactResults } from "./ContactResults";
 import { useCampaignForm } from "./campaignForm";
 
-const STOPPED =
-  "It has stopped, so people saved here are not called. To call them, use Call the unreached again or Duplicate.";
+const STOPPED = "It is stopped. People saved here are called when you start it again.";
 
 /** The people section's element id, so "Add people" in the launch checklist can go to it. */
 export function peopleSectionId(campaignId: string): string {

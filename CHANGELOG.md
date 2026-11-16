@@ -3,6 +3,16 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.47 — 16-Nov-2026
+
+- A campaign starts and stops any time. Stop campaign pauses it. Start carries on from where
+  it stopped: it calls the people still waiting or with tries left, never anyone already
+  reached, on do-not-call, or out of tries. A campaign stopped before this change starts again
+  the same way, through the same compliance checks as a first start.
+- Pause, Resume, "Stop for good" and Call the unreached again are gone; Start and Stop cover
+  them. Duplicate stays.
+- The agent, calling hours, retries and calls at once can be changed on a stopped campaign too.
+
 ## 0.4.46 — 16-Nov-2026
 
 - Add people saves people to a campaign in any state, including a stopped one, without starting

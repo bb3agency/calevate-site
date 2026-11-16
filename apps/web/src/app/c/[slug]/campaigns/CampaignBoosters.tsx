@@ -461,7 +461,7 @@ export function AgentSection({
           disabled={!canWrite || !editable || update.isPending}
         />
       )}
-      {!editable && <p className="text-meta text-ink-muted">It has stopped, so the agent no longer changes.</p>}
+      {!editable && <p className="text-meta text-ink-muted">It is archived. Restore it to change the agent.</p>}
       {update.error != null && <ProblemNotice error={update.error} />}
       <CampaignVoiceSettings campaignId={campaignId} agentId={agentId} canWrite={canWrite} refusal={refusal} />
     </div>
