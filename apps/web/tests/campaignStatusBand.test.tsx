@@ -117,7 +117,7 @@ describe("the status band", () => {
 });
 
 describe("the people before launch", () => {
-  it("lists them in a table and takes one off from the row's menu", async () => {
+  it("lists them in a table, and the row's tick box takes one off the calls", async () => {
     const rendered = await renderClientPage(
       campaignPage(),
       routes(progressFixture({ total: 1 }), {
@@ -126,20 +126,21 @@ describe("the people before launch", () => {
           counts: { ...contactsFixture().counts, not_called: 1 },
           items: [PERSON],
         }),
-        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts/remove`]: { removed: 1 },
+        [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts/include`]: { changed: 1 },
       }),
     );
     const table = await screen.findByRole("table", { name: "People on this campaign" });
     expect(within(table).getByText("Lakshmi")).toBeTruthy();
-    // No bordered Remove button on every row: one quiet menu per row.
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
-    fireEvent.click(within(table).getByRole("button", { name: "More actions for Lakshmi" }));
-    fireEvent.click(await screen.findByRole("menuitem", { name: "Take Lakshmi off this campaign" }));
+    // The include box replaced the row's take-off menu (0.4.57).
+    expect(within(table).queryByRole("button", { name: "More actions for Lakshmi" })).toBeNull();
+    const box = within(table).getByRole("checkbox", { name: "Include Lakshmi in this campaign" });
+    expect((box as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(box);
     const sent = await vi.waitFor(() => {
-      const call = rendered.calls.find((c) => c.method === "POST" && c.path.endsWith("/contacts/remove"));
+      const call = rendered.calls.find((c) => c.method === "POST" && c.path.endsWith("/contacts/include"));
       expect(call).toBeDefined();
       return JSON.parse(call!.body ?? "{}");
     });
-    expect(sent).toEqual({ contact_ids: ["cc-1"] });
+    expect(sent).toMatchObject({ contact_ids: ["cc-1"], included: false });
   });
 });
