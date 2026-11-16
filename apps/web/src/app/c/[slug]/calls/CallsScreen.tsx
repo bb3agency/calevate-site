@@ -379,8 +379,9 @@ export function CallsScreen({ slug }: { slug: string }) {
   const agentName = agentId ? (rows.find((call) => call.agent_id === agentId)?.agent_name ?? undefined) : undefined;
   /* The "From" control's choices: the campaigns and Inbound lines in use. An archived one
      chosen by a link or a saved view is named from its rows, so the chip still says which. */
-  const campaignChoices = (campaigns.data ?? []).filter((c) => !c.archived_at || c.id === campaignId);
-  const lineChoices = lines.data ?? [];
+  const campaignChoices = (campaigns.isSuccess ? campaigns.data : []).filter((c) => !c.archived_at || c.id === campaignId);
+  const lineChoices = lines.isSuccess ? lines.data : [];
+  const sourcesUnread = campaigns.isError || lines.isError;
   const campaignName = campaignId
     ? (campaignChoices.find((c) => c.id === campaignId)?.name ??
       rows.find((call) => call.campaign?.id === campaignId)?.campaign?.name)
@@ -622,6 +623,9 @@ export function CallsScreen({ slug }: { slug: string }) {
                     ) : null}
                   </select>
                 </label>
+              ) : null}
+              {sourcesUnread ? (
+                <p className="text-meta text-ink-muted">We could not list your lines and campaigns.</p>
               ) : null}
               <label className="block">
                 <span className="sr-only">Handled</span>

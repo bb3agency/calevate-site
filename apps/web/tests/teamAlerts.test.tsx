@@ -157,8 +157,15 @@ describe("a campaign's What it notes", () => {
     );
 
   it("links its own list to its agent's alerts", async () => {
-    const field = { key: "visit_day", label: "Visit day", type: "enum", enum_values: ["Saturday"], reason: "when" };
-    await render(notesFixture({ fields: [field] as ReturnType<typeof notesFixture>["fields"] }));
+    const field: ReturnType<typeof notesFixture>["fields"][number] = {
+      key: "visit_day",
+      label: "Visit day",
+      type: "enum",
+      enum_values: ["Saturday"],
+      reason: "when",
+      required: false,
+    };
+    await render(notesFixture({ fields: [field] }));
     const link = await screen.findByRole("link", { name: "Set alerts" });
     expect(link.getAttribute("href")).toBe(`/c/acme/agents/${FIXTURE_AGENT_ID}?section=settings#team-alerts`);
   });
