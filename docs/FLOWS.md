@@ -57,11 +57,8 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
 3a. **"Meet your agent", the first run (D-855, evolving D-854)**: after sign-up (and at the
    `/c` junction while `GET /v1/first-run` says `due`) a new owner, signed up or invited, goes
    to `/c/{slug}/agents/first`; the dashboard, the Agents screen and the wizard's last screen
-   link there while the account has no agent. Four steps beside a card that fills in:
-   **Its job** is a multi-select (answer my calls, call new leads instantly, run calling
-   campaigns; `PUT /v1/first-run/job` takes `jobs`, one to three, D-863) and ONE agent does
-   every job picked (inbound, outbound or `both`, `starters.direction_of_jobs`), with its
-   languages; **Tell it about you** (one brief, pre-filled from the trade, typed or spoken
+   link there while the account has no agent. Steps beside a card that fills in (D-1001):
+   **About your business** (one brief, pre-filled from the trade, typed or spoken
    in up to three 30-second pieces whose audio is deleted once heard; or Pip's chat
    instead), and beside it up to three files (`first_run/models.MAX_DOCUMENTS`, D-918).
    Each file is an ordinary knowledge upload (`POST /v1/kb/uploads`, same formats, limits,
@@ -73,16 +70,17 @@ Trigger: Sri opens Admin → New Client: one screen, one "Create and invite" (D-
    `first_run/questions.written_questions` drops any item that is not plain English, carries
    a link, runs long or asks about a profile section already filled, and falls back to the
    fixed questions when none survive); answers that map to the profile are saved there and
-   every answer is kept beside its question for the script writer (`first_runs.answers`).
-   The question and script writers read the documents' words through
+   every answer is kept beside its question (`first_runs.answers`).
+   The question writer reads the documents' words through
    `workers/first_run.documents_block`: redacted (D-127 G-1/G-2), cut to 20,000 characters
    shared across the files, fenced and labelled as data. A document still being read is
-   waited for up to 60 s and then left out and named on the build step, with "Try another
-   file"; a failure reading them never fails the build. The build is a list of its four real
-   steps (`first_run/models.BUILD_STEPS`): the voice (a woman's Studio voice, or Clear with
-   the reason when Studio cannot be used or has none) and the name ("Anjali", D-858); the
-   script written from the brief, answers and documents and applied as version one; the
-   greeting; the AI notice. The card shows the name, voice
+   waited for up to 60 s and then left out; a failure reading them never fails the
+   questions. **Name and voice** (`PUT /v1/first-run/agent`) makes the agent from the
+   admin's default agent (`agents/default_agent`) with no script of its own: its voice (the
+   default's where this account can use it, else a Studio voice of its gender, or Clear with
+   the reason), its AI notice switched on by the `switch_on_first_notice` job, and Pip's
+   company training saved as version 1. **What first?** (`POST /v1/first-run/work`) drafts
+   an inbound line or a campaign whose script Pip writes. The card shows the name, voice
    and tier with a sample button, the opening line, the jobs, what it knows and what it
    notes down; the opening line is edited in place there and on Hear it through `PUT
    /v1/agents/{id}/script/opening-line` (the opening-room ceiling, D-846; notices untouched).

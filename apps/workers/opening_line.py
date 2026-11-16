@@ -7,7 +7,7 @@ of the opening rules used to be replaced by the starter's reviewed line, the sam
 business. Here the model is asked for the opening alone, told the business (the owner's
 description, documents, answers and facts, `ScriptBrief.user_message`) and, when a line was
 already written, the exact problems with it. `opening_problems` is the one statement of the
-rules: the first-run greeting check (`first_run.greeting_fits`) is "no problems", the writer's
+rules: a line fits when it has no problems, the writer's
 instruction states the same rules in the same words (`spoken_guard`'s `*_RULE` constants), and
 the problems sent back on a repair are those sentences.
 

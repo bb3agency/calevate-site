@@ -118,9 +118,9 @@ async def _claim(tenant_id: UUID, agent_id: UUID, proposal_id: UUID) -> bool:
     return claimed is not None
 
 
-#: What a `knowledge` proposal asks of the edit (D-923): what onboarding's writer does with the
-#: owner's documents (`first_run._write_script`), as a change to the script the owner already
-#: has, so their own wording stays wherever the documents do not contradict it.
+#: What a `knowledge` proposal asks of the edit (D-923): the owner's documents worked into the
+#: script the owner already has, so their own wording stays wherever the documents do not
+#: contradict it.
 KNOWLEDGE_CHANGE: Final = (
     "The owner added the documents below to the business's knowledge. Work in what they tell "
     "callers and keep everything already in the script that they do not contradict: add or "
@@ -344,8 +344,8 @@ async def _opening_repaired(
     tenant_id: UUID, agent_id: UUID, proposal: script_proposals.ScriptProposal, script: CallScript
 ) -> tuple[CallScript, list[JsonAnswer[WrittenOpening] | ProblemError]]:
     """The proposal's script with each opening line the model wrote that breaks the opening
-    rule repaired by the opening writer, as onboarding's are (`first_run._write_greeting`,
-    `first_run._write_placed_opening`), and what the repairs spent. A conversion keeps the
+    rule repaired by the opening writer (`opening_line.write_opening`), and what the repairs
+    spent. A conversion keeps the
     owner's sentences, and a line the owner already had or asked for in their own words is
     theirs: neither is judged. A repair that gives no line leaves the proposal as drafted, for
     the owner to review. A `written` proposal (D-965) has a "both" agent's opening for the

@@ -3,7 +3,7 @@
 Each file is an ordinary knowledge upload; the first run only records which ones are its
 documents. What is under test: the documents' states as the run reads them, the bound, the
 cross-tenant refusal, and above all what reaches the model: redacted, bounded, fenced as
-data, and never a reason for the build to fail.
+data, and never a reason for the questions to fail.
 """
 
 from __future__ import annotations
@@ -73,17 +73,6 @@ async def _unreadable(tenant_id: uuid.UUID, upload_id: uuid.UUID) -> None:
 async def _add(tenant_id: uuid.UUID, upload_id: uuid.UUID) -> None:
     async with tenant_session(tenant_id) as session:
         await first_run.add_document(session, tenant_id=tenant_id, upload_id=upload_id)
-
-
-async def _job(tenant_id: uuid.UUID) -> None:
-    async with tenant_session(tenant_id) as session:
-        await first_run.save_job(
-            session,
-            tenant_id=tenant_id,
-            jobs=["answer_calls"],
-            language_primary="en-IN",
-            languages_extra=[],
-        )
 
 
 # ------------------------------------------------------------------ what the model is given
@@ -204,13 +193,7 @@ async def test_another_tenants_upload_cannot_be_added(s3: FakeS3) -> None:
         state = await first_run.read_state(session, tenant_id=mine)
         assert state.documents == ()
         # Even an id written straight into the row names nothing outside the account.
-        await first_run.save_job(
-            session,
-            tenant_id=mine,
-            jobs=["answer_calls"],
-            language_primary="te-IN",
-            languages_extra=[],
-        )
+        await first_run.ensure_run(session, tenant_id=mine)
         await session.execute(
             text("UPDATE first_runs SET document_ids = ARRAY[CAST(:id AS uuid)]"),
             {"id": str(their_upload)},
@@ -221,7 +204,6 @@ async def test_another_tenants_upload_cannot_be_added(s3: FakeS3) -> None:
 async def test_a_document_alone_is_enough_to_ask_the_model_for_questions(s3: FakeS3) -> None:
     del s3
     tenant_id = await _tenant()
-    await _job(tenant_id)
     upload_id = await _upload(tenant_id)
     await _read(tenant_id, upload_id, CUSTOMER_SHEET)
     await _add(tenant_id, upload_id)
@@ -243,16 +225,11 @@ async def _no_meter(*_args: Any, **_kwargs: Any) -> None:
     return None
 
 
-async def _no_voice(_tenant_id: uuid.UUID, _language: str, **_default: Any) -> None:
-    return None
-
-
 async def test_the_question_writer_gets_the_document_redacted(
     s3: FakeS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del s3
     tenant_id = await _tenant()
-    await _job(tenant_id)
     upload_id = await _upload(tenant_id)
     await _read(tenant_id, upload_id, CUSTOMER_SHEET)
     await _add(tenant_id, upload_id)
@@ -280,22 +257,11 @@ async def test_the_question_writer_gets_the_document_redacted(
     assert worker.DOCUMENTS_PREAMBLE in sent[0]
 
 
-async def _build(tenant_id: uuid.UUID, brief: str = LONG_BRIEF) -> dict[str, Any]:
-    async with tenant_session(tenant_id) as session:
-        await first_run.save_brief(session, tenant_id=tenant_id, brief=brief)
-        await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
-    run = await _run(tenant_id)
-    return {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
-
-
-async def test_the_script_writer_gets_the_read_ones_and_names_the_rest(
+async def test_the_writers_get_the_read_ones_and_the_rest_are_named(
     s3: FakeS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from apps.api.core.errors import ProblemError
-
     del s3
     tenant_id = await _tenant()
-    await _job(tenant_id)
     read_id = await _upload(tenant_id, "prices.txt")
     reading_id = await _upload(tenant_id, "menu.txt")
     failed_id = await _upload(tenant_id, "old.txt")
@@ -303,32 +269,23 @@ async def test_the_script_writer_gets_the_read_ones_and_names_the_rest(
     await _unreadable(tenant_id, failed_id)
     for upload_id in (read_id, reading_id, failed_id):
         await _add(tenant_id, upload_id)
-    briefs: list[str] = []
-
-    async def drafted(brief: Any, **_kwargs: Any) -> Any:
-        briefs.append(brief.description)
-        raise ProblemError.business_rule("assist_unavailable", "No model.")
-
     monkeypatch.setattr(worker, "DOCUMENT_WAIT_S", 0.0)
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    monkeypatch.setattr(worker, "draft_script", drafted)
-    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
-    assert await worker.build_first_agent({}, await _build(tenant_id)) == "built"
-    assert "65 lakh" in briefs[0] and PHONE not in briefs[0] and EMAIL not in briefs[0]
-    script = (await _run(tenant_id)).build_steps["script"]
-    assert script["documents_used"] == 0, "the model gave nothing, so no document was used"
-    assert script["left_out"] == [
-        {"upload_id": str(reading_id), "why": "reading"},
-        {"upload_id": str(failed_id), "why": "failed"},
-    ]
+    text_block, used = await worker.owner_documents(tenant_id, (await _run(tenant_id)).id)
+    assert "65 lakh" in text_block and PHONE not in text_block and EMAIL not in text_block
+    assert used == {
+        "documents_used": 1,
+        "left_out": [
+            {"upload_id": str(reading_id), "why": "reading"},
+            {"upload_id": str(failed_id), "why": "failed"},
+        ],
+    }
 
 
-async def test_a_document_that_cannot_be_read_at_all_never_fails_the_build(
+async def test_documents_that_cannot_be_read_at_all_cost_only_the_documents(
     s3: FakeS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del s3
     tenant_id = await _tenant()
-    await _job(tenant_id)
     upload_id = await _upload(tenant_id)
     await _add(tenant_id, upload_id)
 
@@ -336,18 +293,15 @@ async def test_a_document_that_cannot_be_read_at_all_never_fails_the_build(
         raise RuntimeError("the knowledge tables are unreachable")
 
     monkeypatch.setattr(worker, "read_documents", broken)
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    assert await worker.build_first_agent({}, await _build(tenant_id, brief="Flats")) == "built"
-    script = (await _run(tenant_id)).build_steps["script"]
-    assert script["state"] == "ready_made" and script["left_out"] == []
+    text_block, used = await worker.owner_documents(tenant_id, (await _run(tenant_id)).id)
+    assert text_block == "" and used == {"documents_used": 0, "left_out": []}
 
 
-async def test_the_build_waits_for_a_document_being_read_then_goes_on(
+async def test_the_writer_waits_for_a_document_being_read_then_goes_on(
     s3: FakeS3, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     del s3
     tenant_id = await _tenant()
-    await _job(tenant_id)
     upload_id = await _upload(tenant_id)
     await _add(tenant_id, upload_id)
     polls: list[float] = []
@@ -358,7 +312,6 @@ async def test_the_build_waits_for_a_document_being_read_then_goes_on(
             await _read(tenant_id, upload_id, CUSTOMER_SHEET)
 
     monkeypatch.setattr(worker, "_sleep", no_sleep)
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
     text_block, used = await worker.owner_documents(tenant_id, (await _run(tenant_id)).id)
     assert len(polls) == 2, "it looked again until the words were there"
     assert "65 lakh" in text_block and used == {"documents_used": 1, "left_out": []}

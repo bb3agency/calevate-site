@@ -34,7 +34,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
-from apps.workers.first_run import greeting_fits
+from apps.workers.opening_line import opening_problems
 from apps.workers.script_assist import INTRODUCED_OPENING_NOTE, ScriptBrief, language_problems
 from calevate_shared.call_script import (
     PRONOUNCE_LEAD,
@@ -408,10 +408,10 @@ def test_a_written_opening_after_the_introduction_is_sent_back_for_greeting_or_n
     problems = language_problems(_script(opening), "te-IN", names=names, introduced=True)
     if refused is None:
         assert problems == []
-        assert greeting_fits(opening, "te-IN", names=names, introduced=True)
+        assert not opening_problems(opening, "te-IN", names=names, introduced=True)
     else:
         assert any(refused in problem for problem in problems), problems
-        assert not greeting_fits(opening, "te-IN", names=names, introduced=True)
+        assert opening_problems(opening, "te-IN", names=names, introduced=True)
     # Without the introduction the same lines are judged as before.
     assert not any(
         "introduction" in p for p in language_problems(_script(opening), "te-IN", names=names)
@@ -419,8 +419,8 @@ def test_a_written_opening_after_the_introduction_is_sent_back_for_greeting_or_n
 
 
 def test_without_the_introduction_the_first_run_greeting_must_greet_or_say_who_calls() -> None:
-    assert not greeting_fits("ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?", "te-IN", names=(BUSINESS, NAME))
-    assert greeting_fits(
+    assert opening_problems("ఇప్పుడు రెండు నిమిషాలు మాట్లాడొచ్చా?", "te-IN", names=(BUSINESS, NAME))
+    assert not opening_problems(
         _opening("te-IN", "call_leads", introduced=False), "te-IN", names=(BUSINESS, NAME)
     )
 

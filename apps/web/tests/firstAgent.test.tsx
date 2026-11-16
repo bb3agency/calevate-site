@@ -898,13 +898,12 @@ describe("meet your agent", () => {
     );
     expect(await screen.findByText("Mon to Sat, 9am to 6pm")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
-    // The answers saved, the next step is the agent's name and voice; nothing is built.
+    // The answers saved, the next step is the agent's name and voice.
     expect(await screen.findByRole("heading", { name: "Name your agent and pick its voice" })).toBeTruthy();
     const sent = calls.find((call) => call.path === "/v1/first-run/answers");
     expect(JSON.parse(sent?.body ?? "{}")).toEqual({
       answers: [{ id: "q1", hours: { opens: "09:00", closes: "18:00", closed: ["sun"] } }],
     });
-    expect(calls.some((call) => call.path === "/v1/first-run/build")).toBe(false);
   });
 
   it("reads the first call back in one column, with one next step", async () => {

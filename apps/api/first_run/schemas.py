@@ -15,7 +15,6 @@ from apps.api.first_run.models import (
     MAX_ASKED,
     MAX_BRIEF_CHARS,
     MAX_DOCUMENTS,
-    MAX_JOBS,
     MAX_RECORDINGS,
 )
 from apps.api.first_run.questions import MAX_OPTIONS, ProfileTopic, QuestionKind
@@ -161,21 +160,6 @@ class WorkIn(Strict):
     job: Literal["answer_calls", "call_leads"]
 
 
-class JobIn(Strict):
-    #: One to three jobs, each once, in the order the owner sees them.
-    jobs: list[StarterJob] = Field(min_length=1, max_length=MAX_JOBS)
-    language_primary: OfferedLanguage
-    #: The languages it also speaks, after the main one.
-    languages_extra: list[OfferedLanguage] = Field(default_factory=list, max_length=3)
-
-    @field_validator("jobs")
-    @classmethod
-    def _each_job_once(cls, value: list[StarterJob]) -> list[StarterJob]:
-        if len(set(value)) != len(value):
-            raise ValueError("pick each job once")
-        return value
-
-
 class BriefIn(Strict):
     brief: str = Field(max_length=MAX_BRIEF_CHARS)
 
@@ -235,7 +219,6 @@ __all__ = [
     "DocumentOut",
     "FirstRunOut",
     "HoursIn",
-    "JobIn",
     "LeftOutOut",
     "NameIn",
     "QuestionOut",

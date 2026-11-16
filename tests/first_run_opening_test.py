@@ -1,163 +1,89 @@
-"""The first run's agent says its AI notice on every job mix (D-864), as its introduction
-before its opening line (D-865), both founder 23 Oct 2026.
+"""The first run's agent says its AI notice (D-864), switched on by `switch_on_first_notice`
+after "Name and voice" makes it.
 
-The Sri Estates trial call opened with no AI notice although the build ticked "Adding its AI
-notice": every agent is created with both notices off (D-669) and the notice step only read
-back that the sentence was on file. These build the first agent through the worker, as the
-screen does, and read what callers hear first the way the agent screen does
-(`roster.agent_by_id`), which is `join_first_words` over the agent's switches and script.
+Every agent is created with both notices off (D-669), so without the job the first run's agent
+would open with no AI notice. These make the agent through `PUT /v1/first-run/agent`, as the
+screen does, run the job it queued, and read the agent the way the agent screen does
+(`roster.agent_by_id`).
 """
 
 from __future__ import annotations
 
-import itertools
 import uuid
-from types import SimpleNamespace
-from typing import Any
 
 import pytest
-from apps.api.admin import service as admin_service
 from apps.api.agents import roster
 from apps.api.agents.publishing import set_disclosure_posture
-from apps.api.agents.service import _load_agent, trial_call_first_words
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import ai_disclosure_for
-from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
-from apps.api.first_run import service as first_run
+from apps.api.first_run import routes as first_run_routes
 from apps.workers import first_run as worker
-from apps.workers.opening_line import WrittenOpening
-from calevate_shared.opening_notices import NONE_SAID
-from calevate_shared.spoken_guard import opens_with_greeting
 from sqlalchemy import text
-
-#: The opening writer's lines for this business, after the introduction and said first.
-INTRODUCED = "ఏ ఏరియా లో ఫ్లాట్ చూస్తున్నారు అండి?"
-GREETING = "నమస్కారం అండి, Sri Estates నుంచి, ఏ ఏరియా లో ఫ్లాట్ చూస్తున్నారు?"
-PLACED_INTRODUCED = "మా కొత్త ఫ్లాట్స్ గురించి కాల్ చేశాను అండి, ఇప్పుడు మాట్లాడొచ్చా?"
-PLACED_GREETING = "నమస్కారం అండి, Sri Estates నుంచి కాల్ చేశాను, ఇప్పుడు మాట్లాడొచ్చా?"
-
-JOBS = ("answer_calls", "call_new_leads", "call_leads")
-#: Every mix the job step allows, in the owner's order as given.
-JOB_MIXES = [mix for n in (1, 2, 3) for mix in itertools.combinations(JOBS, n)]
+from tests.first_run_test import _owner, _tenant
+from tests.first_run_work_test import _made
 
 
-async def _tenant() -> uuid.UUID:
-    created = await admin_service.create_organization(
-        name="Sri Estates",
-        slug=f"open-{uuid.uuid4().hex[:8]}",
-        vertical_template="real_estate",
-        billing_email=None,
-        created_by=None,
-    )
-    return uuid.UUID(str(created["id"]))
-
-
-async def _no_voice(_tenant_id: uuid.UUID, _language: str, **_default: Any) -> None:
-    return None
-
-
-async def _build(
-    tenant_id: uuid.UUID, jobs: tuple[str, ...], monkeypatch: pytest.MonkeyPatch, build: int = 1
-) -> Any:
-    async with tenant_session(tenant_id) as session:
-        if build == 1:
-            await first_run.save_job(
-                session,
-                tenant_id=tenant_id,
-                jobs=list(jobs),
-                language_primary="te-IN",
-                languages_extra=[],
-            )
-            await first_run.save_brief(session, tenant_id=tenant_id, brief="Flats")
-        await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
-        run = (await session.execute(text("SELECT id FROM first_runs"))).one()
-
-    # No script from the model (the ready-made structure stays); the opening writer gives the
-    # line for the form it is asked for (D-963: never a ready-made one).
-    async def no_script(*_args: Any, **_kwargs: Any) -> None:
-        raise ProblemError.business_rule("assist_unavailable", "No model.")
-
-    async def opening(brief: Any, **kwargs: Any) -> SimpleNamespace:
-        placed = kwargs.get("placed")
-        if brief.introduced:
-            line = PLACED_INTRODUCED if placed else INTRODUCED
-        else:
-            line = PLACED_GREETING if placed else GREETING
-        return SimpleNamespace(
-            value=WrittenOpening(line=line, said=NONE_SAID), capability=None, earlier=(), model=None
-        )
-
-    async def no_meter(*_args: Any, **_kwargs: Any) -> None:
+@pytest.fixture(autouse=True)
+def _no_voice(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _none(_tenant_id: uuid.UUID, _language: str, **_kw: object) -> None:
         return None
 
-    monkeypatch.setattr(worker, "draft_script", no_script)
-    monkeypatch.setattr(worker, "write_opening", opening)
-    monkeypatch.setattr(worker, "_meter", no_meter)
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    payload = {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": build}
-    assert await worker.build_first_agent({}, payload) == "built"
-    async with tenant_session(tenant_id) as session:
-        return (await session.execute(text("SELECT agent_id, build_steps FROM first_runs"))).one()
+    monkeypatch.setattr(first_run_routes, "pick_voice", _none)
 
 
-@pytest.mark.parametrize("jobs", JOB_MIXES, ids=["+".join(mix) for mix in JOB_MIXES])
-async def test_the_first_agent_introduces_itself_then_says_its_opening_line(
-    jobs: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def _first_agent() -> tuple[uuid.UUID, uuid.UUID]:
     tenant_id = await _tenant()
-    run = await _build(tenant_id, jobs, monkeypatch)
-    assert run.build_steps["notice"]["state"] == "done"
+    body = await _made(tenant_id, await _owner(tenant_id))
+    return tenant_id, uuid.UUID(body["agent_id"])
+
+
+async def _notice(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
+    payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id)}
+    return await worker.switch_on_first_notice({}, payload)
+
+
+async def test_the_first_agents_ai_notice_is_switched_on_and_audited_as_the_system() -> None:
+    tenant_id, agent_id = await _first_agent()
+    assert await _notice(tenant_id, agent_id) == "done"
     async with tenant_session(tenant_id) as session:
-        agent = await roster.agent_by_id(session, run.agent_id)
+        agent = await roster.agent_by_id(session, agent_id)
         audited = (
             (
                 await session.execute(
                     text("SELECT actor_type FROM audit_log WHERE action = :a AND object_id = :o"),
-                    {"a": "agent.ai_disclosure_enabled", "o": str(run.agent_id)},
+                    {"a": "agent.ai_disclosure_enabled", "o": str(agent_id)},
                 )
             )
             .scalars()
             .all()
         )
+        business = (await session.execute(text("SELECT name FROM organizations"))).scalar_one()
     assert agent is not None
     assert agent.ai_disclosure_enabled
     assert not agent.recording_notice_enabled, "the recording notice stays the owner's choice"
-    notice = agent.ai_disclosure_line.strip()
-    assert notice == ai_disclosure_for(language="te-IN", business="Sri Estates", name="Anjali")
-    assert notice in agent.opening_line
-    # The salutation, the introduction, then the opening line, in one turn (D-865); the
-    # opening line neither greets again nor repeats who is calling.
-    opening = agent.script_opening_line.strip()
-    assert opening == INTRODUCED, "written for the business, never the ready-made line"
-    assert agent.first_words.startswith(f"నమస్కారం అండి, {notice}")
-    assert agent.first_words.endswith(opening)
-    assert not opens_with_greeting(opening)
-    assert "Anjali" not in opening
-    assert agent.greeting_budget is None or len(agent.first_words) <= agent.greeting_budget.limit
+    assert agent.ai_disclosure_line.strip() == ai_disclosure_for(
+        language="te-IN", business=str(business), name="Anjali"
+    )
     assert audited == ["system"]
-
-
-async def test_an_answering_agents_test_call_carries_the_notice_too(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id = await _tenant()
-    run = await _build(tenant_id, ("answer_calls",), monkeypatch)
+    # A second delivery changes nothing and writes no second audit row.
+    assert await _notice(tenant_id, agent_id) == "done"
     async with tenant_session(tenant_id) as session:
-        agent = await _load_agent(session, tenant_id, run.agent_id)
-    words = trial_call_first_words(agent, call_is_recorded=True)
-    notice = str(agent["ai_disclosure_line"]).strip()
-    assert words == (f"నమస్కారం అండి, {notice} ఇది మీ కొత్త రిసెప్షనిస్ట్ టెస్ట్ కాల్. ఇప్పుడు మాట్లాడొచ్చా?")
+        count = (
+            await session.execute(
+                text("SELECT count(*) FROM audit_log WHERE action = :a AND object_id = :o"),
+                {"a": "agent.ai_disclosure_enabled", "o": str(agent_id)},
+            )
+        ).scalar_one()
+    assert count == 1
 
 
-async def test_a_rebuild_keeps_the_ai_notice_off_when_the_owner_switched_it_off(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id = await _tenant()
-    run = await _build(tenant_id, ("call_leads",), monkeypatch)
+async def test_the_notice_stays_off_when_the_owner_switched_it_off() -> None:
+    tenant_id, agent_id = await _first_agent()
+    assert await _notice(tenant_id, agent_id) == "done"
     await set_disclosure_posture(
         tenant_id=tenant_id,
-        agent_id=run.agent_id,
+        agent_id=agent_id,
         ai_disclosure_enabled=False,
         recording_notice_enabled=None,
     )
@@ -168,14 +94,10 @@ async def test_a_rebuild_keeps_the_ai_notice_off_when_the_owner_switched_it_off(
             actor_type="user",
             tenant_id=tenant_id,
             object_type="agent",
-            object_id=str(run.agent_id),
+            object_id=str(agent_id),
             ip="203.0.113.7",
         )
-    again = await _build(tenant_id, ("call_leads",), monkeypatch, build=2)
-    assert again.build_steps["notice"]["state"] == "off"
+    assert await _notice(tenant_id, agent_id) == "off"
     async with tenant_session(tenant_id) as session:
-        agent = await roster.agent_by_id(session, run.agent_id)
+        agent = await roster.agent_by_id(session, agent_id)
     assert agent is not None and not agent.ai_disclosure_enabled
-    # With no introduction, the opening line greets and says who is calling again.
-    assert agent.first_words == agent.script_opening_line.strip()
-    assert opens_with_greeting(agent.first_words) and "Sri Estates" in agent.first_words

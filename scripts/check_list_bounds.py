@@ -833,7 +833,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # "Meet your agent" (D-855): every route answers the one first run, whose lists are its
     # questions (`first_run/models.MAX_QUESTIONS`), the four build steps
     # (`first_run/models.BUILD_STEPS`), a trade's fixed choices (`first_run/questions.
-    # TRADE_CHOICES`, six each) and the languages it speaks (`JobIn.languages_extra`, three).
+    # TRADE_CHOICES`, six each) and the languages it speaks (`AgentIn.languages_extra`, three).
     **{
         route: BoundedByConstruction(
             by=(
@@ -845,11 +845,11 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         )
         for route in (
             "GET /v1/first-run",
-            "PUT /v1/first-run/job",
             "PUT /v1/first-run/brief",
+            "PUT /v1/first-run/agent",
             "PUT /v1/first-run/name",
+            "POST /v1/first-run/work",
             "POST /v1/first-run/answers",
-            "POST /v1/first-run/build",
             "POST /v1/first-run/finish",
             "POST /v1/first-run/dismiss",
             "POST /v1/first-run/documents",

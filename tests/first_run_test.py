@@ -1,4 +1,4 @@
-"""The first run, "Meet your agent" (D-855): its state, questions, build and own-number tick.
+"""The first run, "Meet your agent" (D-855): its state, questions, answers and own-number tick.
 
 Every case makes its own tenant. The model and speech-to-text are replaced at the worker's
 own seams; what is under test is what reaches the row, the profile and the agent.
@@ -18,7 +18,6 @@ from apps.api.admin import service as admin_service
 from apps.api.agents import lifecycle
 from apps.api.agents.hosted_voices import HostedVoiceRow, sold_hosted_band
 from apps.api.agents.starters import (
-    CATALOGUE,
     JOB_DIRECTION,
     JOBS_OF_DIRECTION,
     LINES_OF_JOB,
@@ -140,13 +139,6 @@ async def test_another_tenant_reads_zero_rows() -> None:
     mine = await _tenant()
     theirs = await _tenant()
     async with tenant_session(mine) as session:
-        await first_run.save_job(
-            session,
-            tenant_id=mine,
-            jobs=["call_leads"],
-            language_primary="te-IN",
-            languages_extra=[],
-        )
         await first_run.start_recording(
             session,
             tenant_id=mine,
@@ -174,18 +166,6 @@ async def test_a_short_brief_asks_the_profiles_own_gaps_without_a_model() -> Non
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
     async with _client() as http:
-        job = await http.put(
-            "/v1/first-run/job",
-            headers=headers,
-            json={
-                "jobs": ["call_new_leads", "answer_calls"],
-                "language_primary": "te-IN",
-                "languages_extra": ["en-IN"],
-            },
-        )
-        assert job.status_code == 200, job.text
-        assert job.json()["jobs"] == ["call_new_leads", "answer_calls"], "the owner's order"
-        assert job.json()["languages_extra"] == ["en-IN"]
         brief = await http.put("/v1/first-run/brief", headers=headers, json={"brief": "Flats"})
     questions_out = brief.json()["questions"]
     assert questions_out["status"] == "ready"
@@ -197,21 +177,6 @@ async def test_a_short_brief_asks_the_profiles_own_gaps_without_a_model() -> Non
     assert items[-1]["id"] == ONE_THING.id
     assert [item["id"] for item in items] == ["q1", "q2", "q3", "q4", ONE_THING.id]
     assert (await _run(tenant_id)).question_runs == 0
-
-
-async def test_jobs_are_one_to_three_each_once() -> None:
-    tenant_id = await _tenant()
-    headers = await _owner(tenant_id)
-    async with _client() as http:
-        twice = await http.put(
-            "/v1/first-run/job",
-            headers=headers,
-            json={"jobs": ["call_leads", "call_leads"], "language_primary": "te-IN"},
-        )
-        none = await http.put(
-            "/v1/first-run/job", headers=headers, json={"jobs": [], "language_primary": "te-IN"}
-        )
-    assert twice.status_code == 422 and none.status_code == 422
 
 
 #: What a model might write for a property office: two good questions, and one each of the
@@ -262,11 +227,6 @@ async def test_the_model_writes_the_questions_and_the_gate_drops_bad_ones(
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
     async with _client() as http:
-        await http.put(
-            "/v1/first-run/job",
-            headers=headers,
-            json={"jobs": ["answer_calls"], "language_primary": "te-IN"},
-        )
         writing = await http.put("/v1/first-run/brief", headers=headers, json={"brief": LONG_BRIEF})
     assert writing.json()["questions"]["status"] == "writing"
     run = await _run(tenant_id)
@@ -307,11 +267,6 @@ async def test_the_questions_are_charged_in_the_transaction_that_stores_them(
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
     async with _client() as http:
-        await http.put(
-            "/v1/first-run/job",
-            headers=headers,
-            json={"jobs": ["answer_calls"], "language_primary": "te-IN"},
-        )
         await http.put("/v1/first-run/brief", headers=headers, json={"brief": LONG_BRIEF})
     run = await _run(tenant_id)
     sessions: dict[str, object] = {}
@@ -393,13 +348,6 @@ async def test_with_no_model_the_questions_are_the_profiles_gaps(
 
     tenant_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        await first_run.save_job(
-            session,
-            tenant_id=tenant_id,
-            jobs=["answer_calls"],
-            language_primary="te-IN",
-            languages_extra=[],
-        )
         await first_run.save_brief(session, tenant_id=tenant_id, brief=LONG_BRIEF)
     run = await _run(tenant_id)
 
@@ -551,9 +499,6 @@ async def test_the_answers_land_in_the_business_profile_merged() -> None:
     stored = (await _run(tenant_id)).answers
     assert [a["id"] for a in stored] == ["q1", "q2", "q3", "q4", "q5", "q6"]
     assert stored[5]["choices"] == ["Yes"] and stored[5]["maps_to"] is None
-    script_lines = first_run.answers_for_script(stored)
-    assert "Q: Do you help with loans?\nA: Yes" in script_lines
-    assert "Villas, Rs 9500000" in script_lines
     async with tenant_session(tenant_id) as session:
         profile = await load_profile(session, tenant_id=tenant_id)
     assert [(s.name, s.price_inr) for s in profile.services] == [
@@ -784,269 +729,6 @@ async def test_a_fourth_recording_is_refused(s3: FakeS3) -> None:
     assert fourth.json()["type"].endswith("/first_run_recordings_used")
 
 
-# ------------------------------------------------------------------ the build
-
-
-async def _ready_to_build(
-    tenant_id: uuid.UUID,
-    brief: str,
-    jobs: tuple[str, ...] = ("answer_calls",),
-) -> None:
-    async with tenant_session(tenant_id) as session:
-        await first_run.save_job(
-            session,
-            tenant_id=tenant_id,
-            jobs=list(jobs),
-            language_primary="en-IN",
-            languages_extra=[],
-        )
-        await first_run.save_brief(session, tenant_id=tenant_id, brief=brief)
-        await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
-
-
-async def test_several_jobs_build_one_agent_with_a_block_per_direction(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id = await _tenant()
-    await _ready_to_build(tenant_id, "Flats", jobs=("call_leads", "answer_calls", "call_new_leads"))
-    run = await _run(tenant_id)
-    from apps.api.core.errors import ProblemError
-
-    async def no_model(*_args: Any, **_kwargs: Any) -> None:
-        raise ProblemError.business_rule("assist_unavailable", "No model.")
-
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    monkeypatch.setattr(worker, "draft_script", no_model)
-    monkeypatch.setattr(worker, "write_opening", no_model)
-    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
-    assert (
-        await worker.build_first_agent(
-            {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
-        )
-        == "built"
-    )
-    after = await _run(tenant_id)
-    async with tenant_session(tenant_id) as session:
-        from apps.api.agents.script_builder import load_agent_script
-
-        count = (await session.execute(text("SELECT count(*) FROM agents"))).scalar()
-        direction = (
-            await session.execute(
-                text("SELECT direction FROM agents WHERE id = :a"), {"a": after.agent_id}
-            )
-        ).scalar()
-        script = (await load_agent_script(session, after.agent_id)).script
-    assert count == 1, "one agent for all three jobs"
-    assert direction == "both"
-    # Calling has a value step since D-945, so one more step than answering.
-    assert [s.id for s in script.stages] == [f"in{n}" for n in range(1, 6)] + [
-        f"out{n}" for n in range(1, 7)
-    ]
-    assert script.stages[4].otherwise == "end", "an incoming call never runs on into calling"
-    assert script.stages[0].name.startswith("Incoming call: ")
-    assert "If THIS CALL names an enquiry they just made" in script.stages[7].instruction
-    # No model wrote it an opening here, and no ready-made line is put in its place (D-963).
-    assert script.opening_line == ""
-    assert after.build_steps["greeting"]["state"] == "unwritten"
-    assert script.ending.endswith("{{lead_name}}"), "the per-call value stays last (D-816)"
-
-
-async def test_the_answers_and_every_job_reach_the_script_writer(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from apps.api.core.errors import ProblemError
-
-    tenant_id = await _tenant()
-    await _ready_to_build(tenant_id, LONG_BRIEF, jobs=("answer_calls", "call_leads"))
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE first_runs SET answers = CAST(:a AS jsonb)"),
-            {
-                "a": json.dumps(
-                    [{"id": "q1", "prompt": "Do you help with loans?", "choices": ["Yes"]}]
-                )
-            },
-        )
-    run = await _run(tenant_id)
-    briefs: list[str] = []
-
-    async def drafted(brief: Any, **_kwargs: Any) -> SimpleNamespace:
-        briefs.append(brief.description)
-        raise ProblemError.business_rule("assist_unavailable", "No model.")
-
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    monkeypatch.setattr(worker, "draft_script", drafted)
-    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
-    await worker.build_first_agent(
-        {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
-    )
-    assert "Q: Do you help with loans?\nA: Yes" in briefs[0]
-    assert "calling campaigns" in briefs[0] and "ONE agent" in briefs[0]
-    assert (await _run(tenant_id)).build_steps["script"]["state"] == "ready_made"
-
-
-async def _no_voice(_tenant_id: uuid.UUID, _language: str, **_default: Any) -> None:
-    return None
-
-
-async def test_the_build_writes_the_script_from_the_brief_and_names_the_agent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    tenant_id = await _tenant()
-    await _ready_to_build(tenant_id, LONG_BRIEF)
-    run = await _run(tenant_id)
-    written = (
-        CATALOGUE[("real_estate", "answer_calls")]
-        .call_script(business="Madhav Homes", language="en-IN")
-        .model_copy(
-            update={
-                "identity": "You answer the phone for Madhav Homes.",
-                "opening_line": "Hello, Madhav Homes. Are you looking for a flat or a villa?",
-            }
-        )
-    )
-    briefs: list[str] = []
-
-    async def drafted(brief: Any, **_kwargs: Any) -> SimpleNamespace:
-        briefs.append(brief.description)
-        return SimpleNamespace(
-            script=written,
-            capability=SimpleNamespace(disclosure=None),
-            earlier=(),
-            model=None,
-            usage=None,
-        )
-
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    monkeypatch.setattr(worker, "draft_script", drafted)
-    monkeypatch.setattr(worker, "_meter", _no_meter)
-    payload = {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
-    assert await worker.build_first_agent({}, payload) == "built"
-    assert await worker.build_first_agent({}, payload) == "not_pending"
-
-    after = await _run(tenant_id)
-    assert after.build_status == "built"
-    assert {k: v["state"] for k, v in after.build_steps.items() if k != "claimed"} == {
-        "voice": "none",
-        "script": "done",
-        "greeting": "done",
-        "notice": "done",
-    }
-    assert "Kondapur" in briefs[0] and "Anjali" in briefs[0]
-    async with tenant_session(tenant_id) as session:
-        agent = (
-            await session.execute(
-                text("SELECT name, direction, status FROM agents WHERE id = :aid"),
-                {"aid": after.agent_id},
-            )
-        ).one()
-        from apps.api.agents.script_builder import load_agent_script
-
-        script = (await load_agent_script(session, after.agent_id)).script
-    assert tuple(agent) == ("Anjali", "inbound", "draft")
-    assert script.identity.startswith("Your name is Anjali. You answer the phone")
-    assert script.opening_line == "Hello, Madhav Homes. Are you looking for a flat or a villa?"
-
-
-async def test_a_short_brief_is_still_written_for_the_business_and_named(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """D-962: the ready-made steps carry no words, so even "Flats" gets a script written from
-    the business's name, type and profile; without a model the structure stays, named."""
-    from apps.api.core.errors import ProblemError
-
-    tenant_id = await _tenant()
-    await _ready_to_build(tenant_id, "Flats")
-    run = await _run(tenant_id)
-    asked: list[Any] = []
-
-    async def refused(brief: Any, **_kwargs: Any) -> None:
-        asked.append(brief)
-        raise ProblemError.business_rule("assist_unavailable", "No model.")
-
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    monkeypatch.setattr(worker, "draft_script", refused)
-    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
-    await worker.build_first_agent(
-        {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
-    )
-    after = await _run(tenant_id)
-    assert len(asked) == 1 and asked[0].business_name
-    assert after.build_steps["script"]["state"] == "ready_made"
-    async with tenant_session(tenant_id) as session:
-        from apps.api.agents.script_builder import load_agent_script
-
-        script = (await load_agent_script(session, after.agent_id)).script
-    assert script.identity.startswith("Your name is Anjali.")
-
-
-async def test_the_job_is_locked_once_the_agent_is_built(monkeypatch: pytest.MonkeyPatch) -> None:
-    tenant_id = await _tenant()
-    headers = await _owner(tenant_id)
-    await _ready_to_build(tenant_id, "Flats")
-    run = await _run(tenant_id)
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    await worker.build_first_agent(
-        {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
-    )
-    async with _client() as http:
-        moved = await http.put(
-            "/v1/first-run/job",
-            headers=headers,
-            json={"jobs": ["call_leads"], "language_primary": "en-IN"},
-        )
-        renamed = await http.put("/v1/first-run/name", headers=headers, json={"name": "Lakshmi"})
-    assert moved.status_code == 409 and moved.json()["type"].endswith("/first_run_job_locked")
-    assert renamed.status_code == 200, renamed.text
-    async with tenant_session(tenant_id) as session:
-        from apps.api.agents.script_builder import load_agent_script
-
-        script = (await load_agent_script(session, (await _run(tenant_id)).agent_id)).script
-    assert script.identity.startswith("Your name is Lakshmi.")
-    assert "Anjali" not in script.identity
-
-
-async def test_the_languages_are_locked_once_the_agent_is_built(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The agent takes its languages and voice when it is made; a later change on this step
-    only rewrote the run, so the card named a language the agent does not speak."""
-    tenant_id = await _tenant()
-    headers = await _owner(tenant_id)
-    await _ready_to_build(tenant_id, "Flats")
-    run = await _run(tenant_id)
-    monkeypatch.setattr(worker, "pick_voice", _no_voice)
-    await worker.build_first_agent(
-        {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
-    )
-    other = "hi-IN" if run.language_primary != "hi-IN" else "en-IN"
-    async with _client() as http:
-        moved = await http.put(
-            "/v1/first-run/job",
-            headers=headers,
-            json={"jobs": list(run.jobs), "language_primary": other},
-        )
-        same = await http.put(
-            "/v1/first-run/job",
-            headers=headers,
-            json={
-                "jobs": list(run.jobs),
-                "language_primary": run.language_primary,
-                "languages_extra": list(run.languages_extra or []),
-            },
-        )
-    assert moved.status_code == 409 and moved.json()["type"].endswith("/first_run_language_locked")
-    assert same.status_code == 200, same.text
-
-
-async def test_building_without_a_job_is_refused() -> None:
-    tenant_id = await _tenant()
-    headers = await _owner(tenant_id)
-    async with _client() as http:
-        refused = await http.post("/v1/first-run/build", headers=headers)
-    assert refused.json()["type"].endswith("/first_run_not_ready")
-
-
 # ------------------------------------------------------------------ "this number is mine"
 
 
@@ -1114,12 +796,6 @@ def test_the_identity_is_never_stacked() -> None:
     once = names.identity_with_name("You answer the phone.", "Anjali")
     twice = names.identity_with_name(once, "Priya")
     assert twice == "Your name is Priya. You answer the phone."
-
-
-def test_greeting_rule_is_the_first_agent_rule() -> None:
-    assert worker.greeting_fits("Hello, how can I help you today?", "en-IN")
-    assert not worker.greeting_fits("Hello, welcome.", "en-IN")
-    assert not worker.greeting_fits("x" * 120 + "?", "en-IN")
 
 
 def test_questions_already_answered_are_not_asked() -> None:
@@ -1296,14 +972,16 @@ async def test_a_trial_whose_studio_minutes_are_used_gets_clear(
     assert await voice_pick.studio_hindrance(tenant_id) == "studio_unavailable"
 
 
-async def test_a_build_lost_for_ten_minutes_reads_as_failed_and_can_be_tried_again() -> None:
+async def test_a_build_lost_for_ten_minutes_reads_as_failed() -> None:
+    """A run whose build was started before the build was removed never finishes; its
+    screen must not tick for ever."""
     tenant_id = await _tenant()
-    await _ready_to_build(tenant_id, "Flats")
     async with tenant_session(tenant_id) as session:
         await session.execute(
-            text("UPDATE first_runs SET build_requested_at = now() - interval '11 minutes'")
+            text(
+                "INSERT INTO first_runs (id, tenant_id, build_status, build_requested_at) "
+                "VALUES (:id, :t, 'building', now() - interval '11 minutes')"
+            ),
+            {"id": uuid7(), "t": tenant_id},
         )
-    async with tenant_session(tenant_id) as session:
         assert (await first_run.read_state(session, tenant_id=tenant_id)).build_status == "failed"
-        again = await first_run.request_build(session, tenant_id=tenant_id, user_id=None)
-    assert again.build_status == "building" and again.build_runs == 2

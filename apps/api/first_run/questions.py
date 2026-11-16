@@ -6,7 +6,7 @@ questions the description leaves open, each with the kind of answer it wants: ti
 apply (`choices`), pick one (`single_choice`), a short text, an address, a price list or
 opening hours. An answer whose question names a business-profile section (`maps_to`) lands in
 that section through `tenancy/profile_service.save_profile`, as the setup wizard's does; every
-answer, mapped or not, is kept with its question and given to the script writer.
+answer, mapped or not, is kept with its question on the run (`first_runs.answers`).
 
 THE MODEL'S WORDS NOW REACH THE SCREEN, so `written_questions` is a hard gate rather than a
 repair: plain English only, no link, no markdown, no emoji, the length caps below, and a kind
@@ -207,8 +207,8 @@ def fixed_question(
 
 #: The question every owner is asked after the written ones (D-945, founder, 30 Oct 2026): its
 #: answer is the fact an agent that calls leads may say in its value step. A fixed question,
-#: so it is asked whether or not a model wrote the others; no profile section, so the answer
-#: reaches the script writer with the rest (`service.answers_for_script`).
+#: so it is asked whether or not a model wrote the others; it names no profile section, so the
+#: answer is kept only on the run with the rest (`first_runs.answers`).
 ONE_THING: Final = Question(
     id="value",
     prompt="What is one thing every caller should know about you?",

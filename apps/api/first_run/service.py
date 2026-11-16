@@ -13,8 +13,8 @@ next week lands on the same step, and the sign-in junction can tell a first-time
 one who has moved on (`is_due`). `business_profiles.setup_started_at` could not serve: any
 profile save sets it, including the answers this flow writes.
 
-NOTHING HERE CALLS A MODEL OR A SPEECH SERVICE. Hearing a recording, choosing the follow-up
-questions and building the agent are worker jobs (`workers/first_run.py`) queued through the
+NOTHING HERE CALLS A MODEL OR A SPEECH SERVICE. Hearing a recording and choosing the follow-up
+questions are worker jobs (`workers/first_run.py`) queued through the
 outbox in the caller's transaction (BACKEND-PATTERNS §4); the screen polls this row. Every
 write after a job is queued is a compare-and-set on the job's own state, so a second delivery
 or a stale job never overwrites a newer request.
@@ -33,14 +33,12 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.languages import published_extra_languages
 from apps.api.agents.lifecycle import update_agent
 from apps.api.agents.script_builder import load_agent_script, rewrite_script
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.first_run.documents import Document, read_documents
 from apps.api.first_run.models import (
-    MAX_BUILD_RUNS,
     MAX_DOCUMENTS,
     MAX_QUESTION_RUNS,
     MAX_QUESTIONS,
@@ -57,14 +55,12 @@ from apps.api.first_run.questions import (
     with_one_thing,
 )
 from apps.api.reliability.service import enqueue_outbox
-from apps.api.tenancy.business_copy import queue_generation
 from apps.api.tenancy.business_profile import DAYS, Branch, DayHours, ServiceItem, load_profile
 from apps.api.tenancy.profile_service import ProfilePatch, save_profile
 
 #: The worker jobs (`workers/first_run.py`).
 HEAR_JOB: Final = "hear_first_run_recording"
 QUESTIONS_JOB: Final = "write_first_run_questions"
-BUILD_JOB: Final = "build_first_agent"
 
 #: The label of the branch the "Where are you?" answer creates.
 MAIN_BRANCH_LABEL: Final = "Main branch"
@@ -276,51 +272,6 @@ async def read_state(session: AsyncSession, *, tenant_id: UUID) -> RunState:
         vertical=await _vertical(session),
         documents=await read_documents(session, list(row.document_ids or [])),
     )
-
-
-def _job_locked() -> ProblemError:
-    return ProblemError.conflict(
-        "first_run_job_locked",
-        "Your agent is already built for this job.",
-        remediation="Change what it does on its own page, under Script.",
-    )
-
-
-async def save_job(
-    session: AsyncSession,
-    *,
-    tenant_id: UUID,
-    jobs: Sequence[str],
-    language_primary: str,
-    languages_extra: list[str],
-) -> RunState:
-    """The jobs and the languages. Once the agent is built its jobs stay, because they set
-    its calling direction and its ready-made script. Kept in the order the owner gave."""
-    row = await _ensure(session, tenant_id=tenant_id)
-    held = set(row.jobs or [])
-    if row.agent_id is not None and held and held != set(jobs):
-        raise _job_locked()
-    extra = published_extra_languages(language_primary, languages_extra)
-    if (
-        row.agent_id is not None
-        and row.language_primary is not None
-        and (language_primary != row.language_primary or extra != list(row.languages_extra or []))
-    ):
-        # The agent took its languages and voice when it was made; a rebuild keeps them and
-        # would only write its greeting in the new one, so the run must not claim it moved.
-        raise ProblemError.conflict(
-            "first_run_language_locked",
-            "Your agent already speaks the languages you chose when it was built.",
-            remediation="Change its languages on its own page, under Settings.",
-        )
-    await session.execute(
-        text(
-            "UPDATE first_runs SET jobs = :jobs, language_primary = :lang, "
-            "languages_extra = :extra, updated_at = now() WHERE id = :id"
-        ),
-        {"id": row.id, "jobs": list(jobs), "lang": language_primary, "extra": extra},
-    )
-    return await read_state(session, tenant_id=tenant_id)
 
 
 async def _vertical(session: AsyncSession) -> str | None:
@@ -754,7 +705,7 @@ async def answer_questions(
     user_id: UUID | None,
 ) -> set[str]:
     """Check each answer against the question it names, keep every answer with its question
-    for the script writer, and write the ones that name a profile section into the profile
+    on the run, and write the ones that name a profile section into the profile
     (`save_answers`). Returns the profile sections written.
 
     An answer to a question already answered replaces it; the others are kept. Refused whole,
@@ -788,82 +739,6 @@ async def answer_questions(
     return await save_answers(
         session, tenant_id=tenant_id, answers=_profile_part(pairs), user_id=user_id
     )
-
-
-def answers_for_script(stored: Sequence[object]) -> str:
-    """The owner's answers as plain lines for the script writer: each question, then what
-    they said. Empty when there are none."""
-    lines: list[str] = []
-    for item in stored:
-        if not isinstance(item, dict):
-            continue
-        said: list[str] = []
-        said += [str(choice) for choice in item.get("choices") or []]
-        if item.get("text"):
-            said.append(str(item["text"]))
-        for service in item.get("services") or []:
-            price = service.get("price_inr")
-            said.append(f"{service.get('name')}" + (f", Rs {price}" if price else ""))
-        hours = item.get("hours")
-        if isinstance(hours, dict):
-            closed = ", ".join(hours.get("closed") or []) or "none"
-            said.append(f"{hours.get('opens')} to {hours.get('closes')}, closed on: {closed}")
-        if said:
-            lines.append(f"Q: {item.get('prompt')}\nA: {'; '.join(said)}")
-    return "\n".join(lines)
-
-
-# ---------------------------------------------------------------------- the build
-
-
-def _not_ready_to_build(remediation: str) -> ProblemError:
-    return ProblemError.business_rule(
-        "first_run_not_ready",
-        "Choose your agent's job and language first.",
-        remediation=remediation,
-    )
-
-
-async def request_build(
-    session: AsyncSession, *, tenant_id: UUID, user_id: UUID | None
-) -> RunState:
-    """Queue the build. The first build creates the agent; a later one (after the brief
-    changed) rewrites the same agent's script, never a second agent.
-
-    The first build also queues the business's examples to be written again (D-827), so the
-    hints on every screen use what the owner said rather than only the trade's defaults."""
-    row = await _ensure(session, tenant_id=tenant_id)
-    if not row.jobs or row.language_primary is None:
-        raise _not_ready_to_build("Go back to the first step and pick what it should do.")
-    if _build_status(row) == "building":
-        return await read_state(session, tenant_id=tenant_id)
-    if int(row.build_runs) >= MAX_BUILD_RUNS:
-        raise ProblemError.business_rule(
-            "first_run_builds_used",
-            "Your agent has been built as many times as this screen allows.",
-            remediation="Change anything else on its own page, under Script.",
-        )
-    await session.execute(
-        text(
-            "UPDATE first_runs SET build_status = 'building', build_steps = '{}'::jsonb, "
-            "build_disclosure = NULL, build_runs = build_runs + 1, "
-            "build_requested_at = now(), updated_at = now() WHERE id = :id"
-        ),
-        {"id": row.id},
-    )
-    await enqueue_outbox(
-        session,
-        job=BUILD_JOB,
-        payload={
-            "tenant_id": str(tenant_id),
-            "run_id": str(row.id),
-            "build": int(row.build_runs) + 1,
-            "requested_by": None if user_id is None else str(user_id),
-        },
-    )
-    if int(row.build_runs) == 0 and row.brief:
-        await queue_generation(session, tenant_id=tenant_id, trigger="first_run")
-    return await read_state(session, tenant_id=tenant_id)
 
 
 async def rename_agent(
@@ -927,7 +802,6 @@ async def mark(session: AsyncSession, *, tenant_id: UUID, marker: Marker) -> Run
 
 
 __all__ = [
-    "BUILD_JOB",
     "HEAR_JOB",
     "MAIN_BRANCH_LABEL",
     "QUESTIONS_JOB",
@@ -939,7 +813,6 @@ __all__ = [
     "RunState",
     "add_document",
     "answer_questions",
-    "answers_for_script",
     "brief_hash",
     "due_for",
     "ensure_run",
@@ -948,10 +821,8 @@ __all__ = [
     "read_state",
     "remove_document",
     "rename_agent",
-    "request_build",
     "save_answers",
     "save_brief",
-    "save_job",
     "start_recording",
     "store_questions",
 ]

@@ -209,7 +209,6 @@ from apps.workers.extraction_reread import (
 from apps.workers.field_reason_refresh import refresh_field_reason
 from apps.workers.field_suggestions import rebuild_collect, suggest_lead_details
 from apps.workers.first_run import (
-    build_first_agent,
     hear_first_run_recording,
     switch_on_first_notice,
     write_first_run_questions,
@@ -486,10 +485,9 @@ FUNCTIONS: list[Any] = [
         draft_teach_question,
         name_gap_topics,
         # "Meet your agent" (D-855), from the outbox (`first_run/service.py`): a spoken piece
-        # of the brief heard, its follow-up questions chosen, and the first agent built.
+        # of the brief heard, its follow-up questions chosen, and the first agent's AI notice.
         hear_first_run_recording,
         write_first_run_questions,
-        build_first_agent,
         switch_on_first_notice,
         # An account's AI-written examples and suggestions (D-827), from the outbox
         # (`tenancy/business_copy.queue_generation` and `sweep_business_copies`).

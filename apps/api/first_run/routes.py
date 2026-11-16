@@ -1,8 +1,7 @@
 """The new owner's first run, "Meet your agent" (D-855).
 
     GET  /v1/first-run                       where the owner is, and whether it is still due
-    PUT  /v1/first-run/job                   the job and the languages
-    PUT  /v1/first-run/brief                 the brief; queues the follow-up questions
+    PUT  /v1/first-run/brief                the brief; queues the follow-up questions
     POST /v1/first-run/documents             a knowledge upload added as a brief document
     DELETE /v1/first-run/documents/{id}      stop reading one for the brief (it stays knowledge)
     POST /v1/first-run/recordings            one spoken piece of the brief (under 30 s)
@@ -12,8 +11,6 @@
                                              have Pip save the company training as version 1
     POST /v1/first-run/work                  what first: draft a line or a campaign; Pip
                                              writes and saves its script (Phase 3b)
-    POST /v1/first-run/build                 the agent built from a written script (before
-                                             Phase 3b; the screen no longer calls it)
     PUT  /v1/first-run/name                  rename the agent before its first call
     POST /v1/first-run/finish | /dismiss     done, or put aside for now
 
@@ -63,7 +60,6 @@ from apps.api.first_run.schemas import (
     DocumentIn,
     DocumentOut,
     FirstRunOut,
-    JobIn,
     LeftOutOut,
     NameIn,
     QuestionOut,
@@ -188,39 +184,6 @@ async def _audit(
 )
 async def read_first_run(session: Session, principal: Owner) -> FirstRunOut:
     assert principal.tenant_id is not None
-    return await _out(session, principal.tenant_id)
-
-
-@router.put(
-    "/job",
-    response_model=FirstRunOut,
-    openapi_extra=_MANAGE,
-    summary="Choose the agent's jobs and the languages it speaks",
-    description=(
-        "One to three jobs, each once; ONE agent does every job picked (answering only: "
-        "inbound; calling only: outbound; both: `both`). Refused with "
-        "`first_run_job_locked` once the agent is built for other jobs: they set its calling "
-        "direction and its ready-made script."
-    ),
-)
-async def put_job(
-    payload: JobIn, request: Request, session: Session, principal: Owner
-) -> FirstRunOut:
-    assert principal.tenant_id is not None
-    await service.save_job(
-        session,
-        tenant_id=principal.tenant_id,
-        jobs=list(payload.jobs),
-        language_primary=payload.language_primary,
-        languages_extra=list(payload.languages_extra),
-    )
-    await _audit(
-        session,
-        principal,
-        request,
-        "first_run.job",
-        {"jobs": list(payload.jobs), "language": payload.language_primary},
-    )
     return await _out(session, principal.tenant_id)
 
 
@@ -411,26 +374,6 @@ async def post_answers(
         "first_run.answers",
         {"answers": len(payload.answers), "sections": sorted(sections)},
     )
-    return await _out(session, principal.tenant_id)
-
-
-@router.post(
-    "/build",
-    response_model=FirstRunOut,
-    openapi_extra=_MANAGE,
-    summary="Build the agent from its job and the brief (a worker; poll this resource)",
-    description=(
-        "The first build creates the agent; a later one rewrites the same agent's script from "
-        "a changed brief. Each step (`voice`, `script`, `greeting`, `notice`) is marked as the "
-        "worker finishes it."
-    ),
-)
-async def post_build(request: Request, session: Session, principal: Owner) -> FirstRunOut:
-    assert principal.tenant_id is not None
-    await service.request_build(
-        session, tenant_id=principal.tenant_id, user_id=principal.client_user_id
-    )
-    await _audit(session, principal, request, "first_run.build", {})
     return await _out(session, principal.tenant_id)
 
 

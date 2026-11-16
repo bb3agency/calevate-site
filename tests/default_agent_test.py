@@ -1,4 +1,4 @@
-"""The admin-set default agent (founder, 16 Nov 2026): the setting, its gate, and the build.
+"""The admin-set default agent (founder, 16 Nov 2026): the setting, its gate, and "Name and voice".
 
 The voice list is replaced per test (`offered_hosted_voices`) rather than written into the
 shared `platform_voice_catalog`, so no row outlives a test and the cases do not depend on
@@ -20,14 +20,14 @@ from apps.api.core import platform_config as pc
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.first_run import routes as first_run_routes
 from apps.api.main import app
 from apps.api.ops.config_routes import config_confirmation
-from apps.workers import first_run as worker
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_identity_test import _make_member
 from tests.admin_security_test import _make_admin
-from tests.first_run_test import _no_meter, _ready_to_build, _run, _tenant, _voice
+from tests.first_run_test import _owner, _tenant, _voice
 
 VOICE_KEY = "default_agent_voice_id"
 NAME_KEY = "default_agent_name"
@@ -256,10 +256,10 @@ async def test_an_operator_without_platform_config_is_refused() -> None:
     assert write.status_code == 403
 
 
-# ------------------------------------------------------------------ the build uses it
+# ------------------------------------------------------------------ "Name and voice" uses it
 
 
-async def test_the_first_agent_is_built_with_the_admins_name_and_voice(
+async def test_the_first_agent_gets_the_admins_voice_through_name_and_voice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ravi = _voice("byok:ravi", accent="en-IN", label="Ravi", source="byok", gender="male")
@@ -270,29 +270,26 @@ async def test_the_first_agent_is_built_with_the_admins_name_and_voice(
     async def pick(_tenant_id: uuid.UUID, language: str, **default: Any) -> None:
         asked.update(default, language=language)
 
-    async def no_model(*_args: Any, **_kwargs: Any) -> None:
-        raise ProblemError.business_rule("assist_unavailable", "No model.")
-
-    monkeypatch.setattr(worker, "pick_voice", pick)
-    monkeypatch.setattr(worker, "draft_script", no_model)
-    monkeypatch.setattr(worker, "write_opening", no_model)
-    monkeypatch.setattr(worker.crm_assist, "meter_refusal", _no_meter)
-
+    monkeypatch.setattr(first_run_routes, "pick_voice", pick)
     tenant_id = await _tenant()
-    await _ready_to_build(tenant_id, "Flats")
-    run = await _run(tenant_id)
-    assert (
-        await worker.build_first_agent(
-            {}, {"tenant_id": str(tenant_id), "run_id": str(run.id), "build": 1}
+    headers = await _owner(tenant_id)
+    async with _client() as http:
+        made = await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Ravi", "language_primary": "en-IN", "languages_extra": []},
         )
-        == "built"
-    )
+    assert made.status_code == 200, made.text
+    assert made.json()["default_agent"] == {
+        "name": "Ravi",
+        "voice_id": "byok:ravi",
+        "gender": "male",
+    }
     assert asked == {"preferred": "byok:ravi", "gender": "male", "language": "en-IN"}
-    after = await _run(tenant_id)
     async with tenant_session(tenant_id) as session:
         name = (
             await session.execute(
-                text("SELECT name FROM agents WHERE id = :a"), {"a": after.agent_id}
+                text("SELECT name FROM agents WHERE id = :a"), {"a": made.json()["agent_id"]}
             )
         ).scalar()
     assert name == "Ravi"

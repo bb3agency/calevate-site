@@ -34176,61 +34176,6 @@
         "title": "InvoiceUsageOut",
         "type": "object"
       },
-      "JobIn": {
-        "additionalProperties": false,
-        "properties": {
-          "jobs": {
-            "items": {
-              "enum": [
-                "answer_calls",
-                "call_new_leads",
-                "call_leads"
-              ],
-              "type": "string"
-            },
-            "maxItems": 3,
-            "minItems": 1,
-            "title": "Jobs",
-            "type": "array"
-          },
-          "language_primary": {
-            "enum": [
-              "te-IN",
-              "hi-IN",
-              "en-IN",
-              "ta-IN",
-              "kn-IN",
-              "ml-IN",
-              "mr-IN"
-            ],
-            "title": "Language Primary",
-            "type": "string"
-          },
-          "languages_extra": {
-            "items": {
-              "enum": [
-                "te-IN",
-                "hi-IN",
-                "en-IN",
-                "ta-IN",
-                "kn-IN",
-                "ml-IN",
-                "mr-IN"
-              ],
-              "type": "string"
-            },
-            "maxItems": 3,
-            "title": "Languages Extra",
-            "type": "array"
-          }
-        },
-        "required": [
-          "jobs",
-          "language_primary"
-        ],
-        "title": "JobIn",
-        "type": "object"
-      },
       "KbDriftOut": {
         "additionalProperties": false,
         "description": "How far the KNOWLEDGE on the voice platform has drifted from what we approved\n(D-158) \u2014 the same measurement as `EngineDriftOut`, on the other object.\n\nWHY A SECOND FIELD AND NOT A SECOND ENDPOINT: `EngineDriftOut`'s argument exactly \u2014\none read, one permission, and no new entry in `ADMIN_CONSOLE_GETS` (a GET declaring\n`ops:manage` has to be allowlisted, and `tests/impersonation_reads_test.py` warns that\nentries are how that list \"quietly becomes a hole\").\n\nWHY A SECOND FIELD AND NOT MORE COLUMNS ON `EngineDriftOut`: the two sweeps run on\ndifferent schedules over different objects and each `oldest_checked_at` is its OWN\nsweep's pulse. Folding them into one panel would let a healthy agent sweep's timestamp\nvouch for a KB sweep that had died \u2014 which is precisely the \"lying by omission\" the\npulse field exists to prevent.\n\nTHE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it. It\ncarries more weight here than on the agent panel: an empty knowledge listing is\nambiguous between \"the documents are gone\" and \"the vendor's listing does not attribute\nrows to agents\" (pilot gate 8, open), so a large `undetermined` is a real and\nactionable signal about the VENDOR rather than a count of drifted clients.\n\nCOUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.",
@@ -94550,35 +94495,6 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/first-run/build": {
-      "post": {
-        "description": "The first build creates the agent; a later one rewrites the same agent's script from a changed brief. Each step (`voice`, `script`, `greeting`, `notice`) is marked as the worker finishes it.",
-        "operationId": "post_build_v1_first_run_build_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FirstRunOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Build the agent from its job and the brief (a worker; poll this resource)",
-        "tags": [
-          "first-run"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
     "/v1/first-run/dismiss": {
       "post": {
         "operationId": "post_dismiss_v1_first_run_dismiss_post",
@@ -94709,45 +94625,6 @@
           }
         },
         "summary": "The owner has met their agent: stop sending them here",
-        "tags": [
-          "first-run"
-        ],
-        "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/first-run/job": {
-      "put": {
-        "description": "One to three jobs, each once; ONE agent does every job picked (answering only: inbound; calling only: outbound; both: `both`). Refused with `first_run_job_locked` once the agent is built for other jobs: they set its calling direction and its ready-made script.",
-        "operationId": "put_job_v1_first_run_job_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JobIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FirstRunOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Choose the agent's jobs and the languages it speaks",
         "tags": [
           "first-run"
         ],

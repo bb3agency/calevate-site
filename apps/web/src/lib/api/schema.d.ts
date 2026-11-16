@@ -9760,26 +9760,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/first-run/build": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Build the agent from its job and the brief (a worker; poll this resource)
-         * @description The first build creates the agent; a later one rewrites the same agent's script from a changed brief. Each step (`voice`, `script`, `greeting`, `notice`) is marked as the worker finishes it.
-         */
-        post: operations["post_build_v1_first_run_build_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/first-run/dismiss": {
         parameters: {
             query?: never;
@@ -9848,26 +9828,6 @@ export interface paths {
         put?: never;
         /** The owner has met their agent: stop sending them here */
         post: operations["post_finish_v1_first_run_finish_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/first-run/job": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Choose the agent's jobs and the languages it speaks
-         * @description One to three jobs, each once; ONE agent does every job picked (answering only: inbound; calling only: outbound; both: `both`). Refused with `first_run_job_locked` once the agent is built for other jobs: they set its calling direction and its ready-made script.
-         */
-        put: operations["put_job_v1_first_run_job_put"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -27152,18 +27112,6 @@ export interface components {
             included_minutes: number;
             /** Minutes Used */
             minutes_used: string;
-        };
-        /** JobIn */
-        JobIn: {
-            /** Jobs */
-            jobs: ("answer_calls" | "call_new_leads" | "call_leads")[];
-            /**
-             * Language Primary
-             * @enum {string}
-             */
-            language_primary: "te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN";
-            /** Languages Extra */
-            languages_extra?: ("te-IN" | "hi-IN" | "en-IN" | "ta-IN" | "kn-IN" | "ml-IN" | "mr-IN")[];
         };
         /**
          * KbDriftOut
@@ -57412,35 +57360,6 @@ export interface operations {
             };
         };
     };
-    post_build_v1_first_run_build_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FirstRunOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     post_dismiss_v1_first_run_dismiss_post: {
         parameters: {
             query?: never;
@@ -57542,39 +57461,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FirstRunOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    put_job_v1_first_run_job_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["JobIn"];
-            };
-        };
         responses: {
             /** @description Successful Response */
             200: {

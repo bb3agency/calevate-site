@@ -11,7 +11,7 @@ from __future__ import annotations
 from apps.api.agents.specimen_scenarios import CLASSES, scenario_of
 from apps.api.agents.test_conversations import Turn, hard_check
 from apps.api.agents.turn_checks import SOUND_KINDS, conversation_problems, opened_again
-from apps.workers.first_run import greeting_fits
+from apps.workers.opening_line import opening_problems
 from apps.workers.script_assist import language_problems
 from calevate_shared.call_script import CallScript, compile_call_script
 from calevate_shared.engine import (
@@ -188,8 +188,8 @@ def test_english_letters_in_a_written_opening_are_caught_but_names_are_kept() ->
 
 def test_the_first_runs_greeting_rule_refuses_english_letters() -> None:
     names = ("Sri Estates", "Anjali")
-    assert not greeting_fits(CALL_OPENING, "te-IN", names=names)
-    assert greeting_fits(CALL_OPENING.replace("call", "కాల్"), "te-IN", names=names)
+    assert opening_problems(CALL_OPENING, "te-IN", names=names)
+    assert not opening_problems(CALL_OPENING.replace("call", "కాల్"), "te-IN", names=names)
 
 
 def test_the_script_writers_opening_is_sent_back_for_english_letters() -> None:
