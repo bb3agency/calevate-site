@@ -570,7 +570,8 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
         await session.execute(
             text(
                 "SELECT id, url, secret_ref, mapping, active, kind, include_recording_url, "
-                "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_ref END "
+                "CASE WHEN previous_secret_expires_at > now() THEN previous_secret_ref END, "
+                "include_transcript, include_raw_transcript "
                 "FROM outbound_webhooks WHERE id = :id"
             ),
             {"id": endpoint_id},
@@ -590,7 +591,17 @@ async def load_endpoint(session: AsyncSession, endpoint_id: UUID) -> dict[str, A
         "include_recording_url": bool(row[6]),
         # The secret a rotation retired, while its window is open; None after it.
         "previous_secret": row[7],
+        "include_transcript": bool(row[8]),
+        "include_raw_transcript": bool(row[9]),
     }
+
+
+#: The body keys each transcript opt-in adds at fan-out (`call_completed_payload`), and the
+#: endpoint flag that must still be on when the body is sent.
+_TRANSCRIPT_KEYS_BY_OPT_IN: Final = (
+    ("transcript", "include_transcript"),
+    ("raw_transcript", "include_raw_transcript"),
+)
 
 
 async def with_delivery_time_fields(
@@ -608,7 +619,18 @@ async def with_delivery_time_fields(
     `call.recording_ready` also takes `lead_id` and `duration_s` from the call as it is now:
     the copy that queues it usually finishes before the post-call pipeline has resolved the
     lead, so a value read at fan-out would be null where a later one is not.
+
+    A transcript is added at fan-out, so a body queued before the owner switched its
+    opt-in off still holds it; it is taken out here, against the endpoint as it is now,
+    so a retry or a "Send again" never carries call content the owner has withdrawn.
     """
+    withheld = [
+        key
+        for key, opt_in in _TRANSCRIPT_KEYS_BY_OPT_IN
+        if key in data and not endpoint.get(opt_in)
+    ]
+    if withheld:
+        data = {key: value for key, value in data.items() if key not in withheld}
     if event not in RECORDING_LINK_EVENTS or not endpoint.get("include_recording_url"):
         return data
     call_id = data.get("call_id")

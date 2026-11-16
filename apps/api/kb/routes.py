@@ -319,9 +319,9 @@ class DownloadOut(Strict):
     summary="Upload a document, spreadsheet or photograph as knowledge",
     description=(
         "Accepts a PDF, a Word document, plain text, a CSV, a spreadsheet or a photograph "
-        "of a printed page, up to 20 MB. A PDF is sent to the voice platform as it is; "
-        "everything else has its text read out first and chunked. An account member's "
-        "upload is published once it has been read, with no review. Poll "
+        "of a printed page, up to 20 MB. A PDF has its words read out of each page and sent "
+        "as its text; everything else has its text read out first and chunked. An account "
+        "member's upload is published once it has been read, with no review. Poll "
         "`GET /v1/kb/uploads` for `ingest_status`."
     ),
 )
