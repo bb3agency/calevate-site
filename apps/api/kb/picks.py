@@ -36,6 +36,17 @@ LINE_PICKS: Final = PickTable("inbound_line_sources", "inbound_line_id")
 CAMPAIGN_PICKS: Final = PickTable("campaign_sources", "campaign_id")
 
 
+def _table_of(picks: PickTable) -> str:
+    """`picks.table` as a literal, so every statement here is built only from text written in
+    this file (`scripts/check_raw_sql.py`)."""
+    return "inbound_line_sources" if picks == LINE_PICKS else "campaign_sources"
+
+
+def _holder_of(picks: PickTable) -> str:
+    """`picks.holder` as a literal, for the same reason."""
+    return "inbound_line_id" if picks == LINE_PICKS else "campaign_id"
+
+
 async def read_picks(
     session: AsyncSession, picks: PickTable, holder_ids: list[UUID]
 ) -> dict[UUID, list[UUID]]:
@@ -46,12 +57,12 @@ async def read_picks(
     for holder_id, source_id in (
         await session.execute(
             text(
-                f"SELECT p.{picks.holder}, COALESCE((SELECT n.id FROM kb_sources n "
+                f"SELECT p.{_holder_of(picks)}, COALESCE((SELECT n.id FROM kb_sources n "
                 "WHERE n.name = s.name AND n.kind = 'text' AND NOT EXISTS "
                 "(SELECT 1 FROM kb_uploads u WHERE u.source_id = n.id) "
                 "ORDER BY n.version DESC, n.id DESC LIMIT 1), p.kb_source_id) "
-                f"FROM {picks.table} p JOIN kb_sources s ON s.id = p.kb_source_id "
-                f"WHERE p.{picks.holder} = ANY(:ids) ORDER BY p.created_at, p.id"
+                f"FROM {_table_of(picks)} p JOIN kb_sources s ON s.id = p.kb_source_id "
+                f"WHERE p.{_holder_of(picks)} = ANY(:ids) ORDER BY p.created_at, p.id"
             ),
             {"ids": holder_ids},
         )
@@ -88,7 +99,7 @@ async def replace_picks(
     wanted = list(dict.fromkeys(kb_source_ids))
     await _refuse_unknown(session, wanted)
     await session.execute(
-        text(f"DELETE FROM {picks.table} WHERE {picks.holder} = :hid"), {"hid": holder_id}
+        text(f"DELETE FROM {_table_of(picks)} WHERE {_holder_of(picks)} = :hid"), {"hid": holder_id}
     )
     for source_id in wanted:
         await _insert(session, picks, tenant_id, holder_id, source_id, created_by)
@@ -103,8 +114,25 @@ async def add_pick(
     kb_source_id: UUID,
     created_by: UUID | None,
 ) -> None:
-    """Pick one more source, keeping the others; picking one twice is a no-op."""
+    """Pick one more source, keeping the others; picking one twice is a no-op. Refused past
+    `MAX_PICKS`, the bound `replace_picks` has from its request model, so a holder's picks
+    stay inside it however they were added. The caller holds the holder's lock."""
     await _refuse_unknown(session, [kb_source_id])
+    held = (
+        await session.execute(
+            text(
+                f"SELECT count(*) FILTER (WHERE kb_source_id <> :s) FROM {_table_of(picks)} "
+                f"WHERE {_holder_of(picks)} = :hid"
+            ),
+            {"hid": holder_id, "s": kb_source_id},
+        )
+    ).scalar_one()
+    if int(held) >= MAX_PICKS:
+        raise ProblemError.business_rule(
+            "sources_full",
+            f"This already works from {MAX_PICKS} sources.",
+            remediation="Take one off its sources, then add this one.",
+        )
     await _insert(session, picks, tenant_id, holder_id, kb_source_id, created_by)
 
 
@@ -118,7 +146,7 @@ async def _insert(
 ) -> None:
     await session.execute(
         text(
-            f"INSERT INTO {picks.table} (id, tenant_id, {picks.holder}, kb_source_id, "
+            f"INSERT INTO {_table_of(picks)} (id, tenant_id, {_holder_of(picks)}, kb_source_id, "
             "created_by) VALUES (:id, :t, :hid, :s, :by) ON CONFLICT DO NOTHING"
         ),
         {"id": uuid7(), "t": tenant_id, "hid": holder_id, "s": source_id, "by": created_by},

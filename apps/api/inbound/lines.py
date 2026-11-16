@@ -44,6 +44,9 @@ ACTION_SLUG_MAX: Final = 64
 #: The job that writes a line's script (`workers/campaign_script.draft_line_script`).
 LINE_SCRIPT_JOB: Final = "draft_line_script"
 DEFAULT_NAME: Final = "Calls to your number"
+#: Most lines one account keeps open (archived ones do not count): the lines list is read
+#: under it. Far past any business's numbers and the uses it puts them to.
+MAX_LINES: Final = 50
 
 ScriptProposal = CampaignProposal
 
@@ -85,6 +88,7 @@ SELECT l.id, l.name, l.agent_id, a.name AS agent_name, l.main_task, l.script,
 FROM inbound_lines l JOIN agents a ON a.id = l.agent_id
 WHERE l.archived_at IS NULL {where}
 ORDER BY l.created_at, l.id
+LIMIT :max_lines
 """
 
 
@@ -103,7 +107,11 @@ def _clean(value: str, *, limit: int, field: str) -> str:
 
 async def _lines(session: AsyncSession, line_id: UUID | None = None) -> list[Line]:
     where = "AND l.id = :lid" if line_id is not None else ""
-    rows = (await session.execute(text(_LINES_SQL.format(where=where)), {"lid": line_id})).all()
+    rows = (
+        await session.execute(
+            text(_LINES_SQL.format(where=where)), {"lid": line_id, "max_lines": MAX_LINES}
+        )
+    ).all()
     if not rows:
         return []
     ids = [row.id for row in rows]
@@ -195,8 +203,22 @@ async def create_line(
     script: CallScript | None = None,
     created_by: UUID | None,
 ) -> UUID:
-    """A new line in `agent_id`'s voice, a draft until its script is saved and published."""
+    """A new line in `agent_id`'s voice, a draft until its script is saved and published.
+    Refused past `MAX_LINES` open lines; the account row is locked first, so two at once
+    cannot both take the last place."""
     await _refuse_unusable_agent(session, agent_id)
+    await session.execute(
+        text("SELECT 1 FROM organizations WHERE id = :t FOR UPDATE"), {"t": tenant_id}
+    )
+    open_lines = (
+        await session.execute(text("SELECT count(*) FROM inbound_lines WHERE archived_at IS NULL"))
+    ).scalar_one()
+    if int(open_lines) >= MAX_LINES:
+        raise ProblemError.business_rule(
+            "inbound_lines_full",
+            f"You have {MAX_LINES} lines.",
+            remediation="Archive a line you no longer use, then add this one.",
+        )
     line_id = uuid7()
     await session.execute(
         text(

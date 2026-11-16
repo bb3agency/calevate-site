@@ -111,6 +111,13 @@ ROUTE_BODY_PATTERN_LIMITS: tuple[tuple[str, re.Pattern[str], int], ...] = (
         re.compile(r"/v1/admin/payments/disputes/[^/]+/contest"),
         5 * 5 * 1024 * 1024 + _MULTIPART_ROOM,
     ),
+    # A campaign's file goes into What your agents know as `/v1/kb/uploads` does, under the
+    # same `kb/pdf_render.MAX_UPLOAD_BYTES`.
+    (
+        "POST",
+        re.compile(r"/v1/campaigns/[^/]+/sources/upload"),
+        20 * 1024 * 1024 + _MULTIPART_ROOM,
+    ),
 )
 
 

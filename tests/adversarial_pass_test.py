@@ -1295,8 +1295,14 @@ async def test_a_neighbours_object_id_is_not_found_and_never_forbidden(
 
     headers = {"Authorization": f"Bearer {token_b}", "X-Org-Slug": str(org_b["slug"])}
     offenders: list[str] = []
+    # One session drives every route, so more than `costly`'s per-client allowance of the
+    # weighted ones would answer 429 from the limiter rather than 404 from the row. Each
+    # request counts in its own key space (`conftest._own_rate_limit_buckets`' mechanism);
+    # the limits themselves are untouched, and the subject here is tenancy.
+    prefix = ratelimit.KEY_PREFIX
     async with _client() as http:
-        for method, template, body, extra_headers in _IDOR_ROUTES:
+        for index, (method, template, body, extra_headers) in enumerate(_IDOR_ROUTES):
+            monkeypatch.setattr(ratelimit, "KEY_PREFIX", f"{prefix}:r{index}")
             path = template
             for key, value in ids.items():
                 path = path.replace("{" + key + "}", value)

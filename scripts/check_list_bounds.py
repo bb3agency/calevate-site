@@ -237,6 +237,103 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "`agents/jobs.MAX_JOBS_LISTED`, so at most twice that."
         )
     ),
+    # Inbound lines (D-997). Each route answers ONE line, except the list.
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "ONE inbound line: `actions_off` at most 100 (`InboundLineActionsIn.off`), its "
+                "sources at most `kb/picks.MAX_PICKS` (the request model's `max_length`, and "
+                "`add_pick` refuses past it), its numbers the account's unreleased numbers, "
+                "rented one at a time, and its `CallScript`s under the `call_script` ceilings."
+            )
+        )
+        for route in (
+            "POST /v1/inbound-lines",
+            "GET /v1/inbound-lines/{line_id}",
+            "PATCH /v1/inbound-lines/{line_id}",
+            "PUT /v1/inbound-lines/{line_id}/actions",
+            "PUT /v1/inbound-lines/{line_id}/script",
+            "PUT /v1/inbound-lines/{line_id}/sources",
+            "POST /v1/inbound-lines/{line_id}/publish",
+            "POST /v1/inbound-lines/{line_id}/proposal",
+            "POST /v1/inbound-lines/{line_id}/numbers",
+        )
+    },
+    "GET /v1/inbound-lines": BoundedByConstruction(
+        by=(
+            "at most `inbound/lines.MAX_LINES` (50) open lines: `create_line` refuses past it "
+            "under the account row's lock and the list is read with that LIMIT; each line as "
+            "for `GET /v1/inbound-lines/{line_id}`."
+        )
+    ),
+    "GET /v1/inbound-lines/{line_id}/calls": BoundedByConstruction(
+        by="`inbound/routes.CALLS_SHOWN` (50), the LIMIT in the query."
+    ),
+    "GET /v1/inbound-lines/{line_id}/test-calls": BoundedByConstruction(
+        by="`campaigns/workspace_routes.TEST_CALLS_SHOWN` (20), the LIMIT in the query."
+    ),
+    "GET /v1/campaigns/{campaign_id}/test-calls": BoundedByConstruction(
+        by="`campaigns/workspace_routes.TEST_CALLS_SHOWN` (20), the LIMIT in the query."
+    ),
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "the account's saved test numbers, at most `campaigns/workspace_routes."
+                "MAX_TEST_NUMBERS` (10): the request model's `max_length` and the "
+                "`cardinality(test_numbers) < :cap` guard on every remembered number."
+            )
+        )
+        for route in (
+            "GET /v1/campaigns/{campaign_id}/test-numbers",
+            "PUT /v1/campaigns/{campaign_id}/test-numbers",
+            "GET /v1/inbound-lines/{line_id}/test-numbers",
+        )
+    },
+    # A campaign's workspace (D-992, D-999): ONE campaign.
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "ONE campaign: its `CallScript`s under the `call_script` ceilings, Pip's "
+                "draft's `left_out` one per script part, and its sources at most "
+                "`kb/picks.MAX_PICKS` (the request model's `max_length`, and `add_pick` "
+                "refuses past it)."
+            )
+        )
+        for route in (
+            "GET /v1/campaigns/{campaign_id}/workspace",
+            "PUT /v1/campaigns/{campaign_id}/main-task",
+            "PUT /v1/campaigns/{campaign_id}/script",
+            "PUT /v1/campaigns/{campaign_id}/sources",
+            "POST /v1/campaigns/{campaign_id}/sources/note",
+            "POST /v1/campaigns/{campaign_id}/sources/link",
+            "POST /v1/campaigns/{campaign_id}/sources/upload",
+            "POST /v1/campaigns/{campaign_id}/questions/answer",
+            "POST /v1/campaigns/{campaign_id}/script/proposal",
+        )
+    },
+    "GET /v1/campaigns/{campaign_id}/questions": BoundedByConstruction(
+        by="`teach/struggles.MAX_GAPS` (50), the LIMIT in `list_struggles`."
+    ),
+    "GET /v1/campaigns/{campaign_id}/insights": BoundedByConstruction(
+        by=(
+            "`hours` one row per IST hour of the day (24), `best_hours` a subset of them, and "
+            "`openings` one per opening, `a` and `b`."
+        )
+    ),
+    **{
+        route: BoundedByConstruction(
+            by=(
+                "ONE campaign's settings: `languages_extra` under `MAX_REPLY_LANGUAGES`, "
+                "`filler_lines` under `agents/models.FILLER_LINES_MAX` (both refused past it "
+                "by `campaigns/settings.clean_overrides`), and `offered_languages` what "
+                "`agents/languages.client_language_tags` offers, from two constant tag sets."
+            )
+        )
+        for route in (
+            "GET /v1/campaigns/{campaign_id}/settings",
+            "PUT /v1/campaigns/{campaign_id}/settings",
+        )
+    },
     "GET /v1/billing/voice-tiers": BoundedByConstruction(
         by=(
             "one entry per `billing/rates.VOICE_TIERS` (two), each with the fixed copy lines "
@@ -848,6 +945,8 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "PUT /v1/first-run/job",
             "PUT /v1/first-run/brief",
             "PUT /v1/first-run/name",
+            "PUT /v1/first-run/agent",
+            "POST /v1/first-run/work",
             "POST /v1/first-run/answers",
             "POST /v1/first-run/build",
             "POST /v1/first-run/finish",

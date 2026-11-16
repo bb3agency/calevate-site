@@ -331,6 +331,19 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/trial/calls", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/trial/test-call", "costly", _m("POST")),
     Rule("/v1/inbound-lines/*/test-call", "costly", _m("POST")),
+    Rule("/v1/campaigns/*/test-call", "costly", _m("POST")),
+    # An inbound line's own engine agent (D-997): putting it live and saving its script are a
+    # publish with its read-back, a number on it is a vendor binding, and Pip's draft is a
+    # model call; the same work as `/v1/agents/*/script/publish`.
+    Rule("/v1/inbound-lines/*/publish", "costly", _m("POST")),
+    Rule("/v1/inbound-lines/*/script", "costly", _m("PUT")),
+    Rule("/v1/inbound-lines/*/numbers", "costly", _m("POST")),
+    Rule("/v1/inbound-lines/*/proposal", "costly", _m("POST")),
+    Rule("/v1/campaigns/*/script/proposal", "costly", _m("POST")),
+    # A campaign's sources go into What your agents know: a link is resolved and fetched as
+    # `/v1/kb/links` is, and a file is stored as `/v1/kb/uploads` is.
+    Rule("/v1/campaigns/*/sources/link", "costly", _m("POST")),
+    Rule("/v1/campaigns/*/sources/upload", "upload", _m("POST")),
     # Clients' WhatsApp (D-784): each makes several Graph calls on the client's own Meta
     # account, and Meta caps template creation at 100 an hour per account.
     Rule("/v1/whatsapp/connect", "costly", _m("POST")),
@@ -362,6 +375,10 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/first-run/recordings", "costly", _m("POST")),
     Rule("/v1/first-run/brief", "costly", _m("PUT")),
     Rule("/v1/first-run/build", "costly", _m("POST")),
+    # The new first run: naming the agent has Pip draft the company training, and "What
+    # first?" has Pip write the line's or the campaign's script.
+    Rule("/v1/first-run/agent", "costly", _m("PUT")),
+    Rule("/v1/first-run/work", "costly", _m("POST")),
     Rule("/v1/copilot/routines/*/run", "costly", _m("POST")),
     Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
     Rule("/v1/billing/topups/intent", "costly", _m("POST")),

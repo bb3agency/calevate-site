@@ -28,6 +28,7 @@ from apps.api.billing.ai_quota import require_ai_assist
 from apps.api.campaigns import number_catalog
 from apps.api.campaigns.workspace import MAIN_TASK_MAX
 from apps.api.campaigns.workspace_routes import (
+    TEST_CALLS_SHOWN,
     CampaignProposalOut,
     CampaignTestCallIn,
     CampaignTestCallItem,
@@ -544,10 +545,6 @@ async def line_test_call(
         blocked_rule=result.blocked_rule,
         call_id=result.call_id,
     )
-
-
-#: Test calls listed under a line's Test call; older ones stay in the call logs.
-TEST_CALLS_SHOWN = 20
 
 
 @router.get(
