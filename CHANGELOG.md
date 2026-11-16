@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.50 — 16-Nov-2026
+
+- Call flow folds and opens from its title, remembered in this browser, and "Open full
+  screen" shows it over the whole window with the step editor beside it and Save flow.
+
 ## 0.4.49 — 16-Nov-2026
 
 - Start campaign and Stop campaign ask first. Start says who will be called; when something
