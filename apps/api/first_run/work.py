@@ -272,16 +272,13 @@ async def start_work(
             concurrency=FIRST_CAMPAIGN_CONCURRENCY,
         )
         await workspace.save_main_task(session, campaign_id, task)
-        for document in documents:
-            await workspace.add_material(
+        sources = await _source_ids(session, [d.upload_id for d in documents])
+        if sources:
+            await workspace.set_sources(
                 session,
                 tenant_id=tenant_id,
                 campaign_id=campaign_id,
-                kind="file",
-                title=document.name,
-                url=None,
-                note=None,
-                kb_upload_id=document.upload_id,
+                kb_source_ids=sources,
                 created_by=user_id,
             )
         if may_spend_ai:
@@ -307,7 +304,8 @@ async def start_work(
 
 
 async def _source_ids(session: AsyncSession, upload_ids: list[UUID]) -> list[UUID]:
-    """The knowledge sources behind the run's documents, which a line is written from."""
+    """The knowledge sources behind the run's documents, which its line or campaign is
+    written from."""
     if not upload_ids:
         return []
     rows = await session.execute(

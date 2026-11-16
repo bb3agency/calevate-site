@@ -21,16 +21,15 @@ from typing import Any
 
 import pytest
 from apps.api.agents import company_training
-from apps.api.agents.default_agent import read_default_agent
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.first_run import routes as first_run_routes
 from apps.api.first_run import work
-from apps.api.first_run.names import FIRST_AGENT_NAME
 from apps.api.first_run.work import NOTICE_JOB
 from apps.api.inbound import lines
 from apps.workers import campaign_script
 from apps.workers import company_training_draft as training_worker
 from calevate_shared.call_script import CallScript
+from calevate_shared.config import Settings
 from sqlalchemy import text
 from tests.first_run_test import LONG_BRIEF, _client, _owner, _tenant
 
@@ -39,7 +38,7 @@ SCRIPT = CallScript(opening_line="Namaste, Madhav Homes. How can I help?")
 
 @pytest.fixture(autouse=True)
 def _no_voice(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _none(_tenant_id: uuid.UUID, _language: str) -> None:
+    async def _none(_tenant_id: uuid.UUID, _language: str, **_kw: object) -> None:
         return None
 
     monkeypatch.setattr(first_run_routes, "pick_voice", _none)
@@ -75,12 +74,6 @@ async def _made(tenant_id: uuid.UUID, headers: dict[str, str]) -> dict[str, Any]
     return body
 
 
-async def test_the_default_agent_is_todays_starter() -> None:
-    async with untenanted_session() as session:
-        default = await read_default_agent(session)
-    assert (default.name, default.voice_id, default.gender) == (FIRST_AGENT_NAME, None, "female")
-
-
 async def test_the_owners_words_become_the_training_overview_until_one_is_saved() -> None:
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
@@ -99,7 +92,11 @@ async def test_name_and_voice_makes_an_agent_with_no_script_and_asks_for_the_tra
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
     body = await _made(tenant_id, headers)
-    assert body["default_agent"] == {"name": FIRST_AGENT_NAME, "voice_id": None, "gender": "female"}
+    assert body["default_agent"] == {
+        "name": Settings.model_fields["default_agent_name"].default,
+        "voice_id": None,
+        "gender": "female",
+    }
     agent_id = uuid.UUID(body["agent_id"])
     agent = await _one(
         tenant_id,

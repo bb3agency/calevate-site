@@ -3,6 +3,25 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.54 — 16-Nov-2026
+
+- **A new first run that starts with your business.** Tell us about it, name your agent and
+  pick its voice, then choose what it does first: answer your calls, or call people. Pip
+  writes what your agent says for that work and trains every agent from your words.
+- **Hear an inbound line before it has a number**: open the line and press Call me under
+  Test call.
+- **Try it on the business.** On an agent's Training tab, Try it asks what to try it on:
+  "Just the business" tries it with what your business knows and no script; one of its
+  Inbound lines or campaigns opens that line's or campaign's own test call.
+- An agent's checklist and readiness score ask you to give it a job, an Inbound line or a
+  campaign, instead of writing an opening line. Making a new agent is three steps: name,
+  voice, then give it a job.
+- **A campaign's Sources come from What your agents know**: tick the ones it should use.
+  "Add a file or note" on a campaign puts it in What your agents know and picks it, and
+  answers to questions a campaign's calls raised go there too.
+- The first agent every new account gets, on the free trial and on paid plans, can be named
+  and given a voice from the admin console. Agents already made keep theirs.
+
 ## 0.4.53 — 16-Nov-2026
 
 - Call flow: the chosen step's panel has a Step number to move it, Insert a step after, and
