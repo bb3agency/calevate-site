@@ -97,7 +97,8 @@
  *   enforcing this policy without this directive would have refused every recording on
  *   `/c/{slug}/calls/{callId}`, silently, for every client. That is the breakage this
  *   audit was for.
- * - `frame-src` Razorpay — Checkout renders its own iframe inside our page.
+ * - `frame-src` `'self'` for the desktop Mobile preview's frame of our own page, and Razorpay
+ *   — Checkout renders its own iframe inside our page.
  * - `frame-ancestors 'self'` — clickjacking: only our own pages may frame us, which the desktop
  *   Mobile preview does (`components/MobilePreview.tsx`). The edge sends `SAMEORIGIN` to match.
  * - `object-src 'none'`, `base-uri 'none'`, `form-action 'self'` — kill the plugin, base-tag
@@ -270,7 +271,7 @@ export function buildContentSecurityPolicy(
     "worker-src 'self'",
     `connect-src ${connect}`,
     `media-src ${mediaSources}`,
-    `frame-src ${RAZORPAY_CHECKOUT_ORIGIN} ${RAZORPAY_API_ORIGIN} ${GOOGLE_PICKER_FRAME_ORIGIN} ${FACEBOOK_ORIGINS.join(" ")}`,
+    `frame-src 'self' ${RAZORPAY_CHECKOUT_ORIGIN} ${RAZORPAY_API_ORIGIN} ${GOOGLE_PICKER_FRAME_ORIGIN} ${FACEBOOK_ORIGINS.join(" ")}`,
     "frame-ancestors 'self'",
     "object-src 'none'",
     "base-uri 'none'",

@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.48 — 16-Nov-2026
+
+- Mobile view on a desktop browser now shows the page. It was blocked by the page's own
+  security policy, which allowed frames only from the payment provider.
+
 ## 0.4.47 — 16-Nov-2026
 
 - A campaign starts and stops any time. Stop campaign pauses it. Start carries on from where

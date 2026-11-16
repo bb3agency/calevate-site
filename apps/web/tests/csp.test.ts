@@ -43,7 +43,7 @@ describe("the content-security policy", () => {
 
   it("allows the API origin (and only it) for connect, and Razorpay for the checkout frame", () => {
     expect(csp).toContain("connect-src 'self' https://api.calevate.tech");
-    expect(csp).toContain("frame-src https://checkout.razorpay.com https://api.razorpay.com");
+    expect(csp).toContain("frame-src 'self' https://checkout.razorpay.com https://api.razorpay.com");
   });
 
   it("keeps only the ORIGIN of the API base url, never a path", () => {
