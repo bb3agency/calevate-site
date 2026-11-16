@@ -1407,8 +1407,12 @@ async def _update_settings(
             text("SELECT status, agent_id FROM campaigns WHERE id = :c"), {"c": campaign_id}
         )
     ).first()
-    started = row is not None and str(row[0]) in controls.STARTED_STATUSES
-    if not started or "agent_id" not in changes or changes["agent_id"] == row[1]:
+    if (
+        row is None
+        or str(row[0]) not in controls.STARTED_STATUSES
+        or "agent_id" not in changes
+        or changes["agent_id"] == row[1]
+    ):
         return await controls.update_draft(session, campaign_id=campaign_id, changes=changes)
     async with tenant_session(principal.tenant_id) as own:
         written = await controls.update_draft(own, campaign_id=campaign_id, changes=changes)

@@ -357,7 +357,12 @@ async def _write(
     base = inputs.base
     notes = inputs.notes
     change = campaign_change(
-        inputs.main_task, notes, documents_block(inputs.words), edit=base is not None, ask=ask, part_ask=part_ask
+        inputs.main_task,
+        notes,
+        documents_block(inputs.words),
+        edit=base is not None,
+        ask=ask,
+        part_ask=part_ask,
     )
     proposal = _proposal(holder.proposal_id, base, owners_words(inputs.main_task, notes))
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
