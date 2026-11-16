@@ -418,8 +418,17 @@ async def test_making_the_first_agent_rewrites_the_business_examples_once() -> N
 
     tenant_id = await _tenant()
     headers = await _owner(tenant_id)
-    before = len(await _outbox(COPY_JOB, tenant_id))
     await _made(tenant_id, headers)
+    # A worker publishing the signup run rewrites its row, which moves it in the heap, so
+    # the rows are compared by trigger and never by the order an unordered read returns.
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "UPDATE outbox_messages SET status = 'published' "
+                "WHERE job = :j AND payload->>'tenant_id' = :t AND payload->>'trigger' = 'signup'"
+            ),
+            {"j": COPY_JOB, "t": str(tenant_id)},
+        )
     async with _client() as http:
         await http.put(
             "/v1/first-run/agent",
@@ -427,7 +436,7 @@ async def test_making_the_first_agent_rewrites_the_business_examples_once() -> N
             json={"name": "Priya", "language_primary": "te-IN", "languages_extra": []},
         )
     queued = await _outbox(COPY_JOB, tenant_id)
-    assert [p["trigger"] for p in queued[before:]] == ["first_run"]
+    assert sorted(p["trigger"] for p in queued) == ["first_run", "signup"]
 
 
 async def test_go_live_is_done_once_a_line_is_live_on_a_number() -> None:

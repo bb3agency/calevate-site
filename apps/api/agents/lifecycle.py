@@ -1041,6 +1041,7 @@ async def archive_agent(
             ),
         )
     await _assert_no_campaign_is_dialling(session, agent_id=agent_id)
+    await _assert_no_line_is_answering(session, agent_id=agent_id)
     moved = await transition_status(
         session,
         table="agents",
@@ -1210,6 +1211,36 @@ async def _assert_no_campaign_is_dialling(session: AsyncSession, *, agent_id: UU
             remediation=(
                 "Pause or cancel those campaigns first — or switch the agent off with "
                 "Deactivate, which stops it immediately and keeps it restorable."
+            ),
+        )
+
+
+async def _assert_no_line_is_answering(session: AsyncSession, *, agent_id: UUID) -> None:
+    """Refuse to retire an agent a live Inbound line still speaks for.
+
+    A live line answers through its own engine agent while the agent it speaks for may
+    never have been published itself (D-997), so the number release below, which starts
+    from the agent's own engine ref, reaches none of the line's numbers. Releasing them
+    here instead would leave a line that says it is live and answers nobody, the zombie
+    `_assert_no_campaign_is_dialling` refuses for campaigns. A draft line is not counted:
+    it answers nobody, and `publish_line` refuses to put it live for a deleted agent.
+    """
+    live = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM inbound_lines "
+                "WHERE agent_id = :aid AND archived_at IS NULL AND published_at IS NOT NULL"
+            ),
+            {"aid": agent_id},
+        )
+    ).scalar_one()
+    if live:
+        raise ProblemError.conflict(
+            "agent_has_live_lines",
+            f"This agent is answering on {live} live Inbound line(s), so it cannot be deleted yet.",
+            remediation=(
+                "Choose another agent for those lines, or delete the lines, and then delete "
+                "this agent."
             ),
         )
 
