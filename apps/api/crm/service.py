@@ -73,6 +73,7 @@ from apps.api.crm.schemas import (
     CallCallbackOut,
     CallDetailOut,
     CallGoalOut,
+    CallHolderRefOut,
     CallMistakeOut,
     CallMomentOut,
     CallQualityOut,
@@ -279,9 +280,9 @@ async def list_calls(
                 f"{_CALLBACK_COLUMNS}, {_LEAD_NAME_COLUMN}, {credits_column}, "
                 "c.business_outcome, c.business_outcome_label, c.follow_up_state, c.created_at, "
                 f"a.business_outcomes, {_LIVE_STATE} AS live_state, {_BUSINESS_NAME_COLUMN}, "
-                "cb.source_execution_id, cb.next_attempt_at "
+                f"cb.source_execution_id, cb.next_attempt_at, {_HOLDER_COLUMNS} "
                 "FROM page JOIN calls c ON c.id = page.id JOIN agents a ON a.id = c.agent_id "
-                f"{_CALLBACK_JOIN} "
+                f"{_CALLBACK_JOIN} {_HOLDER_JOIN} "
                 f"ORDER BY page.live DESC, {_CALL_AT} DESC, c.id DESC"
             ),
             params,
@@ -317,6 +318,8 @@ async def list_calls(
             lead_name=_caller_name(r[21], agent_name=r[2], business_name=r[29]),
             credits_used_inr=f"{r[22]:.2f}" if r[22] is not None and r[22] > 0 else None,
             captured_preview=previews.get(r[0], []),
+            campaign=_holder_ref(r[32], r[33]),
+            inbound_line=_holder_ref(r[34], r[35]),
             business_outcome=r[23],
             business_outcome_label=r[24],
             business_outcome_lead_status=outcome_lead_move(r[27], r[23]),
@@ -448,6 +451,20 @@ _CALLBACK_JOIN = (
 _CALLBACK_COLUMNS = (
     "cb.id, cb.requested_at, cb.status, cb.last_refusal_reason, cb.last_refusal_rule"
 )
+#: The campaign that placed the call and the inbound line that took it, by name (D-1006).
+#: Joined on their primary keys in the same statement as the page, so a page of calls costs
+#: no read per row; an archived holder still joins and keeps its name.
+_HOLDER_JOIN = (
+    "LEFT JOIN campaigns hc ON hc.id = c.campaign_id "
+    "LEFT JOIN inbound_lines hl ON hl.id = c.inbound_line_id"
+)
+_HOLDER_COLUMNS = "hc.id, hc.name, hl.id, hl.name"
+
+
+def _holder_ref(holder_id: Any, name: Any) -> CallHolderRefOut | None:
+    return None if holder_id is None else CallHolderRefOut(id=holder_id, name=str(name))
+
+
 #: The name on the call's lead, so a call row can say who rather than only a number. A
 #: scalar subquery rather than a join, for the reason `_LEAD_COLUMNS` gives.
 _LEAD_NAME_COLUMN = (
@@ -601,8 +618,9 @@ async def get_call(
                 "cb.source_execution_id, cb.next_attempt_at, "
                 "c.next_step_by, c.goal_reason, c.goal_reached, "
                 "(SELECT g.goal FROM campaigns g WHERE g.id = c.campaign_id), "
-                f"{_LIST_NAME_COLUMN}, c.tenant_id "
+                f"{_LIST_NAME_COLUMN}, c.tenant_id, {_HOLDER_COLUMNS} "
                 f"FROM calls c JOIN agents a ON a.id = c.agent_id {_CALLBACK_JOIN} "
+                f"{_HOLDER_JOIN} "
                 "WHERE c.id = :cid"
             ),
             {"cid": call_id},
@@ -715,6 +733,8 @@ async def get_call(
         callback_requested=row[27],
         translation_state=row[28],
         lead_name=_caller_name(row[29], agent_name=row[2], business_name=row[43]),
+        campaign=_holder_ref(row[52], row[53]),
+        inbound_line=_holder_ref(row[54], row[55]),
         language=_call_language(turns, agent_language=row[30]),
         extraction_model=extraction[5] if extraction else None,
         quality=CallQualityOut.model_validate(row[31]) if isinstance(row[31], dict) else None,

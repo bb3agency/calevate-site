@@ -61,6 +61,7 @@ LEAD_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
             "agent_id": _nullable({"type": "string"}),
             "assigned_to": _nullable({"type": "string"}),
             "campaign_id": _nullable({"type": "string"}),
+            "inbound_line_id": _nullable({"type": "string"}),
             "captured": _nullable(
                 {
                     "type": "array",
@@ -92,6 +93,7 @@ LEAD_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
             "agent_id",
             "assigned_to",
             "campaign_id",
+            "inbound_line_id",
             "captured",
         ],
         "additionalProperties": False,
@@ -114,6 +116,7 @@ CALL_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
             "callback_open": _nullable({"type": "boolean"}),
             "agent_id": _nullable({"type": "string"}),
             "campaign_id": _nullable({"type": "string"}),
+            "inbound_line_id": _nullable({"type": "string"}),
         },
         "required": [
             "status",
@@ -126,6 +129,7 @@ CALL_LENS_SCHEMA: Final[dict[str, Any]] = _nullable(
             "callback_open",
             "agent_id",
             "campaign_id",
+            "inbound_line_id",
         ],
         "additionalProperties": False,
     }

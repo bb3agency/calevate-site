@@ -14,6 +14,7 @@ import type { CallSummary } from "@/lib/api/client";
 import type { ReadAheadProps } from "@/lib/readAhead";
 import { type OutcomeKind, callOutcome, callRowLine, callTitle, callbackOverdue } from "@/lib/callReview";
 
+import { type CallSource, CallSourceLabel, callSource } from "./callSource";
 import { type LiveView, type LogCall, LiveLength, LiveMark, LiveSheen, liveLine, liveWords } from "./liveRows";
 
 export function isLive(call: Pick<CallSummary, "status">): boolean {
@@ -260,6 +261,7 @@ export function callColumns({
   compact = false,
   showCost = false,
   menu,
+  sourceHref,
 }: {
   callHref: (id: string) => string;
   /** Reads a call's page ahead from its row (`useReadAhead`). */
@@ -271,6 +273,8 @@ export function callColumns({
   showCost?: boolean;
   /** The row's ⋯ menu (the call log's follow-up actions), as a last column. */
   menu?: (call: CallSummary) => ReactNode;
+  /** Where the campaign or Inbound line a call came from lives; with it, each row links there. */
+  sourceHref?: (source: CallSource) => string;
 }): DataColumn<CallSummary>[] {
   const caller: DataColumn<CallSummary> = {
     id: "caller",
@@ -281,6 +285,7 @@ export function callColumns({
       const running = live?.state === "live";
       const line = live ? { text: liveLine(live), pending: live.state === "unreported" } : callRowLine(call);
       const named = Boolean(call.lead_name?.trim());
+      const source = sourceHref ? callSource(call) : null;
       const rowLink = !opensOf(call) ? (
         <span className="min-w-16 max-w-full font-medium text-ink [overflow-wrap:anywhere]">{callTitle(call)}</span>
       ) : (
@@ -314,6 +319,7 @@ export function callColumns({
             )}
             {running && <LiveMark />}
             {call.test_call && <TestCallTag />}
+            {source && sourceHref && <CallSourceLabel source={source} href={sourceHref(source)} />}
           </div>
           <p
             title={line.pending ? undefined : line.text}

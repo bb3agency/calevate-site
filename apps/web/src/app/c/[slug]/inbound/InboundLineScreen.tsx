@@ -20,6 +20,7 @@ import { ExpandableText } from "@/components/arc/expandable-text";
 import { InlineEdit } from "@/components/arc/inline-edit";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
+import { TEXT_ACTION } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
@@ -726,6 +727,7 @@ function CallsSection({ line, slug }: { line: InboundLine; slug: string }) {
       ) : calls.data.length === 0 ? (
         <p className="text-body text-ink-muted">No calls yet.</p>
       ) : (
+        <>
         <ul aria-label="Calls this line took" className="max-w-3xl divide-y divide-line border-y border-line">
           {calls.data.map((call) => (
             <li key={call.id} className="relative flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3">
@@ -741,6 +743,13 @@ function CallsSection({ line, slug }: { line: InboundLine; slug: string }) {
             </li>
           ))}
         </ul>
+        {/* This list stops at the latest 50; the call log holds every one (D-1006). */}
+        <p className="mt-3">
+          <Link href={href(`/c/${slug}/calls?inbound_line_id=${encodeURIComponent(line.id)}`)} className={TEXT_ACTION}>
+            All its calls
+          </Link>
+        </p>
+        </>
       )}
     </FoldSection>
   );

@@ -283,6 +283,8 @@ export interface CallsLogFilters {
   until?: string;
   /** One campaign's calls (a campaign's results link here with `?campaign_id=`). */
   campaignId?: string;
+  /** One Inbound line's calls (a line's page links here with `?inbound_line_id=`, D-1006). */
+  inboundLineId?: string;
   /** `false` leaves out free-trial test calls; anything else includes them. */
   testCalls?: boolean;
   /** The call marked handled (`done`) or not yet (`not_done`) (D-893). */
@@ -293,12 +295,24 @@ export interface CallsLogFilters {
 
 /** The query string for the log and its export; one mapping, so the file is the table. */
 function callsLogQuery(filters: CallsLogFilters): Record<string, string | undefined> {
-  const { status, agentId, campaignId, outcome, direction, since, until, testCalls, followUp, callbackOpen } =
-    filters;
+  const {
+    status,
+    agentId,
+    campaignId,
+    inboundLineId,
+    outcome,
+    direction,
+    since,
+    until,
+    testCalls,
+    followUp,
+    callbackOpen,
+  } = filters;
   return {
     status,
     agent_id: agentId,
     campaign_id: campaignId,
+    inbound_line_id: inboundLineId,
     outcome,
     direction,
     since,

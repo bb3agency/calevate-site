@@ -51,9 +51,10 @@ export type CallAgainScope = {
   fromDay?: string;
   toDay?: string;
   testCalls: boolean;
-  /** The log narrowed by a link chip to one agent's or one campaign's calls. */
+  /** The log narrowed to one agent's, one campaign's or one Inbound line's calls. */
   agentId?: string;
   campaignId?: string;
+  inboundLineId?: string;
 };
 
 export function CallAgain({
@@ -148,6 +149,7 @@ function CallAgainDialog({
             ...(scope.testCalls ? {} : { test_calls: false }),
             ...(scope.agentId ? { agent_id: scope.agentId } : {}),
             ...(scope.campaignId ? { campaign_id: scope.campaignId } : {}),
+            ...(scope.inboundLineId ? { inbound_line_id: scope.inboundLineId } : {}),
           },
           lead_ids: null,
           agent_id: agentId,

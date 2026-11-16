@@ -98,6 +98,8 @@ class CallFilters:
     until: datetime | None = None
     #: The calls one campaign placed (`calls.campaign_id`), for its results' call links.
     campaign_id: UUID | None = None
+    #: The calls one inbound line took (`calls.inbound_line_id`), for its page's call link.
+    inbound_line_id: UUID | None = None
     #: False leaves out test calls (`_TEST_CALL`).
     test_calls: bool = True
     #: `done`: marked handled (`resolved`); `not_done`: anything else, unmarked included.
@@ -142,6 +144,9 @@ def call_where(filters: CallFilters) -> tuple[str, dict[str, Any]]:
     if filters.campaign_id:
         clauses.append("c.campaign_id = :campaign_id")
         params["campaign_id"] = filters.campaign_id
+    if filters.inbound_line_id:
+        clauses.append("c.inbound_line_id = :inbound_line_id")
+        params["inbound_line_id"] = filters.inbound_line_id
     if not filters.test_calls:
         clauses.append(f"NOT {_TEST_CALL}")
     if filters.follow_up == "done":
@@ -170,6 +175,7 @@ def call_filters(lens: CallLensIn) -> CallFilters:
         since=None if lens.from_day is None else day_start(lens.from_day),
         until=None if lens.to_day is None else day_after(lens.to_day),
         campaign_id=lens.campaign_id,
+        inbound_line_id=lens.inbound_line_id,
         test_calls=lens.test_calls,
         follow_up=lens.follow_up,
         callback_open=lens.callback_open,
@@ -208,6 +214,7 @@ LEAD_ROW_FILTER_FIELDS: Final = frozenset(
         "follow_up",
         "captured",
         "campaign_id",
+        "inbound_line_id",
     }
 )
 
@@ -228,6 +235,7 @@ class LeadRowFilters:
     follow_up: Literal["done", "not_done"] | None = None
     captured: tuple[CapturedFieldFilterIn, ...] = field(default_factory=tuple)
     campaign_id: UUID | None = None
+    inbound_line_id: UUID | None = None
 
     @classmethod
     def of(cls, lens: LeadLensIn) -> LeadRowFilters:
@@ -245,6 +253,7 @@ class LeadRowFilters:
             follow_up=lens.follow_up,
             captured=tuple(lens.captured),
             campaign_id=lens.campaign_id,
+            inbound_line_id=lens.inbound_line_id,
         )
 
 
@@ -298,6 +307,12 @@ def lead_row_clauses(filters: LeadRowFilters, params: dict[str, Any]) -> list[st
             "AND c.campaign_id = :lens_campaign_id)"
         )
         params["lens_campaign_id"] = filters.campaign_id
+    if filters.inbound_line_id is not None:
+        out.append(
+            "EXISTS (SELECT 1 FROM calls c WHERE c.lead_id = l.id "
+            "AND c.inbound_line_id = :lens_inbound_line_id)"
+        )
+        params["lens_inbound_line_id"] = filters.inbound_line_id
     for index, wanted in enumerate(filters.captured):
         params[f"lens_ck{index}"] = wanted.key
         if wanted.op == "equals":
@@ -429,6 +444,8 @@ def describe_lead_lens(lens: LeadLensIn) -> str:
         parts.append("of one agent")
     if lens.campaign_id:
         parts.append("reached by one campaign")
+    if lens.inbound_line_id:
+        parts.append("reached by one Inbound line")
     parts += [f"{c.key.replace('_', ' ')} {c.op} “{c.value}”" for c in lens.captured]
     parts += [f"{entry.partition(':')[0].replace('_', ' ')} filter" for entry in lens.f]
     return "every lead" if not parts else "leads " + ", ".join(parts)

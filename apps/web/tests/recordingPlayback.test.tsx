@@ -65,6 +65,8 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
   return {
     id: "c1",
     agent_id: "a1",
+    campaign: null,
+    inbound_line: null,
     agent_name: "Reception",
     direction: "inbound",
     status: "completed",

@@ -276,3 +276,146 @@ async def test_staff_see_the_captured_details_but_not_the_cost() -> None:
     row = next(c for c in listed.json() if c["id"] == str(call_id))
     assert row["credits_used_inr"] is None
     assert row["captured_preview"], "details are calls data, which staff read"
+
+
+async def _seed_holders(tenant_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
+    """One call placed by a campaign, one taken by an inbound line, one on neither (D-1006)."""
+    campaign_id, line_id = uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(tenant_id) as s:
+        agent_id = (await s.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+        await s.execute(
+            text(
+                "INSERT INTO campaigns (id, tenant_id, agent_id, name, classification, status, "
+                "created_at, updated_at) VALUES (:id, :t, :a, 'Diwali offer', 'service', "
+                "'running', now(), now())"
+            ),
+            {"id": campaign_id, "t": tenant_id, "a": agent_id},
+        )
+        await s.execute(
+            text(
+                "INSERT INTO inbound_lines (id, tenant_id, name, agent_id) "
+                "VALUES (:i, :t, 'Front desk', :a)"
+            ),
+            {"i": line_id, "t": tenant_id, "a": agent_id},
+        )
+        for direction, campaign, line in (
+            ("outbound", campaign_id, None),
+            ("inbound", None, line_id),
+            ("inbound", None, None),
+        ):
+            await s.execute(
+                text(
+                    "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                    "status, started_at, duration_s, from_e164, to_e164, campaign_id, "
+                    "inbound_line_id, created_at, updated_at) VALUES (:id, :t, :a, :e, :d, "
+                    "'completed', now(), 30, '+919800000009', '+918000000000', :c, :l, "
+                    "now(), now())"
+                ),
+                {
+                    "id": uuid.uuid4(),
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "e": f"hold-{uuid.uuid4().hex[:10]}",
+                    "d": direction,
+                    "c": campaign,
+                    "l": line,
+                },
+            )
+    return campaign_id, line_id
+
+
+async def test_each_call_names_its_campaign_or_inbound_line() -> None:
+    tenant_id, slug, token = await _make_tenant()
+    campaign_id, line_id = await _seed_holders(tenant_id)
+    async with _client() as http:
+        listed = await http.get("/v1/calls", headers=_headers(slug, token))
+        rows = listed.json()
+        detail = await http.get(
+            f"/v1/calls/{next(c['id'] for c in rows if c['inbound_line'])}",
+            headers=_headers(slug, token),
+        )
+    assert listed.status_code == 200, listed.text
+    named = sorted(
+        (
+            (c["campaign"] or {}).get("name") or "",
+            (c["inbound_line"] or {}).get("name") or "",
+        )
+        for c in rows
+    )
+    assert named == [("", ""), ("", "Front desk"), ("Diwali offer", "")]
+    assert {c["campaign"]["id"] for c in rows if c["campaign"]} == {str(campaign_id)}
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["inbound_line"] == {"id": str(line_id), "name": "Front desk"}
+    assert detail.json()["campaign"] is None
+
+
+async def test_the_list_and_the_file_narrow_to_one_inbound_line() -> None:
+    """A line's page links to the call log with `?inbound_line_id=`, as a campaign's does."""
+    tenant_id, slug, token = await _make_tenant()
+    _campaign_id, line_id = await _seed_holders(tenant_id)
+    async with _client() as http:
+        mine = await http.get(
+            "/v1/calls", params={"inbound_line_id": str(line_id)}, headers=_headers(slug, token)
+        )
+        exported = await http.get(
+            "/v1/calls/export.csv",
+            params={"inbound_line_id": str(line_id)},
+            headers=_headers(slug, token),
+        )
+    assert [c["inbound_line"]["id"] for c in mine.json()] == [str(line_id)]
+    assert len(list(csv.reader(io.StringIO(exported.text)))) == 2
+
+
+async def test_another_accounts_line_id_matches_none_of_its_calls() -> None:
+    victim, _slug, _token = await _make_tenant()
+    _campaign_id, their_line = await _seed_holders(victim)
+    _attacker, slug, token = await _make_tenant()
+    async with _client() as http:
+        listed = await http.get(
+            "/v1/calls", params={"inbound_line_id": str(their_line)}, headers=_headers(slug, token)
+        )
+        exported = await http.get(
+            "/v1/calls/export.csv",
+            params={"inbound_line_id": str(their_line)},
+            headers=_headers(slug, token),
+        )
+    assert listed.status_code == 200
+    assert listed.json() == []
+    assert len(list(csv.reader(io.StringIO(exported.text)))) == 1
+
+
+async def test_the_lead_lens_narrows_to_the_people_one_line_spoke_to() -> None:
+    """Calling one line's missed callers again acts on that line's callers only."""
+    tenant_id, slug, token = await _make_tenant()
+    _campaign_id, line_id = await _seed_holders(tenant_id)
+    theirs, other = uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(tenant_id) as s:
+        agent_id = (await s.execute(text("SELECT id FROM agents LIMIT 1"))).scalar_one()
+        for lead_id, number in ((theirs, "+919800000071"), (other, "+919800000072")):
+            await s.execute(
+                text(
+                    "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status, "
+                    "data, created_at, updated_at) VALUES (:i, :t, :a, :p, 'inbound_call', "
+                    "'new', '{}'::jsonb, now(), now())"
+                ),
+                {"i": lead_id, "t": tenant_id, "a": agent_id, "p": number},
+            )
+        await s.execute(
+            text("UPDATE calls SET lead_id = :lead WHERE inbound_line_id = :line"),
+            {"lead": theirs, "line": line_id},
+        )
+        await s.execute(
+            text(
+                "UPDATE calls SET lead_id = :lead WHERE inbound_line_id IS NULL "
+                "AND campaign_id IS NULL"
+            ),
+            {"lead": other},
+        )
+    async with _client() as http:
+        found = await http.post(
+            "/v1/leads/search",
+            json={"inbound_line_id": str(line_id)},
+            headers=_headers(slug, token),
+        )
+    assert found.status_code == 200, found.text
+    assert [lead["id"] for lead in found.json()["items"]] == [str(theirs)]

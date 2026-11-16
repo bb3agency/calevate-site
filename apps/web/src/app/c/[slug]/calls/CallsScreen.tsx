@@ -7,7 +7,8 @@
  *
  * ONE filter row (`FilterToolbar`, folded behind "Filters" on a phone): how the call ENDED
  * (outcome chips, "Needs you" first), WHEN as a span of India-time days (`DateRangePicker`,
- * `lib/callFilters`), WHICH WAY, and whether free-trial test calls are included. One agent's calls arrive by link from that agent's page
+ * `lib/callFilters`), WHICH WAY, FROM which campaign or Inbound line (D-1006; each row also
+ * links to its own), and whether free-trial test calls are included. One agent's calls arrive by link from that agent's page
  * (`?agent_id=`) and show as a chip that clears them. A STATUS filter (no answer, failed …)
  * still arrives by link, from the dashboard's "did not connect" row, and shows as a chip
  * that clears it. Every filter is a server query, never a slice of the loaded page, so a
@@ -41,6 +42,8 @@ import { LoadMore } from "@/components/interior/load-more";
 import { FIELD, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatCount, istDateStamp } from "@/components/ui";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
+import { useCampaigns } from "@/lib/api/campaigns";
+import { useInboundLines } from "@/lib/api/inboundLines";
 import type { CallSummary } from "@/lib/api/client";
 import {
   queryKeys,
@@ -83,6 +86,7 @@ import { describeViewDays, endsToday, fromViewDays, toViewDays } from "@/lib/vie
 import { CallAgain } from "./CallAgain";
 import { callColumns, liveOf, outcomeRowClass } from "./callColumns";
 import { CallsPhoneList } from "./CallsPhoneList";
+import { sourcePath } from "./callSource";
 import { endedReads, liveIds, withLive } from "./liveRows";
 
 /** Below `sm` the log is a swipeable list, not a table (different markup, so a query). */
@@ -112,6 +116,7 @@ function describeCallView(filters: CallViewFilters): string | null {
   if (filters.test_calls === false) parts.push("no test calls");
   if (filters.agent_id) parts.push("one agent's");
   if (filters.campaign_id) parts.push("one campaign's");
+  if (filters.inbound_line_id) parts.push("one Inbound line's");
   return parts.length ? parts.join(", ") : null;
 }
 
@@ -142,6 +147,7 @@ interface CallsMemory {
   status: string;
   agentId: string;
   campaignId: string;
+  inboundLineId: string;
   outcome: string;
   direction: string;
   dates: DateRange | null;
@@ -154,7 +160,23 @@ interface CallsMemory {
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** The filters a link may name; a link that names any opens on what it names alone. */
-const LINK_FILTERS = ["status", "agent_id", "campaign_id", "day", "test_calls"];
+const LINK_FILTERS = ["status", "agent_id", "campaign_id", "inbound_line_id", "day", "test_calls"];
+
+/** The "From" control's value: one campaign or one Inbound line, never both. */
+type SourceChoice = { campaignId?: string; inboundLineId?: string };
+
+function sourceValue({ campaignId, inboundLineId }: SourceChoice): string {
+  if (campaignId) return `campaign:${campaignId}`;
+  if (inboundLineId) return `line:${inboundLineId}`;
+  return "";
+}
+
+function sourceOf(value: string): SourceChoice {
+  const [kind, id] = value.split(":", 2);
+  if (kind === "campaign" && id) return { campaignId: id };
+  if (kind === "line" && id) return { inboundLineId: id };
+  return {};
+}
 
 /** `?day=` (an IST date): the home screen's "missed calls today" opens on that day only. */
 function linkedDay(param: string | null): DateRange | null {
@@ -174,6 +196,7 @@ function rememberedCalls(slug: string, params: URLSearchParams): Partial<CallsMe
     status: initialStatus(text(kept.status) ?? null),
     agentId: text(kept.agentId),
     campaignId: text(kept.campaignId),
+    inboundLineId: text(kept.inboundLineId),
     outcome: OUTCOMES.find((o) => o.value === kept.outcome)?.value,
     direction: DIRECTIONS.find((d) => d.value === kept.direction)?.value,
     dates:
@@ -196,6 +219,14 @@ export function CallsScreen({ slug }: { slug: string }) {
   const [status, setStatus] = useState<string | undefined>(() => initialStatus(params.get("status")) ?? kept.status);
   const [agentId, setAgentId] = useState<string | undefined>(() => params.get("agent_id") || kept.agentId);
   const [campaignId, setCampaignId] = useState<string | undefined>(() => params.get("campaign_id") || kept.campaignId);
+  // A line's page links here with `?inbound_line_id=` (D-1006), as a campaign's results do.
+  const [inboundLineId, setInboundLineId] = useState<string | undefined>(() =>
+    params.get("campaign_id") ? undefined : params.get("inbound_line_id") || kept.inboundLineId,
+  );
+  const setSource = (choice: SourceChoice) => {
+    setCampaignId(choice.campaignId);
+    setInboundLineId(choice.inboundLineId);
+  };
   const [outcome, setOutcome] = useState<CallOutcome | undefined>(kept.outcome as CallOutcome | undefined);
   const [direction, setDirection] = useState<CallDirection | undefined>(kept.direction as CallDirection | undefined);
   const [dates, setDates] = useState<DateRange | null>(() => linkedDay(params.get("day")) ?? kept.dates ?? null);
@@ -215,6 +246,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     status,
     agentId,
     campaignId,
+    inboundLineId,
     outcome,
     direction,
     testCalls,
@@ -233,6 +265,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     status ||
       agentId ||
       campaignId ||
+      inboundLineId ||
       outcome ||
       direction ||
       dates ||
@@ -251,6 +284,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     status,
     agentId,
     campaignId,
+    inboundLineId,
     outcome,
     direction,
     dates,
@@ -264,6 +298,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     status: status ?? null,
     agent_id: agentId ?? null,
     campaign_id: campaignId ?? null,
+    inbound_line_id: inboundLineId ?? null,
     outcome: outcome ?? null,
     direction: direction ?? null,
     when: toViewDays(dates, today, rolling),
@@ -277,6 +312,7 @@ export function CallsScreen({ slug }: { slug: string }) {
     setStatus(saved?.status ?? undefined);
     setAgentId(saved?.agent_id ?? undefined);
     setCampaignId(saved?.campaign_id ?? undefined);
+    setInboundLineId(saved?.inbound_line_id ?? undefined);
     setOutcome(saved?.outcome ?? undefined);
     setDirection(saved?.direction ?? undefined);
     setDates(fromViewDays(saved?.when, today));
@@ -288,6 +324,8 @@ export function CallsScreen({ slug }: { slug: string }) {
   /* Who rings a caller back: the agent that took the call when it places calls, else the
      account's first agent that does (`canDialOut`, the one definition). */
   const agents = useAgents(session);
+  const campaigns = useCampaigns(session);
+  const lines = useInboundLines(session);
   const dialers = agents.data ? agents.data.filter(canDialOut) : undefined;
   const followUp = useFollowUpActions(session, {
     dialerFor: (target) => {
@@ -339,6 +377,19 @@ export function CallsScreen({ slug }: { slug: string }) {
   const rows = withLive(loaded, [...(live.isSuccess ? live.data : []), ...Object.values(ended)]);
   /** Every row under the agent filter is that agent's, so the name comes with them. */
   const agentName = agentId ? (rows.find((call) => call.agent_id === agentId)?.agent_name ?? undefined) : undefined;
+  /* The "From" control's choices: the campaigns and Inbound lines in use. An archived one
+     chosen by a link or a saved view is named from its rows, so the chip still says which. */
+  const campaignChoices = (campaigns.data ?? []).filter((c) => !c.archived_at || c.id === campaignId);
+  const lineChoices = lines.data ?? [];
+  const campaignName = campaignId
+    ? (campaignChoices.find((c) => c.id === campaignId)?.name ??
+      rows.find((call) => call.campaign?.id === campaignId)?.campaign?.name)
+    : undefined;
+  const lineName = inboundLineId
+    ? (lineChoices.find((l) => l.id === inboundLineId)?.name ??
+      rows.find((call) => call.inbound_line?.id === inboundLineId)?.inbound_line?.name)
+    : undefined;
+  const offerSource = campaignChoices.length + lineChoices.length > 0 || Boolean(campaignId || inboundLineId);
 
   /*
    * THE CALL LOG, DECLARED TO THE ASSISTANT. The filters are the writable things on this
@@ -384,6 +435,17 @@ export function CallsScreen({ slug }: { slug: string }) {
         options: [{ value: "", label: "Any" }, ...FOLLOW_UP.map((f) => ({ value: f.value, label: f.label }))],
       },
       {
+        id: "calls-from",
+        label: "From (campaign or Inbound line)",
+        type: "select",
+        value: sourceValue({ campaignId, inboundLineId }),
+        options: [
+          { value: "", label: "Any" },
+          ...lineChoices.map((l) => ({ value: `line:${l.id}`, label: `Inbound line: ${l.name}` })),
+          ...campaignChoices.map((c) => ({ value: `campaign:${c.id}`, label: `Campaign: ${c.name}` })),
+        ],
+      },
+      {
         id: "calls-callback",
         label: "Call-back",
         type: "select",
@@ -407,7 +469,8 @@ export function CallsScreen({ slug }: { slug: string }) {
       },
       { key: "status_link", label: "Status chosen by a link", value: status ? (lookup(STATUS_WORDS, status) ?? status) : "none" },
       { key: "agent_link", label: "Agent chosen by a link", value: agentId ? (agentName ?? agentId) : "none" },
-      { key: "campaign_link", label: "Only one campaign's calls?", value: campaignId ? "yes, chosen by a link from that campaign" : "no" },
+      { key: "campaign_link", label: "Only one campaign's calls?", value: campaignId ? `yes: ${campaignName ?? "one campaign"}` : "no" },
+      { key: "line_link", label: "Only one Inbound line's calls?", value: inboundLineId ? `yes: ${lineName ?? "one line"}` : "no" },
       { key: "test_calls", label: "Are test calls included?", value: testCalls ? "yes" : "no" },
       { key: "rows_loaded", label: "Call rows loaded so far", value: String(rows.length) },
       {
@@ -423,6 +486,12 @@ export function CallsScreen({ slug }: { slug: string }) {
           setOutcome(OUTCOMES.find((o) => o.value === wanted)?.value);
         } else if (item.field_id === "calls-follow-up") {
           setFollowUpFilter(FOLLOW_UP.find((f) => f.value === wanted)?.value);
+        } else if (item.field_id === "calls-from") {
+          const offered =
+            wanted === "" ||
+            lineChoices.some((l) => `line:${l.id}` === wanted) ||
+            campaignChoices.some((c) => `campaign:${c.id}` === wanted);
+          if (offered) setSource(sourceOf(wanted));
         } else if (item.field_id === "calls-callback") {
           setCallbackOpen(wanted === "true" ? true : wanted === "false" ? false : undefined);
         } else if (item.field_id === "calls-direction") {
@@ -444,11 +513,12 @@ export function CallsScreen({ slug }: { slug: string }) {
     callHref: (id) => href(`/c/${slug}/calls/${id}`),
     readAhead,
     menu: (call) => <RowMenu label={callTitle(call)} items={followUp.menuItems(targetOf(call))} />,
+    sourceHref: (source) => href(sourcePath(slug, source)),
   });
   const clearAll = () => {
     setStatus(undefined);
     setAgentId(undefined);
-    setCampaignId(undefined);
+    setSource({});
     setOutcome(undefined);
     setDirection(undefined);
     setDates(null);
@@ -469,7 +539,12 @@ export function CallsScreen({ slug }: { slug: string }) {
       : []),
     ...(!testCalls ? [{ id: "tests", label: "Test calls left out", onRemove: () => setTestCalls(true) }] : []),
     ...(agentId ? [{ id: "agent", label: `Agent: ${agentName ?? "the chosen agent"}`, onRemove: () => setAgentId(undefined) }] : []),
-    ...(campaignId ? [{ id: "campaign", label: "One campaign's calls", onRemove: () => setCampaignId(undefined) }] : []),
+    ...(campaignId
+      ? [{ id: "campaign", label: campaignName ? `Campaign: ${campaignName}` : "One campaign's calls", onRemove: () => setSource({}) }]
+      : []),
+    ...(inboundLineId
+      ? [{ id: "line", label: lineName ? `Inbound line: ${lineName}` : "One Inbound line's calls", onRemove: () => setSource({}) }]
+      : []),
     ...(status ? [{ id: "status", label: `Only ${lookup(STATUS_WORDS, status) ?? status} calls`, onRemove: () => setStatus(undefined) }] : []),
   ];
 
@@ -512,6 +587,42 @@ export function CallsScreen({ slug }: { slug: string }) {
                   ))}
                 </select>
               </label>
+              {offerSource ? (
+                <label className="block min-w-0 max-w-full">
+                  <span className="sr-only">From a campaign or an Inbound line</span>
+                  <select
+                    value={sourceValue({ campaignId, inboundLineId })}
+                    onChange={(e) => setSource(sourceOf(e.target.value))}
+                    className={`${FIELD} mt-0 w-auto max-w-full`}
+                  >
+                    <option value="">Any line or campaign</option>
+                    {lineChoices.length > 0 || inboundLineId ? (
+                      <optgroup label="Inbound lines">
+                        {lineChoices.map((l) => (
+                          <option key={l.id} value={`line:${l.id}`}>
+                            {l.name}
+                          </option>
+                        ))}
+                        {inboundLineId && !lineChoices.some((l) => l.id === inboundLineId) ? (
+                          <option value={`line:${inboundLineId}`}>{lineName ?? "The chosen line"}</option>
+                        ) : null}
+                      </optgroup>
+                    ) : null}
+                    {campaignChoices.length > 0 || campaignId ? (
+                      <optgroup label="Campaigns">
+                        {campaignChoices.map((c) => (
+                          <option key={c.id} value={`campaign:${c.id}`}>
+                            {c.name}
+                          </option>
+                        ))}
+                        {campaignId && !campaignChoices.some((c) => c.id === campaignId) ? (
+                          <option value={`campaign:${campaignId}`}>{campaignName ?? "The chosen campaign"}</option>
+                        ) : null}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                </label>
+              ) : null}
               <label className="block">
                 <span className="sr-only">Handled</span>
                 <select
@@ -608,7 +719,7 @@ export function CallsScreen({ slug }: { slug: string }) {
           <CallAgain
             session={session}
             dialers={dialers}
-            scope={{ direction, fromDay: dates?.start, toDay: dates?.end, testCalls, agentId, campaignId }}
+            scope={{ direction, fromDay: dates?.start, toDay: dates?.end, testCalls, agentId, campaignId, inboundLineId }}
           />
         ) : null}
         {live.isError ? (

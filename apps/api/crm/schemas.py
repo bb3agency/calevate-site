@@ -118,10 +118,23 @@ class CapturedChipOut(Strict):
     value: str
 
 
+class CallHolderRefOut(Strict):
+    """The campaign that placed a call, or the inbound line that took it, by name (D-1006).
+    An archived one keeps its name: its calls stay in the log."""
+
+    id: UUID
+    name: str
+
+
 class CallSummaryOut(Strict):
     id: UUID
     agent_id: UUID
     agent_name: str | None = None
+    #: Required and nullable rather than defaulted, so the generated client type says the
+    #: server always sends them. At most one is set: a call is placed by a campaign or taken
+    #: by a line, never both; a test call or a one-off call has neither.
+    campaign: CallHolderRefOut | None
+    inbound_line: CallHolderRefOut | None
     direction: Literal["inbound", "outbound"]
     status: str
     # The other party's number IN FULL — `from_e164` inbound, `to_e164` outbound. A
@@ -691,6 +704,8 @@ class CallLensIn(Strict):
     to_day: date | None = None
     test_calls: bool = True
     campaign_id: UUID | None = None
+    #: The calls one inbound line took (`calls.inbound_line_id`, D-1006).
+    inbound_line_id: UUID | None = None
     follow_up: FollowUpFilter | None = None
     #: True: the call has a call-back waiting; False: it has none waiting.
     callback_open: bool | None = None
@@ -763,6 +778,9 @@ class LeadLensIn(Strict):
     #: Leads one campaign spoke to: any of its calls reached them (D-905). The calls lens
     #: takes the same field (`CallLensIn.campaign_id`).
     campaign_id: UUID | None = None
+    #: Leads one inbound line spoke to: any of its calls reached them (D-1006), so "call
+    #: them again" from one line's missed calls acts on that line's callers only.
+    inbound_line_id: UUID | None = None
 
 
 class LeadSearchIn(LeadLensIn):
@@ -1164,6 +1182,7 @@ class CallViewFilters(Strict):
     when: ViewDaysIn | None = None
     test_calls: bool = True
     campaign_id: UUID | None = None
+    inbound_line_id: UUID | None = None
     follow_up: FollowUpFilter | None = None
     callback_open: bool | None = None
 
@@ -1179,6 +1198,7 @@ class CallViewFilters(Strict):
             to_day=end,
             test_calls=self.test_calls,
             campaign_id=self.campaign_id,
+            inbound_line_id=self.inbound_line_id,
             follow_up=self.follow_up,
             callback_open=self.callback_open,
         )

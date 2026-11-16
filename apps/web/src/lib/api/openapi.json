@@ -9063,6 +9063,16 @@
             "title": "Caller Id Hidden",
             "type": "boolean"
           },
+          "campaign": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallHolderRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "captured": {
             "items": {
               "$ref": "#/components/schemas/CapturedFieldOut"
@@ -9211,6 +9221,16 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "inbound_line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallHolderRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "insights": {
             "anyOf": [
@@ -9488,6 +9508,8 @@
         "required": [
           "id",
           "agent_id",
+          "campaign",
+          "inbound_line",
           "direction",
           "status",
           "summary_state",
@@ -10115,6 +10137,27 @@
           "platform_reask_after_ms"
         ],
         "title": "CallHandlingBoundsOut",
+        "type": "object"
+      },
+      "CallHolderRefOut": {
+        "additionalProperties": false,
+        "description": "The campaign that placed a call, or the inbound line that took it, by name (D-1006).\nAn archived one keeps its name: its calls stay in the log.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CallHolderRefOut",
         "type": "object"
       },
       "CallInsightNextStepOut": {
@@ -11952,6 +11995,16 @@
             ],
             "title": "Caller E164"
           },
+          "campaign": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallHolderRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "captured_preview": {
             "items": {
               "$ref": "#/components/schemas/CapturedChipOut"
@@ -12031,6 +12084,16 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "inbound_line": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallHolderRefOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "lead_id": {
             "anyOf": [
@@ -12145,6 +12208,8 @@
         "required": [
           "id",
           "agent_id",
+          "campaign",
+          "inbound_line",
           "direction",
           "status",
           "summary_state",
@@ -12301,6 +12366,18 @@
               }
             ],
             "title": "Follow Up"
+          },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Line Id"
           },
           "outcome": {
             "anyOf": [
@@ -36362,6 +36439,18 @@
             ],
             "title": "Follow Up"
           },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Line Id"
+          },
           "last_call_from": {
             "anyOf": [
               {
@@ -36876,6 +36965,18 @@
               }
             ],
             "title": "Follow Up"
+          },
+          "inbound_line_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Line Id"
           },
           "last_call_from": {
             "anyOf": [
@@ -87117,6 +87218,25 @@
             }
           },
           {
+            "description": "Only the calls one inbound line took",
+            "in": "query",
+            "name": "inbound_line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the calls one inbound line took",
+              "title": "Inbound Line Id"
+            }
+          },
+          {
             "description": "done: marked handled; not_done: not marked handled",
             "in": "query",
             "name": "follow_up",
@@ -87340,6 +87460,23 @@
                 }
               ],
               "title": "Campaign Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "inbound_line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Inbound Line Id"
             }
           },
           {

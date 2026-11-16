@@ -475,6 +475,8 @@ describe("the dashboard renders what the server said, or says it could not", () 
     const call: CallSummary = {
       id: "c1",
       agent_id: "a1",
+      campaign: null,
+      inbound_line: null,
       agent_name: "Reception",
       direction: "inbound",
       status: "completed",
@@ -507,6 +509,8 @@ describe("the dashboard renders what the server said, or says it could not", () 
     const call: CallSummary = {
       id: "c2",
       agent_id: "a1",
+      campaign: null,
+      inbound_line: null,
       agent_name: "Reception",
       direction: "inbound",
       status: "completed",
@@ -540,6 +544,8 @@ describe("the dashboard renders what the server said, or says it could not", () 
     const call: CallSummary = {
       id: "c3",
       agent_id: "a1",
+      campaign: null,
+      inbound_line: null,
       agent_name: "Reception",
       direction: "inbound",
       status: "completed",
@@ -1765,6 +1771,8 @@ describe("a re-read that fails after the home screen's figures arrived", () => {
     const call: CallSummary = {
       id: "c9",
       agent_id: "a1",
+      campaign: null,
+      inbound_line: null,
       agent_name: "Reception",
       direction: "inbound",
       status: "completed",
