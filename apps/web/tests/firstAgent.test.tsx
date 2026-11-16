@@ -658,6 +658,23 @@ describe("meet your agent", () => {
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
+  it("a finished run whose agent was deleted offers a new agent or the way back, never a blank step", async () => {
+    // The roster's empty state ("Meet your agent") links here, so an owner who deleted their
+    // only agent arrives on the team step with no agent to show.
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/first-run": built({ finished_at: "2026-10-23T05:00:00Z" }),
+        "/v1/agents": [],
+      }),
+    );
+    // The step's section is drawn again once the stage is known, so it is found after the text.
+    await screen.findByText("Your first agent was deleted.");
+    const step = screen.getByRole("region", { name: "This step" });
+    expect(within(step).getByRole("link", { name: "New agent" }).getAttribute("href")).toBe("/c/acme/agents/new");
+    expect(within(step).getByRole("link", { name: "Bring it back" }).getAttribute("href")).toBe("/c/acme/agents");
+  });
+
   it("puts the go-live steps in order, the first not done current, a review said as such", () => {
     expect(goLiveSteps(undefined).map((step) => step.state)).toEqual(["current", "waiting", "waiting", "waiting"]);
     const paid = { owed_at: "2026-10-27T10:00:00Z", verify: "in_review" as const, number: "locked" as const };
