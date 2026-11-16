@@ -271,11 +271,26 @@ async def archive_material(session: AsyncSession, campaign_id: UUID, material_id
 
 
 async def request_proposal(
-    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID, requested_by: UUID | None
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    requested_by: UUID | None,
+    focus: dict[str, str] | None = None,
 ) -> CampaignProposal:
     """Ask Pip for the campaign's script. Needs a main task; replaces a ready draft; refused
-    while one is still being written, so a second click does not spend twice."""
+    while one is still being written, so a second click does not spend twice.
+
+    `focus` (`{"part": <the part's name as the editor shows it>, "language": <tag>}`) asks for
+    that one part rewritten in that language, the rest kept (founder, 16 Nov 2026). It is an
+    edit of the saved script, reviewed like any other draft, so it needs a script to edit."""
     row = await _campaign_row(session, campaign_id, lock=True)
+    if focus is not None and row.script is None:
+        raise _invalid(
+            "campaign_script_required",
+            "Generate the script first",
+            "Pip rewrites one part of a script that is already there.",
+        )
     if not (row.main_task or "").strip():
         raise _invalid(
             "main_task_required",
@@ -298,6 +313,8 @@ async def request_proposal(
         "requested_by": None if requested_by is None else str(requested_by),
         "base_script": row.script,
     }
+    if focus is not None:
+        record["focus"] = focus
     await session.execute(
         text("UPDATE campaigns SET script_proposal = CAST(:p AS jsonb) WHERE id = :cid"),
         {"p": json.dumps(record), "cid": campaign_id},

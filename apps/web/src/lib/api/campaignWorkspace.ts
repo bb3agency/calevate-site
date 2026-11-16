@@ -99,9 +99,13 @@ export function useArchiveMaterial(session: Session, campaignId: string) {
   );
 }
 
+/** The whole script, or with `part` and `language` that one part rewritten in that language. */
 export function useRequestCampaignScript(session: Session, campaignId: string) {
-  return useWorkspaceMutation(session, campaignId, () =>
-    apiRequest<CampaignProposal>(session, `${base(campaignId)}/script/proposal`, { method: "POST" }),
+  return useWorkspaceMutation(session, campaignId, (only?: { part: string; language: string }) =>
+    apiRequest<CampaignProposal>(session, `${base(campaignId)}/script/proposal`, {
+      method: "POST",
+      ...(only ? { body: only } : {}),
+    }),
   );
 }
 

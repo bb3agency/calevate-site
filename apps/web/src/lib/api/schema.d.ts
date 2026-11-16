@@ -19249,6 +19249,16 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * CampaignProposalIn
+         * @description Empty for the whole script. With both fields: that one part, in that language.
+         */
+        CampaignProposalIn: {
+            /** Language */
+            language?: string | null;
+            /** Part */
+            part?: string | null;
+        };
         /** CampaignProposalOut */
         CampaignProposalOut: {
             base_script: components["schemas"]["CallScript"] | null;
@@ -53639,7 +53649,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CampaignProposalIn"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {

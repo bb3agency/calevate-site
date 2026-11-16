@@ -124,8 +124,8 @@ async def update_draft(
     A draft takes every setting. Once started (scheduled, running, paused) only
     `STARTED_EDITABLE`: the agent, the calling hours, the retries and calls at once. A new
     agent on a started campaign must also be given the campaign's script, which the route
-    does (`routes.update_campaign`). Every id is resolved under the caller's own RLS before it is stored
-    (`db/ownership.py`), and the agent must still be assignable (D-440), exactly as at create.
+    does (`routes.update_campaign`). Every id is resolved under the caller's own RLS before it
+    is stored (`db/ownership.py`), and the agent must still be assignable (D-440), as at create.
     A name changed on its own is a rename and goes through in any status (`rename_campaign`).
     """
     unknown = set(changes) - set(_EDITABLE)

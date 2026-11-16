@@ -25,6 +25,7 @@ import { FIELD, PRIMARY_BUTTON_SM, ProblemNotice, SECONDARY_BUTTON_SM, Skeleton 
 import {
   useAddMaterial,
   useArchiveMaterial,
+  useCampaignSettings,
   useCampaignWorkspace,
   useClearCampaignProposal,
   useRequestCampaignScript,
@@ -44,7 +45,7 @@ import { matchesWords } from "./matchWords";
 import { PipGenerateBand } from "./PipGenerateBand";
 import { PipFailed, PipWriting, retryable } from "./PipScriptStatus";
 import { FoldSection } from "./FoldSection";
-import { ScriptLanguagePick } from "./ScriptLanguages";
+import { ScriptLanguagePick, languageName } from "./ScriptLanguages";
 
 export const MAIN_TASK_HINT = "What should this campaign achieve?";
 export const MAIN_TASK_INFO = "Write it in your own words, as much as you like. Pip writes the script from it.";
@@ -313,6 +314,20 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
   const proposal = space.proposal;
   const script = space.script;
   const hasTask = space.main_task.trim() !== "";
+  // Pip rewrites one part in a chosen language; the draft then comes back for review here.
+  const settings = useCampaignSettings(session, campaignId, space.agent_id).data;
+  const main = settings ? (settings.overrides.language_primary ?? settings.defaults.language_primary) : null;
+  const generatePart = settings
+    ? {
+        languages: settings.offered_languages.map((tag) => ({ tag, name: languageName(tag) })),
+        initial: main ?? settings.offered_languages[0] ?? "",
+        reason: !canWrite ? refusal : ask.isPending ? "Pip is writing." : undefined,
+        onGenerate: (part: string, language: string) => {
+          setEditing(false);
+          askFeedback.run({ part, language });
+        },
+      }
+    : undefined;
 
   // Closing the editor (Save changes, Close, or keeping Pip's script) swaps a long list for
   // the short read, which would leave the view far below the section. Bring the section
@@ -396,6 +411,7 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
           {/* Every part as saved, with Edit / Update / Cancel on each; nothing to add again. */}
           <ProposalReview
             editing
+            generatePart={generatePart}
             current={EMPTY_SCRIPT}
             proposal={script ?? EMPTY_SCRIPT}
             pending={save.isPending ? "apply" : null}

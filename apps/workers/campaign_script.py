@@ -28,6 +28,7 @@ from sqlalchemy import text
 
 from apps.api.agents import script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.languages import LANGUAGE_LABELS
 from apps.api.billing.ai_quota import new_assist_ref, read_ai_quota
 from apps.api.campaigns import workspace
 from apps.api.core.errors import ProblemError
@@ -92,9 +93,20 @@ def owners_words(main_task: str, notes: str) -> str:
     return "\n".join(part for part in (main_task.strip(), notes) if part)
 
 
-def campaign_change(main_task: str, notes: str, documents: str, *, edit: bool) -> str:
+#: One part rewritten in a chosen language (founder, 16 Nov 2026); the rest stays word for word.
+PART_ASK: Final = (
+    "Rewrite only this part of the campaign's call script: {part}. Write it in {language}, as "
+    "it should be spoken on the call. Leave every other part of the script exactly as it is. "
+    "The main task and the owner's notes below say what the part must cover."
+)
+
+
+def campaign_change(
+    main_task: str, notes: str, documents: str, *, edit: bool, ask: str | None = None
+) -> str:
     """What the script is written from: the ask, the main task, the notes and the documents."""
-    change = f"{CAMPAIGN_ASK}{EDIT_TAIL if edit else ''}\nMAIN TASK:\n{main_task.strip()}\n"
+    lead = ask if ask is not None else f"{CAMPAIGN_ASK}{EDIT_TAIL if edit else ''}"
+    change = f"{lead}\nMAIN TASK:\n{main_task.strip()}\n"
     if notes:
         change += f"OWNER'S NOTES AND LINKS:\n{notes}\n"
     return change + documents
@@ -190,14 +202,18 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
             if doc.state == "read"
         ]
         # Written in the campaign's main language when it sets one over the agent's.
-        main_language = (
+        main_language, focus = (
             await session.execute(
-                text("SELECT settings_overrides->>'language_primary' FROM campaigns WHERE id = :c"),
+                text(
+                    "SELECT settings_overrides->>'language_primary', script_proposal->'focus' "
+                    "FROM campaigns WHERE id = :c"
+                ),
                 {"c": campaign_id},
             )
-        ).scalar_one_or_none()
+        ).one()
+        part_language = focus.get("language") if isinstance(focus, dict) else None
         context = await script_proposals.brief_for(
-            session, tenant_id, space.agent_id, language=main_language
+            session, tenant_id, space.agent_id, language=part_language or main_language
         )
         tenant_leg = await account_assist_leg(session)
         quota = await read_ai_quota(session, tenant_id=tenant_id)
@@ -206,7 +222,17 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
     # against it: a script saved since would otherwise be shown as Pip's change.
     base = space.proposal.base_script if space.proposal is not None else space.script
     notes = _materials_text(space.materials)
-    change = campaign_change(space.main_task, notes, documents_block(words), edit=base is not None)
+    ask = (
+        PART_ASK.format(
+            part=str(focus.get("part")),
+            language=LANGUAGE_LABELS.get(str(part_language), str(part_language)),
+        )
+        if isinstance(focus, dict) and part_language
+        else None
+    )
+    change = campaign_change(
+        space.main_task, notes, documents_block(words), edit=base is not None, ask=ask
+    )
     proposal = _proposal(proposal_id, base, owners_words(space.main_task, notes))
     feature = crm_assist.ASSIST_FEATURE_SCRIPT_DRAFT
     trace = AskTrace()

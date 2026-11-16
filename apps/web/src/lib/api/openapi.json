@@ -13593,6 +13593,40 @@
         "title": "CampaignPageOut",
         "type": "object"
       },
+      "CampaignProposalIn": {
+        "additionalProperties": false,
+        "description": "Empty for the whole script. With both fields: that one part, in that language.",
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "minLength": 2,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "part": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part"
+          }
+        },
+        "title": "CampaignProposalIn",
+        "type": "object"
+      },
       "CampaignProposalOut": {
         "additionalProperties": false,
         "properties": {
@@ -89849,6 +89883,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CampaignProposalIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {

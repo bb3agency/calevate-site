@@ -92,6 +92,54 @@ function withAddableParts(changes: Change[]): Change[] {
   return out;
 }
 
+export type GeneratePartProps = {
+  /** The languages Pip may write in, the first chosen to start. */
+  languages: { tag: string; name: string }[];
+  initial: string;
+  onGenerate: (part: string, language: string) => void;
+  /** Why Generate waits (a draft being written), or nothing. */
+  reason?: string;
+};
+
+/** "Generate in [language]" beside a part's Edit: Pip rewrites that part only, for review. */
+function GeneratePart({
+  languages,
+  initial,
+  onGenerate,
+  reason,
+  what,
+  held,
+}: GeneratePartProps & { what: string; held?: string }) {
+  const [language, setLanguage] = useState(initial);
+  const waits = held ?? reason;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-meta">
+      <button
+        type="button"
+        className={`${TEXT_ACTION} text-meta disabled:opacity-50`}
+        disabled={Boolean(waits)}
+        title={waits}
+        aria-label={`Generate ${what} in ${languages.find((l) => l.tag === language)?.name ?? language}`}
+        onClick={() => onGenerate(what, language)}
+      >
+        Generate in
+      </button>
+      <select
+        aria-label={`Language for ${what}`}
+        className="rounded border border-line bg-surface px-1.5 py-0.5 text-meta text-ink"
+        value={language}
+        onChange={(e) => setLanguage(e.target.value)}
+      >
+        {languages.map((l) => (
+          <option key={l.tag} value={l.tag}>
+            {l.name}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
+
 /** A row's id as an element id: the change ids carry ":". */
 function domId(change: Change): string {
   return `proposal-${change.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -108,8 +156,11 @@ export function ProposalReview({
   limits = DEFAULT_LIMITS,
   language = "your callers' language",
   editing = false,
+  generatePart,
   children,
 }: {
+  /** While editing: Pip rewrites one part in a chosen language (a campaign's script). */
+  generatePart?: GeneratePartProps;
   /** Editing a script already kept, not reviewing a suggestion: every part starts as final
    * wording with an Edit button, nothing is ticked or labelled "Added", and the button saves. */
   editing?: boolean;
@@ -323,6 +374,15 @@ export function ProposalReview({
                 onUpdate={() => update(change)}
                 onCancel={() => cancel(change)}
                 onReset={() => reset(change)}
+                generate={
+                  generatePart && editing ? (
+                    <GeneratePart
+                      {...generatePart}
+                      what={headline(change)}
+                      held={touched.size > 0 ? "Save or close your edits first." : undefined}
+                    />
+                  ) : undefined
+                }
               >
                 {change.kind === "order" ? (
                   <OrderBody change={change} />
@@ -406,8 +466,10 @@ function Row({
   onUpdate,
   onCancel,
   onReset,
+  generate,
   children,
 }: {
+  generate?: ReactNode;
   change: Change;
   kept: boolean;
   edited: boolean;
@@ -513,6 +575,7 @@ function Row({
                 {/* Reviewed once, a row is final: further changes are edits, not a review. */}
                 {settled ? "Edit" : "Review"}
               </button>
+              {generate}
               {edited && !settled && (
                 <button type="button" className={`${TEXT_ACTION} text-meta`} onClick={onReset}>
                   Reset to suggestion

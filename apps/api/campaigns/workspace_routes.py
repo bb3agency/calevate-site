@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import script_proposals
 from apps.api.agents.call_handling import read_agent_call_handling
-from apps.api.agents.languages import client_language_tags
+from apps.api.agents.languages import LANGUAGE_LABELS, client_language_tags
 from apps.api.agents.service import effective_call_cap
 from apps.api.agents.trial_calls import attest_own_number, place_trial_call
 from apps.api.agents.voice_tuning import read_voice_tuning
@@ -274,6 +274,15 @@ async def archive_material(
     await workspace.archive_material(session, campaign_id, material_id)
 
 
+class CampaignProposalIn(BaseModel):
+    """Empty for the whole script. With both fields: that one part, in that language."""
+
+    model_config = ConfigDict(extra="forbid")
+    #: The part's name as the script editor shows it ("Quick facts", "Opening line when it calls").
+    part: str | None = Field(default=None, min_length=1, max_length=80)
+    language: str | None = Field(default=None, min_length=2, max_length=16)
+
+
 @router.post(
     "/{campaign_id}/script/proposal",
     response_model=CampaignProposalOut,
@@ -286,9 +295,20 @@ async def request_proposal(
     session: Session,
     request: Request,
     principal: Dispatcher,
+    payload: CampaignProposalIn | None = None,
 ) -> CampaignProposalOut:
     assert principal.tenant_id is not None
     await workspace.read_workspace(session, campaign_id)
+    focus: dict[str, str] | None = None
+    if payload is not None and (payload.part or payload.language):
+        if not (payload.part and payload.language) or payload.language not in LANGUAGE_LABELS:
+            raise ProblemError(
+                kind="validation",
+                code="script_part_request_invalid",
+                title="Choose a part and a language",
+                detail="Name the part to rewrite and one of the offered languages.",
+            )
+        focus = {"part": payload.part, "language": payload.language}
     # Writing the script spends the account's dashboard AI allowance, as the agent Script
     # page's Pip does: refused at the ceiling or under view-as, before anything is queued.
     assert_view_as_may(principal, "billing.ai_assist")
@@ -298,6 +318,7 @@ async def request_proposal(
         tenant_id=principal.tenant_id,
         campaign_id=campaign_id,
         requested_by=principal.user_id,
+        focus=focus,
     )
     await write_audit(
         session,
@@ -307,7 +328,7 @@ async def request_proposal(
         object_type="campaign",
         object_id=str(campaign_id),
         ip=client_request_ip(request),
-        summary={"proposal_id": str(proposal.id)},
+        summary={"proposal_id": str(proposal.id), **(focus or {})},
     )
     out = _proposal(proposal)
     assert out is not None
