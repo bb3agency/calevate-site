@@ -24,7 +24,7 @@ again (`service.due_for`), so nothing here touches their account.
 from __future__ import annotations
 
 import json
-from typing import Final, Literal
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from sqlalchemy import text
@@ -40,6 +40,7 @@ from apps.api.first_run.documents import read_documents
 from apps.api.first_run.names import identity_with_name
 from apps.api.first_run.service import RunState, ensure_run, read_state
 from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.business_copy import queue_generation
 
 log = get_logger(__name__)
 
@@ -148,6 +149,11 @@ async def save_agent(
             job=NOTICE_JOB,
             payload={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
         )
+        if may_spend_ai and (row.brief or "").strip():
+            # The business's examples written again from the owner's own words, once, when its
+            # first agent is made: the signup run had only the business type and name. The
+            # run checks the allowance itself and keeps the examples it has when spent.
+            await queue_generation(session, tenant_id=tenant_id, trigger="first_run")
         await session.execute(
             text(
                 "UPDATE first_runs SET agent_id = :aid, language_primary = :lang, "
@@ -206,6 +212,29 @@ async def _queue_training(session: AsyncSession, *, tenant_id: UUID, user_id: UU
     )
 
 
+#: What leads the owner's answers in the work's main task.
+ANSWERS_LEAD: Final = "The owner also said:"
+
+
+def main_task_of(row: Any, job: FirstWork) -> str:
+    """The first work's main task: the owner's words, then their answers to the follow-up
+    questions that name no business-profile section, the one thing every caller should know
+    among them (D-945). An answer that names a section is in the business profile already,
+    which every agent reads; these have nowhere else to go, and the main task is what Pip
+    writes the line's or campaign's script from, and what the owner edits on its page. The
+    answers are kept whole; the words before them are cut to fit."""
+    from apps.api.campaigns.workspace import MAIN_TASK_MAX
+    from apps.api.first_run.service import answers_for_script
+
+    words = (row.brief or "").strip() or DEFAULT_TASK[job]
+    unmapped = [a for a in row.answers or [] if isinstance(a, dict) and not a.get("maps_to")]
+    said = answers_for_script(unmapped)
+    if not said:
+        return words[:MAIN_TASK_MAX]
+    tail = f"\n\n{ANSWERS_LEAD}\n{said}"[:MAIN_TASK_MAX]
+    return f"{words[: max(0, MAIN_TASK_MAX - len(tail))].rstrip()}{tail}".strip()
+
+
 async def start_work(
     session: AsyncSession,
     *,
@@ -229,7 +258,7 @@ async def start_work(
     if status is None or row.agent_id is None:
         raise _no_agent()
     agent_id = UUID(str(row.agent_id))
-    task = (row.brief or "").strip() or DEFAULT_TASK[job]
+    task = main_task_of(row, job)
     documents = [
         d for d in await read_documents(session, list(row.document_ids or [])) if d.state == "read"
     ]

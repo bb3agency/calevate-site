@@ -362,6 +362,72 @@ async def test_the_first_run_asks_at_most_three_profile_questions_and_the_one_th
     assert 0 < len(items) <= MAX_ASKED and items[-1]["id"] == ONE_THING.id
 
 
+async def test_answers_with_no_profile_section_reach_the_works_main_task() -> None:
+    """The one thing every caller should know (D-945) names no profile section, so the work's
+    main task carries it to Pip; an answer that lands in the profile is not repeated."""
+    from apps.api.first_run.questions import ONE_THING
+
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    async with _client() as http:
+        brief = await http.put("/v1/first-run/brief", headers=headers, json={"brief": "Shop"})
+        items = brief.json()["questions"]["items"]
+        mapped = next(item for item in items if item["kind"] in ("text", "address") and item["maps_to"])
+        answered = await http.post(
+            "/v1/first-run/answers",
+            headers=headers,
+            json={
+                "answers": [
+                    {"id": ONE_THING.id, "text": "Open since 1998, known for fresh sweets."},
+                    {"id": mapped["id"], "text": "Shop 4, Main Road, Guntur"},
+                ]
+            },
+        )
+        assert answered.status_code == 200, answered.text
+        made = await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Anjali", "language_primary": "te-IN", "languages_extra": []},
+        )
+        assert made.status_code == 200, made.text
+        drafted = await http.post(
+            "/v1/first-run/work", headers=headers, json={"job": "answer_calls"}
+        )
+    async with tenant_session(tenant_id) as session:
+        line = await lines.read_line(session, uuid.UUID(drafted.json()["line_id"]))
+    assert line.main_task.startswith("Shop\n\n" + work.ANSWERS_LEAD)
+    assert "Open since 1998, known for fresh sweets." in line.main_task
+    assert "Main Road" not in line.main_task, "the profile holds it already"
+
+
+def test_the_answers_are_kept_whole_and_the_words_cut_to_fit() -> None:
+    from apps.api.campaigns.workspace import MAIN_TASK_MAX
+
+    answer = {"id": "value", "prompt": "One thing?", "maps_to": None, "text": "Since 1998."}
+    row = SimpleNamespace(brief="x" * MAIN_TASK_MAX, answers=[answer])
+    task = work.main_task_of(row, "answer_calls")
+    assert len(task) <= MAIN_TASK_MAX and task.endswith("A: Since 1998.")
+    plain = SimpleNamespace(brief=None, answers=[])
+    assert work.main_task_of(plain, "call_leads") == work.DEFAULT_TASK["call_leads"]
+
+
+async def test_making_the_first_agent_rewrites_the_business_examples_once() -> None:
+    from apps.api.tenancy.business_copy import JOB as COPY_JOB
+
+    tenant_id = await _tenant()
+    headers = await _owner(tenant_id)
+    before = len(await _outbox(COPY_JOB, tenant_id))
+    await _made(tenant_id, headers)
+    async with _client() as http:
+        await http.put(
+            "/v1/first-run/agent",
+            headers=headers,
+            json={"name": "Priya", "language_primary": "te-IN", "languages_extra": []},
+        )
+    queued = await _outbox(COPY_JOB, tenant_id)
+    assert [p["trigger"] for p in queued[before:]] == ["first_run"]
+
+
 async def test_go_live_is_done_once_a_line_is_live_on_a_number() -> None:
     """The first run's draft line on the bought number answers nobody until it is put live,
     so the guide's last step stays open until then, though no agent is ever switched on."""
