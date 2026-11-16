@@ -59,6 +59,8 @@ CLIENT_INCIDENT_KINDS: Final = (
     "script_check_fixed",
     "script_check_waiting",
     "voice_switched",
+    # Pip's fix of a mistake waits as a draft on the line or campaign (D-1005).
+    "script_fix_proposed",
 )
 PROTECTIONS: Final = ("none", "paused", "forwarded")
 PROPOSAL_KINDS: Final = ("rollback_prompt", "review_knowledge", "review_languages")

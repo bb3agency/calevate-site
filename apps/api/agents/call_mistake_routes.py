@@ -31,7 +31,6 @@ from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.core.schemas import Strict
-from apps.api.core.settings import get_settings
 from apps.api.healer import ledger
 
 router = APIRouter(tags=["agents"])
@@ -45,12 +44,20 @@ AgentReader = Annotated[Principal, Depends(requires("agents:read"))]
 Operator = Annotated[Principal, Depends(requires("ops:manage", realm="admin"))]
 
 MistakeState = Literal["fixing", "fixed", "back"]
-FixState = Literal["fixing", "live", "fixed", "rolled_back", "needs_person"]
+FixState = Literal["fixing", "live", "fixed", "rolled_back", "needs_person", "proposed"]
 ScriptWriter = Annotated[Principal, Depends(requires("org:manage"))]
 
 #: How far back the operator's list of script fixes looks, and how many it shows.
 FLEET_FIXES_DAYS: Final = call_mistakes.WINDOW_DAYS
 FLEET_FIXES_MAX: Final = 200
+
+
+class FixHolderOut(Strict):
+    """Where a fix's draft waits: an Inbound line or a campaign, by id and name."""
+
+    kind: Literal["inbound_line", "campaign"]
+    id: UUID
+    name: str
 
 
 class AgentMistakeOut(Strict):
@@ -66,22 +73,25 @@ class AgentMistakeOut(Strict):
     #: When the fix the state is about was made: the agent's script fix going live where it
     #: has one (D-985), else the platform rule's.
     fixed_at: datetime | None
-    #: The platform's three where the agent's script has no fix of it: `fixing` (no fix
-    #: recorded; `call_mistake_new` raised), `fixed` (not seen since), `back` (seen after).
-    #: Else its script fix's (D-985): `script_fixing` (being written or waiting),
-    #: `script_live` (live and watched), `script_fixed` (held), `script_rolled_back` (did not
-    #: hold, the old script is back), `script_undone` (the owner put it back), `with_team`
-    #: (no line of the script causes it, or the healer handed it to our team).
+    #: The platform's three where the healer has no fix of it: `fixing` (no fix recorded;
+    #: `call_mistake_new` raised), `fixed` (not seen since), `back` (seen after). Else its
+    #: fix's (D-985, D-1005): `script_fixing` (being written or waiting), `script_proposed`
+    #: (Pip's draft is on `fix_holder`), `no_job` (the call was on no Inbound line or
+    #: campaign, so there is no script to fix), `with_team` (no line of the script causes
+    #: it, or the healer handed it to our team). A fix the healer put live itself before
+    #: D-1005: `script_live`, `script_fixed` (held), `script_rolled_back`, `script_undone`.
     state: call_mistakes.AgentState
     #: Checked calls since the script fix went live that did not show it.
     clean_calls: int
-    #: The calls a script fix must stay clean for (`call_mistake_fix_clean_calls`).
-    clean_calls_needed: int
     #: The owner may undo the script fix: it is live or held and the script is still it.
     can_undo: bool
     #: No call showed it: the script check found its cause in the live script and it was
     #: fixed before any call (D-989).
     found_in_script: bool
+    #: The Inbound line or campaign the fix's draft was written on (D-1005).
+    fix_holder: FixHolderOut | None
+    #: That draft still waits there for the owner to keep or discard.
+    fix_waiting: bool
 
 
 class AgentMistakesOut(Strict):
@@ -150,9 +160,14 @@ async def list_agent_mistakes(agent_id: UUID, session: Session, _: AgentReader) 
                 fixed_at=m.fixed_at,
                 state=m.state,
                 clean_calls=m.clean_calls,
-                clean_calls_needed=get_settings().call_mistake_fix_clean_calls,
                 can_undo=m.can_undo,
                 found_in_script=m.found_in_script,
+                fix_holder=None
+                if m.fix_holder is None
+                else FixHolderOut(
+                    kind=m.fix_holder.kind, id=m.fix_holder.id, name=m.fix_holder_name or ""
+                ),
+                fix_waiting=m.fix_waiting,
             )
             for m in found
         ],
@@ -227,7 +242,7 @@ class FleetFixOut(Strict):
     label: str
     state: FixState
     #: Why it stopped short of `fixed`: `came_back`, `worse`, `owner`, `no_script_cause`,
-    #: `waited_too_long`, `attempts_spent`, `script_changed`, `agent_gone`.
+    #: `waited_too_long`, `attempts_spent`, `script_changed`, `agent_gone`, `no_job`.
     ended_because: str | None
     attempts: int
     version_before: int | None

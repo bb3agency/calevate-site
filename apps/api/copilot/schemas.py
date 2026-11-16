@@ -610,14 +610,12 @@ class CopilotNavigateEvent(BaseModel):
     reversal: str
 
 
-#: The longest confirm token a legitimate client sends. The largest signed arguments are a
-#: script suggestion's words: a change request (`script_proposals.MAX_CHANGE_CHARS`) or a
-#: whole script's answers (`MAX_ANSWER_CHARS` each). A JWT payload is JSON with every
+#: The longest confirm token a legitimate client sends. A JWT payload is JSON with every
 #: non-ASCII character escaped as `\uXXXX` (six characters per Telugu or Hindi letter), then
-#: base64url, which grows it by a third, so the words alone can run to about 29,000
-#: characters. 4,096 refused a Telugu request (Varsha, 14 Nov 2026) and the approved change
-#: could never be confirmed. `tests/copilot_confirm_token_bound_2026_11_14_test.py` signs
-#: the worst case of each and fails if it no longer fits; this still refuses megabytes.
+#: base64url, which grows it by a third, so a few thousand words of an owner's own text in
+#: an Indic script run to tens of thousands of characters: 4,096 refused a Telugu request
+#: (Varsha, 14 Nov 2026) and the approved change could never be confirmed. This still
+#: refuses megabytes.
 MAX_CONFIRM_TOKEN_CHARS: Final = 65_536
 
 

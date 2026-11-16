@@ -17,7 +17,6 @@ import {
   scriptAsText,
 } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import { applyChanges, changeSummary, diffScripts } from "@/app/c/[slug]/agents/[agentId]/script/scriptDiff";
-import { splitOpening } from "@/app/c/[slug]/agents/[agentId]/script/HandWritten";
 import { EMPTY_SCRIPT, type CallScript, type ConversationStage } from "@/lib/api/script";
 
 /**
@@ -202,11 +201,6 @@ describe("AI proposals, kept part by part", () => {
       outbound_opening_line: "Hello, this is Sunrise Homes calling.",
       business_line: "We sell flats in Hyderabad.",
     };
-    const { opening, rest } = splitOpening(scriptAsText(opened));
-    // The server reads the section up to the next "[" line: the brief must not follow it.
-    expect(opening).toBe("Hello, Sunrise Homes.");
-    expect(rest).toContain("We sell flats in Hyderabad.");
-    expect(rest).toContain("[OPENING ON CALLS YOU PLACE]\nHello, this is Sunrise Homes calling.");
     // As `call_script._section_of` reads each opening from the text.
     const sectionOf = (text: string, header: string) => {
       const lines = text.split("\n");

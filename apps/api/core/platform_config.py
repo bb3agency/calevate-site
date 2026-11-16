@@ -374,18 +374,12 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "healer_paused_playbooks": AppliesRule(LIVE),
     "healer_founder_whatsapp": AppliesRule(LIVE),
     # D-985: `workers/mistake_fix` reads all six through `get_settings()` on every step.
-    "call_mistake_fix_clean_calls": AppliesRule(LIVE),
     "call_mistake_fix_max_attempts": AppliesRule(LIVE),
     "call_mistake_fix_wait_minutes": AppliesRule(LIVE),
     "call_mistake_fix_max_waits": AppliesRule(LIVE),
-    "call_mistake_fix_compare_calls": AppliesRule(LIVE),
-    "call_mistake_fix_worse_per_100_calls": AppliesRule(LIVE),
     "script_mistake_repair_passes": AppliesRule(LIVE),
     "script_edit_repair_rounds": AppliesRule(LIVE),
     "campaign_script_repair_rounds": AppliesRule(LIVE),
-    "script_check_sweep_minutes": AppliesRule(LIVE),
-    "script_check_sweep_agents": AppliesRule(LIVE),
-    "script_check_sweep_max_fixes": AppliesRule(LIVE),
     # D-987: the voice fallback, paging, call checks, objective, safety and publish watch,
     # each read through `get_settings()` on every healer tick or scored window.
     "healer_voice_probe_max_chars": AppliesRule(LIVE),

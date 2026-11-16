@@ -52,46 +52,35 @@ client can also press "Turn line back on" on their Line protection screen.
 Line protection never touches the agent's script. If the cause is the script, the client
 has a proposal to restore the previous version (`heal_proposals`); read it with them.
 
-### 2a. A mistake on real calls fixed in the agent's script (`call_mistake_fix`, D-985)
+### 2a. A mistake on real calls, fixed as a draft on its line or campaign (`call_mistake_fix`, D-985, D-1005)
 
-The one playbook that changes an agent's behaviour on its own. A real call showed a
-mistake kind (Training tab, "Mistakes on real calls"); the pipeline opened a fix for that
-agent and kind (`call_mistake_seen`, `record`). The playbook:
+A real call showed a mistake kind (Training tab, "Mistakes on real calls"); the pipeline
+opened a fix for that agent and kind (`call_mistake_seen`, `record`). The playbook:
 
-1. waits, looking again every `call_mistake_fix_wait_minutes`, while the owner has an
-   unpublished change, a Pip suggestion is open, the script is hand-written, or the
-   client's AI allowance is used up (the owner is told, with the AI help page); after
-   `call_mistake_fix_max_waits` looks it hands the fix to you;
-2. runs the kind's script check on the live script. No line causes it, or only the opening
-   or its notices do (never edited by the healer): handed to you as a platform rule
+1. finds the Inbound line or campaign the newest such call was on. A call on neither, or on
+   one with no script, has no script to fix: the fix settles `no_job`, nobody is paged, and
+   the owner's Training tab says so;
+2. waits, looking again every `call_mistake_fix_wait_minutes`, while that line or campaign
+   already has a Pip draft open, its script is hand-written, or the client's AI allowance is
+   used up (the owner is told, with the AI help page); after `call_mistake_fix_max_waits`
+   looks it hands the fix to you;
+3. runs the kind's script check on that script. No line causes it, or only the opening or
+   its notices do (never edited by the healer): handed to you as a platform rule
    (`call_mistake_fix_needs_person`, `attention`);
-3. asks Pip for a fix of exactly those lines, billed to the client's AI allowance, checks
-   it (the kind's check finds nothing, the whole script check gains nothing, openings and
-   notices unchanged), and puts it live with a version check; the owner gets a dashboard
-   notice and an Undo on the Training tab;
-4. watches the next checked calls. The kind back: another fix from the new live script,
-   up to `call_mistake_fix_max_attempts`, then the script from before the first fix is put
-   back (`call_mistake_fix_rolled_back`). Other mistakes up by more than
-   `call_mistake_fix_worse_per_100_calls` per 100 calls over `call_mistake_fix_compare_calls`
-   calls: put back at once. `call_mistake_fix_clean_calls` clean calls (and at least the
-   compared ones): settled.
+4. asks Pip for a fix of exactly those lines, billed to the client's AI allowance, written as
+   the line's or campaign's own draft (`draft_mistake_fix`). A draft that could not be
+   written or changed nothing is cleared and asked again, up to
+   `call_mistake_fix_max_attempts`, then handed to you;
+5. once written, the fix is `proposed`: the owner gets a dashboard notice and "Review it" on
+   the Training tab, and keeps or discards the draft on the line's or campaign's page. The
+   incident closes when they have.
 
-What you do when it is handed to you: for a platform rule, change it and mark the kind fixed
-on `/admin/ops/call-mistakes`; otherwise fix the script with the owner (view-as, Script tab).
-Then "Mark as handled". The healer does not fix that kind on that agent again while the
-incident is open, nor ever after the owner pressed Undo. Every fix is on
-`/admin/ops/call-mistakes` under "Script fixes". Pause it with the kill switch
+Nothing is put live by the healer. What you do when it is handed to you: for a platform rule,
+change it and mark the kind fixed on `/admin/ops/call-mistakes`; otherwise fix the line's or
+campaign's script with the owner (view-as). Then "Mark as handled". Fixes the healer put live
+on an agent's own script before D-1005 still show, and the owner can still Undo them. Every
+fix is on `/admin/ops/call-mistakes` under "Script fixes". Pause it with the kill switch
 `healer_paused_playbooks=call_mistake_fix`.
-
-**Before any call (D-989).** The same fix is also opened by a sweep of live scripts
-(`script_check_found`, `record`): every `script_check_sweep_minutes` (counted from midnight
-IST) it checks up to `script_check_sweep_agents` live or paused agents whose live script
-changed since their last check, and opens at most `script_check_sweep_max_fixes` fixes. The
-board shows these as "Found in the script before any call"; the owner's notice says so. The
-steps above are unchanged. The sweep never reopens a kind whose fix was put back, undone or
-handed to you; a real call still can. The same kill switch stops it. The sweep also opens
-the ordinary call fix (`call_mistake_seen`) for a kind real calls showed in the owner's window
-(`call_mistakes.WINDOW_DAYS`) that never had a fix, which is every kind seen before D-985 went live.
 
 ### 2b. Callers cannot hear an agent (`voice_fallback`, D-987)
 

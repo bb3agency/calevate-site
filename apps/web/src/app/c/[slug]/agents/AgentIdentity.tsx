@@ -29,9 +29,10 @@
  * every input is dead is worse than a sentence saying why there is none.
  */
 
+import Link from "next/link";
 import { useState } from "react";
 
-import { ActionButton, useActionFeedback, type FeedbackStatus } from "@/components/arc/feedback";
+import { useActionFeedback } from "@/components/arc/feedback";
 
 import {
   FIELD,
@@ -55,13 +56,12 @@ import {
   type AgentUpdateIn,
 } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
-import { useRewriteOpeningInLanguage, useScriptProposal } from "@/lib/api/script";
-import { useClientSession } from "@/lib/api/session";
+import { useAgentJobs } from "@/lib/api/agentJobs";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { hasKey, lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { DIRECTIONS, DirectionPicker } from "./DirectionChoice";
-import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
@@ -69,7 +69,6 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
   const session = useClientSession();
   const languageChoices = useAgentLanguageChoices(session);
   const save = useUpdateAgent(session, agent.id);
-  const rewrite = useRewriteOpeningInLanguage(session, agent.id);
   /* The save bar leaves the screen once nothing differs, so its button cannot carry the
      success: that is a toast, except after a main-language change, whose offer below says it. */
   const saveFeedback = useActionFeedback(save, {
@@ -77,9 +76,8 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
     successToast: (_, vars) =>
       vars.reply_languages && vars.reply_languages[0] !== agent.language_primary ? null : "Changes saved",
   });
-  const rewriteFeedback = useActionFeedback(rewrite, { errorDisplay: "inline" });
-  /* After a main-language change is saved: the language whose ready-made opening line is
-     offered, until the owner takes it or closes the offer (D-838). */
+  /* After a main-language change is saved: the language the notices moved to, said until the
+     owner closes it (D-838). */
   const [rewriteOffer, setRewriteOffer] = useState<string | null>(null);
   const write = useWriteAccess(session, "org:manage", "change this agent's details");
 
@@ -190,10 +188,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           onSuccess: () => {
             // The saved values are the server's now; the agent read shows them.
             clearEdits();
-            if (newMain !== null) {
-              rewrite.reset();
-              setRewriteOffer(newMain);
-            }
+            if (newMain !== null) setRewriteOffer(newMain);
           },
         });
       })}
@@ -201,14 +196,7 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
       <RestrictionNote reason={write.reason} />
       {save.error && <ProblemNotice error={save.error} />}
       {rewriteOffer !== null && (
-        <OpeningLineOffer
-          agentId={agent.id}
-          language={rewriteOffer}
-          rewrite={rewrite}
-          rewriteStatus={rewriteFeedback.status}
-          canWrite={write.allowed}
-          onDismiss={() => setRewriteOffer(null)}
-        />
+        <OpeningLineOffer agentId={agent.id} language={rewriteOffer} onDismiss={() => setRewriteOffer(null)} />
       )}
 
       {/* The message sits outside the wrapping `<label>`: enclosed, it would be read
@@ -306,73 +294,53 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
 }
 
 /**
- * The one-click rewrite offered after the main language changed (D-838). The notices are
- * already rewritten by the server; the opening line is the owner's own words, so it is only
- * offered: a line written for this business in the new language (D-965), written in the
- * background as a suggestion the owner keeps on the Script tab. Callers keep the live line
- * until it is put live.
+ * Said after the main language changed (D-838): the notices are already rewritten by the
+ * server. What a call opens with is written on each Inbound line and campaign, not on the
+ * agent (D-997, D-1005), so the agent's jobs are linked here to change theirs; an agent with
+ * none is pointed to where jobs are made.
  */
 function OpeningLineOffer({
   agentId,
   language,
-  rewrite,
-  rewriteStatus,
-  canWrite,
   onDismiss,
 }: {
   agentId: string;
   language: string;
-  rewrite: ReturnType<typeof useRewriteOpeningInLanguage>;
-  rewriteStatus: FeedbackStatus;
-  canWrite: boolean;
   onDismiss: () => void;
 }) {
-  const session = useClientSession();
-  const suggestion = useScriptProposal(session, agentId);
+  const { session, href } = useClientRealm();
+  const jobs = useAgentJobs(session, agentId);
+  const slug = session.orgSlug;
   const name = hasKey(LANGUAGE_NAMES, language) ? LANGUAGE_NAMES[language] : language;
-  // Only the suggestion this offer asked for, never an older one waiting on the Script tab.
-  const asked = rewrite.data?.id ?? null;
-  const mine = suggestion.data && suggestion.data.id === asked ? suggestion.data : null;
-  const written = mine?.status === "ready" ? (mine.script?.opening_line ?? null) : null;
-  if (written !== null) {
-    return (
-      <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
-        <p>Written in {name}: “{written}”. Ask {ASSISTANT_NAME} to keep it, then put it live.</p>
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
-          Done
-        </button>
-      </div>
-    );
-  }
-  if (mine?.status === "failed") {
-    return (
-      <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.warn}`}>
-        <p>{mine.note}</p>
-        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
-          Done
-        </button>
-      </div>
-    );
-  }
-  const writing = rewrite.isPending || (asked !== null && mine?.status !== "ready");
+  const listed = jobs.data?.jobs ?? [];
   return (
     <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.neutral}`}>
-      <p>
-        Saved. Its notices are now in {name}. Your opening line is unchanged.
-      </p>
-      {rewrite.error ? <ProblemNotice error={rewrite.error} /> : null}
+      <p>Saved. Its notices are now in {name}.</p>
+      <p>Each line and campaign has its own opening. Change it there.</p>
       <div className="flex flex-wrap gap-2 pt-1">
-        <ActionButton
-          variant="secondary-sm"
-          status={writing ? "pending" : rewriteStatus === "error" ? "error" : "idle"}
-          pendingLabel="Writing it…"
-          disabled={!canWrite}
-          onClick={() => rewrite.mutate()}
-        >
-          {`Write my opening line in ${name}`}
-        </ActionButton>
+        {listed.map((job) => (
+          <Link
+            key={`${job.kind}-${job.id}`}
+            href={href(
+              job.kind === "inbound_line" ? `/c/${slug}/inbound/${job.id}` : `/c/${slug}/campaigns/${job.id}`,
+            )}
+            className={`${SECONDARY_BUTTON_SM} max-w-full [overflow-wrap:anywhere]`}
+          >
+            {job.name}
+          </Link>
+        ))}
+        {jobs.data && listed.length === 0 && (
+          <>
+            <Link href={href(`/c/${slug}/inbound`)} className={SECONDARY_BUTTON_SM}>
+              Inbound
+            </Link>
+            <Link href={href(`/c/${slug}/campaigns`)} className={SECONDARY_BUTTON_SM}>
+              Campaigns
+            </Link>
+          </>
+        )}
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
-          Keep mine
+          Done
         </button>
       </div>
     </div>

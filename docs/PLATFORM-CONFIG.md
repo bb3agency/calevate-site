@@ -288,20 +288,16 @@ also enforces the truthful-answer rule; `healer_paused_playbooks` (comma-separat
 keys, `apps/api/healer/playbooks.py`) pauses individual playbooks, and the healer page flags
 a key no playbook has; `healer_founder_whatsapp` (optional, E.164) is where alarm pages go on
 WhatsApp, and is messaged only when it was set here, which is the founder's opt-in record.
-D-985 (12 Nov 2026) adds six more under Auto-healer, Fixing mistakes in scripts, all live,
-read by the `call_mistake_fix` playbook (`apps/workers/mistake_fix.py`):
-`call_mistake_fix_clean_calls` (default 5) checked calls after a fix with no recurrence before
-it is settled; `call_mistake_fix_max_attempts` (2) fixes per agent and mistake;
-`call_mistake_fix_wait_minutes` (30) between looks while a fix waits;
-`call_mistake_fix_max_waits` (48) looks before a person is asked;
-`call_mistake_fix_compare_calls` (10) calls compared on each side of a fix; and
-`call_mistake_fix_worse_per_100_calls` (50) extra other mistakes per 100 calls that put the
-old script back. D-989 (13 Nov 2026) adds four, all live: `script_mistake_repair_passes` (2)
-repair rounds Pip may spend on the lines the mistake checks still find in a script it wrote
-(`apps/workers/script_proposal.py`, 0 checks and reports only); and for the sweep of live
-scripts (`apps/workers/mistake_fix.check_live_scripts`), `script_check_sweep_minutes` (60)
-between sweeps counted from midnight IST, `script_check_sweep_agents` (50) agents per sweep
-and `script_check_sweep_max_fixes` (20) fixes one sweep may start. Under Assistant, `script_edit_repair_rounds`
+D-985 (12 Nov 2026) adds these under Auto-healer, Fixing mistakes in scripts, all live, read
+by the `call_mistake_fix` playbook (`apps/workers/mistake_fix.py`):
+`call_mistake_fix_max_attempts` (default 2) drafts per agent and mistake;
+`call_mistake_fix_wait_minutes` (30) between looks while a fix waits; and
+`call_mistake_fix_max_waits` (48) looks before a person is asked. D-1005 retired
+`call_mistake_fix_clean_calls`, `_compare_calls` and `_worse_per_100_calls` with the watch of a
+fix the healer put live itself. D-989 (13 Nov 2026) adds `script_mistake_repair_passes` (2,
+live), the repair rounds Pip may spend on the lines the mistake checks still find in a script
+it wrote (`apps/workers/script_proposal.py`, 0 checks and reports only); its sweep settings
+`script_check_sweep_*` were retired by D-1005 with the sweep. Under Assistant, `script_edit_repair_rounds`
 (2, 1 to 5, live) is how many times Pip may repair its own change to a script, when a part
 breaks a rule or the answer comes back in the wrong shape, before the parts still broken are
 put back as the owner had them (`apps/workers/script_assist.ask_json`).

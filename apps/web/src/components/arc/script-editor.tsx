@@ -15,7 +15,7 @@
  *
  * ## Variables are text, shown as fields
  *
- * The value keeps `{{key}}` tokens (what the server fills, `ScriptBuilder.insertVariable`).
+ * The value keeps `{{key}}` tokens, which the server fills.
  * Under each box the fields the section uses are listed by their human label, and a token
  * that matches no known field is flagged with what to do, because an unknown field is
  * spoken as nothing. Rich-text "chips" inside the box were rejected: a contenteditable chip

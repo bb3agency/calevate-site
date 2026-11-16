@@ -3,9 +3,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
-import { PipProposal } from "@/app/c/[slug]/agents/[agentId]/script/PipProposal";
-import { TaughtRules } from "@/app/c/[slug]/agents/[agentId]/script/TaughtRules";
-import { END, sectionsOf } from "@/app/c/[slug]/agents/[agentId]/script/scriptModel";
 import { Actions } from "@/app/c/[slug]/agents/actions/Actions";
 import { SpendPanel } from "@/app/c/[slug]/billing/SpendPanel";
 import CallbacksPage from "@/app/c/[slug]/callbacks/page";
@@ -19,11 +16,10 @@ import type { Me, Session } from "@/lib/api/client";
 import { DNC_LIST_LIMIT } from "@/lib/api/dnc";
 import { HOLDS_PATH } from "@/lib/api/holds";
 import { OUTBOUND_CONSENT_POLICY_PATH } from "@/lib/api/outboundConsent";
-import { EMPTY_SCRIPT, type CallScript, type ScriptProposal } from "@/lib/api/script";
 import { useClientSession } from "@/lib/api/session";
 
 import { WHATSAPP_OFF_ROUTES } from "./fixtures/whatsapp";
-import { problem, renderAdminPage, renderClientPage, stillLoading, type Routes } from "./harness";
+import { problem, renderAdminPage, renderClientPage, type Routes } from "./harness";
 
 /** Deep audit 10 Nov 2026, D1 (the web app). Each block fails on the source before its fix. */
 
@@ -117,100 +113,6 @@ describe("D1-01 the rights desk answers an erasure request when the erasure comp
     expect(await screen.findByText("Being erased. This is marked answered when it finishes.")).toBeTruthy();
     const row = screen.getByText("Being erased. This is marked answered when it finishes.").closest("li")!;
     expect(within(row).queryByRole("button")).toBeNull();
-  });
-});
-
-describe("D1-02 a taught rule added as a step is reached, and the limit is the account's", () => {
-  const RULES = "/v1/agents/a1/script/proposed-rules";
-  const RULE = {
-    id: "rule1",
-    agent_id: "a1",
-    text: "Never promise Sunday delivery",
-    status: "pending",
-    created_at: "2026-11-10T04:00:00Z",
-  };
-  const step = (id: string, otherwise = "") => ({
-    id,
-    name: id,
-    mode: "guide" as const,
-    instruction: "Talk.",
-    sounds_like: "",
-    branches: [],
-    otherwise,
-    collect: [],
-    procedure: [],
-    position: null,
-  });
-  const scriptOf = (stages: ReturnType<typeof step>[]): CallScript => ({
-    ...EMPTY_SCRIPT,
-    schema_version: 2,
-    stages,
-  });
-
-  async function taught(script: CallScript, maxSections = 12) {
-    const changes: CallScript[] = [];
-    await renderClientPage(
-      <ToastProvider>
-        <TaughtRules
-          agentId="a1"
-          script={script}
-          maxSections={maxSections}
-          canWrite
-          onChange={(next) => changes.push(next)}
-        />
-      </ToastProvider>,
-      { "/v1/me": OWNER, [RULES]: [RULE], [`POST ${RULES}/rule1`]: { ...RULE, status: "applied" } },
-    );
-    return changes;
-  }
-
-  it("hands the last step's end of call to the new step, so the call reaches it", async () => {
-    const changes = await taught(scriptOf([step("hello"), step("bye", END)]));
-    fireEvent.click(await screen.findByRole("button", { name: "Add as a step" }));
-    // The draft takes the step once the rule is marked used.
-    await waitFor(() => expect(changes).toHaveLength(1));
-    const stages = sectionsOf(changes[0]!);
-    expect(stages.map((s) => s.otherwise)).toEqual(["", "", END]);
-    expect(stages[2]!.instruction).toBe(RULE.text);
-  });
-
-  it("follows the account's step limit rather than a number of its own", async () => {
-    await taught(scriptOf([step("one"), step("two")]), 2);
-    const add = (await screen.findByRole("button", { name: "Add as a step" })) as HTMLButtonElement;
-    expect(add.disabled).toBe(true);
-  });
-});
-
-describe("D1-03 a suggestion's Add and Discard wait for each other", () => {
-  const SCRIPT: CallScript = { ...EMPTY_SCRIPT, opening_line: "Namaskaram andi." };
-  const PROPOSAL: ScriptProposal = {
-    id: "p1",
-    mode: "change",
-    documents: [],
-    status: "ready",
-    request: "Make the opening line warmer",
-    base_script: SCRIPT,
-    script: { ...SCRIPT, opening_line: "Namaskaram andi, thanks for calling!" },
-    unplaced: [],
-    left_out: [],
-    disclosure: null,
-    note: null,
-    requested_at: "2026-10-19T10:00:00+00:00",
-  };
-
-  it("says Adding… and holds Discard while the suggestion is being cleared", async () => {
-    await renderClientPage(
-      <PipProposal agentId="agent-1" script={SCRIPT} canWrite onKeep={() => undefined} />,
-      {
-        "/v1/me": OWNER,
-        "/v1/agents/agent-1/script/proposal": { proposal: PROPOSAL },
-        "DELETE /v1/agents/agent-1/script/proposal/p1": stillLoading(),
-      },
-    );
-    fireEvent.click(await screen.findByRole("button", { name: "Add it to my draft" }));
-    const adding = (await screen.findByRole("button", { name: "Adding…" })) as HTMLButtonElement;
-    expect(adding.disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
 

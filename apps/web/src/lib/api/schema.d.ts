@@ -4679,26 +4679,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/agents/{agent_id}/script/fix-lines": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Fix the lines the script check found, before putting it live
-         * @description "Fix them first" on Put it live. Saves `script` as the working copy, runs the same check as `POST .../check` on it (its `warnings` and `mistakes`) and asks for a suggestion that changes only the lines the check named; poll `GET .../proposal` until it is `ready`, then show it to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` when the check finds nothing, `fix_lines_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.
-         */
-        post: operations["fix_script_lines_v1_agents__agent_id__script_fix_lines_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/agents/{agent_id}/script/opening-line": {
         parameters: {
             query?: never;
@@ -4713,46 +4693,6 @@ export interface paths {
          */
         put: operations["replace_opening_line_v1_agents__agent_id__script_opening_line_put"];
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/opening-line/after-introduction": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask for the opening line written to follow the agent's own introduction
-         * @description The repair offered when switching the AI notice on is refused with `opening_introduces_agent` (D-865): the notice says who is calling, so the opening line must not. Queues a suggestion that writes the opening line again without a greeting or the agent's or business's name; poll `GET .../proposal` until it is `ready`. Nothing reaches a caller until the line is put live.
-         */
-        post: operations["request_opening_after_introduction_v1_agents__agent_id__script_opening_line_after_introduction_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/opening-line/in-language": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask for the opening lines written for this business in the agent's main language
-         * @description Offered after the agent's main language changes (D-838, D-965). Queues a `written` suggestion with the opening lines written for this business in that language; poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches a caller until the line is put live.
-         */
-        post: operations["rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4791,80 +4731,6 @@ export interface paths {
         /** Compile a (possibly unsaved) script into the exact engine prompt */
         post: operations["preview_script_v1_agents__agent_id__script_preview_post"];
         delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/proposal": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The script suggestion Pip prepared and the owner has not yet reviewed */
-        get: operations["get_script_proposal_v1_agents__agent_id__script_proposal_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/proposal/main-task": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Ask Pip to re-adjust the script to the agent's main task
-         * @description "Re-adjust script" on the agent page. Queues a `change` suggestion that brings the working script (the draft, else the saved script) into line with its own main task (`goal`); poll `GET .../proposal` until it is `ready` and review it on the Script page. Nothing reaches the draft until it is kept, nor a caller until it is put live. Refused with `script_main_task_missing` when there is no main task, `script_main_task_hand_written` for a script written as one text, and `script_suggestion_waiting` while another suggestion waits for review.
-         */
-        post: operations["readjust_script_to_main_task_v1_agents__agent_id__script_proposal_main_task_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/proposal/starter": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Write the agent's whole script for this business again
-         * @description The new-agent flow's "Try again" after the script written at creation failed. Queues the same whole-script suggestion `POST /v1/agents` with a `starter` does; poll `GET .../proposal`. A draft agent still on its untouched starter takes it at once, as at creation.
-         */
-        post: operations["rewrite_starter_script_v1_agents__agent_id__script_proposal_starter_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/script/proposal/{proposal_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Clear the suggestion once its kept parts are in the draft, or to discard it */
-        delete: operations["discard_script_proposal_v1_agents__agent_id__script_proposal__proposal_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -16208,8 +16074,9 @@ export interface components {
             can_undo: boolean;
             /** Clean Calls */
             clean_calls: number;
-            /** Clean Calls Needed */
-            clean_calls_needed: number;
+            fix_holder: components["schemas"]["FixHolderOut"] | null;
+            /** Fix Waiting */
+            fix_waiting: boolean;
             /** Fixed At */
             fixed_at: string | null;
             /** Found In Script */
@@ -16228,7 +16095,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "fixing" | "fixed" | "back" | "script_fixing" | "script_live" | "script_fixed" | "script_rolled_back" | "script_undone" | "with_team";
+            state: "fixing" | "fixed" | "back" | "script_fixing" | "script_proposed" | "no_job" | "script_live" | "script_fixed" | "script_rolled_back" | "script_undone" | "with_team";
         };
         /** AgentMistakesOut */
         AgentMistakesOut: {
@@ -19538,6 +19405,8 @@ export interface components {
             base_script: components["schemas"]["CallScript"] | null;
             /** Disclosure */
             disclosure: string | null;
+            /** Fixes */
+            fixes: string | null;
             /**
              * Id
              * Format: uuid
@@ -20584,7 +20453,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "agent_unwell" | "line_protected" | "platform_outage" | "script_fixed" | "script_fix_waiting" | "script_check_fixed" | "script_check_waiting";
+            kind: "agent_unwell" | "line_protected" | "platform_outage" | "script_fixed" | "script_fix_waiting" | "script_check_fixed" | "script_check_waiting" | "script_fix_proposed";
             /** Missed Calls */
             missed_calls: number;
             /** Must Act */
@@ -25052,53 +24921,23 @@ export interface components {
             /** Recordings Left */
             recordings_left: number;
         };
-        /** FixLinesIn */
-        FixLinesIn: {
-            /** Base Saved At */
-            base_saved_at?: string | null;
-            script: components["schemas"]["CallScript"];
-        };
-        /** FixLinesOut */
-        FixLinesOut: {
-            base_script: components["schemas"]["CallScript"];
-            /** Disclosure */
-            disclosure: string | null;
-            /** Documents */
-            documents: string[];
-            /**
-             * Draft Saved At
-             * Format: date-time
-             */
-            draft_saved_at: string;
+        /**
+         * FixHolderOut
+         * @description Where a fix's draft waits: an Inbound line or a campaign, by id and name.
+         */
+        FixHolderOut: {
             /**
              * Id
              * Format: uuid
              */
             id: string;
-            /** Left Out */
-            left_out: components["schemas"]["LeftOutPartOut"][];
             /**
-             * Mode
+             * Kind
              * @enum {string}
              */
-            mode: "change" | "whole" | "steps" | "knowledge" | "opening" | "written" | "starter";
-            /** Note */
-            note: string | null;
-            /** Request */
-            request: string | null;
-            /**
-             * Requested At
-             * Format: date-time
-             */
-            requested_at: string;
-            script: components["schemas"]["CallScript"] | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "drafting" | "ready" | "failed";
-            /** Unplaced */
-            unplaced: string[];
+            kind: "inbound_line" | "campaign";
+            /** Name */
+            name: string;
         };
         /** FlagStateOut */
         FlagStateOut: {
@@ -25152,7 +24991,7 @@ export interface components {
              * State
              * @enum {string}
              */
-            state: "fixing" | "live" | "fixed" | "rolled_back" | "needs_person";
+            state: "fixing" | "live" | "fixed" | "rolled_back" | "needs_person" | "proposed";
             /** Version After */
             version_after: number | null;
             /** Version Before */
@@ -28468,23 +28307,6 @@ export interface components {
             why: "reading" | "failed";
         };
         /**
-         * LeftOutPartOut
-         * @description A part of the script Pip's suggestion leaves as the owner had it (ready), or could not
-         *     write (failed), and why.
-         */
-        LeftOutPartOut: {
-            /** Added */
-            added: boolean;
-            /** Label */
-            label: string;
-            /** Part */
-            part: string;
-            /** Rule */
-            rule: string;
-            /** Unfixed */
-            unfixed: boolean;
-        };
-        /**
          * LegalDocumentOut
          * @description One published document and where this organisation stands with it.
          */
@@ -30814,10 +30636,6 @@ export interface components {
             voice_tier_rates: components["schemas"]["VoiceTierRateOut"][];
             /** Worst Case Call Cost Inr */
             worst_case_call_cost_inr: string | null;
-        };
-        /** PendingProposalOut */
-        PendingProposalOut: {
-            proposal: components["schemas"]["ScriptProposalOut"] | null;
         };
         /**
          * PendingWorkspaceOut
@@ -33937,46 +33755,6 @@ export interface components {
              * @default true
              */
             take_bookings: boolean;
-        };
-        /**
-         * ScriptProposalOut
-         * @description A script suggestion Pip was asked for, reviewed part by part on the Script page.
-         */
-        ScriptProposalOut: {
-            base_script: components["schemas"]["CallScript"];
-            /** Disclosure */
-            disclosure: string | null;
-            /** Documents */
-            documents: string[];
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Left Out */
-            left_out: components["schemas"]["LeftOutPartOut"][];
-            /**
-             * Mode
-             * @enum {string}
-             */
-            mode: "change" | "whole" | "steps" | "knowledge" | "opening" | "written" | "starter";
-            /** Note */
-            note: string | null;
-            /** Request */
-            request: string | null;
-            /**
-             * Requested At
-             * Format: date-time
-             */
-            requested_at: string;
-            script: components["schemas"]["CallScript"] | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "drafting" | "ready" | "failed";
-            /** Unplaced */
-            unplaced: string[];
         };
         /**
          * ScriptStep
@@ -48319,41 +48097,6 @@ export interface operations {
             };
         };
     };
-    fix_script_lines_v1_agents__agent_id__script_fix_lines_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FixLinesIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FixLinesOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     replace_opening_line_v1_agents__agent_id__script_opening_line_put: {
         parameters: {
             query?: never;
@@ -48376,68 +48119,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OpeningLineOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    request_opening_after_introduction_v1_agents__agent_id__script_opening_line_after_introduction_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScriptProposalOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    rewrite_opening_in_language_v1_agents__agent_id__script_opening_line_in_language_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScriptProposalOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -48509,129 +48190,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PreviewOut"];
                 };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    get_script_proposal_v1_agents__agent_id__script_proposal_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PendingProposalOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    readjust_script_to_main_task_v1_agents__agent_id__script_proposal_main_task_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScriptProposalOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    rewrite_starter_script_v1_agents__agent_id__script_proposal_starter_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ScriptProposalOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    discard_script_proposal_v1_agents__agent_id__script_proposal__proposal_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-                proposal_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {

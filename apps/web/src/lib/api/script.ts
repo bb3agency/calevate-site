@@ -429,30 +429,6 @@ export function withDraft(out: ScriptOut, draft: { script: CallScript; saved_at:
   return { ...out, draft };
 }
 
-/**
- * What the script lint finds in the script about to go live (D-945): promotional words, a
- * promise the account cannot keep, a figure no fact gives, two questions in one line, another
- * name for the agent. Warnings only; nothing is refused. Keyed by the script itself, so an
- * edit asks again and the same script is read once.
- */
-export type ScriptCheck = components["schemas"]["ScriptCheckOut"];
-
-export function useScriptCheck(
-  session: Session,
-  agentId: string,
-  script: CallScript,
-): UseQueryResult<ScriptCheck, Error> {
-  return useQuery({
-    queryKey: ["script-check", session.orgSlug, agentId, JSON.stringify(script)] as const,
-    queryFn: () =>
-      apiRequest<ScriptCheck>(session, `${base(agentId)}/check`, {
-        method: "POST",
-        body: { script },
-      }),
-    staleTime: Infinity,
-  });
-}
-
 /** "Put it live": the draft becomes a history entry and is applied in one request. */
 export function usePublishScript(
   session: Session,
@@ -465,25 +441,6 @@ export function usePublishScript(
     // On a failure too: the version may be saved with only the apply refused, and the next
     // "Put it live" must see it waiting (`script_routes.publish_script`).
     onSettled: () => invalidateScript(client, session, agentId),
-  });
-}
-
-/**
- * Ask for the opening lines written for this business in the agent's main language (D-965).
- * The answer is a `written` suggestion, polled through `useScriptProposal` and reviewed on
- * the Script tab.
- */
-export function useRewriteOpeningInLanguage(
-  session: Session,
-  agentId: string,
-): UseMutationResult<ScriptProposal, Error, void> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<ScriptProposal>(session, `${base(agentId)}/opening-line/in-language`, {
-        method: "POST",
-      }),
-    onSuccess: () => client.invalidateQueries({ queryKey: proposalKey(session.orgSlug, agentId) }),
   });
 }
 
@@ -582,142 +539,6 @@ export function useRestoreVersion(
         { method: "POST" },
       ),
     onSuccess: () => invalidateScript(client, session, agentId),
-  });
-}
-
-// --- the suggestion Pip prepared (D-820) --------------------------------------------------
-
-/**
- * The suggestion Pip prepared. `mode`: `change` (one change), `whole` (from the owner's
- * answers), `steps` (from hand-writing), `knowledge` (files worked into the script, D-923).
- * `base_script` is what it was made from: changes are listed against it.
- */
-export type ScriptProposal = WithCallScripts<components["schemas"]["ScriptProposalOut"], "base_script" | "script">;
-type PendingProposal = { proposal: ScriptProposal | null } & Omit<components["schemas"]["PendingProposalOut"], "proposal">;
-
-export const proposalKey = (org: string, agentId: string) => ["script-proposal", org, agentId] as const;
-
-/** The suggestion waiting for review, or null. Polls while it is being written. */
-export function useScriptProposal(
-  session: Session,
-  agentId: string,
-): UseQueryResult<ScriptProposal | null, Error> {
-  return useQuery({
-    queryKey: proposalKey(session.orgSlug, agentId),
-    queryFn: async () =>
-      (await apiRequest<PendingProposal>(session, `${base(agentId)}/proposal`)).proposal,
-    refetchInterval: untilRefused((query) => (query.state.data?.status === "drafting" ? 3000 : false)),
-  });
-}
-
-/** Clear the suggestion: after its kept parts are in the draft, or to discard it. */
-export function useClearProposal(
-  session: Session,
-  agentId: string,
-): UseMutationResult<void, Error, string> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: (proposalId: string) =>
-      apiRequest<void>(session, `${base(agentId)}/proposal/${proposalId}`, { method: "DELETE" }),
-    onSuccess: () => client.setQueryData(proposalKey(session.orgSlug, agentId), null),
-  });
-}
-
-/**
- * "Fix them first" on Put it live: the draft on screen becomes the working copy and a
- * suggestion is asked for that fixes exactly the lines the check found. Polled through
- * `useScriptProposal`; `useKeepFixedScript` puts the result into the draft.
- */
-/** A fix asked for, and when the draft it is made to was saved (the base to keep it with). */
-export type FixLinesOut = ScriptProposal & { draft_saved_at: string };
-
-export function useFixScriptLines(
-  session: Session,
-  agentId: string,
-): UseMutationResult<FixLinesOut, Error, { script: CallScript; baseSavedAt?: string | null }> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({ script, baseSavedAt }) =>
-      apiRequest<FixLinesOut>(session, `${base(agentId)}/fix-lines`, {
-        method: "POST",
-        // The draft on screen is saved as a compare-and-set, like every autosave (A-13).
-        body: baseSavedAt === undefined ? { script } : { script, base_saved_at: baseSavedAt },
-      }),
-    onSuccess: (proposal) => client.setQueryData(proposalKey(session.orgSlug, agentId), proposal),
-  });
-}
-
-/** Ask again for the whole script written for the business, after the first try failed. */
-export function useRewriteStarterScript(
-  session: Session,
-  agentId: string,
-): UseMutationResult<ScriptProposal, Error, void> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<ScriptProposal>(session, `${base(agentId)}/proposal/starter`, { method: "POST" }),
-    onSuccess: (proposal) => client.setQueryData(proposalKey(session.orgSlug, agentId), proposal),
-  });
-}
-
-/**
- * "Re-adjust script" on the agent page: Pip rewrites the working script to fit its main task.
- * An ordinary suggestion, polled through `useScriptProposal` and reviewed on the Script tab.
- */
-export function useReadjustToMainTask(
-  session: Session,
-  agentId: string,
-): UseMutationResult<ScriptProposal, Error, void> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<ScriptProposal>(session, `${base(agentId)}/proposal/main-task`, { method: "POST" }),
-    onSuccess: (proposal) => client.setQueryData(proposalKey(session.orgSlug, agentId), proposal),
-  });
-}
-
-/**
- * The fixed script into the draft once the owner has seen it, and the suggestion it came from
- * cleared. `baseSavedAt` is the draft's stamp when the fix was asked for: a draft changed
- * since in another tab is refused rather than overwritten (A-13).
- */
-export function useKeepFixedScript(
-  session: Session,
-  agentId: string,
-): UseMutationResult<DraftSavedOut, Error, { proposalId: string; script: CallScript; baseSavedAt?: string | null }> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ proposalId, script, baseSavedAt }) => {
-      const saved = await apiRequest<DraftSavedOut>(session, `${base(agentId)}/draft`, {
-        method: "PUT",
-        body: baseSavedAt === undefined ? { script } : { script, base_saved_at: baseSavedAt },
-      });
-      await apiRequest<void>(session, `${base(agentId)}/proposal/${proposalId}`, { method: "DELETE" });
-      return saved;
-    },
-    onSuccess: () => {
-      client.setQueryData(proposalKey(session.orgSlug, agentId), null);
-      invalidateScript(client, session, agentId);
-    },
-  });
-}
-
-/**
- * Ask for the opening line written to follow the agent's own introduction (D-865): the
- * repair for switching the AI notice on over an opening that already says who is calling.
- * The answer is an `opening` suggestion, polled through `useScriptProposal`.
- */
-export function useRequestOpeningAfterIntroduction(
-  session: Session,
-  agentId: string,
-): UseMutationResult<ScriptProposal, Error, void> {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<ScriptProposal>(session, `${base(agentId)}/opening-line/after-introduction`, {
-        method: "POST",
-      }),
-    onSuccess: () => client.invalidateQueries({ queryKey: proposalKey(session.orgSlug, agentId) }),
   });
 }
 

@@ -31,6 +31,8 @@ const STATE_TONES: Record<MistakeState, NoticeTone> = {
   fixing: "neutral",
   fixed: "ok",
   script_fixing: "neutral",
+  script_proposed: "warn",
+  no_job: "neutral",
   script_live: "ok",
   script_fixed: "ok",
   script_rolled_back: "warn",
@@ -40,11 +42,12 @@ const STATE_TONES: Record<MistakeState, NoticeTone> = {
 
 /**
  * MISTAKES ON REAL CALLS (D-949): what this agent got wrong on live calls, most urgent
- * first (the server's order: came back, being fixed, fixed). We fix each one, in the
- * agent's own script where a line of it is the cause (D-985), so the copy never asks the
- * owner to; the actions are hearing the last call it happened on and, once our fix of the
- * script is live, undoing it. What a good receptionist does instead sits behind a tap, so
- * the closed list is a label, a count and a state.
+ * first (the server's order: came back, waiting for review, being fixed, fixed). Where a line
+ * of a script is the cause, we write the fix as a draft on the Inbound line or campaign the
+ * call was on (D-1005) and "Review it" opens it there; a call on neither has no script to
+ * fix, and the row says so. The other actions are hearing the last call it happened on and
+ * undoing a fix we put live before that. What a good receptionist does instead sits behind
+ * a tap, so the closed list is a label, a count and a state.
  */
 export function CallMistakes({
   agentId,
@@ -136,11 +139,29 @@ function MistakeRow({
               {mistake.found_in_script ? FOUND_IN_SCRIPT : callsLine(mistake.calls, windowDays)}
             </span>
             <StatusPill tone={STATE_TONES[mistake.state]} wrap>
-              {clientStateLine(mistake.state, formatISTDate(mistake.fixed_at), mistake.clean_calls)}
+              {clientStateLine(
+                mistake.state,
+                formatISTDate(mistake.fixed_at),
+                mistake.clean_calls,
+                mistake.fix_waiting,
+              )}
             </StatusPill>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {mistake.state === "script_proposed" && mistake.fix_waiting && mistake.fix_holder ? (
+            <Link
+              href={href(
+                mistake.fix_holder.kind === "inbound_line"
+                  ? `/c/${session.orgSlug}/inbound/${mistake.fix_holder.id}`
+                  : `/c/${session.orgSlug}/campaigns/${mistake.fix_holder.id}`,
+              )}
+              aria-label={`Review our fix on ${mistake.fix_holder.name}: ${mistake.label}`}
+              className={SECONDARY_BUTTON_SM}
+            >
+              Review it
+            </Link>
+          ) : null}
           {mistake.can_undo ? (
             <ActionButton
               variant="secondary-sm"

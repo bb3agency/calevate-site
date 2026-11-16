@@ -143,6 +143,9 @@ _MATERIALS_REASON = (
 )
 
 UNWIRED_BASELINE: dict[str, str] = {
+    # D-1005 retired the sweep of agent scripts that wrote and read it; kept under hard rule
+    # 8's two-step, closes with the migration that drops it.
+    "Agent.script_checked_version": "the sweep of live agent scripts (D-989) is retired",
     "CampaignMaterial.kb_upload_id": _MATERIALS_REASON,
     "CompanyTrainingMaterial.kb_upload_id": _MATERIALS_REASON,
     "Call.caller_memory_state": _D973_REASON,

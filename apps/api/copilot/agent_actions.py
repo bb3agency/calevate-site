@@ -54,7 +54,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import lifecycle, script_proposals
+from apps.api.agents import lifecycle
 from apps.api.agents.languages import LANGUAGE_LABELS, OfferedLanguage
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection
 from apps.api.agents.starters import JOB_DIRECTION, STARTER_JOBS, StarterJob
@@ -246,25 +246,13 @@ async def _execute_agent_create(
         await lifecycle.update_agent(
             session, tenant_id=actor.tenant_id, agent_id=agent_id, direction="both"
         )
-    if parsed.job is not None:
-        # The job's steps are only a placeholder: the whole script, steps and openings, is
-        # written for this business by the proposal job, after the direction is final, and
-        # reviewed on the Script page.
-        await script_proposals.request_written_script(
-            session, tenant_id=actor.tenant_id, agent_id=agent_id, requested_by=actor.user_id
-        )
-    opening = (
-        " Its script is being written for your business; it stays with the agent."
-        if parsed.job is not None
-        else ""
-    )
     return Executed(
         applied=True,
         detail=(
             f"“{parsed.name}” exists as a draft. It has an AI disclosure and a recording "
             "notice already written for it, and volunteers neither until you switch them on. "
-            "Give it a script, then publish it when you are "
-            f"ready — it takes no calls until then.{opening}"
+            "Give it a job on an Inbound line or a campaign, where its script is written; it "
+            "takes no calls until then."
         ),
         # Ids and closed-set strings (hard rules 4 and 6). The NAME is a client's own
         # business copy and `audit_log` is append-only, so text written into it is text a

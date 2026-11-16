@@ -82,6 +82,9 @@ class CampaignProposalOut(_Out):
     left_out: list[CampaignLeftOutOut]
     #: Failed: why (a refusal code, `crashed` or `stale`), so the screen can say what to do.
     reason: str | None
+    #: A fix of a mistake on real calls the healer asked Pip for (D-1005), in the owner's
+    #: words; null for a draft the owner asked for.
+    fixes: str | None
 
 
 class WorkspaceOut(_Out):
@@ -109,6 +112,7 @@ def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | Non
         note=p.note,
         disclosure=p.disclosure,
         reason=p.reason,
+        fixes=p.fixes,
         left_out=[
             CampaignLeftOutOut(
                 part=part.part,

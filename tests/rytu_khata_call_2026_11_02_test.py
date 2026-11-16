@@ -6,16 +6,8 @@ call's structure only; no spoken line here is ours to put on a call (D-915)."""
 
 from __future__ import annotations
 
-import uuid
-from types import SimpleNamespace
 from typing import Any
 
-import pytest
-from apps.api.agents import script_builder, script_proposals
-from apps.api.crm import assist as crm_assist
-from apps.api.db.session import tenant_session
-from apps.workers import script_proposal as worker
-from apps.workers.opening_line import WrittenOpening, rewrite_problem
 from calevate_shared.call_script import (
     RETIRED_FAQ_FALLBACK,
     CallScript,
@@ -33,8 +25,6 @@ from calevate_shared.engine import (
     introduction_names,
     join_first_words,
 )
-from calevate_shared.opening_notices import NONE_SAID
-from tests.conftest import create_org_with_receptionist
 
 AI_NOTICE = "నేను రైతు ఖాతా నుండి లక్ష్మిని, ఏఐ అసిస్టెంట్‌ని మాట్లాడుతున్నాను అండి."
 INTRO = "నమస్కారం అండి, రైతు ఖాతా నుండి మాట్లాడుతున్నాను."
@@ -149,56 +139,3 @@ def test_a_v1_faq_promises_no_call_back_of_its_own() -> None:
         assert "—" not in body.split("[FAQ]", 1)[1].split("\n", 1)[0]
     own = "We will check and tell you."
     assert f'say: "{own}"' in _faq_body(own), "the owner's own words stay"
-
-
-# --- 10 and 11. openings written for the business, never ready-made ------------------------
-
-
-@pytest.mark.rls
-async def test_a_written_suggestion_rewrites_the_opening_for_the_business(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    created = await create_org_with_receptionist(
-        name="Rytu Shop",
-        slug=f"rytu-{uuid.uuid4().hex[:8]}",
-        vertical_template="retail",
-        billing_email=None,
-        language="te-IN",
-        created_by=None,
-    )
-    tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
-    async with tenant_session(tenant_id) as session:
-        base = await script_proposals.working_script(session, agent_id)
-        await script_builder.save_draft(
-            session, agent_id, base.model_copy(update={"opening_line": "Hello, how can I help?"})
-        )
-        asked = await script_proposals.request_written_opening(
-            session, tenant_id=tenant_id, agent_id=agent_id, requested_by=None
-        )
-    seen: dict[str, Any] = {}
-
-    async def write(brief: Any, **kwargs: Any) -> Any:
-        seen["line"] = kwargs["line"]
-        seen["problems"] = kwargs["problems"]
-        return SimpleNamespace(
-            value=WrittenOpening(line="ఏ పంట గురించి అండి?", said=NONE_SAID),
-            capability=SimpleNamespace(disclosure=None),
-            usage=None,
-            model="gemini-2.5-flash-lite",
-            earlier=(),
-        )
-
-    async def meter(_session: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(worker, "write_opening", write)
-    monkeypatch.setattr(crm_assist, "meter_earlier", meter)
-    monkeypatch.setattr(crm_assist, "meter_assist", meter)
-    payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "proposal_id": str(asked.id)}
-    assert await worker.draft_script_proposal({}, payload) == "ready"
-    async with tenant_session(tenant_id) as session:
-        stored = await script_proposals.read_proposal(session, agent_id)
-    assert stored is not None and stored.mode == "written" and stored.script is not None
-    assert stored.script.opening_line == "ఏ పంట గురించి అండి?"
-    assert seen["line"] == "Hello, how can I help?"
-    assert rewrite_problem("opening_line") in seen["problems"]

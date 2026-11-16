@@ -20,11 +20,10 @@ from __future__ import annotations
 
 import re
 import uuid
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from apps.api.agents import script_builder, script_proposals, starters
+from apps.api.agents import starters
 from apps.api.agents.routes import router as agents_router
 from apps.api.compliance.disclosure import (
     AI_DISCLOSURE_TEMPLATES,
@@ -35,8 +34,6 @@ from apps.api.copilot.identity import VENDOR_WORDS
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.workers import script_proposal as proposal_worker
-from apps.workers.script_assist import ScriptDraft
 from calevate_shared.call_script import (
     STANDARD_VARIABLES,
     CallScript,
@@ -333,9 +330,9 @@ async def test_a_direction_that_contradicts_the_job_is_refused_and_creates_nothi
 
 
 @pytest.mark.rls
-async def test_without_a_starter_no_script_is_written_or_asked_for() -> None:
+async def test_without_a_starter_no_script_is_written() -> None:
     """An agent is staff with no script of its own (founder, 16 Nov 2026): created without a
-    job it carries only what the business profile says, and Pip is asked for nothing."""
+    job it carries only what the business profile says."""
     tenant_id, token = await _tenant("clinic", "Sunrise Care")
     code, body = await _create(token, {"name": "Blank", "direction": "outbound"})
     assert code == 201, body
@@ -346,13 +343,6 @@ async def test_without_a_starter_no_script_is_written_or_asked_for() -> None:
         assert str(row[4]).startswith("[IDENTITY] Blank.") and "[T0 FACTS]" in str(row[4])
         assert row[5] is None, "no structured script was written"
     assert row[7] is None
-    async with tenant_session(tenant_id) as session:
-        proposal = (
-            await session.execute(
-                text("SELECT script_proposal FROM agents WHERE id = :a"), {"a": body["id"]}
-            )
-        ).scalar()
-    assert proposal is None
 
 
 @pytest.mark.rls
@@ -421,85 +411,18 @@ async def test_a_neighbour_sees_none_of_the_starter_rows() -> None:
 
 
 @pytest.mark.rls
-async def test_an_opening_typed_at_creation_is_kept_and_the_script_is_written_around_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_an_opening_typed_at_creation_is_kept_with_the_starter() -> None:
     tenant_id, token = await _tenant("custom", "Rytu Khata")
     line = "Hello, this is Rytu Khata calling about your farm records. Is now a good time?"
     code, body = await _create(
         token, {"name": "Leads", "starter": "call_leads", "opening_line": f"  {line}  "}
     )
     assert code == 201, body
-    agent_id = uuid.UUID(body["id"])
-    row = await _agent_rows(tenant_id, agent_id)
+    row = await _agent_rows(tenant_id, uuid.UUID(body["id"]))
     assert row is not None
-    assert CallScript.model_validate(row[5]).opening_line == line
-    async with tenant_session(tenant_id) as session:
-        asked = await script_proposals.read_proposal(session, agent_id)
-    # The job's steps are a placeholder: the whole script is written for the business.
-    assert asked is not None and asked.mode == script_proposals.STARTER_MODE
-
-    async def drafted(_brief: Any, **_kwargs: Any) -> ScriptDraft:
-        written = asked.base_script.model_copy(
-            update={"goal": "Help farmers keep their crop accounts", "opening_line": ""}
-        )
-        return ScriptDraft(
-            script=written,
-            capability=SimpleNamespace(disclosure=None),  # type: ignore[arg-type]
-            model="gemini-2.5-flash-lite",
-            earlier=(),
-        )
-
-    async def meter(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(proposal_worker, "draft_script", drafted)
-    monkeypatch.setattr(proposal_worker.crm_assist, "meter_earlier", meter)
-    monkeypatch.setattr(proposal_worker.crm_assist, "meter_assist", meter)
-    payload = {"tenant_id": str(tenant_id), "agent_id": str(agent_id), "proposal_id": str(asked.id)}
-    # A draft agent still on its untouched starter takes the written script at once, so its
-    # page shows the business's goal, not the job's (founder, 3 Nov 2026).
-    assert await proposal_worker.draft_script_proposal({}, payload) == "applied"
-    async with tenant_session(tenant_id) as session:
-        assert await script_proposals.read_proposal(session, agent_id) is None
-    row = await _agent_rows(tenant_id, agent_id)
-    assert row is not None
-    applied = CallScript.model_validate(row[5])
-    assert applied.goal == "Help farmers keep their crop accounts"
-    assert applied.opening_line == line, "the owner's typed opening was written over"
-
-    # Once the owner has changed the script, the written one waits as a suggestion.
-    code, edited = await _create(token, {"name": "Edited", "starter": "call_leads"})
-    assert code == 201, edited
-    edited_id = uuid.UUID(edited["id"])
-    async with tenant_session(tenant_id) as session:
-        asked = await script_proposals.read_proposal(session, edited_id)
-        assert asked is not None
-        await script_builder.save_agent_script(
-            session,
-            tenant_id=tenant_id,
-            agent_id=edited_id,
-            script=asked.base_script.model_copy(update={"goal": "The owner's own goal"}),
-            notes="owner edit",
-            created_by=None,
-        )
-    payload = {
-        "tenant_id": str(tenant_id),
-        "agent_id": str(edited_id),
-        "proposal_id": str(asked.id),
-    }
-    assert await proposal_worker.draft_script_proposal({}, payload) == "ready"
-    row = await _agent_rows(tenant_id, edited_id)
-    assert row is not None
-    assert CallScript.model_validate(row[5]).goal == "The owner's own goal"
-
-    code, blank = await _create(
-        token, {"name": "Leads 2", "starter": "call_leads", "opening_line": " "}
-    )
-    assert code == 201, blank
-    async with tenant_session(tenant_id) as session:
-        queued = await script_proposals.read_proposal(session, uuid.UUID(blank["id"]))
-    assert queued is not None and queued.mode == script_proposals.STARTER_MODE
+    kept = CallScript.model_validate(row[5])
+    assert kept.opening_line == line
+    assert kept.stages, "the starter's steps stay with it"
 
     code, refused = await _create(token, {"name": "Bare", "opening_line": line})
     assert code == 422, refused

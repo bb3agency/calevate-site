@@ -370,13 +370,6 @@ describe("every scroll container can be reached from a keyboard", () => {
       "The flow canvas scrolls in BOTH directions (a plane of positioned sections), which " +
       "`ScrollRegion` does not model — it hardcodes `overflow-x-auto`. It carries " +
       "`role=region` + `aria-label` + `tabIndex={0}` inline, and the assertion checks that.",
-    "app/c/[slug]/agents/[agentId]/script/ScriptToolbar.tsx":
-      "The compiled-prompt `<pre>` (moved here from ScriptBuilder.tsx with the drawer that " +
-      "holds it, D-657) scrolls VERTICALLY (`max-h-[60dvh]` + `whitespace-pre-" +
-      "wrap`, so it never scrolls sideways), which `ScrollRegion` does not model — it " +
-      "hardcodes `overflow-x-auto`. It carries the same `role=region` + `aria-label` + " +
-      "`tabIndex={0}` inline, exactly as the integrations delivered-payload `<pre>` does, " +
-      "and the assertion below checks that rather than waiving it.",
   };
 
   it("is a ScrollRegion, or is focusable in its own right", () => {
@@ -664,8 +657,6 @@ describe("a grid names its phone column", () => {
  * shared-component area, owned by other work; each comes off this list when fixed.
  */
 const GRID_BASELINE = new Set<string>([
-  // Fixed on the agent-screens branch; drops off when that merges.
-  "app/c/[slug]/agents/[agentId]/script/ScriptBuilder.tsx",
   // The receipt (money screens work): `showSupplier ? "mt-5 grid gap-3 sm:grid-cols-2" : …`.
   "components/receiptDocument.tsx",
 ]);

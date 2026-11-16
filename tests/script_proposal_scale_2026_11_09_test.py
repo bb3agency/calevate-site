@@ -16,9 +16,7 @@ broken part in every case here.
 from __future__ import annotations
 
 import json
-import uuid
 from collections.abc import Sequence
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -27,7 +25,6 @@ from apps.api.agents import script_proposals
 from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
 from apps.workers import chat
 from apps.workers import script_proposal as worker
 from apps.workers.extraction import (
@@ -47,8 +44,6 @@ from apps.workers.script_assist import (
     salvaged_edit,
 )
 from calevate_shared.call_script import CallScript, ConversationStage
-from sqlalchemy import text
-from tests.conftest import create_org_with_receptionist
 
 BROKEN = "We book it on Google for you."
 #: What each step is about: words rather than numbers, since a figure the owner's facts do
@@ -291,140 +286,7 @@ def test_the_owner_never_reads_a_vendor_name_in_a_left_out_reason() -> None:
 
 def test_the_proposal_job_budget_fits_inside_the_worker_job() -> None:
     """FAILS IF: the job's ladder plus its opening repairs can outlast arq's `job_timeout`,
-    which would kill the job after the model was paid and before the meter row is written,
-    or the Script tab could call a still-running job stale."""
+    which would kill the job after the model was paid and before the meter row is written."""
     ladder = ASSIST_LADDER_LEGS * worker.PROPOSAL_REQUEST_TIMEOUT_S
     openings = 2 * ASSIST_LADDER_LEGS * ASSIST_TIMEOUT_S
     assert ladder + openings + 30 < WORKER_JOB_TIMEOUT_S
-    assert script_proposals.DRAFTING_STALE_AFTER.total_seconds() > WORKER_JOB_TIMEOUT_S
-
-
-async def test_the_proposal_job_gives_the_model_a_job_sized_budget(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: the job writes a long script on the route's 15 s and 4,096 tokens."""
-    model = Model(_answer(broken=set()))
-    monkeypatch.setattr(chat, "complete", model)
-    seen: dict[str, Any] = {}
-
-    async def draft(brief: Any, **kwargs: Any) -> Any:
-        seen.update(kwargs)
-        return await draft_script(BRIEF, **kwargs)
-
-    async def brief_for(*_args: Any) -> ScriptBrief:
-        return BRIEF
-
-    async def leg(_session: Any) -> None:
-        return None
-
-    async def quota(*_args: Any, **_kw: Any) -> Any:
-        return SimpleNamespace(at_ceiling=False, platform_paused=False)
-
-    monkeypatch.setattr(worker, "draft_script", draft)
-    monkeypatch.setattr(worker.script_proposals, "brief_for", brief_for)
-    monkeypatch.setattr(worker, "account_assist_leg", leg)
-    monkeypatch.setattr(worker, "read_ai_quota", quota)
-    monkeypatch.setattr(worker, "tenant_session", _no_session)
-    proposal = SimpleNamespace(
-        mode="change", base_script=CURRENT, request=CHANGE, answers={}, paths=[], documents=[]
-    )
-    await worker._draft(uuid.uuid4(), uuid.uuid4(), proposal, AskTrace())  # type: ignore[arg-type]
-    assert seen["timeout_s"] == worker.PROPOSAL_REQUEST_TIMEOUT_S
-    assert seen["max_tokens"] == worker.PROPOSAL_MAX_TOKENS
-    assert model.max_tokens == [worker.PROPOSAL_MAX_TOKENS]
-
-
-class _no_session:  # noqa: N801  (stands in for the `tenant_session` context manager)
-    def __init__(self, *_args: Any) -> None:
-        pass
-
-    async def __aenter__(self) -> None:
-        return None
-
-    async def __aexit__(self, *_exc: Any) -> None:
-        return None
-
-
-@pytest.mark.rls
-async def test_the_stored_proposal_records_what_was_left_out_and_why_it_failed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """FAILS IF: the Script tab cannot show which parts were kept as they were, or an operator
-    reading the row cannot see the refusal code, the repairs or the cut-off."""
-    created = await create_org_with_receptionist(
-        name="Acme Seeds",
-        slug=f"scale-{uuid.uuid4().hex[:8]}",
-        vertical_template="retail",
-        billing_email=None,
-        language="en-IN",
-        created_by=None,
-    )
-    tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
-
-    async def request() -> Any:
-        async with tenant_session(tenant_id) as session:
-            return await script_proposals.request_proposal(
-                session,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                mode="change",
-                change=CHANGE,
-                answers={},
-                requested_by=uuid.uuid4(),
-            )
-
-    async def nothing(*_args: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(worker.crm_assist, "meter_earlier", nothing)
-    monkeypatch.setattr(worker.crm_assist, "meter_assist", nothing)
-    monkeypatch.setattr(worker.crm_assist, "meter_refusal", nothing)
-
-    async def kept_some(_t: Any, _a: Any, proposal: Any, trace: AskTrace) -> Any:
-        trace.left_out = [LeftOut("stages.s9", "Ask the budget", "names a company (google)")]
-        trace.repairs = 2
-        return SimpleNamespace(
-            script=proposal.base_script.model_copy(update={"goal": "Help with orders."}),
-            earlier=(),
-            model="gemini-3.1-flash-lite",
-            capability=SimpleNamespace(disclosure=None),
-            usage=None,
-        )
-
-    monkeypatch.setattr(worker, "_draft", kept_some)
-    proposal = await request()
-    payload = {
-        "tenant_id": str(tenant_id),
-        "agent_id": str(agent_id),
-        "proposal_id": str(proposal.id),
-    }
-    assert await worker.draft_script_proposal({}, payload) == "ready"
-    async with tenant_session(tenant_id) as session:
-        ready = await script_proposals.read_proposal(session, agent_id)
-    assert ready is not None and ready.status == "ready"
-    assert ready.left_out == [LeftOut("stages.s9", "Ask the budget", "Names a company.")]
-
-    async def cut_off(_t: Any, _a: Any, _proposal: Any, trace: AskTrace) -> Any:
-        trace.truncated = True
-        raise ProblemError.business_rule(PROVIDER_UNAVAILABLE_REASON, "No assistant answered.")
-
-    async with tenant_session(tenant_id) as session:
-        await script_proposals.discard(session, agent_id=agent_id, proposal_id=proposal.id)
-    monkeypatch.setattr(worker, "_draft", cut_off)
-    proposal = await request()
-    payload["proposal_id"] = str(proposal.id)
-    assert await worker.draft_script_proposal({}, payload) == "refused"
-    async with tenant_session(tenant_id) as session:
-        failed = await script_proposals.read_proposal(session, agent_id)
-        row = (
-            await session.execute(
-                text(
-                    "SELECT script_proposal->>'reason' AS reason, "
-                    "script_proposal->>'truncated' AS truncated FROM agents WHERE id = :aid"
-                ),
-                {"aid": agent_id},
-            )
-        ).one()
-    assert failed is not None and failed.status == "failed"
-    assert failed.note == script_proposals.TOO_BIG_NOTE
-    assert row.reason == PROVIDER_UNAVAILABLE_REASON and row.truncated == "true"

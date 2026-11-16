@@ -2,8 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ProposalReview } from "@/app/c/[slug]/agents/[agentId]/script/ProposalReview";
-import { FixReview, fixOutcome } from "@/app/c/[slug]/agents/[agentId]/script/PutLive";
-import { EMPTY_SCRIPT, rewrittenOpening, type CallScript, type ScriptProposal } from "@/lib/api/script";
+import { EMPTY_SCRIPT, rewrittenOpening, type CallScript } from "@/lib/api/script";
 
 const CURRENT: CallScript = { ...EMPTY_SCRIPT, goal: "Take orders." };
 const PROPOSAL: CallScript = {
@@ -267,66 +266,6 @@ describe("a suggestion that takes something away (A-04)", () => {
     expect(kept.identity).toBe("A calm voice.");
     expect(kept.stages).toHaveLength(1);
     expect(kept.ending).toBe("Thank them.");
-  });
-});
-
-describe("Fix them first, seen before it is used (A-02, A-15)", () => {
-  const proposal = (script: CallScript): ScriptProposal => ({
-    id: "p1",
-    mode: "change",
-    status: "ready",
-    base_script: CURRENT,
-    script,
-    unplaced: [],
-    left_out: [],
-    documents: [],
-    request: null,
-    disclosure: null,
-    note: null,
-    requested_at: "2026-11-05T10:00:00Z",
-  });
-
-  it("shows each fixed line before and after, and uses it only on the owner's word", () => {
-    const onUse = vi.fn();
-    const fixed = { ...CURRENT, goal: "Take orders, one question at a time." };
-    expect(fixOutcome(proposal(fixed))).toEqual({ kind: "review" });
-    render(
-      <FixReview before={CURRENT} after={fixed} pending={false} error={null} onUse={onUse} onDiscard={() => undefined} />,
-    );
-    expect(screen.getByText("Take orders.")).toBeTruthy();
-    expect(screen.getByText("Take orders, one question at a time.")).toBeTruthy();
-    expect(onUse).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Use these fixes" }));
-    expect(onUse).toHaveBeenCalledOnce();
-  });
-
-  it("says plainly when the fix changed nothing", () => {
-    expect(fixOutcome(proposal(CURRENT))).toEqual({
-      kind: "nothing",
-      message: "Pip could not fix these. Edit them, or put it live anyway.",
-    });
-  });
-
-  it("names each warning the fix still leaves (founder, 10 Nov 2026)", () => {
-    const left = [{ part: "script", label: "The script", rule: 'Still to fix: no step asks for "Their crop".', added: false, unfixed: true }];
-    expect(fixOutcome({ ...proposal(CURRENT), left_out: left })).toEqual({
-      kind: "nothing",
-      message: "Pip could not fix these: The script. Edit them, or put it live anyway.",
-    });
-    const fixed = { ...CURRENT, goal: "Take orders, one question at a time." };
-    render(
-      <FixReview
-        before={CURRENT}
-        after={fixed}
-        pending={false}
-        error={null}
-        onUse={() => undefined}
-        onDiscard={() => undefined}
-        left={left}
-      />,
-    );
-    expect(screen.getByText("Pip could not fix everything")).toBeTruthy();
-    expect(screen.getByText(/no step asks for "Their crop"/)).toBeTruthy();
   });
 });
 

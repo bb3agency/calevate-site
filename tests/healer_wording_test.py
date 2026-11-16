@@ -104,6 +104,9 @@ _OUTCOMES = (
     ("waiting", "open"),
     ("fix_requested", "mitigated"),
     ("fix_live", "mitigated"),
+    ("fix_proposed", "mitigated"),
+    ("no_job", "resolved"),
+    ("reviewed", "resolved"),
     ("rolled_back", "escalated"),
     ("undone", "resolved"),
     # The voice fallback (D-987, `apps/workers/voice_fallback.py`) and dry run.

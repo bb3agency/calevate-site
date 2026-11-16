@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from apps.api.agents.call_rules import CALL_RULES, SCRIPT_FLOW_RULE, writer_rules
 from apps.api.agents.script_lint import LintContext, order_problems, presumed_lines, script_problems
-from apps.api.agents.script_proposals import MAIN_TASK_CHANGE, kept_to_paths
+from apps.api.agents.script_proposals import kept_to_paths
 from apps.api.agents.test_conversations import RuleContext, Turn, hard_check, probe_scenario
 from apps.api.agents.turn_checks import (
     JOB_KINDS,
@@ -147,7 +147,6 @@ def test_every_script_writer_is_told_to_ask_and_branch_rather_than_presume() -> 
     assert "registering is not using it" in SCRIPT_FLOW_RULE
     for instruction in (_SYSTEM_INSTRUCTION, EDIT_INSTRUCTION):
         assert writer_rules() in instruction
-    assert "branches on the answer" in MAIN_TASK_CHANGE
 
 
 def test_the_opening_writers_never_say_the_person_has_or_uses_something() -> None:

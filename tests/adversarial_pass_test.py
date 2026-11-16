@@ -1016,12 +1016,7 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("PUT", "/v1/agents/{agent_id}/script", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/preview", {"script": {}}, {}),
     ("POST", "/v1/agents/{agent_id}/script/check", {"script": {}}, {}),
-    ("GET", "/v1/agents/{agent_id}/script/proposal", {}, {}),
-    ("DELETE", "/v1/agents/{agent_id}/script/proposal/{proposal_id}", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/apply", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/fix-lines", {"script": {}}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/proposal/starter", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/proposal/main-task", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/undo", {}, {}),
     # The Actions lane. The `{agent_id}` routes all gate on `_assert_agent` (RLS) first, so
     # even the `{tool_id}` ones refuse a neighbour's agent at 404 before the tool is touched;
@@ -1129,8 +1124,6 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("POST", "/v1/agents/{agent_id}/script/publish", {"summary": "Changed the greeting"}, {}),
     ("GET", "/v1/agents/{agent_id}/script/versions", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/versions/{version}/restore", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/opening-line/in-language", {}, {}),
-    ("POST", "/v1/agents/{agent_id}/script/opening-line/after-introduction", {}, {}),
     ("POST", "/v1/agents/{agent_id}/script/opening-line/put-back", {}, {}),
     ("PUT", "/v1/agents/{agent_id}/script/opening-line", {"opening_line": "Namaskaram"}, {}),
     # D-715: what a lead's calls captured.

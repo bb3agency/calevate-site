@@ -18,10 +18,9 @@ and tenant-scoped through `Depends(db)` + `requires(...)` (the principal's own t
 single prefix fits — unlike `agents/routes.py`, which straddles two realms. Mounted by
 `main.py`.
 
-AI WRITING IS PIP'S (D-820). A change, a whole draft or a hand-written script turned into
-steps is asked of Pip (`copilot/script_actions.py`) and written by a job; this router only
-shows the pending proposal (`GET .../proposal`) and clears it once the owner has kept or
-discarded it (`DELETE .../proposal/{id}`). The test routes below still gate on the allowance
+AI WRITING IS PIP'S, ON THE JOB (D-820, D-1005). An agent has no script of its own (D-997,
+D-1000): Pip writes an Inbound line's or a campaign's script on that line or campaign, so this
+router keeps no suggestion of an agent's script. The test routes below gate on the allowance
 (`require_ai_assist`) because they queue paid AI work of their own.
 """
 
@@ -57,7 +56,6 @@ from apps.api.agents import (
     fix_guard,
     publishing,
     script_builder,
-    script_proposals,
     script_publish,
     test_conversations,
     test_titles,
@@ -1351,154 +1349,6 @@ async def settle_suggested_edits(
     return await _tests_out(session, agent_id, principal.tenant_id)
 
 
-# --- the suggestion Pip prepared (D-820) ------------------------------------------------
-
-
-class LeftOutPartOut(BaseModel):
-    """A part of the script Pip's suggestion leaves as the owner had it (ready), or could not
-    write (failed), and why."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    #: `stages.<id>` for a step, else the part's field name.
-    part: str
-    #: The part as the owner knows it ("Step “Ask the budget”", "The opening line").
-    label: str
-    #: The rule what Pip wrote for it broke, in the owner's words.
-    rule: str
-    #: A step Pip wanted to add, which is therefore not added.
-    added: bool
-    #: A warning Pip's repairs could not clear in the suggestion ("Pip could not fix
-    #: everything"), rather than a part kept as the owner had it.
-    unfixed: bool
-
-
-class ScriptProposalOut(BaseModel):
-    """A script suggestion Pip was asked for, reviewed part by part on the Script page."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    #: `change` (one change), `whole` (the whole script from the owner's answers), `steps` (a
-    #: hand-written script turned into steps) or `knowledge` (what files added to the
-    #: knowledge tell callers, worked into the current script, D-923) or `opening` (the
-    #: opening line written to follow the agent's introduction, D-865) or `written` (the
-    #: opening lines written for this business in the agent's main language, D-965) or
-    #: `starter` (a new agent's whole script written for this business).
-    mode: Literal["change", "whole", "steps", "knowledge", "opening", "written", "starter"]
-    #: The files a `knowledge` suggestion was written from, by name.
-    documents: list[str]
-    #: `drafting` until it is written (poll), then `ready`, or `failed` with `note`.
-    status: Literal["drafting", "ready", "failed"]
-    #: The change the person asked for, with `change`.
-    request: str | None
-    #: The script it was made from. List the changes against this, not the working copy,
-    #: so an edit made since is never offered back; apply the kept ones to the working copy.
-    base_script: CallScript
-    #: The suggested script, when `ready`.
-    script: CallScript | None
-    #: Lines of the hand-written script that appear nowhere in the steps (`steps`).
-    unplaced: list[str]
-    #: Set when a fallback model wrote it (D-127 G-6): show it.
-    disclosure: str | None
-    #: Why it could not be written, in the owner's words, when `failed`.
-    note: str | None
-    #: When `ready`, the parts kept as the owner had them because what Pip wrote for them
-    #: broke a rule; when `failed`, the parts it could not write. Empty when none.
-    left_out: list[LeftOutPartOut]
-    requested_at: datetime
-
-
-class PendingProposalOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    proposal: ScriptProposalOut | None
-
-
-@router.get(
-    "/proposal",
-    response_model=PendingProposalOut,
-    openapi_extra=permission_meta("agents:read"),
-    summary="The script suggestion Pip prepared and the owner has not yet reviewed",
-)
-async def get_script_proposal(
-    agent_id: UUID, session: Session, _: ScriptReader
-) -> PendingProposalOut:
-    found = await script_proposals.read_proposal(session, agent_id)
-    return PendingProposalOut(proposal=None if found is None else _proposal_out(found))
-
-
-def _proposal_out(found: script_proposals.ScriptProposal) -> ScriptProposalOut:
-    return ScriptProposalOut(
-        id=found.id,
-        mode=found.mode,
-        documents=found.document_names,
-        status=found.status,
-        request=found.request,
-        base_script=found.base_script,
-        script=found.script,
-        unplaced=found.unplaced,
-        disclosure=found.disclosure,
-        note=found.note,
-        left_out=[
-            LeftOutPartOut(
-                part=part.part,
-                label=script_proposals.part_label(part),
-                rule=part.rule,
-                added=part.added,
-                unfixed=part.unfixed,
-            )
-            for part in found.left_out
-        ],
-        requested_at=found.requested_at,
-    )
-
-
-@router.post(
-    "/opening-line/after-introduction",
-    response_model=ScriptProposalOut,
-    status_code=202,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Ask for the opening line written to follow the agent's own introduction",
-    description=(
-        "The repair offered when switching the AI notice on is refused with "
-        "`opening_introduces_agent` (D-865): the notice says who is calling, so the opening "
-        "line must not. Queues a suggestion that writes the opening line again without a "
-        "greeting or the agent's or business's name; poll `GET .../proposal` until it is "
-        "`ready`. Nothing reaches a caller until the line is put live."
-    ),
-)
-async def request_opening_after_introduction(
-    agent_id: UUID, session: Session, principal: ScriptWriter
-) -> ScriptProposalOut:
-    assert principal.tenant_id is not None
-    # Spends the dashboard AI allowance like any suggestion Pip writes.
-    assert_view_as_may(principal, "billing.ai_assist")
-    await require_ai_assist(session, tenant_id=principal.tenant_id)
-    proposal = await script_proposals.request_opening_proposal(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=agent_id,
-        requested_by=principal.user_id,
-        replace_ready=False,
-    )
-    return _proposal_out(proposal)
-
-
-@router.delete(
-    "/proposal/{proposal_id}",
-    status_code=204,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Clear the suggestion once its kept parts are in the draft, or to discard it",
-)
-async def discard_script_proposal(
-    agent_id: UUID, proposal_id: UUID, session: Session, _: ScriptWriter
-) -> None:
-    # Not audited, for the autosave's reason: what reaches the draft is the owner's own edit,
-    # and nothing here reaches a call. A proposal already gone is the same outcome.
-    await script_proposals.discard(session, agent_id=agent_id, proposal_id=proposal_id)
-
-
 # --- the autosaved draft, "Put it live", versions, restore (D-714) ----------------------
 
 
@@ -1534,149 +1384,6 @@ async def save_script_draft(
     else:
         saved_at = await script_builder.save_draft(session, agent_id, payload.script)
     return DraftSavedOut(saved_at=saved_at)
-
-
-@router.post(
-    "/proposal/starter",
-    response_model=ScriptProposalOut,
-    status_code=202,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Write the agent's whole script for this business again",
-    description=(
-        'The new-agent flow\'s "Try again" after the script written at creation failed. '
-        "Queues the same whole-script suggestion `POST /v1/agents` with a `starter` does; "
-        "poll `GET .../proposal`. A draft agent still on its untouched starter takes it at "
-        "once, as at creation."
-    ),
-)
-async def rewrite_starter_script(
-    agent_id: UUID, session: Session, principal: ScriptWriter
-) -> ScriptProposalOut:
-    assert principal.tenant_id is not None
-    # Spends the dashboard AI allowance like any suggestion Pip writes.
-    assert_view_as_may(principal, "billing.ai_assist")
-    await require_ai_assist(session, tenant_id=principal.tenant_id)
-    proposal = await script_proposals.request_written_script(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=agent_id,
-        requested_by=principal.user_id,
-        replace_ready=False,
-    )
-    return _proposal_out(proposal)
-
-
-@router.post(
-    "/proposal/main-task",
-    response_model=ScriptProposalOut,
-    status_code=202,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Ask Pip to re-adjust the script to the agent's main task",
-    description=(
-        '"Re-adjust script" on the agent page. Queues a `change` suggestion that brings the '
-        "working script (the draft, else the saved script) into line with its own main task "
-        "(`goal`); poll `GET .../proposal` until it is `ready` and review it on the Script "
-        "page. Nothing reaches the draft until it is kept, nor a caller until it is put live. "
-        "Refused with `script_main_task_missing` when there is no main task, "
-        "`script_main_task_hand_written` for a script written as one text, and "
-        "`script_suggestion_waiting` while another suggestion waits for review."
-    ),
-)
-async def readjust_script_to_main_task(
-    agent_id: UUID, session: Session, principal: ScriptWriter
-) -> ScriptProposalOut:
-    assert principal.tenant_id is not None
-    # Spends the dashboard AI allowance like any suggestion Pip writes.
-    assert_view_as_may(principal, "billing.ai_assist")
-    await require_ai_assist(session, tenant_id=principal.tenant_id)
-    proposal = await script_proposals.request_main_task_fit(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=agent_id,
-        requested_by=principal.user_id,
-    )
-    return _proposal_out(proposal)
-
-
-class FixLinesIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    #: The draft on screen, saved as the working copy so the fix is made to what was checked.
-    script: CallScript
-    #: The draft's `saved_at` the screen holds (null: there was no draft). When sent, the save
-    #: is refused with `script_changed_elsewhere` (409) if the stored draft moved since.
-    base_saved_at: datetime | None = None
-
-
-class FixLinesOut(ScriptProposalOut):
-    #: When the draft the fix is made to was saved: the `base_saved_at` to keep the fix with.
-    draft_saved_at: datetime
-
-
-@router.post(
-    "/fix-lines",
-    response_model=FixLinesOut,
-    status_code=202,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Fix the lines the script check found, before putting it live",
-    description=(
-        '"Fix them first" on Put it live. Saves `script` as the working copy, runs the same '
-        "check as `POST .../check` on it (its `warnings` and `mistakes`) and asks for a "
-        "suggestion that changes only the "
-        "lines the check named; poll `GET .../proposal` until it is `ready`, then show it "
-        "to the owner before it goes into the draft. Refused with `script_has_nothing_to_fix` "
-        "when the check finds nothing, `fix_lines_hand_written` for a script written as one "
-        "text, and `script_suggestion_waiting` while another suggestion waits for review."
-    ),
-)
-async def fix_script_lines(
-    agent_id: UUID, payload: FixLinesIn, session: Session, principal: ScriptWriter
-) -> FixLinesOut:
-    assert principal.tenant_id is not None
-    assert principal.user_id is not None
-    # Spends the dashboard AI allowance like any suggestion Pip writes.
-    assert_view_as_may(principal, "billing.ai_assist")
-    if payload.script.raw_override is not None:
-        # The writer edits a script in steps; handed one text it returned steps written from
-        # nothing in place of the owner's words (A-01).
-        raise ProblemError.business_rule(
-            "fix_lines_hand_written",
-            "Pip cannot fix lines in a script written as one text.",
-            remediation="Edit those lines in the text yourself, or turn it into steps first.",
-        )
-    await require_ai_assist(session, tenant_id=principal.tenant_id)
-    script = upgrade_to_v2(payload.script)
-    context = await lint_context_for(session, tenant_id=principal.tenant_id, agent_id=agent_id)
-    found, mistakes = _check_findings(script, context)
-    problems = [*found, *mistakes]
-    if not problems:
-        raise ProblemError.conflict(
-            "script_has_nothing_to_fix",
-            "The check finds nothing to fix in this script.",
-            remediation="Put it live as it is.",
-        )
-    if "base_saved_at" in payload.model_fields_set:
-        saved_at = await script_builder.save_draft(
-            session, agent_id, payload.script, base_saved_at=payload.base_saved_at
-        )
-    else:
-        saved_at = await script_builder.save_draft(session, agent_id, payload.script)
-    change = (
-        "Fix only these problems the script check found, and change nothing else: "
-        + " ".join(plain(problem) for problem in problems)
-    )[: script_proposals.MAX_CHANGE_CHARS]
-    proposal = await script_proposals.request_proposal(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=agent_id,
-        mode="change",
-        change=change,
-        answers={},
-        requested_by=principal.user_id,
-        paths=sorted({problem.partition(": ")[0] for problem in problems}),
-        replace_ready=False,
-    )
-    return FixLinesOut(**_proposal_out(proposal).model_dump(), draft_saved_at=saved_at)
 
 
 class PublishIn(BaseModel):
@@ -1787,36 +1494,6 @@ async def restore_script_version(
         saved_at=restored.draft.saved_at,
         replaced=restored.replaced,
     )
-
-
-@router.post(
-    "/opening-line/in-language",
-    response_model=ScriptProposalOut,
-    status_code=202,
-    openapi_extra=permission_meta("org:manage"),
-    summary="Ask for the opening lines written for this business in the agent's main language",
-    description=(
-        "Offered after the agent's main language changes (D-838, D-965). Queues a `written` "
-        "suggestion with the opening lines written for this business in that language; poll "
-        "`GET .../proposal` until it is `ready` and review it on the Script page. Nothing "
-        "reaches a caller until the line is put live."
-    ),
-)
-async def rewrite_opening_in_language(
-    agent_id: UUID, session: Session, principal: ScriptWriter
-) -> ScriptProposalOut:
-    assert principal.tenant_id is not None
-    # Spends the dashboard AI allowance like any suggestion Pip writes.
-    assert_view_as_may(principal, "billing.ai_assist")
-    await require_ai_assist(session, tenant_id=principal.tenant_id)
-    proposal = await script_proposals.request_written_opening(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=agent_id,
-        requested_by=principal.user_id,
-        replace_ready=False,
-    )
-    return _proposal_out(proposal)
 
 
 class OpeningLineIn(BaseModel):

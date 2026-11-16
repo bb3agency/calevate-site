@@ -7,15 +7,15 @@ every business. The model legs are replaced at the workers' seams (`write_openin
 
 from __future__ import annotations
 
+import time
 import uuid
 from dataclasses import replace
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from apps.api.agents import script_proposals
-from apps.api.crm import assist as crm_assist
-from apps.api.db.session import tenant_session
 from apps.workers import opening_line
 from apps.workers import script_proposal as proposal_worker
 from apps.workers.script_assist import ScriptBrief, UnusableAnswerError
@@ -117,9 +117,7 @@ async def test_the_writer_asks_once_and_sends_back_a_broken_line_with_its_proble
     assert answer.value.line == REPAIRED and seen == ["ask"]
 
 
-async def test_pips_proposal_repairs_the_opening_it_wrote(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def _agent() -> tuple[uuid.UUID, uuid.UUID]:
     created = await create_org_with_receptionist(
         name=BUSINESS,
         slug=f"prop-{uuid.uuid4().hex[:8]}",
@@ -128,27 +126,26 @@ async def test_pips_proposal_repairs_the_opening_it_wrote(
         language="te-IN",
         created_by=None,
     )
-    tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
-    async with tenant_session(tenant_id) as session:
-        proposal = await script_proposals.request_proposal(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            mode="change",
-            change="Rewrite my opening line for farmers checking their balance.",
-            answers={},
-            requested_by=uuid.uuid4(),
-        )
+    return uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
 
-    async def drafted(*_args: Any) -> Any:
-        # Greets, but hands no turn over: no question.
-        return SimpleNamespace(
-            script=CallScript(opening_line="నమస్కారం, మీ ఖాతా చూస్తాను."),
-            earlier=(),
-            model="gemini-2.5-flash-lite",
-            capability=SimpleNamespace(disclosure=None),
-        )
 
+def _request(base: CallScript, words: str) -> script_proposals.ScriptProposal:
+    return script_proposals.ScriptProposal(
+        id=uuid.uuid4(),
+        mode="change",
+        status="drafting",
+        request=words,
+        answers={},
+        base_script=base,
+        requested_by=None,
+        requested_at=datetime.now(UTC),
+    )
+
+
+async def test_pips_draft_repairs_the_opening_it_wrote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tenant_id, agent_id = await _agent()
     asked: list[dict[str, Any]] = []
     fixed = "నమస్కారం, మీ ఖాతాలో బాకీ చూడాలా?"
 
@@ -156,85 +153,41 @@ async def test_pips_proposal_repairs_the_opening_it_wrote(
         asked.append(kwargs)
         return _answer(fixed)
 
-    metered: list[Any] = []
-
-    async def meter(_session: Any, **kwargs: Any) -> None:
-        metered.append(kwargs.get("result"))
-
-    monkeypatch.setattr(proposal_worker, "_draft", drafted)
     monkeypatch.setattr(proposal_worker, "write_opening", write)
-    monkeypatch.setattr(crm_assist, "meter_assist", meter)
-    payload = {
-        "tenant_id": str(tenant_id),
-        "agent_id": str(agent_id),
-        "proposal_id": str(proposal.id),
-    }
-    assert await proposal_worker.draft_script_proposal({}, payload) == "ready"
-
-    async with tenant_session(tenant_id) as session:
-        stored = await script_proposals.read_proposal(session, agent_id)
-    assert stored is not None and stored.script is not None
-    assert stored.script.opening_line == fixed
+    # Greets, but hands no turn over: no question.
+    drafted = CallScript(opening_line="నమస్కారం, మీ ఖాతా చూస్తాను.")
+    finished = await proposal_worker.finish_written(
+        tenant_id,
+        agent_id,
+        _request(CallScript(), "Rewrite my opening line for farmers checking their balance."),
+        drafted,
+        time.monotonic(),
+    )
+    assert finished.script.opening_line == fixed
     assert any("does not end on a question" in p for p in asked[0]["problems"])
-    assert len(metered) == 2, "the draft and the repair are both charged"
+    assert len(finished.opening_spends) == 1, "the repair is handed back to be charged"
 
 
-async def test_pips_proposal_repairs_the_placed_opening_it_wrote(
+async def test_pips_draft_repairs_the_placed_opening_it_wrote(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    created = await create_org_with_receptionist(
-        name=BUSINESS,
-        slug=f"prop-{uuid.uuid4().hex[:8]}",
-        vertical_template=TRADE,
-        billing_email=None,
-        language="te-IN",
-        created_by=None,
-    )
-    tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
-    async with tenant_session(tenant_id) as session:
-        proposal = await script_proposals.request_proposal(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            mode="change",
-            change="Add an opening for the calls it makes about crop loans.",
-            answers={},
-            requested_by=uuid.uuid4(),
-        )
-        base = proposal.base_script.opening_line
-
-    async def drafted(*_args: Any) -> Any:
-        return SimpleNamespace(
-            script=CallScript(opening_line=base, outbound_opening_line=PLACED_SLIPPED),
-            earlier=(),
-            model="gemini-2.5-flash-lite",
-            capability=SimpleNamespace(disclosure=None),
-        )
-
+    tenant_id, agent_id = await _agent()
+    base = CallScript(opening_line="మీ ఖాతా గురించి అడగాలా?")
     asked: list[dict[str, Any]] = []
 
     async def write(brief: ScriptBrief, **kwargs: Any) -> SimpleNamespace:
         asked.append(kwargs)
         return _answer(PLACED_REPAIRED)
 
-    monkeypatch.setattr(proposal_worker, "_draft", drafted)
     monkeypatch.setattr(proposal_worker, "write_opening", write)
-
-    async def meter(_session: Any, **_kwargs: Any) -> None:
-        return None
-
-    monkeypatch.setattr(crm_assist, "meter_assist", meter)
-    payload = {
-        "tenant_id": str(tenant_id),
-        "agent_id": str(agent_id),
-        "proposal_id": str(proposal.id),
-    }
-    assert await proposal_worker.draft_script_proposal({}, payload) == "ready"
-
-    async with tenant_session(tenant_id) as session:
-        stored = await script_proposals.read_proposal(session, agent_id)
-    assert stored is not None and stored.script is not None
-    assert stored.script.outbound_opening_line == PLACED_REPAIRED
+    finished = await proposal_worker.finish_written(
+        tenant_id,
+        agent_id,
+        _request(base, "Add an opening for the calls it makes about crop loans."),
+        CallScript(opening_line=base.opening_line, outbound_opening_line=PLACED_SLIPPED),
+        time.monotonic(),
+    )
+    assert finished.script.outbound_opening_line == PLACED_REPAIRED
     assert [kw["placed"] for kw in asked] == [True], "the answering line it kept is not judged"
 
 

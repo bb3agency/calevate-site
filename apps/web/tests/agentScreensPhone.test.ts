@@ -70,11 +70,4 @@ describe("agent and knowledge screens on a phone", () => {
     expect(summary, "SectionSummary not found").not.toEqual("");
     expect(summary).not.toMatch(/\btruncate\b/);
   });
-
-  it("the script bar's save line wraps rather than hiding a failure", () => {
-    const source = code(join(SRC, "app/c/[slug]/agents/[agentId]/script/ScriptToolbar.tsx")).join("\n");
-    const status = /<p role="status"[^>]*>/.exec(source)?.[0] ?? "";
-    expect(status).not.toEqual("");
-    expect(status).not.toMatch(/\btruncate\b/);
-  });
 });

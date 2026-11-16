@@ -1633,14 +1633,6 @@ describe("editing what an agent captures (the extraction variables)", () => {
   });
 });
 
-const WAITING_SCRIPT = {
-  script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
-  version: 9,
-  is_freeform: false,
-  has_pending: true,
-  standard_variables: [],
-};
-
 describe("putting a waiting script live from the header", () => {
   it("offers the owner Put it live on the client-realm door, CAS on the waiting version", async () => {
     // CHANGED 10 Oct 2026 (founder: one "Put it live", no Save → Apply): the header's
@@ -1679,99 +1671,6 @@ describe("putting a waiting script live from the header", () => {
     const posted = calls.find((call) => call.path === "/v1/agents/agent-1/script/apply");
     expect(posted?.method).toBe("POST");
     expect(JSON.parse(posted?.body ?? "{}")).toEqual({ expected_version: 9 });
-  });
-
-  it("fixes the flagged lines in place and says so while it works", async () => {
-    // Founder, 3 Nov 2026: "Fix them first" fixes them, with a message while it does.
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/agent-1/pending": STAGED,
-        "/v1/agents/agent-1/script": WAITING_SCRIPT,
-        "POST /v1/agents/agent-1/script/check": { warnings: ["Ask one question at a time."] },
-        "POST /v1/agents/agent-1/script/fix-lines": {
-          id: "fix-1",
-          mode: "change",
-          status: "drafting",
-          note: null,
-          base_script: WAITING_SCRIPT.script,
-          script: null,
-        },
-        "/v1/agents/agent-1/script/proposal": { proposal: null },
-      }),
-    );
-    const open = await screen.findByRole("button", { name: "Put it live" });
-    await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
-    await act(async () => {
-      fireEvent.click(open);
-    });
-    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
-    await within(dialog).findByText("1 line to fix first");
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Fix it first" }));
-    });
-    expect(await within(dialog).findByText("Fixing 1 line…")).toBeTruthy();
-    const sent = calls.find((c) => c.method === "POST" && c.url.includes("/script/fix-lines"));
-    expect(JSON.parse(sent?.body ?? "{}")).toHaveProperty("script");
-    expect(within(dialog).getByRole("button", { name: "Put it live" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("shows lines that could cause mistakes on calls as their own group, never blocking (D-989)", async () => {
-    const { calls } = await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/agent-1/pending": STAGED,
-        "/v1/agents/agent-1/script": WAITING_SCRIPT,
-        "POST /v1/agents/agent-1/script/check": {
-          warnings: [],
-          mistakes: ["Step 1: asks more than one question in one turn; keep it to one question."],
-        },
-        "POST /v1/agents/agent-1/script/fix-lines": {
-          id: "fix-2",
-          mode: "change",
-          status: "drafting",
-          note: null,
-          base_script: WAITING_SCRIPT.script,
-          script: null,
-        },
-        "/v1/agents/agent-1/script/proposal": { proposal: null },
-      }),
-    );
-    const open = await screen.findByRole("button", { name: "Put it live" });
-    await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
-    await act(async () => {
-      fireEvent.click(open);
-    });
-    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
-    await within(dialog).findByText("1 line to fix first");
-    expect(within(dialog).getByText("It could cause a mistake on calls.")).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: /why/i }));
-    expect(within(dialog).getByText("Could cause mistakes on calls")).toBeTruthy();
-    expect(within(dialog).getByRole("button", { name: "Put it live" }).hasAttribute("disabled")).toBe(false);
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Fix it first" }));
-    });
-    expect(await within(dialog).findByText("Fixing 1 line…")).toBeTruthy();
-    expect(calls.some((c) => c.method === "POST" && c.url.includes("/script/fix-lines"))).toBe(true);
-  });
-
-  it("offers Try again when the line check fails", async () => {
-    await renderClientPage(
-      page,
-      routes({
-        "/v1/agents/agent-1/pending": STAGED,
-        "/v1/agents/agent-1/script": WAITING_SCRIPT,
-        "POST /v1/agents/agent-1/script/check": problem(422, { title: "Not checkable" }),
-      }),
-    );
-    const open = await screen.findByRole("button", { name: "Put it live" });
-    await waitFor(() => expect(open.hasAttribute("disabled")).toBe(false));
-    await act(async () => {
-      fireEvent.click(open);
-    });
-    const dialog = await screen.findByRole("dialog", { name: "Put these changes live?" });
-    await within(dialog).findByText("We could not check its lines this time.", undefined, { timeout: 5000 });
-    expect(within(dialog).getByRole("button", { name: "Try again" })).toBeTruthy();
   });
 
   it("offers no Put it live when nothing is waiting", async () => {
@@ -2356,31 +2255,16 @@ describe("changing what an agent is", () => {
     expect(await shown.findByRole("checkbox", { name: "Tamil" })).toBeTruthy();
   });
 
-  it("offers an opening line written in the new main language once it is saved (D-838, D-965)", async () => {
-    const proposal = (status: "drafting" | "ready") => ({
-      id: "p-lang",
-      mode: "written",
-      documents: [],
-      status,
-      request: null,
-      base_script: { ...EMPTY_SCRIPT, opening_line: "Namaskaram." },
-      script: status === "ready" ? { ...EMPTY_SCRIPT, opening_line: "नमस्ते जी, आज क्या चाहिए?" } : null,
-      unplaced: [],
-      left_out: [],
-      disclosure: null,
-      note: null,
-      requested_at: "2026-11-02T10:00:00Z",
-    });
-    let asked = false;
-    const { calls } = await renderClientPage(
+  it("points to the agent's lines and campaigns for the opening once the language is saved (D-838, D-1005)", async () => {
+    await renderClientPage(
       page,
       routes({
         "PATCH /v1/agents/agent-1": agent({ language_primary: "hi-IN", reply_languages: ["hi-IN"] }),
-        "POST /v1/agents/agent-1/script/opening-line/in-language": () => {
-          asked = true;
-          return proposal("drafting");
+        "/v1/agents/agent-1/jobs": {
+          agent_id: "agent-1",
+          total: 1,
+          jobs: [{ id: "line-1", kind: "inbound_line", name: "Front desk", status: "live" }],
         },
-        "/v1/agents/agent-1/script/proposal": () => ({ proposal: asked ? proposal("ready") : null }),
       }),
     );
 
@@ -2394,12 +2278,9 @@ describe("changing what an agent is", () => {
     await act(async () => {
       fireEvent.click(await pressable(panel, /Save changes/));
     });
-    const offer = await within(panel).findByRole("button", { name: "Write my opening line in Hindi" });
-    await act(async () => {
-      fireEvent.click(offer);
-    });
-    expect(await within(panel).findByText(/आज क्या चाहिए/)).toBeTruthy();
-    expect(calls.some((c) => c.method === "POST" && c.path.endsWith("/opening-line/in-language"))).toBe(true);
+    expect(await within(panel).findByText("Saved. Its notices are now in Hindi.")).toBeTruthy();
+    const line = await within(panel).findByRole("link", { name: "Front desk" });
+    expect(line.getAttribute("href")).toContain("/inbound/line-1");
   });
 
   it("offers no save until something has been changed, and Cancel puts it back", async () => {
