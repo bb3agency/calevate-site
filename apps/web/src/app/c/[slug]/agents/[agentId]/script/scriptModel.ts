@@ -66,8 +66,10 @@ export function limitsFrom(context: ScriptContext | null): Limits {
 }
 
 /** A stage with every optional field filled, so views never branch on `undefined`. */
-export type Section = Required<Omit<ConversationStage, "position">> & {
+export type Section = Required<Omit<ConversationStage, "position" | "otherwise_via">> & {
   position: { x: number; y: number } | null;
+  /** The bend of the arrow to `otherwise` (or the next step), dragged on the canvas. */
+  otherwise_via?: { x: number; y: number } | null;
 };
 
 export function asSection(stage: ConversationStage): Section {
@@ -85,6 +87,7 @@ export function asSection(stage: ConversationStage): Section {
       wait_for: step.wait_for,
     })),
     position: stage.position ?? null,
+    otherwise_via: stage.otherwise_via ?? null,
   };
 }
 
@@ -355,12 +358,55 @@ export function positionOf(section: Section, index: number, columns = DEFAULT_CO
   return section.position ?? autoPosition(index, columns);
 }
 
-/** Clear every saved position, so the canvas lays the sections out in reading order. */
+/** Clear every saved position and bend, so the canvas lays the sections out in reading order. */
 export function tidy(script: CallScript): CallScript {
-  return withSections(
-    script,
-    sectionsOf(script).map((s) => ({ ...s, position: null })),
-  );
+  return {
+    ...withSections(
+      script,
+      sectionsOf(script).map((s) => ({
+        ...s,
+        position: null,
+        otherwise_via: null,
+        branches: s.branches.map(({ when, target }) => ({ when, target })),
+      })),
+    ),
+    end_positions: {},
+  };
+}
+
+type Point = { x: number; y: number };
+const roundPoint = (p: Point): Point => ({ x: Math.round(p.x), y: Math.round(p.y) });
+
+/**
+ * Bend one arrow through `via` (null straightens it): `branch` is the way out's index, or
+ * null for the arrow to "otherwise" or the next step. Layout only; the server never compiles it.
+ */
+export function setBend(script: CallScript, from: string, branch: number | null, via: Point | null): CallScript {
+  const source = sectionsOf(script).find((s) => s.id === from);
+  if (!source) return script;
+  const at = via ? roundPoint(via) : null;
+  if (branch === null) return updateSection(script, from, { otherwise_via: at });
+  return updateSection(script, from, {
+    branches: source.branches.map((b, i) => {
+      if (i !== branch) return b;
+      const { via: _old, ...rest } = b;
+      return at ? { ...rest, via: at } : rest;
+    }),
+  });
+}
+
+/** Where an end point (End the call, Hand to a person, Offer a call back) sits on the canvas. */
+export function setEndPosition(script: CallScript, target: string, at: Point): CallScript {
+  return { ...script, end_positions: { ...(script.end_positions ?? {}), [target]: roundPoint(at) } };
+}
+
+/** Rewrite one way out's condition from the canvas. */
+export function relabel(script: CallScript, from: string, branch: number, when: string): CallScript {
+  const source = sectionsOf(script).find((s) => s.id === from);
+  if (!source) return script;
+  return updateSection(script, from, {
+    branches: source.branches.map((b, i) => (i === branch ? { ...b, when } : b)),
+  });
 }
 
 // --- validation -------------------------------------------------------------------------

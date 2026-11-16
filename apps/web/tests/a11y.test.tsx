@@ -3234,6 +3234,7 @@ const CLIENT_SCREENS: Screen[] = [
             outcome: "connected",
             attempts: 1,
             last_attempt_at: "2026-10-14T05:00:00Z",
+            included: true,
             will_retry: false,
             next_attempt_at: null,
             call_id: "call-1",

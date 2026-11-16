@@ -74,7 +74,7 @@ const NO_OUTCOMES = {
 };
 
 export function contactsFixture(over: Partial<ContactResults> = {}): ContactResults {
-  return { items: [], total: 0, counts: { ...NO_OUTCOMES }, ...over };
+  return { items: [], total: 0, counts: { ...NO_OUTCOMES }, included: 0, everyone: 0, ...over };
 }
 
 export function resultsFixture(over: Partial<CampaignResults> = {}): CampaignResults {

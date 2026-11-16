@@ -23,7 +23,7 @@ from uuid import UUID
 
 from calevate_shared.extraction import GoalVerdict
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import AfterValidator, Field, StringConstraints
+from pydantic import AfterValidator, Field, StringConstraints, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -242,6 +242,24 @@ class RemoveContactsOut(Strict):
     removed: int
 
 
+class IncludeContactsIn(Strict):
+    """Switch people on or off for dialling: the ids given, or everyone when `all`."""
+
+    contact_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=1000)
+    all: bool = False
+    included: bool
+
+    @model_validator(mode="after")
+    def _one_target(self) -> IncludeContactsIn:
+        if self.all == (self.contact_ids is not None):
+            raise ValueError("Give contact_ids or all, not both.")
+        return self
+
+
+class IncludeContactsOut(Strict):
+    changed: int
+
+
 class ComplaintReviewIn(Strict):
     """The client's confirmation that they read the opt-outs. A literal `true`, so the
     request states the act rather than toggling a flag."""
@@ -254,6 +272,10 @@ class ContactResultOut(Strict):
     name: str | None
     phone_e164: str
     outcome: results.ContactOutcome
+    #: Switched on to be dialled; off, the person is kept and never rung.
+    included: bool = True
+    #: What their latest answered call came to, in the agent's own outcome words.
+    business_outcome_label: str | None = None
     attempts: int
     last_attempt_at: datetime | None
     will_retry: bool
@@ -273,6 +295,9 @@ class ContactResultsOut(Strict):
     total: int
     #: Every outcome's count for the whole campaign, whatever the filter.
     counts: dict[str, int]
+    #: How many of everyone on the campaign are switched on.
+    included: int = 0
+    everyone: int = 0
 
 
 class CampaignLeadOut(Strict):
@@ -1780,6 +1805,42 @@ async def add_contacts_from_leads(
 
 
 @router.post(
+    "/{campaign_id}/contacts/include",
+    response_model=IncludeContactsOut,
+    openapi_extra=permission_meta("leads:dispatch"),
+    summary="Switch people on or off for dialling; each is still called by their own status",
+)
+async def include_campaign_contacts(
+    campaign_id: UUID,
+    payload: IncludeContactsIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("leads:dispatch")),
+) -> IncludeContactsOut:
+    assert principal.tenant_id is not None
+    changed = await controls.set_included(
+        session,
+        campaign_id=campaign_id,
+        contact_ids=None if payload.all else payload.contact_ids,
+        included=payload.included,
+    )
+    if changed:
+        await write_audit(
+            session,
+            action=(
+                "campaign.contacts_included" if payload.included else "campaign.contacts_excluded"
+            ),
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="campaign",
+            object_id=str(campaign_id),
+            ip=client_request_ip(request),
+            summary={"changed": changed, "all": payload.all},
+        )
+    return IncludeContactsOut(changed=changed)
+
+
+@router.post(
     "/{campaign_id}/contacts/remove",
     response_model=RemoveContactsOut,
     openapi_extra=permission_meta("leads:dispatch"),
@@ -1837,6 +1898,8 @@ async def contact_results(
         items=[ContactResultOut.model_validate(item) for item in page.items],
         total=page.total,
         counts=page.counts,
+        included=page.included,
+        everyone=page.everyone,
     )
 
 

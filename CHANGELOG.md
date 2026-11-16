@@ -3,7 +3,7 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
-## 0.4.56 — 16-Nov-2026
+## 0.4.58 — 16-Nov-2026
 
 - **Each campaign speaks through its own calling agent**, in the voice you chose. Your
   agent's own script and the numbers it answers stay exactly as they are, and several
@@ -20,6 +20,23 @@ page (`apps/web/package.json` holds the version). Dates are IST.
   campaign the call was on. Review it there before it goes live.
 - Changing an agent's main language points you to each line and campaign to change its
   opening.
+## 0.4.57 — 16-Nov-2026
+
+- Call flow: Undo and Redo (also Ctrl+Z and Ctrl+Y) step through your changes until Save.
+- Call flow: arrows are coloured by what they say: green for a yes, orange for a no, blue for
+  any other condition. Click an arrow's words to change them. Drag the words (or the dot on
+  an unlabelled arrow) to move the line; Straighten puts it back. The End the call, Hand to
+  a person and Offer a call back boxes can be dragged anywhere. All of it is kept on Save.
+- Campaign people: the tick box replaces the ⋯ "Take off this campaign" menu.
+
+## 0.4.56 — 16-Nov-2026
+
+- Campaign people: a tick box per person decides who is included in the campaign, and the
+  box in the header includes (or leaves out) everyone. Included people are still called by
+  their own status, so people already reached, opted out or out of tries are not rung again.
+- A Status column after Phone shows each person's latest result: not called yet, spoke to
+  the agent and what it came to (for example the app installed), no answer or busy with
+  the next try, or not included. Name and Phone sit closer together.
 
 ## 0.4.55 — 16-Nov-2026
 

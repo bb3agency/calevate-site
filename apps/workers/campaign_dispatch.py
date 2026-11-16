@@ -974,7 +974,7 @@ async def _dispatch_for_campaign(
                     "WITH picked AS MATERIALIZED ("
                     "  SELECT id, last_attempt_at AS prior_at, last_call_id AS prior_call "
                     "  FROM campaign_contacts WHERE campaign_id = :cid "
-                    "  AND status = 'pending' "
+                    "  AND status = 'pending' AND included "
                     "  AND (next_attempt_at IS NULL OR next_attempt_at <= now()) "
                     "  AND EXISTS (SELECT 1 FROM campaigns c WHERE c.id = :cid "
                     "    AND c.status = 'running' AND c.archived_at IS NULL) "
@@ -1246,7 +1246,7 @@ async def _settle_finished_campaign(
         await session.execute(
             text(
                 "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
-                "AND status IN ('pending', 'dialing')"
+                "AND (status = 'dialing' OR (status = 'pending' AND included))"
             ),
             {"cid": campaign_id},
         )

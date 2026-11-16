@@ -1,13 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { PhoneCall, UserMinus } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { PhoneCall } from "lucide-react";
 
 import { ChipGroup } from "@/components/arc/chip-group";
 import { useActionFeedback } from "@/components/arc/feedback";
 import { FilterToolbar } from "@/components/arc/filter-toolbar";
-import { RowMenu } from "@/components/arc/menu";
 import { SearchField } from "@/components/arc/search-field";
 import { EmptyState } from "@/components/console/emptyState";
 import { TEXT_ACTION_SM } from "@/components/console/section";
@@ -22,7 +21,7 @@ import {
 } from "@/components/ui";
 import {
   useContactResults,
-  useRemoveContacts,
+  useIncludeContacts,
   type ContactOutcome,
   type ContactResult,
 } from "@/lib/api/campaigns";
@@ -53,18 +52,17 @@ const OUTCOME_TONE: Record<ContactOutcome, NoticeTone> = {
  * here most. One page of the server's list at a time, filtered by outcome and searched by
  * name or the last digits of the number, so a list of five thousand stays a page.
  *
- * A real table, kept to three columns so nothing scrolls sideways at 375px: the person
- * (with the number under the name), what happened (the outcome as a status mark, the tries
- * and the next one), and the row's one action. Before launch the second column is the
- * phone number, shown under the name on a phone instead, and the action is a ⋯ menu that
- * takes a person not yet tried off the list.
+ * Columns: the include box, the person, their number (under the name on a phone), the
+ * status (what happened, the tries and the next one), and the row's one action. The box
+ * only decides whether a person may be dialled; who is actually rung still follows each
+ * person's own status, so "include everyone" never re-calls people already reached
+ * (founder, 16 Nov 2026).
  */
 export function ContactResults({
   slug,
   campaignId,
   maxAttempts,
   live,
-  editable,
   canWrite,
   refusal,
 }: {
@@ -72,8 +70,6 @@ export function ContactResults({
   campaignId: string;
   maxAttempts: number;
   live: boolean;
-  /** A draft or scheduled campaign: people not yet tried can be removed. */
-  editable: boolean;
   canWrite: boolean;
   refusal: string | undefined;
 }) {
@@ -84,12 +80,8 @@ export function ContactResults({
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const people = useContactResults(session, campaignId, { page, pageSize: PAGE_SIZE, outcome, search }, live);
-  const remove = useRemoveContacts(session, campaignId);
-  // The row leaves the list on success, so the toast is where the result is said.
-  const removeFeedback = useActionFeedback(remove, {
-    errorTitle: "Could not take this person off",
-    successToast: "Taken off this campaign",
-  });
+  const include = useIncludeContacts(session, campaignId);
+  useActionFeedback(include, { errorTitle: "Could not change who is included" });
   const data = people.data;
   const pages = data ? Math.max(1, Math.ceil(data.total / PAGE_SIZE)) : 1;
   // A page that lost its rows (the last person taken off, everyone under "Calling" moving
@@ -141,26 +133,7 @@ export function ContactResults({
         <PhoneCall aria-hidden className="h-3.5 w-3.5" />
         <span className="max-sm:sr-only">Open call</span>
       </Link>
-    ) : editable && row.outcome === "not_called" ? (
-      // One quiet ⋯ per row rather than a bordered button on every line: taking someone
-      // off is occasional, and a column of identical buttons outweighs the names.
-      <RowMenu
-        label={who}
-        items={[
-          {
-            id: "remove",
-            label: "Take off this campaign",
-            tone: "danger",
-            icon: <UserMinus aria-hidden className="h-3.5 w-3.5" />,
-            disabled: !canWrite,
-            hint: refusal,
-            ariaLabel: `Take ${who} off this campaign`,
-            onSelect: () => removeFeedback.run([row.id]),
-          },
-        ]}
-      />
     ) : null;
-  const removing = (row: ContactResult) => remove.isPending && remove.variables?.[0] === row.id;
 
   return (
     <div className="space-y-4">
@@ -177,7 +150,7 @@ export function ContactResults({
           />
         }
         filters={
-          !editable && shown.length > 0 ? (
+          shown.length > 1 ? (
             <ChipGroup
               mode="single"
               label="Show people by outcome"
@@ -213,21 +186,25 @@ export function ContactResults({
             <table aria-label="People on this campaign" className="w-full table-fixed border-collapse text-left">
               <thead className="border-b border-line">
                 <tr className="text-meta text-ink-muted">
-                  <th scope="col" className={`${CELL} font-medium`}>
+                  <th scope="col" className={`${CELL} w-10`}>
+                    <IncludeAll
+                      included={data.included ?? 0}
+                      everyone={data.everyone ?? 0}
+                      disabled={!canWrite || include.isPending}
+                      refusal={refusal}
+                      onChange={(on) => include.mutate({ all: true, included: on })}
+                    />
+                  </th>
+                  <th scope="col" className={`${CELL} font-medium sm:w-44 lg:w-56`}>
                     Person
                   </th>
-                  {editable ? (
-                    <th scope="col" className={`${CELL} hidden font-medium sm:table-cell`}>
-                      Phone
-                    </th>
-                  ) : (
-                    <th scope="col" className={`${CELL} font-medium`}>
-                      What happened
-                    </th>
-                  )}
-                  {/* `touch:w-17`: the ⋯ menu is 44px on a finger, and with the cell's 24px of padding a
-                      56px column pushed it past the card's clipped edge. */}
-                  <th scope="col" className={`${CELL} ${editable ? "w-14 touch:w-17" : "w-14 sm:w-32"}`}>
+                  <th scope="col" className={`${CELL} hidden w-40 font-medium sm:table-cell`}>
+                    Phone
+                  </th>
+                  <th scope="col" className={`${CELL} font-medium`}>
+                    Status
+                  </th>
+                  <th scope="col" className={`${CELL} w-14 sm:w-32`}>
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -237,35 +214,34 @@ export function ContactResults({
                   const named = row.name?.trim();
                   const who = named || formatPhone(row.phone_e164);
                   return (
-                    <tr
-                      key={row.id}
-                      aria-busy={removing(row) || undefined}
-                      className={`align-middle transition-opacity duration-(--duration-fast) ${removing(row) ? "opacity-50" : ""}`}
-                    >
+                    <tr key={row.id} className="align-middle">
                       <td className={CELL}>
-                        <p className="text-body font-medium text-ink [overflow-wrap:anywhere]">{who}</p>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-brand-strong touch:h-5 touch:w-5"
+                          checked={row.included ?? true}
+                          disabled={!canWrite || include.isPending}
+                          title={refusal}
+                          aria-label={`Include ${who} in this campaign`}
+                          onChange={(e) => include.mutate({ all: false, contact_ids: [row.id], included: e.target.checked })}
+                        />
+                      </td>
+                      <td className={CELL}>
+                        <p
+                          className={`text-body font-medium [overflow-wrap:anywhere] ${row.included === false ? "text-ink-muted" : "text-ink"}`}
+                        >
+                          {who}
+                        </p>
                         {named ? (
-                          <p className={`text-meta tabular-nums text-ink-muted ${editable ? "sm:hidden" : ""}`}>
-                            {formatPhone(row.phone_e164)}
-                          </p>
-                        ) : null}
-                        {/* People can be added in any state, so the editable layout also
-                            carries a tried person's outcome, tries, next try and goal. */}
-                        {editable && row.outcome !== "not_called" ? (
-                          <div className="mt-1">
-                            <PersonOutcome row={row} maxAttempts={maxAttempts} />
-                          </div>
+                          <p className="text-meta tabular-nums text-ink-muted sm:hidden">{formatPhone(row.phone_e164)}</p>
                         ) : null}
                       </td>
-                      {editable ? (
-                        <td className={`${CELL} hidden text-body tabular-nums text-ink-muted sm:table-cell`}>
-                          {named ? formatPhone(row.phone_e164) : ""}
-                        </td>
-                      ) : (
-                        <td className={CELL}>
-                          <PersonOutcome row={row} maxAttempts={maxAttempts} />
-                        </td>
-                      )}
+                      <td className={`${CELL} hidden text-body tabular-nums text-ink-muted sm:table-cell`}>
+                        {named ? formatPhone(row.phone_e164) : ""}
+                      </td>
+                      <td className={CELL}>
+                        <PersonOutcome row={row} maxAttempts={maxAttempts} />
+                      </td>
                       <td className={`${CELL} text-right`}>{action(row, who)}</td>
                     </tr>
                   );
@@ -280,9 +256,51 @@ export function ContactResults({
   );
 }
 
+/**
+ * The header box: ticked when everyone is included, a dash when some are. Pressing it
+ * includes everyone (or, when all are in, leaves everyone out); each person is still
+ * dialled by their own status.
+ */
+function IncludeAll({
+  included,
+  everyone,
+  disabled,
+  refusal,
+  onChange,
+}: {
+  included: number;
+  everyone: number;
+  disabled: boolean;
+  refusal: string | undefined;
+  onChange: (on: boolean) => void;
+}) {
+  const box = useRef<HTMLInputElement>(null);
+  const all = everyone > 0 && included === everyone;
+  const some = included > 0 && !all;
+  useEffect(() => {
+    if (box.current) box.current.indeterminate = some;
+  }, [some]);
+  return (
+    <input
+      ref={box}
+      type="checkbox"
+      className="h-4 w-4 accent-brand-strong touch:h-5 touch:w-5"
+      checked={all}
+      disabled={disabled}
+      title={refusal ?? `${formatCount(included)} of ${formatCount(everyone)} included`}
+      aria-label={all ? "Leave everyone out of this campaign" : "Include everyone in this campaign"}
+      onChange={() => onChange(!all)}
+    />
+  );
+}
+
 /** What happened to one person: the outcome, the tries used, and what comes next. */
 function PersonOutcome({ row, maxAttempts }: { row: ContactResult; maxAttempts: number }) {
+  if (row.included === false && row.attempts === 0) {
+    return <p className="text-meta text-ink-muted">Not included, so not called</p>;
+  }
   const details = [
+    row.business_outcome_label ?? null,
     row.goal_reached ? GOAL_WORDS[row.goal_reached] : null,
     row.attempts > 0 ? `Try ${formatCount(row.attempts)} of ${formatCount(maxAttempts)}` : null,
     row.will_retry && row.next_attempt_at
@@ -297,6 +315,7 @@ function PersonOutcome({ row, maxAttempts }: { row: ContactResult; maxAttempts: 
         {OUTCOME_WORDS[row.outcome]}
       </StatusPill>
       {details.length > 0 ? <p className="text-meta text-ink-muted">{details.join(" · ")}</p> : null}
+      {row.included === false ? <p className="text-meta text-ink-muted">Not included: no more calls</p> : null}
       {/* The goal's why, so "Goal unclear" beside one person says what was missing. */}
       {row.goal_reached && row.goal_reason ? (
         <p className="max-w-prose text-meta text-ink-muted [text-wrap:pretty]">{row.goal_reason}</p>

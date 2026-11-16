@@ -7281,6 +7281,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/campaigns/{campaign_id}/contacts/include": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Switch people on or off for dialling; each is still called by their own status */
+        post: operations["include_campaign_contacts_v1_campaigns__campaign_id__contacts_include_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/campaigns/{campaign_id}/contacts/remove": {
         parameters: {
             query?: never;
@@ -18624,6 +18641,10 @@ export interface components {
             business_line: string;
             /** End Call Extra Rules */
             end_call_extra_rules?: string[];
+            /** End Positions */
+            end_positions?: {
+                [key: string]: components["schemas"]["CanvasPosition"];
+            };
             /**
              * Ending
              * @default
@@ -21254,6 +21275,8 @@ export interface components {
         ContactResultOut: {
             /** Attempts */
             attempts: number;
+            /** Business Outcome Label */
+            business_outcome_label?: string | null;
             /** Call Id */
             call_id: string | null;
             /** Goal Reached */
@@ -21265,6 +21288,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Included
+             * @default true
+             */
+            included: boolean;
             /** Last Attempt At */
             last_attempt_at: string | null;
             /** Name */
@@ -21287,6 +21315,16 @@ export interface components {
             counts: {
                 [key: string]: number;
             };
+            /**
+             * Everyone
+             * @default 0
+             */
+            everyone: number;
+            /**
+             * Included
+             * @default 0
+             */
+            included: number;
             /** Items */
             items: components["schemas"]["ContactResultOut"][];
             /** Total */
@@ -21334,6 +21372,7 @@ export interface components {
              * @default
              */
             otherwise: string;
+            otherwise_via?: components["schemas"]["CanvasPosition"] | null;
             position?: components["schemas"]["CanvasPosition"] | null;
             /** Procedure */
             procedure?: components["schemas"]["ProcedureStep"][];
@@ -26569,6 +26608,26 @@ export interface components {
         IncidentsOut: {
             /** Items */
             items: components["schemas"]["IncidentOut"][];
+        };
+        /**
+         * IncludeContactsIn
+         * @description Switch people on or off for dialling: the ids given, or everyone when `all`.
+         */
+        IncludeContactsIn: {
+            /**
+             * All
+             * @default false
+             */
+            all: boolean;
+            /** Contact Ids */
+            contact_ids?: string[] | null;
+            /** Included */
+            included: boolean;
+        };
+        /** IncludeContactsOut */
+        IncludeContactsOut: {
+            /** Changed */
+            changed: number;
         };
         /**
          * IngestAckOut
@@ -34603,6 +34662,7 @@ export interface components {
         StageBranch: {
             /** Target */
             target: string;
+            via?: components["schemas"]["CanvasPosition"] | null;
             /** When */
             when: string;
         };
@@ -52860,6 +52920,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AddLeadsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    include_campaign_contacts_v1_campaigns__campaign_id__contacts_include_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                campaign_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IncludeContactsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IncludeContactsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

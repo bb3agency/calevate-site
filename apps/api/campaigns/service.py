@@ -1405,7 +1405,7 @@ async def launch_blockers(
                 "  AND (d.tenant_id = :tid OR d.tenant_id IS NULL)"
                 ")) AS dialable "
                 "FROM campaign_contacts cc WHERE cc.campaign_id = :cid "
-                "AND cc.status = 'pending'"
+                "AND cc.status = 'pending' AND cc.included"
             ),
             {"cid": campaign_id, "tid": tenant_id},
         )
@@ -1533,7 +1533,7 @@ async def launch_campaign(
         await session.execute(
             text(
                 "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
-                "AND status = 'pending'"
+                "AND status = 'pending' AND included"
             ),
             {"cid": campaign_id},
         )

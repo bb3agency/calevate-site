@@ -234,6 +234,31 @@ async def remove_contacts(
     return rowcount_of(result)
 
 
+async def set_included(
+    session: AsyncSession, *, campaign_id: UUID, contact_ids: list[UUID] | None, included: bool
+) -> int:
+    """Switch people on or off for dialling, in any state; `contact_ids=None` is everyone.
+
+    Only the switch changes. A person switched on is still dialled by their own status: one
+    reached, opted out or out of tries is not rung again, so "include everyone" never
+    re-calls the whole list. Returns how many rows changed.
+    """
+    await _status_or_404(session, campaign_id)
+    where = "" if contact_ids is None else " AND id = ANY(:ids)"
+    result = await session.execute(
+        text(
+            "UPDATE campaign_contacts SET included = :on, updated_at = now() "
+            f"WHERE campaign_id = :cid AND included <> :on{where}"
+        ),
+        {
+            "cid": campaign_id,
+            "on": included,
+            **({} if contact_ids is None else {"ids": list(dict.fromkeys(contact_ids))}),
+        },
+    )
+    return rowcount_of(result)
+
+
 async def delete_draft(session: AsyncSession, *, campaign_id: UUID) -> Literal["deleted"]:
     """Delete a draft that never dialled; refuse one with a history (`campaign_has_history`).
 
