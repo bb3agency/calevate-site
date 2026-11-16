@@ -192,7 +192,13 @@ function NumberCard({
         )}
       </p>
       <HeldNumberLine number={number} topUpHref={href(`/c/${session.orgSlug}/billing?tab=credits`)} />
-      <NumberAssignment numberId={number.id} currentAgentId={number.agent_id ?? null} />
+      <NumberAssignment
+        numberId={number.id}
+        currentAgentId={number.agent_id ?? null}
+        line={
+          number.inbound_line_id ? { id: number.inbound_line_id, name: number.inbound_line_name ?? "" } : null
+        }
+      />
       {releasable && <ReleaseOwnNumber numberId={number.id} e164={number.e164} />}
     </div>
   );

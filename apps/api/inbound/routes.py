@@ -409,7 +409,11 @@ async def assign_number(
         # The number's own gates (activation, the platform binding) are the number
         # assignment's, applied as for any agent.
         await number_catalog.assign_number_to_agent(
-            session, tenant_id=tenant_id, number_id=payload.number_id, agent_id=line.agent_id
+            session,
+            tenant_id=tenant_id,
+            number_id=payload.number_id,
+            agent_id=line.agent_id,
+            onto_line=line_id,
         )
         moved_from = await lines.assign_number(session, line_id, payload.number_id)
         await write_audit(

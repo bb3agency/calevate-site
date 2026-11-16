@@ -236,8 +236,7 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_changes_apply",
         "agents",
-        "put a live agent's saved change live; drop it: agent_script_discard; a reviewed "
-        "draft: agent_script_put_live",
+        "put a live agent's saved change live",
     ),
     AreaEntry("agent_deactivate", "agents", "pause a live agent"),
     AreaEntry("agent_delete", "agents", "delete an agent that is not live"),
@@ -293,7 +292,8 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
     AreaEntry(
         "agent_settings",
         "agents",
-        "one part of an agent's set-up with ids; part script: the whole script, to print",
+        "one part of an agent's set-up with ids; part script: its own script, read only, "
+        "and the lines and campaigns where what calls say is changed",
     ),
     AreaEntry(
         "billing_settings",
@@ -312,19 +312,6 @@ ENTRIES: Final[tuple[AreaEntry, ...]] = (
         "agent_prepare",
         "agents",
         "get a draft or paused agent ready to try in chat; on the phone: agent_publish",
-    ),
-    AreaEntry(
-        "agent_script_put_live",
-        "agents",
-        "save the reviewed script draft and put it live; a waiting change: agent_changes_apply",
-    ),
-    AreaEntry(
-        "agent_script_discard",
-        "agents",
-        "drop a live agent's saved script change; put it live: agent_changes_apply",
-    ),
-    AreaEntry(
-        "agent_script_version_restore", "agents", "copy an earlier script version to the draft"
     ),
     AreaEntry(
         "agent_settings_set",

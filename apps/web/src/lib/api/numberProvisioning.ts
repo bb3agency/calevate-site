@@ -23,6 +23,9 @@ export const PATHS = {
 /** Held, and not usable until the holder's identity is verified. */
 export const NOT_ACTIVATED_CODE = "number_not_activated";
 
+/** On an Inbound line, which decides who answers it; it is changed in Inbound (D-1008). */
+export const ON_INBOUND_LINE_CODE = "number_on_inbound_line";
+
 /** What a number is for. Recorded when it is given to an agent. */
 export type CallDirection = "inbound" | "outbound" | "both";
 

@@ -6213,6 +6213,33 @@ _NUMBER_FOR_ATTACH_SQL = (
     "FROM phone_numbers WHERE id = :nid FOR UPDATE"
 )
 
+NUMBER_ON_INBOUND_LINE_CODE: Final = "number_on_inbound_line"
+
+_NUMBER_LINE_SQL: Final = (
+    "SELECT l.id, l.name FROM phone_numbers n JOIN inbound_lines l "
+    "ON l.id = n.inbound_line_id AND l.archived_at IS NULL "
+    "WHERE n.id = :nid AND n.released_at IS NULL"
+)
+
+
+async def number_inbound_line(session: AsyncSession, number_id: UUID) -> tuple[UUID, str] | None:
+    """The open Inbound line a number answers with, as (id, name), or None."""
+    row = (await session.execute(text(_NUMBER_LINE_SQL), {"nid": number_id})).first()
+    return None if row is None else (row[0], str(row[1]))
+
+
+def number_on_inbound_line(line_name: str) -> ProblemError:
+    """A number on an Inbound line answers with that line's own engine agent, so it is moved
+    only from Inbound (D-1008). Pointing it at an agent here would bind it to that agent's
+    own engine agent while Inbound still lists it on the line, and `phone_numbers.agent_id`
+    would stop matching the line's agent."""
+    return ProblemError.business_rule(
+        NUMBER_ON_INBOUND_LINE_CODE,
+        f"This number answers with your Inbound line “{line_name}”.",
+        remediation="To change who answers it, change it in Inbound, on that line.",
+    )
+
+
 #: What decides whether attaching to this agent makes the phone ring NOW. `deleted_at IS
 #: NULL` is in the predicate rather than checked afterwards so an erased agent is a 404
 #: and not a 409 about an archive.
@@ -6222,7 +6249,11 @@ _AGENT_FOR_ATTACH_SQL = (
 
 
 async def attach_number_to_agent(
-    session: AsyncSession, *, number_id: UUID, agent_id: UUID | None
+    session: AsyncSession,
+    *,
+    number_id: UUID,
+    agent_id: UUID | None,
+    onto_line: UUID | None = None,
 ) -> InboundRouting:
     """Point a recorded number at an agent — or at nothing — and tell the engine (D-576).
 
@@ -6265,6 +6296,14 @@ async def attach_number_to_agent(
     not a connection. An agent that only makes calls is accepted: the number becomes the
     line it calls out from, and nobody answers it.
 
+    A number on an open Inbound line, draft or live, is refused with
+    `number_on_inbound_line` naming the line, detach included (D-1008): the line decides
+    who answers it, and a draft line's numbers already answer with the line's voice
+    (`route_line_numbers`), so a change here would leave Inbound listing the number under
+    an agent that no longer answers it. `onto_line` is the escape for Inbound's own move of
+    a number onto that line (`inbound/routes.assign_number`), which rewrites the line's
+    numbers right after.
+
     Returns what the engine was told, so the console reports a binding that failed instead
     of implying one that did not happen. Ids and counts only; no phone number (hard rule 6).
     """
@@ -6290,6 +6329,10 @@ async def attach_number_to_agent(
                 "Record the client's current number instead."
             ),
         )
+    if onto_line is None:
+        line = await number_inbound_line(session, number_id)
+        if line is not None:
+            raise number_on_inbound_line(line[1])
 
     answers = False
     ref = ""
@@ -6374,6 +6417,7 @@ __all__ = [
     "NUMBER_INBOUND_ONLY_RULE",
     "NUMBER_NOT_ON_CARRIER_REASON",
     "NUMBER_NOT_ON_CARRIER_RULE",
+    "NUMBER_ON_INBOUND_LINE_CODE",
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
     "ArmToPublish",
     "DialUnconfirmedError",
@@ -6395,6 +6439,8 @@ __all__ = [
     "in_call_model",
     "lift_healer_silence",
     "line_config",
+    "number_inbound_line",
+    "number_on_inbound_line",
     "outbound_number_provider",
     "provision_number",
     "publish_agent",

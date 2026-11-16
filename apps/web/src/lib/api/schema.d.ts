@@ -3674,7 +3674,7 @@ export interface paths {
          * Create an agent (starts as a draft)
          * @description The agent is created in `draft`: it takes no calls and places none until it is activated. Without `starter` it has no script of its own: it carries what the business profile and the published knowledge say, and its calls take their script from the inbound lines and campaigns that use it. With nothing on file yet it cannot be activated.
          *
-         *     Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them), and its opening lines are written for your business as a suggestion on the Script page (`GET .../script/proposal`). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
+         *     Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
          *
          *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it after the opening line; it never replaces the opening line.
          */
@@ -12490,7 +12490,7 @@ export interface paths {
         put?: never;
         /**
          * Choose which agent answers this number — the binding every other gate needs
-         * @description Points a number at an agent, or at nothing, and tells the voice platform in the same request. This binding is what makes a number the caller ID a campaign dials from and the line an agent answers, so a campaign whose number is bound elsewhere is refused at launch. Refused with `number_not_activated` while the holder's identity is unverified — the number is held, not lost. The number does what its agent does: an agent that only makes calls calls out from it, and its `direction` follows the agent, overriding the request's whenever an agent is given. Detaching (`agent_id: null`) is always allowed. The counts say what the platform was told, so a binding that failed is not reported as one that worked.
+         * @description Points a number at an agent, or at nothing, and tells the voice platform in the same request. This binding is what makes a number the caller ID a campaign dials from and the line an agent answers, so a campaign whose number is bound elsewhere is refused at launch. Refused with `number_not_activated` while the holder's identity is unverified — the number is held, not lost. The number does what its agent does: an agent that only makes calls calls out from it, and its `direction` follows the agent, overriding the request's whenever an agent is given. A number on an Inbound line answers with that line and is refused here, detaching included, with `number_on_inbound_line` naming the line: it is changed in Inbound. Otherwise detaching (`agent_id: null`) is always allowed. The counts say what the platform was told, so a binding that failed is not reported as one that worked.
          */
         post: operations["assign_number_v1_numbers__number_id__assign_post"];
         delete?: never;
@@ -29754,6 +29754,10 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Inbound Line Id */
+            inbound_line_id?: string | null;
+            /** Inbound Line Name */
+            inbound_line_name?: string | null;
             /** Inr Per Month */
             inr_per_month?: string | null;
             /**

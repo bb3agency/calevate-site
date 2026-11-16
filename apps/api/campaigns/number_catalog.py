@@ -322,8 +322,13 @@ async def assign_number_to_agent(
     number_id: UUID,
     agent_id: UUID | None,
     direction: NumberDirection | None = None,
+    onto_line: UUID | None = None,
 ) -> InboundRouting:
     """Point a number at an agent — the act that makes every other gate mean something.
+
+    `onto_line` is passed only by Inbound when it moves the number onto that line; every
+    other caller is refused for a number on an Inbound line (`number_on_inbound_line`,
+    D-1008, in `attach_number_to_agent`).
 
     **THIS IS THE ACTIVATION GATE, AND IT IS HERE BECAUSE THIS IS THE DOOR.** The outbound
     caller ID and the inbound answer are both resolved from `phone_numbers.agent_id`
@@ -373,7 +378,7 @@ async def assign_number_to_agent(
             {"dir": direction, "nid": number_id},
         )
     routing = await agents_service.attach_number_to_agent(
-        session, number_id=number_id, agent_id=agent_id
+        session, number_id=number_id, agent_id=agent_id, onto_line=onto_line
     )
     # On a voice platform whose numbers are attached through its own API (D-691); a
     # refusal there alarms and the daily number sweep retries it.

@@ -111,7 +111,9 @@ async def get_holder(session: Session, _: NumberViewer) -> HolderOut:
         "holder's identity is unverified — the number is held, not lost. The number does "
         "what its agent does: an agent that only makes calls calls out from it, and its "
         "`direction` follows the agent, overriding the request's whenever an agent is "
-        "given. Detaching "
+        "given. A number on an Inbound line answers with that line and is refused here, "
+        "detaching included, with `number_on_inbound_line` naming the line: it is changed "
+        "in Inbound. Otherwise detaching "
         "(`agent_id: null`) is always allowed. The counts say what the platform was told, "
         "so a binding that failed is not reported as one that worked."
     ),

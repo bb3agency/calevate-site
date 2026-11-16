@@ -95,12 +95,12 @@ D-935 troubleshooting and line-protection healer, D-936 proactive notes, D-937 P
 | agent | Edit language, voice, opening line, notices (draft/paused) | agents_do:agent_edit | now | COVERED |
 | agent | Same for a live agent | agents_do:agent_edit_live | confirm | COVERED |
 | agent | AI disclosure / recording notice switches | agents_do:agent_edit / agent_edit_live | now / confirm | COVERED |
-| script | "Print / show me the whole script" (as the Script tab shows it, and whether callers hear it) | agents_find:agent_settings (part script) | read | BUILT (6 Nov 2026) |
+| script | "Print / show me the whole script" (the agent's own script, read only, whether callers hear it, and the lines and campaigns where what calls say is changed) | agents_find:agent_settings (part script) | read | BUILT (6 Nov 2026; read only since D-1009) |
 | script | Suggest a script change, incl. add, delete, rename or reorder steps / whole script / steps | agents_do:agent_script_suggest | confirm | COVERED |
-| script | Save and put the reviewed draft live | agents_do:agent_script_put_live | confirm | COVERED |
+| script | Save and put the reviewed draft live | (none: the agent's own script is read only, D-1009) | — | RETIRED |
 | script | Apply a staged change | agents_do:agent_changes_apply | confirm | COVERED |
-| script | Discard a staged change | agents_do:agent_script_discard | confirm | COVERED |
-| script | Restore an earlier version | agents_do:agent_script_version_restore | confirm | COVERED |
+| script | Discard a staged change | (none: D-1009) | — | RETIRED |
+| script | Restore an earlier version | (none: D-1009) | — | RETIRED |
 | script | "What changed between versions?" | (none) | read | MISSING |
 | script | Add or dismiss a proposed rule | (none) | confirm | MISSING |
 | script | Clear a suggestion once its parts are kept | (none) | now | MISSING |

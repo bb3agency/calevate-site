@@ -1,5 +1,9 @@
-"""Pip's agent set-up actions (D-893 lane L4): restore and get ready, the script's
-direct buttons, how an agent sounds and handles a call, and who it hands a caller to.
+"""Pip's agent set-up actions (D-893 lane L4): restore and get ready, how an agent sounds
+and handles a call, and who it hands a caller to.
+
+None writes the agent's own script: owners no longer edit it (D-1005), so Pip only reads it
+(`agent_settings` part `script`) and sends a change to the Inbound line or campaign whose
+script callers hear (D-1009).
 
 Each executor calls the function the page's own button calls (`docs/COPILOT-CONTRACT.md`
 §2), so every refusal that button meets is met here:
@@ -8,10 +12,6 @@ Each executor calls the function the page's own button calls (`docs/COPILOT-CONT
   a restored agent comes back paused, answers nothing and calls nobody; Undo deletes it again.
 * `agent_prepare` — `lifecycle.prepare_agent` ("Get it ready"). Confirm: it publishes to the
   voice platform, which holds one of the workspace's agent places.
-* `agent_script_put_live` — `script_publish.put_draft_live` ("Put it live"), bound to the
-  draft the card describes by its `saved_at`.
-* `agent_script_discard` — `publishing.undo_staged` (Undo on a saved-but-not-live change).
-* `agent_script_version_restore` — `script_builder.restore_into_draft` (History → Restore).
 * `agent_settings_set` — the Settings tab's voice, call-handling, longest-call, model and
   caller-memory controls, each through its own writer; `scope` `all_agents` is the
   call-handling rows' "All my agents" (`call_handling.set_call_handling_for_all_agents`).
@@ -27,7 +27,6 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
@@ -42,7 +41,6 @@ from apps.api.agents import (
     caller_help,
     lifecycle,
     publishing,
-    script_builder,
     voice_tuning,
 )
 from apps.api.agents import handoff as handoff_service
@@ -61,7 +59,6 @@ from apps.api.agents.models import (
     FILLER_LINES_MAX,
     NUDGE_PHRASE_MAX_CHARS,
 )
-from apps.api.agents.script_publish import put_draft_live
 from apps.api.compliance.caller_memory import CALLER_MEMORY_ATTESTATION_VERSION
 from apps.api.copilot.actions import (
     DOES_IT,
@@ -266,298 +263,6 @@ AGENT_PREPARE: Final = ActionTool(
     ),
     plan=_plan_prepare,
     execute=_execute_prepare,
-)
-
-
-# --- the Script tab's direct buttons (confirm) ------------------------------------------
-
-
-async def _versions(session: AsyncSession, agent_id: UUID) -> tuple[int | None, int | None]:
-    """(saved version, version callers hear)."""
-    row = (
-        await session.execute(
-            text(
-                "SELECT d.version, l.version FROM agents a "
-                "LEFT JOIN prompt_versions d ON d.id = a.system_prompt_id "
-                "LEFT JOIN prompt_versions l ON l.id = a.live_prompt_id WHERE a.id = :aid"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:  # pragma: no cover - the caller has already resolved the agent
-        raise ProblemError.not_found("Agent")
-    return (
-        None if row[0] is None else int(row[0]),
-        None if row[1] is None else int(row[1]),
-    )
-
-
-class _PutLiveArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: UUID
-    summary: Annotated[str, Field(max_length=200)]
-
-
-class _PutLiveSigned(_PutLiveArgs):
-    draft_saved_at: datetime
-    expected_version: int | None
-
-
-async def _plan_put_live(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
-    del actor
-    parsed = parse_args(_PutLiveArgs, args)
-    summary = strip_invisible(parsed.summary.strip())
-    if not summary:
-        raise WriteRefusedError("`summary` was blank: say in a few words what changed")
-    name, status = await _name_status(session, parsed.agent_id)
-    draft = await script_builder.read_draft(session, parsed.agent_id)
-    saved, heard = await _versions(session, parsed.agent_id)
-    if draft is None:
-        # A put-live whose push failed has already saved the version and cleared the draft
-        # (`script_publish.put_draft_live`), and its refusal says "put it live again"; the
-        # Script page finishes that through apply, so Pip is sent there too.
-        if saved is not None and saved != heard:
-            raise WriteRefusedError(
-                f"the changes are already saved as version {saved} but callers do not hear "
-                "them yet, so use `agent_changes_apply` to put that version live"
-            )
-        raise WriteRefusedError(
-            "this agent's script has no unpublished changes, so there is nothing to put live"
-        )
-    await script_builder.refuse_if_too_long(session, parsed.agent_id, draft.script)
-    live = status == "live"
-    return Plan(
-        object_id=str(parsed.agent_id),
-        title="Put the script changes live",
-        summary=(
-            f"Save the draft of {name}'s script, as it is now, as a new "
-            f"version (“{summary}”)"
-            + (
-                " and put it in front of callers from their next call."
-                if live
-                else ". The agent is not live, so no caller hears it yet."
-            )
-        ),
-        current=(
-            "nothing saved yet" if heard is None and saved is None else f"version {heard or saved}"
-        ),
-        proposed="the reviewed draft, as a new version",
-        cost=None,
-        reversal=(
-            "Every earlier version stays in History; restore one and put it live to go back. "
-            "Calls already taken are not affected."
-        ),
-        args={
-            "agent_id": str(parsed.agent_id),
-            "summary": summary,
-            "draft_saved_at": draft.saved_at.isoformat(),
-            "expected_version": saved,
-        },
-    )
-
-
-async def _execute_put_live(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Executed:
-    """`script_publish.put_draft_live`, which commits the version in its own transaction and
-    then applies it; this session has only read the agent, so it holds no lock that the
-    save would wait on."""
-    del session
-    parsed = parse_args(_PutLiveSigned, args)
-    done = await put_draft_live(
-        tenant_id=actor.tenant_id,
-        agent_id=parsed.agent_id,
-        summary=parsed.summary,
-        created_by=actor.user_id,
-        check_version=True,
-        expected_version=parsed.expected_version,
-        draft_saved_at=parsed.draft_saved_at,
-    )
-    return Executed(
-        applied=True,
-        detail=(
-            f"Version {done.version} is live: callers hear it from their next call."
-            if done.live
-            else f"Saved as version {done.version}. Callers hear it once the agent is live."
-        ),
-        audit_summary={"version": done.version, "live": done.live},
-    )
-
-
-AGENT_SCRIPT_PUT_LIVE: Final = ActionTool(
-    name="agent_script_put_live",
-    tier="confirm",
-    undo=None,
-    permission="org:manage",
-    object_type="agent",
-    audit_action="agent.script_published",
-    where="on the agent's page",
-    schema=action_schema(
-        "agent_script_put_live",
-        "Propose saving the agent's reviewed script draft as a version and putting it live. "
-        "For a saved change already waiting use `agent_changes_apply`." + PROPOSES_ONLY,
-        {
-            "agent_id": _ID,
-            "summary": {"type": "string", "description": "What changed, in a few words."},
-        },
-    ),
-    plan=_plan_put_live,
-    execute=_execute_put_live,
-)
-
-
-async def _plan_discard(session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]) -> Plan:
-    del actor
-    parsed = parse_args(_AgentIdArgs, args)
-    name, _status = await _name_status(session, parsed.agent_id)
-    saved, heard = await _versions(session, parsed.agent_id)
-    if saved is None or heard is None or saved == heard:
-        raise WriteRefusedError(
-            "that agent has no saved script change waiting to go live, so there is nothing "
-            "to throw away"
-        )
-    return Plan(
-        object_id=str(parsed.agent_id),
-        title="Throw away the saved script change",
-        summary=(
-            f"Drop version {saved} of {name}'s script, which callers never heard. The script "
-            f"goes back to version {heard}, the one callers hear now."
-        ),
-        current=f"version {saved} waiting",
-        proposed=f"version {heard}",
-        cost=None,
-        reversal=f"Version {saved} stays in History and can be restored into the draft.",
-        args={"agent_id": str(parsed.agent_id)},
-    )
-
-
-async def _execute_discard(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Executed:
-    """`publishing.undo_staged` — `POST .../script/undo`'s call, in its own session."""
-    del session
-    parsed = parse_args(_AgentIdArgs, args)
-    result = await publishing.undo_staged(tenant_id=actor.tenant_id, agent_id=parsed.agent_id)
-    return Executed(
-        applied=result.undone,
-        detail=(
-            f"Version {result.discarded_version} is thrown away; the script is back to "
-            f"version {result.live_version}."
-            if result.undone
-            else "Nothing was waiting to go live, so nothing changed."
-        ),
-        audit_summary={
-            "discarded_version": result.discarded_version,
-            "version": result.live_version,
-        },
-    )
-
-
-AGENT_SCRIPT_DISCARD: Final = ActionTool(
-    name="agent_script_discard",
-    tier="confirm",
-    undo=None,
-    permission="org:manage",
-    object_type="agent",
-    audit_action="agent.changes_undone",
-    where="on the agent's page",
-    schema=action_schema(
-        "agent_script_discard",
-        "Propose throwing away a live agent's saved script change that callers have not "
-        "heard yet. To put it live instead use `agent_changes_apply`." + PROPOSES_ONLY,
-        {"agent_id": _ID},
-    ),
-    plan=_plan_discard,
-    execute=_execute_discard,
-)
-
-
-class _VersionArgs(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: UUID
-    version: Annotated[int, Field(ge=1)]
-
-
-async def _plan_version_restore(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Plan:
-    del actor
-    parsed = parse_args(_VersionArgs, args)
-    name, _status = await _name_status(session, parsed.agent_id)
-    row = (
-        await session.execute(
-            text("SELECT notes FROM prompt_versions WHERE agent_id = :aid AND version = :v"),
-            {"aid": parsed.agent_id, "v": parsed.version},
-        )
-    ).first()
-    if row is None:
-        raise WriteRefusedError(
-            f"“{name}” has no script version {parsed.version}; read the History list first"
-        )
-    _saved, heard = await _versions(session, parsed.agent_id)
-    has_draft = await script_builder.read_draft(session, parsed.agent_id) is not None
-    note = strip_invisible(str(row[0])) if row[0] else None
-    return Plan(
-        object_id=str(parsed.agent_id),
-        title="Restore an earlier script into the draft",
-        summary=(
-            f"Copy version {parsed.version}"
-            + (f" (“{note}”)" if note else "")
-            + f" of {name}'s script into the draft"
-            + (", replacing the unpublished draft there now" if has_draft else "")
-            + ". Callers keep hearing "
-            + (f"version {heard}" if heard is not None else "nothing new")
-            + " until the draft is put live."
-        ),
-        current="the unpublished draft" if has_draft else "no unpublished draft",
-        proposed=f"version {parsed.version} in the draft",
-        cost=None,
-        reversal=(
-            "Every version stays in History. A draft replaced here cannot be brought back."
-            if has_draft
-            else "Every version stays in History; change the draft again at any time."
-        ),
-        args={"agent_id": str(parsed.agent_id), "version": parsed.version},
-    )
-
-
-async def _execute_version_restore(
-    session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
-) -> Executed:
-    del actor
-    parsed = parse_args(_VersionArgs, args)
-    await script_builder.restore_into_draft(session, parsed.agent_id, parsed.version)
-    return Executed(
-        applied=True,
-        detail=(
-            f"Version {parsed.version} is in the draft, waiting on the agent's Overview. Put "
-            "it live when it is right."
-        ),
-        audit_summary={"version": parsed.version},
-    )
-
-
-AGENT_SCRIPT_VERSION_RESTORE: Final = ActionTool(
-    name="agent_script_version_restore",
-    tier="confirm",
-    undo=None,
-    permission="org:manage",
-    object_type="agent",
-    audit_action="agent.script_version_restored",
-    where="on the agent's page",
-    schema=action_schema(
-        "agent_script_version_restore",
-        "Propose copying an earlier script version into the agent's draft (callers keep the "
-        "live one). Versions are in `agent_settings` part `script`." + PROPOSES_ONLY,
-        {
-            "agent_id": _ID,
-            "version": {"type": "integer", "description": "The version number."},
-        },
-    ),
-    plan=_plan_version_restore,
-    execute=_execute_version_restore,
 )
 
 
@@ -1297,9 +1002,6 @@ AGENT_HANDOVER_SET: Final = ActionTool(
 AGENT_SETUP_ACTIONS: Final[tuple[ActionTool, ...]] = (
     AGENT_RESTORE,
     AGENT_PREPARE,
-    AGENT_SCRIPT_PUT_LIVE,
-    AGENT_SCRIPT_DISCARD,
-    AGENT_SCRIPT_VERSION_RESTORE,
     AGENT_SETTINGS_SET,
     AGENT_HANDOVER_SET,
 )
@@ -1308,9 +1010,6 @@ __all__ = [
     "AGENT_HANDOVER_SET",
     "AGENT_PREPARE",
     "AGENT_RESTORE",
-    "AGENT_SCRIPT_DISCARD",
-    "AGENT_SCRIPT_PUT_LIVE",
-    "AGENT_SCRIPT_VERSION_RESTORE",
     "AGENT_SETTINGS_SET",
     "AGENT_SETUP_ACTIONS",
     "SETTINGS",

@@ -701,6 +701,55 @@ describe("a held number (D-860)", () => {
   });
 });
 
+describe("a number on an Inbound line (D-1008)", () => {
+  const free = {
+    id: NUMBER_ID,
+    e164: "+918012345671",
+    series: "standard",
+    dlt_status: "pending",
+    supplied_by_us: true,
+    answerable: true,
+    agent_id: null,
+    direction: "both",
+    releasable: false,
+  };
+
+  it("offers the line instead of an agent picker", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), {
+        "/v1/campaigns/numbers": [
+          { ...free, agent_id: "agent-1", inbound_line_id: "line-1", inbound_line_name: "Front desk" },
+        ],
+      }),
+    );
+    expect(await screen.findByText("Answers with your Inbound line “Front desk”.")).toBeTruthy();
+    const change = screen.getByRole("link", { name: "Change in Inbound" });
+    expect(change.getAttribute("href")).toBe("/c/acme/inbound/line-1");
+    expect(screen.queryByLabelText("Agent")).toBeNull();
+  });
+
+  it("sends a refused change to Inbound, for a number put on a line since the page loaded", async () => {
+    await renderClientPage(
+      <PhoneNumberPage />,
+      routes(status(), {
+        "/v1/campaigns/numbers": [free],
+        [`POST /v1/numbers/${NUMBER_ID}/assign`]: problem(422, {
+          type: "https://calevate.tech/problems/number_on_inbound_line",
+          title: "We cannot do that",
+          detail: "This number answers with your Inbound line “Front desk”.",
+          remediation: "To change who answers it, change it in Inbound, on that line.",
+        }),
+      }),
+    );
+    fireEvent.change(await screen.findByLabelText("Agent"), { target: { value: "agent-1" } });
+    fireEvent.click(await enabledButton("Save"));
+    expect(await screen.findByText(/answers with your Inbound line “Front desk”/)).toBeTruthy();
+    const open = await screen.findByRole("link", { name: "Open Inbound" });
+    expect(open.getAttribute("href")).toBe("/c/acme/inbound");
+  });
+});
+
 describe("white label", () => {
   it("names no vendor anywhere on the journey, the search or the confirmation", async () => {
     const { container } = await renderClientPage(

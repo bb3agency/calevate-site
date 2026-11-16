@@ -900,7 +900,9 @@ async def improve_run(
         raise ProblemError.business_rule(
             "agent_tests_hand_written",
             "Suggested fixes need a script in steps.",
-            remediation="Turn the hand-written script into steps in the script builder first.",
+            remediation=(
+                "Change what calls say on the Inbound line or campaign that uses this agent."
+            ),
         )
     request_hash = input_hash(improve_request(brief, base, failures))
     if await _answered_before(tenant_id, agent_id, request_hash):
