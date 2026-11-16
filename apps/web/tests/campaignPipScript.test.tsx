@@ -35,6 +35,7 @@ function ready(over: Partial<CampaignProposal> = {}): CampaignProposal {
     disclosure: null,
     left_out: [],
     reason: null,
+    fixes: null,
     why: { opening_line: "Says who calls and why, then asks to talk, as your main task asks." },
     ...over,
   };

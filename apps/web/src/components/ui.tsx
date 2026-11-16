@@ -1427,11 +1427,7 @@ export { MAIN_CONTENT_ID };
  */
 export const SHELL_RAIL_CLASS = "mx-auto w-full max-w-(--shell-rail)";
 
-/**
- * The shells' `<main>`: the one scroll container and its gutters. The sticky page bar
- * (`console/stickyPageBar`) cancels exactly this padding, so the two are kept together
- * here rather than as literals in each shell.
- */
+/** The shells' `<main>`: the one scroll container and its gutters. */
 export const SHELL_MAIN_CLASS = "relative flex-1 overflow-y-auto bg-surface px-4 py-4 lg:px-8 lg:py-8";
 
 /**

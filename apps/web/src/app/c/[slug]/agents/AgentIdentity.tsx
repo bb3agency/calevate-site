@@ -312,13 +312,15 @@ function OpeningLineOffer({
   const jobs = useAgentJobs(session, agentId);
   const slug = session.orgSlug;
   const name = hasKey(LANGUAGE_NAMES, language) ? LANGUAGE_NAMES[language] : language;
-  const listed = jobs.data?.jobs ?? [];
+  const listed = jobs.data ? jobs.data.jobs : null;
+  const generic = jobs.isError || (listed != null && listed.length === 0);
   return (
     <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.neutral}`}>
       <p>Saved. Its notices are now in {name}.</p>
       <p>Each line and campaign has its own opening. Change it there.</p>
+      {jobs.isError && <p>We could not list its lines and campaigns.</p>}
       <div className="flex flex-wrap gap-2 pt-1">
-        {listed.map((job) => (
+        {listed?.map((job) => (
           <Link
             key={`${job.kind}-${job.id}`}
             href={href(
@@ -329,7 +331,7 @@ function OpeningLineOffer({
             {job.name}
           </Link>
         ))}
-        {jobs.data && listed.length === 0 && (
+        {generic && (
           <>
             <Link href={href(`/c/${slug}/inbound`)} className={SECONDARY_BUTTON_SM}>
               Inbound
