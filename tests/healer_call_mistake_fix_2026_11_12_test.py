@@ -420,6 +420,14 @@ def test_a_fix_never_names_the_openings_or_their_notices() -> None:
     assert mistake_fixes.fix_paths(findings) == ["stages.1.instruction"]
 
 
+def test_pip_has_words_for_every_state_a_mistake_can_be_in() -> None:
+    from typing import get_args
+
+    from apps.api.copilot.agent_reads import _MISTAKE_STATES
+
+    assert set(_MISTAKE_STATES) == set(get_args(call_mistakes.AgentState))
+
+
 # --- the draft, and the owner's review ----------------------------------------------------------
 
 

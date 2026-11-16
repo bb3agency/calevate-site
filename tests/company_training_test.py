@@ -177,6 +177,53 @@ async def test_a_training_that_would_overflow_an_agent_is_refused_unsaved(
         assert await company_training.live_text(session) == ""
 
 
+async def test_a_training_that_would_overflow_a_published_inbound_line_is_refused_unsaved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.agents import prompt_size
+    from apps.api.inbound import lines
+    from calevate_shared.call_script import CallScript, ConversationStage
+
+    tenant, agent = await _org()
+    async with tenant_session(tenant) as session:
+        line_id = await lines.create_line(
+            session,
+            tenant_id=tenant,
+            agent_id=agent,
+            name="Site visits desk",
+            main_task="Book site visits.",
+            script=CallScript(
+                schema_version=2,
+                opening_line="Namaste, this is Asha from Sunrise Homes.",
+                stages=[ConversationStage(id="book", name="Book", instruction="Book a visit.")],
+            ),
+            created_by=None,
+        )
+        await session.execute(
+            text(
+                "UPDATE inbound_lines SET engine_agent_ref = 'ag_line', published_at = now() "
+                "WHERE id = :l"
+            ),
+            {"l": line_id},
+        )
+    real = prompt_size.measure_config
+
+    def full_line(cfg: AgentConfig, engine: Any) -> Any:
+        size = real(cfg, engine)
+        # Only the line's config overflows with the training; the agent's own still fits.
+        over = cfg.holder == str(line_id) and "Kompally" in cfg.system_prompt
+        return SimpleNamespace(fits=False, over=size.total) if over else size
+
+    monkeypatch.setattr(prompt_size, "measure_config", full_line)
+    async with tenant_session(tenant) as session:
+        with pytest.raises(ProblemError) as refused:
+            await company_training.save_training(session, tenant, TRAINING, saved_by=None)
+    assert refused.value.code == "company_training_too_long"
+    assert "Site visits desk" in str(refused.value.detail)
+    async with tenant_session(tenant) as session:
+        assert await company_training.live_text(session) == ""
+
+
 # --- 4. Pip ------------------------------------------------------------------------------
 
 

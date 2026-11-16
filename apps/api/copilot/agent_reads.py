@@ -80,12 +80,18 @@ _TEST_FIXED_BY: Final[dict[str, str]] = {
 #: The Training tab's words for a practice test verdict.
 _VERDICTS: Final[dict[str, str]] = {"needs_fix": "needs a fix", "failed": "failed"}
 #: The Training tab's words for a call-mistake state (`lib/api/callMistakes.ts`
-#: `clientStateLine`). Each kind is a rule Calevate fixes, never the owner.
+#: `clientStateLine`). Each kind is a rule Calevate fixes, never the owner. Keyed by every
+#: `call_mistakes.AgentState`; the `script_live` .. `script_undone` words are fixes made in
+#: the agent's own script before D-1005.
 _MISTAKE_STATES: Final[dict[str, str]] = {
     "back": "seen again after our fix; our team has been told",
     "fixing": "not fixed yet; our team has been told",
     "fixed": "fixed, not seen since",
-    "script_fixing": "being fixed in this agent's script",
+    "script_fixing": "a fix is being written as a draft on the Inbound line or campaign the "
+    "call was on",
+    "script_proposed": "a fix is waiting for the owner as a draft on the Inbound line or "
+    "campaign the call was on; they keep or discard it there",
+    "no_job": "the call was on no Inbound line or campaign, so there is no script to fix",
     "script_live": "fixed in this agent's script; the next calls are being watched",
     "script_fixed": "fixed in this agent's script, not seen since",
     "script_rolled_back": "the script fix did not hold, so the old script is back; our team "
