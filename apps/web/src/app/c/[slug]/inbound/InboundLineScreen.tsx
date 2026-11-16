@@ -20,7 +20,7 @@ import { ExpandableText } from "@/components/arc/expandable-text";
 import { InlineEdit } from "@/components/arc/inline-edit";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { PageHeader } from "@/components/console/pageHeader";
-import { TEXT_ACTION } from "@/components/console/section";
+import { TEXT_ACTION, TEXT_ACTION_SM } from "@/components/console/section";
 import {
   FIELD,
   FIELD_LABEL,
@@ -510,7 +510,7 @@ function ActionsSection({ line, canWrite, refusal, slug }: Props & { slug: strin
               </li>
             ))}
           </ul>
-          <Link href={setUp} className="text-meta font-medium text-ink underline underline-offset-2" title={refusal}>
+          <Link href={setUp} className={TEXT_ACTION_SM} title={refusal}>
             Change {line.agent_name}&apos;s actions
           </Link>
         </div>

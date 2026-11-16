@@ -216,6 +216,9 @@ describe("one inbound line", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(writes(rendered.calls)).toHaveLength(1));
     expect(bodyOf(rendered.calls, "PATCH", `/v1/inbound-lines/${LINE_ID}`)).toEqual({ main_task: "Book visits." });
+    // Phone numbers names each number's line, so a change to the line reads that list again.
+    const numberReads = () => rendered.calls.filter((c) => c.path === "/v1/campaigns/numbers").length;
+    await waitFor(() => expect(numberReads()).toBeGreaterThan(1));
   });
 
   it("keeps Pip's draft by its proposal id, which saves and puts it live", async () => {
