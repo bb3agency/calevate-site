@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.32 — 16-Nov-2026
+
+- Campaign buttons (Pause, Resume, Stop, Call the unreached again, Duplicate) sit in the row
+  beside Collapse all and Expand all, after Start; Call the unreached again comes after Stop.
+- The list of who was called is named Calls in the Calls & recordings tab.
+
 ## 0.4.31 — 16-Nov-2026
 
 - A started campaign's People list, with who was called and each call, moves from Set up to

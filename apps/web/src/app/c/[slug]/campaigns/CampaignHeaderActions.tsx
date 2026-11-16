@@ -25,8 +25,8 @@ const HELD_PAUSES = ["complaint_spike", "out_of_credit", "spend_cap"];
 /**
  * The controls this state allows, and nothing the server would refuse, as one
  * `ButtonGroup`: the one move the state is about first (Edit a draft, Pause a running
- * campaign, Resume a paused one, Call the unreached again once it is over), then Stop for
- * good while it can still call, because a control that stops calls stays reachable however
+ * campaign, Resume a paused one), then Stop for good while it can still call, then Call the
+ * unreached again once it is over (founder, 16 Nov 2026: after Start and Stop), because a control that stops calls stays reachable however
  * seldom it is used (UX-DOCTRINE §3). Duplicate always, Delete on a draft. Stop and Delete
  * restate what they do in a `ConfirmDialog` before they act.
  *
@@ -150,6 +150,15 @@ export function CampaignHeaderActions({
       onSelect: () => setStatusFeedback.run("resume"),
     });
   }
+  if (!archived && (status === "running" || status === "paused" || status === "scheduled")) {
+    actions.push({
+      id: "stop",
+      label: "Stop for good…",
+      disabled: !canWrite,
+      hint: ownerOnly,
+      onSelect: () => setConfirming("stop"),
+    });
+  }
   if (finished && !archived) {
     actions.push({
       id: "again",
@@ -160,15 +169,6 @@ export function CampaignHeaderActions({
       disabled: !canWrite || copyHeld(true),
       hint: ownerOnly,
       onSelect: () => copy(true),
-    });
-  }
-  if (!archived && (status === "running" || status === "paused" || status === "scheduled")) {
-    actions.push({
-      id: "stop",
-      label: "Stop for good…",
-      disabled: !canWrite,
-      hint: ownerOnly,
-      onSelect: () => setConfirming("stop"),
     });
   }
   actions.push({

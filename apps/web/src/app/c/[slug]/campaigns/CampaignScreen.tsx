@@ -186,6 +186,21 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
     />
   );
 
+  // In the row beside Collapse all / Expand all, after Start (founder, 16 Nov 2026).
+  const campaignActions = (
+    <CampaignHeaderActions
+      slug={slug}
+      campaignId={campaignId}
+      progress={data}
+      setStatus={setStatus}
+      setStatusFeedback={setStatusFeedback}
+      canWrite={write.allowed}
+      refusal={refusal}
+      onGone={() => router.push(back.href)}
+      onCopied={(id) => router.push(href(`/c/${slug}/campaigns/${id}`))}
+    />
+  );
+
   return (
     <div className="max-w-6xl space-y-8 pb-12">
       <div className="space-y-5">
@@ -219,19 +234,6 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             </>
           }
           meta={data.goal ? <span className="text-ink-muted">Goal: {data.goal}</span> : undefined}
-          actions={
-            <CampaignHeaderActions
-              slug={slug}
-              campaignId={campaignId}
-              progress={data}
-              setStatus={setStatus}
-              setStatusFeedback={setStatusFeedback}
-              canWrite={write.allowed}
-              refusal={refusal}
-              onGone={() => router.push(back.href)}
-              onCopied={(id) => router.push(href(`/c/${slug}/campaigns/${id}`))}
-            />
-          }
         />
         <RestrictionNote reason={write.reason} />
 
@@ -280,8 +282,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             // Who was called and how sits with the calls themselves (founder, 16 Nov 2026).
             <div className="space-y-8">
               {status !== "draft" && (
-                <FoldGroup>
-                  <FoldSection title="People" tone="people" id={peopleSectionId(campaignId)}>
+                <FoldGroup actions={campaignActions}>
+                  <FoldSection title="Calls" tone="people" id={peopleSectionId(campaignId)}>
                     {people}
                   </FoldSection>
                 </FoldGroup>
@@ -294,7 +296,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             <ImproveTab slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
           ) : current === "progress" ? (
             launched ? (
-              <FoldGroup className="space-y-8">
+              <FoldGroup className="space-y-8" actions={campaignActions}>
                 <FoldSection title="Where it stands" tone="progress">
                   <CampaignRun progress={data} campaignId={campaignId} />
                 </FoldSection>
@@ -327,7 +329,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
             <FoldGroup
               className="space-y-8"
               actions={
-                <StartCampaign
+                <>
+                  <StartCampaign
                     campaignId={campaignId}
                     status={status}
                     check={check}
@@ -336,6 +339,8 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                     canWrite={write.allowed}
                     refusal={refusal}
                   />
+                  {campaignActions}
+                </>
               }
             >
               <CampaignWorkspace campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
