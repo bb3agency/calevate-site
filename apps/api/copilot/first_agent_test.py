@@ -21,7 +21,7 @@ from apps.api.copilot.console_actions_test import _draft_agent
 from apps.api.copilot.schemas import CopilotAskIn, CopilotScreen
 from apps.api.copilot.screen_guides import FIRST_AGENT_GUIDE, screen_guide
 from apps.api.copilot.write_tools_test import _audit, _confirm, _principal, _user_of
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.api.tenancy.business_profile import load_profile
 
@@ -130,6 +130,38 @@ async def test_without_a_job_the_agent_is_blank_as_before() -> None:
         tenant_id, "SELECT system_prompt_id FROM agents WHERE id = :a", a=UUID(receipt.object_id)
     )
     assert row[0] is None
+
+
+async def test_during_the_first_run_pips_agent_is_the_first_runs_own() -> None:
+    """Made from the first-agent chat, the agent is the one the screen's card and What first
+    use, with its notice job queued; a second create makes an ordinary agent."""
+    from apps.api.first_run import service as first_run
+    from apps.api.first_run.work import NOTICE_JOB
+
+    tenant_id, _slug, token = await _make_tenant()
+    async with tenant_session(tenant_id) as session:
+        # The fixture's own agent would put the account past its first run (`due_for`).
+        await session.execute(text("UPDATE agents SET deleted_at = now()"))
+    receipt = await _run(tenant_id, token, "agent_create", _create("Anjali", "inbound", None))
+    agent_id = UUID(receipt.object_id)
+    async with tenant_session(tenant_id) as session:
+        state = await first_run.read_state(session, tenant_id=tenant_id)
+    async with untenanted_session() as session:
+        queued = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages "
+                    "WHERE job = :j AND payload->>'agent_id' = :a"
+                ),
+                {"j": NOTICE_JOB, "a": str(agent_id)},
+            )
+        ).scalar()
+    assert state.agent_id == agent_id and state.due
+    assert queued == 1
+    second = await _run(tenant_id, token, "agent_create", _create("Ravi", "outbound", None))
+    async with tenant_session(tenant_id) as session:
+        again = await first_run.read_state(session, tenant_id=tenant_id)
+    assert again.agent_id == agent_id and UUID(second.object_id) != agent_id
 
 
 # --- the opening line on agent_edit ---------------------------------------------------------
@@ -415,5 +447,5 @@ def test_the_guide_names_only_tools_that_exist() -> None:
     from apps.api.copilot import service
 
     tools |= {tool.name for tool in service.realm_read_tools("client")}
-    arguments = {"job", "answer_calls", "call_new_leads", "call_leads", "opening_line"}
+    arguments = {"job", "answer_calls", "call_new_leads", "call_leads", "opening_line", "inbound"}
     assert named - arguments <= tools, named - arguments - tools

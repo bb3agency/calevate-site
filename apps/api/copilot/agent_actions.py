@@ -228,6 +228,9 @@ async def _execute_agent_create(
     there is no argument to this call that could produce one without.
     """
     parsed = parse_args(_AgentCreateArgs, args)
+    first = await _as_first_agent(session, actor, parsed)
+    if first is not None:
+        return first
     agent_id = await lifecycle.create_agent(
         session,
         tenant_id=actor.tenant_id,
@@ -275,6 +278,59 @@ async def _execute_agent_create(
             "job": parsed.job,
         },
         object_id=str(agent_id),
+    )
+
+
+async def _as_first_agent(
+    session: AsyncSession, actor: ToolActor, parsed: _AgentCreateArgs
+) -> Executed | None:
+    """While the account's first run is under way with no agent yet, a scriptless agent Pip
+    makes there IS the first run's agent, made by the step's own save (`first_run.work.
+    save_agent`, which calls `lifecycle.create_agent`): the screen's card shows it, its AI
+    notice job is queued, the company training is drafted, and What first can give it work.
+    Made any other way, it would end the first run (`service.due_for`) with none of that.
+    None otherwise, for the ordinary create. Its voice is chosen next (FIRST_AGENT_GUIDE)."""
+    from apps.api.first_run import service as first_run, work
+
+    if parsed.job is not None:
+        return None
+    state = await first_run.read_state(session, tenant_id=actor.tenant_id)
+    if not state.due or await work.agent_status(session, state.agent_id) is not None:
+        return None
+    made = await work.save_agent(
+        session,
+        tenant_id=actor.tenant_id,
+        name=parsed.name,
+        language_primary=parsed.language_primary,
+        languages_extra=[],
+        voice=None,
+        user_id=actor.user_id,
+        may_spend_ai=not actor.impersonating,
+    )
+    assert made.agent_id is not None
+    if parsed.direction != "inbound":
+        await lifecycle.update_agent(
+            session,
+            tenant_id=actor.tenant_id,
+            agent_id=made.agent_id,
+            direction=parsed.direction,
+        )
+    return Executed(
+        applied=True,
+        detail=(
+            f"“{parsed.name}” is the business's first agent, a draft with no script of its "
+            "own. It has an AI disclosure and a recording notice already written for it. "
+            "Choose its voice next; what it says comes with its first work."
+        ),
+        audit_summary={
+            "agent_id": str(made.agent_id),
+            "direction": parsed.direction,
+            "language_primary": parsed.language_primary,
+            "status": "draft",
+            "job": None,
+            "first_run": True,
+        },
+        object_id=str(made.agent_id),
     )
 
 
