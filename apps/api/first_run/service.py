@@ -4,7 +4,7 @@ D-855, D-863.
 
 Founder, 23 Oct 2026. The first thing a new owner sees is their agent taking shape, not the
 business setup wizard: its jobs (one agent does every job picked, D-863), its languages, a
-brief in their own words (typed, spoken, or the trade's own example), up to four follow-up
+brief in their own words (typed, spoken, or the trade's own example), up to three follow-up
 questions our AI writes for the business, a build they watch step by step, and a test call
 to their own phone. The wizard stays on the dashboard checklist and in Settings.
 

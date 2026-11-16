@@ -230,7 +230,7 @@ async def put_job(
     openapi_extra=_MANAGE,
     summary="Keep the brief and find its follow-up questions",
     description=(
-        "A brief with something to read is sent to a worker whose AI writes two to four "
+        "A brief with something to read is sent to a worker whose AI writes two or three "
         "follow-up questions for this business, each with the kind of answer it wants "
         "(`questions.status` is `writing` until it answers; poll this resource). A short "
         "brief, or no usable answer from the AI, gets fixed questions about the business "

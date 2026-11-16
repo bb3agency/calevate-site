@@ -1,7 +1,7 @@
 """The follow-up questions "Meet your agent" asks after the brief (D-855, D-863).
 
 WRITTEN BY OUR AI FOR THIS BUSINESS (founder, 23 Oct 2026, D-863, reversing D-855's "the model
-only chooses from a fixed set"). From the owner's description the model writes two to four
+only chooses from a fixed set"). From the owner's description the model writes two or three
 questions the description leaves open, each with the kind of answer it wants: tick all that
 apply (`choices`), pick one (`single_choice`), a short text, an address, a price list or
 opening hours. An answer whose question names a business-profile section (`maps_to`) lands in
@@ -54,7 +54,8 @@ KIND_NEEDS_TOPIC: Final[Mapping[str, ProfileTopic]] = {
 }
 
 MIN_WRITTEN: Final = 2
-MAX_WRITTEN: Final = 4
+#: Founder, 16 Nov 2026: at most three profile questions in the first run.
+MAX_WRITTEN: Final = 3
 PROMPT_MAX: Final = 90
 HINT_MAX: Final = 140
 OPTION_MAX: Final = 40
