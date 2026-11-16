@@ -98,11 +98,18 @@ export function HearItStep({
   );
 }
 
-/** The work's test call: the line's or the campaign's, the same answer either way. */
+/**
+ * The work's test call: the line's or the campaign's, the same answer either way. From the
+ * press on, the call stage IS its feedback (preparing, dialling, ringing, or the refusal in its
+ * own words with a way to try again), so a failure is shown there, not toasted, and nothing
+ * offers Undo: a call placed cannot be.
+ */
 function useWorkTestCall(work: FirstWork) {
   const { session } = useClientRealm();
   const line = useLineTestCall(session, work.kind === "line" ? work.id : "");
   const campaign = useCampaignTestCall(session, work.kind === "campaign" ? work.id : "");
+  useActionFeedback(line, { errorDisplay: "inline" });
+  useActionFeedback(campaign, { errorDisplay: "inline" });
   return work.kind === "line" ? line : campaign;
 }
 
@@ -130,12 +137,10 @@ function CallYou({
   const acceptAgreement = useAcceptAgreement(session);
   const acceptPledge = useAcceptPledge(session);
   const place = useWorkTestCall(work);
-  // From the press on, the call stage below IS these actions' feedback: preparing, dialling,
-  // ringing, or the refusal in its own words with a way to try again. So each failure is
-  // shown there, not toasted, and nothing here offers Undo (a call placed cannot be).
+  // The call stage below is these actions' feedback too (`useWorkTestCall`): each failure is
+  // shown there, not toasted.
   useActionFeedback(acceptAgreement, { errorDisplay: "inline" });
   useActionFeedback(acceptPledge, { errorDisplay: "inline" });
-  useActionFeedback(place, { errorDisplay: "inline" });
   const numberId = useId();
   const [number, setNumber] = useState("");
   const [ticked, setTicked] = useState<Set<string>>(() => new Set());
