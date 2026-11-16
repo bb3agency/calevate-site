@@ -111,7 +111,7 @@ def _not_a_draft(status: str, action: str) -> ProblemError:
         "campaign_not_draft",
         f"Only a draft can be {action}. This campaign is {status}.",
         remediation=(
-            "Cancel its start to turn it back into a draft, or stop it for good."
+            "Cancel its start to turn it back into a draft."
             if status == "scheduled"
             else "Duplicate it to start a new draft from the same settings."
         ),

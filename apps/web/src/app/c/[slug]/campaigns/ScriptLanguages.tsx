@@ -10,7 +10,7 @@
  * settings save replaces them all.
  */
 
-import { problemToast } from "@/components/arc/feedback";
+import { problemToast, useActionFeedback } from "@/components/arc/feedback";
 import { FIELD } from "@/components/ui";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import { useCampaignSettings, useSaveCampaignSettings } from "@/lib/api/campaignWorkspace";
@@ -37,6 +37,7 @@ export function ScriptLanguagePick({
   const { session } = useClientRealm();
   const settings = useCampaignSettings(session, campaignId, agentId);
   const save = useSaveCampaignSettings(session, campaignId);
+  useActionFeedback(save, { errorDisplay: "inline" });
   if (!settings.data) return null;
   const { overrides, defaults, offered_languages: offered } = settings.data;
   const main = overrides.language_primary ?? defaults.language_primary ?? offered[0] ?? "";

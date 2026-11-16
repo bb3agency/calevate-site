@@ -62,8 +62,9 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "calls-log",
     // Where the log's live calls stand (D-886); it polls on its own while one runs.
     "calls-live",
-    // The calls one inbound line took (D-997).
+    // The calls one inbound line took (D-997), and the test calls rung through it.
     "inbound-line-calls",
+    "inbound-line-test-calls",
     "callback-check",
     "performance",
     // Charts over calls and leads (D-869).
@@ -146,6 +147,7 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "campaign-insights",
     // The calls a campaign's Test call placed, listed on the campaign (`campaigns.test_call_ids`).
     "campaign-test-calls",
+    "agent-jobs",
   ],
   callbacks: [
     ...SUMMARY,
@@ -226,6 +228,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "agents-archived",
     // Inbound lines and the sources each is written from (D-997).
     "inbound-lines",
+    // An agent's jobs: its inbound lines and its campaigns (D-1000).
+    "agent-jobs",
     "agent-stats",
     "agent-starters",
     "agent-engine-state",
@@ -305,6 +309,8 @@ export const TOPIC_FAMILIES: Record<LiveTopic, readonly string[]> = {
     "me",
     // The owner's daily summary switch is on `organizations` (D-944).
     "daily-summary",
+    // The saved test numbers every campaign and inbound line offers (`organizations.test_numbers`).
+    "test-numbers",
     "members",
     "invitations",
     "kyc",

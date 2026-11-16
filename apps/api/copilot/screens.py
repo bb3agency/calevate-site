@@ -171,7 +171,10 @@ CLIENT_SCREENS: Final[tuple[Screen, ...]] = (
         route="/c/{slug}/campaigns",
         name="Campaigns",
         group=None,
-        summary="Outbound calling campaigns — build one, launch it, pause it, watch it run.",
+        summary=(
+            "Outbound calling campaigns — build one from sources in What your agents know, "
+            "start or stop it any time, watch it run."
+        ),
         aliases=("outbound", "calling list", "dialer", "broadcast"),
     ),
     Screen(

@@ -447,7 +447,8 @@ async def test_a_contact_upload_stores_no_hash_of_the_number() -> None:
     )
 
 
-async def test_contacts_cannot_be_added_to_a_running_campaign() -> None:
+async def test_a_running_promotional_campaign_refuses_new_people() -> None:
+    """Its national do-not-disturb scrub covered the list it launched with."""
     tenant_id, _, campaign_id = await _ready_campaign()
     async with tenant_session(tenant_id) as session:
         await service.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
@@ -458,7 +459,36 @@ async def test_contacts_cannot_be_added_to_a_running_campaign() -> None:
                 campaign_id=campaign_id,
                 contacts=[{"phone": "9876544444"}],
             )
-    assert excinfo.value.code == "campaign_not_draft"
+    assert excinfo.value.code == "campaign_promotional_started"
+
+
+@pytest.mark.parametrize("status", ["running", "paused", "cancelled", "completed"])
+async def test_a_started_service_campaign_takes_new_people_as_pending(status: str) -> None:
+    """0.4.34/0.4.46: people join a service campaign in any state; `check_dispatch` still
+    checks each number against do-not-call before it is dialled."""
+    tenant_id, _, campaign_id = await _ready_campaign(classification="service")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET status = :s, launched_at = now() WHERE id = :c"),
+            {"s": status, "c": campaign_id},
+        )
+        result = await service.add_contacts(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            contacts=[{"phone": "9876544444"}],
+        )
+        row = (
+            await session.execute(
+                text(
+                    "SELECT status FROM campaign_contacts "
+                    "WHERE campaign_id = :c AND phone_e164 = '+919876544444'"
+                ),
+                {"c": campaign_id},
+            )
+        ).one()
+    assert result["added"] == 1
+    assert row[0] == "pending"
 
 
 # ----------------------------------------------------------------------- launch gate

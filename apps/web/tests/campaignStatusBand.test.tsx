@@ -58,11 +58,10 @@ const PERSON = {
 };
 
 describe("the status band", () => {
-  it("is a launch panel for a draft, with what pressing Call does beside it", async () => {
+  it("is a launch panel for a draft", async () => {
     const { container } = await renderClientPage(campaignPage(), routes(progressFixture({ total: 3 })));
     await screen.findByRole("heading", { name: "Mandatory Regulatory Compliance Checks" });
     expect(screen.getByRole("button", { name: "Call 3 people" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "What launching does" }).textContent).toContain("3 people");
     // Other call settings offers a later start; a weekly repeat is no longer set here.
     expect(screen.getByRole("heading", { name: "Start later" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Repeat every week" })).toBeNull();

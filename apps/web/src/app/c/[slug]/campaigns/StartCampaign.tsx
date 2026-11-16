@@ -124,6 +124,18 @@ export function StartCampaign({
     for (const b of check.data?.blockers ?? []) {
       problems.push({ rule: b.rule, text: blockerNote(b.rule, { promotionalOpen: null })?.text ?? b.reason });
     }
+    // `ready` is the gate's verdict, not an empty list: a check still loading, failed, or
+    // not ready without naming why holds the start rather than offering a press it refuses.
+    if (problems.length === 0 && check.data?.ready !== true) {
+      problems.push({
+        rule: "launch_check",
+        text: check.data
+          ? "It isn't ready to start yet."
+          : check.error
+            ? "The checks did not load. Close this and try again."
+            : "Still checking the campaign.",
+      });
+    }
     if ((data?.total ?? 0) === 0 && !problems.some((p) => p.rule === "no_contacts"))
       problems.push({ rule: "no_contacts", text: "Add the people to call." });
   }

@@ -249,11 +249,12 @@ export function ContactResults({
                             {formatPhone(row.phone_e164)}
                           </p>
                         ) : null}
-                        {/* Before launch the only state worth a mark is one that stops a call. */}
+                        {/* People can be added in any state, so the editable layout also
+                            carries a tried person's outcome, tries, next try and goal. */}
                         {editable && row.outcome !== "not_called" ? (
-                          <StatusPill tone={OUTCOME_TONE[row.outcome]} className="mt-1">
-                            {OUTCOME_WORDS[row.outcome]}
-                          </StatusPill>
+                          <div className="mt-1">
+                            <PersonOutcome row={row} maxAttempts={maxAttempts} />
+                          </div>
                         ) : null}
                       </td>
                       {editable ? (

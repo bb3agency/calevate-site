@@ -99,7 +99,7 @@ export function TestCallRows({
   if (items.length === 0) return null;
   return (
     <div className="mt-5 border-t border-line pt-4">
-      <h4 className="text-body font-semibold text-ink">Your test calls</h4>
+      <h3 className="text-body font-semibold text-ink">Your test calls</h3>
       <ul className="mt-2 divide-y divide-line">
         {items.map((call) => (
           <TestCallRow

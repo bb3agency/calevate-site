@@ -46,8 +46,12 @@ async def read_picks(
     for holder_id, source_id in (
         await session.execute(
             text(
+                # Only a picked typed note follows its name: a file or link picked keeps
+                # its own row even when a typed note happens to share its name.
                 f"SELECT p.{picks.holder}, COALESCE((SELECT n.id FROM kb_sources n "
-                "WHERE n.name = s.name AND n.kind = 'text' AND NOT EXISTS "
+                "WHERE s.kind = 'text' AND NOT EXISTS "
+                "(SELECT 1 FROM kb_uploads w WHERE w.source_id = s.id) "
+                "AND n.name = s.name AND n.kind = 'text' AND NOT EXISTS "
                 "(SELECT 1 FROM kb_uploads u WHERE u.source_id = n.id) "
                 "ORDER BY n.version DESC, n.id DESC LIMIT 1), p.kb_source_id) "
                 f"FROM {picks.table} p JOIN kb_sources s ON s.id = p.kb_source_id "
@@ -103,8 +107,24 @@ async def add_pick(
     kb_source_id: UUID,
     created_by: UUID | None,
 ) -> None:
-    """Pick one more source, keeping the others; picking one twice is a no-op."""
+    """Pick one more source, keeping the others; picking one twice is a no-op. Past
+    `MAX_PICKS` it is refused, the bound a replace already has from its request model."""
     await _refuse_unknown(session, [kb_source_id])
+    count = (
+        await session.execute(
+            text(
+                f"SELECT count(*) FILTER (WHERE kb_source_id <> :s), "
+                f"bool_or(kb_source_id = :s) FROM {picks.table} WHERE {picks.holder} = :hid"
+            ),
+            {"hid": holder_id, "s": kb_source_id},
+        )
+    ).one()
+    if not count[1] and int(count[0]) >= MAX_PICKS:
+        raise ProblemError.business_rule(
+            "sources_full",
+            f"This already uses {MAX_PICKS} sources.",
+            remediation="Untick a source it no longer needs, then add this one.",
+        )
     await _insert(session, picks, tenant_id, holder_id, kb_source_id, created_by)
 
 

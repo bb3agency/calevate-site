@@ -159,6 +159,12 @@ async function openLaunchPanel(
   return rendered;
 }
 
+/** Presses the first Start campaign and returns the box it asks in. */
+async function openStart(): Promise<HTMLElement> {
+  fireEvent.click(screen.getAllByRole("button", { name: "Start campaign" })[0]);
+  return screen.findByRole("dialog");
+}
+
 /** The rows of the compliance card's checklist, not every list on the page. */
 function gateRows(): NodeListOf<HTMLLIElement> {
   const card = screen.getByText("Mandatory Regulatory Compliance Checks").closest("section");
@@ -175,22 +181,24 @@ describe("the launch panel with blockers outstanding", () => {
       ),
     );
 
-    // The count is the assertion, not the presence: a panel that renders two of three
-    // blockers is the failure mode — the client fixes what they were shown, presses
-    // launch, and meets a refusal for the one that was dropped.
-    // `no_contacts` is not a row: the Add people section is where people are added, and the
-    // line under the disabled button says so.
-    expect(gateRows()).toHaveLength(2);
-    expect(container.textContent).toContain("add the people to call above");
-    expect(container.textContent).toContain("Publish your agent first.");
+    // `no_contacts` and `agent_not_live` are not rows: Add people and the agent's own page
+    // are where those are fixed (founder, 15 Nov 2026).
+    expect(gateRows()).toHaveLength(1);
     // L3-09: one short line; the server's sentence, which names the state, is behind "Why?".
     expect(container.textContent).toContain("Accept the no-cold-calls promise.");
     expect(container.textContent).not.toContain("Accept the no-cold-calls pledge first.");
-
-    // Disabled WITH the reasons, never absent. There is exactly one launch control and
-    // it cannot be pressed.
-    expect(launchButtonDisabled()).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
     expect(container.textContent).not.toContain("Everything checks out.");
+
+    // The count is the assertion, not the presence: Start names all three, and holds.
+    const box = await openStart();
+    const named = Array.from(box.querySelectorAll(".text-danger")).map((line) => line.textContent);
+    expect(named).toEqual([
+      "• Add the people to call.",
+      "• Publish your agent first.",
+      "• Accept the no-cold-calls promise.",
+    ]);
+    expect((within(box).getByRole("button", { name: "Start campaign" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("names the desk a blocker lands on, so a client does not hunt for a setting they do not have", async () => {
@@ -244,7 +252,7 @@ describe("the launch panel with blockers outstanding", () => {
     );
     // The rule NAME is the gate's vocabulary and must not be what the client reads.
     expect(container.textContent).not.toContain("a_gate_this_build_predates");
-    expect(launchButtonDisabled()).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
   });
 
   it("tells a client whose credit ran out that their agents have stopped answering too", async () => {
@@ -376,8 +384,12 @@ describe("the launch panel with nothing outstanding", () => {
     });
 
     expect(container.textContent).not.toContain("Everything checks out.");
-    expect(launchButtonDisabled()).toBe(true);
+    expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
     expect(container.textContent).toContain("Everything on your side is ready");
+    // Start holds too, rather than offering a press the server will refuse.
+    const box = await openStart();
+    expect(box.textContent).toContain("It isn't ready to start yet.");
+    expect((within(box).getByRole("button", { name: "Start campaign" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
@@ -455,13 +467,15 @@ describe("the launch panel for a viewer who may not launch", () => {
     // the owner does — a staff user who can see neither the reason nor the button has
     // nothing to relay to the person who can act.
     const { container } = await openLaunchPanel(
-      check({ rule: "no_contacts", reason: "The campaign has no contacts." }),
+      check({ rule: "outbound_pledge_missing", reason: "Accept the no-cold-calls pledge first." }),
       STAFF,
     );
 
-    expect(gateRows()).toHaveLength(0);
-    expect(container.textContent).toContain("Add the people to call above first");
-    expect(launchButtonDisabled()).toBe(true);
+    expect(gateRows()).toHaveLength(1);
+    expect(container.textContent).toContain("Accept the no-cold-calls promise.");
+    const start = screen.getAllByRole("button", { name: "Start campaign" })[0] as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    expect(start.title).toBe(STAFF_REASON);
   });
 });
 
@@ -497,41 +511,24 @@ describe("launching", () => {
     expect(launched[0].method).toBe("POST");
   });
 
-  /** The launch summary beside the button, as label → value. */
-  function summary(): Record<string, string> {
-    const list = screen.getByRole("group", { name: "What launching does" });
-    const facts: Record<string, string> = {};
-    for (const term of Array.from(list.querySelectorAll("dt"))) {
-      facts[term.textContent ?? ""] = term.nextElementSibling?.textContent ?? "";
-    }
-    return facts;
+  /** The Other call settings section, where hours, calls at once, the number and the kind of call sit. */
+  function otherSettings(): HTMLElement {
+    return screen.getByRole("button", { name: "Other call settings" }).closest("section") as HTMLElement;
   }
 
-  it("says beside the button how many, when, from where and how many at once, as the server reports", async () => {
+  it("shows the hours, calls at once and the calling number in Other call settings", async () => {
     await openLaunchPanel(check(), ME, {
-      [`/v1/campaigns/${CAMPAIGN_ID}`]: {
-        ...READY_PROGRESS,
-        calling_hours: { start: "10:00", end: "18:00" },
-        number_e164: "+911140001234",
-      },
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: { ...READY_PROGRESS, calling_hours: { start: "10:00", end: "18:00" } },
       [LAUNCH_ROUTE]: LAUNCHED,
     });
     await screen.findByRole("button", { name: "Call 120 people" });
-    expect(summary()).toEqual({
-      People: "120 people",
-      "Calls at once": "Up to 3",
-      "Calling hours": "10:00–18:00 IST",
-      "Calling from": "+91 11400 01234",
-    });
-  });
-
-  it("says in words that a campaign with no number of its own rings from the agent's", async () => {
-    await openLaunchPanel(check(), ME, {
-      [`/v1/campaigns/${CAMPAIGN_ID}`]: { ...READY_PROGRESS, number_e164: null },
-      [LAUNCH_ROUTE]: LAUNCHED,
-    });
-    await screen.findByRole("button", { name: "Call 120 people" });
-    expect(summary()["Calling from"]).toBe("Your agent's number");
+    const section = within(otherSettings());
+    expect((section.getByLabelText("From") as HTMLInputElement).value).toBe("10:00");
+    expect((section.getByLabelText("To") as HTMLInputElement).value).toBe("18:00");
+    expect((section.getByLabelText("Up to") as HTMLSelectElement).value).toBe("3");
+    // No number of its own: it rings from the agent's, said in words.
+    const from = section.getByLabelText("Number") as HTMLSelectElement;
+    expect(from.selectedOptions[0].textContent).toBe("Your agent\u2019s number");
   });
 
   it("names the account's call lines when they are what holds the campaign back", async () => {
@@ -542,7 +539,7 @@ describe("launching", () => {
     });
     await screen.findByRole("button", { name: "Call 120 people" });
     await vi.waitFor(() =>
-      expect(summary()["Calls at once"]).toBe("Up to 2You set 5. Your account runs up to 2 calls at once."),
+      expect(otherSettings().textContent).toContain("You set 5. Your account runs up to 2 calls at once."),
     );
     expect(screen.queryByText(/plan allows/)).toBeNull();
   });
@@ -583,14 +580,12 @@ describe("launching", () => {
       [LAUNCH_ROUTE]: LAUNCHED,
     });
     await screen.findByRole("button", { name: "Call 120 people" });
-    const kind = summary()["Kind of call"];
-    expect(kind).toContain("Follow-up to an enquiry");
-    expect(kind).toContain("Permission lasts 7 days from their enquiry.");
-    // The list's own source and what the launch check does not do sit behind the tap.
-    const list = screen.getByRole("group", { name: "What launching does" });
-    fireEvent.click(within(list).getByRole("button", { name: "Why?" }));
-    expect(list.textContent).toContain("Your list: Signed up on our website.");
-    expect(list.textContent).toContain("We don't check each person's date for you.");
+    const section = otherSettings();
+    await vi.waitFor(() => expect(section.textContent).toContain("Follow-up to an enquiry"));
+    expect(section.textContent).toContain("Permission lasts 7 days from their enquiry.");
+    // What the launch check does not do sits behind the tap.
+    fireEvent.click(within(section).getByRole("button", { name: "Why?" }));
+    expect(section.textContent).toContain("We don't check each person's date for you.");
   });
 
   it("offers no launch at all when the campaign's progress could not be read", async () => {

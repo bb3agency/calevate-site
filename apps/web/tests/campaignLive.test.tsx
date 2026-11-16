@@ -9,6 +9,7 @@ import {
   campaignPage,
   contactsFixture,
   contactsPath,
+  CONTACTS_PAGE,
   detailRoutes,
   openTab,
   progressFixture,
@@ -104,7 +105,7 @@ describe("the live panel of a running campaign", () => {
     );
     await openTab("Progress & results");
     fireEvent.click(await screen.findByRole("button", { name: "About Calls at once" }));
-    expect(await screen.findByText("You set 5. Your account runs up to 2 calls at once.")).toBeTruthy();
+    expect((await screen.findAllByText("You set 5. Your account runs up to 2 calls at once.")).length).toBeGreaterThan(0);
   });
 
   it("asks for nobody on a call while nobody is, and names the next try", async () => {
@@ -140,7 +141,7 @@ describe("the live panel of a running campaign", () => {
     );
     const people = await screen.findByRole("table", { name: "People on this campaign" });
     expect(within(people).getByText("Lakshmi")).toBeTruthy();
-    expect(within(people).getByRole("columnheader", { name: "What happened" })).toBeTruthy();
+    expect(within(people).getByRole("columnheader", { name: "Person" })).toBeTruthy();
     expect(screen.getByRole("tab", { name: "Set up" }).getAttribute("aria-selected")).toBe("true");
     await openTab("Progress & results");
     expect(await screen.findByText("Calling hours")).toBeTruthy();
@@ -199,10 +200,11 @@ describe("a page of people that loses its rows", () => {
       call_id: null,
     });
     const counts = (n: number) => ({ ...contactsFixture().counts, calling: n });
-    const pageTwo = `/v1/campaigns/${CAMPAIGN_ID}/contacts?limit=50&offset=50`;
-    const table = routes(progressFixture({ ...LAUNCHED, total: 51, contacts: { dialing: 51 } }), {
-      [contactsPath()]: contactsFixture({ total: 51, counts: counts(51), items: Array.from({ length: 50 }, (_, i) => person(i)) }),
-      [pageTwo]: contactsFixture({ total: 51, counts: counts(51), items: [{ ...person(50), name: "The last one" }] }),
+    const pageTwo = contactsPath(CAMPAIGN_ID, CONTACTS_PAGE);
+    const full = CONTACTS_PAGE;
+    const table = routes(progressFixture({ ...LAUNCHED, total: full + 1, contacts: { dialing: full + 1 } }), {
+      [contactsPath()]: contactsFixture({ total: full + 1, counts: counts(full + 1), items: Array.from({ length: full }, (_, i) => person(i)) }),
+      [pageTwo]: contactsFixture({ total: full + 1, counts: counts(full + 1), items: [{ ...person(full), name: "The last one" }] }),
       [ON_A_CALL]: contactsFixture(),
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -210,9 +212,9 @@ describe("a page of people that loses its rows", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Page 2" }));
     expect(await screen.findByText("The last one")).toBeTruthy();
 
-    // The re-read of that page comes back empty: there are fifty now, all on page 1.
-    table[pageTwo] = contactsFixture({ total: 50, counts: counts(50), items: [] });
-    table[contactsPath()] = contactsFixture({ total: 50, counts: counts(50), items: Array.from({ length: 50 }, (_, i) => person(i)) });
+    // The re-read of that page comes back empty: one page's worth now, all on page 1.
+    table[pageTwo] = contactsFixture({ total: full, counts: counts(full), items: [] });
+    table[contactsPath()] = contactsFixture({ total: full, counts: counts(full), items: Array.from({ length: full }, (_, i) => person(i)) });
     await act(async () => {
       await client.refetchQueries({ queryKey: ["campaign"] });
     });

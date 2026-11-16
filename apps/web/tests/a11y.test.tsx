@@ -14,6 +14,7 @@ import { pipQualityReport } from "./fixtures/pipQuality";
 import { COST_PER_RESULT, COST_PER_RESULT_ROUTE, REPLY_SPEED_FIXTURE } from "./fixtures/proof";
 import {
   contactsFixture,
+  contactsPath,
   dltRegistrationRoute,
   progressFixture,
   resultsFixture,
@@ -3205,11 +3206,22 @@ const CLIENT_SCREENS: Screen[] = [
       // The Set up tab, which opens first whatever the status.
       [`/v1/campaigns/${CAMPAIGN.id}/workspace`]: workspaceFixture({ campaign_id: CAMPAIGN.id, status: "running" }),
       [`/v1/campaigns/${CAMPAIGN.id}/settings`]: settingsFixture(),
-      [`/v1/campaigns/${CAMPAIGN.id}/test-calls`]: [],
+      [`/v1/campaigns/${CAMPAIGN.id}/test-calls`]: [
+        { call_id: "call-2", placed_at: "2026-11-16T04:00:00Z", status: "completed", duration_s: 40, has_recording: false },
+      ],
+      [`/v1/campaigns/${CAMPAIGN.id}/test-numbers`]: { numbers: ["+919876543210"] },
+      "/v1/call-lines": { call_lines: 3, in_progress: 1, max_lines: 10, on_trial: false, being_applied: false },
+      "/v1/campaigns/numbers": [],
+      "/v1/kb/notes": {
+        notes: [
+          { id: "note-1", name: "Prices", state: "in_use", version: 1, chunks: 2, changed_at: "2026-11-15T05:00:00Z", restorable: false },
+        ],
+      },
+      "/v1/kb/uploads": [],
       "/v1/agents": [AGENT],
       ...dltRegistrationRoute(),
       [`/v1/campaigns/${CAMPAIGN.id}/results`]: resultsFixture({ contacts: 1, tried: 1, pickup_rate: 1 }),
-      [`/v1/campaigns/${CAMPAIGN.id}/contacts?limit=50&offset=0`]: contactsFixture({
+      [contactsPath(CAMPAIGN.id)]: contactsFixture({
         total: 1,
         counts: { ...contactsFixture().counts, connected: 1 },
         items: [

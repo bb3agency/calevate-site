@@ -678,12 +678,13 @@ function TestCallSection({
 }) {
   const { session } = useClientRealm();
   const call = useLineTestCall(session, line.id);
+  useActionFeedback(call, { errorDisplay: "inline" });
   const saved = useLineTestNumbers(session, line.id);
   const calls = useLineTestCalls(session, line.id);
   return (
     <FoldSection id="line-test-call" title="Test call" tone="test" hint="This line rings your phone." info={TEST_CALL_INFO}>
       {line.script ? (
-        <TestCallForm slug={slug} call={call} saved={saved.data?.numbers} canWrite={canWrite} refusal={refusal} />
+        <TestCallForm slug={slug} call={call} saved={saved} canWrite={canWrite} refusal={refusal} />
       ) : (
         <p className="text-body text-ink-muted">Write the script first, then hear it here.</p>
       )}
