@@ -36,6 +36,17 @@ LINE_PICKS: Final = PickTable("inbound_line_sources", "inbound_line_id")
 CAMPAIGN_PICKS: Final = PickTable("campaign_sources", "campaign_id")
 
 
+def _table_of(picks: PickTable) -> str:
+    """`picks.table` as a literal, so every statement here is built only from text written in
+    this file (`scripts/check_raw_sql.py`)."""
+    return "inbound_line_sources" if picks == LINE_PICKS else "campaign_sources"
+
+
+def _holder_of(picks: PickTable) -> str:
+    """`picks.holder` as a literal, for the same reason."""
+    return "inbound_line_id" if picks == LINE_PICKS else "campaign_id"
+
+
 async def read_picks(
     session: AsyncSession, picks: PickTable, holder_ids: list[UUID]
 ) -> dict[UUID, list[UUID]]:
@@ -48,14 +59,14 @@ async def read_picks(
             text(
                 # Only a picked typed note follows its name: a file or link picked keeps
                 # its own row even when a typed note happens to share its name.
-                f"SELECT p.{picks.holder}, COALESCE((SELECT n.id FROM kb_sources n "
+                f"SELECT p.{_holder_of(picks)}, COALESCE((SELECT n.id FROM kb_sources n "
                 "WHERE s.kind = 'text' AND NOT EXISTS "
                 "(SELECT 1 FROM kb_uploads w WHERE w.source_id = s.id) "
                 "AND n.name = s.name AND n.kind = 'text' AND NOT EXISTS "
                 "(SELECT 1 FROM kb_uploads u WHERE u.source_id = n.id) "
                 "ORDER BY n.version DESC, n.id DESC LIMIT 1), p.kb_source_id) "
-                f"FROM {picks.table} p JOIN kb_sources s ON s.id = p.kb_source_id "
-                f"WHERE p.{picks.holder} = ANY(:ids) ORDER BY p.created_at, p.id"
+                f"FROM {_table_of(picks)} p JOIN kb_sources s ON s.id = p.kb_source_id "
+                f"WHERE p.{_holder_of(picks)} = ANY(:ids) ORDER BY p.created_at, p.id"
             ),
             {"ids": holder_ids},
         )
@@ -92,7 +103,7 @@ async def replace_picks(
     wanted = list(dict.fromkeys(kb_source_ids))
     await _refuse_unknown(session, wanted)
     await session.execute(
-        text(f"DELETE FROM {picks.table} WHERE {picks.holder} = :hid"), {"hid": holder_id}
+        text(f"DELETE FROM {_table_of(picks)} WHERE {_holder_of(picks)} = :hid"), {"hid": holder_id}
     )
     for source_id in wanted:
         await _insert(session, picks, tenant_id, holder_id, source_id, created_by)
@@ -114,7 +125,7 @@ async def add_pick(
         await session.execute(
             text(
                 f"SELECT count(*) FILTER (WHERE kb_source_id <> :s), "
-                f"bool_or(kb_source_id = :s) FROM {picks.table} WHERE {picks.holder} = :hid"
+                f"bool_or(kb_source_id = :s) FROM {_table_of(picks)} WHERE {_holder_of(picks)} = :hid"
             ),
             {"hid": holder_id, "s": kb_source_id},
         )
@@ -138,7 +149,7 @@ async def _insert(
 ) -> None:
     await session.execute(
         text(
-            f"INSERT INTO {picks.table} (id, tenant_id, {picks.holder}, kb_source_id, "
+            f"INSERT INTO {_table_of(picks)} (id, tenant_id, {_holder_of(picks)}, kb_source_id, "
             "created_by) VALUES (:id, :t, :hid, :s, :by) ON CONFLICT DO NOTHING"
         ),
         {"id": uuid7(), "t": tenant_id, "hid": holder_id, "s": source_id, "by": created_by},

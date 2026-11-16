@@ -919,6 +919,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "PUT /v1/first-run/brief",
             "PUT /v1/first-run/agent",
             "PUT /v1/first-run/name",
+            "PUT /v1/first-run/agent",
             "POST /v1/first-run/work",
             "POST /v1/first-run/answers",
             "POST /v1/first-run/finish",
@@ -1372,7 +1373,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     **dict.fromkeys(_CAMPAIGN_WORKSPACE_ROUTES, _CAMPAIGN_WORKSPACE),
     "POST /v1/campaigns/{campaign_id}/script/proposal": _CAMPAIGN_WORKSPACE,
     "GET /v1/campaigns/{campaign_id}/test-calls": BoundedByConstruction(
-        by="the newest `campaigns/workspace_routes.MAX_LISTED_TEST_CALLS`, in the LIMIT."
+        by="the newest `campaigns/workspace_routes.TEST_CALLS_SHOWN`, in the LIMIT."
     ),
     "GET /v1/campaigns/{campaign_id}/test-numbers": _TEST_NUMBERS,
     "PUT /v1/campaigns/{campaign_id}/test-numbers": _TEST_NUMBERS,

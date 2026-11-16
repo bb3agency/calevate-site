@@ -179,6 +179,12 @@ class _Holder:
     log_key: str
 
 
+def _table_of(holder: _Holder) -> str:
+    """The holder's table as a literal, so the SQL it is spliced into is built only from text
+    written here (`scripts/check_raw_sql.py`)."""
+    return "inbound_lines" if holder.table == "inbound_lines" else "campaigns"
+
+
 def _campaign(tenant_id: UUID, campaign_id: UUID, proposal_id: UUID) -> _Holder:
     return _Holder("campaigns", campaign_id, tenant_id, proposal_id, "campaign_id")
 
@@ -193,7 +199,7 @@ async def _claim(holder: _Holder) -> bool:
         claimed = (
             await session.execute(
                 text(
-                    f"UPDATE {holder.table} SET script_proposal = script_proposal || "
+                    f"UPDATE {_table_of(holder)} SET script_proposal = script_proposal || "
                     "jsonb_build_object('claimed', true) WHERE id = :hid "
                     "AND script_proposal->>'id' = :pid "
                     "AND script_proposal->>'status' = 'drafting' "
@@ -210,7 +216,7 @@ async def _store(session: AsyncSession, holder: _Holder, update: dict[str, Any])
     stored = (
         await session.execute(
             text(
-                f"UPDATE {holder.table} SET script_proposal = script_proposal || "
+                f"UPDATE {_table_of(holder)} SET script_proposal = script_proposal || "
                 "CAST(:u AS jsonb) WHERE id = :hid AND script_proposal->>'id' = :pid "
                 "RETURNING id"
             ),
@@ -231,7 +237,7 @@ async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScr
         await session.execute(
             text(
                 f"SELECT script IS NULL AS empty, script_proposal->>'auto_save' AS auto "
-                f"FROM {holder.table} WHERE id = :hid AND script_proposal->>'id' = :pid"
+                f"FROM {_table_of(holder)} WHERE id = :hid AND script_proposal->>'id' = :pid"
             ),
             {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
         )
@@ -245,7 +251,7 @@ async def _save_if_asked(session: AsyncSession, holder: _Holder, script: CallScr
             else:
                 await workspace.save_script(session, holder.holder_id, script)
             await session.execute(
-                text(f"UPDATE {holder.table} SET script_proposal = NULL WHERE id = :hid"),
+                text(f"UPDATE {_table_of(holder)} SET script_proposal = NULL WHERE id = :hid"),
                 {"hid": holder.holder_id},
             )
     except ProblemError as refused:

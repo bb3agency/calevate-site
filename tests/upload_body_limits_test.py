@@ -48,6 +48,13 @@ def test_a_dispute_contest_may_carry_every_evidence_file_it_accepts() -> None:
     )
 
 
+def test_a_campaign_file_may_be_as_large_as_a_knowledge_file() -> None:
+    wall = body_limit_for("POST", "/v1/campaigns/01a1e3c3-7ca6-7030/sources/upload")
+    assert MAX_UPLOAD_BYTES <= wall <= MAX_UPLOAD_BYTES + 128 * 1024
+    assert profile_for("/v1/campaigns/{campaign_id}/sources/upload", "POST").name == "upload"
+    assert body_limit_for("POST", "/v1/campaigns/a/b/sources/upload") == MAX_BODY_BYTES
+
+
 @pytest.mark.parametrize("path", [p for p, limit in BOUNDED_UPLOADS if limit > 4 * 1024 * 1024])
 def test_a_large_upload_is_rated_as_an_upload(path: str) -> None:
     assert profile_for(path, "POST").name == "upload"

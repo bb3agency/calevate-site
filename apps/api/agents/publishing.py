@@ -89,6 +89,7 @@ from calevate_shared.call_script import opening_line_of, said_notices_of
 from calevate_shared.engine import (
     AgentConfig,
     DisclosurePosture,
+    HandoffSpec,
     VoiceEngine,
     compose_opening_line,
     introduces_itself,
@@ -105,6 +106,7 @@ from apps.api.agents.live_apply import queue_live_apply
 from apps.api.agents.models import is_published
 from apps.api.agents.opening_notices import queue_opening_notices
 from apps.api.agents.service import (
+    AgentRow,
     effective_call_cap,
     publish_agent,
     refuse_call_cap_out_of_range,
@@ -980,10 +982,15 @@ _ARM_BY_ENGINE_REF_SQL = (
     "WHERE e.agent_id = :aid AND e.status = 'running' AND v.engine_agent_ref = :ref"
 )
 
-#: The inbound line (D-997) whose engine agent `ref` is, archived or not.
+#: The other holders a route can name besides the agent and its arms: an inbound line's own
+#: engine agent (D-997) and the agent's developer-workspace test copy (D-859), which may hold
+#: "Just the business" (D-1000).
 _LINE_BY_ENGINE_REF_SQL = (
     "SELECT id, archived_at IS NOT NULL FROM inbound_lines "
     "WHERE agent_id = :aid AND engine_agent_ref = :ref"
+)
+_COPY_BY_ENGINE_REF_SQL = (
+    "SELECT business_only FROM agent_test_copies WHERE agent_id = :aid AND engine_agent_ref = :ref"
 )
 
 
@@ -1011,11 +1018,13 @@ async def engine_drift_for(
     (the on-demand endpoint, which is about the agent) or naming the agent's own ref, the
     behaviour is exactly what it was.
 
-    A ref matching neither is compared against the agent, unchanged: the only writers of
-    `engine_agent_routes` are `publish_agent` and `publish_variant`, and
-    `experiments.conclude` deactivates an arm's route when it retires, so an ACTIVE route
-    is one or the other. Inventing a verdict for a state nothing can produce would be a
-    branch no test can reach.
+    An inbound line's engine agent (D-997) and the agent's test copy (D-859) are vendor
+    objects of their own too, read back by THEIR ref against the config their publish sends:
+    the line's (`service.line_config`), and for a copy the agent's, or "Just the business"
+    (`business_only.business_row`) when it was last published as that. Compared against the
+    agent instead, the sweep read the agent's object once per route and stamped that verdict
+    on the holder's row, so a line that lost the truthful-answer directive was never seen.
+    A ref matching none of these is compared against the agent, unchanged.
 
     THE CASE `live_verify_state` STRUCTURALLY CANNOT COVER. That column records what a
     read-back found AT THE LAST PUBLISH. Two divergences appear afterwards and neither
@@ -1076,24 +1085,19 @@ async def engine_drift_for(
                     text(_ARM_BY_ENGINE_REF_SQL), {"aid": agent_id, "ref": engine_agent_ref}
                 )
             ).first()
-            line = (
-                await session.execute(
-                    text(_LINE_BY_ENGINE_REF_SQL), {"aid": agent_id, "ref": engine_agent_ref}
-                )
-            ).first()
-        if line is not None and engine_agent_ref is not None:
-            # A line's engine agent (D-997) is compared against the line's own config: the
-            # agent's over the line's script, without the actions the line switched off.
-            if line[1]:
-                return _not_published(
-                    agent_id, engine.name, "This line is archived, so it is not compared."
-                )
-            target, config = (
-                engine_agent_ref,
-                await line_config(
-                    session, tenant_id=tenant_id, line_id=UUID(str(line[0])), agent=row
-                ),
+        holder = (
+            await _holder_config(
+                session, tenant_id=tenant_id, agent=row, ref=engine_agent_ref, handoff=handoff
             )
+            if arm is None and engine_agent_ref is not None and engine_agent_ref != ref
+            else None
+        )
+        if holder == "archived":
+            return _not_published(
+                agent_id, engine.name, "This line is archived, so it is not compared."
+            )
+        if isinstance(holder, AgentConfig) and engine_agent_ref is not None:
+            target, config = engine_agent_ref, holder
         elif arm is not None and engine_agent_ref is not None:
             # The arm IS a published vendor object in its own right, so `not_published`
             # cannot apply to it and the agent's own ref is irrelevant to this comparison.
@@ -1129,6 +1133,33 @@ async def engine_drift_for(
             target, config = ref, _to_config(tenant_id, row, engine=engine, handoff=handoff)
 
     return await _drift_of(engine, agent_id, target, config)
+
+
+async def _holder_config(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    agent: AgentRow,
+    ref: str,
+    handoff: HandoffSpec | None,
+) -> AgentConfig | Literal["archived"] | None:
+    """The config the line or test copy holding `ref` was published with, `"archived"` for an
+    archived line (its engine agent is being retired), or None when `ref` is neither."""
+    from apps.api.agents.business_only import business_row
+    from apps.api.agents.service import _to_config, line_config
+
+    agent_id = UUID(str(agent["id"]))
+    params = {"aid": agent_id, "ref": ref}
+    line = (await session.execute(text(_LINE_BY_ENGINE_REF_SQL), params)).first()
+    if line is not None:
+        if line[1]:
+            return "archived"
+        return await line_config(session, tenant_id=tenant_id, line_id=line[0], agent=agent)
+    copy = (await session.execute(text(_COPY_BY_ENGINE_REF_SQL), params)).first()
+    if copy is None:
+        return None
+    held = await business_row(session, tenant_id=tenant_id, agent=agent) if copy[0] else agent
+    return _to_config(tenant_id, held, engine=get_engine(), handoff=handoff)
 
 
 def _not_published(agent_id: UUID, engine: str, detail: str) -> EngineDrift:
