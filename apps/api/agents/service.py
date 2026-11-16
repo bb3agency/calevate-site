@@ -5380,7 +5380,7 @@ async def dispatch_call(
         if trial is not None:
             await _hold_trial_line(intent)
             studio_left = await refuse_trial_studio_over_cap(
-                intent, tenant_id=tenant_id, agent_id=agent_id
+                intent, tenant_id=tenant_id, agent_id=agent_id, engine_agent_ref=dial_ref
             )
             if studio_left is not None:
                 # A Studio test call stops where the trial's Studio minutes do, not at the
