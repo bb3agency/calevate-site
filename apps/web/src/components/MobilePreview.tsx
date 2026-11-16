@@ -18,6 +18,8 @@ import { Monitor, Smartphone, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { ScrollRegion } from "@/components/ui";
+
 const KEY = "calevate:view";
 const PHONE = { w: 390, h: 844 };
 
@@ -91,26 +93,32 @@ function PhoneFrame({ onClose }: { onClose: () => void }) {
       role="dialog"
       aria-modal="true"
       aria-label="Mobile preview"
-      className="fixed inset-0 z-[2147483000] hidden flex-col items-center gap-3 overflow-auto bg-ink/60 p-4 lg:flex"
+      className="fixed inset-0 z-modal hidden flex-col bg-ink/60 lg:flex"
     >
-      <div className="flex items-center gap-3 rounded-full bg-surface px-3 py-1.5 text-meta text-ink shadow-card">
-        <Smartphone aria-hidden className="h-4 w-4 text-brand-strong" />
-        <span>Mobile view ({PHONE.w}×{PHONE.h})</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 font-medium hover:bg-surface-muted"
-        >
-          <X aria-hidden className="h-3.5 w-3.5" />
-          Back to wide
-        </button>
-      </div>
-      <div
-        className="shrink-0 overflow-hidden rounded-[2.5rem] border-[10px] border-ink bg-surface shadow-card"
-        style={{ width: PHONE.w + 20, height: PHONE.h + 20 }}
+      <ScrollRegion
+        label="Mobile view"
+        edgeCue={false}
+        className="flex min-h-0 flex-1 flex-col items-center gap-3 overflow-y-auto p-4"
       >
-        <iframe title="This page on a phone" src={src} width={PHONE.w} height={PHONE.h} className="block border-0" />
-      </div>
+        <div className="flex items-center gap-3 rounded-full bg-surface px-3 py-1.5 text-meta text-ink shadow-card">
+          <Smartphone aria-hidden className="h-4 w-4 text-brand-strong" />
+          <span>Mobile view ({PHONE.w}×{PHONE.h})</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 font-medium hover:bg-surface-muted"
+          >
+            <X aria-hidden className="h-3.5 w-3.5" />
+            Back to wide
+          </button>
+        </div>
+        <div
+          className="shrink-0 overflow-hidden rounded-[2.5rem] border-[10px] border-ink bg-surface shadow-card"
+          style={{ width: PHONE.w + 20, height: PHONE.h + 20 }}
+        >
+          <iframe title="This page on a phone" src={src} width={PHONE.w} height={PHONE.h} className="block border-0" />
+        </div>
+      </ScrollRegion>
     </div>,
     document.body,
   );

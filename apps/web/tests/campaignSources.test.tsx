@@ -22,7 +22,18 @@ function note(id: string, name: string): KbNote {
   return { id, name, state: "in_use", version: 1, chunks: 1, changed_at: "2026-11-16T04:00:00Z", restorable: false };
 }
 
-const UPLOAD = { id: "upload-1", source_id: FILE_ID, name: "Price list.pdf", source_kind: "pdf" } as KbUpload;
+const UPLOAD: KbUpload = {
+  id: "upload-1",
+  source_id: FILE_ID,
+  name: "Price list.pdf",
+  source_kind: "pdf",
+  facts_count: 0,
+  ingest_status: "processed",
+  review_state: "approved",
+  is_live: true,
+  reaches_agents: true,
+  version: 1,
+};
 
 const routes = (extra: Routes = {}): Routes => ({
   [`${base}/workspace`]: workspaceFixture(),

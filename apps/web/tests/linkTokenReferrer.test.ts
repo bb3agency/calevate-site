@@ -113,7 +113,7 @@ describe("the middleware's Referrer-Policy", () => {
   it("still sets the CSP on a token-bearing route", () => {
     // The header is ADDED to that response, not swapped for the one already there.
     const response = middleware(new NextRequest(new URL(`https://app.calevate.tech${CLIENT_RESET_PATH}`)));
-    expect(response.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'none'");
+    expect(response.headers.get("Content-Security-Policy")).toContain("frame-ancestors 'self'");
   });
 });
 

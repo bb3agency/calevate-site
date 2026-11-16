@@ -370,14 +370,14 @@ describe("one body of knowledge for the whole business (D-689)", () => {
     expect(container.querySelector("select")).toBeNull();
     expect(container.textContent).not.toContain("Which agent");
     expect(container.textContent).not.toContain("Goes to");
-    // No knowledge row is attributed to one agent: every agent answers from every row. The
-    // agents are named once, in the group of their own scripts at the foot of the page.
-    const own = await screen.findByRole("list", { name: "Agents" });
-    expect(own.textContent).toContain("Front desk");
-    const shared = container.cloneNode(true) as HTMLElement;
-    shared.querySelector('[aria-label="Agents"]')?.remove();
-    expect(shared.textContent).not.toContain("Front desk");
-    expect(shared.textContent).not.toContain("Outbound reminders");
+    // No knowledge row is attributed to one agent: every agent answers from every row. A
+    // script belongs to an Inbound line or a campaign, not to an agent, so the foot of the
+    // page points at those and names no agent at all.
+    const scripts = await screen.findByRole("list", { name: "Where scripts are written" });
+    expect(scripts.textContent).toContain("Inbound lines");
+    expect(scripts.textContent).toContain("Campaigns");
+    expect(container.textContent).not.toContain("Front desk");
+    expect(container.textContent).not.toContain("Outbound reminders");
   });
 
   it("asks Pip to teach the words, with no agent named (D-821)", async () => {

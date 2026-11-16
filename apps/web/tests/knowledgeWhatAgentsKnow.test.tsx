@@ -107,13 +107,15 @@ describe("what a file taught the agents", () => {
     expect(within(learned).getAllByText(/Installing on Android/)).toHaveLength(1);
   });
 
-  it("shows the call instructions in place, and says they are not said on calls yet", async () => {
+  it("shows the call instructions in place, and points to where the file is picked", async () => {
     await renderKnowledge();
     fireEvent.click(await screen.findByRole("button", { name: "Show call instructions" }));
     const list = screen.getByRole("list", { name: "Call instructions in Voice agent guide.md" });
     expect(within(list).getByText("Say who you are.")).toBeTruthy();
-    expect(screen.getByText("Not said on calls until they are in a script.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Use in call scripts" })).toBeTruthy();
+    const where = screen.getByText("Pick this file on an Inbound line or campaign to use them.").parentElement!;
+    expect(within(where).getByRole("link", { name: "Open Inbound" })).toBeTruthy();
+    expect(within(where).getByRole("link", { name: "Open Campaigns" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Use in call scripts" })).toBeNull();
   });
 });
 

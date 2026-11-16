@@ -14,10 +14,11 @@
 
 import { ChevronDown, GitBranch, Maximize2, Plus, Workflow, X } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM } from "@/components/ui";
+import { PRIMARY_BUTTON_SM, SECONDARY_BUTTON_SM, ScrollRegion } from "@/components/ui";
+import { useFocusTrap } from "@/lib/focusTrap";
 import { keepInView } from "@/lib/keepInView";
 import type { CallScript } from "@/lib/api/script";
 import { useScript } from "@/lib/api/script";
@@ -313,9 +314,11 @@ export function CampaignFlow({
             >
               <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${folded ? "-rotate-90" : ""}`} />
               <Workflow aria-hidden className="h-4 w-4 text-series-2" />
-              Call flow
-              <span className="text-meta font-normal text-ink-muted">
-                {sections.length === 1 ? "1 step" : `${sections.length} steps`}
+              <span>
+                Call flow{" "}
+                <span className="text-meta font-normal text-ink-muted">
+                  {sections.length === 1 ? "1 step" : `${sections.length} steps`}
+                </span>
               </span>
             </button>
           </h3>
@@ -360,30 +363,32 @@ export function CampaignFlow({
   );
 }
 
-/** The flow on nearly the whole window, over the page; Escape or Close returns. */
+/**
+ * The flow on nearly the whole window, over the page; Escape or Close returns. The dialog
+ * focus contract is `useFocusTrap`'s, as in `ModalDialog`: focus moves in, Tab stays inside,
+ * Escape closes and focus goes back to "Open full screen".
+ */
 function FullScreen({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+  const panel = useRef<HTMLDivElement>(null);
+  useFocusTrap(panel, true, onClose, "container");
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
     const overflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      window.removeEventListener("keydown", onKey);
       document.body.style.overflow = overflow;
     };
-  }, [onClose]);
+  }, []);
   return createPortal(
-    <div className="fixed inset-0 z-[2147482000] bg-ink/50 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-modal bg-ink/50 p-4">
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="h-full overflow-auto rounded-card bg-app p-5 shadow-card"
-        onClick={(e) => e.stopPropagation()}
+        tabIndex={-1}
+        className="flex h-full flex-col rounded-card bg-app p-5 shadow-card"
       >
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
           <h2 className="flex items-center gap-1.5 text-heading text-ink">
             <Workflow aria-hidden className="h-5 w-5 text-series-2" />
             {title}
@@ -393,7 +398,9 @@ function FullScreen({ title, onClose, children }: { title: string; onClose: () =
             Close
           </button>
         </div>
-        {children}
+        <ScrollRegion label={title} edgeCue={false} className="min-h-0 flex-1 overflow-y-auto">
+          {children}
+        </ScrollRegion>
       </div>
     </div>,
     document.body,
