@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.51 — 16-Nov-2026
+
+- The step that reads back and closes a call is named "Finalise the call" in every script Pip
+  writes, and in the starting steps of a new agent; a booking is a step of its own before it.
+
 ## 0.4.50 — 16-Nov-2026
 
 - Call flow folds and opens from its title, remembered in this browser, and "Open full

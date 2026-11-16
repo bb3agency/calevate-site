@@ -215,7 +215,7 @@ def _answer_calls(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[Play
             "next, or that the team follows up. Never promise more than your facts say.",
         ),
         PlayStep(
-            title="Confirm and close",
+            title="Finalise the call",
             instruction=(_CLOSE_INSTRUCTION if fit.assumes_booking else _AGREED_CLOSE_INSTRUCTION),
             exit_when="They have nothing else.",
         ),
@@ -278,7 +278,7 @@ def _call_leads(basics: TradeBasics, fit: BusinessFit = UNKNOWN) -> tuple[PlaySt
             "repeat it.",
         ),
         PlayStep(
-            title="Confirm and close",
+            title="Finalise the call",
             instruction=(
                 _LEAD_CLOSE_INSTRUCTION if fit.assumes_booking else _AGREED_CLOSE_INSTRUCTION
             ),

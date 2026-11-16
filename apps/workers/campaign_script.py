@@ -60,6 +60,13 @@ from apps.workers.script_proposal import (
 
 log = get_logger(__name__)
 
+#: The last step's name (founder, 16 Nov 2026): a booking is one scenario of many, so the step
+#: that reads back and closes is the call's own, never "the booking".
+CLOSING_STEP: Final = (
+    ' Name the last step "Finalise the call": it reads back what was agreed and closes. A '
+    "booking, where one fits, is a step of its own before it."
+)
+
 #: The ask, shared by a first script and an edit; each adds its own last sentence.
 CAMPAIGN_ASK: Final = (
     "Write this campaign's call script. Every call this agent places for the campaign follows "
@@ -69,7 +76,7 @@ CAMPAIGN_ASK: Final = (
     "quick facts (the faqs list: a question people ask and a short spoken answer, at most "
     "eight), the objections people raise with how to answer, and how the call ends. Where a "
     "note or document says how the agent should handle the call, follow it."
-)
+) + CLOSING_STEP
 #: An inbound line's ask (D-997): the calls are answered, not placed.
 LINE_ASK: Final = (
     "Write this phone line's call script. Every call to this number is answered with it. "
@@ -79,7 +86,7 @@ LINE_ASK: Final = (
     "ask and a short spoken answer, at most eight), the objections callers raise with how to "
     "answer, and how the call ends. Where a source says how the agent should handle the "
     "call, follow it."
-)
+) + CLOSING_STEP
 UNUSABLE_NOTE: Final = (
     "Pip's script still broke a call rule after its repairs. Press Generate to try again, or "
     "add a note saying what the calls should say."
@@ -126,7 +133,7 @@ FLOW_ASK: Final = (
     "the person says or does this, go to the step that handles it, to a call back, or to the "
     "end of the call. Write each step's instruction in plain English and its sounds-like line "
     "in {language}. Leave every other part of the script exactly as it is."
-)
+) + CLOSING_STEP
 
 
 def campaign_change(
