@@ -33,6 +33,10 @@ import { OUTCOME_ORDER, OUTCOME_WORDS } from "./CampaignResults";
 const PAGE_SIZE = 10;
 
 const CELL = "px-3 py-3 first:pl-0 last:pr-0";
+/** The include box's cell: wide enough for a 44 px tap area on a phone. */
+const BOX_CELL = "w-11 py-1 pl-0 pr-1 align-middle";
+/** The box sits in a label sized for a thumb, so a near miss still ticks it. */
+const BOX_HIT = "inline-flex cursor-pointer items-center touch:min-h-11 touch:min-w-11";
 
 const OUTCOME_TONE: Record<ContactOutcome, NoticeTone> = {
   connected: "ok",
@@ -127,7 +131,7 @@ export function ContactResults({
     row.call_id ? (
       <Link
         href={href(`/c/${slug}/calls/${row.call_id}`)}
-        className={TEXT_ACTION_SM}
+        className={`${TEXT_ACTION_SM} justify-center touch:min-w-11`}
         aria-label={`Open the call with ${who}`}
       >
         <PhoneCall aria-hidden className="h-3.5 w-3.5" />
@@ -186,7 +190,7 @@ export function ContactResults({
             <table aria-label="People on this campaign" className="w-full table-fixed border-collapse text-left">
               <thead className="border-b border-line">
                 <tr className="text-meta text-ink-muted">
-                  <th scope="col" className={`${CELL} w-10`}>
+                  <th scope="col" className={BOX_CELL}>
                     <IncludeAll
                       included={data.included ?? 0}
                       everyone={data.everyone ?? 0}
@@ -201,7 +205,8 @@ export function ContactResults({
                   <th scope="col" className={`${CELL} hidden w-40 font-medium sm:table-cell`}>
                     Phone
                   </th>
-                  <th scope="col" className={`${CELL} font-medium`}>
+                  {/* On a phone the status sits under the person, so the name keeps its width. */}
+                  <th scope="col" className={`${CELL} hidden font-medium sm:table-cell`}>
                     Status
                   </th>
                   <th scope="col" className={`${CELL} w-14 sm:w-32`}>
@@ -215,16 +220,18 @@ export function ContactResults({
                   const who = named || formatPhone(row.phone_e164);
                   return (
                     <tr key={row.id} className="align-middle">
-                      <td className={CELL}>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-brand-strong touch:h-5 touch:w-5"
-                          checked={row.included ?? true}
-                          disabled={!canWrite || include.isPending}
-                          title={refusal}
-                          aria-label={`Include ${who} in this campaign`}
-                          onChange={(e) => include.mutate({ all: false, contact_ids: [row.id], included: e.target.checked })}
-                        />
+                      <td className={BOX_CELL}>
+                        <label className={BOX_HIT}>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-brand-strong touch:h-5 touch:w-5"
+                            checked={row.included ?? true}
+                            disabled={!canWrite || include.isPending}
+                            title={refusal}
+                            aria-label={`Include ${who} in this campaign`}
+                            onChange={(e) => include.mutate({ all: false, contact_ids: [row.id], included: e.target.checked })}
+                          />
+                        </label>
                       </td>
                       <td className={CELL}>
                         <p
@@ -235,11 +242,14 @@ export function ContactResults({
                         {named ? (
                           <p className="text-meta tabular-nums text-ink-muted sm:hidden">{formatPhone(row.phone_e164)}</p>
                         ) : null}
+                        <div className="mt-1.5 sm:hidden">
+                          <PersonOutcome row={row} maxAttempts={maxAttempts} />
+                        </div>
                       </td>
                       <td className={`${CELL} hidden text-body tabular-nums text-ink-muted sm:table-cell`}>
                         {named ? formatPhone(row.phone_e164) : ""}
                       </td>
-                      <td className={CELL}>
+                      <td className={`${CELL} hidden sm:table-cell`}>
                         <PersonOutcome row={row} maxAttempts={maxAttempts} />
                       </td>
                       <td className={`${CELL} text-right`}>{action(row, who)}</td>
@@ -281,6 +291,7 @@ function IncludeAll({
     if (box.current) box.current.indeterminate = some;
   }, [some]);
   return (
+    <label className={BOX_HIT}>
     <input
       ref={box}
       type="checkbox"
@@ -291,6 +302,7 @@ function IncludeAll({
       aria-label={all ? "Leave everyone out of this campaign" : "Include everyone in this campaign"}
       onChange={() => onChange(!all)}
     />
+    </label>
   );
 }
 

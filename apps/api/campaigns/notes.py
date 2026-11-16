@@ -99,15 +99,18 @@ async def save_notes(
     ).first()
     if current is None:
         raise ProblemError.not_found("Campaign")
+    stored = [field.model_dump(mode="json", exclude_none=True) for field in own]
+    # Asked before the compare-and-set: a list that already holds exactly what is sent loses
+    # nobody's change, and it is what a Save again sends after a save whose put-live was
+    # refused, from an editor still holding the digest of the list before that save.
+    if digest_of(stored) == digest_of(current[0]):
+        return False
     if expected_digest is not None and digest_of(current[0]) != expected_digest:
         raise ProblemError.conflict(
             "campaign_notes_changed_elsewhere",
             "Someone else changed what this campaign notes while you were editing.",
             remediation="Load the current list, then make your change again.",
         )
-    stored = [field.model_dump(mode="json", exclude_none=True) for field in own]
-    if digest_of(stored) == digest_of(current[0]):
-        return False
     await session.execute(
         text(
             "UPDATE campaigns SET extraction_fields = CAST(:f AS jsonb), updated_at = now() "

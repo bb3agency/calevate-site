@@ -2,7 +2,6 @@
 
 import { CheckCircle2 } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
 
 import type { ActionFeedback } from "@/components/arc/feedback";
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
@@ -13,8 +12,6 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  formatCount,
-  formatPhone,
 } from "@/components/ui";
 import { shortDay, useCallingNumbers, type CallingNumberDeclaration } from "@/lib/api/autodialerNotice";
 import { type CampaignProgress, type useCampaignProgress, type useLaunchCheck } from "@/lib/api/campaigns";

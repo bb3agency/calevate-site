@@ -174,7 +174,10 @@ function TestCallRow({
               {ending ? "Ending…" : "End call"}
             </button>
           )}
-          <Link href={href(`/c/${slug}/calls/${call.call_id}`)} className="text-meta text-brand-strong underline">
+          <Link
+            href={href(`/c/${slug}/calls/${call.call_id}`)}
+            className="inline-flex items-center text-meta text-brand-strong underline touch:min-h-11"
+          >
             Open the call
           </Link>
           {remove ? <RemoveTestCall call={call} remove={remove} canWrite={canWrite} refusal={refusal} /> : null}

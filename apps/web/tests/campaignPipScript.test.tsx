@@ -118,4 +118,25 @@ describe("Pip writing a campaign's script", () => {
       expect(posted(rendered.calls)).toEqual([{ part: "Opening line", language: "te-IN", instruction: "Make it warmer." }]),
     );
   });
+
+  it("says why a part's rewrite was refused", async () => {
+    const rendered = await render({
+      [`${base}/workspace`]: workspaceFixture({ source_ids: [SOURCE_ID], script: SCRIPT }),
+      [`POST ${base}/script/proposal`]: problem(409, {
+        type: "https://calevate.tech/problems/campaign_script_busy",
+        title: "Pip is already writing",
+        status: 409,
+        detail: "Pip is still writing this campaign's script.",
+      }),
+      [`/v1/agents/${FIXTURE_AGENT_ID}/script`]: noReply(),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Edit script" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Pip to change Opening line" }));
+    fireEvent.change(screen.getByLabelText("What should Pip change in Opening line?"), {
+      target: { value: "Make it warmer." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Rewrite" }));
+    expect(await screen.findByText("Pip is still writing this campaign's script.")).toBeTruthy();
+    expect(posted(rendered.calls)).toEqual([{ part: "Opening line", language: "te-IN", instruction: "Make it warmer." }]);
+  });
 });

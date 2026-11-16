@@ -3,7 +3,7 @@
 /**
  * A CAMPAIGN'S OWN WORK (D-992): what it should achieve, what it works from, and the script
  * its calls follow. The campaign owns what is said; the agent is the voice, and Start puts
- * only this script live on it.
+ * this script on the campaign's own calling agent, never on the agent itself (D-1003).
  *
  * Three sections, each with its own colour so the eye keeps them apart:
  *  1. Main task — a green rule: the owner's words, many lines.
@@ -54,7 +54,7 @@ export const MAIN_TASK_PLACEHOLDER =
   "For example: call farmers who registered on Rytu Khata but never opened the app, and help them add it to their home screen, step by step for Android or iPhone.";
 export const SCRIPT_HINT = "What the agent says on each call.";
 export const SCRIPT_INFO =
-  "Pip writes it from your main task and sources; change anything, any time. Start puts only this script on the agent.";
+  "Pip writes it from your main task and sources; change anything, any time. Only this campaign's calls say it; your agent's own script stays as it is.";
 
 export function CampaignWorkspace({
   campaignId,
@@ -98,6 +98,8 @@ export function scriptAsk(asking: Asking): ScriptAsk | undefined {
   return Object.keys(body).length > 0 ? body : undefined;
 }
 
+type ScriptRequest = ReturnType<typeof useRequestCampaignScript>;
+
 /** Generate: Pip writes (or rewrites) the script from the main task and sources. */
 function GenerateScript({
   campaignId,
@@ -106,10 +108,15 @@ function GenerateScript({
   refusal,
   asking,
   onAsking,
-}: Props & { asking: Asking; onAsking: (next: Asking) => void }) {
-  const { session } = useClientRealm();
-  const ask = useRequestCampaignScript(session, campaignId);
-  const askFeedback = useActionFeedback(ask, { errorDisplay: "inline" });
+  ask,
+  onAsk,
+}: Props & {
+  asking: Asking;
+  onAsking: (next: Asking) => void;
+  /** The section's one request to Pip, so Generate waits on a part rewrite and the reverse. */
+  ask: ScriptRequest;
+  onAsk: (asked: ScriptAsk | undefined) => void;
+}) {
   const [savingLanguage, setSavingLanguage] = useState(false);
   const hasTask = space.main_task.trim() !== "";
   const drafting = space.proposal?.status === "drafting";
@@ -126,7 +133,7 @@ function GenerateScript({
   return (
     <div className="space-y-2">
       <PipGenerateBand
-        onGenerate={() => askFeedback.run(scriptAsk(asking))}
+        onGenerate={() => onAsk(scriptAsk(asking))}
         busy={ask.isPending || drafting}
         beside={
           <>
@@ -153,7 +160,6 @@ function GenerateScript({
       />
       {hasTask && <PipNote value={asking.note} disabled={held} onChange={(note) => onAsking({ ...asking, note })} />}
       {hasTask && space.source_ids.length === 0 && <NoSourcesHint />}
-      {ask.error != null && <PipAskRefused error={ask.error} onRetry={() => askFeedback.run(scriptAsk(asking))} />}
     </div>
   );
 }
@@ -357,8 +363,18 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
           refusal={refusal}
           asking={asking}
           onAsking={setAsking}
+          ask={ask}
+          onAsk={(asked) => askFeedback.run(asked)}
         />
       </div>
+
+      {/* Every request to Pip — Generate, Try again, a part's rewrite, mapping the call flow —
+          is refused here, whichever button sent it; it is inline, so nowhere else says it. */}
+      {ask.error != null && (
+        <div className="mb-3">
+          <PipAskRefused error={ask.error} onRetry={() => askFeedback.run(ask.variables)} />
+        </div>
+      )}
 
       {save.error != null && (
         <div className="mb-3">
@@ -371,21 +387,14 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
       )}
 
       {proposal?.status === "failed" && (
-        <>
-          <PipFailed
-            proposal={proposal}
-            canWrite={canWrite}
-            retrying={ask.isPending}
-            dismissing={clear.isPending}
-            onRetry={() => askFeedback.run(scriptAsk(asking))}
-            onDismiss={() => stopFeedback.run(proposal.id)}
-          />
-          {ask.error != null && (
-            <div className="mt-3">
-              <PipAskRefused error={ask.error} onRetry={() => askFeedback.run(scriptAsk(asking))} />
-            </div>
-          )}
-        </>
+        <PipFailed
+          proposal={proposal}
+          canWrite={canWrite}
+          retrying={ask.isPending}
+          dismissing={clear.isPending}
+          onRetry={() => askFeedback.run(scriptAsk(asking))}
+          onDismiss={() => stopFeedback.run(proposal.id)}
+        />
       )}
 
       {proposal?.status === "ready" && proposal.script && (
@@ -440,9 +449,6 @@ function ScriptSection({ campaignId, space, canWrite, refusal }: Props) {
                 >
                   Edit script
                 </button>
-                {space.script_live_version != null && (
-                  <span className="text-meta text-ink-muted">On the agent since the last Start (version {space.script_live_version}).</span>
-                )}
               </div>
               <CampaignFlow
                 agentId={space.agent_id}

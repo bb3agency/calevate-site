@@ -99,7 +99,7 @@ export function FoldGroup({
           {actions}
           <button
             type="button"
-            className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted"
+            className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted touch:min-h-11"
             onClick={(e) => {
               keepInView(e.currentTarget);
               press(false);
@@ -109,7 +109,7 @@ export function FoldGroup({
           </button>
           <button
             type="button"
-            className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted"
+            className="rounded-full border border-line bg-surface px-3 py-1.5 text-meta font-medium text-ink hover:bg-surface-muted touch:min-h-11"
             onClick={(e) => {
               keepInView(e.currentTarget);
               press(true);
@@ -190,7 +190,7 @@ export function FoldSection({
               keepInView(e.currentTarget);
               setOpen(!open);
             }}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 shadow-card ${look.pill}`}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1 shadow-card touch:min-h-11 ${look.pill}`}
           >
             <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${open ? "" : "-rotate-90"}`} />
             {title}
@@ -200,7 +200,7 @@ export function FoldSection({
       </div>
       <div
         id={bodyId}
-        className={`rounded-card border border-l-4 ${look.card} ${open ? "px-4 pb-5 pt-7 sm:px-6" : "h-5"}`}
+        className={`rounded-card border border-l-4 ${look.card} ${open ? "px-4 pb-5 pt-7 touch:pt-9 sm:px-6" : "h-5"}`}
       >
         {/* Hidden rather than unmounted, so a half-filled form survives a fold. */}
         <div hidden={!open}>
