@@ -464,7 +464,7 @@ async def request_main_task_fit(
         raise ProblemError.business_rule(
             MAIN_TASK_HAND_WRITTEN,
             "Pip cannot re-adjust a script written as one text.",
-            remediation="Turn it into steps on the Script tab first.",
+            remediation="Ask Pip to turn it into steps first.",
         )
     goal = base.goal.strip()
     if not goal:
@@ -512,13 +512,13 @@ async def _request(
         raise ProblemError.conflict(
             "script_proposal_in_progress",
             "Pip is still preparing the last change to this script.",
-            remediation="Wait for it to appear on the Script page, then ask for the next one.",
+            remediation="Wait for it to be ready, then ask for the next one.",
         )
     if pending is not None and pending.status == "ready" and not replace_ready:
         raise ProblemError.conflict(
             SUGGESTION_WAITING,
-            "A suggestion from Pip is waiting on the Script tab.",
-            remediation="Keep or discard it there first, then ask again.",
+            "A suggestion from Pip is already waiting.",
+            remediation="Keep or discard it first, then ask again.",
         )
     base = await working_script(session, agent_id)
     proposal_id = uuid7()

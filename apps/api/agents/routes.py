@@ -673,7 +673,10 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
     summary="Create an agent (starts as a draft)",
     description=(
         "The agent is created in `draft`: it takes no calls and places none until it is "
-        "activated, and it cannot be activated until it has a script.\n\n"
+        "activated. Without `starter` it has no script of its own: it carries what the "
+        "business profile and the published knowledge say, and its calls take their script "
+        "from the inbound lines and campaigns that use it. With nothing on file yet it "
+        "cannot be activated.\n\n"
         "Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a "
         "ready-made agent "
         "for your business type: its script and the details it captures are filled in for "
@@ -732,6 +735,13 @@ async def create_agent_route(
             tenant_id=principal.tenant_id,
             agent_id=agent_id,
             requested_by=principal.user_id,
+        )
+    else:
+        # Staff with no script of its own (founder, 16 Nov 2026): it carries what the
+        # business knows from the start, so it can be got ready and tried on "Just the
+        # business" before any line or campaign uses it.
+        await lifecycle.first_body_from_facts(
+            session, tenant_id=principal.tenant_id, agent_id=agent_id, created_by=principal.user_id
         )
     await write_audit(
         session,

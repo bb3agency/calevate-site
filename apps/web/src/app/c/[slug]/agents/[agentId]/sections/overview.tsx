@@ -12,7 +12,8 @@
  *
  * The agent has no script of its own (D-997), so the checklist asks for none and Overview
  * opens on one line saying where scripts are written now, which is also where an old
- * `?section=script` link lands.
+ * `?section=script` link lands. Its first step is giving it work instead: an Inbound line
+ * or a campaign that speaks in its voice (founder, 16 Nov 2026).
  */
 
 import Link from "next/link";
@@ -23,6 +24,7 @@ import { ProblemNotice, SECONDARY_BUTTON_SM, Skeleton, formatINR } from "@/compo
 import { Checklist, type ChecklistItem } from "@/components/console/checklist";
 import { TEXT_ACTION } from "@/components/console/section";
 import { movesFor } from "@/lib/agentState";
+import { useAgentJobs } from "@/lib/api/agentJobs";
 import { useAgentLifecycle, type Agent, type LifecycleMove } from "@/lib/api/agents";
 import { useAgreementsReadiness, type LegalReadiness } from "@/lib/api/agreements";
 import { usePendingChanges, type PendingState } from "@/lib/api/publishing";
@@ -42,6 +44,9 @@ import { OpeningNotices } from "../../panels/openingNotices";
 import { PendingBanner } from "../../panels/publishing";
 
 const PHONE = "(max-width: 639px)";
+
+/** The checklist step that gives the agent work. */
+export const JOB_STEP = "Give it a job: an Inbound line or a campaign";
 
 /** True on a phone-width viewport; false on the server and in a browser without matchMedia. */
 function useIsPhone(): boolean {
@@ -203,15 +208,42 @@ function SetupChecklist({
   // stays inline under the list, in the same words the header's switch uses.
   const moveFeedback = useActionFeedback(move, { errorDisplay: "inline" });
   const write = useWriteAccess(session, "org:manage", "change whether this agent is working");
+  const jobs = useAgentJobs(session, agent.id);
   const base = `/c/${slug}/agents/${agent.id}`;
   const working =
     agent.published && (agent.status === "live" || (onTrial && agent.status === "paused"));
 
-  if (pending.isLoading || agreements.isLoading || wallet.isLoading) {
+  if (pending.isLoading || agreements.isLoading || wallet.isLoading || jobs.isLoading) {
     return <Skeleton rows={4} label="Checking what is left to set up" />;
   }
 
   const items: ChecklistItem[] = [];
+
+  // Its work: what a call says is written on a line or a campaign, never on the agent.
+  if (jobs.data) {
+    const employed = jobs.data.total > 0;
+    items.push({
+      id: "job",
+      label: JOB_STEP,
+      state: employed ? "done" : "todo",
+      ...(employed
+        ? {}
+        : {
+            action: (
+              <div className="flex flex-wrap gap-2">
+                <Link href={href(`/c/${slug}/inbound`)} className={SECONDARY_BUTTON_SM}>
+                  Inbound
+                </Link>
+                <Link href={href(`/c/${slug}/campaigns`)} className={SECONDARY_BUTTON_SM}>
+                  Campaigns
+                </Link>
+              </div>
+            ),
+          }),
+    });
+  } else {
+    items.push(unknown("job", JOB_STEP, jobs));
+  }
 
   if (pending.data?.voice) {
     const chosen = pending.data.voice.configured !== null;

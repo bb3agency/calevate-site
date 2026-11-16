@@ -61,6 +61,7 @@ import { hasKey, lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { DIRECTIONS, DirectionPicker } from "./DirectionChoice";
+import { ASSISTANT_NAME } from "@/lib/copilot/assistantName";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
@@ -336,7 +337,7 @@ function OpeningLineOffer({
   if (written !== null) {
     return (
       <div role="status" className={`${NOTICE_BASE} ${NOTICE_BAR.ok}`}>
-        <p>Written in {name}: “{written}”. Keep it on the Script tab, then put it live.</p>
+        <p>Written in {name}: “{written}”. Ask {ASSISTANT_NAME} to keep it, then put it live.</p>
         <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDismiss}>
           Done
         </button>

@@ -432,6 +432,31 @@ async def create_agent(
     return agent_id
 
 
+async def first_body_from_facts(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, created_by: UUID | None
+) -> int | None:
+    """Give a new agent with no script its first prompt from the business profile and the
+    published knowledge, as a profile change does for every scriptless agent
+    (`tenancy/profile_service`). Nothing is written when the business has told us nothing, so
+    `publish_agent` still refuses an agent that would know nothing (`agent_has_no_script`).
+    Returns the version written, or None."""
+    # Deferred: `agents/t0` and `kb/service` import `agents/service`, which imports this.
+    from apps.api.agents.t0 import recompile_t0
+    from apps.api.kb.service import active_knowledge
+    from apps.api.tenancy.business_profile import profile_fact_lines
+
+    knowledge = await active_knowledge(session, tenant_id=tenant_id)
+    if not knowledge and not await profile_fact_lines(session, tenant_id=tenant_id):
+        return None
+    return await recompile_t0(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        knowledge=knowledge,
+        created_by=created_by,
+    )
+
+
 async def _check_engine_choice(
     session: AsyncSession,
     *,
@@ -1354,6 +1379,7 @@ __all__ = [
     "assert_assignable",
     "create_agent",
     "deactivate_agent",
+    "first_body_from_facts",
     "hold_agent_for_campaign_start",
     "prepare_agent",
     "release_account_numbers",

@@ -2650,10 +2650,12 @@ async def _record_test_copy(
     tenant_id: UUID,
     agent_id: UUID,
     ref: str,
+    business_only: bool = False,
 ) -> None:
     """Record `ref` as the agent's test copy, with its active route; a copy it held under
     another handle is retired, and its knowledge claims released (they belong to the vendor
-    agent being deleted). `engine` names the route's engine (the active one if None)."""
+    agent being deleted). `engine` names the route's engine (the active one if None);
+    `business_only`, which config the copy now holds (`agents/business_only`)."""
     # Imported here: `kb.service` imports `agents.t0`, which imports this module.
     from apps.api.kb.service import release_test_copy_claims
 
@@ -2662,11 +2664,12 @@ async def _record_test_copy(
         await release_test_copy_claims(session, tenant_id=tenant_id, agent_id=agent_id)
     await session.execute(
         text(
-            "INSERT INTO agent_test_copies (id, tenant_id, agent_id, engine_agent_ref) "
-            "VALUES (:id, :tid, :aid, :ref) ON CONFLICT (agent_id) DO UPDATE SET "
-            "engine_agent_ref = EXCLUDED.engine_agent_ref, updated_at = now()"
+            "INSERT INTO agent_test_copies (id, tenant_id, agent_id, engine_agent_ref, "
+            "business_only) VALUES (:id, :tid, :aid, :ref, :business) ON CONFLICT (agent_id) "
+            "DO UPDATE SET engine_agent_ref = EXCLUDED.engine_agent_ref, "
+            "business_only = EXCLUDED.business_only, updated_at = now()"
         ),
-        {"id": uuid7(), "tid": tenant_id, "aid": agent_id, "ref": ref},
+        {"id": uuid7(), "tid": tenant_id, "aid": agent_id, "ref": ref, "business": business_only},
     )
     await session.execute(
         text(
@@ -2834,6 +2837,7 @@ async def publish_agent(
     agent_id: UUID,
     take_calls: bool = True,
     onto_test_copy: bool = False,
+    business_only: bool = False,
 ) -> str:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
@@ -2845,11 +2849,13 @@ async def publish_agent(
     `onto_test_copy=True` (D-859, founder option A) publishes the same config onto the
     agent's TEST COPY in our developer workspace instead (`agent_test_copies`), made again if
     it is gone: the engine agent a paying client's test call rings through on the shared trial
-    line before the client has a number. The agent's own row, numbers, status and arms are not
-    touched; the copy gets its route, results webhook, facts document, in-call actions and
-    the client's published knowledge as its own claimed copies (D-964), so a test call
-    answers as the agent does. A copy holding knowledge no claim names (kept by a move
-    before D-964) is replaced by a new one.
+    line before the client has a number. With `business_only` the copy is published as "Just
+    the business" (`agents/business_only`): the company training and knowledge and no job's
+    script, which the agent page's chat and test calls try. The agent's own row, numbers,
+    status and arms are not touched; the copy gets its route, results webhook, facts
+    document, in-call actions and the client's published knowledge as its own claimed copies
+    (D-964). A copy holding knowledge no claim names (kept by a move before D-964) is
+    replaced by a new one.
 
     The routing row is written HERE, in the same transaction as `engine_agent_ref`,
     because the alternative — writing it from a webhook handler on first sight — means
@@ -3064,6 +3070,10 @@ async def publish_agent(
     # A staged language (D-855) reaches a caller only once clients may choose it.
     refuse_unoffered_language(str(agent["language_primary"]), tenant_id=tenant_id)
     agent = await _ai_line_as_taught(session, agent)
+    if onto_test_copy and business_only:
+        from apps.api.agents.business_only import business_row
+
+        agent = await business_row(session, tenant_id=tenant_id, agent=agent)
     config = _to_config(tenant_id, agent, engine=engine, handoff=handoff)
     # The ACTIONS feature: attach this agent's during-call tools to the config the adapter
     # renders, so publish is where a tool change reaches live calls (the "Apply to live
@@ -3171,7 +3181,12 @@ async def publish_agent(
     try:
         if onto_test_copy:
             await _record_test_copy(
-                session, engine, tenant_id=tenant_id, agent_id=agent_id, ref=ref
+                session,
+                engine,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                ref=ref,
+                business_only=business_only,
             )
             await _ensure_results_webhook(
                 engine,

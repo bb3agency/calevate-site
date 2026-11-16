@@ -907,7 +907,7 @@ async def put_back_opening_line(
         raise ProblemError.conflict(
             "nothing_to_put_back",
             "The opening line has changed since Pip rewrote it.",
-            remediation="Edit the opening line on the Script tab instead.",
+            remediation="Change the opening line by hand instead.",
         )
     return await replace_opening_line(
         session,

@@ -6,13 +6,13 @@
  * campaign is set up, so every section (main task, materials, script, agent, test call,
  * people, the compliance checks, other settings) has its controls from the first moment.
  *
- * The draft starts with the first agent that can call, as Service calls held to the account's
+ * The draft starts with the agent `?agent=` names, else the first agent, as Service calls held to the account's
  * call lines, named "New campaign, <date>"; all of it changes on the draft page. A draft left
  * unused can be deleted from the campaigns list.
  */
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 import { useActionFeedback } from "@/components/arc/feedback";
@@ -32,6 +32,9 @@ import { clampConcurrency, concurrencyCap, nameFromGoal } from "./campaignForm";
 /** What a new draft asks for before the account's lines hold it. */
 const DEFAULT_CONCURRENCY = 3;
 
+/** The query parameter naming the agent a new campaign starts with. */
+export const AGENT_PARAM = "agent";
+
 export function NewCampaignScreen({ slug }: { slug: string }) {
   const { session, href } = useClientRealm();
   const router = useRouter();
@@ -43,7 +46,10 @@ export function NewCampaignScreen({ slug }: { slug: string }) {
   const write = useWriteAccess(session, "leads:dispatch", "start or run campaigns");
   const started = useRef(false);
 
-  const agent = (agents.data ?? []).filter(isAssignable)[0];
+  // `?agent=` names the agent to start with (a new agent's "Give it a job"); else the first.
+  const wanted = useSearchParams().get(AGENT_PARAM);
+  const assignable = (agents.data ?? []).filter(isAssignable);
+  const agent = assignable.find((one) => one.id === wanted) ?? assignable[0];
   const canStart = Boolean(agent) && write.allowed && !callLines.isLoading;
 
   const start = () => {

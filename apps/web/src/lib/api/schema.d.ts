@@ -3672,7 +3672,7 @@ export interface paths {
         put?: never;
         /**
          * Create an agent (starts as a draft)
-         * @description The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.
+         * @description The agent is created in `draft`: it takes no calls and places none until it is activated. Without `starter` it has no script of its own: it carries what the business profile and the published knowledge say, and its calls take their script from the inbound lines and campaigns that use it. With nothing on file yet it cannot be activated.
          *
          *     Send `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them), and its opening lines are written for your business as a suggestion on the Script page (`GET .../script/proposal`). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.
          *
@@ -4411,6 +4411,23 @@ export interface paths {
          *     also serves Pip's `agent_handover_set`).
          */
         put: operations["put_handoff_v1_agents__agent_id__handoff_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The inbound lines and open campaigns that speak in this agent's voice */
+        get: operations["get_agent_jobs_v1_agents__agent_id__jobs_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -15967,6 +15984,35 @@ export interface components {
             campaign_id: string | null;
             /** Campaign Name */
             campaign_name: string | null;
+        };
+        /** AgentJobOut */
+        AgentJobOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "inbound_line" | "campaign";
+            /** Name */
+            name: string;
+            /** Status */
+            status: string;
+        };
+        /** AgentJobsOut */
+        AgentJobsOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Jobs */
+            jobs: components["schemas"]["AgentJobOut"][];
+            /** Total */
+            total: number;
         };
         /** AgentKnowledgeItemOut */
         AgentKnowledgeItemOut: {
@@ -32207,9 +32253,9 @@ export interface components {
             href: string;
             /**
              * Kind
-             * @enum {string}
+             * @constant
              */
-            kind: "calendar" | "script" | "script_mistake";
+            kind: "calendar";
         };
         /** ReadinessComponentOut */
         ReadinessComponentOut: {
@@ -32219,7 +32265,7 @@ export interface components {
              * Key
              * @enum {string}
              */
-            key: "knowledge" | "opening" | "live" | "missed";
+            key: "knowledge" | "job" | "live" | "missed";
             /** Label */
             label: string;
             /** Max Points */
@@ -32240,7 +32286,7 @@ export interface components {
              * Component
              * @enum {string}
              */
-            component: "knowledge" | "opening" | "live" | "missed";
+            component: "knowledge" | "job" | "live" | "missed";
             /** Href */
             href: string;
             /** Points */
@@ -37272,6 +37318,11 @@ export interface components {
              * Format: uuid
              */
             agent_id: string;
+            /**
+             * Business
+             * @default false
+             */
+            business: boolean;
             /** Number */
             number: string;
             /**
@@ -37565,6 +37616,11 @@ export interface components {
         };
         /** TryChatIn */
         TryChatIn: {
+            /**
+             * Business
+             * @default false
+             */
+            business: boolean;
             /** Message */
             message: string;
             /** Session */
@@ -47702,6 +47758,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HandoffOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_agent_jobs_v1_agents__agent_id__jobs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentJobsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -17,6 +17,10 @@
  *
  * The number is owned by the screen (Training) so the one copilot declaration there can
  * offer it as a field.
+ *
+ * With `business` ("Just the business", founder 16 Nov 2026) the call rings the agent with
+ * the company training and knowledge and no job's script, always from the shared test number,
+ * so "ring your own number" (which reaches a line's script) is not offered.
  */
 
 import Link from "next/link";
@@ -43,6 +47,7 @@ export function TryIt({
   number,
   onNumber,
   bare = false,
+  business = false,
 }: {
   agent: Agent;
   slug: string;
@@ -51,6 +56,11 @@ export function TryIt({
   number: string;
   onNumber: (next: string) => void;
   bare?: boolean;
+  /**
+   * "Just the business": the agent with no job's script, rung from the shared test number
+   * whatever numbers the account has (`agents/business_only` on the server).
+   */
+  business?: boolean;
 }) {
   // A paying account test-calls its agents here too (D-859), from its own number and billed
   // like any call; the dashboard no longer carries a test-call box of its own.
@@ -58,22 +68,42 @@ export function TryIt({
   const testable = onTrial || paid;
   let body;
   if (testable && canTestCall(agent)) {
-    body = <TrialTestCall agent={agent} number={number} onNumber={onNumber} paid={paid} slug={slug} />;
-  } else if (!testable && isAnsweringNow(agent) && agent.direction !== "outbound" && agent.inbound_number_count > 0) {
+    body = (
+      <TrialTestCall agent={agent} number={number} onNumber={onNumber} paid={paid} slug={slug} business={business} />
+    );
+  } else if (
+    !business &&
+    !testable &&
+    isAnsweringNow(agent) &&
+    agent.direction !== "outbound" &&
+    agent.inbound_number_count > 0
+  ) {
     body = <RingYourNumber slug={slug} />;
   } else {
-    body = <NoCallYet agent={agent} slug={slug} onTrial={testable} />;
+    body = <NoCallYet agent={agent} slug={slug} onTrial={testable} business={business} />;
   }
   return <BareContext.Provider value={bare}>{body}</BareContext.Provider>;
 }
 
 /** Why no practice call can be placed yet, and the one move that changes it. */
-function NoCallYet({ agent, slug, onTrial }: { agent: Agent; slug: string; onTrial: boolean }) {
+function NoCallYet({
+  agent,
+  slug,
+  onTrial,
+  business,
+}: {
+  agent: Agent;
+  slug: string;
+  onTrial: boolean;
+  business: boolean;
+}) {
   const { href } = useClientRealm();
   let line: string;
   let move: { href: string; label: string } | null = null;
   if (onTrial) {
     line = "Press Get it ready above, then test it here.";
+  } else if (business) {
+    line = "Test calls open once you add credit. Try the chat.";
   } else if (!isAnsweringNow(agent)) {
     line = "Switch on Taking calls above, then ring it.";
   } else if (agent.direction === "outbound") {
@@ -137,6 +167,7 @@ function TrialTestCall({
   onNumber,
   paid,
   slug,
+  business,
 }: {
   agent: Agent;
   number: string;
@@ -144,6 +175,8 @@ function TrialTestCall({
   /** A paying account: rings from its own number, billed like any call. */
   paid: boolean;
   slug: string;
+  /** "Just the business", from the shared test number. */
+  business: boolean;
 }) {
   const { href } = useClientRealm();
   const session = useClientSession();
@@ -168,7 +201,9 @@ function TrialTestCall({
         noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          if (ready && callStatus !== "pending") placeFeedback.run({ agentId: agent.id, number: number.trim(), numberIsMine });
+          if (ready && callStatus !== "pending") {
+            placeFeedback.run({ agentId: agent.id, number: number.trim(), numberIsMine, business });
+          }
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
@@ -241,12 +276,14 @@ function TrialTestCall({
   return (
     <PracticeFrame
       description={
-        paid
-          ? `${agent.name} rings you from your number. Billed like any call.`
-          : `${agent.name} rings you from a shared trial number.`
+        paid && business
+          ? `${agent.name} rings you from a test number. Billed like any call.`
+          : paid
+            ? `${agent.name} rings you from your number. Billed like any call.`
+            : `${agent.name} rings you from a shared trial number.`
       }
       action={
-        paid && panel.data?.needs_number ? (
+        paid && !business && panel.data?.needs_number ? (
           <Link href={href(`/c/${slug}/phone-number`)} className={SECONDARY_BUTTON}>
             Get a number
           </Link>

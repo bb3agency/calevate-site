@@ -20,6 +20,7 @@ import {
   organizationCallHandling,
   teamAlertReads,
   clientVoiceTuning,
+  agentJobs,
   agentReadiness,
 } from "./fixtures/sharedReads";
 import { ENGINE_CATALOGUE_PATH } from "@/lib/api/engineCatalogue";
@@ -705,6 +706,7 @@ describe("a client's screens never name a model", () => {
           "/v1/calls?agent_id=agent-1&limit=5": [],
           "/v1/agents/agent-1/voice-tuning": clientVoiceTuning(),
           "/v1/agents/agent-1/readiness": agentReadiness(),
+          "/v1/agents/agent-1/jobs": agentJobs(),
         }),
       );
       await screen.findAllByText("Reception");

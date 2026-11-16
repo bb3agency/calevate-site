@@ -10,8 +10,10 @@
  *    and the tab's badge counts it.
  * 1b. Mistakes on real calls (D-949): what it got wrong on live calls, each a rule we fix,
  *    with the last call it happened on.
- * 2. Try it: one card, a chat with the live agent beside a practice call on a real phone
- *    (phone only; there is no in-browser call).
+ * 2. Try it, on "Just the business" (the agent with the company training and knowledge and no
+ *    job's script: a chat beside a practice call on a real phone; there is no in-browser
+ *    call) or on one of its Inbound lines and campaigns, whose own test call it links to
+ *    (`./tryOn`, founder 16 Nov 2026).
  * 3. One line each that opens on click: what it knows (with the teach box), and Test your
  *    agent (one run of every test, the owner's own tests among them, D-970). It opens by
  *    itself while a run or suggested fixes are waiting, so a fix Pip prepared is never
@@ -54,6 +56,7 @@ import { countsOf, lastRunLine } from "../test/testCopy";
 import { TestSection } from "../test/TestSection";
 import { KnownFactsPanel } from "./knownFacts";
 import { TryIt } from "./tryIt";
+import { BUSINESS, TryItOn } from "./tryOn";
 
 /** Facts shown before "and N more"; the full list is on the Knowledge page. */
 const FACTS_SHOWN = 5;
@@ -71,7 +74,7 @@ export function TrainingTab({ agent, slug }: { agent: Agent; slug: string }) {
           key: "what_is_here",
           label: "What this tab holds",
           value:
-            "the questions this agent needs answered, the mistakes it made on real calls (which Calevate fixes), a chat and a practice call with it, what the agents know with a teach box, and Test your agent: one run of the questions callers asked, the owner's own tests and the rules every agent keeps",
+            "the questions this agent needs answered, the mistakes it made on real calls (which Calevate fixes), Try it (a chat and a practice call on just the business: the company training and knowledge with no script; or a link to the own test call of one of its Inbound lines or campaigns), what the agents know with a teach box, and Test your agent: one run of the questions callers asked, the owner's own tests and the rules every agent keeps",
         },
       ]}
     >
@@ -87,6 +90,7 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
   const trial = wallet.data ? activeTrial(wallet.data) : null;
   const onTrial = trial !== null && trial.test_calls_only === true;
   const [testNumber, setTestNumber] = useState("");
+  const [tryOn, setTryOn] = useState<string>(BUSINESS);
   const focus = useSearchParams().get(QUESTION_PARAM);
 
   useCopilotSurface({
@@ -118,17 +122,21 @@ function Training({ agent, slug }: { agent: Agent; slug: string }) {
       <CallMistakes agentId={agent.id} headingLevel={3} />
 
       <Section headingLevel={3} title="Try it" description="Nothing here reaches a real caller.">
-        <div className="mt-2 grid grid-cols-1 gap-8 rounded-card border border-line p-4 page-lg:grid-cols-2">
-          <TryChat agentId={agent.id} canWrite={tryAccess.allowed} bare />
-          <TryIt
-            agent={agent}
-            slug={slug}
-            onTrial={onTrial}
-            number={testNumber}
-            onNumber={setTestNumber}
-            bare
-          />
-        </div>
+        <TryItOn agentId={agent.id} slug={slug} value={tryOn} onChange={setTryOn} />
+        {tryOn === BUSINESS ? (
+          <div className="mt-4 grid grid-cols-1 gap-8 rounded-card border border-line p-4 page-lg:grid-cols-2">
+            <TryChat agentId={agent.id} canWrite={tryAccess.allowed} bare business />
+            <TryIt
+              agent={agent}
+              slug={slug}
+              onTrial={onTrial}
+              number={testNumber}
+              onNumber={setTestNumber}
+              bare
+              business
+            />
+          </div>
+        ) : null}
       </Section>
 
       {/* One list of folded rows rather than cards: a fact on each closed row, the chevron

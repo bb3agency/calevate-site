@@ -4,7 +4,8 @@ The same harness the pre-launch test conversations use (`engine/test_chat.RunsTe
 on ThinnestAI `POST /agents/{id}/test-chat`, mirror snapshots/2026-10-08/pages/api-reference/
 agents/test-chat.md:328-460): the real prompt, model, knowledge and actions, with anything
 that would contact a person switched off. Founder decision 3: test what is live only, so
-there is no draft copy of the agent to chat with.
+there is no draft copy of the agent to chat with. The agent page's "Just the business" chats
+with the agent's business-only test copy instead (`agents/business_only`, founder 16 Nov 2026).
 
 COST. A test-chat reply costs what a website chat reply costs: on an agent answering on our
 own language-model key (`byok: llm` or `llm_voice`) the flat ₹0.02 own-key reply price, plus
@@ -25,6 +26,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.paid_test_calls import refresh_test_copy
 from apps.api.agents.test_conversations import readiness
 from apps.api.agents.test_window import send_test_message
 from apps.api.billing.ai_quota import require_ai_assist
@@ -59,7 +61,11 @@ async def send(
     agent_id: UUID,
     message: str,
     chat_session: str | None,
+    business: bool = False,
 ) -> ChatReply:
+    """One line of the chat. `business` chats with "Just the business" (the agent's
+    business-only test copy, `agents/business_only`) instead of the agent as callers hear it;
+    that copy needs no "Get it ready", because nothing is dialled."""
     cleaned = message.strip()
     if not cleaned:
         raise ProblemError.business_rule("try_chat_empty", "Type what a caller would say.")
@@ -67,18 +73,27 @@ async def send(
         raise ProblemError.business_rule(
             "try_chat_too_long", f"Keep a message under {MAX_MESSAGE_CHARS} characters."
         )
-    ready = await readiness(session, agent_id)
-    if not ready.available:
-        raise ProblemError.business_rule("try_chat_unavailable", ready.reason or CANNOT_CHAT)
-    await require_ai_assist(session, tenant_id=tenant_id)
-    ref = (
-        await session.execute(
-            text("SELECT engine_agent_ref FROM agents WHERE id = :id"), {"id": agent_id}
-        )
-    ).scalar()
     engine = get_engine()
-    if not isinstance(engine, RunsTestChat) or ref is None:
-        raise ProblemError.business_rule("try_chat_unavailable", CANNOT_CHAT)
+    if business:
+        if not isinstance(engine, RunsTestChat):
+            raise ProblemError.business_rule("try_chat_unavailable", CANNOT_CHAT)
+        await require_ai_assist(session, tenant_id=tenant_id)
+        ref, chat_session = await _business_copy(
+            session, tenant_id=tenant_id, agent_id=agent_id, chat_session=chat_session
+        )
+    else:
+        ready = await readiness(session, agent_id)
+        if not ready.available:
+            raise ProblemError.business_rule("try_chat_unavailable", ready.reason or CANNOT_CHAT)
+        await require_ai_assist(session, tenant_id=tenant_id)
+        own = (
+            await session.execute(
+                text("SELECT engine_agent_ref FROM agents WHERE id = :id"), {"id": agent_id}
+            )
+        ).scalar()
+        if not isinstance(engine, RunsTestChat) or own is None:
+            raise ProblemError.business_rule("try_chat_unavailable", CANNOT_CHAT)
+        ref = str(own)
     turn = await send_test_message(
         engine,
         agent_id=agent_id,
@@ -93,6 +108,30 @@ async def send(
         looked_up_knowledge=knowledge_tool is not None and knowledge_tool in turn.tools,
         cut_short=turn.failed_part_way,
     )
+
+
+async def _business_copy(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, chat_session: str | None
+) -> tuple[str, str | None]:
+    """The business-only copy to chat with, and the chat session to continue on it.
+
+    A new chat republishes the copy first, so it holds the agent and the training as they
+    are now. A chat already running keeps the copy as it is, unless it no longer holds
+    "Just the business" (a campaign's test call puts the agent, with that campaign's script,
+    on the same copy): then it is republished and the chat starts again on it."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT engine_agent_ref, business_only FROM agent_test_copies "
+                "WHERE agent_id = :aid"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if chat_session and row is not None and row.business_only:
+        return str(row.engine_agent_ref), chat_session
+    ref = await refresh_test_copy(tenant_id=tenant_id, agent_id=agent_id, business=True)
+    return ref, None
 
 
 __all__ = ["COST_NOTE", "MAX_MESSAGE_CHARS", "ChatReply", "send"]

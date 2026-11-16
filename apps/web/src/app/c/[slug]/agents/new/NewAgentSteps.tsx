@@ -5,39 +5,25 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 
 import { TEXT_ACTION } from "@/components/console/section";
-import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
-import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useClientRealm } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
-import { NotesStep } from "./NotesStep";
-import { ScriptStep } from "./ScriptStep";
-import type { CreatedAgent } from "./StartFromJob";
+import { GiveItAJob } from "./CreatedPanel";
+import type { CreatedAgent } from "./NameStep";
 import { VoiceStep } from "./VoiceStep";
-import { useScriptWriting } from "./scriptWriting";
 import { NEW_AGENT_STEPS, NewAgentRail } from "./setupStep";
+import { NEW_AGENT } from "../../_ui/copy";
 
 /**
- * STEPS 2-4 OF A NEW AGENT, AND THE FINISH (founder, 3 Nov 2026). The agent exists (step 1
- * made it), so each step edits that draft and each can be skipped; the finish screen offers a
- * test call and the agent itself, where everything skipped can still be set.
- *
- * The script's progress is watched from here, from creation on, so the Script step finds it
- * written, or still being written, whatever the owner did on the Voice step.
+ * STEP 2 OF A NEW AGENT, AND THE FINISH (founder, 16 Nov 2026: name, voice, done). The agent
+ * exists (step 1 made it), so the voice step edits that draft and can be skipped; the finish
+ * gives it a job, an Inbound line or a campaign, because that is where what it says is
+ * written. Trying it on the business alone is on its own page.
  */
-
-const AFTER_JOB = ["voice", "script", "notes"] as const;
-type StepId = (typeof AFTER_JOB)[number];
-type Outcome = "done" | "skipped";
-
-/** Each step's tab on the agent page, for the finish screen's "Set it". */
-const TAB: Record<StepId, string> = { voice: "voice", script: "script", notes: "captured" };
-
 export function NewAgentSteps({ slug, agent }: { slug: string; agent: CreatedAgent }) {
-  const session = useClientSession();
-  const writing = useScriptWriting(session, agent.id);
-  const [at, setAt] = useState<StepId | "finish">("voice");
-  const [outcomes, setOutcomes] = useState<Partial<Record<StepId, Outcome>>>({});
+  const [at, setAt] = useState<"voice" | "finish">("voice");
+  const [voice, setVoice] = useState<"done" | "skipped" | null>(null);
 
   useCopilotSurface({
     route: `/c/${slug}/agents/new`,
@@ -50,78 +36,36 @@ export function NewAgentSteps({ slug, agent }: { slug: string; agent: CreatedAge
       {
         key: "step",
         label: "Step on screen",
-        value: at === "finish" ? "finished" : (NEW_AGENT_STEPS.find((step) => step.id === at)?.label ?? at),
+        value: at === "finish" ? "finished: give it a job" : (NEW_AGENT_STEPS[1]?.label ?? at),
       },
-      { key: "script", label: "Its script", value: writing.phase === "writing" ? "being written" : writing.phase },
     ],
     apply: noFill,
   });
 
-  const leave = (step: StepId, outcome: Outcome) => {
-    setOutcomes((current) => ({ ...current, [step]: outcome }));
-    setAt(AFTER_JOB[AFTER_JOB.indexOf(step) + 1] ?? "finish");
-  };
-  const back = (step: StepId) => setAt(AFTER_JOB[Math.max(0, AFTER_JOB.indexOf(step) - 1)]);
-
-  if (at === "finish") return <Finish slug={slug} agent={agent} outcomes={outcomes} />;
-
-  let body;
-  switch (at) {
-    case "voice":
-      body = (
-        <VoiceStep agentId={agent.id} onNext={() => leave("voice", "done")} onSkip={() => leave("voice", "skipped")} />
-      );
-      break;
-    case "script":
-      body = (
-        <ScriptStep
-          slug={slug}
-          agentId={agent.id}
-          writing={writing}
-          onNext={() => leave("script", "done")}
-          onSkip={() => leave("script", "skipped")}
-          onBack={() => back("script")}
-        />
-      );
-      break;
-    case "notes":
-      body = (
-        <NotesStep
-          agentId={agent.id}
-          onNext={() => leave("notes", "done")}
-          onSkip={() => leave("notes", "skipped")}
-          onBack={() => back("notes")}
-        />
-      );
-      break;
-  }
+  if (at === "finish") return <Finish slug={slug} agent={agent} voice={voice ?? "skipped"} />;
 
   return (
     <div className="space-y-6">
-      <NewAgentRail current={AFTER_JOB.indexOf(at) + 1} onGo={(step) => setAt(AFTER_JOB[step - 1])} />
-      <div key={at} className="settings-enter">
-        {body}
+      <NewAgentRail current={1} />
+      <div className="settings-enter">
+        <VoiceStep
+          agentId={agent.id}
+          onNext={() => {
+            setVoice("done");
+            setAt("finish");
+          }}
+          onSkip={() => {
+            setVoice("skipped");
+            setAt("finish");
+          }}
+        />
       </div>
     </div>
   );
 }
 
-const DONE_LINE: Record<StepId, Record<Outcome, string>> = {
-  voice: { done: "Voice chosen", skipped: "Voice skipped" },
-  script: { done: "Script checked", skipped: "Script not checked" },
-  notes: { done: "Notes checked", skipped: "Notes skipped" },
-};
-
-/** The finish: what was set and what was skipped, a test call, and the agent. */
-function Finish({
-  slug,
-  agent,
-  outcomes,
-}: {
-  slug: string;
-  agent: CreatedAgent;
-  outcomes: Partial<Record<StepId, Outcome>>;
-}) {
+/** The finish: the agent is made; give it a job, or open it. */
+function Finish({ slug, agent, voice }: { slug: string; agent: CreatedAgent; voice: "done" | "skipped" }) {
   const { href } = useClientRealm();
   const page = href(`/c/${slug}/agents/${agent.id}`);
   const heading = useRef<HTMLHeadingElement>(null);
@@ -140,31 +84,26 @@ function Finish({
       >
         {agent.name} is set up
       </h2>
-      <p className="mt-1 text-body text-ink-muted">It&apos;s a draft. Test it, then switch it on.</p>
+      <p className="mt-1 text-body text-ink-muted">
+        {voice === "done" ? "Voice chosen." : "Voice not chosen yet."} Now give it a job.
+      </p>
+      <p className="mt-1 text-meta text-ink-muted">{NEW_AGENT.jobHint}</p>
 
-      <ul className="mt-6 divide-y divide-line border-y border-line">
-        {AFTER_JOB.map((step) => {
-          const outcome = outcomes[step] ?? "skipped";
-          return (
-            <li key={step} className="flex min-h-11 items-center justify-between gap-3 py-2">
-              <span className={`text-body ${outcome === "done" ? "text-ink" : "text-ink-muted"}`}>
-                {DONE_LINE[step][outcome]}
-              </span>
-              <Link href={href(`/c/${slug}/agents/${agent.id}?section=${TAB[step]}`)} className={TEXT_ACTION}>
-                {outcome === "done" ? "Change" : "Set it"}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="mt-6 flex flex-wrap gap-3">
-        <Link href={href(`/c/${slug}/agents/${agent.id}?section=training`)} className={PRIMARY_BUTTON}>
-          Make a test call
+      <div className="mt-6">
+        <GiveItAJob agentId={agent.id} slug={slug} />
+      </div>
+      <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2">
+        <Link href={href(`/c/${slug}/agents/${agent.id}?section=training`)} className={TEXT_ACTION}>
+          Try it on your business
         </Link>
-        <Link href={page} className={SECONDARY_BUTTON}>
+        <Link href={page} className={TEXT_ACTION}>
           Go to the agent
         </Link>
+        {voice === "skipped" ? (
+          <Link href={href(`/c/${slug}/agents/${agent.id}?section=settings`)} className={TEXT_ACTION}>
+            Choose a voice
+          </Link>
+        ) : null}
       </div>
     </section>
   );

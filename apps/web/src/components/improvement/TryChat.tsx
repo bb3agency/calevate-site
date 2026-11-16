@@ -28,22 +28,29 @@ export function TryChat({
   canWrite = true,
   headingLevel = 2,
   bare = false,
+  business = false,
 }: {
   agentId: string;
   canWrite?: boolean;
   headingLevel?: 2 | 3;
   /** Drawn as one half of the Training tab's Try it card, under a small title. */
   bare?: boolean;
+  /**
+   * "Just the business": the agent with the company training and knowledge and no job's
+   * script. The server makes that copy for the chat, so it needs no "Get it ready" first.
+   */
+  business?: boolean;
 }) {
   const session = useClientSession();
   const Frame = bare ? TryPart : Section;
   const title = bare ? "Chat" : "Try it in a chat";
   const eg = useVerticalExamples();
-  const send = useTryChat(session, agentId);
+  const send = useTryChat(session, agentId, business);
   // A refused line is said under the conversation, so it is not toasted.
   const sendFeedback = useActionFeedback(send, { errorDisplay: "inline" });
   /* The same readiness the saved tests read: the chat talks to the agent the engine holds,
-     so until it has been published there is nothing to talk to, and the server says why. */
+     so until it has been published there is nothing to talk to, and the server says why.
+     "Just the business" talks to a copy the server makes, so it does not wait for this. */
   const readiness = useTestConversations(session, agentId);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [chat, setChat] = useState<string | null>(null);
@@ -78,21 +85,21 @@ export function TryChat({
     );
   };
 
-  if (readiness.isPending) {
+  if (!business && readiness.isPending) {
     return (
       <Frame headingLevel={headingLevel} title={title}>
         <Skeleton rows={2} label="Checking whether this agent can chat yet" />
       </Frame>
     );
   }
-  if (readiness.isError) {
+  if (!business && readiness.isError) {
     return (
       <Frame headingLevel={headingLevel} title={title}>
         <ProblemNotice error={readiness.error} onRetry={() => void readiness.refetch()} />
       </Frame>
     );
   }
-  if (!readiness.data.available) {
+  if (!business && readiness.data && !readiness.data.available) {
     return (
       <Frame headingLevel={headingLevel} title={title}>
         <p className="text-body text-ink-muted">{readiness.data.unavailable_reason}</p>
@@ -105,10 +112,14 @@ export function TryChat({
       headingLevel={headingLevel}
       title={title}
       info={
-        <p>
-          Type what a caller would say. The agent answers from the script and knowledge it has been put live with. A
-          change you have not put live is not in this chat yet.
-        </p>
+        business ? (
+          <p>Type what a caller would say. The agent answers from what your business knows, with no job&apos;s script.</p>
+        ) : (
+          <p>
+            Type what a caller would say. The agent answers from the script and knowledge it has been put live with. A
+            change you have not put live is not in this chat yet.
+          </p>
+        )
       }
       action={
         turns.length ? (

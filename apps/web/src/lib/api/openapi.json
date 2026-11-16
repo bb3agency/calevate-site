@@ -3367,6 +3367,68 @@
         "title": "AgentHolderOut",
         "type": "object"
       },
+      "AgentJobOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "inbound_line",
+              "campaign"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "status"
+        ],
+        "title": "AgentJobOut",
+        "type": "object"
+      },
+      "AgentJobsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/AgentJobOut"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "jobs",
+          "total"
+        ],
+        "title": "AgentJobsOut",
+        "type": "object"
+      },
       "AgentKnowledgeItemOut": {
         "additionalProperties": false,
         "properties": {
@@ -48632,11 +48694,7 @@
             "type": "string"
           },
           "kind": {
-            "enum": [
-              "calendar",
-              "script",
-              "script_mistake"
-            ],
+            "const": "calendar",
             "title": "Kind",
             "type": "string"
           }
@@ -48659,7 +48717,7 @@
           "key": {
             "enum": [
               "knowledge",
-              "opening",
+              "job",
               "live",
               "missed"
             ],
@@ -48709,7 +48767,7 @@
           "component": {
             "enum": [
               "knowledge",
-              "opening",
+              "job",
               "live",
               "missed"
             ],
@@ -61850,6 +61908,11 @@
             "title": "Agent Id",
             "type": "string"
           },
+          "business": {
+            "default": false,
+            "title": "Business",
+            "type": "boolean"
+          },
           "number": {
             "maxLength": 20,
             "minLength": 8,
@@ -62689,6 +62752,11 @@
       "TryChatIn": {
         "additionalProperties": false,
         "properties": {
+          "business": {
+            "default": false,
+            "title": "Business",
+            "type": "boolean"
+          },
           "message": {
             "maxLength": 1000,
             "minLength": 1,
@@ -79582,7 +79650,7 @@
         "x-calevate-permission": "agents:read"
       },
       "post": {
-        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nSend `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them), and its opening lines are written for your business as a suggestion on the Script page (`GET .../script/proposal`). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it after the opening line; it never replaces the opening line.",
+        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated. Without `starter` it has no script of its own: it carries what the business profile and the published knowledge say, and its calls take their script from the inbound lines and campaigns that use it. With nothing on file yet it cannot be activated.\n\nSend `starter` (`answer_calls`, `call_new_leads` or `call_leads`) to start from a ready-made agent for your business type: its script and the details it captures are filled in for you to review (`GET /v1/agents/starters` previews them), and its opening lines are written for your business as a suggestion on the Script page (`GET .../script/proposal`). The job sets the calling direction; a `direction` that contradicts it is refused with `starter_direction_mismatch`.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and start switched off, so a new agent opens with its own opening line (part of its script). They cannot be supplied here: every agent on this platform has an AI disclosure on file, and no field on this form can change that. Switching a notice on adds it after the opening line; it never replaces the opening line.",
         "operationId": "create_agent_route_v1_agents_post",
         "requestBody": {
           "content": {
@@ -81370,6 +81438,46 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/jobs": {
+      "get": {
+        "operationId": "get_agent_jobs_v1_agents__agent_id__jobs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentJobsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The inbound lines and open campaigns that speak in this agent's voice",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/agents/{agent_id}/known-facts": {

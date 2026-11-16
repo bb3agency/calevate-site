@@ -231,6 +231,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "per component, so both lists are fixed by the formula, not by any row count."
         )
     ),
+    "GET /v1/agents/{agent_id}/jobs": BoundedByConstruction(
+        by=(
+            "inbound lines and open campaigns, each read with `LIMIT` "
+            "`agents/jobs.MAX_JOBS_LISTED`, so at most twice that."
+        )
+    ),
     "GET /v1/billing/voice-tiers": BoundedByConstruction(
         by=(
             "one entry per `billing/rates.VOICE_TIERS` (two), each with the fixed copy lines "

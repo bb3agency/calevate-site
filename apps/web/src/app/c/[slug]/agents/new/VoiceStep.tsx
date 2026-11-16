@@ -11,9 +11,9 @@ import { useClientSession } from "@/lib/api/session";
 import { SetupStep, SkipButton } from "./setupStep";
 
 /**
- * STEP 2: THE VOICE. The agent Voice tab's own picker (`ClientEngineVoices`): the voices the
+ * STEP 2: THE VOICE. The agent's own voice picker (`ClientEngineVoices`): the voices the
  * admin enabled, Clear then Studio, each with its sample, and the same save. Saving a voice
- * moves the flow on; Skip leaves the agent on none, changeable on its Voice tab.
+ * moves the flow on; Skip leaves the agent on none, changeable in its Settings.
  *
  * Each rung carries this account's rate for it, in the Voice tab's words ("Clear — ₹… / min",
  * `panels/publishing.VoiceNow`); the rate is the server's and is simply absent when it has none.

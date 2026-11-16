@@ -47,7 +47,7 @@ def draft_moved() -> ProblemError:
     return ProblemError.conflict(
         "script_changed_elsewhere",
         "The draft was changed after it was reviewed, so it was not put live.",
-        remediation="Look at the draft again on the Script tab, then put it live.",
+        remediation="Look at the draft again, then put it live.",
     )
 
 

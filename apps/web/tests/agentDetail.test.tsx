@@ -26,6 +26,7 @@ import {
   agentCallHandling,
   organizationCallHandling,
   teamAlertReads,
+  agentJobs,
   agentReadiness,
   clientVoiceTuning,
   LEGAL_READY,
@@ -303,6 +304,7 @@ function routes(over: Record<string, unknown> = {}) {
     // Overview's last calls for this agent (REDESIGN-2).
     "/v1/calls?agent_id=agent-1&limit=5": [],
     "/v1/agents/agent-1/readiness": agentReadiness(),
+    "/v1/agents/agent-1/jobs": agentJobs(),
     "/v1/agents/agent-1/handoff": {
       agent_id: "agent-1",
       enabled: false,
@@ -1138,9 +1140,8 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
       }),
     );
 
-    await screen.findByText("No opening line yet.");
     // The two sentences a screen like this most easily omits, each beside its own switch.
-    const recording = screen.getByRole("switch", { name: /Say the call is being recorded/ });
+    const recording = await screen.findByRole("switch", { name: /Say the call is being recorded/ });
     const warning = document.getElementById(recording.getAttribute("aria-describedby") ?? "");
     expect(warning?.textContent).toBe("Calls are still recorded. You must tell callers another way.");
     expect(warning?.getAttribute("data-notice")).toBe("warn");
@@ -1237,7 +1238,7 @@ describe("the readiness card on Overview (D-873)", () => {
     for (const later of [notices, checklist]) {
       expect(readiness.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     }
-    await screen.findByText("Write the opening line callers hear first.");
+    await screen.findByText("Give it a job: an Inbound line or a campaign.");
     expect(screen.getByText("How the score is made").closest("details")?.open).toBe(false);
     expect(screen.getByText("How these work").closest("details")?.open).toBe(false);
   });
@@ -3160,5 +3161,88 @@ describe("Show me around points at what the agent page draws (D-855)", () => {
     );
     await screen.findByRole("button", { name: "Bring it back" });
     expect(screen.queryByRole("button", { name: "Show me around" })).toBeNull();
+  });
+});
+
+describe("Try it on the business or on one of its jobs (founder, 16 Nov 2026)", () => {
+  beforeEach(() => openSection("training"));
+
+  const JOBS = agentJobs("agent-1", [
+    { kind: "inbound_line", id: "line-1", name: "Main number", status: "published" },
+    { kind: "campaign", id: "camp-1", name: "Diwali offers", status: "draft" },
+    { kind: "campaign", id: "camp-2", name: "Old customers", status: "running" },
+  ]);
+
+  it("tries just the business by default, chatting with no script", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        ...TRAINING_READS,
+        "/v1/agents/agent-1/jobs": JOBS,
+        "POST /v1/agents/agent-1/try-chat": {
+          session: "s-1",
+          reply: "We open at nine.",
+          looked_up_knowledge: false,
+          cut_short: false,
+          cost_note: "Replies here are not charged.",
+        },
+      }),
+    );
+    const business = (await screen.findByRole("radio", { name: /Just the business/ })) as HTMLInputElement;
+    expect(business.checked).toBe(true);
+    fireEvent.change(await screen.findByLabelText("What the caller says"), { target: { value: "When do you open?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("We open at nine.")).toBeTruthy();
+    const sent = JSON.parse(calls.find((c) => c.path === "/v1/agents/agent-1/try-chat")?.body ?? "{}");
+    expect(sent).toEqual({ message: "When do you open?", session: null, business: true });
+  });
+
+  it("links a job to its own test call instead of repeating it", async () => {
+    await renderClientPage(page, routes({ ...TRAINING_READS, "/v1/agents/agent-1/jobs": JOBS }));
+    fireEvent.click(await screen.findByRole("radio", { name: /Main number/ }));
+    expect(screen.getByRole("link", { name: "Open its test call" }).getAttribute("href")).toBe(
+      "/c/acme/inbound/line-1#line-test",
+    );
+    // The chat and the call are the business's only; a job is tried where it is written.
+    expect(screen.queryByLabelText("What the caller says")).toBeNull();
+
+    fireEvent.click(screen.getByRole("radio", { name: /Diwali offers/ }));
+    expect(screen.getByRole("link", { name: "Open its test call" }).getAttribute("href")).toBe(
+      "/c/acme/campaigns/camp-1#campaign-test",
+    );
+
+    fireEvent.click(screen.getByRole("radio", { name: /Old customers/ }));
+    expect(screen.getByRole("link", { name: "Open the campaign" }).getAttribute("href")).toBe(
+      "/c/acme/campaigns/camp-2",
+    );
+  });
+
+  it("says when no Inbound line or campaign uses it yet", async () => {
+    await renderClientPage(page, routes(TRAINING_READS));
+    expect(await screen.findByText("No Inbound line or campaign uses it yet.")).toBeTruthy();
+  });
+});
+
+describe("Overview asks for a job, not a script (founder, 16 Nov 2026)", () => {
+  it("offers Inbound and Campaigns while nothing uses the agent", async () => {
+    await renderClientPage(page, routes());
+    const step = await screen.findByText("Give it a job: an Inbound line or a campaign");
+    const row = step.closest("li") as HTMLElement;
+    expect(within(row).getByRole("link", { name: "Inbound" }).getAttribute("href")).toBe("/c/acme/inbound");
+    expect(within(row).getByRole("link", { name: "Campaigns" }).getAttribute("href")).toBe("/c/acme/campaigns");
+  });
+
+  it("marks it done once a line or campaign uses it", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/jobs": agentJobs("agent-1", [
+          { kind: "inbound_line", id: "line-1", name: "Main number", status: "draft" },
+        ]),
+      }),
+    );
+    const step = await screen.findByText("Give it a job: an Inbound line or a campaign");
+    const row = step.closest("li") as HTMLElement;
+    expect(within(row).queryByRole("link", { name: "Inbound" })).toBeNull();
   });
 });

@@ -12,7 +12,6 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from apps.api.agents import readiness
-from apps.api.agents.call_rules import OPENING_LINE_MAX_CHARS
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.main import app
@@ -28,8 +27,7 @@ FULL = readiness.ReadinessInputs(
     agent_name="Reception",
     knowledge_items=8,
     open_gaps=0,
-    opening_chars=60,
-    opening_room=100,
+    jobs=1,
     published=True,
     live=True,
     draft_waiting=False,
@@ -55,7 +53,7 @@ def test_each_component_follows_its_rule() -> None:
             FULL,
             knowledge_items=3,
             open_gaps=2,
-            opening_chars=OPENING_LINE_MAX_CHARS + 1,
+            jobs=0,
             draft_waiting=True,
             missed_7d=3,
         ),
@@ -63,11 +61,11 @@ def test_each_component_follows_its_rule() -> None:
     )
     assert _points(out) == {
         "knowledge": 22,  # (5 for 1-4 items + (10 - 2*2)) * 40 / 20
-        "opening": 7,  # set, but too long to be spoken
+        "job": 0,  # no Inbound line or campaign uses it
         "live": 13,  # live, with a draft waiting
         "missed": 6,  # 15 - 3*3
     }
-    assert out.score == 48
+    assert out.score == 41
 
 
 def test_components_never_go_negative() -> None:
@@ -77,9 +75,24 @@ def test_components_never_go_negative() -> None:
     assert points["missed"] == 0
 
 
-def test_an_opening_line_that_does_not_fit_the_greeting_budget_loses_points() -> None:
-    out = readiness.score(replace(FULL, opening_chars=50, opening_room=40), now=NOW)
-    assert _points(out)["opening"] == 7
+def test_a_job_is_the_step_and_it_opens_where_the_job_is_made() -> None:
+    """An agent has no script of its own (founder, 16 Nov 2026): the score asks for a job,
+    an Inbound line or a campaign, and opens Campaigns for an agent that only calls."""
+    idle = readiness.score(replace(FULL, jobs=0), now=NOW)
+    fix = next(f for f in idle.fixes if f.component == "job")
+    assert (fix.action, fix.href, fix.points) == (readiness.JOB_FIX, "/inbound", 20)
+    caller = readiness.score(replace(FULL, jobs=0, places_calls=True), now=NOW)
+    assert next(f for f in caller.fixes if f.component == "job").href == "/campaigns"
+    assert not any("section=script" in f.href for f in idle.fixes + caller.fixes)
+
+
+def test_a_waiting_draft_opens_the_page_and_drift_alone_offers_nothing_to_press() -> None:
+    waiting = readiness.score(replace(FULL, draft_waiting=True), now=NOW)
+    fix = next(f for f in waiting.fixes if f.component == "live")
+    assert fix.href == f"/agents/{AGENT}"
+    drifted = readiness.score(replace(FULL, out_of_sync=True), now=NOW)
+    assert {c.key: c.points for c in drifted.components}["live"] == readiness.LIVE_POINTS_PUBLISHED
+    assert [f for f in drifted.fixes if f.component == "live"] == []
 
 
 def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
@@ -88,8 +101,7 @@ def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
         agent_name="New",
         knowledge_items=0,
         open_gaps=0,
-        opening_chars=0,
-        opening_room=None,
+        jobs=0,
         published=False,
         live=False,
         draft_waiting=False,
@@ -101,7 +113,7 @@ def test_fixes_come_biggest_first_with_ties_in_component_order() -> None:
     assert out.score == 60
     assert [(f.component, f.points) for f in out.fixes] == [
         ("knowledge", 20),
-        ("opening", 20),
+        ("job", 20),
     ]
     assert out.fixes[0].href == "/knowledge"
     assert _points(out)["live"] == 25

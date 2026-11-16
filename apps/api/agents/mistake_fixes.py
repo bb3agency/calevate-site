@@ -359,7 +359,7 @@ async def undo_by_owner(
         raise ProblemError.conflict(
             SCRIPT_CHANGED_CODE,
             "Your script changed after this fix, so it cannot be undone on its own.",
-            remediation="Open the Script tab's history to put back the version you want.",
+            remediation="Ask Pip to put back the version you want.",
         )
     version = await rollback_prompt(
         session,

@@ -223,8 +223,9 @@ async def test_a_created_agent_is_a_draft_that_already_discloses() -> None:
         row = (
             await session.execute(
                 text(
-                    "SELECT ai_disclosure_line, recording_notice_line, disclosure_line, "
-                    "status, engine, system_prompt_id FROM agents WHERE id = :aid"
+                    "SELECT a.ai_disclosure_line, a.recording_notice_line, a.disclosure_line, "
+                    "a.status, a.engine, pv.body FROM agents a LEFT JOIN prompt_versions pv "
+                    "ON pv.id = a.system_prompt_id WHERE a.id = :aid"
                 ),
                 {"aid": uuid.UUID(body["id"])},
             )
@@ -232,7 +233,10 @@ async def test_a_created_agent_is_a_draft_that_already_discloses() -> None:
     assert row is not None
     assert row[0].strip() and row[1].strip() and row[2].strip()
     assert row[3] == "draft"
-    assert row[5] is None, "a created agent came with a script nobody wrote"
+    # An agent has no script of its own (founder, 16 Nov 2026): what it carries is what the
+    # business profile says, and nothing anybody did not write.
+    assert row[5] is not None and row[5].startswith("[IDENTITY] After-hours line."), row[5]
+    assert "[T0 FACTS]" in row[5]
 
 
 async def test_a_blank_name_is_refused() -> None:
@@ -247,14 +251,18 @@ async def test_a_blank_name_is_refused() -> None:
     assert response.status_code == 422, response.text
 
 
-async def test_a_created_agent_cannot_be_activated_until_it_has_a_script() -> None:
+async def test_a_created_agent_that_knows_nothing_cannot_be_got_ready() -> None:
     """Creation is not a route around `_assert_has_a_script`.
 
-    The refusal names the missing step. The alternative — activating it and publishing a
-    hardcoded placeholder — is the defect that function exists to have removed.
+    A new agent carries what the business has told us (founder, 16 Nov 2026); for a business
+    that has told us nothing it carries nothing, and getting it ready (which asks no go-live
+    question) is refused by name. The alternative, publishing a hardcoded placeholder, is
+    the defect that function exists to have removed.
     """
     _fresh_engine()
     tenant_id, _, token = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("DELETE FROM business_profiles"))
     async with _client(_app()) as http:
         created = await http.post(
             "/v1/agents",
@@ -263,11 +271,11 @@ async def test_a_created_agent_cannot_be_activated_until_it_has_a_script() -> No
         )
     agent_id = uuid.UUID(created.json()["id"])
 
-    code, body = await _move(token, agent_id, "activate")
+    code, body = await _move(token, agent_id, "prepare")
     assert code == 422, body
     assert _code(body) == "agent_has_no_script", body
     assert (await _status(tenant_id, agent_id))[0] == "draft", (
-        "a refused activation left the agent claiming to be live"
+        "a refused move left the agent claiming to be ready"
     )
 
 

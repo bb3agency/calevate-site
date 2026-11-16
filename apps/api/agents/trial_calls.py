@@ -182,21 +182,31 @@ async def place_trial_call(
     idempotency_key: str,
     ip: str | None = None,
     own_number_attested: bool = False,
+    business: bool = False,
 ) -> TrialCallResult:
     """Gate, then place, one test call. `blocked` is an answer, not an exception.
 
     `tenant_id` is the client's own (its principal) or, for an operator's smoke call from
     the admin console, the tenant named in the path; the gate is the same either way.
     `own_number_attested`: the owner ticked "this number is my own" on this request, which
-    lets the call ring outside 09:00-21:00 IST (`check_dispatch`)."""
+    lets the call ring outside 09:00-21:00 IST (`check_dispatch`).
+
+    `business`: the agent page's "Just the business" call. It rings through the agent's
+    business-only test copy (`agents/business_only`), which lives in our developer
+    workspace, so it always takes the shared trial line, on a paying account too, under the
+    shared line's per-call limit; the gate, the caps and the billing are the same."""
     tenant_id = tenant_id or principal.tenant_id
     assert tenant_id is not None
     phone = normalize_phone(number)
     if phone is None:
         raise _bad_number()
-    # A paid account's test call rings from its own number, so only the engine is asked.
+    # A paid account's own test call rings from its own number, so only the engine is asked;
+    # every call on the shared trial line needs that number too.
     paid_account = await has_paid(session, tenant_id=tenant_id)
-    if not (get_settings().engine in TRIAL_CALL_ENGINES if paid_account else trial_calling_ready()):
+    on_trial_line = business or not paid_account
+    if not (
+        trial_calling_ready() if on_trial_line else get_settings().engine in TRIAL_CALL_ENGINES
+    ):
         return TrialCallResult(
             status="blocked", blocked_reason=NOT_READY_REASON, blocked_rule=NOT_READY_RULE
         )
@@ -208,7 +218,11 @@ async def place_trial_call(
             route=TRIAL_CALL_ROUTE,
             method="POST",
             key=idempotency_key,
-            request_hash=body_hash({"agent_id": str(agent_id), "number": phone}),
+            request_hash=body_hash(
+                {"agent_id": str(agent_id), "number": phone, "business": business}
+                if business
+                else {"agent_id": str(agent_id), "number": phone}
+            ),
         )
     if claim.state == "replay" and claim.response_payload:
         return TrialCallResult.from_payload(claim.response_payload)
@@ -266,7 +280,29 @@ async def place_trial_call(
 
     trial: TrialDial | None = None
     owner_test: OwnerTestDial | None = None
-    if paid is not None:
+    if business:
+        # The business-only copy, republished first so it never lags the agent.
+        try:
+            copy_ref = await refresh_test_copy(
+                tenant_id=tenant_id, agent_id=agent_id, business=True
+            )
+        except Exception:
+            await release()
+            raise
+        caller_number = get_settings().trial_caller_number
+        assert caller_number is not None  # `trial_calling_ready` above
+        if paid is not None:
+            call_seconds = get_settings().trial_call_max_seconds
+            owner_test = OwnerTestDial(
+                max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start
+            )
+        else:
+            assert access is not None  # refused above otherwise
+            call_seconds = access.call_seconds
+        trial = TrialDial(
+            from_e164=caller_number, max_call_seconds=call_seconds, agent_ref=copy_ref
+        )
+    elif paid is not None:
         call_seconds = paid.max_call_seconds
         owner_test = OwnerTestDial(
             max_call_seconds=call_seconds, daily_cap=paid.daily_cap, day_start=paid.day_start

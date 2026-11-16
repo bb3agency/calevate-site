@@ -1521,17 +1521,17 @@ describe("next steps", () => {
         "/v1/knowledge-gaps?status=open&limit=20": { items: [GAP], open_count: 1, total: 1 },
         "/v1/readiness": readinessRead(62, [
           { component: "missed", action: "Teach it the answers callers asked for.", href: "/agents/agent-1?section=training", points: 20 },
-          { component: "opening", action: "Write the opening line callers hear first.", href: "/agents/agent-1?section=script", points: 15 },
+          { component: "job", action: "Give it a job: an Inbound line or a campaign.", href: "/inbound", points: 20 },
         ]),
       }),
     );
     const card = await nextSteps();
     await waitFor(() => expect(card.textContent).toContain("1 question not answered"));
-    await waitFor(() => expect(card.textContent).toContain("Write the opening line callers hear first."));
+    await waitFor(() => expect(card.textContent).toContain("Give it a job: an Inbound line or a campaign."));
     expect(card.textContent).not.toContain("Teach it the answers callers asked for.");
     expect(stepLinks(card)).toEqual([
       { name: "Teach answer", href: "/c/acme/agents/agent-1?section=training&question=pricing", primary: true },
-      { name: "Edit opening line", href: "/c/acme/agents/agent-1?section=script", primary: false },
+      { name: "Give it a job", href: "/c/acme/inbound", primary: false },
     ]);
   });
 
@@ -1540,8 +1540,8 @@ describe("next steps", () => {
       page,
       routes({
         "/v1/readiness": readinessRead(62, [
-          { component: "opening", action: "Shorten the opening line to a greeting and one question.", href: "/agents/agent-1?section=script", points: 13 },
-          { component: "live", action: "Apply your saved changes to live calls.", href: "/agents/agent-1?section=script", points: 12 },
+          { component: "job", action: "Give it a job: an Inbound line or a campaign.", href: "/inbound", points: 20 },
+          { component: "live", action: "Put your saved changes live.", href: "/agents/agent-1", points: 12 },
         ]),
       }),
     );
@@ -1553,7 +1553,7 @@ describe("next steps", () => {
     expect(card.textContent).toContain("Nearly ready");
     expect(card.textContent).toContain("2 fixes to reach 100%");
     // Two fixes on one screen are two problems, each named by what it does, for its agent.
-    expect(stepLinks(card).map((link) => link.name)).toEqual(["Edit opening line", "Apply changes"]);
+    expect(stepLinks(card).map((link) => link.name)).toEqual(["Give it a job", "Put changes live"]);
     expect(card.textContent).toContain("For Reception");
     expect(within(card).queryByRole("link", { name: "Fix" })).toBeNull();
   });

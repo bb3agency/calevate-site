@@ -433,8 +433,8 @@ async def not_yet_on(session: AsyncSession) -> list[NotYetOn]:
                     agent_name=name,
                     reason="waiting_put_live",
                     sentence=(
-                        f"Not yet on {name}: it has script changes waiting. Put them live "
-                        "from its Script tab and these facts go live with them."
+                        f"Not yet on {name}: it has changes waiting. Press Put it live "
+                        "on its page and these facts go live with them."
                     ),
                 )
             )

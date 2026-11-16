@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { KIND_COPY } from "@/app/c/[slug]/attention/rows";
 import { HEARD_FAILURES } from "@/app/c/[slug]/agents/first/BriefStep";
 import { HONEST_WORDS } from "@/app/c/[slug]/agents/first/HearItStep";
-import { JOBS } from "@/app/c/[slug]/agents/new/StartFromJob";
 import { NUMBER_COPY, VERIFY_COPY, VERIFY_ITEMS } from "@/app/c/[slug]/go-live/GoLiveGuide";
 import { splitHint } from "@/app/c/[slug]/settings/business/SetupWizard";
 import { ATTENTION, FIRST, GO_LIVE, HOME, NEW_AGENT, SETUP, TRIAL } from "@/app/c/[slug]/_ui/copy";
@@ -54,7 +53,6 @@ const TABLES: Record<string, unknown> = {
   ),
   HEARD_FAILURES,
   HONEST_WORDS: HONEST_WORDS.map((row) => row.line),
-  JOBS: JOBS.map((job) => ({ title: job.title, line: job.line })),
   SETUP_HINT_LEADS: STEPS.map((step) => splitHint(step.hint).lead),
 };
 
