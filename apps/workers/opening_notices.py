@@ -16,6 +16,8 @@ from __future__ import annotations
 from typing import Any, Final
 from uuid import UUID
 
+from sqlalchemy import text
+
 from apps.api.agents import script_builder, script_proposals
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.agents.opening_notices import WEAVE_JOB, WEAVE_NOTE, OpeningToWeave, weave_state
@@ -102,8 +104,20 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
         spends.append(answer)
         written.append((line, answer.value))
     applied = 0
+    stale = False
     async with tenant_session(tenant_id) as session:
-        for line, value in written:
+        # Read again under the agent's row lock: the lines were written from the script read
+        # before the model calls, and a version saved since then is the owner's, whose own
+        # publish asks for its own weave. The lock is held to commit, so the only versions
+        # written after this check are the ones below.
+        current = (
+            await session.execute(
+                text("SELECT system_prompt_id FROM agents WHERE id = :aid FOR UPDATE"),
+                {"aid": agent_id},
+            )
+        ).scalar_one_or_none()
+        stale = str(current) != prompt_id
+        for line, value in written if not stale else ():
             try:
                 async with session.begin_nested():
                     # The replaced line travels with the new one, so the Script tab can show
@@ -130,8 +144,15 @@ async def weave_opening_notices(ctx: dict[str, Any], payload: dict[str, Any]) ->
     await _meter(tenant_id, spends)
     log.info(
         "opening_notices_woven",
-        extra={"agent_id": str(agent_id), "written": len(written), "applied": applied},
+        extra={
+            "agent_id": str(agent_id),
+            "written": len(written),
+            "applied": applied,
+            "stale": stale,
+        },
     )
+    if stale:
+        return "stale"
     return "woven" if applied else "unwritten"
 
 

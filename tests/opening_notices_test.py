@@ -396,6 +396,53 @@ async def test_switching_on_speaks_the_sentence_until_pip_weaves_it_into_the_ope
 
 
 @pytest.mark.anyio
+async def test_an_opening_the_owner_saves_while_pip_writes_is_not_overwritten(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The writer reads the script, then spends seconds on a model; a script the owner saved
+    in between is a new version, whose own publish asks for its own weave. The weave of the
+    old line must not be applied over it."""
+    owners = "Hello from Raghava Organics, the evening order desk."
+    with _on_thinnest():
+        tenant_id, agent_id = await _agent(PLAIN)
+        await set_disclosure_posture(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            ai_disclosure_enabled=True,
+            recording_notice_enabled=None,
+        )
+        jobs = await _weave_jobs(tenant_id, agent_id)
+
+        async def owner_saves_meanwhile(_brief: ScriptBrief, **_kw: Any) -> Any:
+            async with tenant_session(tenant_id) as session:
+                await script_builder.save_agent_script(
+                    session,
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    script=CallScript(
+                        schema_version=SCRIPT_SCHEMA_VERSION,
+                        opening_line=owners,
+                        goal="Take the order.",
+                    ),
+                    notes=None,
+                    created_by=None,
+                )
+            value = opening_line.WrittenOpening(line=WOVEN, said=WOVEN_SAID)
+            return SimpleNamespace(value=value, capability=None, earlier=(), model=None)
+
+        async def no_meter(_tenant_id: uuid.UUID, _spends: Any) -> None:
+            return None
+
+        monkeypatch.setattr(weave_worker, "write_opening", owner_saves_meanwhile)
+        monkeypatch.setattr(weave_worker, "_meter", no_meter)
+        result = await weave_worker.weave_opening_notices({}, jobs[0])
+        async with tenant_session(tenant_id) as session:
+            loaded = await script_builder.load_agent_script(session, agent_id)
+        assert loaded.script.opening_line == owners, "Pip's weave of the old line replaced it"
+        assert result == "stale"
+
+
+@pytest.mark.anyio
 async def test_the_owner_sees_what_changed_and_can_put_their_line_back(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
