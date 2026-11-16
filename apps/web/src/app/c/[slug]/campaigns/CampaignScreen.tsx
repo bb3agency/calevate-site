@@ -29,6 +29,7 @@ import { DraftPeople, peopleSectionId } from "./DraftPeople";
 import { ArmingForms } from "./ArmingForms";
 import { AgentSection, ImproveTab, TestCallSection } from "./CampaignBoosters";
 import { CampaignCalls } from "./CampaignCalls";
+import { campaignRun } from "./campaignProgress";
 import { CampaignHeaderActions } from "./CampaignHeaderActions";
 import { CampaignQuestions } from "./CampaignQuestions";
 import { CampaignResults, ResultFigures } from "./CampaignResults";
@@ -279,17 +280,23 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
         panelClassName="pt-5"
         renderPanel={(current) =>
           current === "calls" ? (
-            // Who was called and how sits with the calls themselves (founder, 16 Nov 2026).
-            <div className="space-y-8">
-              {status !== "draft" && (
-                <FoldGroup actions={campaignActions}>
-                  <FoldSection title="Calls" tone="people" id={peopleSectionId(campaignId)}>
-                    {people}
-                  </FoldSection>
-                </FoldGroup>
-              )}
-              <CampaignCalls slug={slug} campaignId={campaignId} />
-            </div>
+            // One Calls section (founder, 16 Nov 2026): the calls and their recordings, then who
+            // was called and how; before the first call, only the line saying none yet.
+            <FoldGroup actions={campaignActions}>
+              <FoldSection title="Calls" tone="people" id={peopleSectionId(campaignId)}>
+                {status === "draft" || campaignRun(data).called === 0 ? (
+                  <p className="text-body text-ink-muted">No calls yet. They show here once it calls.</p>
+                ) : (
+                  <div className="space-y-10">
+                    <CampaignCalls slug={slug} campaignId={campaignId} />
+                    <div>
+                      <h3 className="mb-3 text-body font-semibold text-ink">By person</h3>
+                      {people}
+                    </div>
+                  </div>
+                )}
+              </FoldSection>
+            </FoldGroup>
           ) : current === "questions" ? (
             <CampaignQuestions slug={slug} campaignId={campaignId} canWrite={write.allowed} refusal={refusal} />
           ) : current === "improve" ? (

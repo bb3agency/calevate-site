@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.33 — 16-Nov-2026
+
+- Calls & recordings is one Calls section: the calls and their recordings, then who was called
+  and how. Before the first call it says only that there are no calls yet.
+
 ## 0.4.32 — 16-Nov-2026
 
 - Campaign buttons (Pause, Resume, Stop, Call the unreached again, Duplicate) sit in the row
