@@ -3,6 +3,29 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.55 — 16-Nov-2026
+
+- **Inbound lines behave like agents on every safeguard.** A line you put live answers its
+  numbers straight away; actions you switch off for a line stay off; when calling credit
+  runs out, the healer holds an agent or maintenance is on, every line says the short "we
+  cannot take your call" message.
+- **Your first agent can always be heard.** If our AI is busy or your allowance is used up,
+  its first work starts from a ready-made script you can change. Setting up asks at most
+  three questions, and what you tell us reaches what your agent says.
+- **Buying a number says plainly when your line is still a draft**, with a Put it live
+  button; with no line yet it offers to make one. Go live ends with Put it live.
+- **Test calls**: if your saved numbers don't load, it says so, and Save waits, so your saved
+  list is never replaced by mistake. A test call and a chat with your agent take turns. Try
+  it takes you straight to a line's or campaign's own test call.
+- Start campaign waits until the campaign's checks have answered. The people on a running
+  campaign show again what happened to each: tries, next try and the goal.
+- A note or file you add to a campaign's Sources is used the next time Pip writes, even
+  while it is still being made ready. Files up to 20 MB can be added.
+- Adding a file no longer uses your AI allowance on suggestions you cannot see. Pip and the
+  knowledge pages point you to Inbound lines and Campaigns for what calls say.
+- An account keeps up to 50 inbound lines, and a campaign or line up to 200 sources.
+- The admin console shows the first agent's voice by its name.
+
 ## 0.4.54 — 16-Nov-2026
 
 - **A new first run that starts with your business.** Tell us about it, name your agent and

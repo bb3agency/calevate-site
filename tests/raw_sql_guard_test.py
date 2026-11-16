@@ -320,8 +320,8 @@ def test_a_sink_imported_under_another_name_is_reported(modules: list[guard.Modu
     doctored = _doctored(
         modules,
         "apps/api/crm/service.py",
-        "from apps.api.db.like import contains_pattern, suffix_pattern",
-        "from apps.api.db.like import contains_pattern, suffix_pattern\n"
+        "from apps.api.db.like import contains_pattern, phone_suffix_pattern",
+        "from apps.api.db.like import contains_pattern, phone_suffix_pattern\n"
         "from sqlalchemy import text as raw_text",
     )
     reported = guard.disguised_sink_uses(doctored)
@@ -332,8 +332,8 @@ def test_a_statement_passed_as_a_keyword_is_reported(modules: list[guard.Module]
     doctored = _doctored(
         modules,
         "apps/api/crm/service.py",
-        "from apps.api.db.like import contains_pattern, suffix_pattern",
-        "from apps.api.db.like import contains_pattern, suffix_pattern\n"
+        "from apps.api.db.like import contains_pattern, phone_suffix_pattern",
+        "from apps.api.db.like import contains_pattern, phone_suffix_pattern\n"
         "_HIDDEN = text(text=str(object()))",
     )
     reported = guard.disguised_sink_uses(doctored)
