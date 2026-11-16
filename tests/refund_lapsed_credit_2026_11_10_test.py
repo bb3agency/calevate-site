@@ -139,3 +139,15 @@ async def test_credit_bought_before_the_expiry_terms_stays_refundable(
         tenant_id, RefundIn(payment_id=pid, reason="never lapses"), _request(), _admin()
     )
     assert done.recorded is True
+
+
+async def test_a_payment_with_no_top_up_row_has_nothing_refundable() -> None:
+    """The refund route refunds against a payment's top-up row; a reference with none (a
+    fee or a debit, never a purchase) publishes zero rather than a figure it cannot honour."""
+    from apps.api.billing.credit_routes import _refundable_of
+
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        assert await _refundable_of(
+            session, tenant_id=tenant_id, payment_ref=_payment_id("none")
+        ) == Decimal("0")

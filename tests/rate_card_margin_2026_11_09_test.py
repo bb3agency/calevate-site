@@ -209,3 +209,27 @@ def test_the_volume_block_is_struck_on_the_same_engine_as_the_cells() -> None:
     # 100 minutes on Pro: ₹1.5354 + (₹475 + 0 overage on 60,000 characters) / 100.
     assert out.ladder[0].call_minutes == "100"
     assert out.ladder[0].cost_inr_per_min == "6.2854"
+
+
+def test_a_ladder_row_refuses_a_volume_that_is_not_positive() -> None:
+    with pytest.raises(ValueError, match="a ladder volume must be positive"):
+        _studio_month().at_volume(Decimal(0))
+
+
+def test_a_thinnest_studio_minute_is_struck_only_at_its_inputs() -> None:
+    from apps.api.billing import rates
+
+    with pytest.raises(ValueError, match="none were passed"):
+        rates.studio_minute_inr_per_min(engine="thinnest", inputs=None)
+
+
+def test_a_breakeven_refuses_a_speaking_rate_that_is_not_positive() -> None:
+    from apps.api.billing import rates
+
+    with pytest.raises(ValueError, match="a speaking rate must be positive"):
+        rates.studio_breakeven_call_minutes(
+            Decimal("6"),
+            minute_inr=Decimal("1.5"),
+            chars_per_call_minute=Decimal(0),
+            usd_inr=Decimal("95"),
+        )

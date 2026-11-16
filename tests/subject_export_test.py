@@ -676,3 +676,24 @@ async def test_a_hand_off_brief_about_the_call_is_disclosed_without_the_staff_nu
     assert staff not in json.dumps(document) and staff[3:] not in json.dumps(document)
     assert document["counts"]["handoffs"] == 1
     SubjectExportOut.model_validate(document)
+
+
+def test_a_calls_next_step_note_is_masked_like_its_objections() -> None:
+    """The next step's note is the caller's words too; another person's number in it is
+    masked and the subject's own is left as written."""
+    from apps.api.compliance.export import _insights
+
+    subject = "+919876511002"
+    document = _insights(
+        {
+            "outcome": "callback",
+            "objections": [{"kind": "price", "text": "Ask 9876511003 first"}],
+            "next_step": {"kind": "callback", "note": "Ring 9876511003, not 9876511002"},
+        },
+        subject_phone=subject,
+    )
+    assert document is not None
+    note = document["next_step"]["note"]
+    assert "9876511003" not in note and FOREIGN_NUMBER_MARK in note
+    assert "9876511002" in note
+    assert FOREIGN_NUMBER_MARK in document["objections"][0]["text"]

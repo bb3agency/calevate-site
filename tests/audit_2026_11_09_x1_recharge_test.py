@@ -214,3 +214,92 @@ async def test_a_provider_that_cannot_be_read_leaves_the_charge_pending(
     monkeypatch.setattr(fake, "order_payments", _down)
     assert await auto_recharge.expire_unanswered(tenant_id) == 0
     assert (await _status(tenant_id, charge_id))[0] == "pending"
+
+
+async def test_an_old_charge_found_captured_on_a_recharge_route_is_closed_by_the_credit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An order recorded as an auto-recharge is closed inside `apply_captured`, so the
+    sweep does not settle it a second time; either way it ends captured and credited once."""
+    from apps.api.billing.payment_objects import AUTO_RECHARGE, record_route
+
+    tenant_id, fake = await _recharging_tenant(monkeypatch)
+    charge_id, order_id = await _pending_charge(
+        tenant_id, age=auto_recharge.CHARGE_ANSWER_WINDOW + timedelta(hours=2)
+    )
+    async with tenant_session(tenant_id) as session:
+        await record_route(
+            session,
+            tenant_id=tenant_id,
+            object_id=order_id,
+            kind="order",
+            purpose=AUTO_RECHARGE,
+            amount_inr=Decimal("2000"),
+        )
+    captured = _payment(order_id, "captured", age=timedelta(days=2))
+    fake.by_order[order_id] = [captured]
+
+    assert await auto_recharge.expire_unanswered(tenant_id) == 0
+    assert await _status(tenant_id, charge_id) == ("captured", None)
+    assert await _topups(tenant_id, captured.payment_id) == [Decimal("2000.0000")]
+
+
+async def test_a_charge_still_holding_its_claim_is_failed_without_asking_razorpay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A charge whose order was never created still carries its `claim:` placeholder: there
+    is no order to read, so three days on it is failed as unanswered."""
+    tenant_id, fake = await _recharging_tenant(monkeypatch)
+    charge_id = await _pending_charge_with_order(
+        tenant_id, order_id=f"claim:{_id('x')}", age=timedelta(days=3, hours=1)
+    )
+
+    async def _never(order_id: str) -> list[ProviderPayment]:
+        raise AssertionError("a claim placeholder is not a Razorpay order")
+
+    monkeypatch.setattr(fake, "order_payments", _never)
+    assert await auto_recharge.expire_unanswered(tenant_id) == 1
+    assert await _status(tenant_id, charge_id) == ("failed", "no_answer")
+
+
+async def test_a_capture_that_cannot_be_credited_stays_pending_and_alarms(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, fake = await _recharging_tenant(monkeypatch)
+    charge_id, order_id = await _pending_charge(
+        tenant_id, age=auto_recharge.CHARGE_ANSWER_WINDOW + timedelta(hours=2)
+    )
+    captured = _payment(order_id, "captured", age=timedelta(days=2))
+    fake.by_order[order_id] = [captured]
+
+    async def _refused(*_: Any, **__: Any) -> None:
+        raise ProblemError(
+            kind="conflict", code="payment_tenant_mismatch", title="x", detail="x", remediation="x"
+        )
+
+    alarms: list[tuple[str, dict[str, Any]]] = []
+    monkeypatch.setattr(auto_recharge, "_credit_late_capture", _refused)
+    monkeypatch.setattr(auto_recharge, "alert", lambda _src, name, **kw: alarms.append((name, kw)))
+
+    assert await auto_recharge.expire_unanswered(tenant_id) == 0
+    assert (await _status(tenant_id, charge_id))[0] == "pending"
+    assert [name for name, _ in alarms] == ["auto_recharge_capture_unplaced"]
+    assert alarms[0][1]["payment_id"] == captured.payment_id
+    assert alarms[0][1]["refusal"] == "payment_tenant_mismatch"
+
+
+async def _pending_charge_with_order(tenant_id: UUID, *, order_id: str, age: timedelta) -> UUID:
+    import uuid
+
+    charge_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO auto_recharge_charges (id, tenant_id, order_id, amount_inr, status, "
+                "created_at) VALUES (:id, :t, :o, 2000, 'pending', :at)"
+            ),
+            {"id": charge_id, "t": tenant_id, "o": order_id, "at": datetime.now(UTC) - age},
+        )
+    return charge_id

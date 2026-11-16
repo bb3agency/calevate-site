@@ -1239,3 +1239,42 @@ async def test_the_closure_screen_shows_the_credit_that_would_be_forfeited() -> 
     await _fund(tenant_id, _id("pay"), "750.00")
     async with tenant_session(tenant_id) as session:
         assert await _forfeitable(session, tenant_id) == Decimal("750.00")
+
+
+def _api_answering(body: Any) -> RazorpayApi:
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/orders/order_1/payments")
+        return httpx.Response(200, json=body)
+
+    return RazorpayApi(
+        key_id=KEY_ID,
+        key_secret=KEY_SECRET,
+        client=httpx.AsyncClient(
+            transport=httpx.MockTransport(respond), base_url="https://api.razorpay.com"
+        ),
+    )
+
+
+async def test_an_orders_payments_are_read_from_its_items() -> None:
+    entity = {"id": "pay_1", "amount": 200000, "currency": "inr", "status": "captured"}
+    payments = await _api_answering({"entity": "collection", "items": [entity]}).order_payments(
+        "order_1"
+    )
+    assert [(p.payment_id, p.status, p.currency) for p in payments] == [
+        ("pay_1", "captured", "INR")
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"entity": "collection"}, {"items": "none"}, {"items": [{"id": "pay_1"}]}],
+    ids=["no-items", "items-not-a-list", "an-item-we-cannot-read"],
+)
+async def test_an_orders_payments_we_cannot_read_are_refused_not_read_as_none(
+    body: dict[str, Any],
+) -> None:
+    """The sweep frees a recharge slot on an empty answer, so an answer it cannot read must
+    raise rather than look like an order with no payments."""
+    with pytest.raises(ProblemError) as raised:
+        await _api_answering(body).order_payments("order_1")
+    assert raised.value.code == "payment_provider_unreadable"

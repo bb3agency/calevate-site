@@ -176,7 +176,7 @@ class AlertSubject:
 _OWNERS_WITH_A_NUMBER: Final = text(
     "SELECT u.id, u.phone FROM memberships m JOIN users u ON u.id = m.user_id "
     "WHERE m.tenant_id = :tid AND m.role = 'owner' "
-    "AND u.deactivated_at IS NULL AND u.phone IS NOT NULL "
+    "AND u.deactivated_at IS NULL AND u.phone IS NOT NULL AND u.phone <> '' "
     "ORDER BY m.created_at, m.user_id"
 )
 
@@ -194,8 +194,6 @@ async def alert_subject(session: AsyncSession, *, tenant_id: UUID) -> AlertSubje
     """
     first: AlertSubject | None = None
     for user_id, phone in (await session.execute(_OWNERS_WITH_A_NUMBER, {"tid": tenant_id})).all():
-        if not phone:
-            continue
         subject = AlertSubject(
             user_id=UUID(str(user_id)),
             phone_e164=str(phone),

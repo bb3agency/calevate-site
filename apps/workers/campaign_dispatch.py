@@ -1115,14 +1115,6 @@ async def _dispatch_for_campaign(
                 # a contact with no link, which `_reap_stuck_dialing` then returned to
                 # the ladder and rang a second time.
                 variant = opening_variant(contact_id, opening_b)
-                if variant is not None:
-                    await session.execute(
-                        text(
-                            "UPDATE campaign_contacts SET opening_variant = :v "
-                            "WHERE id = :c AND opening_variant IS DISTINCT FROM :v"
-                        ),
-                        {"v": variant, "c": contact_id},
-                    )
                 await dispatch_call(
                     session,
                     tenant_id=tenant_id,
@@ -1131,7 +1123,9 @@ async def _dispatch_for_campaign(
                     phone_e164=phone,
                     lead_name=name,
                     context_note=reason,
-                    on_reserved=_link_contact_to_call(contact_id, campaign_id, phone),
+                    on_reserved=_link_contact_to_call(
+                        contact_id, campaign_id, phone, variant=variant
+                    ),
                     number_id=number_id,
                     contact_details=contact_details_of(custom),
                     opening_line=opening_b if variant == "b" else None,
@@ -1606,9 +1600,15 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str, prior: P
 
 
 def _link_contact_to_call(
-    contact_id: UUID, campaign_id: UUID, phone: str
+    contact_id: UUID, campaign_id: UUID, phone: str, *, variant: str | None = None
 ) -> Callable[[AsyncSession, UUID], Awaitable[None]]:
     """`dispatch_call`'s `on_reserved` hook: link the contact and the call both ways.
+
+    `variant` is the opening this person hears while the campaign tests a second one
+    (D-992), stamped in the same UPDATE. It was once written by the dispatcher's own
+    session before the dial, which left that session holding the contact's row lock while
+    this UPDATE waited on it from the second connection: every contact of a campaign with a
+    second opening timed out and went to the retry ladder without ringing.
 
     Runs INSIDE the transaction that inserts the `calls` row and commits with it, which
     is both what the FK needs (`campaign_contacts.last_call_id → calls.id`) and the whole
@@ -1637,11 +1637,12 @@ def _link_contact_to_call(
         linked = (
             await session.execute(
                 text(
-                    "UPDATE campaign_contacts SET last_call_id = :call, updated_at = now() "
+                    "UPDATE campaign_contacts SET last_call_id = :call, updated_at = now(), "
+                    "opening_variant = COALESCE(CAST(:variant AS text), opening_variant) "
                     f"WHERE id = :id AND phone_e164 = :phone AND {_STILL_CLAIMED} "
                     "RETURNING id"
                 ),
-                {"call": call_id, "id": contact_id, "phone": phone},
+                {"call": call_id, "id": contact_id, "phone": phone, "variant": variant},
             )
         ).first()
         if linked is None:

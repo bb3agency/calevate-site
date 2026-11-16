@@ -12,7 +12,7 @@ from typing import Any
 
 from apps.api.admin.service import _directory_params
 from apps.api.crm.service import _lead_scope
-from apps.api.db.like import contains_pattern, escape_like, suffix_pattern
+from apps.api.db.like import contains_pattern, escape_like, phone_suffix_pattern, suffix_pattern
 
 
 def test_operators_are_escaped_backslash_first() -> None:
@@ -31,3 +31,10 @@ def test_the_lead_search_binds_an_escaped_pattern() -> None:
 def test_the_client_directory_search_binds_an_escaped_pattern() -> None:
     bound = _directory_params(tenant_id=None, q="A_B", status=None, plan_tier=None)
     assert bound["like"] == "%A\\_B%"
+
+
+def test_a_phone_shaped_term_with_no_digit_is_a_plain_suffix() -> None:
+    """`( )` passes the phone shape but carries no digit to match on, so it falls back to
+    the escaped suffix rather than `%`, which would match every number."""
+    assert phone_suffix_pattern("( )") == suffix_pattern("( )")
+    assert phone_suffix_pattern("+91 99000 00000") == "%9900000000"
