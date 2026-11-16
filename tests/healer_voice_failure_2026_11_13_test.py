@@ -1012,6 +1012,16 @@ def test_the_migration_goes_down_and_up() -> None:
         with sync.connect() as connection:
             transaction = connection.begin()
             try:
+                # This runs one mid-chain downgrade against a head schema, so rows of a kind a
+                # LATER migration added (left by other tests) would break this revision's older
+                # CHECK. The later migration's own downgrade maps them; here they are cleared
+                # inside the transaction that is rolled back below.
+                connection.execute(
+                    text("ALTER TABLE heal_client_incidents NO FORCE ROW LEVEL SECURITY")
+                )
+                connection.execute(
+                    text("DELETE FROM heal_client_incidents WHERE kind = 'script_fix_proposed'")
+                )
                 with Operations.context(MigrationContext.configure(connection)):
                     revision.downgrade()
                     assert connection.execute(exists).scalar() is False
