@@ -529,8 +529,10 @@ TENANT_TABLES = [
     "agent_voice_history",
     "agent_voice_switches",
     # What a campaign works from (D-992): its documents, links and notes, including notes
-    # learned from its own calls. FORCE-RLS'd; archived, never deleted.
+    # learned from its own calls. FORCE-RLS'd; archived, never deleted. Retired by
+    # `campaign_sources`, the sources a campaign picks from What your agents know (ids only).
     "campaign_materials",
+    "campaign_sources",
     # The company training every agent of a client is given (founder, 16 Nov 2026), and its
     # retired materials table (D-996), kept until a later release drops it. FORCE-RLS'd.
     "company_trainings",

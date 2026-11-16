@@ -1,12 +1,12 @@
-"""Pip writes a campaign's script from its main task and materials (D-992), and an inbound
-line's from its main task and the sources it picked (D-997), by the same steps: one writer
-for both holders, so a line and a campaign are written and checked alike.
+"""Pip writes a campaign's script (D-992) and an inbound line's (D-997) from the holder's
+main task and the sources it picked from What your agents know, by the same steps: one
+writer for both holders, so a line and a campaign are written and checked alike.
 
 Queued by `campaigns/workspace.request_proposal` and `inbound/lines.request_proposal`. The
 script is written by the one script writer (`workers/script_assist.draft_script`) in the
 holder's agent's language and business context (`agents/script_proposals.brief_for`). A first
 script is written whole, from the trade's step plan like any new script; one that already
-exists gets an edit of it, so the owner's own wording survives wherever the materials do not
+exists gets an edit of it, so the owner's own wording survives wherever the sources do not
 change it. Documents are read
 the way onboarding reads them (`first_run.documents_block`: redacted, fenced, one word budget).
 
@@ -40,7 +40,6 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist as crm_assist
 from apps.api.db.session import tenant_session
-from apps.api.first_run.documents import document_words, read_documents
 from apps.workers.first_run import documents_block
 from apps.workers.opening_line import WrittenOpening
 from apps.workers.script_assist import (
@@ -85,20 +84,8 @@ UNUSABLE_NOTE: Final = (
     "add a note saying what the calls should say."
 )
 EDIT_TAIL: Final = (
-    " Keep anything already in the script that the main task and materials do not change."
+    " Keep anything already in the script that the main task and sources do not change."
 )
-
-
-def _materials_text(materials: list[workspace.Material]) -> str:
-    """Notes and links as plain lines; documents are read separately, in full."""
-    lines: list[str] = []
-    for item in materials:
-        if item.kind == "note" and item.note:
-            label = "Learned from calls" if item.source == "call" else "Note"
-            lines.append(f"{label} ({item.title}): {item.note}")
-        elif item.kind == "link" and item.url:
-            lines.append(f"Link ({item.title}): {item.url}")
-    return "\n".join(lines)
 
 
 def owners_words(main_task: str, notes: str) -> str:
@@ -258,6 +245,10 @@ class _Inputs:
 
 
 async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    """A campaign's script, from its main task and the sources it picked from What your
+    agents know: typed notes and documents alike are read as documents."""
+    from apps.workers.company_training_draft import knowledge_words
+
     del ctx
     tenant_id = UUID(str(payload["tenant_id"]))
     campaign_id = UUID(str(payload["campaign_id"]))
@@ -267,13 +258,7 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
     started = time.monotonic()
     async with tenant_session(tenant_id) as session:
         space = await workspace.read_workspace(session, campaign_id)
-        uploads = [m.kb_upload_id for m in space.materials if m.kb_upload_id is not None]
-        found = await read_documents(session, uploads)
-        words = [
-            (doc.name, await document_words(session, doc.upload_id))
-            for doc in found
-            if doc.state == "read"
-        ]
+        words = await knowledge_words(session, only=space.sources) if space.sources else []
         # Written in the campaign's main language when it sets one over the agent's.
         main_language, focus = (
             await session.execute(
@@ -296,7 +281,7 @@ async def draft_campaign_script(ctx: dict[str, Any], payload: dict[str, Any]) ->
         agent_id=space.agent_id,
         main_task=space.main_task,
         base=space.proposal.base_script if space.proposal is not None else space.script,
-        notes=_materials_text(space.materials),
+        notes="",
         words=words,
         context=context,
         tenant_leg=tenant_leg,

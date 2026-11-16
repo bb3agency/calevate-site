@@ -134,14 +134,14 @@ export async function openTab(name: string): Promise<void> {
 export const timelinePath = (id: string = FIXTURE_CAMPAIGN_ID) =>
   `/v1/analytics/campaigns?days=366&campaign_id=${id}`;
 
-/** `GET /v1/campaigns/{id}/workspace`: a main task saved, no materials, no script yet. */
+/** `GET /v1/campaigns/{id}/workspace`: a main task saved, no sources, no script yet. */
 export function workspaceFixture(over: Partial<CampaignWorkspace> = {}): CampaignWorkspace {
   return {
     campaign_id: FIXTURE_CAMPAIGN_ID,
     agent_id: FIXTURE_AGENT_ID,
     status: "draft",
     main_task: "Tell customers about our Diwali offer on service plans.",
-    materials: [],
+    source_ids: [],
     proposal: null,
     script: null,
     script_live_version: null,
@@ -185,6 +185,9 @@ export function detailRoutes(id: string = FIXTURE_CAMPAIGN_ID): Routes {
     [`/v1/campaigns/${id}/settings`]: settingsFixture(),
     // The Test call section's list of calls made from the campaign: none yet.
     [`/v1/campaigns/${id}/test-calls`]: [],
+    // The Sources fold's pick list: What your agents know, empty.
+    "/v1/kb/notes": { notes: [] },
+    "/v1/kb/uploads": [],
     // The Set up tab's agent picker, for every status.
     "/v1/agents": [],
     ...dltRegistrationRoute(),

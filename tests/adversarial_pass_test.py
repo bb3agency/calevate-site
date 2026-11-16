@@ -621,16 +621,9 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
             },
         )
         ids["follow_up_id"] = str(follow_up_id)
-        # D-992: a material and a written Pip draft on A's campaign, so archiving and
-        # discarding them from a neighbour reach rows that exist.
-        material_id, proposal_id = uuid.uuid4(), uuid.uuid4()
-        await s.execute(
-            text(
-                "INSERT INTO campaign_materials (id, tenant_id, campaign_id, kind, title, note) "
-                "VALUES (:m, :t, :c, 'note', 'Adversarial note', 'Closed on Sundays')"
-            ),
-            {"m": material_id, "t": tenant_id, "c": uuid.UUID(ids["campaign_id"])},
-        )
+        # D-992: a written Pip draft on A's campaign, so discarding it from a neighbour
+        # reaches a row that exists.
+        proposal_id = uuid.uuid4()
         await s.execute(
             text("UPDATE campaigns SET script_proposal = CAST(:p AS jsonb) WHERE id = :c"),
             {
@@ -644,7 +637,6 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "c": uuid.UUID(ids["campaign_id"]),
             },
         )
-        ids["material_id"] = str(material_id)
         ids["proposal_id"] = str(proposal_id)
         # The company training's written draft on A, for the same reason.
         training_proposal_id = uuid.uuid4()
@@ -714,7 +706,7 @@ _TOMORROW_NOON_IST = (
 #: refused as a missing file (422) before the handler reads the id, so the sweep sends this
 #: smallest valid upload instead.
 _MULTIPART_ROUTES: dict[str, dict[str, tuple[str, bytes, str]]] = {
-    "POST /v1/campaigns/{campaign_id}/materials/upload": {
+    "POST /v1/campaigns/{campaign_id}/sources/upload": {
         "file": ("idor-sweep.txt", b"idor sweep", "text/plain"),
     },
 }
@@ -848,20 +840,21 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/campaigns/{campaign_id}/results", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/opt-outs", {}, {}),
     ("POST", "/v1/campaigns/{campaign_id}/complaint-review", {"reviewed": True}, {}),
-    # The D-992 workspace: the main task, script, materials and Pip's draft, what the calls
+    # The D-992 workspace: the main task, script, sources and Pip's draft, what the calls
     # taught, the opening test, the test call and the campaign's own settings. Each reads the
     # campaign (or, for the holder, the agent) under the caller's RLS before anything else.
     ("GET", "/v1/campaigns/{campaign_id}/workspace", {}, {}),
     ("PUT", "/v1/campaigns/{campaign_id}/main-task", {"main_task": "idor sweep"}, {}),
     ("PUT", "/v1/campaigns/{campaign_id}/script", {"script": {}}, {}),
+    ("PUT", "/v1/campaigns/{campaign_id}/sources", {"source_ids": []}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/sources/note", {"note": "idor sweep"}, {}),
     (
         "POST",
-        "/v1/campaigns/{campaign_id}/materials",
-        {"kind": "note", "title": "idor sweep", "note": "idor sweep"},
+        "/v1/campaigns/{campaign_id}/sources/link",
+        {"url": "https://example.com/idor-sweep"},
         {},
     ),
-    ("POST", "/v1/campaigns/{campaign_id}/materials/upload", {}, {}),
-    ("POST", "/v1/campaigns/{campaign_id}/materials/{material_id}/archive", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/sources/upload", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/test-calls", {}, {}),
     ("DELETE", "/v1/campaigns/{campaign_id}/test-calls/{call_id}", {}, {}),
     ("DELETE", "/v1/company-training/proposal/{training_proposal_id}", {}, {}),

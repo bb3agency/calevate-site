@@ -3,8 +3,8 @@
 /**
  * What the agent could not answer on this campaign's calls (D-992), from the same findings
  * the Knowledge screen's "where they struggled" list reads (`teach/struggles.py`). The owner
- * answers here; the answer joins the campaign's materials as a note learned from its calls,
- * so the next script Pip writes works it in. Updating the script is what puts it on calls.
+ * answers here; the answer goes into What your agents know as a note and the campaign picks
+ * it, so the next script Pip writes works it in. Updating the script puts it on these calls.
  */
 
 import Link from "next/link";
@@ -54,7 +54,7 @@ export function CampaignQuestions({
   return (
     <div className="space-y-4">
       <p className="flex items-center gap-1 text-meta text-ink-muted">
-        <span className="block">Answer once; it is kept with this campaign.</span>
+        <span className="block">Answer once; it goes into What your agents know.</span>
         <InfoTip label="answering a question" align="start">
           Then rewrite or edit the script so the agent says it on calls.
         </InfoTip>
@@ -127,7 +127,7 @@ function Question({
       {question.answer && <p className="text-meta text-ink-muted">Agent: “{question.answer}”</p>}
       <div className="mt-3 flex flex-wrap gap-2">
         {done ? (
-          <span className="text-meta font-medium text-brand-strong">Answer kept with this campaign</span>
+          <span className="text-meta font-medium text-brand-strong">Answer added to What your agents know</span>
         ) : (
           <button
             type="button"

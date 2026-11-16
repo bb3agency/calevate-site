@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * A campaign's workspace (D-992): its main task, materials, its own call script and Pip's
- * draft of it, and the questions its calls could not answer. `/v1/campaigns/{id}/...`.
+ * A campaign's workspace (D-992): its main task, the sources it picked from What your agents
+ * know, its own call script and Pip's draft of it, and the questions its calls could not
+ * answer. `/v1/campaigns/{id}/...`.
  *
  * The campaign owns what its calls say. Start puts only the script live on the campaign's
  * agent, which is the voice; everything else stays here.
@@ -12,12 +13,12 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { useRef } from "react";
 
 import { apiRequest, apiUpload, type Session } from "./client";
+import { invalidateKnowledgeLists } from "./kb";
 import { untilRefused } from "./queryRetry";
 import type { components } from "./schema";
 import type { CallScript } from "./script";
 
 type Schemas = components["schemas"];
-export type CampaignMaterial = Schemas["MaterialOut"];
 export type CampaignProposal = Omit<Schemas["CampaignProposalOut"], "script" | "base_script"> & {
   script: CallScript | null;
   base_script: CallScript | null;
@@ -80,23 +81,50 @@ export function useSaveCampaignScript(session: Session, campaignId: string) {
   );
 }
 
-export type MaterialIn = Schemas["MaterialIn"];
-
-export function useAddMaterial(session: Session, campaignId: string) {
-  return useWorkspaceMutation(session, campaignId, (material: MaterialIn) =>
-    apiRequest<CampaignMaterial>(session, `${base(campaignId)}/materials`, {
-      method: "POST",
-      body: material,
+/** The sources from What your agents know that Pip writes the campaign from. */
+export function useSetCampaignSources(session: Session, campaignId: string) {
+  return useWorkspaceMutation(session, campaignId, (sourceIds: string[]) =>
+    apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/sources`, {
+      method: "PUT",
+      body: { source_ids: sourceIds },
     }),
   );
 }
 
-export function useArchiveMaterial(session: Session, campaignId: string) {
-  return useWorkspaceMutation(session, campaignId, (materialId: string) =>
-    apiRequest<void>(session, `${base(campaignId)}/materials/${encodeURIComponent(materialId)}/archive`, {
+/** What "Add a file or note" adds: it goes into What your agents know and is picked. */
+export type NewCampaignSource =
+  | { kind: "file"; file: File }
+  | { kind: "link"; url: string; name?: string }
+  | { kind: "note"; note: string; title?: string };
+
+function addSource(session: Session, campaignId: string, item: NewCampaignSource): Promise<CampaignWorkspace> {
+  if (item.kind === "file") {
+    const form = new FormData();
+    form.set("file", item.file);
+    return apiUpload<CampaignWorkspace>(session, `${base(campaignId)}/sources/upload`, form);
+  }
+  if (item.kind === "link") {
+    return apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/sources/link`, {
       method: "POST",
-    }),
-  );
+      body: { url: item.url, ...(item.name ? { name: item.name } : {}) },
+    });
+  }
+  return apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/sources/note`, {
+    method: "POST",
+    body: { note: item.note, ...(item.title ? { title: item.title } : {}) },
+  });
+}
+
+export function useAddCampaignSource(session: Session, campaignId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (item: NewCampaignSource) => addSource(session, campaignId, item),
+    onSuccess: (out) => {
+      client.setQueryData(workspaceKey(session.orgSlug, campaignId), out);
+      // The new item is in What your agents know now, so the pick list shows it.
+      invalidateKnowledgeLists(client, session);
+    },
+  });
 }
 
 /** The whole script, or with `part` and `language` that one part rewritten in that language. */
@@ -126,17 +154,19 @@ export function useCampaignQuestions(session: Session, campaignId: string, enabl
   });
 }
 
+/** The answer goes into What your agents know as a note, and the campaign picks it. */
 export function useAnswerQuestion(session: Session, campaignId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (answer: { topic: string; answer: string }) =>
-      apiRequest<CampaignMaterial>(session, `${base(campaignId)}/questions/answer`, {
+      apiRequest<CampaignWorkspace>(session, `${base(campaignId)}/questions/answer`, {
         method: "POST",
         body: answer,
       }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: workspaceKey(session.orgSlug, campaignId) });
+    onSuccess: (out) => {
+      client.setQueryData(workspaceKey(session.orgSlug, campaignId), out);
       void client.invalidateQueries({ queryKey: questionsKey(session.orgSlug, campaignId) });
+      invalidateKnowledgeLists(client, session);
     },
   });
 }
@@ -240,20 +270,6 @@ export function useRemoveCampaignTestCall(session: Session, campaignId: string) 
       }),
     onSuccess: () => void client.invalidateQueries({ queryKey: testCallsKey(session.orgSlug, campaignId) }),
   });
-}
-
-/** Upload a file for a campaign: into the knowledge, or the copy already there reused. */
-export function uploadMaterial(session: Session, campaignId: string, file: File, title?: string) {
-  const form = new FormData();
-  form.set("file", file);
-  if (title) form.set("title", title);
-  return apiUpload<CampaignMaterial>(session, `${base(campaignId)}/materials/upload`, form);
-}
-
-export function useUploadMaterial(session: Session, campaignId: string) {
-  return useWorkspaceMutation(session, campaignId, ({ file, title }: { file: File; title?: string }) =>
-    uploadMaterial(session, campaignId, file, title),
-  );
 }
 
 export type CampaignSettings = Schemas["CampaignSettingsOut"];

@@ -1,4 +1,4 @@
-"""The campaign workspace: main task, materials, the campaign's script and Pip's draft of it,
+"""The campaign workspace: main task, sources, the campaign's script and Pip's draft of it,
 and the questions its calls could not answer (D-992). `campaigns/workspace.py` holds the rules.
 """
 
@@ -15,7 +15,7 @@ from uuid import UUID
 
 import openpyxl
 from calevate_shared.call_script import CallScript
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,7 @@ from apps.api.db.session import tenant_session
 from apps.api.ingest.service import normalize_phone
 from apps.api.kb import uploads as kb_uploads
 from apps.api.kb.curation import goes_live_without_review, requires_kb_curation
+from apps.api.kb.picks import MAX_PICKS
 from apps.api.reliability.service import require_idempotency_key
 from apps.api.teach.routes import read_bounded_upload
 from apps.api.teach.struggles import list_struggles
@@ -53,18 +54,6 @@ KbWriter = Annotated[Principal, Depends(requires_kb_curation())]
 
 class _Out(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
-
-class MaterialOut(_Out):
-    id: UUID
-    kind: Literal["file", "link", "note"]
-    #: `owner`, or `call` for a note learned from the campaign's own calls.
-    source: Literal["owner", "call"]
-    title: str
-    url: str | None
-    note: str | None
-    kb_upload_id: UUID | None
-    created_at: datetime
 
 
 class CampaignLeftOutOut(_Out):
@@ -102,20 +91,8 @@ class WorkspaceOut(_Out):
     #: The agent script version this campaign put live at its last Start.
     script_live_version: int | None
     proposal: CampaignProposalOut | None
-    materials: list[MaterialOut]
-
-
-def _material(m: workspace.Material) -> MaterialOut:
-    return MaterialOut(
-        id=m.id,
-        kind=m.kind,  # type: ignore[arg-type]
-        source=m.source,  # type: ignore[arg-type]
-        title=m.title,
-        url=m.url,
-        note=m.note,
-        kb_upload_id=m.kb_upload_id,
-        created_at=m.created_at,
-    )
+    #: The sources from What your agents know the campaign is written from.
+    source_ids: list[UUID]
 
 
 def _proposal(p: workspace.CampaignProposal | None) -> CampaignProposalOut | None:
@@ -153,7 +130,7 @@ async def _workspace_out(session: AsyncSession, campaign_id: UUID) -> WorkspaceO
         script=w.script,
         script_live_version=w.script_live_version,
         proposal=_proposal(w.proposal),
-        materials=[_material(m) for m in w.materials],
+        source_ids=list(w.sources),
     )
 
 
@@ -161,7 +138,7 @@ async def _workspace_out(session: AsyncSession, campaign_id: UUID) -> WorkspaceO
     "/{campaign_id}/workspace",
     response_model=WorkspaceOut,
     openapi_extra=permission_meta("leads:read"),
-    summary="The campaign's main task, materials, script and Pip's pending draft",
+    summary="The campaign's main task, sources, script and Pip's pending draft",
 )
 async def read_workspace(campaign_id: UUID, session: Session, _: Reader) -> WorkspaceOut:
     return await _workspace_out(session, campaign_id)
@@ -221,57 +198,152 @@ async def save_script(
     return await _workspace_out(session, campaign_id)
 
 
-class MaterialIn(BaseModel):
+class CampaignSourcesIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["file", "link", "note"]
-    title: str = Field(min_length=1, max_length=workspace.TITLE_MAX)
-    url: str | None = Field(default=None, max_length=2_000)
-    note: str | None = Field(default=None, max_length=workspace.NOTE_MAX)
-    #: The upload (`POST /v1/kb/uploads` or `/v1/kb/links`) a file or link is held in.
-    kb_upload_id: UUID | None = None
+    source_ids: list[UUID] = Field(max_length=MAX_PICKS)
 
 
-@router.post(
-    "/{campaign_id}/materials",
-    response_model=MaterialOut,
-    status_code=201,
+@router.put(
+    "/{campaign_id}/sources",
+    response_model=WorkspaceOut,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Add a document, link or note for the campaign to work from",
+    summary="Choose the sources from What your agents know that Pip writes the campaign from",
 )
-async def add_material(
+async def set_sources(
     campaign_id: UUID,
-    payload: MaterialIn,
+    payload: CampaignSourcesIn,
     session: Session,
     principal: Dispatcher,
-) -> MaterialOut:
+) -> WorkspaceOut:
     assert principal.tenant_id is not None
-    material = await workspace.add_material(
+    await workspace.set_sources(
         session,
         tenant_id=principal.tenant_id,
         campaign_id=campaign_id,
-        kind=payload.kind,
-        title=payload.title,
-        url=payload.url,
-        note=payload.note,
-        kb_upload_id=payload.kb_upload_id,
+        kb_source_ids=payload.source_ids,
         created_by=principal.user_id,
     )
-    return _material(material)
+    return await _workspace_out(session, campaign_id)
+
+
+class CampaignNoteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    #: Optional: without one the note is named after its first words.
+    title: str | None = Field(default=None, max_length=workspace.TITLE_MAX)
+    note: str = Field(min_length=1, max_length=workspace.NOTE_MAX)
+
+
+async def _note_added(
+    session: AsyncSession,
+    principal: Principal,
+    request: Request,
+    *,
+    campaign_id: UUID,
+    title: str | None,
+    note: str,
+    via: str,
+) -> None:
+    assert principal.tenant_id is not None
+    source_id = await workspace.add_note(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        title=title,
+        note=note,
+        created_by=principal.user_id,
+        auto_approve=goes_live_without_review(
+            realm=principal.realm, impersonating=principal.impersonating
+        ),
+    )
+    await write_audit(
+        session,
+        action="kb.submitted",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(source_id),
+        ip=client_request_ip(request),
+        summary={"campaign_id": str(campaign_id), "via": via},
+    )
 
 
 @router.post(
-    "/{campaign_id}/materials/{material_id}/archive",
-    status_code=204,
-    openapi_extra=permission_meta("leads:dispatch"),
-    summary="Remove a material from the campaign (archived, not deleted)",
+    "/{campaign_id}/sources/note",
+    response_model=WorkspaceOut,
+    status_code=201,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Write a note into What your agents know and pick it for the campaign",
 )
-async def archive_material(
+async def add_note(
     campaign_id: UUID,
-    material_id: UUID,
+    payload: CampaignNoteIn,
     session: Session,
-    _: Dispatcher,
-) -> None:
-    await workspace.archive_material(session, campaign_id, material_id)
+    request: Request,
+    principal: KbWriter,
+) -> WorkspaceOut:
+    await _note_added(
+        session,
+        principal,
+        request,
+        campaign_id=campaign_id,
+        title=payload.title,
+        note=payload.note,
+        via="campaign_note",
+    )
+    return await _workspace_out(session, campaign_id)
+
+
+class CampaignLinkIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(min_length=1, max_length=2_000)
+    name: str | None = Field(default=None, max_length=workspace.TITLE_MAX)
+
+
+@router.post(
+    "/{campaign_id}/sources/link",
+    response_model=WorkspaceOut,
+    status_code=201,
+    openapi_extra=permission_meta("kb:write"),
+    summary="Add a web page to What your agents know and pick it for the campaign",
+)
+async def add_link(
+    campaign_id: UUID,
+    payload: CampaignLinkIn,
+    session: Session,
+    request: Request,
+    principal: KbWriter,
+) -> WorkspaceOut:
+    """The link goes into the client's knowledge exactly as `POST /v1/kb/links` puts it."""
+    assert principal.tenant_id is not None
+    await workspace.read_workspace(session, campaign_id)
+    made = await kb_uploads.create_link(
+        session,
+        tenant_id=principal.tenant_id,
+        name=(payload.name or "").strip() or None,
+        url=payload.url.strip(),
+        submitted_by=principal.user_id,
+        auto_approve=goes_live_without_review(
+            realm=principal.realm, impersonating=principal.impersonating
+        ),
+    )
+    await write_audit(
+        session,
+        action="kb.link_added",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="kb_source",
+        object_id=str(made["source_id"]),
+        ip=client_request_ip(request),
+        summary={"upload_id": str(made["id"]), "via": "campaign_source"},
+    )
+    await workspace.pick_source(
+        session,
+        tenant_id=principal.tenant_id,
+        campaign_id=campaign_id,
+        kb_source_id=UUID(str(made["source_id"])),
+        created_by=principal.user_id,
+    )
+    return await _workspace_out(session, campaign_id)
 
 
 class CampaignProposalIn(BaseModel):
@@ -288,7 +360,7 @@ class CampaignProposalIn(BaseModel):
     response_model=CampaignProposalOut,
     status_code=202,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Ask Pip to write the campaign's script from its main task and materials",
+    summary="Ask Pip to write the campaign's script from its main task and sources",
 )
 async def request_proposal(
     campaign_id: UUID,
@@ -397,33 +469,31 @@ class CampaignAnswerIn(BaseModel):
 
 @router.post(
     "/{campaign_id}/questions/answer",
-    response_model=MaterialOut,
+    response_model=WorkspaceOut,
     status_code=201,
-    openapi_extra=permission_meta("leads:dispatch"),
-    summary="Answer a question the agent could not: kept as a note learned from the calls",
+    openapi_extra=permission_meta("kb:write"),
+    summary="Answer a question the agent could not: a note in What your agents know, picked",
 )
 async def answer_question(
     campaign_id: UUID,
     payload: CampaignAnswerIn,
     session: Session,
-    principal: Dispatcher,
-) -> MaterialOut:
-    """The answer joins the campaign's materials as a note learned from its calls, so the next
-    script Pip writes works it in; the owner updates the script to put it on calls."""
-    assert principal.tenant_id is not None
-    material = await workspace.add_material(
+    request: Request,
+    principal: KbWriter,
+) -> WorkspaceOut:
+    """The answer goes into What your agents know, so every agent can give it, and the
+    campaign picks it, so the next script Pip writes works it in; the owner updates the
+    script to put it on calls."""
+    await _note_added(
         session,
-        tenant_id=principal.tenant_id,
+        principal,
+        request,
         campaign_id=campaign_id,
-        kind="note",
         title=payload.topic,
-        url=None,
         note=payload.answer,
-        kb_upload_id=None,
-        created_by=principal.user_id,
-        source="call",
+        via="campaign_question",
     )
-    return _material(material)
+    return await _workspace_out(session, campaign_id)
 
 
 # --- What a campaign's calls teach it, its opening test and its test call (D-992) ----------
@@ -736,23 +806,22 @@ async def remove_campaign_test_call(
 
 
 @router.post(
-    "/{campaign_id}/materials/upload",
-    response_model=MaterialOut,
+    "/{campaign_id}/sources/upload",
+    response_model=WorkspaceOut,
     status_code=201,
     openapi_extra=permission_meta("kb:write"),
-    summary="Upload a file for the campaign; a file already in the knowledge is reused",
+    summary="Upload a file into What your agents know and pick it; a copy there is reused",
 )
-async def upload_material(
+async def upload_source(
     campaign_id: UUID,
     session: Session,
     request: Request,
     file: Annotated[UploadFile, File()],
     principal: KbWriter,
-    title: Annotated[str | None, Form(max_length=workspace.TITLE_MAX)] = None,
-) -> MaterialOut:
+) -> WorkspaceOut:
     """The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,
     unless these exact bytes are already live there: then that upload is attached instead of
-    being refused as a duplicate, because the campaign only needs to point at it (D-992)."""
+    being refused as a duplicate, because the campaign only needs to pick it."""
     assert principal.tenant_id is not None
     await workspace.read_workspace(session, campaign_id)
     data = await read_bounded_upload(file, kb_uploads.MAX_UPLOAD_BYTES)
@@ -781,20 +850,21 @@ async def upload_material(
             object_type="kb_source",
             object_id=str(made["source_id"]),
             ip=client_request_ip(request),
-            summary={"upload_id": str(upload_id), "via": "campaign_material"},
+            summary={"upload_id": str(upload_id), "via": "campaign_source"},
         )
-    material = await workspace.add_material(
+    source_id = (
+        await session.execute(
+            text("SELECT source_id FROM kb_uploads WHERE id = :u"), {"u": upload_id}
+        )
+    ).scalar_one()
+    await workspace.pick_source(
         session,
         tenant_id=principal.tenant_id,
         campaign_id=campaign_id,
-        kind="file",
-        title=(title or "").strip() or (file.filename or "Document"),
-        url=None,
-        note=None,
-        kb_upload_id=upload_id,
+        kb_source_id=source_id,
         created_by=principal.user_id,
     )
-    return _material(material)
+    return await _workspace_out(session, campaign_id)
 
 
 # --- The campaign's own settings over its agent's defaults (D-994) ---------------------------

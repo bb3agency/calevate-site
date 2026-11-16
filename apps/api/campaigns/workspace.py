@@ -1,10 +1,12 @@
-"""A campaign's own main task, materials and script (D-992, founder 15 Nov 2026: "The agent is
+"""A campaign's own main task, sources and script (D-992, founder 15 Nov 2026: "The agent is
 just a voice which will deliver the message ... The campaign will control what and how the
 agents deliver").
 
 The campaign holds what its calls say; the agent it is given is the voice. Pip writes the
-script from the main task and the materials (`workers/campaign_script.py`, through the one
-script writer `workers/script_assist.draft_script`), the owner reviews it with the same
+script from the main task and the sources the campaign picked from What your agents know
+(founder, 16 Nov 2026: one place to add things; `kb/picks.py`), through
+`workers/campaign_script.py` and the one script writer `workers/script_assist.draft_script`;
+the owner reviews it with the same
 review the Script page uses, and Start puts it live on the agent through the agent's own
 publish (`agents/script_publish.put_draft_live`): version history, the compliance read-back
 and the audit all apply exactly as they do to an agent script.
@@ -34,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import script_proposals
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
+from apps.api.kb.picks import CAMPAIGN_PICKS, add_pick, read_picks, replace_picks
 from apps.api.reliability.service import enqueue_outbox
 from apps.workers.script_assist import LeftOut
 
@@ -47,19 +50,6 @@ STALE_AFTER_S: Final = 15 * 60
 FAILED_NOTE: Final = "Pip could not write the script this time. Try again."
 
 ProposalStatus = Literal["drafting", "ready", "failed"]
-MaterialKind = Literal["file", "link", "note"]
-
-
-@dataclass(frozen=True)
-class Material:
-    id: UUID
-    kind: str
-    source: str
-    title: str
-    url: str | None
-    note: str | None
-    kb_upload_id: UUID | None
-    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -89,7 +79,8 @@ class Workspace:
     script: CallScript | None
     script_live_version: int | None
     proposal: CampaignProposal | None
-    materials: list[Material]
+    #: The sources from What your agents know it is written from.
+    sources: tuple[UUID, ...]
 
 
 def _script(raw: Any) -> CallScript | None:
@@ -142,22 +133,9 @@ async def _campaign_row(session: AsyncSession, campaign_id: UUID, *, lock: bool 
     return row
 
 
-async def list_materials(session: AsyncSession, campaign_id: UUID) -> list[Material]:
-    rows = (
-        await session.execute(
-            text(
-                "SELECT id, kind, source, title, url, note, kb_upload_id, created_at "
-                "FROM campaign_materials WHERE campaign_id = :cid AND archived_at IS NULL "
-                "ORDER BY created_at"
-            ),
-            {"cid": campaign_id},
-        )
-    ).all()
-    return [Material(*row) for row in rows]
-
-
 async def read_workspace(session: AsyncSession, campaign_id: UUID) -> Workspace:
     row = await _campaign_row(session, campaign_id)
+    picked = await read_picks(session, CAMPAIGN_PICKS, [campaign_id])
     return Workspace(
         campaign_id=row.id,
         agent_id=row.agent_id,
@@ -166,7 +144,7 @@ async def read_workspace(session: AsyncSession, campaign_id: UUID) -> Workspace:
         script=_script(row.script),
         script_live_version=row.script_live_version,
         proposal=_proposal(row.script_proposal, now=datetime.now(UTC)),
-        materials=await list_materials(session, campaign_id),
+        sources=tuple(picked[campaign_id]),
     )
 
 
@@ -206,74 +184,93 @@ async def save_script(session: AsyncSession, campaign_id: UUID, script: CallScri
     )
 
 
-async def add_material(
+async def set_sources(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     campaign_id: UUID,
-    kind: MaterialKind,
-    title: str,
-    url: str | None,
-    note: str | None,
-    kb_upload_id: UUID | None,
+    kb_source_ids: list[UUID],
     created_by: UUID | None,
-    source: Literal["owner", "call"] = "owner",
-) -> Material:
-    await _campaign_row(session, campaign_id)
-    title = _clean(title, limit=TITLE_MAX, field="title")
-    if not title:
-        raise _invalid("title_required", "Name this material", "Give it a short name.")
-    if kind == "note" and not (note or "").strip():
+) -> None:
+    """The sources from What your agents know that Pip writes this campaign from, replacing
+    the last choice. A source of another account is invisible under RLS and refused."""
+    await _campaign_row(session, campaign_id, lock=True)
+    await replace_picks(
+        session,
+        CAMPAIGN_PICKS,
+        tenant_id=tenant_id,
+        holder_id=campaign_id,
+        kb_source_ids=kb_source_ids,
+        created_by=created_by,
+    )
+
+
+async def pick_source(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    kb_source_id: UUID,
+    created_by: UUID | None,
+) -> None:
+    """Pick one more source, keeping the others: a file or link added from the campaign page
+    goes into What your agents know and is picked here."""
+    await _campaign_row(session, campaign_id, lock=True)
+    await add_pick(
+        session,
+        CAMPAIGN_PICKS,
+        tenant_id=tenant_id,
+        holder_id=campaign_id,
+        kb_source_id=kb_source_id,
+        created_by=created_by,
+    )
+
+
+async def add_note(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    campaign_id: UUID,
+    title: str | None,
+    note: str,
+    created_by: UUID | None,
+    auto_approve: bool,
+) -> UUID:
+    """A note written on the campaign page, or an answer to a question its calls raised, goes
+    into What your agents know as a typed note and the campaign picks it. Answers its id.
+
+    The name is made free ("Name (2)") rather than taken as given: a note sharing a name with
+    an item already there would be that item's next version and replace it, which nobody
+    writing on a campaign page means."""
+    from apps.api.kb.service import submit_source
+    from apps.api.kb.uploads import name_for_new_item
+
+    await _campaign_row(session, campaign_id, lock=True)
+    body = _clean(note, limit=NOTE_MAX, field="note")
+    if not body:
         raise _invalid("note_required", "The note is empty", "Write the note.")
-    if kind == "file" and kb_upload_id is None:
-        raise _invalid("file_required", "No file uploaded yet", "Upload the file first.")
-    if kb_upload_id is not None:
-        # RLS scopes this read to the caller's account, so another account's upload is absent.
-        found = (
-            await session.execute(
-                text("SELECT 1 FROM kb_uploads WHERE id = :u"), {"u": kb_upload_id}
-            )
-        ).first()
-        if found is None:
-            raise ProblemError.not_found("Upload")
-    material_id = uuid7()
-    row = (
-        await session.execute(
-            text(
-                "INSERT INTO campaign_materials (id, tenant_id, campaign_id, kind, source, title, "
-                "url, note, kb_upload_id, created_by) VALUES (:id, :t, :c, :k, :s, :ti, :u, :n, "
-                ":kb, :by) RETURNING id, kind, source, title, url, note, kb_upload_id, created_at"
-            ),
-            {
-                "id": material_id,
-                "t": tenant_id,
-                "c": campaign_id,
-                "k": kind,
-                "s": source,
-                "ti": title,
-                "u": (url or "").strip() or None,
-                "n": _clean(note or "", limit=NOTE_MAX, field="note") or None,
-                "kb": kb_upload_id,
-                "by": created_by,
-            },
-        )
-    ).one()
-    return Material(*row)
-
-
-async def archive_material(session: AsyncSession, campaign_id: UUID, material_id: UUID) -> None:
-    """Removing a material archives it (business data is never deleted in code)."""
-    done = (
-        await session.execute(
-            text(
-                "UPDATE campaign_materials SET archived_at = now(), updated_at = now() "
-                "WHERE id = :m AND campaign_id = :c AND archived_at IS NULL RETURNING id"
-            ),
-            {"m": material_id, "c": campaign_id},
-        )
-    ).first()
-    if done is None:
-        raise ProblemError.not_found("Material")
+    given = _clean(title or "", limit=TITLE_MAX, field="title")
+    name = await name_for_new_item(
+        session, tenant_id=tenant_id, given=None, fallback=given or body[:60]
+    )
+    made = await submit_source(
+        session,
+        tenant_id=tenant_id,
+        name=name,
+        body=body,
+        submitted_by=created_by,
+        auto_approve=auto_approve,
+    )
+    source_id = UUID(str(made["id"]))
+    await add_pick(
+        session,
+        CAMPAIGN_PICKS,
+        tenant_id=tenant_id,
+        holder_id=campaign_id,
+        kb_source_id=source_id,
+        created_by=created_by,
+    )
+    return source_id
 
 
 async def request_proposal(
@@ -359,7 +356,7 @@ async def copy_workspace(
     session: AsyncSession, *, tenant_id: UUID, source_id: UUID, target_id: UUID
 ) -> None:
     """A copied campaign keeps what it says and how: the main task, the script, the second
-    opening, the setting overrides and the live materials. Pip's unreviewed proposal and the
+    opening, the setting overrides and the sources it picked. Pip's unreviewed proposal and the
     agent hold are not copied: the first belongs to the old draft's review, the second to
     whichever campaign last started."""
     await session.execute(
@@ -370,35 +367,14 @@ async def copy_workspace(
         ),
         {"t": target_id, "s": source_id},
     )
-    materials = (
-        await session.execute(
-            text(
-                "SELECT kind, source, title, url, note, kb_upload_id, created_by "
-                "FROM campaign_materials WHERE campaign_id = :s AND archived_at IS NULL "
-                "ORDER BY created_at, id"
-            ),
-            {"s": source_id},
-        )
-    ).all()
-    for kind, source, title, url, note, kb_upload_id, created_by in materials:
-        await session.execute(
-            text(
-                "INSERT INTO campaign_materials (id, tenant_id, campaign_id, kind, source, title, "
-                "url, note, kb_upload_id, created_by) VALUES (:id, :tn, :c, :k, :src, :ti, :u, "
-                ":n, :kb, :by)"
-            ),
-            {
-                "id": uuid7(),
-                "tn": tenant_id,
-                "c": target_id,
-                "k": kind,
-                "src": source,
-                "ti": title,
-                "u": url,
-                "n": note,
-                "kb": kb_upload_id,
-                "by": created_by,
-            },
+    for kb_source_id in (await read_picks(session, CAMPAIGN_PICKS, [source_id]))[source_id]:
+        await add_pick(
+            session,
+            CAMPAIGN_PICKS,
+            tenant_id=tenant_id,
+            holder_id=target_id,
+            kb_source_id=kb_source_id,
+            created_by=None,
         )
 
 
@@ -477,12 +453,10 @@ __all__ = [
     "CAMPAIGN_SCRIPT_JOB",
     "MAIN_TASK_MAX",
     "CampaignProposal",
-    "Material",
     "Workspace",
-    "add_material",
-    "archive_material",
+    "add_note",
     "clear_proposal",
-    "list_materials",
+    "pick_source",
     "put_script_live",
     "read_call_script",
     "read_script_proposal",
@@ -490,4 +464,5 @@ __all__ = [
     "request_proposal",
     "save_main_task",
     "save_script",
+    "set_sources",
 ]

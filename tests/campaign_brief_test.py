@@ -179,7 +179,9 @@ async def test_a_copy_keeps_the_purpose_and_goal() -> None:
     assert tuple(row) == (PURPOSE, GOAL)
 
 
-async def test_a_copy_keeps_the_task_script_settings_and_live_materials() -> None:
+async def test_a_copy_keeps_the_task_script_settings_and_picked_sources() -> None:
+    from apps.api.campaigns import workspace
+
     account = await _account()
     campaign_id = await _campaign(account)
     async with tenant_session(account.tenant_id) as session:
@@ -190,21 +192,15 @@ async def test_a_copy_keeps_the_task_script_settings_and_live_materials() -> Non
             ),
             {"c": campaign_id, "o": '{"speaking_speed": "0.9"}'},
         )
-        for title, archived in (("Pricing note", False), ("Old note", True)):
-            await session.execute(
-                text(
-                    "INSERT INTO campaign_materials (id, tenant_id, campaign_id, kind, title, "
-                    "note, archived_at) VALUES (:id, :t, :c, 'note', :ti, 'x', "
-                    "CASE WHEN :a THEN now() END)"
-                ),
-                {
-                    "id": uuid.uuid4(),
-                    "t": account.tenant_id,
-                    "c": campaign_id,
-                    "ti": title,
-                    "a": archived,
-                },
-            )
+        picked = await workspace.add_note(
+            session,
+            tenant_id=account.tenant_id,
+            campaign_id=campaign_id,
+            title="Pricing note",
+            note="x",
+            created_by=None,
+            auto_approve=True,
+        )
         copy_id, _ = await controls.duplicate_campaign(
             session,
             tenant_id=account.tenant_id,
@@ -218,12 +214,12 @@ async def test_a_copy_keeps_the_task_script_settings_and_live_materials() -> Non
         c=copy_id,
     )
     assert tuple(row) == ("Help them install the app", {"speaking_speed": "0.9"})
-    titles = await _one(
+    sources = await _one(
         account.tenant_id,
-        "SELECT array_agg(title) FROM campaign_materials WHERE campaign_id = :c",
+        "SELECT array_agg(kb_source_id) FROM campaign_sources WHERE campaign_id = :c",
         c=copy_id,
     )
-    assert titles[0] == ["Pricing note"]
+    assert sources[0] == [picked]
 
 
 # --- every campaign dial carries them --------------------------------------------------

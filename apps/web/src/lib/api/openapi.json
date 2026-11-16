@@ -7347,32 +7347,6 @@
         "title": "Body_upload_document_v1_kb_uploads_post",
         "type": "object"
       },
-      "Body_upload_material_v1_campaigns__campaign_id__materials_upload_post": {
-        "properties": {
-          "file": {
-            "contentMediaType": "application/octet-stream",
-            "title": "File",
-            "type": "string"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          }
-        },
-        "required": [
-          "file"
-        ],
-        "title": "Body_upload_material_v1_campaigns__campaign_id__materials_upload_post",
-        "type": "object"
-      },
       "Body_upload_preview_v1_ops_voices_hosted_preview_post": {
         "properties": {
           "sample": {
@@ -7392,6 +7366,20 @@
           "sample"
         ],
         "title": "Body_upload_preview_v1_ops_voices_hosted_preview_post",
+        "type": "object"
+      },
+      "Body_upload_source_v1_campaigns__campaign_id__sources_upload_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_source_v1_campaigns__campaign_id__sources_upload_post",
         "type": "object"
       },
       "BootstrapConfirmIn": {
@@ -13532,6 +13520,62 @@
         "title": "CampaignLeftOutOut",
         "type": "object"
       },
+      "CampaignLinkIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "url": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "CampaignLinkIn",
+        "type": "object"
+      },
+      "CampaignNoteIn": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Note",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "note"
+        ],
+        "title": "CampaignNoteIn",
+        "type": "object"
+      },
       "CampaignPageOut": {
         "additionalProperties": false,
         "properties": {
@@ -14316,6 +14360,25 @@
           }
         },
         "title": "CampaignSettingsValues",
+        "type": "object"
+      },
+      "CampaignSourcesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Source Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_ids"
+        ],
+        "title": "CampaignSourcesIn",
         "type": "object"
       },
       "CampaignSummaryOut": {
@@ -39570,150 +39633,6 @@
           "enabled"
         ],
         "title": "MasterSwitchIn",
-        "type": "object"
-      },
-      "MaterialIn": {
-        "additionalProperties": false,
-        "properties": {
-          "kb_upload_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Kb Upload Id"
-          },
-          "kind": {
-            "enum": [
-              "file",
-              "link",
-              "note"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "maxLength": 4000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "title": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Title",
-            "type": "string"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Url"
-          }
-        },
-        "required": [
-          "kind",
-          "title"
-        ],
-        "title": "MaterialIn",
-        "type": "object"
-      },
-      "MaterialOut": {
-        "additionalProperties": false,
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "kb_upload_id": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Kb Upload Id"
-          },
-          "kind": {
-            "enum": [
-              "file",
-              "link",
-              "note"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "source": {
-            "enum": [
-              "owner",
-              "call"
-            ],
-            "title": "Source",
-            "type": "string"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Url"
-          }
-        },
-        "required": [
-          "id",
-          "kind",
-          "source",
-          "title",
-          "url",
-          "note",
-          "kb_upload_id",
-          "created_at"
-        ],
-        "title": "MaterialOut",
         "type": "object"
       },
       "MeOut": {
@@ -68099,13 +68018,6 @@
             "title": "Main Task",
             "type": "string"
           },
-          "materials": {
-            "items": {
-              "$ref": "#/components/schemas/MaterialOut"
-            },
-            "title": "Materials",
-            "type": "array"
-          },
           "proposal": {
             "anyOf": [
               {
@@ -68137,6 +68049,14 @@
             ],
             "title": "Script Live Version"
           },
+          "source_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -68150,7 +68070,7 @@
           "script",
           "script_live_version",
           "proposal",
-          "materials"
+          "source_ids"
         ],
         "title": "WorkspaceOut",
         "type": "object"
@@ -89415,150 +89335,6 @@
         "x-calevate-permission": "leads:dispatch"
       }
     },
-    "/v1/campaigns/{campaign_id}/materials": {
-      "post": {
-        "operationId": "add_material_v1_campaigns__campaign_id__materials_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "campaign_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Campaign Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MaterialIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MaterialOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Add a document, link or note for the campaign to work from",
-        "tags": [
-          "campaigns"
-        ],
-        "x-calevate-permission": "leads:dispatch"
-      }
-    },
-    "/v1/campaigns/{campaign_id}/materials/upload": {
-      "post": {
-        "description": "The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,\nunless these exact bytes are already live there: then that upload is attached instead of\nbeing refused as a duplicate, because the campaign only needs to point at it (D-992).",
-        "operationId": "upload_material_v1_campaigns__campaign_id__materials_upload_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "campaign_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Campaign Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_material_v1_campaigns__campaign_id__materials_upload_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MaterialOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Upload a file for the campaign; a file already in the knowledge is reused",
-        "tags": [
-          "campaigns"
-        ],
-        "x-calevate-permission": "kb:write"
-      }
-    },
-    "/v1/campaigns/{campaign_id}/materials/{material_id}/archive": {
-      "post": {
-        "operationId": "archive_material_v1_campaigns__campaign_id__materials__material_id__archive_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "campaign_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Campaign Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "material_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Material Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Remove a material from the campaign (archived, not deleted)",
-        "tags": [
-          "campaigns"
-        ],
-        "x-calevate-permission": "leads:dispatch"
-      }
-    },
     "/v1/campaigns/{campaign_id}/opening-b": {
       "put": {
         "description": "Half the people hear this opening, half the script's own. The agent's notices are\nsaid beside it whenever it does not say them itself (`agents.service.campaign_first_words`).",
@@ -89739,7 +89515,7 @@
     },
     "/v1/campaigns/{campaign_id}/questions/answer": {
       "post": {
-        "description": "The answer joins the campaign's materials as a note learned from its calls, so the next\nscript Pip writes works it in; the owner updates the script to put it on calls.",
+        "description": "The answer goes into What your agents know, so every agent can give it, and the\ncampaign picks it, so the next script Pip writes works it in; the owner updates the\nscript to put it on calls.",
         "operationId": "answer_question_v1_campaigns__campaign_id__questions_answer_post",
         "parameters": [
           {
@@ -89768,7 +89544,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MaterialOut"
+                  "$ref": "#/components/schemas/WorkspaceOut"
                 }
               }
             },
@@ -89781,11 +89557,11 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Answer a question the agent could not: kept as a note learned from the calls",
+        "summary": "Answer a question the agent could not: a note in What your agents know, picked",
         "tags": [
           "campaigns"
         ],
-        "x-calevate-permission": "leads:dispatch"
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/campaigns/{campaign_id}/recurrence": {
@@ -90143,7 +89919,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Ask Pip to write the campaign's script from its main task and materials",
+        "summary": "Ask Pip to write the campaign's script from its main task and sources",
         "tags": [
           "campaigns"
         ],
@@ -90280,6 +90056,208 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/sources": {
+      "put": {
+        "operationId": "set_sources_v1_campaigns__campaign_id__sources_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignSourcesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose the sources from What your agents know that Pip writes the campaign from",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/sources/link": {
+      "post": {
+        "description": "The link goes into the client's knowledge exactly as `POST /v1/kb/links` puts it.",
+        "operationId": "add_link_v1_campaigns__campaign_id__sources_link_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignLinkIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add a web page to What your agents know and pick it for the campaign",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/sources/note": {
+      "post": {
+        "operationId": "add_note_v1_campaigns__campaign_id__sources_note_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CampaignNoteIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Write a note into What your agents know and pick it for the campaign",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "kb:write"
+      }
+    },
+    "/v1/campaigns/{campaign_id}/sources/upload": {
+      "post": {
+        "description": "The file goes into the client's knowledge exactly as `POST /v1/kb/uploads` puts it,\nunless these exact bytes are already live there: then that upload is attached instead of\nbeing refused as a duplicate, because the campaign only needs to pick it.",
+        "operationId": "upload_source_v1_campaigns__campaign_id__sources_upload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaign_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Campaign Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_source_v1_campaigns__campaign_id__sources_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Upload a file into What your agents know and pick it; a copy there is reused",
+        "tags": [
+          "campaigns"
+        ],
+        "x-calevate-permission": "kb:write"
       }
     },
     "/v1/campaigns/{campaign_id}/stop": {
@@ -90575,7 +90553,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The campaign's main task, materials, script and Pip's pending draft",
+        "summary": "The campaign's main task, sources, script and Pip's pending draft",
         "tags": [
           "campaigns"
         ],

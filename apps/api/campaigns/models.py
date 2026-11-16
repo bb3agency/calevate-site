@@ -241,7 +241,10 @@ class CampaignMaterial(PKMixin, TimestampMixin, Base):
     """What the owner gives a campaign to work from (D-992): an uploaded document (held in the
     client's knowledge, `kb_upload_id`, so the agent can also look it up on a call), a link, or
     a note. `source = 'call'` is a note learned from the campaign's own calls: an answer the
-    owner gave to a question the agent could not answer. Removed by archiving, never deleted."""
+    owner gave to a question the agent could not answer. Removed by archiving, never deleted.
+
+    RETIRED: a campaign picks its sources from What your agents know (`CampaignSource`), and
+    nothing reads or writes this table. Kept until a later release drops it (hard rule 8)."""
 
     __tablename__ = "campaign_materials"
     __table_args__ = (
@@ -266,6 +269,26 @@ class CampaignMaterial(PKMixin, TimestampMixin, Base):
     )
     created_by: Mapped[UUID | None]
     archived_at: Mapped[datetime | None]
+
+
+class CampaignSource(PKMixin, TimestampMixin, Base):
+    """A source from What your agents know that a campaign is written from (founder, 16 Nov
+    2026: campaigns pick from what the agents know). Replaces `campaign_materials`, whose
+    live rows migration e3c7a1d9b4f2 carried over and which nothing reads any more."""
+
+    __tablename__ = "campaign_sources"
+    __table_args__ = (UniqueConstraint("campaign_id", "kb_source_id", name="campaign_source"),)
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    campaign_id: Mapped[UUID] = mapped_column(
+        ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False
+    )
+    kb_source_id: Mapped[UUID] = mapped_column(
+        ForeignKey("kb_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by: Mapped[UUID | None]
 
 
 class CampaignContact(PKMixin, TimestampMixin, Base):
