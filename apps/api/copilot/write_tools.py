@@ -951,8 +951,8 @@ WRITE_TOOLS: Final[tuple[ActionTool, ...]] = (
     *ASSIST_ACTIONS,
     # D-854: the questions callers ask most, pinned from the first-agent chat.
     *FACT_ACTIONS,
-    # D-893 (L4): the agent page's remaining buttons — restore, get ready, the Script tab's
-    # direct actions, settings, hand-over, in-call actions and lead details.
+    # D-893 (L4): the agent page's remaining buttons — restore, get ready, settings,
+    # hand-over, in-call actions and lead details.
     *AGENT_SETUP_ACTIONS,
     *AGENT_TOOL_ACTIONS,
     # D-893 lane L6: numbers, team, settings, integrations and billing settings.

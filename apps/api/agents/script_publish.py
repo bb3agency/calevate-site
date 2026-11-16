@@ -1,9 +1,8 @@
 """Put it live: the autosaved draft (or a script sent with the request) becomes a version
 with the owner's change summary and is applied to live calls (D-714).
 
-One function behind two doors, the Script page's `POST /v1/agents/{id}/script/publish` and
-Pip's `agent_script_put_live`, so both meet the same length refusal, version check and
-"saved, but not live yet" wording.
+The function behind `POST /v1/agents/{id}/script/publish`, with its length refusal, version
+check and "saved, but not live yet" wording.
 
 The version is committed in its own transaction BEFORE `publishing.apply_to_live`, which
 opens a session of its own and must see the new version; holding the save open across the

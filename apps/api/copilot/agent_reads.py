@@ -5,8 +5,10 @@ Each part reads what its screen reads, through the same services:
 
 * `settings` — the Settings tab: how it sounds, how it handles a call, the longest call, the
   AI model and caller memory, each with the value in force.
-* `script` — the Script tab: the whole script it shows (the autosaved working copy when there
-  is one, else the saved version), whether callers hear it, and the versions.
+* `script` — the agent's own script, read only (no screen shows or edits it since D-1005):
+  the whole of it (the autosaved working copy when there is one, else the saved version),
+  whether callers hear it, the versions, and the Inbound lines and campaigns where what
+  calls say is changed (D-1009).
 * `handover` — the Hand-over list by name, and the business contacts that may be added.
   Never a phone number: they are staff mobiles (hard rule 6), and Pip names people.
 * `actions` — the Actions tab: the master switch, each action, and the connections made.
@@ -51,6 +53,7 @@ from apps.api.agents import handoff as handoff_service
 from apps.api.agents import lead_fields as lead_fields_service
 from apps.api.agents.business_fit import business_fit
 from apps.api.agents.capability_manifest import books_visits
+from apps.api.agents.jobs import agent_jobs
 from apps.api.agents.llm_tiers import LLM_TIER_LABELS, tier_of_model
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.agents.script_edits import PART_LABELS
@@ -99,10 +102,10 @@ _MISTAKE_STATES: Final[dict[str, str]] = {
     "script_undone": "the owner undid our script fix",
     "with_team": "our team is fixing this",
 }
-#: Versions listed in the `script` part; History on the Script tab pages the rest.
+#: Versions listed in the `script` part.
 _VERSIONS_SHOWN: Final = 10
 #: Characters of a hand-written script quoted; the 20,000 a raw script may hold would crowd
-#: out the rest of the question, and the Script tab shows all of it.
+#: out the rest of the question.
 _RAW_SHOWN: Final = 8000
 #: Above this many characters a printed script is offered in two answers: a twelve-step
 #: Telugu script can pass the answer's output ceiling (`service.MAX_ANSWER_TOKENS`) and be
@@ -287,6 +290,29 @@ def _script_lines(script: CallScript, direction: str) -> list[str]:
     return lines
 
 
+async def _where_scripts_change(session: AsyncSession, agent_id: UUID) -> str:
+    """Where a change to what calls say is made. Owners no longer edit an agent's own script
+    (D-1005), so Pip sends them to the line or campaign whose script callers hear."""
+    # A deleted agent never gets here: `script_builder.read_draft` has already refused it.
+    jobs = (await agent_jobs(session, agent_id)).jobs
+    named = "; ".join(
+        f"{'Inbound line' if job.kind == 'inbound_line' else 'campaign'} “{job.name}” "
+        f"({job.kind} {job.id})"
+        for job in jobs
+    )
+    return (
+        "This script is read only: nobody edits it, and you cannot change it. Callers hear "
+        "the script of the Inbound line or campaign the call is on, so to change what calls "
+        "say, send the owner to that line on Inbound or that campaign on Campaigns, where "
+        "Pip writes a draft they keep. "
+        + (
+            f"This agent's jobs: {named}."
+            if named
+            else "This agent has no Inbound line or campaign yet; the owner gives it one there."
+        )
+    )
+
+
 async def _script_part(session: AsyncSession, agent_id: UUID) -> list[str]:
     draft = await script_builder.read_draft(session, agent_id)
     loaded = await script_builder.load_agent_script(session, agent_id)
@@ -309,25 +335,25 @@ async def _script_part(session: AsyncSession, agent_id: UUID) -> list[str]:
     )
     if status != "live" and live_version is not None:
         heard += f", and only once the agent is on again (it is {status})"
+    change = await _where_scripts_change(session, agent_id)
     if draft is not None:
         state = (
-            f"Its script shows a working copy saved {ist_date(draft.saved_at)} that is NOT "
-            f"live; {heard}. To make it live: `agent_script_put_live`."
+            f"Its own script has a working copy saved {ist_date(draft.saved_at)} that is NOT "
+            f"live; {heard}."
         )
         shown = draft.script
     elif loaded.version is None:
-        return ["This agent has no script written yet."]
+        return ["This agent has no script of its own.", change]
     elif pending:
         state = (
-            f"Its script shows version {loaded.version}, saved and waiting to go live; "
-            f"{heard} (`agent_changes_apply` / `agent_script_discard`)."
+            f"Its own script is version {loaded.version}, saved and waiting to go live; {heard}."
         )
         shown = loaded.script
     else:
-        state = f"Its script shows version {loaded.version}; {heard}."
+        state = f"Its own script is version {loaded.version}; {heard}."
         shown = loaded.script
     body = script_text(shown, direction=str(direction))
-    lines = [state, "--- the script ---", *body, "--- end of the script ---"]
+    lines = [state, change, "--- the script ---", *body, "--- end of the script ---"]
     if sum(len(line) for line in body) > _PRINT_IN_PARTS:
         lines.append(
             "This is long: asked to print it, print it up to the end of the steps, then "

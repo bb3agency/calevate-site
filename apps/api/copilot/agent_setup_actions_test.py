@@ -143,16 +143,6 @@ async def test_prepare_publishes_a_draft_without_taking_calls() -> None:
     assert "agent.prepared" in {a for a, _o, _i in await _audit(tenant_id)}
 
 
-# --- the Script tab's buttons ---------------------------------------------------------------
-
-
-async def _save_draft(tenant_id: UUID, agent_id: UUID, identity: str) -> None:
-    async with tenant_session(tenant_id) as session:
-        await script_builder.save_draft(
-            session, agent_id, CallScript(schema_version=2, identity=identity)
-        )
-
-
 async def _version(tenant_id: UUID, agent_id: UUID, identity: str) -> None:
     """A saved script version: applied on an agent with none yet, staged on a live one."""
     async with tenant_session(tenant_id) as session:
@@ -164,119 +154,6 @@ async def _version(tenant_id: UUID, agent_id: UUID, identity: str) -> None:
             notes=identity,
             created_by=None,
         )
-
-
-async def _staged(tenant_id: UUID, agent_id: UUID) -> bool:
-    row = await _one(
-        tenant_id,
-        "SELECT system_prompt_id IS DISTINCT FROM live_prompt_id FROM agents WHERE id = :a",
-        a=agent_id,
-    )
-    return bool(row[0])
-
-
-async def test_put_live_saves_the_reviewed_draft_as_a_version() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent(tenant_id)
-    args = {"agent_id": str(agent_id), "summary": "New greeting"}
-    with pytest.raises(write_tools.WriteRefusedError) as refused:
-        await _propose(tenant_id, token, "agent_script_put_live", args)
-    assert "nothing to put live" in refused.value.reason
-
-    await _save_draft(tenant_id, agent_id, "Hello from Pip.")
-    proposal = await _propose(tenant_id, token, "agent_script_put_live", args)
-    assert "New greeting" in proposal.summary
-    done = await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert done.applied is True
-    async with tenant_session(tenant_id) as session:
-        assert await script_builder.read_draft(session, agent_id) is None
-        loaded = await script_builder.load_agent_script(session, agent_id)
-    assert loaded.script.identity == "Hello from Pip."
-    assert "agent.script_published" in {a for a, _o, _i in await _audit(tenant_id)}
-
-
-async def test_put_live_refuses_a_draft_changed_after_the_card() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent(tenant_id)
-    await _save_draft(tenant_id, agent_id, "First.")
-    proposal = await _propose(
-        tenant_id, token, "agent_script_put_live", {"agent_id": str(agent_id), "summary": "x"}
-    )
-    await _save_draft(tenant_id, agent_id, "Changed since.")
-    with pytest.raises(ProblemError) as moved:
-        await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert moved.value.code == "script_changed_elsewhere"
-
-
-async def test_put_live_after_a_failed_push_sends_pip_to_apply_the_saved_version() -> None:
-    """FAILS IF: after a put-live saved the version and cleared the draft but the push did
-    not finish ("Press Put it live again"), Pip's put-live says there is nothing to put live
-    instead of pointing at the apply that finishes it, as the Script page does."""
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent(tenant_id)
-    await _version(tenant_id, agent_id, "Live.")
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = 'ag_staged_test' WHERE id = :a"),
-            {"a": agent_id},
-        )
-    await _version(tenant_id, agent_id, "Saved, not live yet.")
-    assert await _staged(tenant_id, agent_id)
-    with pytest.raises(write_tools.WriteRefusedError) as refused:
-        await _propose(
-            tenant_id, token, "agent_script_put_live", {"agent_id": str(agent_id), "summary": "x"}
-        )
-    assert "agent_changes_apply" in refused.value.reason
-    assert "nothing to put live" not in refused.value.reason
-
-
-async def test_discard_drops_a_saved_change_callers_never_heard() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent(tenant_id)
-    args = {"agent_id": str(agent_id)}
-    with pytest.raises(write_tools.WriteRefusedError):
-        await _propose(tenant_id, token, "agent_script_discard", args)
-    await _version(tenant_id, agent_id, "Live.")
-    # On the calling system, so the next save is staged rather than applied.
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET engine_agent_ref = 'ag_staged_test' WHERE id = :a"),
-            {"a": agent_id},
-        )
-    await _version(tenant_id, agent_id, "Staged.")
-    assert await _staged(tenant_id, agent_id)
-    proposal = await _propose(tenant_id, token, "agent_script_discard", args)
-    done = await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert done.applied is True
-    assert not await _staged(tenant_id, agent_id)
-    assert "agent.changes_undone" in {a for a, _o, _i in await _audit(tenant_id)}
-
-
-async def test_version_restore_copies_a_version_into_the_draft() -> None:
-    tenant_id, _slug, token = await _make_tenant()
-    agent_id = await _agent(tenant_id)
-    await _version(tenant_id, agent_id, "First.")
-    first = await _one(
-        tenant_id, "SELECT min(version) FROM prompt_versions WHERE agent_id = :a", a=agent_id
-    )
-    with pytest.raises(write_tools.WriteRefusedError):
-        await _propose(
-            tenant_id,
-            token,
-            "agent_script_version_restore",
-            {"agent_id": str(agent_id), "version": 999},
-        )
-    proposal = await _propose(
-        tenant_id,
-        token,
-        "agent_script_version_restore",
-        {"agent_id": str(agent_id), "version": int(first[0])},
-    )
-    done = await _confirm(tenant_id, _user_of(token), proposal.token)
-    assert done.applied is True
-    async with tenant_session(tenant_id) as session:
-        assert await script_builder.read_draft(session, agent_id) is not None
-    assert "agent.script_version_restored" in {a for a, _o, _i in await _audit(tenant_id)}
 
 
 # --- agent_settings_set -----------------------------------------------------------------------
@@ -527,9 +404,6 @@ async def test_a_neighbours_agent_is_a_404_for_every_setup_action() -> None:
     foreign = str(await _agent(other_id))
     calls: dict[str, dict[str, Any]] = {
         "agent_prepare": {"agent_id": foreign},
-        "agent_script_put_live": {"agent_id": foreign, "summary": "x"},
-        "agent_script_discard": {"agent_id": foreign},
-        "agent_script_version_restore": {"agent_id": foreign, "version": 1},
         "agent_settings_set": _settings(UUID(foreign), speed="1.1"),
         "agent_handover_set": {
             "agent_id": foreign,
@@ -628,6 +502,30 @@ async def test_agent_settings_script_prints_the_script_tab_copy_and_says_whether
     assert "Opening line: Draft opening." in drafted
     assert "Saved opening." not in drafted
     assert "working copy" in drafted and "NOT live" in drafted
+
+
+async def test_agent_settings_script_is_read_only_and_names_the_jobs_where_calls_change() -> None:
+    """FAILS IF: Pip, asked to change an agent's script, has no way to know that nobody edits
+    it (D-1005) and which Inbound line or campaign to send the owner to instead (D-1009)."""
+    from apps.api.inbound import lines
+
+    tenant_id, _slug, _token = await _make_tenant()
+    agent_id = await _agent(tenant_id)
+    context = ToolContext(tenant_id=tenant_id, role="owner")
+    args = {"agent_id": str(agent_id), "part": "script"}
+    async with tenant_session(tenant_id) as session:
+        without = await AGENT_SETTINGS_READ.run(session, context, args)
+    assert "read only" in without
+    assert "no Inbound line or campaign yet" in without
+
+    async with tenant_session(tenant_id) as session:
+        line_id = await lines.create_line(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Front desk", created_by=None
+        )
+    async with tenant_session(tenant_id) as session:
+        named = await AGENT_SETTINGS_READ.run(session, context, args)
+    assert f"Inbound line “Front desk” (inbound_line {line_id})" in named
+    assert "send the owner to that line on Inbound" in named
 
 
 async def test_agent_settings_tests_says_which_practice_tests_did_not_pass_and_who_fixes_them() -> (

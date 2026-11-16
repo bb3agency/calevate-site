@@ -7,12 +7,15 @@
    restore gives each number back to its line.
 4. Every number always has a line: one still answering cannot be archived.
 5. A call its engine agent took is stamped with the line.
+6. A number on a line, draft or live, is moved only from Inbound: Phone numbers and Pip
+   refuse it by the line's name (D-1008).
 
 SHARED DATABASE DISCIPLINE: every organisation is minted here; the engine is the fake.
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 from uuid import UUID
@@ -337,3 +340,116 @@ async def test_a_live_lines_test_call_counts_only_numbers_its_engine_agent_answe
 
     dial = await line_test_dial(tenant_id=tenant_id, line_id=line_id)
     assert dial.routed_number_ids == frozenset(), "a released number was dialled from unlent"
+
+
+async def _assign(token: str, number_id: UUID, agent_id: UUID | None) -> tuple[int, Any]:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.post(
+            f"/v1/numbers/{number_id}/assign",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"agent_id": None if agent_id is None else str(agent_id), "direction": None},
+        )
+    return response.status_code, response.json()
+
+
+async def _number_agent(tenant_id: UUID, number_id: UUID) -> UUID | None:
+    async with tenant_session(tenant_id) as session:
+        found: UUID | None = (
+            await session.execute(
+                text("SELECT agent_id FROM phone_numbers WHERE id = :n"), {"n": number_id}
+            )
+        ).scalar_one()
+    return found
+
+
+async def test_a_number_on_a_live_line_is_refused_on_phone_numbers_by_the_lines_name() -> None:
+    """FAILS IF: picking another agent for a live line's number on Phone numbers binds it to
+    that agent's own engine agent while Inbound still lists it on the line (D-1008)."""
+    engine = _fresh_engine()
+    tenant_id, first, token = await _live_agent()
+    second = await _second_live_agent(tenant_id, token)
+    number_id = await _number(tenant_id, first, ref="num_line_clash")
+    line_id = await _line(tenant_id, first)
+    await _attach(tenant_id, line_id, number_id)
+    ref = await put_line_live(tenant_id=tenant_id, line_id=line_id)
+
+    for agent_id in (second, None):
+        code, body = await _assign(token, number_id, agent_id)
+        assert code == 422, body
+        assert body["type"].endswith("/number_on_inbound_line")
+        assert "“Front desk”" in body["detail"] and "Inbound" in body["remediation"]
+    assert await _number_agent(tenant_id, number_id) == first
+    assert engine.inbound_agent_for("num_line_clash") == ref
+
+
+async def test_a_number_on_a_draft_line_is_refused_too() -> None:
+    """A draft line's numbers already answer with its voice, so the picker would split them
+    from the line exactly as on a live one."""
+    _fresh_engine()
+    tenant_id, first, token = await _live_agent()
+    second = await _second_live_agent(tenant_id, token)
+    number_id = await _number(tenant_id, first, ref="num_draft_clash")
+    line_id = await _line(tenant_id, first, script=False)
+    await _attach(tenant_id, line_id, number_id)
+
+    code, body = await _assign(token, number_id, second)
+
+    assert code == 422, body
+    assert body["type"].endswith("/number_on_inbound_line")
+    assert await _number_agent(tenant_id, number_id) == first
+
+
+async def test_inbound_still_moves_a_number_from_one_line_onto_another() -> None:
+    engine = _fresh_engine()
+    tenant_id, first, token = await _live_agent()
+    second = await _second_live_agent(tenant_id, token)
+    number_id = await _number(tenant_id, first, ref="num_line_move")
+    old_line = await _line(tenant_id, first)
+    await _attach(tenant_id, old_line, number_id)
+    new_line = await _line(tenant_id, second, script=False)
+
+    code, body = await _call(
+        token, "POST", f"/{new_line}/numbers", json={"number_id": str(number_id)}
+    )
+
+    assert code == 200, body
+    assert await _number_agent(tenant_id, number_id) == second
+    assert engine.inbound_agent_for("num_line_move") == await _own_ref(tenant_id, second)
+
+
+async def test_the_numbers_list_names_each_numbers_line() -> None:
+    _fresh_engine()
+    tenant_id, agent_id, token = await _live_agent()
+    number_id = await _number(tenant_id, agent_id, ref="num_line_listed")
+    line_id = await _line(tenant_id, agent_id, script=False)
+    await _attach(tenant_id, line_id, number_id)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.get(
+            "/v1/campaigns/numbers", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert response.status_code == 200, response.text
+    (listed,) = [n for n in response.json() if n["id"] == str(number_id)]
+    assert (listed["inbound_line_id"], listed["inbound_line_name"]) == (str(line_id), "Front desk")
+
+
+async def test_pip_refuses_to_move_a_lines_number_in_words_before_any_card() -> None:
+    from apps.api.copilot import write_tools
+    from apps.api.copilot.write_tools_test import _principal, _user_of
+
+    _fresh_engine()
+    tenant_id, first, token = await _live_agent()
+    second = await _second_live_agent(tenant_id, token)
+    number_id = await _number(tenant_id, first, ref="num_line_pip")
+    line_id = await _line(tenant_id, first, script=False)
+    await _attach(tenant_id, line_id, number_id)
+
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await write_tools.plan_write(
+            "number_assign",
+            json.dumps({"number_id": str(number_id), "agent_id": str(second), "direction": None}),
+            actor=write_tools.actor_for(_principal(tenant_id, _user_of(token))),
+        )
+
+    assert f"inbound_line {line_id}" in refused.value.reason
+    assert "answers with your Inbound line “Front desk”" in refused.value.plain
+    assert "Change it in Inbound" in refused.value.plain

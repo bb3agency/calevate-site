@@ -753,6 +753,11 @@ class NumberOut(Strict):
     #: outbound caller ID and the inbound answer are both resolved from this binding
     #: (D-420), so a panel that cannot show it can only report its own last action.
     agent_id: UUID | None = None
+    #: The open Inbound line it answers with, which decides its agent: the agent picker
+    #: refuses such a number (`number_on_inbound_line`, D-1008), so the screen sends the
+    #: owner to this line instead.
+    inbound_line_id: UUID | None = None
+    inbound_line_name: str | None = None
     #: What the number is FOR (`phone_numbers.direction`). It records an intent and
     #: authorises nothing.
     direction: Literal["inbound", "outbound", "both"] = "inbound"
@@ -863,8 +868,11 @@ async def list_numbers(
                 "SELECT n.id, n.e164, n.series, n.dlt_status, n.engine_owned, "
                 "n.agent_id, n.direction, n.client_inr_per_month, "
                 "n.activated_at IS NOT NULL, n.provider, n.engine_number_ref, "
-                "a.engine_agent_ref, a.status, a.direction, a.deleted_at IS NOT NULL "
+                "a.engine_agent_ref, a.status, a.direction, a.deleted_at IS NOT NULL, "
+                "l.id, l.name "
                 "FROM phone_numbers n LEFT JOIN agents a ON a.id = n.agent_id "
+                "LEFT JOIN inbound_lines l "
+                "ON l.id = n.inbound_line_id AND l.archived_at IS NULL "
                 # A released number is not one this account may dial from or be answered
                 # on: the vendor has it back. The ROW survives because a closed month's
                 # costs still refer to it, which is exactly why this list has to exclude
@@ -901,6 +909,8 @@ async def list_numbers(
                 supplied_by_us=r[4],
                 answerable=answerable,
                 agent_id=r[5],
+                inbound_line_id=r[15],
+                inbound_line_name=r[16],
                 direction=r[6],
                 inr_per_month=r[7],
                 activated=r[8],

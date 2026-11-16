@@ -658,9 +658,6 @@ lived in a route body it moved into a service both doors call.
 |---|---|---|
 | `agent_restore` | immediate, `org:manage`, `agent.restored` | `lifecycle.restore_agent`; Undo archives again while the agent is still paused with no number given to it (`ActionTool.acts_on_archived` exempts it from the deleted-agent refusal) |
 | `agent_prepare` | confirm, `org:manage`, `agent.prepared` | `lifecycle.prepare_agent` ("Get it ready") |
-| `agent_script_put_live` | confirm, `org:manage`, `agent.script_published` | `agents/script_publish.put_draft_live`, bound to the draft's `saved_at` and the version the card read |
-| `agent_script_discard` | confirm, `org:manage`, `agent.changes_undone` | `publishing.undo_staged` |
-| `agent_script_version_restore` | confirm, `org:manage`, `agent.script_version_restored` | `script_builder.restore_into_draft` |
 | `agent_settings_set` | confirm, `agents:write` (owner settings also need `org:manage`, checked inside), `agent.settings_set` | `voice_tuning.set_voice_tuning`, `call_handling.set_agent_call_handling` (or, with `scope` `all_agents`, the "All my agents" choice: `call_handling.set_call_handling_for_all_agents`, D-898), `publishing.set_call_cap`, `llm_tiers.resolve_agent_tier` + `lifecycle.update_agent`, `publishing.set_caller_memory` |
 | `agent_handover_set` | confirm, `org:manage`, `agent.handoff.replace` | `handoff.replace_handoff` |
 | `agent_action_set` / `_switch` / `_remove` | confirm, `org:manage`, `action_tool.saved` / `.switched` / `.deleted` | `actions/agent_tools` (each re-syncs a live agent's actions) |

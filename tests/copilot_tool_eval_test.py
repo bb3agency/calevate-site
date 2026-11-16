@@ -161,8 +161,6 @@ SIBLINGS = (
     ("lead_set_status", "leads_bulk_update"),
     ("platform_tenants", "admin_client_standing"),
     ("propose_knowledge", "knowledge_teach"),
-    ("agent_script_put_live", "agent_changes_apply"),
-    ("agent_script_discard", "agent_changes_apply"),
     ("agent_prepare", "agent_publish"),
     ("billing_overview", "billing_settings"),
     ("call_place", "calls_place_bulk"),

@@ -117,6 +117,8 @@ class _NumberAssignArgs(BaseModel):
 async def _plan_number_assign(
     session: AsyncSession, actor: ToolActor, args: Mapping[str, Any]
 ) -> Plan:
+    from apps.api.agents.service import number_inbound_line
+
     del actor
     parsed = parse_args(_NumberAssignArgs, args)
     row = (
@@ -132,6 +134,19 @@ async def _plan_number_assign(
     if row is None:
         raise ProblemError.not_found("Phone number")
     masked = _masked(str(row[0]))
+    line = await number_inbound_line(session, parsed.number_id)
+    if line is not None:
+        # The screen's own refusal (`number_on_inbound_line`, D-1008), said before any card.
+        line_name = strip_invisible(line[1])
+        raise WriteRefusedError(
+            f"that number answers with the Inbound line “{line_name}” (inbound_line "
+            f"{line[0]}), so it cannot be put on an agent or taken off one here; tell the "
+            "owner it is changed in Inbound, on that line, and offer to open Inbound",
+            plain=(
+                f"{masked} answers with your Inbound line “{line_name}”. "
+                "Change it in Inbound, on that line."
+            ),
+        )
     current = strip_invisible(str(row[1])) if row[1] is not None else "no agent"
     proposed = "no agent" if parsed.agent_id is None else await agent_name(session, parsed.agent_id)
     direction = parsed.direction or str(row[2] or "both")
@@ -198,8 +213,8 @@ NUMBER_ASSIGN: Final = ActionTool(
     where="on the Phone numbers screen",
     schema=action_schema(
         "number_assign",
-        "Propose which agent answers and calls from one of the account's numbers, or none."
-        + PROPOSES_ONLY,
+        "Propose which agent answers and calls from one of the account's numbers, or none. "
+        "A number on an Inbound line is changed in Inbound, not here." + PROPOSES_ONLY,
         {
             "number_id": {"type": "string", "description": "From `numbers_list`."},
             "agent_id": {

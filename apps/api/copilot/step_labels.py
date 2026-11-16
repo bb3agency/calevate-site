@@ -134,11 +134,6 @@ STEP_LABELS: Final[dict[str, StepLabel]] = {
     # D-893: the agent page's remaining buttons.
     "agent_restore": _l("Restoring the agent", "Restored the agent"),
     "agent_prepare": _l("Preparing to get the agent ready", "Prepared to get it ready"),
-    "agent_script_put_live": _l("Preparing to put the script live", "Prepared to put it live"),
-    "agent_script_discard": _l("Preparing to drop the saved change", "Prepared to drop it"),
-    "agent_script_version_restore": _l(
-        "Preparing to restore a script version", "Prepared to restore a version"
-    ),
     "agent_settings_set": _l("Preparing the agent's settings", "Prepared the agent's settings"),
     "agent_handover_set": _l("Preparing the hand-over list", "Prepared the hand-over list"),
     "agent_action_set": _l("Preparing the in-call action", "Prepared the in-call action"),
