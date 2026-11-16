@@ -66,5 +66,12 @@ export function useAssignNumber(
       void client.invalidateQueries({ queryKey: agentKeys.all(session.orgSlug) });
       void client.invalidateQueries({ queryKey: agentKeys.allDetails(session.orgSlug) });
     },
+    // Refused because the number went onto a line after the list was read: read it again,
+    // so the card shows that line and its way into Inbound instead of a picker that fails.
+    onError: (error) => {
+      if ((error as { code?: unknown }).code === ON_INBOUND_LINE_CODE) {
+        void client.invalidateQueries({ queryKey: ["campaign-numbers", session.orgSlug] });
+      }
+    },
   });
 }
