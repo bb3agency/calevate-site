@@ -180,7 +180,7 @@ describe("the event catalogue", () => {
     expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(
       0,
     );
-    expect(screen.queryByRole("button", { name: "Add endpoint" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send to this address" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
     // And NOT the capability card either. A failed read is not a `false` capability, and
     // "Sheets is not switched on for your account" is a STATE — the exact substitution
@@ -274,7 +274,7 @@ describe("the event catalogue", () => {
     fireEvent.change(within(dialog).getByLabelText("Where should we send them?"), {
       target: { value: "https://crm.example.com/hook" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Add endpoint" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send to this address" }));
     await waitFor(() =>
       expect(
         calls.some((c) => c.method === "POST" && c.path === "/v1/integrations/endpoints"),
@@ -358,7 +358,7 @@ describe("the Sheets capability", () => {
     );
     // The webhook form is the remediation, so it must still be there and usable.
     await choose("webhook");
-    expect(screen.getByRole("button", { name: "Add endpoint" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send to this address" })).toBeTruthy();
     expect(screen.getByLabelText("Where should we send them?")).toHaveProperty(
       "disabled",
       false,
@@ -455,7 +455,7 @@ describe("registering a Google Sheet", () => {
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
     // The webhook form is untouched — it is the remediation the server just named.
     await choose("webhook");
-    expect(screen.getByRole("button", { name: "Add endpoint" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send to this address" })).toBeTruthy();
   });
 
   it("keeps the form on a refusal the client can act on", async () => {

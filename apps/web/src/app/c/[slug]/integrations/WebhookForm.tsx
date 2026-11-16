@@ -102,7 +102,7 @@ export function WebhookForm({
           pendingLabel="Adding…"
           successLabel="Added"
         >
-          Add endpoint
+          Send to this address
         </ActionButton>
       </form>
     </div>

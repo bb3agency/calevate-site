@@ -12,7 +12,7 @@ import { hasKey } from "@/lib/lookup";
  * one route missed the design-token migration and ended up rendering hints at 2.56:1 in
  * light and 3.75:1 in dark (`globals.css:39,88`). `INPUT` is `FIELD`, which also carries
  * the `touch:min-h-11` tap-target floor this file's inputs did not have; `SUBMIT` is
- * `PRIMARY_BUTTON`, so "Add endpoint" is the same button as every other primary action in
+ * `PRIMARY_BUTTON`, so "Send to this address" is the same button as every other primary action in
  * the console rather than the only near-black one.
  */
 export const INPUT = FIELD;
