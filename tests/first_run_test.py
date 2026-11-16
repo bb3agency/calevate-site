@@ -885,7 +885,7 @@ async def test_the_answers_and_every_job_reach_the_script_writer(
     assert (await _run(tenant_id)).build_steps["script"]["state"] == "ready_made"
 
 
-async def _no_voice(_tenant_id: uuid.UUID, _language: str) -> None:
+async def _no_voice(_tenant_id: uuid.UUID, _language: str, **_default: Any) -> None:
     return None
 
 
@@ -1108,8 +1108,7 @@ def test_every_combination_of_jobs_is_one_valid_script_for_every_trade() -> None
     assert jobs_label(["call_leads", "answer_calls"]) == "Answer my calls + Run calling campaigns"
 
 
-def test_the_first_agent_is_anjali_and_the_identity_is_never_stacked() -> None:
-    assert names.FIRST_AGENT_NAME == "Anjali"
+def test_the_identity_is_never_stacked() -> None:
     assert gender_of("Female") == "female" and gender_of("woman") == "female"
     assert gender_of("male") == "male" and gender_of(None) is None
     once = names.identity_with_name("You answer the phone.", "Anjali")

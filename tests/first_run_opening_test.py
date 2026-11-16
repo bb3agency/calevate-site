@@ -53,7 +53,7 @@ async def _tenant() -> uuid.UUID:
     return uuid.UUID(str(created["id"]))
 
 
-async def _no_voice(_tenant_id: uuid.UUID, _language: str) -> None:
+async def _no_voice(_tenant_id: uuid.UUID, _language: str, **_default: Any) -> None:
     return None
 
 

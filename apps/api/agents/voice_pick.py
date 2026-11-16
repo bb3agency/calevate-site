@@ -25,12 +25,17 @@ THE ORDER within a rung: a voice that speaks the agent's language, one whose acc
 language before the rest, then the catalogue's own order (label), so the same catalogue gives
 every new agent of a language the same first voice.
 
-A WOMAN'S VOICE (founder, 23 Oct 2026): the new agent is named "Anjali"
-(`first_run/names.FIRST_AGENT_NAME`), so the voice is chosen among female voices first: a
-female Studio voice, else a female Clear voice (`no_female_studio_voice` when Studio could have
-been used but has no woman's voice for the language). Only when no female voice can be chosen
-on either rung is the best voice kept, flagged `not_female` so the card says so. A voice whose
-provider states no gender is not counted as female: the name must match what the caller hears.
+THE ADMIN'S DEFAULT AGENT (founder, 16 Nov 2026; `agents/default_agent`) may name a voice. It
+is chosen first whenever it is among this account's candidates on a rung it may use; otherwise
+the ranking below stands in for it.
+
+A VOICE OF THE AGENT'S GENDER (founder, 23 Oct 2026): the default agent is "Anjali" unless the
+admin renames it, so the voice is chosen among female voices first (the default agent's
+`gender`, which is the admin's voice's own when one is set): a Studio voice of that gender,
+else a Clear one (`no_female_studio_voice` when Studio could have been used but has no woman's
+voice for the language). Only when none can be chosen on either rung is the best voice kept,
+flagged `not_female` so the card says so. A voice whose provider states no gender is not
+counted as either: the name must match what the caller hears.
 """
 
 from __future__ import annotations
@@ -112,8 +117,8 @@ async def voice_gender(session: AsyncSession, voice_id: str | None) -> Gender | 
     return gender_of(None if stated is None else str(stated))
 
 
-def _female(rows: list[HostedVoiceRow]) -> list[HostedVoiceRow]:
-    return [row for row in rows if gender_of(row.gender) == "female"]
+def _of_gender(rows: list[HostedVoiceRow], gender: Gender) -> list[HostedVoiceRow]:
+    return [row for row in rows if gender_of(row.gender) == gender]
 
 
 def _base(tag: str | None) -> str:
@@ -166,10 +171,18 @@ async def studio_hindrance(tenant_id: UUID) -> StudioFallback | None:
     return None
 
 
-async def pick_voice(tenant_id: UUID, language: str) -> PickedVoice | None:
-    """The voice a new agent speaking `language` starts with: Studio when this account can use
-    it, else Clear with the reason. None when the engine hosts no voices or none can be chosen
-    today. The catalogue is platform-scoped, so it is read on its own short session (as
+async def pick_voice(
+    tenant_id: UUID,
+    language: str,
+    *,
+    preferred: str | None = None,
+    gender: Gender = "female",
+) -> PickedVoice | None:
+    """The voice a new agent speaking `language` starts with: `preferred` (the admin's default
+    agent voice, `agents/default_agent`) when this account can be given it, else Studio when
+    this account can use it, else Clear with the reason, each among `gender`'s voices first.
+    None when the engine hosts no voices or none can be chosen today. The catalogue is
+    platform-scoped, so it is read on its own short session (as
     `GET /v1/agents/engine-catalogue` reads it)."""
     engine = get_engine()
     if not isinstance(engine, HostsVoices):
@@ -189,28 +202,54 @@ async def pick_voice(tenant_id: UUID, language: str) -> PickedVoice | None:
         )
         for rung in ("studio", "clear")
     }
-    return choose_voice(ranked["studio"], ranked["clear"], await studio_hindrance(tenant_id))
+    return choose_voice(
+        ranked["studio"],
+        ranked["clear"],
+        await studio_hindrance(tenant_id),
+        preferred=preferred,
+        gender=gender,
+    )
 
 
 def choose_voice(
-    studio: list[HostedVoiceRow], clear: list[HostedVoiceRow], hindrance: StudioFallback | None
+    studio: list[HostedVoiceRow],
+    clear: list[HostedVoiceRow],
+    hindrance: StudioFallback | None,
+    *,
+    preferred: str | None = None,
+    gender: Gender = "female",
 ) -> PickedVoice | None:
-    """A female Studio voice when nothing stands in Studio's way, else a female Clear voice with
-    the reason; with no female voice on either rung, the best voice as before, flagged."""
+    """`preferred` when it is among the voices this account can use; otherwise a Studio voice
+    of `gender` when nothing stands in Studio's way, else a Clear voice of `gender` with the
+    reason; with no voice of `gender` on either rung, the best voice as before, flagged.
+
+    A preferred Clear voice was chosen by the admin, so it carries no fallback reason. The
+    wire's `not_female` and `no_female_studio_voice` speak of a woman's voice, so they are set
+    only when a woman's voice was wanted; a man's voice not found is not flagged."""
     usable_studio = studio if hindrance is None else []
-    if female_studio := _female(usable_studio):
-        return PickedVoice(row=female_studio[0], rung="studio")
-    if female_clear := _female(clear):
-        reason: StudioFallback = hindrance or (
-            "no_female_studio_voice" if usable_studio else "no_studio_voice"
+    if preferred is not None:
+        rungs: tuple[tuple[Rung, list[HostedVoiceRow]], ...] = (
+            ("studio", usable_studio),
+            ("clear", clear),
         )
-        return PickedVoice(row=female_clear[0], rung="clear", fallback=reason)
+        for rung, rows in rungs:
+            match = next((row for row in rows if row.voice_id == preferred), None)
+            if match is not None:
+                return PickedVoice(row=match, rung=rung)
+    womans = gender == "female"
+    if studio_match := _of_gender(usable_studio, gender):
+        return PickedVoice(row=studio_match[0], rung="studio")
+    if clear_match := _of_gender(clear, gender):
+        reason: StudioFallback = hindrance or (
+            "no_female_studio_voice" if usable_studio and womans else "no_studio_voice"
+        )
+        return PickedVoice(row=clear_match[0], rung="clear", fallback=reason)
     if usable_studio:
-        return PickedVoice(row=usable_studio[0], rung="studio", not_female=True)
+        return PickedVoice(row=usable_studio[0], rung="studio", not_female=womans)
     if not clear:
         return None
     return PickedVoice(
-        row=clear[0], rung="clear", fallback=hindrance or "no_studio_voice", not_female=True
+        row=clear[0], rung="clear", fallback=hindrance or "no_studio_voice", not_female=womans
     )
 
 

@@ -11,9 +11,10 @@
    sections are asked instead: the step never stops for lack of AI.
 3. BUILD the first agent (`build_first_agent`), each step written to the row as it lands so
    the screen ticks what really happened:
-   - **voice**: a woman's Studio voice for its language, or Clear when Studio cannot be used
-     here or has no woman's voice (`agents/voice_pick`), for the agent named "Anjali"
-     (`first_run/names`);
+   - **voice**: the admin's default agent (`agents/default_agent`) gives the name ("Anjali"
+     unless the console sets another) and may give the voice; when it gives none this account
+     can use, a Studio voice of its gender for its language, or Clear when Studio cannot be
+     used here or has none (`agents/voice_pick`);
    - **script**: the agent created from its job's ready-made script, then the script written
      by the script writer (`script_assist.draft_script`) from the brief, the documents and,
      however short the brief, the business's name, type and profile, and applied at once as
@@ -61,6 +62,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.assist_leg import account_assist_leg
+from apps.api.agents.default_agent import read_default_agent
 from apps.api.agents.lifecycle import create_agent, update_agent
 from apps.api.agents.publishing import audit_action_for, set_disclosure_posture
 from apps.api.agents.script_builder import (
@@ -76,7 +78,7 @@ from apps.api.agents.starters import (
     starter_jobs,
     starter_opening,
 )
-from apps.api.agents.voice_pick import pick_voice
+from apps.api.agents.voice_pick import gender_of, pick_voice
 from apps.api.billing.ai_quota import new_assist_ref, platform_brake_tripped
 from apps.api.billing.models import ASSIST_FEATURE_FIRST_RUN
 from apps.api.compliance.audit import write_audit
@@ -84,14 +86,14 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_JOB_TIMEOUT_S
 from apps.api.crm import assist as crm_assist
-from apps.api.db.session import tenant_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.first_run.documents import Document, document_words, read_documents
 from apps.api.first_run.models import (
     DOCUMENT_CHARS,
     MAX_QUESTIONS,
     MAX_RECORDING_WORDS,
 )
-from apps.api.first_run.names import FIRST_AGENT_NAME, identity_with_name
+from apps.api.first_run.names import identity_with_name
 from apps.api.first_run.questions import (
     HINT_MAX,
     MAX_OPTIONS,
@@ -1071,9 +1073,17 @@ async def build_first_agent(ctx: dict[str, Any], payload: dict[str, Any]) -> str
             agent_id, name = run.agent_id, str(held_voice[1])
             voice_state: dict[str, Any] = {"state": "kept" if held_voice[0] else "none"}
         else:
-            picked = await pick_voice(tenant_id, language)
+            # The voice catalogue is platform-scoped, so it is read on its own short session.
+            async with untenanted_session() as platform:
+                default = await read_default_agent(platform)
+            picked = await pick_voice(
+                tenant_id,
+                language,
+                preferred=default.voice_id,
+                gender=gender_of(default.gender) or "female",
+            )
             voice = picked.row if picked else None
-            name = FIRST_AGENT_NAME
+            name = default.name
             agent_id, voiced = await _create(
                 tenant_id,
                 run,

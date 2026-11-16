@@ -124,12 +124,13 @@ SECTIONS: Final[tuple[Section, ...]] = (
     Section(
         "speech",
         "Speech",
-        "How callers are transcribed, how many agents may use the Studio voice, and which "
-        "languages clients may give an agent.",
+        "How callers are transcribed, how many agents may use the Studio voice, which "
+        "languages clients may give an agent, and the agent a new account starts with.",
         (
             Subsection("stt", "Speech-to-text (STT)"),
             Subsection("tts", "Text-to-speech (TTS)"),
             Subsection("languages", "Agent languages"),
+            Subsection("default-agent", "New account's first agent"),
         ),
     ),
     Section(
@@ -557,6 +558,24 @@ FIELD_META: Final[dict[str, FieldMeta]] = {
         "Test accounts for the extra languages",
         "Our own test accounts, offered an extra language for its test call. Never a client.",
         details="Offered once that language's sentences are reviewed.",
+    ),
+    "default_agent_name": _m(
+        "speech",
+        "default-agent",
+        "Name of the first agent",
+        "The name a new account's first agent is given: the free trial's and paid plans' starter.",
+        details="Agents already made keep their own name. The owner can rename theirs.",
+    ),
+    "default_agent_voice_id": _m(
+        "speech",
+        "default-agent",
+        "Voice of the first agent",
+        "The voice a new account's first agent starts with, from the voices enabled for clients.",
+        details=(
+            "Not set, it is the best woman's voice for the agent's language, Studio first. When "
+            "an account cannot use the chosen voice (Studio not open to it, or the voice does not "
+            "speak its language) it gets that best voice instead."
+        ),
     ),
     "forwarding_test_second_number": _m(
         "calling-limits",
@@ -1645,6 +1664,7 @@ ENTITY_SOURCES: Final[dict[str, str]] = {
     "trial_numbers": "numbers our ThinnestAI developer workspace holds that no client has",
     "thinnest_workspace": "our own ThinnestAI workspace, read from ThinnestAI",
     "tenants": "client accounts on this platform",
+    "client_voices": "voices the admin added and enabled for clients",
 }
 
 _PROVIDER_ONLY_LOCAL = "For development only; refused outside a local machine."
@@ -1659,6 +1679,8 @@ CONTROL_HINTS: Final[dict[str, ControlHint]] = {
     "retrieval_shadow_tenant_ids": ControlHint(
         kind="entity_picker", source="tenants", multiple=True
     ),
+    "default_agent_voice_id": ControlHint(kind="entity_picker", source="client_voices"),
+    "default_agent_name": ControlHint(placeholder="Anjali"),
     # Options filled from `healer/playbooks.PLAYBOOKS` by `config_controls`.
     "healer_paused_playbooks": ControlHint(kind="multi_select", multiple=True),
     "staged_agent_languages_enabled": ControlHint(kind="multi_select", multiple=True),

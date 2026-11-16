@@ -243,7 +243,7 @@ async def _no_meter(*_args: Any, **_kwargs: Any) -> None:
     return None
 
 
-async def _no_voice(_tenant_id: uuid.UUID, _language: str) -> None:
+async def _no_voice(_tenant_id: uuid.UUID, _language: str, **_default: Any) -> None:
     return None
 
 
