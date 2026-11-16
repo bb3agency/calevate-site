@@ -125,7 +125,8 @@ async def add_pick(
         await session.execute(
             text(
                 f"SELECT count(*) FILTER (WHERE kb_source_id <> :s), "
-                f"bool_or(kb_source_id = :s) FROM {_table_of(picks)} WHERE {_holder_of(picks)} = :hid"
+                f"bool_or(kb_source_id = :s) FROM {_table_of(picks)} "
+                f"WHERE {_holder_of(picks)} = :hid"
             ),
             {"hid": holder_id, "s": kb_source_id},
         )

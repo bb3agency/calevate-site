@@ -1709,6 +1709,8 @@ _ANSWERING_AGENTS_SQL = (
     " AND l.engine_agent_ref IS NOT NULL))"
     " AND deleted_at IS NULL AND archived_at IS NULL ORDER BY id"
 )
+#: The statement itself, for `workers/maintenance`, which reads the same answering agents.
+ANSWERING_AGENTS_STATEMENT = text(_ANSWERING_AGENTS_SQL)
 
 #: The same columns for ONE agent, so the stamp read and `_posture_of_row` are served by a
 #: single row rather than by two fetches of the same row.

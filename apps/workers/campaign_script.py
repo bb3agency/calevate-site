@@ -286,7 +286,7 @@ async def _ready_made_if_asked(holder: _Holder) -> None:
         auto = (
             await session.execute(
                 text(
-                    f"SELECT script_proposal->>'auto_save' FROM {holder.table} "
+                    f"SELECT script_proposal->>'auto_save' FROM {_table_of(holder)} "
                     "WHERE id = :hid AND script_proposal->>'id' = :pid AND script IS NULL"
                 ),
                 {"hid": holder.holder_id, "pid": str(holder.proposal_id)},
@@ -297,7 +297,7 @@ async def _ready_made_if_asked(holder: _Holder) -> None:
         await _ready_made(session, holder)
         await session.execute(
             text(
-                f"UPDATE {holder.table} SET script_proposal = NULL WHERE id = :hid "
+                f"UPDATE {_table_of(holder)} SET script_proposal = NULL WHERE id = :hid "
                 "AND script_proposal->>'id' = :pid AND script IS NOT NULL"
             ),
             {"hid": holder.holder_id, "pid": str(holder.proposal_id)},

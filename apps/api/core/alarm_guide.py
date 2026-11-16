@@ -77,6 +77,11 @@ ALARM_SUMMARIES: Final[dict[str, AlarmSummary]] = {
         "One client: either a paying client's callers are being turned away, or calls are "
         "answered with no credit to pay for them.",
     ),
+    "inbound_line_hold_failed": _s(
+        "An inbound line is taking calls while its agent is held",
+        "One client: a line answers calls with no credit to pay for them, or while the healer "
+        "holds its agent.",
+    ),
     "inbound_truthful_answer_silence_unsupported": _s(
         "An agent without its AI-disclosure rule is still answering calls",
         "Callers to one client's agent may not be told truthfully that it is an AI or that "

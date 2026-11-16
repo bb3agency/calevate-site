@@ -1053,7 +1053,7 @@ async def engine_drift_for(
     is the defect `_variant_config` is built on `_to_config` to avoid.
     """
     from apps.api.agents.handoff import spec_for
-    from apps.api.agents.service import _load_agent, _to_config, _variant_config, line_config
+    from apps.api.agents.service import _load_agent, _to_config, _variant_config
 
     engine = get_engine()
     # Both branches resolve INSIDE the session and the vendor round trip happens outside
@@ -1078,7 +1078,7 @@ async def engine_drift_for(
         # rebuilding a config here.
         handoff, _duty = await spec_for(session, dict(row))
         ref = row["engine_agent_ref"]
-        arm = line = None
+        arm = None
         if engine_agent_ref is not None and engine_agent_ref != ref:
             arm = (
                 await session.execute(

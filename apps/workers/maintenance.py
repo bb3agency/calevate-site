@@ -158,7 +158,7 @@ _CALLABLE_TENANTS_SQL = text(
 #: six columns `compose_opening_line` needs, then the silence pair and the direction.
 #: Outbound-only agents with no live line are excluded: they never receive a call, so
 #: overriding their script would change nothing a caller can hear.
-_ANSWERING_AGENTS_SQL = text(agents_service._ANSWERING_AGENTS_SQL)
+_ANSWERING_AGENTS_SQL = agents_service.ANSWERING_AGENTS_STATEMENT
 
 #: Who gets a client notice: every client who still has a portal to lose.
 #:

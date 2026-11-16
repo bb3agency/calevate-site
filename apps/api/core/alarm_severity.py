@@ -300,6 +300,9 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # Money AND service: a client out of credit keeps taking calls nothing can bill, or a
     # client who has just paid stays refused.
     "inbound_credit_cutover_failed": "page",
+    # The same money-and-service failure on one inbound line (D-997) put live while its
+    # agent is held: the line takes calls nobody is paying for.
+    "inbound_line_hold_failed": "page",
     # A standing statement about this deployment's engine rather than an event. It is the
     # same sentence every time and it will never stop being true until the engine changes.
     "inbound_cutover_unsupported": "record",
