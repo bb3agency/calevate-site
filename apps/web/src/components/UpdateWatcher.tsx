@@ -18,8 +18,10 @@
  *   in `scripts/vps-deploy.sh`) may already be missing pieces of itself, so there the bar says
  *   the new version is coming and updates after a short countdown — unless the person is
  *   typing in a field, when it stays as the ordinary "Update now" bar.
- * - A missing code chunk after a deploy (the old file is gone from the server) reloads the
- *   page once, under the same guard.
+ * - A missing code chunk (`onMissingChunk`) reloads the page; it waits on an "Updating"
+ *   screen only when a reload moments ago did not help. A route's RSC read that fails or
+ *   names another build needs nothing here: Next turns that navigation into a full page
+ *   load itself (`fetch-server-response.js`, `doMpaNavigation`).
  */
 
 import { usePathname } from "next/navigation";
@@ -62,6 +64,10 @@ async function serverBuild(): Promise<BuildInfo | null> {
 async function reloadFresh(forCommit: string): Promise<void> {
   if (readKey() === forCommit) return;
   writeKey(forCommit);
+  await clearCachesAndReload();
+}
+
+async function clearCachesAndReload(): Promise<void> {
   try {
     if ("caches" in window) {
       const names = await window.caches.keys();
@@ -81,24 +87,74 @@ function isTyping(): boolean {
 }
 
 function isMissingChunk(reason: unknown): boolean {
+  if (typeof reason === "object" && reason !== null && (reason as { code?: unknown }).code === "CSS_CHUNK_LOAD_FAILED") {
+    return true;
+  }
   const text = reason instanceof Error ? `${reason.name} ${reason.message}` : String(reason ?? "");
-  return /ChunkLoadError|Loading chunk [\w-]+ failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(
+  return /ChunkLoadError|Loading (?:CSS )?chunk [\w-]+ failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(
     text,
   );
 }
 
 /**
- * A code chunk is missing because a deploy is swapping files. The first time, reload at once.
- * If that reload still runs this build (the deploy had not finished), the page would stay
- * blank behind the reload-once guard; instead it says so and waits for `/version.json` to name
- * a different commit, then reloads onto it.
+ * When this tab last reloaded for a missing chunk, as `<commit>@<epoch ms>`. A TIME rather
+ * than a once-per-tab flag: the flag made every later chunk failure in the same tab (a
+ * dropped phone signal hours afterwards) skip the reload and sit on the "Updating" screen
+ * for `DEPLOY_WAIT_MS`, with no deploy happening.
+ */
+const CHUNK_RELOAD_KEY = "calevate:chunk-reload";
+/** A chunk failing again this soon after its reload means the reload did not help. */
+const CHUNK_RETRY_WINDOW_MS = 2 * 60_000;
+
+function reloadedForChunkRecently(): boolean {
+  let stored: string | null = null;
+  try {
+    stored = window.sessionStorage.getItem(CHUNK_RELOAD_KEY);
+  } catch {
+    return false;
+  }
+  const [commit, at] = (stored ?? "").split("@");
+  return commit === BUILD.commit && Date.now() - Number(at) < CHUNK_RETRY_WINDOW_MS;
+}
+
+function markChunkReload(): void {
+  try {
+    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, `${BUILD.commit}@${Date.now()}`);
+  } catch {
+    // No storage: the window check reads false and the next failure reloads again.
+  }
+}
+
+/**
+ * A code chunk could not be loaded: a deploy removed it, a deploy is mid-swap, or the
+ * network dropped the request.
+ *
+ * - Offline: do nothing. A reload would replace the page with the browser's own offline
+ *   screen; the error boundary's "Try again" and the offline banner are the way on.
+ * - A newer build is live: reload onto it (once per build, `reloadFresh`'s guard).
+ * - Otherwise reload, unless this tab already reloaded for a missing chunk moments ago —
+ *   then the server is still serving files this build cannot find (a deploy mid-swap), so
+ *   it says so and waits for `/version.json` to name a different commit.
  */
 function onMissingChunk(): void {
-  if (readKey() !== `chunk:${BUILD.commit}`) {
-    void reloadFresh(`chunk:${BUILD.commit}`);
-    return;
-  }
-  if (waitingForDeploy) return;
+  if (chunkHandled || waitingForDeploy) return;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  chunkHandled = true;
+  void serverBuild().then((server) => {
+    if (server && isNewerBuild(server) && readKey() !== `chunk:${server.commit}`) {
+      void reloadFresh(`chunk:${server.commit}`);
+      return;
+    }
+    if (!reloadedForChunkRecently()) {
+      markChunkReload();
+      void clearCachesAndReload();
+      return;
+    }
+    waitForDeploy();
+  });
+}
+
+function waitForDeploy(): void {
   waitingForDeploy = true;
   showUpdatingNotice();
   const started = Date.now();
@@ -115,6 +171,8 @@ function onMissingChunk(): void {
   }, DEPLOY_POLL_MS);
 }
 
+/** One missing chunk is often reported twice (the boundary and the window); act once. */
+let chunkHandled = false;
 let waitingForDeploy = false;
 /** How often a page caught mid-deploy asks whether the new version is live, and for how long. */
 const DEPLOY_POLL_MS = 5_000;
@@ -126,19 +184,38 @@ function showUpdatingNotice(): void {
   const note = document.createElement("div");
   note.id = "calevate-updating";
   note.setAttribute("role", "status");
-  note.textContent = "Updating Calevate… This page reloads by itself in a moment.";
   Object.assign(note.style, {
     position: "fixed",
     inset: "0",
     display: "flex",
+    flexDirection: "column",
+    gap: "16px",
     alignItems: "center",
     justifyContent: "center",
     padding: "24px",
+    textAlign: "center",
     background: "var(--app, #fafafa)",
     color: "var(--text, #171a1c)",
     font: "500 16px ui-sans-serif, system-ui, sans-serif",
     zIndex: "2147483647",
   });
+  const text = document.createElement("p");
+  text.textContent = "Updating Calevate… This page reloads by itself in a moment.";
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = "Reload now";
+  Object.assign(button.style, {
+    minHeight: "44px",
+    padding: "0 20px",
+    borderRadius: "8px",
+    border: "1px solid currentColor",
+    background: "transparent",
+    color: "inherit",
+    font: "inherit",
+    cursor: "pointer",
+  });
+  button.addEventListener("click", () => window.location.reload());
+  note.append(text, button);
   document.body.appendChild(note);
 }
 

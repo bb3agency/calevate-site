@@ -10,6 +10,7 @@ import {
   Skeleton,
   formatCount,
   formatCountOf,
+  formatDecimal,
   formatDuration,
   formatINRExact,
   formatIST,
@@ -220,7 +221,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
           <Metric
             label="Trial calls we cover"
             value={formatINRExact(data.trial_cost_inr)}
-            hint={`${formatCountOf(data.trial_calls, "free trial call")}, ${data.trial_minutes} minutes. An acquisition cost, not in the margin.`}
+            hint={`${formatCountOf(data.trial_calls, "free trial call")}, ${formatDecimal(data.trial_minutes)} minutes. An acquisition cost, not in the margin.`}
           />
         )}
         <Metric
@@ -291,7 +292,7 @@ function SpendBoard({ data, tenantId, slug }: { data: TenantSpend; tenantId: str
       {data.unattributed && (
         <div className="border-l-2 border-line py-1 pl-3 text-meta text-ink-muted">
           {formatINRExact(data.unattributed.cost_inr)} of cost this month belongs to no call
-          ({data.unattributed.minutes} minutes). The only unit that lands here is{" "}
+          ({formatDecimal(data.unattributed.minutes)} minutes). The only unit that lands here is{" "}
           <span className="font-mono">number_rental</span>: our cost of the phone numbers we
           rent to this client. What they were charged for them is in the revenue above.
         </div>
