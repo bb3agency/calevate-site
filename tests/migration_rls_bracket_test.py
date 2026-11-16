@@ -126,13 +126,26 @@ def _sql_literals(source: str) -> list[tuple[int, str]]:
                 and isinstance(first.value.value, str)
             ):
                 docstrings.add(id(first.value))
-    return [
+    # An f-string is one statement: its constant pieces are joined, with a placeholder where
+    # each value goes, so a write is never read apart from the `set_config` before it.
+    pieces: set[int] = set()
+    literals: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.JoinedStr):
+            parts = []
+            for part in node.values:
+                pieces.add(id(part))
+                parts.append(part.value if isinstance(part, ast.Constant) else "?")
+            literals.append((node.lineno, "".join(str(p) for p in parts)))
+    literals += [
         (node.lineno, node.value)
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
         and id(node) not in docstrings
+        and id(node) not in pieces
     ]
+    return literals
 
 
 def _unbracketed(source: str) -> set[str]:
@@ -175,6 +188,12 @@ def _unbracketed(source: str) -> set[str]:
         # migration-time write reported a defect in code that has none.
         if re.search(r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION", sql, re.IGNORECASE):
             continue
+        # A block that sets `app.tenant_id` itself before its writes runs them under each
+        # tenant's own policy, so they match that tenant's rows rather than none.
+        # `d8b2f5a7c3e1` loops over organizations this way. The other fix is the bracket,
+        # which lifts RLS for every tenant at once.
+        if _sets_tenant_first(sql):
+            continue
         written = {t.lower() for t in DML.findall(sql)}
         # The read side counts only for a statement that WRITES. A bare SELECT in a
         # migration is a question, and one that sees no rows answers "none" without
@@ -195,6 +214,16 @@ def _unbracketed(source: str) -> set[str]:
                 continue
             offenders.add(table)
     return offenders
+
+
+_SETS_TENANT = re.compile(r"set_config\(\s*'app\.tenant_id'\s*,(?!\s*'')", re.IGNORECASE)
+
+
+def _sets_tenant_first(sql: str) -> bool:
+    """True when the literal sets a non-empty `app.tenant_id` before its first write."""
+    scoped = _SETS_TENANT.search(sql)
+    first_write = DML.search(sql)
+    return scoped is not None and first_write is not None and scoped.start() < first_write.start()
 
 
 def _created_before(source: str, table: str, line: int, forced: list[int]) -> bool:
@@ -335,3 +364,18 @@ def test_the_repair_migration_actually_seeds_the_row_the_broken_one_missed() -> 
         "the repair must be a no-op where the original seed did work — it runs on every "
         "deployment, including the ones that were never broken"
     )
+
+
+def test_a_write_scoped_to_each_tenant_passes_and_an_unscoped_one_does_not() -> None:
+    """FAILS IF: the tenant-scoped exception widens to a write that sets no tenant first."""
+    scoped = (
+        'from alembic import op\n\nSQL = """\nDO $$ DECLARE t uuid; BEGIN\n'
+        "FOR t IN SELECT id FROM organizations LOOP\n"
+        "  PERFORM set_config('app.tenant_id', t::text, true);\n"
+        '  UPDATE agents SET name = name;\nEND LOOP; END $$;\n"""\n'
+    )
+    assert _unbracketed(scoped) == set()
+    unscoped = scoped.replace("  PERFORM set_config('app.tenant_id', t::text, true);\n", "")
+    assert _unbracketed(unscoped) == {"agents"}
+    cleared = scoped.replace("t::text", "''")
+    assert _unbracketed(cleared) == {"agents"}
