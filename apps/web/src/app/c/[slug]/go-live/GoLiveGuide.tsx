@@ -39,7 +39,7 @@ export const GO_LIVE_ROUTE = "/c/{slug}/go-live";
 export const GO_LIVE_STEPS = [
   { id: "verify", label: "Verify your business" },
   { id: "number", label: "Get your number" },
-  { id: "switch_on", label: "Switch it on" },
+  { id: "switch_on", label: "Put it live" },
 ] as const;
 
 type Stage = (typeof GO_LIVE_STEPS)[number]["id"];
@@ -57,7 +57,8 @@ export function stageOf(current: GoLiveStep): Stage {
  * 1. Verify your business: the business check, the agreements and the no-cold-calls pledge,
  *    each with its own button, so the list matches every gate an agent's switch asks.
  * 2. Get your number: the true reason a number cannot be bought yet, one state per gate.
- * 3. Switch it on: each agent's own switch, refused in the server's words.
+ * 3. Put it live: each line on a number not yet live, then (for an account with no lines) each
+ *    agent's own switch, refused in the server's words.
  *
  * Where the owner is comes from the server (`GET /v1/go-live`), so a reload or another device
  * lands on the same step. Nothing names a provider (D-679).
@@ -387,7 +388,7 @@ function NumberStep({
       primary={
         done ? (
           <>
-            Switch it on
+            Put it live
             <ArrowRight aria-hidden className="h-4 w-4" />
           </>
         ) : (
@@ -441,6 +442,9 @@ function SwitchOnStep({
   // put live, so it comes first and says so.
   const lines = useInboundLines(session);
   const waitingLines = (lines.data ?? []).filter((line) => !line.live && line.numbers.length > 0);
+  // An agent answers no number of its own once the account has lines, so its old switch is
+  // offered only to an account that has none.
+  const switches = lines.isSuccess && lines.data.length === 0 ? listed : [];
   return (
     <StepScreen
       title={live ? GO_LIVE.liveTitle : GO_LIVE.switchTitle}
@@ -468,13 +472,13 @@ function SwitchOnStep({
       ) : null}
       {agents.isError ? <ProblemNotice error={agents.error} onRetry={() => void agents.refetch()} /> : null}
       {agents.isPending ? <Skeleton rows={2} label="Getting your agents…" /> : null}
-      {listed.length > 0 ? (
+      {switches.length > 0 ? (
         <ul className="divide-y divide-line rounded-card border border-line bg-surface">
-          {listed.map((agent) => (
+          {switches.map((agent) => (
             <SwitchRow key={agent.id} agent={agent} agentHref={agentHref(agent.id)} />
           ))}
         </ul>
-      ) : agents.isSuccess ? (
+      ) : agents.isSuccess && listed.length === 0 ? (
         // Every agent deleted, or none made yet: the step has nothing to switch on, so it
         // says so and points at the one thing that gives it something.
         <EmptyState
