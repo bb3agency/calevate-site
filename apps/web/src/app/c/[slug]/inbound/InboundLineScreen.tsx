@@ -411,6 +411,7 @@ function ScriptSection({ line, canWrite, refusal }: Props) {
             current={script ?? EMPTY_SCRIPT}
             base={proposal.base_script ?? EMPTY_SCRIPT}
             proposal={proposal.script}
+            notes={proposal.why}
             pending={save.isPending ? "apply" : clear.isPending ? "discard" : null}
             onApply={(next) => keep(next, proposal.id)}
             onDiscard={() => stopFeedback.run(proposal.id)}

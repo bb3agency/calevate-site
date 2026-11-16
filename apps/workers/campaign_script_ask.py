@@ -195,7 +195,11 @@ INSTRUCTION_MAX: Final = 300
 def tone_line(tone: str | None) -> str:
     """The tone sentence, or "" when the owner chose none (Pip then follows the sources)."""
     said = TONES.get(tone or "")
-    return f"TONE: every line the agent says is {said}; style.tone says so in English.\n" if said else ""
+    return (
+        f"TONE: every line the agent says is {said}; style.tone says so in English.\n"
+        if said
+        else ""
+    )
 
 
 def instruction_line(instruction: str | None) -> str:

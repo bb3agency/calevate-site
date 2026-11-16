@@ -228,6 +228,7 @@ describe("one inbound line", () => {
       disclosure: null,
       note: null,
       reason: null,
+      why: {},
       requested_at: "2026-11-16T04:05:00Z",
     };
     const rendered = await renderClientPage(

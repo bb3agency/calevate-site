@@ -535,9 +535,7 @@ def too_long_left(size: PromptSize | None) -> list[LeftOut]:
     if size is None or size.fits:
         return []
     parts = ", ".join(part.label for part in size.longest_script_parts(2)) or "the steps"
-    return [
-        LeftOut("script", "", TOO_LONG_RULE.format(over=size.over, parts=parts), unfixed=True)
-    ]
+    return [LeftOut("script", "", TOO_LONG_RULE.format(over=size.over, parts=parts), unfixed=True)]
 
 
 Spent = ScriptDraft | JsonAnswer[WrittenOpening] | JsonAnswer[Review] | ProblemError
@@ -694,4 +692,3 @@ __all__ = [
     "too_long_left",
     "unsourced_left",
 ]
-
