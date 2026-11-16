@@ -1,0 +1,16 @@
+{
+  "business_type": "real_estate",
+  "business_name": "Green Meadows",
+  "main_task": "Call people who asked about Green Meadows plots and book a site visit this weekend.",
+  "sources": [["Plot prices", "Plots start at Rs 12,50,000. Site visits are on Saturday and Sunday from 10 am to 5 pm."]],
+  "tone": null,
+  "instruction": null,
+  "answer": {
+    "opening_line": "Hello {{lead_name}}, I am calling from Green Meadows about the plots you asked about. Can you talk for a minute?",
+    "stages": [
+      {"name": "Price", "instruction": "Tell them the price.", "sounds_like": "Plots start at 9,99,000 rupees."},
+      {"name": "Finalise the call", "instruction": "Thank them.", "sounds_like": "Thank you for your time."}
+    ]
+  },
+  "findings": ["stages.0.sounds_like: says \"9,99,000\""]
+}

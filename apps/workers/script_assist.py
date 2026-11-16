@@ -850,13 +850,22 @@ class ScriptBrief:
     #: What the business does with its callers, its objections and its callers' questions
     #: (`agents/business_fit`), so the plan and the lines fit it rather than a shop.
     fit: BusinessFit = UNKNOWN
+    #: Text a figure in a spoken line may come from that the brief does not print: an edit's
+    #: change carries a campaign's main task and sources, and without this a figure from them
+    #: read as one no fact gives (D-1004).
+    grounding: str = ""
 
     def lint_context(self) -> LintContext:
         """What the draft's lines are checked against (`agents/script_lint`)."""
         return LintContext(
             manifest=self.capabilities,
             facts=" ".join(
-                [*self.facts, *(answer for _key, answer in self.answers), self.description]
+                [
+                    *self.facts,
+                    *(answer for _key, answer in self.answers),
+                    self.description,
+                    self.grounding,
+                ]
             ),
             agent_name=self.agent_name,
             business_name=self.business_name,

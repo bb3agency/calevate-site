@@ -19525,13 +19525,18 @@ export interface components {
         };
         /**
          * CampaignProposalIn
-         * @description Empty for the whole script. With both fields: that one part, in that language.
+         * @description Empty for the whole script. With `part` and `language`: that one part, in that
+         *     language. `tone` and `instruction` say how either is written (D-1004).
          */
         CampaignProposalIn: {
+            /** Instruction */
+            instruction?: string | null;
             /** Language */
             language?: string | null;
             /** Part */
             part?: string | null;
+            /** Tone */
+            tone?: ("warm" | "respectful" | "brief") | null;
         };
         /** CampaignProposalOut */
         CampaignProposalOut: {
@@ -19560,6 +19565,10 @@ export interface components {
              * @enum {string}
              */
             status: "drafting" | "ready" | "failed";
+            /** Why */
+            why: {
+                [key: string]: string;
+            };
         };
         /** CampaignPurposeOut */
         CampaignPurposeOut: {

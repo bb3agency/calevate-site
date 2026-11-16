@@ -24,7 +24,7 @@ the same shape and compare-and-set discipline as `agents.script_proposal`.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -68,6 +68,15 @@ class CampaignProposal:
     #: Failed: why, as the refusal's code (`assist_answer_unusable`, `ai_quota_exceeded`, ...),
     #: `crashed`, or `stale` for a job that never wrote back; the screen picks its words by it.
     reason: str | None = None
+    #: Ready: Pip's one-sentence reason per part it wrote, by the part's key (`opening_line`,
+    #: `stages.<id>`, ...), for the owner to read beside it (D-1004).
+    why: dict[str, str] = field(default_factory=dict)
+
+
+def _why(raw: Any) -> dict[str, str]:
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): str(v) for k, v in raw.items() if isinstance(v, str) and v.strip()}
 
 
 @dataclass(frozen=True)
@@ -108,6 +117,7 @@ def _proposal(raw: Any, *, now: datetime) -> CampaignProposal | None:
         disclosure=raw.get("disclosure"),
         left_out=tuple(script_proposals.left_out_of(raw.get("left_out"))),
         reason=reason,
+        why=_why(raw.get("why")),
     )
 
 
@@ -281,6 +291,7 @@ async def request_proposal(
     requested_by: UUID | None,
     focus: dict[str, str] | None = None,
     auto_save: bool = False,
+    ask: dict[str, str] | None = None,
 ) -> CampaignProposal:
     """Ask Pip for the campaign's script. Needs a main task; replaces a ready draft; refused
     while one is still being written, so a second click does not spend twice.
@@ -290,7 +301,10 @@ async def request_proposal(
 
     `focus` (`{"part": <the part's name as the editor shows it>, "language": <tag>}`) asks for
     that one part rewritten in that language, the rest kept (founder, 16 Nov 2026). It is an
-    edit of the saved script, reviewed like any other draft, so it needs a script to edit."""
+    edit of the saved script, reviewed like any other draft, so it needs a script to edit.
+
+    `ask` (`{"tone": ..., "instruction": ...}`, either may be absent) is how the owner wants
+    this draft written (D-1004), for the whole script or the one part alike."""
     row = await _campaign_row(session, campaign_id, lock=True)
     if focus is not None and row.script is None:
         raise _invalid(
@@ -322,6 +336,8 @@ async def request_proposal(
     }
     if focus is not None:
         record["focus"] = focus
+    if ask:
+        record["ask"] = ask
     if auto_save:
         record["auto_save"] = True
     await session.execute(

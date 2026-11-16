@@ -1,0 +1,16 @@
+{
+  "business_type": "retail",
+  "business_name": "Lakshmi Stores",
+  "main_task": "Remind customers who have a pending balance in our khata to clear it this week.",
+  "sources": [["Khata", "Customers can pay at the counter or by UPI to the shop's number. The shop is open 8 am to 9 pm."]],
+  "tone": "warm",
+  "instruction": null,
+  "answer": {
+    "opening_line": "Hello {{lead_name}}, I am calling from Lakshmi Stores about your khata. Is this a good time?",
+    "stages": [
+      {"name": "Due", "instruction": "Say a balance is pending and ask when they can pay.", "sounds_like": "When can you pay? Will it be today? Or tomorrow?"},
+      {"name": "Finalise the call", "instruction": "Read back the day they gave.", "sounds_like": "Thank you, see you at the shop."}
+    ]
+  },
+  "findings": ["stages.0.sounds_like: asks 3 questions"]
+}
