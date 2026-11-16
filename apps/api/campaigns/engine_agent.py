@@ -6,9 +6,10 @@ and a second campaign in the same voice was refused. Each campaign now speaks th
 engine agent of its own, built from its agent's config over its own script and settings
 (`agents/service.campaign_config`), the way an inbound line does (D-997):
 
-* Start and Schedule publish it (`put_campaign_live`), Pause keeps it so Resume dials at once,
-  and Stop, completion, Unschedule and Archive retire it (`end_campaign_agent`), freeing the
-  workspace's agent allowance;
+* Start publishes it (`put_campaign_live`), and so does a scheduled start when it fires, never
+  when it is set (D-1010, `campaigns/scheduling.claim_slot_at_start`); Pause keeps it so Resume
+  dials at once, and Stop, completion, a repeat's run ending, Unschedule and Archive retire it
+  (`end_campaign_agent`), freeing the workspace's agent allowance;
 * every dial of the campaign rings through it (`dial_for`), on a number lent to it for the
   call, so the agent's own engine agent and the numbers it answers are never touched;
 * the campaign's Test call rings it too (`campaign_test_dial`), published as a test holder.
@@ -60,7 +61,7 @@ async def speaks_its_own(session: AsyncSession, campaign_id: UUID) -> bool:
 
 
 async def put_campaign_live(*, tenant_id: UUID, campaign_id: UUID) -> str | None:
-    """Start's and Schedule's first step: the campaign's own engine agent is created or
+    """Start's first step, and a scheduled start's: the campaign's own engine agent is created or
     brought up to date and read back, in its own committed transaction, so the dial that
     follows rings what the campaign says now. A free-trial account is refused with the step
     that opens campaigns, before anything reaches the calling platform. None for a campaign
@@ -84,6 +85,20 @@ async def put_campaign_live(*, tenant_id: UUID, campaign_id: UUID) -> str | None
             {"cid": campaign_id},
         )
     return ref
+
+
+async def check_before_schedule(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> None:
+    """What Schedule refuses without making anything (D-1010): a free-trial account, and for a
+    campaign that will need an engine agent of its own, every refusal its publish makes before
+    the platform (`agents/service.check_campaign_publishable`). The engine agent, and the
+    workspace slot it takes, are claimed when the start fires."""
+    await refuse_on_trial(session, tenant_id=tenant_id, locked="campaigns")
+    if await speaks_its_own(session, campaign_id):
+        await agents_service.check_campaign_publishable(
+            session, tenant_id=tenant_id, campaign_id=campaign_id
+        )
 
 
 async def campaign_test_dial(
@@ -193,6 +208,7 @@ async def end_campaign_agent(
 
 __all__ = [
     "campaign_test_dial",
+    "check_before_schedule",
     "dial_for",
     "end_campaign_agent",
     "held_dial",

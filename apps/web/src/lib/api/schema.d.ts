@@ -7545,6 +7545,9 @@ export interface paths {
          *     Audited: "who told this campaign to dial every Tuesday, and when" is precisely the
          *     question `audit_log` exists to answer, and a repeat nobody remembers creating is the
          *     version of that question that gets asked after a complaint.
+         *
+         *     Each run makes its engine agent when it fires and gives it back when it ends (D-1010);
+         *     what can be refused without making it is refused now, as on `POST /schedule`.
          */
         post: operations["set_recurrence_v1_campaigns__campaign_id__recurrence_post"];
         delete?: never;
@@ -7633,6 +7636,10 @@ export interface paths {
          *     halt in between, so a gate at THIS moment would prove nothing about the moment that
          *     matters. `GET /launch-check` remains available and answers "would it launch right
          *     now" for a scheduled campaign exactly as for a draft.
+         *
+         *     **No engine agent here either** (D-1010): it takes one of the workspace's few slots, so
+         *     it is made when the start fires (`scheduling.claim_slot_at_start`). What can be refused
+         *     without making it is refused now (`engine_agent.check_before_schedule`).
          *
          *     Audited: "who told this campaign to start dialling, and when for" is the same
          *     question `campaign.launched` exists to answer.

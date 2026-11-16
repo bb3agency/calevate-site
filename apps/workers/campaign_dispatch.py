@@ -106,7 +106,13 @@ from apps.api.campaigns.complaint_spike import check_complaint_spike
 from apps.api.campaigns.contact_details import contact_details_of
 from apps.api.campaigns.controls import account_pause_reason, auto_pause
 from apps.api.campaigns.engine_agent import dial_for, end_campaign_agent
-from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
+from apps.api.campaigns.scheduling import (
+    claim_slot_at_start,
+    complete_or_rearm,
+    due_schedules,
+    fire_schedule,
+    release_unstarted_slot,
+)
 from apps.api.campaigns.service import (
     campaign_dialable_now,
     campaign_hours_open,
@@ -823,6 +829,12 @@ async def _fire_due_schedules(tenant_id: UUID) -> int:
 
     started = 0
     for schedule in due:
+        # The campaign's engine agent is made now, not when the start was set (D-1010,
+        # `scheduling` decision 6); a refusal is already on the schedule and nothing starts.
+        claim = await claim_slot_at_start(tenant_id=tenant_id, due=schedule, now=now)
+        if claim == "blocked":
+            continue
+        outcome: str | None = None
         try:
             async with tenant_session(tenant_id) as session:
                 outcome = await fire_schedule(session, tenant_id=tenant_id, due=schedule, now=now)
@@ -832,6 +844,9 @@ async def _fire_due_schedules(tenant_id: UUID) -> int:
             # context manager, so nothing this branch did survives.
             log.info("campaign_schedule_raced", extra={"campaign_id": str(schedule.campaign_id)})
             continue
+        finally:
+            if claim == "claimed" and outcome != "fired":
+                await release_unstarted_slot(tenant_id=tenant_id, campaign_id=schedule.campaign_id)
         if outcome == "fired":
             started += 1
     return started
@@ -1268,6 +1283,8 @@ async def _settle_finished_campaign(
         await end_campaign_agent(session, campaign_id=campaign_id)
         log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
     elif settled == "scheduled":
+        # A repeat holds no slot between runs (D-1010): the next run makes it again.
+        await end_campaign_agent(session, campaign_id=campaign_id)
         log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})
     return settled is not None
 

@@ -152,7 +152,7 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/inbound-lines/{line_id}", "GET", "client_api"),
         ("/v1/campaigns/{campaign_id}/script/proposal", "POST", "costly"),
         ("/v1/campaigns/{campaign_id}/launch", "POST", "costly"),
-        ("/v1/campaigns/{campaign_id}/schedule", "POST", "costly"),
+        ("/v1/campaigns/{campaign_id}/schedule", "POST", "client_api"),
         ("/v1/campaigns/{campaign_id}/settings", "PUT", "costly"),
         ("/v1/campaigns/{campaign_id}/settings", "GET", "client_api"),
         ("/v1/campaigns/{campaign_id}/notes", "PUT", "costly"),

@@ -108,6 +108,26 @@ at 02:30. The wire model is `AwareDatetime` so the generated TypeScript client c
 send a bare local string, and `schedule_campaign` refuses one again for callers that are
 not HTTP requests.
 
+**6. THE ENGINE-AGENT SLOT IS CLAIMED AT START, NOT AT SCHEDULING (D-1010).**
+A campaign speaking its own script dials through an engine agent of its own, and each one
+takes one of the client workspace's few agent slots (2 on pay-as-you-go). Made when the
+start was SET, a campaign scheduled for next week would hold a slot all week and refuse
+another campaign's Start. So scheduling makes nothing (`engine_agent.check_before_schedule`
+refuses what can be refused without making it), and `claim_slot_at_start` makes it on the
+tick that fires the start, after the gate has passed and before `fire_schedule` runs it
+again and starts the campaign. A start that does not fire gives it back at once
+(`release_unstarted_slot`), and a repeat gives it back when each run ends.
+
+A refusal at that moment is the same kind of refusal as the gate's, and is settled the same
+way rather than by a second mechanism: recorded on the schedule (`last_blocked`) so the
+campaign's band names it, and retried until `GRACE` (one-time; then back to draft) or
+`RECURRENCE_CATCHUP` (a repeat's run; then skipped). Retrying rather than returning to draft
+at once is the safer of the two: the start can still only happen inside the window the
+owner picked and was told about, an allowance freed by ending another campaign (the
+refusal's own advice) starts it as the owner expects, and a platform refusal lasting a
+minute does not silently cancel a start. A refusal from the platform is retried at most
+every `PUT_LIVE_RETRY`, so it does not make and reclaim an engine agent every tick.
+
 ONE MORE THING WORTH KNOWING BEFORE READING `_fire_recurrence`
 --------------------------------------------------------------------------------------
 **The OCCURRENCE, not the wall clock, is what makes a recurrence idempotent — and the
@@ -131,20 +151,22 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
-from typing import Any
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from calevate_shared.calling_window import IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.campaigns.engine_agent import end_campaign_agent
-from apps.api.campaigns.service import launch_campaign
+from apps.api.agents.service import ENGINE_AGENT_ALLOWANCE_FULL_RULE
+from apps.api.campaigns.engine_agent import end_campaign_agent, put_campaign_live
+from apps.api.campaigns.service import launch_blockers, launch_campaign
 from apps.api.compliance.service import DEFAULT_WINDOW
 from apps.api.core.alerting import alert, record_compliance_block
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
+from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
 
@@ -182,6 +204,18 @@ GRACE = timedelta(hours=24)
 # never be inside their catch-up windows at the same moment. Longer than this and
 # "10:00 every Tuesday" starts dialling at lunchtime, which is a different promise.
 RECURRENCE_CATCHUP = timedelta(hours=1)
+
+# How long a start whose engine agent the platform refused waits before trying again
+# (decision 6). Each try can make and reclaim a vendor agent, so it is not retried every
+# 30-second tick; five minutes keeps a refusal that clears quickly from costing the start.
+PUT_LIVE_RETRY: Final = timedelta(minutes=5)
+
+# The rule a start is recorded blocked under when its engine agent could not be made for
+# a reason other than the workspace's allowance: the platform refused it, maintenance, a
+# read-back that did not hold, our own account's plan being full. Those are ours to fix.
+# The client workspace's allowance keeps the gate's rule, so the owner reads the same
+# words the launch gate uses and knows the fix is theirs.
+START_NOT_READY_RULE: Final = "campaign_not_ready_to_call"
 
 # ISO weekday numbers, Monday = 1, as `datetime.isoweekday()` returns them. The wire
 # model, the rule and the UI all speak this one vocabulary — a second numbering (0-based,
@@ -860,6 +894,119 @@ async def due_schedules(session: AsyncSession, *, now: datetime) -> list[DueSche
     return due
 
 
+SlotClaim = Literal["none", "claimed", "blocked"]
+
+
+async def claim_slot_at_start(*, tenant_id: UUID, due: DueSchedule, now: datetime) -> SlotClaim:
+    """Make the campaign's engine agent for a start that is firing now (decision 6).
+
+    Each step commits on its own and none is held across the platform round trip, so this
+    runs BEFORE `fire_schedule`'s transaction rather than inside it (a recurrence's claim
+    holds the row lock there).
+
+    - `none`: nothing to make here and `fire_schedule` decides — the start is no longer
+      this occurrence or outside its window, the gate refuses (`fire_schedule` records it
+      with the same gate), or the campaign speaks its agent's own script;
+    - `claimed`: the engine agent is made; give it back if the start does not fire;
+    - `blocked`: the platform refused it, or refused it under `PUT_LIVE_RETRY` ago. The
+      refusal is on the schedule, so the campaign's band says it, and the start is not run.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT schedule FROM campaigns WHERE id = :cid AND status = 'scheduled' "
+                    "AND archived_at IS NULL AND schedule->>'start_at' = :key"
+                ),
+                {"cid": due.campaign_id, "key": due.occurrence_key},
+            )
+        ).first()
+        window = GRACE if due.recurrence is None else RECURRENCE_CATCHUP
+        if row is None or now > due.start_at + window:
+            return "none"
+        if await launch_blockers(session, tenant_id=tenant_id, campaign_id=due.campaign_id):
+            return "none"
+        stored = row[0] if isinstance(row[0], dict) else {}
+        tried = stored.get("last_put_live")
+        tried_at = (
+            _parse_instant(
+                tried.get("at") if isinstance(tried, dict) else None,
+                campaign_id=due.campaign_id,
+                field="last_put_live",
+            )
+            if tried
+            else None
+        )
+        if tried_at is not None and now < tried_at + PUT_LIVE_RETRY:
+            return "blocked"
+    try:
+        ref = await put_campaign_live(tenant_id=tenant_id, campaign_id=due.campaign_id)
+    except Exception as exc:
+        code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+        rule = (
+            ENGINE_AGENT_ALLOWANCE_FULL_RULE
+            if code == ENGINE_AGENT_ALLOWANCE_FULL_RULE
+            else START_NOT_READY_RULE
+        )
+        async with tenant_session(tenant_id) as session:
+            await _record_put_live_refusal(session, due=due, rule=rule, now=now)
+        # Code and ids only (hard rule 6).
+        log.warning(
+            "campaign_start_engine_agent_refused",
+            extra={"campaign_id": str(due.campaign_id), "reason": code},
+        )
+        if rule == START_NOT_READY_RULE:
+            alert(
+                "CORE_LOGIC",
+                "campaign_engine_agent_unavailable",
+                detail=(
+                    f"a scheduled start could not make its campaign's own engine agent ({code}), "
+                    f"so it did not start; it is tried again in "
+                    f"{PUT_LIVE_RETRY // timedelta(minutes=1)} minutes inside its window"
+                ),
+                tenant_id=str(tenant_id),
+                campaign_id=str(due.campaign_id),
+            )
+        return "blocked"
+    return "claimed" if ref is not None else "none"
+
+
+async def _record_put_live_refusal(
+    session: AsyncSession, *, due: DueSchedule, rule: str, now: datetime
+) -> None:
+    """The refusal on the schedule, as `_record_block` writes the gate's, plus when it was
+    tried, which `claim_slot_at_start` waits `PUT_LIVE_RETRY` from. Written on every try
+    (at most one per `PUT_LIVE_RETRY`), so the retry clock moves."""
+    await session.execute(
+        text(
+            "UPDATE campaigns SET schedule = jsonb_set(jsonb_set(schedule, '{last_blocked}', "
+            "  jsonb_build_object('at', to_jsonb(CAST(:at AS text)), "
+            "                     'rules', CAST(:rules AS jsonb))), "
+            "  '{last_put_live}', jsonb_build_object('at', to_jsonb(CAST(:at AS text)))), "
+            "  updated_at = now() "
+            "WHERE id = :cid AND status = 'scheduled' AND schedule->>'start_at' = :key"
+        ),
+        {
+            "cid": due.campaign_id,
+            "rules": json.dumps([rule]),
+            "at": now.isoformat(),
+            "key": due.occurrence_key,
+        },
+    )
+
+
+async def release_unstarted_slot(*, tenant_id: UUID, campaign_id: UUID) -> bool:
+    """Give back the engine agent `claim_slot_at_start` made for a start that then did not
+    fire (the gate refused in between, the occurrence was skipped). True when one was. A
+    campaign that started after all (a person pressed Start first) keeps it:
+    `end_campaign_agent` retires only a campaign that is not running or paused."""
+    async with tenant_session(tenant_id) as session:
+        released = await end_campaign_agent(session, campaign_id=campaign_id)
+    if released:
+        log.info("campaign_start_slot_released", extra={"campaign_id": str(campaign_id)})
+    return released
+
+
 async def fire_schedule(
     session: AsyncSession, *, tenant_id: UUID, due: DueSchedule, now: datetime
 ) -> str:
@@ -1016,6 +1163,8 @@ async def _expire(session: AsyncSession, *, tenant_id: UUID, due: DueSchedule) -
     )
     if rowcount_of(result) == 0:
         return "raced"
+    # A draft holds no engine agent; one left from before D-1010 goes now.
+    await end_campaign_agent(session, campaign_id=due.campaign_id)
 
     from apps.api.compliance.audit import write_audit
 
@@ -1157,6 +1306,7 @@ async def _fire_recurrence(
     stored["last_fired"] = {"occurrence": due.occurrence_key, "at": now.isoformat()}
     # A block that no longer describes anything: this occurrence launched.
     stored.pop("last_blocked", None)
+    stored.pop("last_put_live", None)
     await _rewrite_schedule(
         session,
         tenant_id=tenant_id,
@@ -1213,6 +1363,7 @@ async def _skip_occurrence(
         "reason": reason,
     }
     stored.pop("last_blocked", None)
+    stored.pop("last_put_live", None)
     await _rewrite_schedule(
         session,
         tenant_id=tenant_id,
@@ -1350,18 +1501,23 @@ __all__ = [
     "GRACE",
     "MAX_HORIZON",
     "ONE_TIME",
+    "PUT_LIVE_RETRY",
     "RECURRENCE_CATCHUP",
     "RECURRING",
+    "START_NOT_READY_RULE",
     "CancelledSchedule",
     "DueSchedule",
     "Recurrence",
     "ScheduledRecurrence",
     "ScheduledStart",
+    "SlotClaim",
+    "claim_slot_at_start",
     "complete_or_rearm",
     "describe_recurrence",
     "due_schedules",
     "fire_schedule",
     "first_dial_not_before",
+    "release_unstarted_slot",
     "schedule_campaign",
     "schedule_recurrence",
     "unschedule_campaign",
