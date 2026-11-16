@@ -247,6 +247,39 @@ def test_an_unregistered_app_is_refused_in_the_clients_words(
     assert caught.value.code == "hubspot_not_configured"
 
 
+@pytest.mark.parametrize("answer", ["<html>maintenance</html>", "[]", '"token"'])
+async def test_a_token_answer_that_is_not_an_object_is_the_connection_refused(
+    oauth_apps: None, monkeypatch: pytest.MonkeyPatch, answer: str
+) -> None:
+    """A 200 from the token endpoint whose body is not a JSON object is the vendor not
+    completing the connection, answered like any other refusal, never an unhandled 500."""
+    from apps.api.actions import routes
+    from apps.api.core.context import Principal
+
+    def _token_endpoint(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=answer, headers={"content-type": "application/json"})
+
+    monkeypatch.setattr(
+        routes,
+        "egress_client",
+        lambda **_kw: httpx.AsyncClient(transport=httpx.MockTransport(_token_endpoint)),
+    )
+    tenant, user = uuid.uuid4(), uuid.uuid4()
+    principal = Principal(realm="client", user_id=user, tenant_id=tenant, role="owner")
+    payload = routes.OAuthCallbackIn(
+        code="c", state=oauth.mint_state("hubspot", tenant_id=tenant, user_id=user)
+    )
+    with pytest.raises(ProblemError) as caught:
+        await routes.complete_oauth(
+            None,  # type: ignore[arg-type]  # refused before anything is written
+            None,  # type: ignore[arg-type]
+            principal,
+            kind="hubspot",
+            payload=payload,
+        )
+    assert caught.value.code == "crm_oauth_failed"
+
+
 # --- the executor -----------------------------------------------------------------------
 
 

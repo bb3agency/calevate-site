@@ -427,6 +427,35 @@ async def oauth_connect(
     return ConnectOut(authorize_url=oauth.authorize_url(kind, state=state, login_hint=hint))
 
 
+def _exchange_refused(kind: oauth.OAuthKind, label: str) -> ProblemError:
+    """The vendor did not turn the code into a connection."""
+    if kind == "google_calendar":
+        return ProblemError(
+            kind="dependency",
+            code="calendar_oauth_failed",
+            title=f"{label} did not accept the connection",
+            detail=f"The {label} authorization could not be completed.",
+            remediation="Try connecting again.",
+        )
+    if kind == "google_sheets":
+        return ProblemError(
+            kind="dependency",
+            code="sheets_oauth_failed",
+            title=f"{label} did not accept the connection",
+            detail=f"The {label} authorization could not be completed.",
+            remediation="Try connecting again.",
+        )
+    # The CRMs refuse a code for ordinary reasons (it expired, it was used twice); a
+    # refusal the client retries, not a page.
+    return ProblemError(
+        kind="business_rule",
+        code="crm_oauth_failed",
+        title=f"{label} did not accept the connection",
+        detail=f"The {label} authorization could not be completed.",
+        remediation="Try connecting again.",
+    )
+
+
 async def complete_oauth(
     session: AsyncSession,
     request: Request,
@@ -467,34 +496,16 @@ async def complete_oauth(
     except httpx.HTTPError as exc:
         log.warning("oauth_exchange_unreachable", extra={"kind": kind, "error": type(exc).__name__})
         raise vendor_unreachable(label) from exc
-    if resp.status_code != 200:
+    body: Any
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    # A 200 whose body is not a JSON object (a maintenance page, a proxy's answer) has not
+    # completed the connection either, and reading it as one raised past every handler.
+    if resp.status_code != 200 or not isinstance(body, dict):
         log.info("oauth_exchange_refused", extra={"kind": kind, "status": resp.status_code})
-        if kind == "google_calendar":
-            raise ProblemError(
-                kind="dependency",
-                code="calendar_oauth_failed",
-                title=f"{label} did not accept the connection",
-                detail=f"The {label} authorization could not be completed.",
-                remediation="Try connecting again.",
-            )
-        if kind == "google_sheets":
-            raise ProblemError(
-                kind="dependency",
-                code="sheets_oauth_failed",
-                title=f"{label} did not accept the connection",
-                detail=f"The {label} authorization could not be completed.",
-                remediation="Try connecting again.",
-            )
-        # The CRMs refuse a code for ordinary reasons (it expired, it was used twice); a
-        # refusal the client retries, not a page.
-        raise ProblemError(
-            kind="business_rule",
-            code="crm_oauth_failed",
-            title=f"{label} did not accept the connection",
-            detail=f"The {label} authorization could not be completed.",
-            remediation="Try connecting again.",
-        )
-    body = resp.json()
+        raise _exchange_refused(kind, label)
     refresh_token = str(body.get("refresh_token") or "")
     if not refresh_token:
         raise ProblemError(

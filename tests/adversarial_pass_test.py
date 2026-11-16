@@ -836,6 +836,13 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {"contact_ids": ["0192f0aa-5555-7000-8000-000000000002"]},
         {},
     ),
+    # `all` rather than ids: the widest write the route makes, every person on the campaign.
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/contacts/include",
+        {"all": True, "included": False},
+        {},
+    ),
     ("GET", "/v1/campaigns/{campaign_id}/contacts", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/results", {}, {}),
     ("GET", "/v1/campaigns/{campaign_id}/opt-outs", {}, {}),
@@ -1459,6 +1466,45 @@ _BODY_REFERENCE_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str],
         {},
         "WhatsApp account",
     ),
+    ("PATCH", "/v1/campaigns/{campaign_id}", {"agent_id": "{agent_id}"}, {}, "Agent"),
+    ("PATCH", "/v1/campaigns/{campaign_id}", {"number_id": "{number_id}"}, {}, "Phone number"),
+    ("PUT", "/v1/campaigns/{campaign_id}/sources", {"source_ids": ["{source_id}"]}, {}, "Source"),
+    ("POST", "/v1/inbound-lines", {"agent_id": "{agent_id}", "name": "Taken"}, {}, "Agent"),
+    ("PUT", "/v1/inbound-lines/{line_id}/sources", {"source_ids": ["{source_id}"]}, {}, "Source"),
+    (
+        "PUT",
+        "/v1/agents/{agent_id}/handoff",
+        {"enabled": True, "members": [{"contact_id": "{contact_id}"}]},
+        {},
+        "Contact",
+    ),
+    (
+        "POST",
+        "/v1/agents/{agent_id}/actions",
+        {
+            "kind": "custom_api",
+            "name": "body_ref_tool",
+            "description": "Body reference",
+            "credential_id": "{credential_id}",
+            "config": {"url": "https://example.com/x", "method": "POST"},
+        },
+        {},
+        "Credential",
+    ),
+    (
+        "POST",
+        "/v1/kb/teach/{teaching_id}/save",
+        {"items": [{"kind": "fact", "text": "Open 9 to 6."}], "agent_id": "{agent_id}"},
+        {},
+        "Agent",
+    ),
+    (
+        "PUT",
+        "/v1/company-training/training",
+        {"training": "Be brief.", "proposal_id": "{training_proposal_id}"},
+        {},
+        "Draft",
+    ),
 )
 
 
@@ -1467,6 +1513,8 @@ def _fill(value: object, ids: dict[str, str]) -> object:
         return ids.get(value.strip("{}"), value) if value.startswith("{") else value
     if isinstance(value, list):
         return [_fill(item, ids) for item in value]
+    if isinstance(value, dict):
+        return {key: _fill(item, ids) for key, item in value.items()}
     return value
 
 
