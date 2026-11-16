@@ -24,6 +24,29 @@ page (`apps/web/package.json` holds the version). Dates are IST.
   line's or campaign's script too long for calls.
 - Pip explains a mistake whose fix is waiting for you on a line or campaign, instead of
   failing to read the agent's mistakes.
+- **Phones:** tapping anywhere in your account shows the next screen straight away, and a
+  dropped signal no longer leaves Calevate stuck on "Updating"; the page reloads by itself.
+  Long text boxes open at full height, and buttons, tabs and tick boxes are easier to tap.
+- Scheduling a campaign no longer uses up one of your calling agents; it takes one only when
+  the campaign starts. If none is free then, its card says so and it tries again every few
+  minutes. A repeating campaign gives its calling agent back between runs.
+- Calls shows the campaign or Inbound line each call came from; filter by one with **From**,
+  and an Inbound line's page has **All its calls**.
+- Tell my team can alert on a campaign's own details.
+- A number that answers with an Inbound line shows that line on Phone numbers, with a button
+  to change it in Inbound.
+- Calls are checked against the number they actually ring from: an agent with no number of
+  its own can call from your confirmed numbers, and a campaign calling from a number you have
+  not confirmed is stopped before it rings. Readiness counts those numbers too.
+- A campaign is checked for offers in the script its calls actually say.
+- Pip no longer offers to change an agent's own script; it points you to the line or
+  campaign. Pip can set a date range on Calls again.
+- Refunds and credit packs: refunding a newer pack takes back that pack's credit, and a
+  retried refund can no longer let a second refund through. Forwarded calls on a number you
+  took back are billed again. Trial test calls on a Clear voice no longer use Studio minutes.
+- A transcript you stop sending to your CRM is no longer sent on later retries.
+- Call recordings are no longer lost when storage is slow, and a new opening line you save
+  while Pip adds the notices is no longer replaced.
 
 ## 0.4.58 — 16-Nov-2026
 
