@@ -21,6 +21,7 @@ import { DefaultCheckbox } from "@/components/callHandlingRows";
 import { RowLink } from "@/components/console/checklist";
 import { canTestCall, isDeleted } from "@/lib/agentState";
 import { useAgentLifecycle, useAgents } from "@/lib/api/agents";
+import { ApiProblem } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
 import {
   testCallIsLive,
@@ -147,6 +148,13 @@ function minutesText(seconds: number): string {
   return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
 }
 
+/**
+ * The refusal of a Studio test call once the trial's Studio minutes are used
+ * (`compliance/trial_access.TRIAL_STUDIO_MINUTES_USED_RULE`). Its remediation names two ways
+ * on: the card already offers Add credit, so this adds the other, the agent's voice.
+ */
+export const STUDIO_MINUTES_USED = "trial_studio_minutes_used";
+
 /** The card itself, separate from the read so it can be tested with a fixed answer. */
 export function TrialCallCard({
   trial,
@@ -161,7 +169,7 @@ export function TrialCallCard({
   agentsHref: string;
   newAgentHref: string;
 }) {
-  const { session } = useClientRealm();
+  const { session, href } = useClientRealm();
   const agents = useAgents(session);
   const place = usePlaceTrialCall(session);
   const [agentId, setAgentId] = useState("");
@@ -344,6 +352,11 @@ export function TrialCallCard({
         )}
         <LifecycleError error={prepare.error} />
         {place.error && <ProblemNotice error={place.error} />}
+        {place.error instanceof ApiProblem && place.error.code === STUDIO_MINUTES_USED && (
+          <Link href={href(`/c/${session.orgSlug}/agents/${chosen}?section=settings`)} className={PRIMARY_BUTTON_SM}>
+            Choose a Clear voice
+          </Link>
+        )}
 
         {followedId !== null ? (
           <TestCallFollow

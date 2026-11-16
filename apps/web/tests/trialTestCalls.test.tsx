@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { TrialCallCard } from "@/app/c/[slug]/TrialCallPanel";
+import { STUDIO_MINUTES_USED, TrialCallCard } from "@/app/c/[slug]/TrialCallPanel";
 import { TrialChipView, TrialStrip, trialView } from "@/app/c/[slug]/TrialBanner";
 import { TRIAL_LOCK_COPY } from "@/app/c/[slug]/TrialLockNotice";
 import {
@@ -15,7 +15,7 @@ import {
 } from "@/lib/api/trialCalls";
 
 import { OWNER_ME, activeTrialBlock, agentRow, prepaidWallet } from "./fixtures/sharedReads";
-import { renderClientPage } from "./harness";
+import { problem, renderClientPage } from "./harness";
 
 /**
  * A free trial is test calls only, until the client adds credit (D-697): the strip on every
@@ -193,6 +193,36 @@ describe("the test-call panel", () => {
     });
     const post = page.calls.find((call) => call.method === "POST" && call.path === "/v1/trial/calls");
     expect(JSON.parse(post!.body!)).toEqual({ agent_id: "agent-out", number: "9876543210", number_is_mine: true });
+  });
+
+  it("offers a Clear voice beside Add credit when the trial's Studio minutes are used", async () => {
+    const agent = agentRow({ id: "agent-out", name: "Caller", direction: "outbound" });
+    await renderClientPage(<TrialCallCard trial={panel()} {...HREFS} />, {
+      "/v1/agents": [agent],
+      "POST /v1/trial/calls": problem(422, {
+        type: `https://calevate.tech/problems/${STUDIO_MINUTES_USED}`,
+        title: "Your Studio minutes for the trial are used up",
+        status: 422,
+        kind: "business_rule",
+        detail: "This free trial includes 15 minutes of test calls on Studio voices.",
+        remediation: "Switch this agent to a Clear voice, or add credit to keep using Studio.",
+      }),
+      "/v1/me": OWNER_ME,
+    });
+    await screen.findByRole("option", { name: "Caller" });
+    fireEvent.change(screen.getByPlaceholderText("9876543210 or +919876543210"), {
+      target: { value: "9876543210" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Make a test call" }));
+    });
+    expect(await screen.findByText(/15 minutes of test calls on Studio voices/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Choose a Clear voice" }).getAttribute("href")).toBe(
+      "/c/acme/agents/agent-out?section=settings",
+    );
+    expect(screen.getAllByRole("link", { name: "Add credit" }).map((link) => link.getAttribute("href"))).toContain(
+      CREDITS,
+    );
   });
 
   it("asks for the promise first, and does not offer a call the server would refuse", async () => {
