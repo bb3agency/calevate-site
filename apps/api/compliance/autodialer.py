@@ -202,21 +202,42 @@ async def tenant_rented_numbers(session: AsyncSession) -> list[str]:
     return [str(row[0]) for row in rows]
 
 
-async def outbound_agent_numbers(session: AsyncSession) -> list[str]:
-    """The numbers bound to the tenant's agents that place calls: what readiness asks about.
+#: Every outbound dial the tenant can place, as `a2p_dial_blocker` would be asked it: each
+#: calling agent with no number chosen, and each campaign that has not ended with its chosen
+#: number and its own engine agent. An answering-only agent is refused every dial but a
+#: test call to the owner, which the gate exempts, so it presents nothing to declare.
+_OUTBOUND_DIALS_SQL = text(
+    "SELECT a.id, NULL::uuid, NULL::text, a.created_at FROM agents a "
+    "WHERE a.deleted_at IS NULL AND a.direction <> 'inbound' "
+    "UNION ALL "
+    "SELECT c.agent_id, c.number_id, c.engine_agent_ref, c.created_at FROM campaigns c "
+    "JOIN agents a ON a.id = c.agent_id "
+    "WHERE a.deleted_at IS NULL AND a.direction <> 'inbound' AND c.archived_at IS NULL "
+    "AND c.status IN ('draft', 'scheduled', 'running', 'paused') "
+    "ORDER BY 4"
+)
 
-    An agent that only answers is refused every dial but a test call to the owner, which
-    the gate exempts, so its numbers need no declaration.
-    """
-    rows = await session.execute(
-        text(
-            "SELECT DISTINCT p.e164, min(p.created_at) FROM phone_numbers p "
-            "JOIN agents a ON a.id = p.agent_id "
-            "WHERE p.released_at IS NULL AND a.deleted_at IS NULL AND a.direction <> 'inbound' "
-            "GROUP BY p.e164 ORDER BY min(p.created_at)"
-        )
-    )
-    return [str(row[0]) for row in rows]
+
+async def outbound_presented_numbers(session: AsyncSession) -> list[str]:
+    """The numbers the tenant's outbound dials present: what readiness and the confirmation
+    screen ask about, oldest dial first, each number once.
+
+    The dial gate's own set (`agents.service.presented_caller_ids`) rather than the numbers
+    bound to calling agents, which is wrong both ways: an agent with none borrows a client
+    number, and a campaign may call from a number its agent does not hold."""
+    # Imported here: `agents.service` imports this module at import time.
+    from apps.api.agents.service import presented_caller_ids
+
+    seen: dict[str, None] = {}
+    for agent_id, number_id, campaign_ref, _ in (await session.execute(_OUTBOUND_DIALS_SQL)).all():
+        for cli in await presented_caller_ids(
+            session,
+            agent_id=agent_id,
+            number_id=number_id,
+            campaign_ref=str(campaign_ref) if campaign_ref else None,
+        ):
+            seen.setdefault(cli)
+    return list(seen)
 
 
 async def outbound_in_use(session: AsyncSession) -> bool:
@@ -452,8 +473,8 @@ __all__ = [
     "enforced_from",
     "enforcement_active",
     "ist_today",
-    "outbound_agent_numbers",
     "outbound_in_use",
+    "outbound_presented_numbers",
     "read_declaration",
     "record_declaration",
     "tenant_rented_numbers",
