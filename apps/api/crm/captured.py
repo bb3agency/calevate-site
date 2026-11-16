@@ -43,6 +43,28 @@ _ACCOUNT_VERSIONS_SQL: Final = (
 )
 
 
+#: What each call's holder asks to note (D-1003): the campaign that placed it, else the line
+#: that took it, when either has a list of its own. The same pick as the post-call
+#: pipeline's `_load_call_context`, so a call is read back under the list it was captured with.
+_HOLDER_FIELDS_SQL: Final = (
+    "SELECT c.id, COALESCE(NULLIF(g.extraction_fields, '[]'::jsonb), "
+    "NULLIF(l.extraction_fields, '[]'::jsonb)) FROM calls c "
+    "LEFT JOIN campaigns g ON g.id = c.campaign_id "
+    "LEFT JOIN inbound_lines l ON l.id = c.inbound_line_id "
+    "WHERE c.id = ANY(:ids)"
+)
+
+
+async def holder_fields(
+    session: AsyncSession, call_ids: list[UUID]
+) -> dict[UUID, list[ExtractionField]]:
+    """Each call's holder's own list, for the calls whose holder has one."""
+    if not call_ids:
+        return {}
+    rows = (await session.execute(text(_HOLDER_FIELDS_SQL), {"ids": call_ids})).all()
+    return {UUID(str(r[0])): business_only(r[1]) for r in rows if r[1]}
+
+
 def _humanised(key: str) -> str:
     return key.replace("_", " ").strip().capitalize() or key
 
@@ -63,11 +85,14 @@ async def captured_fields(
     schema_version: int | None,
     data: dict[str, Any],
     unlisted: dict[str, Any] | None = None,
+    holder: list[ExtractionField] | None = None,
 ) -> list[CapturedFieldOut]:
     """Every field of the capturing version (value or not), then any other captured value.
 
     `unlisted` is `call_extractions.unlisted`: a choice field with no value carries the
-    caller's own words for what they asked (D-889).
+    caller's own words for what they asked (D-889). `holder` is the call's campaign's or
+    line's own list (`holder_fields`): when there is one it is what the call captured, and
+    the agent's versions only label values it does not list.
 
     RLS scopes the schema reads to the caller's tenant; an agent id from elsewhere reads as
     an agent with no schemas, and the values are still listed under their keys.
@@ -77,11 +102,15 @@ async def captured_fields(
         rows = (await session.execute(text(_VERSIONS_SQL), {"aid": agent_id})).all()
         versions = [(int(r[0]), business_only(r[1] or [])) for r in rows]
 
-    newest_keys = {f.key for f in versions[0][1]} if versions else set()
-    capturing = next(
-        (fields for version, fields in versions if version == schema_version),
-        versions[0][1] if versions else [],
-    )
+    if holder:
+        capturing = holder
+        newest_keys = {f.key for f in holder}
+    else:
+        newest_keys = {f.key for f in versions[0][1]} if versions else set()
+        capturing = next(
+            (fields for version, fields in versions if version == schema_version),
+            versions[0][1] if versions else [],
+        )
     out: list[CapturedFieldOut] = []
     listed: set[str] = set()
     for field in with_core(capturing, await core_labels(session)):
@@ -245,9 +274,25 @@ async def lead_unlisted(session: AsyncSession, lead_id: UUID) -> dict[str, str]:
     return out
 
 
+async def lead_holder_fields(session: AsyncSession, lead_id: UUID) -> list[ExtractionField] | None:
+    """The own list of the holder of the lead's latest call, when it has one."""
+    call_id = (
+        await session.execute(
+            text("SELECT last_call_id FROM leads WHERE id = :lid AND deleted_at IS NULL"),
+            {"lid": lead_id},
+        )
+    ).scalar()
+    if call_id is None:
+        return None
+    cid = UUID(str(call_id))
+    return (await holder_fields(session, [cid])).get(cid)
+
+
 __all__ = [
     "captured_fields",
+    "holder_fields",
     "is_name_field",
+    "lead_holder_fields",
     "lead_unlisted",
     "unclear_fields",
     "with_known_name",

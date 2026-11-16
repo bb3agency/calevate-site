@@ -112,6 +112,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
+from apps.api.crm.captured import holder_fields
 from apps.workers.chat import TokenUsage
 from apps.workers.extraction import (
     AZURE_PROVIDER,
@@ -308,6 +309,9 @@ async def load_assist_source(session: AsyncSession, call_id: UUID) -> AssistSour
     if row is None:
         raise ProblemError.not_found("Call")
     agent_id, version, fields = row[0], row[1], row[2]
+    # Read again under the list the call was captured with: its campaign's or line's own
+    # when it has one (D-1003), as the post-call pipeline chose.
+    fields = (await holder_fields(session, [call_id])).get(call_id) or fields
     languages = (str(row[3]), *(str(code) for code in row[4] or ()))
 
     turns = (await session.execute(text(_TURNS_SQL), {"cid": call_id})).all()
