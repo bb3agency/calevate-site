@@ -30,6 +30,8 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
   return {
     id: "c1",
     agent_id: "a1",
+    campaign: null,
+    inbound_line: null,
     agent_name: "Reception",
     direction: "inbound",
     status: "completed",
@@ -52,7 +54,7 @@ function callRoutes() {
   return {
     "/v1/me": ME,
     "/v1/agents": [],
-    "/v1/calls/views": { items: [] },
+    "/v1/calls/views": { items: [] }, "/v1/campaigns": [], "/v1/inbound-lines": { lines: [] },
     "/v1/calls?limit=100": [call()],
     "/v1/calls?outcome=needs_you&limit=100": [call({ id: "c2", outcome_tag: "needs_you" })],
     "/v1/calls?status=no_answer&limit=100": [],

@@ -319,6 +319,20 @@ describe("one inbound line", () => {
     expect(await screen.findByRole("button", { name: "Put it live" })).toBeTruthy();
     expect(screen.getByText("Not live yet")).toBeTruthy();
   });
+
+  it("links from the calls it took to all its calls in the call log (D-1006)", async () => {
+    await renderClientPage(
+      linePage(),
+      lineRoutes(line(), {
+        [`/v1/inbound-lines/${LINE_ID}/calls`]: {
+          calls: [{ id: "call-1", started_at: "2026-11-16T05:00:00Z", duration_s: 64, status: "completed", outcome_tag: "answered" }],
+        },
+      }),
+    );
+    const fold = (await screen.findByRole("heading", { name: "Calls taken" })).closest("section") as HTMLElement;
+    const all = await within(fold).findByRole("link", { name: "All its calls" });
+    expect(all.getAttribute("href")).toBe(`/c/acme/calls?inbound_line_id=${LINE_ID}`);
+  });
 });
 
 describe("the inbound screens speak in short lines", () => {

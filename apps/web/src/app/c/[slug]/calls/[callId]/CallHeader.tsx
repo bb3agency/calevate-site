@@ -9,6 +9,7 @@ import type { CallDetail } from "@/lib/api/client";
 import { callTitle } from "@/lib/callReview";
 
 import { FollowUpMark, TestCallTag, isLive } from "../callColumns";
+import { type CallSource, CallSourceLabel, callSource } from "../callSource";
 
 /**
  * WHO AND WHEN — the call's identity, and nothing else.
@@ -18,8 +19,18 @@ import { FollowUpMark, TestCallTag, isLive } from "../callColumns";
  * call ended is the verdict below, not a chip up here: one statement of the outcome on
  * the screen, in one place.
  */
-export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: ReactNode }) {
+export function CallHeader({
+  detail,
+  actions,
+  sourceHref,
+}: {
+  detail: CallDetail;
+  actions?: ReactNode;
+  /** Where the campaign or Inbound line the call came from lives (D-1006). */
+  sourceHref?: (source: CallSource) => string;
+}) {
   const named = Boolean(detail.lead_name?.trim());
+  const source = callSource(detail);
   const facts = [
     detail.direction === "outbound" ? "Outgoing" : "Incoming",
     formatIST(detail.started_at),
@@ -51,6 +62,11 @@ export function CallHeader({ detail, actions }: { detail: CallDetail; actions?: 
             {fact}
           </li>
         ))}
+        {source ? (
+          <li className="flex min-w-0 max-w-full rounded-md bg-surface-muted px-2 py-0.5">
+            <CallSourceLabel source={source} href={sourceHref?.(source)} />
+          </li>
+        ) : null}
       </ul>
       {/* A person's mark (D-869), apart from how the call ended. */}
       {detail.follow_up_state ? (

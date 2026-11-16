@@ -788,6 +788,8 @@ const tenant = Promise.resolve({ tenantId: "t1" });
  */
 const CALL = {
   id: "c1",
+  campaign: null,
+  inbound_line: { id: "line-1", name: "Front desk" },
   agent_id: "a1",
   agent_name: "Reception",
   // `as const` so the literal survives into `satisfies CallDetail` below: a widened
@@ -2434,7 +2436,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/calls?limit=100": [CALL],
       "/v1/agents": [AGENT],
-      "/v1/calls/views": { items: [] },
+      "/v1/calls/views": { items: [] }, "/v1/campaigns": [], "/v1/inbound-lines": { lines: [] },
     },
   },
   {

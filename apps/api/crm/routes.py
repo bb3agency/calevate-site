@@ -140,6 +140,7 @@ async def get_calls(
         True, description="False leaves out test calls, free-trial and paid (D-859) alike"
     ),
     campaign_id: UUID | None = Query(None, description="Only the calls one campaign placed"),
+    inbound_line_id: UUID | None = Query(None, description="Only the calls one inbound line took"),
     follow_up: FollowUpFilter | None = Query(
         None, description="done: marked handled; not_done: not marked handled"
     ),
@@ -158,6 +159,7 @@ async def get_calls(
         until,
         test_calls,
         campaign_id,
+        inbound_line_id=inbound_line_id,
         follow_up=follow_up,
         callback_open=callback_open,
     )
@@ -185,6 +187,7 @@ def _call_filters(
     test_calls: bool = True,
     campaign_id: UUID | None = None,
     *,
+    inbound_line_id: UUID | None = None,
     follow_up: FollowUpFilter | None = None,
     callback_open: bool | None = None,
 ) -> lens.CallFilters:
@@ -206,6 +209,7 @@ def _call_filters(
         until=until,
         test_calls=test_calls,
         campaign_id=campaign_id,
+        inbound_line_id=inbound_line_id,
         follow_up=follow_up,
         callback_open=callback_open,
     )
@@ -268,6 +272,7 @@ async def export_calls(
     until: datetime | None = None,
     test_calls: bool = True,
     campaign_id: UUID | None = None,
+    inbound_line_id: UUID | None = None,
     follow_up: FollowUpFilter | None = None,
     callback_open: bool | None = None,
     x_confirm_action: ConfirmAction = None,
@@ -282,6 +287,7 @@ async def export_calls(
         until,
         test_calls,
         campaign_id,
+        inbound_line_id=inbound_line_id,
         follow_up=follow_up,
         callback_open=callback_open,
     )
@@ -300,6 +306,8 @@ async def export_calls(
             "since": since.isoformat() if since else None,
             "until": until.isoformat() if until else None,
             "agent_id": str(agent_id) if agent_id else None,
+            "campaign_id": str(campaign_id) if campaign_id else None,
+            "inbound_line_id": str(inbound_line_id) if inbound_line_id else None,
             "follow_up": follow_up,
             "callback_open": callback_open,
         },
@@ -1253,6 +1261,10 @@ async def download_prepared_export(
             "from_day": call_lens.from_day.isoformat() if call_lens.from_day else None,
             "to_day": call_lens.to_day.isoformat() if call_lens.to_day else None,
             "agent_id": str(call_lens.agent_id) if call_lens.agent_id else None,
+            "campaign_id": str(call_lens.campaign_id) if call_lens.campaign_id else None,
+            "inbound_line_id": (
+                str(call_lens.inbound_line_id) if call_lens.inbound_line_id else None
+            ),
             "follow_up": call_lens.follow_up,
             "callback_open": call_lens.callback_open,
         }

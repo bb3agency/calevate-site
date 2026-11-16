@@ -60,6 +60,8 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
   return {
     id: "c1",
     agent_id: "a1",
+    campaign: null,
+    inbound_line: null,
     agent_name: "Reception",
     direction: "inbound",
     status: "completed",
@@ -182,6 +184,12 @@ describe("the call detail screen", () => {
     expect(await screen.findByText("1234567890")).toBeTruthy();
     const note = screen.getByText(/doesn't look like an Indian mobile number/);
     expect(note.textContent).not.toMatch(/1234567890/);
+  });
+
+  it("links to the Inbound line the call came in on (D-1006)", async () => {
+    await renderClientPage(page, routes(detail({ inbound_line: { id: "line-1", name: "Front desk" } })));
+    const link = await screen.findByRole("link", { name: "Inbound line: Front desk" });
+    expect(link.getAttribute("href")).toBe("/c/acme/inbound/line-1");
   });
 
   it("shows no review note for a clean extraction", async () => {

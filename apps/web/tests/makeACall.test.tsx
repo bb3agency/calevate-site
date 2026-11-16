@@ -50,6 +50,8 @@ function recentCall(over: Partial<CallSummary> = {}): CallSummary {
   return {
     id: "call-9",
     agent_id: "agent-out",
+    campaign: null,
+    inbound_line: null,
     agent_name: "Field caller",
     direction: "outbound",
     status: "completed",

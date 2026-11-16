@@ -17872,6 +17872,7 @@ export interface components {
             caller_e164?: string | null;
             /** Caller Id Hidden */
             caller_id_hidden: boolean;
+            campaign: components["schemas"]["CallHolderRefOut"] | null;
             /** Captured */
             captured: components["schemas"]["CapturedFieldOut"][];
             /** Captured Preview */
@@ -17923,6 +17924,7 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            inbound_line: components["schemas"]["CallHolderRefOut"] | null;
             insights: components["schemas"]["CallInsightsOut"] | null;
             /** Interest Moments Label */
             interest_moments_label: string;
@@ -18171,6 +18173,20 @@ export interface components {
             turn_silence_max_ms: number;
             /** Turn Silence Min Ms */
             turn_silence_min_ms: number;
+        };
+        /**
+         * CallHolderRefOut
+         * @description The campaign that placed a call, or the inbound line that took it, by name (D-1006).
+         *     An archived one keeps its name: its calls stay in the log.
+         */
+        CallHolderRefOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** CallInsightNextStepOut */
         CallInsightNextStepOut: {
@@ -18837,6 +18853,7 @@ export interface components {
             callback?: components["schemas"]["CallCallbackOut"] | null;
             /** Caller E164 */
             caller_e164?: string | null;
+            campaign: components["schemas"]["CallHolderRefOut"] | null;
             /** Captured Preview */
             captured_preview?: components["schemas"]["CapturedChipOut"][];
             /** Created At */
@@ -18859,6 +18876,7 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            inbound_line: components["schemas"]["CallHolderRefOut"] | null;
             /** Lead Id */
             lead_id?: string | null;
             /** Lead Name */
@@ -18934,6 +18952,8 @@ export interface components {
             direction?: ("inbound" | "outbound") | null;
             /** Follow Up */
             follow_up?: ("done" | "not_done") | null;
+            /** Inbound Line Id */
+            inbound_line_id?: string | null;
             /** Outcome */
             outcome?: ("call_back_booked" | "needs_you" | "answered" | "transferred" | "hung_up_early" | "missed") | null;
             /** Status */
@@ -27882,6 +27902,8 @@ export interface components {
             f?: string[];
             /** Follow Up */
             follow_up?: ("done" | "not_done") | null;
+            /** Inbound Line Id */
+            inbound_line_id?: string | null;
             /** Last Call From */
             last_call_from?: string | null;
             /** Last Call To */
@@ -28024,6 +28046,8 @@ export interface components {
             f?: string[];
             /** Follow Up */
             follow_up?: ("done" | "not_done") | null;
+            /** Inbound Line Id */
+            inbound_line_id?: string | null;
             /** Last Call From */
             last_call_from?: string | null;
             /** Last Call To */
@@ -51868,6 +51892,8 @@ export interface operations {
                 test_calls?: boolean;
                 /** @description Only the calls one campaign placed */
                 campaign_id?: string | null;
+                /** @description Only the calls one inbound line took */
+                inbound_line_id?: string | null;
                 /** @description done: marked handled; not_done: not marked handled */
                 follow_up?: ("done" | "not_done") | null;
                 /** @description True: a call-back is waiting */
@@ -51913,6 +51939,7 @@ export interface operations {
                 until?: string | null;
                 test_calls?: boolean;
                 campaign_id?: string | null;
+                inbound_line_id?: string | null;
                 follow_up?: ("done" | "not_done") | null;
                 callback_open?: boolean | null;
             };

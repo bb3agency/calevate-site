@@ -838,6 +838,8 @@ async def _calls_recent(
                 call.status,
                 f"{call.duration_s}s" if call.duration_s is not None else None,
                 f"agent {call.agent_name}" if call.agent_name else None,
+                f"campaign {call.campaign.name}" if call.campaign else None,
+                f"Inbound line {call.inbound_line.name}" if call.inbound_line else None,
                 call.outcome_tag,
                 (call.summary or "")[:120] or None,
             )

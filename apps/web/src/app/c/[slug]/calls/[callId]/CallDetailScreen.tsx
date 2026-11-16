@@ -32,6 +32,7 @@ import { isLive } from "../callColumns";
 import { AssistCard } from "./AssistCard";
 import { initialView, useRetryEnglish, type CallView } from "./callEnglish";
 import { CallDetailSkeleton } from "./CallDetailSkeleton";
+import { sourcePath } from "../callSource";
 import { CallHeader } from "./CallHeader";
 import { CallMistakesCard } from "./CallMistakesCard";
 import { CallQualityCard } from "./CallQualityCard";
@@ -379,6 +380,7 @@ export function CallDetailScreen({
 
       <CallHeader
         detail={detail}
+        sourceHref={(source) => href(sourcePath(slug, source))}
         actions={
           <ButtonGroup
             label={`Actions for the call with ${callTitle(detail)}`}

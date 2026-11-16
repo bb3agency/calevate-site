@@ -52,6 +52,8 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
   return {
     id: "c1",
     agent_id: "a1",
+    campaign: null,
+    inbound_line: null,
     agent_name: "Reception",
     direction: "inbound",
     status: "completed",
@@ -71,7 +73,7 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
 const page = <CallsPage params={Promise.resolve({ slug: "acme" })} />;
 
 function routes(calls: unknown, over: Record<string, unknown> = {}) {
-  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls/views": { items: [] }, "/v1/calls?limit=100": calls, ...over };
+  return { "/v1/me": ME, "/v1/agents": [], "/v1/calls/views": { items: [] }, "/v1/campaigns": [], "/v1/inbound-lines": { lines: [] }, "/v1/calls?limit=100": calls, ...over };
 }
 
 describe("the call log", () => {
@@ -256,7 +258,7 @@ describe("exporting the call log (REDESIGN-2)", () => {
     const { calls } = await renderClientPage(page, {
       "/v1/me": owner,
       "/v1/agents": [],
-      "/v1/calls/views": { items: [] },
+      "/v1/calls/views": { items: [] }, "/v1/campaigns": [], "/v1/inbound-lines": { lines: [] },
       "/v1/calls?limit=100": [call()],
       "/v1/calls?direction=inbound&limit=100": [call()],
       "/v1/calls/export.csv?direction=inbound": csv("Started (India time),Direction\n"),
@@ -444,7 +446,7 @@ describe("saved views of the call log (D-893)", () => {
     const { calls } = await renderClientPage(
       page,
       routes([call()], {
-        "/v1/calls/views": { items: [VIEW] },
+        "/v1/calls/views": { items: [VIEW] }, "/v1/campaigns": [], "/v1/inbound-lines": { lines: [] },
         "/v1/calls?outcome=needs_you&direction=inbound&test_calls=false&follow_up=not_done&limit=100": [
           call(),
         ],
@@ -505,13 +507,71 @@ describe("a poll that fails after the log has arrived", () => {
   });
 });
 
+describe("where each call came from (D-1006)", () => {
+  const CAMPAIGN = { id: "cmp-1", name: "Diwali offer" };
+  const LINE = { id: "line-1", name: "Front desk" };
+
+  it("names each call's campaign or Inbound line and links to its page", async () => {
+    await renderClientPage(
+      page,
+      routes([call({ campaign: CAMPAIGN }), call({ id: "c2", inbound_line: LINE }), call({ id: "c3" })]),
+    );
+    await screen.findAllByText("+91 98765 43210");
+    const campaign = screen.getByRole("link", { name: "Campaign: Diwali offer" });
+    expect(campaign.getAttribute("href")).toBe("/c/acme/campaigns/cmp-1");
+    const line = screen.getByRole("link", { name: "Inbound line: Front desk" });
+    expect(line.getAttribute("href")).toBe("/c/acme/inbound/line-1");
+    // A call on neither carries no label.
+    expect(screen.getAllByRole("link", { name: /^(Campaign|Inbound line):/ })).toHaveLength(2);
+  });
+
+  it("opens on one line's calls from its page and names the line in a removable chip", async () => {
+    window.history.replaceState(null, "", "/c/acme/calls?inbound_line_id=line-1");
+    try {
+      const { calls } = await renderClientPage(
+        page,
+        routes([call()], {
+          "/v1/inbound-lines": { lines: [LINE] },
+          "/v1/calls?inbound_line_id=line-1&limit=100": [call({ inbound_line: LINE })],
+        }),
+      );
+      const chip = await screen.findByRole("button", { name: "Remove the filter: Inbound line: Front desk" });
+      expect(calls.some((c) => c.path === "/v1/calls?inbound_line_id=line-1&limit=100")).toBe(true);
+      fireEvent.click(chip);
+      await waitFor(() => expect(calls.some((c) => c.path === "/v1/calls?limit=100")).toBe(true));
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("filters by a campaign or a line from the From control", async () => {
+    const { calls } = await renderClientPage(
+      page,
+      routes([call()], {
+        "/v1/campaigns": [{ ...CAMPAIGN, archived_at: null }],
+        "/v1/inbound-lines": { lines: [LINE] },
+        "/v1/calls?campaign_id=cmp-1&limit=100": [call({ campaign: CAMPAIGN })],
+        "/v1/calls?inbound_line_id=line-1&limit=100": [call({ inbound_line: LINE })],
+      }),
+    );
+    const from = (await screen.findByLabelText("From a campaign or an Inbound line")) as HTMLSelectElement;
+    await waitFor(() => expect(within(from).getByRole("option", { name: "Diwali offer" })).toBeTruthy());
+    fireEvent.change(from, { target: { value: "campaign:cmp-1" } });
+    await waitFor(() => expect(calls.some((c) => c.path === "/v1/calls?campaign_id=cmp-1&limit=100")).toBe(true));
+    fireEvent.change(from, { target: { value: "line:line-1" } });
+    await waitFor(() => expect(calls.some((c) => c.path === "/v1/calls?inbound_line_id=line-1&limit=100")).toBe(true));
+    expect(screen.getByRole("button", { name: "Remove the filter: Inbound line: Front desk" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Remove the filter: Campaign/ })).toBeNull();
+  });
+});
+
 describe("calling the unanswered again from one campaign's calls", () => {
   it("plans over that campaign's people, not every unanswered person on the account", async () => {
     window.history.replaceState(null, "", "/?campaign_id=cmp-1");
     const { calls } = await renderClientPage(page, {
       "/v1/me": { ...ME, permissions: ["calls:read", "leads:read", "leads:dispatch"] },
       "/v1/agents": [agentRow({ id: "agent-out", direction: "outbound" })],
-      "/v1/calls/views": { items: [] },
+      "/v1/calls/views": { items: [] }, "/v1/campaigns": [], "/v1/inbound-lines": { lines: [] },
       "/v1/calls?campaign_id=cmp-1&limit=100": [call()],
       "/v1/calls?campaign_id=cmp-1&outcome=missed&limit=100": [call({ outcome_tag: "missed" })],
       ...dltRegistrationRoute(),

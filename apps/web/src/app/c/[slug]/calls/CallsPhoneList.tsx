@@ -20,6 +20,7 @@ import {
   isLive,
   outcomeRowClass,
 } from "./callColumns";
+import { CallSourceLabel, callSource } from "./callSource";
 import { type LogCall, LiveLength, LiveMark, LiveSheen, liveLine, liveWords } from "./liveRows";
 
 const ROW = "relative isolate block min-w-0 px-4 py-3";
@@ -58,6 +59,7 @@ export function CallsPhoneList({
         // Muted, not faint, under the live sheen: faint ink drops below 4.5:1 as the band passes.
         const quiet = running ? "text-ink-muted" : "text-ink-faint";
         const at = callAt(call);
+        const source = callSource(call);
         const when = at ? formatIST(at) : null;
         const length = live?.state === "live" ? (
           live.startedAt ? <LiveLength startedAt={live.startedAt} /> : null
@@ -75,6 +77,12 @@ export function CallsPhoneList({
                   {running && <LiveMark />}
                   {call.test_call && <TestCallTag />}
                 </span>
+                {/* Text, not a link: the whole row is the call's link and links cannot nest. */}
+                {source ? (
+                  <span className="mt-0.5 flex min-w-0">
+                    <CallSourceLabel source={source} />
+                  </span>
+                ) : null}
                 <span
                   className={`mt-0.5 block line-clamp-2 text-meta ${line.pending ? "italic text-ink-faint" : "text-ink-muted"}`}
                 >
