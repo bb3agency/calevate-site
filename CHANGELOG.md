@@ -3,6 +3,11 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.40 — 16-Nov-2026
+
+- Campaigns list: every campaign has a Duplicate button, which makes a copy as a new draft
+  and opens it.
+
 ## 0.4.39 — 16-Nov-2026
 
 - Campaign page: Duplicate sits beside the campaign's name; Call the unreached again sits in

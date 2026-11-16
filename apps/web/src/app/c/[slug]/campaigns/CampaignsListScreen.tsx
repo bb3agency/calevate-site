@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Archive, ArchiveRestore, Pause, Play, Plus, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Copy, Pause, Play, Plus, Trash2 } from "lucide-react";
 
 import { ActionButton, useActionFeedback } from "@/components/arc/feedback";
 import { ConfirmDialog } from "@/components/confirmDialog";
@@ -29,6 +29,7 @@ import {
   usePauseCampaign,
   useArchiveCampaign,
   useDeleteCampaign,
+  useDuplicateCampaign,
   useCampaignPage,
   type CampaignStatus,
   type CampaignSummary,
@@ -620,25 +621,69 @@ function DeleteDraftButton({
   );
 }
 
-function RowActions({
-  campaign,
-  canWrite,
-  refusal,
-  at,
-  detail,
-}: {
+type RowProps = {
   campaign: CampaignSummary;
   canWrite: boolean;
   refusal: string | undefined;
   at: (path: string) => string;
   detail: string;
+};
+
+/** The row's own action, then Duplicate on every row (founder, 16 Nov 2026). */
+function RowActions(props: RowProps) {
+  return (
+    <div className="relative z-raised flex flex-wrap items-center gap-2 sm:justify-end">
+      <RowMainAction {...props} />
+      <DuplicateButton campaign={props.campaign} canWrite={props.canWrite} refusal={props.refusal} />
+    </div>
+  );
+}
+
+/** A copy as a new draft, opened at once: the same copy as the campaign page's Duplicate. */
+function DuplicateButton({
+  campaign,
+  canWrite,
+  refusal,
+}: {
+  campaign: CampaignSummary;
+  canWrite: boolean;
+  refusal: string | undefined;
 }) {
+  const { session, href } = useClientRealm();
+  const router = useRouter();
+  const duplicate = useDuplicateCampaign(session, campaign.id);
+  const feedback = useActionFeedback(duplicate, {
+    errorTitle: "Could not copy this campaign",
+    successToast: "Copy made as a new draft",
+  });
+  return (
+    <ActionButton
+      variant="secondary-sm"
+      title={refusal}
+      disabled={!canWrite || duplicate.isSuccess}
+      status={feedback.status}
+      successLabel="Copied"
+      onClick={() =>
+        duplicate.mutate(
+          { with_unreached: false },
+          { onSuccess: (made) => router.push(href(`/c/${session.orgSlug}/campaigns/${made.id}`)) },
+        )
+      }
+      aria-label={`Duplicate ${campaign.name}`}
+    >
+      <Copy aria-hidden className="h-3.5 w-3.5" />
+      Duplicate
+    </ActionButton>
+  );
+}
+
+function RowMainAction({ campaign, canWrite, refusal, at, detail }: RowProps) {
   const { session } = useClientRealm();
   const setStatus = usePauseCampaign(session, campaign.id);
   const feedback = useActionFeedback(setStatus, {
     errorTitle: `Could not change ${campaign.name}`,
   });
-  const cell = "relative z-raised flex sm:w-28 sm:justify-end";
+  const cell = "flex gap-2";
   // F-10: an archived row offers Restore; a finished one offers Archive (the campaign's own
   // page archives any campaign).
   if (campaign.archived_at != null || campaign.status === "completed" || campaign.status === "cancelled") {
@@ -655,7 +700,7 @@ function RowActions({
   const deletable = campaign.status === "draft" && campaign.launched_at == null;
   if (fix && (held || campaign.status === "draft")) {
     return (
-      <div className="relative z-raised flex gap-2 sm:justify-end">
+      <div className="flex gap-2">
         <Link href={fix.href} className={SECONDARY_BUTTON_SM} aria-label={`${fix.label}: ${campaign.name}`}>
           {fix.label}
         </Link>
@@ -671,7 +716,7 @@ function RowActions({
     );
   }
   if (held || (campaign.status !== "running" && campaign.status !== "paused")) {
-    return <div aria-hidden className="hidden sm:block sm:w-28" />;
+    return null;
   }
   const action = campaign.status === "running" ? "pause" : "resume";
   return (
