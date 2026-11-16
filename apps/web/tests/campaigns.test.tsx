@@ -637,6 +637,24 @@ describe("one campaign's page", () => {
   });
 });
 
+describe("the saved test numbers", () => {
+  it("says the list did not load, and saves nothing over it, rather than showing none", async () => {
+    const rendered = await renderClientPage(
+      campaignPage(),
+      detail(progressFixture(), {
+        [`/v1/campaigns/${CAMPAIGN_ID}/test-numbers`]: problem(503, { title: "Service unavailable" }),
+      }),
+    );
+    const section = (await screen.findByRole("button", { name: "Test call" })).closest("section") as HTMLElement;
+    expect((await within(section).findByRole("alert")).textContent).toContain("Service unavailable");
+    fireEvent.change(within(section).getByLabelText("Your number"), { target: { value: "98765 43210" } });
+    const save = within(section).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    // Saving replaces the whole list, so it waits for the list it would replace.
+    expect(save.disabled).toBe(true);
+    expect(rendered.calls.some((c) => c.method === "PUT" && c.path.endsWith("/test-numbers"))).toBe(false);
+  });
+});
+
 describe("editing a draft", () => {
   it("reads the draft's settings back and sends only the edit the server takes", async () => {
     const rendered = await renderClientPage(

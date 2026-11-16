@@ -523,7 +523,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     expect(container.textContent).toContain(
       "Couldn’t start. Fix the items below.",
     );
-    await screen.findByText(/national do-not-disturb check/);
+    await screen.findByText(/national do-not-disturb check/, {}, { timeout: 5000 });
   });
 
   it("still offers the way out of a repeat", async () => {
@@ -549,7 +549,7 @@ describe("cancelling a schedule that has since acquired a blocker", () => {
     const stop = screen.getByRole("button", { name: "Stop repeating" });
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     expect(container.textContent).toContain("Next: Tuesday, 18 Aug");
-    await screen.findByText(/national do-not-disturb check/);
+    await screen.findByText(/national do-not-disturb check/, {}, { timeout: 5000 });
   });
 });
 

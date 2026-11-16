@@ -189,7 +189,7 @@ describe("a campaign that repeats", () => {
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     // The half a client would otherwise assume: stopping a repeat is not a pause.
     expect(container.textContent).toContain(
-      "Ends the repeat only. Pause to stop today’s calls.",
+      "Ends the repeat only. Stop campaign stops today’s calls.",
     );
     for (const button of container.querySelectorAll("button")) {
       // An icon button (the header ⋯ menu) is named by its aria-label.

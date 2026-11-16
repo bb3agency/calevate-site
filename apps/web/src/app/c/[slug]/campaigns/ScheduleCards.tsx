@@ -66,7 +66,7 @@ export function ScheduleCards({
             >
               Stop repeating
             </ActionButton>
-            <p className={FIELD_HINT}>Ends the repeat only. Pause to stop today&rsquo;s calls.</p>
+            <p className={FIELD_HINT}>Ends the repeat only. Stop campaign stops today&rsquo;s calls.</p>
           </>
         }
       >

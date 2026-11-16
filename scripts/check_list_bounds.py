@@ -1327,14 +1327,24 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "keyed by the outcome, outcome-tag and sentiment enums."
         )
     ),
-    **{key: _CAMPAIGN_WORKSPACE for key in _CAMPAIGN_WORKSPACE_ROUTES},
+    **dict.fromkeys(_CAMPAIGN_WORKSPACE_ROUTES, _CAMPAIGN_WORKSPACE),
     "POST /v1/campaigns/{campaign_id}/script/proposal": _CAMPAIGN_WORKSPACE,
     "GET /v1/campaigns/{campaign_id}/test-calls": BoundedByConstruction(
         by="the newest `campaigns/workspace_routes.MAX_LISTED_TEST_CALLS`, in the LIMIT."
     ),
     "GET /v1/campaigns/{campaign_id}/test-numbers": _TEST_NUMBERS,
     "PUT /v1/campaigns/{campaign_id}/test-numbers": _TEST_NUMBERS,
+    "GET /v1/campaigns/{campaign_id}/settings": _CAMPAIGN_SETTINGS,
     "PUT /v1/campaigns/{campaign_id}/settings": _CAMPAIGN_SETTINGS,
+    "GET /v1/campaigns/{campaign_id}/questions": BoundedByConstruction(
+        by="`teach/struggles.list_struggles`, read with `LIMIT` `MAX_GAPS`."
+    ),
+    "GET /v1/campaigns/{campaign_id}/insights": BoundedByConstruction(
+        by=(
+            "`hours` and `best_hours` one per hour of the IST day (24 at most); `openings` "
+            "the script's own opening and the second one under test, two."
+        )
+    ),
     "POST /v1/lead-sources/{webhook_id}/test": BoundedByConstruction(
         by="`steps` is the fixed dry-run ladder in `ingest/service.py`."
     ),
