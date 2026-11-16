@@ -881,6 +881,10 @@ async def create_campaign(
     return campaign_id
 
 
+#: A campaign that has not dialled anyone yet.
+PRE_LAUNCH = ("draft", "scheduled")
+
+
 async def add_contacts(
     session: AsyncSession,
     *,
@@ -891,9 +895,10 @@ async def add_contacts(
     """CSV rows → contact rows. Dedupe inside the upload AND against the campaign
     (UNIQUE(campaign_id, phone)); malformed numbers are counted, never guessed at.
 
-    Accepted from draft until the campaign stops: before launch (`draft`, `scheduled`) and,
-    for a service campaign, while it runs or is paused (founder, 16 Nov 2026: people may be
-    added in the middle of a campaign). That is lawful because launch's DNC scrub is only
+    Accepted in every state for a service campaign (founder, 16 Nov 2026: people may be added
+    in the middle of a campaign, and saved to a stopped one without starting it). A stopped
+    campaign never dials again, so people saved there wait to be carried into a new draft by
+    Duplicate or Call the unreached again. That is lawful because launch's DNC scrub is only
     the courtesy pass; `check_dispatch` re-checks every number at dial time, so a person
     added after launch meets the same gate. A PROMOTIONAL campaign stays pre-launch only:
     its national DND scrub is a recorded run over the list as launched
@@ -930,7 +935,7 @@ async def add_contacts(
     if found is None:
         raise ProblemError.not_found("Campaign")
     status, classification = str(found[0]), str(found[1])
-    if status in ("running", "paused") and classification == "promotional":
+    if status not in PRE_LAUNCH and classification == "promotional":
         raise ProblemError.business_rule(
             "campaign_promotional_started",
             "People can be added to a promotional campaign only before it starts.",
@@ -938,12 +943,6 @@ async def add_contacts(
                 "Its national do-not-disturb check covered the list it started with. "
                 "Duplicate it to call more people."
             ),
-        )
-    if status not in ("draft", "scheduled", "running", "paused"):
-        raise ProblemError.business_rule(
-            "campaign_not_draft",
-            "People can't be added to a campaign that has stopped.",
-            remediation="Duplicate it, or use Call the unreached again, to call more people.",
         )
 
     added, malformed, duplicate, foreign = 0, 0, 0, 0

@@ -14,7 +14,7 @@ import { ContactResults } from "./ContactResults";
 import { useCampaignForm } from "./campaignForm";
 
 const STOPPED =
-  "It has stopped, so nobody new is called. To call more people, use Duplicate or Call the unreached again.";
+  "It has stopped, so people saved here are not called. To call them, use Call the unreached again or Duplicate.";
 
 /** The people section's element id, so "Add people" in the launch checklist can go to it. */
 export function peopleSectionId(campaignId: string): string {
@@ -33,7 +33,7 @@ export function DraftPeople({
   canWrite,
   refusal,
   total,
-  adding = true,
+  stopped = false,
 }: {
   slug: string;
   campaignId: string;
@@ -42,19 +42,15 @@ export function DraftPeople({
   refusal: string | undefined;
   /** People already on the draft. People to call is left out while there are none. */
   total: number;
-  /** False once it has stopped: the server takes people until then. */
-  adding?: boolean;
+  /** Stopped: people are still saved, and the note says they are not called. */
+  stopped?: boolean;
 }) {
   return (
     <FoldSection title="Add people" tone="add" id={peopleSectionId(campaignId)}>
-        {/* The same panel in every state (founder, 16 Nov 2026); a stopped campaign cannot call
-            again, so there it is shown with its Add switched off and the reason said. */}
-        {!adding && <p className="mb-3 text-meta text-ink-muted">{STOPPED}</p>}
-        <AddPeoplePanel
-          campaignId={campaignId}
-          canWrite={canWrite && adding}
-          refusal={adding ? refusal : STOPPED}
-        />
+        {/* The same panel in every state (founder, 16 Nov 2026), saving people to a stopped
+            campaign too; it never dials again, which the note says. */}
+        {stopped && <p className="mb-3 text-meta text-ink-muted">{STOPPED}</p>}
+        <AddPeoplePanel campaignId={campaignId} canWrite={canWrite} refusal={refusal} />
         {/* The people already added, under the ways to add more: one section, not two
             (founder, 16 Nov 2026: "I don't see the point of having both"). */}
         {total > 0 && (
@@ -64,7 +60,7 @@ export function DraftPeople({
               campaignId={campaignId}
               maxAttempts={maxAttempts}
               live={false}
-              editable={adding}
+              editable
               canWrite={canWrite}
               refusal={refusal}
             />

@@ -3,6 +3,12 @@
 Each deploy shows its version, commit and build date in the sidebar footer and on the sign-in
 page (`apps/web/package.json` holds the version). Dates are IST.
 
+## 0.4.46 — 16-Nov-2026
+
+- Add people saves people to a campaign in any state, including a stopped one, without starting
+  it. A stopped campaign does not call them; Call the unreached again or Duplicate carries them
+  into a new draft. People not yet called can be taken off in any state.
+
 ## 0.4.45 — 16-Nov-2026
 
 - **Inbound.** A new section in the sidebar, after Campaigns: what each of your numbers says
