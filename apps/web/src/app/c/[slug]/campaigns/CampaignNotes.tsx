@@ -34,7 +34,26 @@ import { FieldEditorRow } from "../agents/panels/extractionRow";
 import { TEAM_ALERTS_ANCHOR } from "../agents/panels/teamAlerts";
 import { FoldSection } from "./FoldSection";
 
-type Props = { slug: string; campaignId: string; agentId: string; canWrite: boolean; refusal?: string };
+type Props = {
+  slug: string;
+  campaignId: string;
+  agentId: string;
+  /** The campaign's status, which says when a saved list reaches its calls. */
+  status?: string | null;
+  canWrite: boolean;
+  refusal?: string;
+};
+
+/**
+ * When a saved list reaches the calls. `applied_now` is a held engine agent, put live on save;
+ * a running or paused campaign without one gets one at its next dial (`engine_agent.dial_for`);
+ * a stopped one at its next Start; a draft or a scheduled one at its first call.
+ */
+export function notesTakeEffect(appliedNow: boolean, status: string | null | undefined): string {
+  if (appliedNow || status === "running" || status === "paused") return "From its next call.";
+  if (status === "completed" || status === "cancelled") return "From its next Start.";
+  return "From its first call.";
+}
 
 const NOTES_INFO =
   "The agent asks for these on this campaign's calls and writes them on the lead. Empty means it notes what the agent notes everywhere else.";
@@ -64,10 +83,11 @@ function NotesEditor({
   onReload,
   slug,
   campaignId,
+  status,
   canWrite,
   refusal,
 }: Props & { data: Notes; onReload: () => void }) {
-  const { session } = useClientRealm();
+  const { session, href } = useClientRealm();
   const eg = useVerticalExamples();
   const save = useSaveCampaignNotes(session, campaignId);
   const feedback = useActionFeedback(save, { errorDisplay: "inline" });
@@ -98,6 +118,7 @@ function NotesEditor({
     return (
       <div className="space-y-3">
         <p className="text-meta text-ink-muted">Same as {data.agent_name}.</p>
+        {save.error != null && <ProblemNotice error={save.error} />}
         {data.agent_fields.length > 0 ? (
           <ul className="divide-y divide-line border-y border-line">
             {data.agent_fields.map((field) => (
@@ -137,7 +158,11 @@ function NotesEditor({
           )}
         </div>
         <p className="text-xs text-ink-muted">
-          Change the agent&apos;s list on its <Link className="underline" href={`/c/${slug}/agents/${data.agent_id}`}>page</Link>.
+          Change the agent&apos;s list on its{" "}
+          <Link className="underline" href={href(`/c/${slug}/agents/${data.agent_id}`)}>
+            page
+          </Link>
+          .
         </p>
       </div>
     );
@@ -225,18 +250,18 @@ function NotesEditor({
         ) : null}
       </div>
       <p className="text-xs text-ink-muted">
-        {data.applied_now ? "From its next call." : "From its first call."} Old leads keep their values.
+        {notesTakeEffect(data.applied_now, status)} Old leads keep their values.
       </p>
       {data.fields.length > 0 && (
-        <p className="text-xs text-ink-muted">
-          Want your team told about an answer?{" "}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className="text-xs text-ink-muted">Want your team told about an answer?</p>
           <Link
-            className="underline"
-            href={`/c/${slug}/agents/${data.agent_id}?section=settings#${TEAM_ALERTS_ANCHOR}`}
+            className={SECONDARY_BUTTON_SM}
+            href={href(`/c/${slug}/agents/${data.agent_id}?section=settings#${TEAM_ALERTS_ANCHOR}`)}
           >
             Set alerts
           </Link>
-        </p>
+        </div>
       )}
     </form>
   );

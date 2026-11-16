@@ -372,6 +372,7 @@ export function CampaignScreen({ slug, campaignId }: { slug: string; campaignId:
                 slug={slug}
                 campaignId={campaignId}
                 agentId={data.agent_id}
+                status={status}
                 canWrite={write.allowed && changeable}
                 refusal={refusal}
               />
